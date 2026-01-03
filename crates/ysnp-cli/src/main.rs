@@ -216,7 +216,8 @@ fn run_scan(
         cfg.apply(&mut opts, profile);
     }
     let detectors = ysnp_detectors::default_detectors();
-    let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?;
+    let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
+        .with_input_path(Some(pdf.to_string()));
     let want_sarif = sarif || sarif_out.is_some();
     let want_yara = yara || yara_out.is_some();
     if json {
@@ -224,7 +225,7 @@ fn run_scan(
     } else if jsonl {
         ysnp_core::report::print_jsonl(&report)?;
     } else if want_sarif {
-        let v = ysnp_core::report::to_sarif(&report);
+        let v = ysnp_core::report::to_sarif(&report, Some(pdf));
         let data = serde_json::to_string_pretty(&v)?;
         if let Some(path) = sarif_out {
             fs::write(path, data)?;
@@ -261,7 +262,8 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         yara_scope: None,
     };
     let detectors = ysnp_detectors::default_detectors();
-    let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?;
+    let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
+        .with_input_path(Some(pdf.to_string()));
     let Some(finding) = report.findings.iter().find(|f| f.id == finding_id) else {
         return Err(anyhow!("finding id not found"));
     };
@@ -317,7 +319,8 @@ fn run_export_graph(pdf: &str, chains_only: bool, format: &str, outdir: &PathBuf
         yara_scope: None,
     };
     let detectors = ysnp_detectors::default_detectors();
-    let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?;
+    let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
+        .with_input_path(Some(pdf.to_string()));
     let ext = if format == "json" { "json" } else { "dot" };
     for chain in &report.chains {
         let path = outdir.join(format!("chain_{}.{}", chain.id, ext));
@@ -364,8 +367,9 @@ fn run_report(
         yara_scope: None,
     };
     let detectors = ysnp_detectors::default_detectors();
-    let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?;
-    let md = ysnp_core::report::render_markdown(&report);
+    let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
+        .with_input_path(Some(pdf.to_string()));
+    let md = ysnp_core::report::render_markdown(&report, Some(pdf));
     if let Some(path) = out {
         fs::write(path, md)?;
     } else {

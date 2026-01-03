@@ -22,6 +22,7 @@ pub struct Report {
     pub chains: Vec<ExploitChain>,
     pub chain_templates: Vec<ChainTemplate>,
     pub yara_rules: Vec<crate::yara::YaraRule>,
+    pub input_path: Option<String>,
 }
 
 impl Report {
@@ -49,7 +50,13 @@ impl Report {
             chains,
             chain_templates,
             yara_rules,
+            input_path: None,
         }
+    }
+
+    pub fn with_input_path(mut self, input_path: Option<String>) -> Self {
+        self.input_path = input_path;
+        self
     }
 }
 
@@ -78,7 +85,7 @@ pub fn print_jsonl(report: &Report) -> Result<()> {
     Ok(())
 }
 
-pub fn to_sarif(report: &Report) -> serde_json::Value {
+pub fn to_sarif(report: &Report, input_path: Option<&str>) -> serde_json::Value {
     let mut rules = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for f in &report.findings {
@@ -113,7 +120,7 @@ pub fn to_sarif(report: &Report) -> serde_json::Value {
                 Severity::Medium => "warning",
                 Severity::Low | Severity::Info => "note",
             };
-            let locations = sarif_locations(f);
+            let locations = sarif_locations(f, input_path);
             serde_json::json!({
                 "ruleId": f.kind,
                 "level": level,
@@ -150,6 +157,12 @@ pub fn to_sarif(report: &Report) -> serde_json::Value {
         })
         .collect();
 
+    let artifacts = input_path.map(|p| {
+        serde_json::json!([{
+            "location": { "uri": p },
+            "roles": ["analysisTarget"]
+        }])
+    });
     serde_json::json!({
         "version": "2.1.0",
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
@@ -160,19 +173,27 @@ pub fn to_sarif(report: &Report) -> serde_json::Value {
                     "rules": rules
                 }
             },
+            "artifacts": artifacts,
+            "invocations": [{
+                "executionSuccessful": true,
+                "properties": {
+                    "input_path": input_path
+                }
+            }],
             "results": results
         }]
     })
 }
 
-fn sarif_locations(f: &Finding) -> Vec<serde_json::Value> {
+fn sarif_locations(f: &Finding, input_path: Option<&str>) -> Vec<serde_json::Value> {
+    let uri = input_path.unwrap_or("input");
     let mut out = Vec::new();
     for ev in &f.evidence {
         match ev.source {
             crate::model::EvidenceSource::File => {
                 out.push(serde_json::json!({
                     "physicalLocation": {
-                        "artifactLocation": { "uri": "input" },
+                        "artifactLocation": { "uri": uri },
                         "region": {
                             "byteOffset": ev.offset,
                             "byteLength": ev.length
@@ -188,7 +209,7 @@ fn sarif_locations(f: &Finding) -> Vec<serde_json::Value> {
                 if let Some(origin) = ev.origin {
                     out.push(serde_json::json!({
                         "physicalLocation": {
-                            "artifactLocation": { "uri": "input" },
+                            "artifactLocation": { "uri": uri },
                             "region": {
                                 "byteOffset": origin.start,
                                 "byteLength": (origin.end - origin.start) as u64
@@ -348,7 +369,7 @@ fn impact_for_finding(f: &Finding) -> String {
     }
 }
 
-pub fn render_markdown(report: &Report) -> String {
+pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     let mut out = String::new();
     out.push_str("# ysnp Report\n\n");
     out.push_str("## Summary\n\n");
@@ -360,6 +381,10 @@ pub fn render_markdown(report: &Report) -> String {
         report.summary.low,
         report.summary.info
     ));
+
+    if let Some(path) = input_path {
+        out.push_str(&format!("- Input: `{}`\n\n", path));
+    }
 
     out.push_str("## SARIF\n\n");
     out.push_str(&format!(
