@@ -1,0 +1,13 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FontMatrix [1 2 3 4 5 (alert(1))] >>
+endobj
+xref
+0 2
+0000000000 65535 f 
+0000000010 00000 n 
+trailer
+<< /Size 2 >>
+startxref
+0000000114
+%%EOF

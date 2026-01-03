@@ -26,6 +26,7 @@ pub fn default_detectors() -> Vec<Box<dyn Detector>> {
         Box::new(GoToRDetector),
         Box::new(UriDetector),
         Box::new(SubmitFormDetector),
+        Box::new(FontMatrixDetector),
         Box::new(EmbeddedFileDetector),
         Box::new(RichMediaDetector),
         Box::new(ThreeDDetector),
@@ -553,6 +554,131 @@ impl Detector for UriDetector {
                         meta,
                         yara: None,
                     });
+                }
+            }
+        }
+        findings.extend(uri_findings_from_annots(ctx));
+        Ok(findings)
+    }
+}
+
+fn uri_findings_from_annots(ctx: &ysnp_core::scan::ScanContext) -> Vec<Finding> {
+    let mut out = Vec::new();
+    for entry in &ctx.graph.objects {
+        let dict = match entry_dict(entry) {
+            Some(d) => d,
+            None => continue,
+        };
+        if !dict.has_name(b"/Subtype", b"/Annot") && !dict.has_name(b"/Type", b"/Annot") {
+            continue;
+        }
+        if let Some((_, a)) = dict.get_first(b"/A") {
+            if let Some(f) = uri_finding_from_action(ctx, entry, a, "Annotation /A") {
+                out.push(f);
+            }
+        }
+        if let Some((_, aa)) = dict.get_first(b"/AA") {
+            if let PdfAtom::Dict(aad) = &aa.atom {
+                for (_, v) in &aad.entries {
+                    if let Some(f) = uri_finding_from_action(ctx, entry, v, "Annotation /AA") {
+                        out.push(f);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn uri_finding_from_action(
+    ctx: &ysnp_core::scan::ScanContext,
+    entry: &ObjEntry<'_>,
+    obj: &ysnp_pdf::object::PdfObj<'_>,
+    note: &str,
+) -> Option<Finding> {
+    let action_obj = match &obj.atom {
+        PdfAtom::Dict(_) => obj.clone(),
+        PdfAtom::Ref { .. } => {
+            let entry = ctx.graph.resolve_ref(obj)?;
+            ysnp_pdf::object::PdfObj {
+                span: entry.body_span,
+                atom: entry.atom,
+            }
+        }
+        _ => return None,
+    };
+    let PdfAtom::Dict(ad) = &action_obj.atom else {
+        return None;
+    };
+    let (k, v) = ad.get_first(b"/URI")?;
+    let mut evidence = vec![
+        span_to_evidence(action_obj.span, note),
+        span_to_evidence(k.span, "Key /URI"),
+        span_to_evidence(v.span, "URI value"),
+    ];
+    let mut meta = std::collections::HashMap::new();
+    if let Some(enriched) = payload_from_obj(ctx, v, "URI payload") {
+        evidence.extend(enriched.evidence);
+        meta.extend(enriched.meta);
+    }
+    Some(Finding {
+        id: String::new(),
+        surface: AttackSurface::Actions,
+        kind: "uri_present".into(),
+        severity: Severity::Medium,
+        confidence: Confidence::Probable,
+        title: "URI present".into(),
+        description: "Annotation action contains a URI target.".into(),
+        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+        evidence,
+        remediation: Some("Verify destination URLs.".into()),
+        meta,
+        yara: None,
+    })
+}
+
+struct FontMatrixDetector;
+
+impl Detector for FontMatrixDetector {
+    fn id(&self) -> &'static str {
+        "fontmatrix_payload_present"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Metadata
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Cheap
+    }
+    fn run(&self, ctx: &ysnp_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        for entry in &ctx.graph.objects {
+            let dict = match entry_dict(entry) {
+                Some(d) => d,
+                None => continue,
+            };
+            if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
+                if let PdfAtom::Array(arr) = &obj.atom {
+                    if arr.iter().any(|o| !matches!(o.atom, PdfAtom::Int(_) | PdfAtom::Real(_))) {
+                        let mut meta = std::collections::HashMap::new();
+                        meta.insert("fontmatrix.non_numeric".into(), "true".into());
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "fontmatrix_payload_present".into(),
+                            severity: Severity::Medium,
+                            confidence: Confidence::Probable,
+                            title: "Suspicious FontMatrix payload".into(),
+                            description: "FontMatrix contains non-numeric entries, suggesting script injection.".into(),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence: vec![span_to_evidence(dict.span, "Font dict")],
+                            remediation: Some("Review font dictionaries for injected scripts.".into()),
+                            meta,
+                            yara: None,
+                        });
+                    }
                 }
             }
         }
@@ -1641,6 +1767,17 @@ pub(crate) fn annot_has_uri(
         if let Some((_, a)) = d.get_first(b"/A") {
             if let PdfAtom::Dict(ad) = &a.atom {
                 return ad.get_first(b"/URI").is_some();
+            }
+        }
+        if let Some((_, aa)) = d.get_first(b"/AA") {
+            if let PdfAtom::Dict(aad) = &aa.atom {
+                for (_, v) in &aad.entries {
+                    if let PdfAtom::Dict(ad) = &v.atom {
+                        if ad.get_first(b"/URI").is_some() {
+                            return true;
+                        }
+                    }
+                }
             }
         }
     }

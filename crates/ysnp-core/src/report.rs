@@ -231,6 +231,14 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
             "Content cues suggest possible phishing or social-engineering intent."
                 .into()
         }
+        "content_html_payload" => {
+            "HTML-like content may indicate an embedded script or spoofed UI presented to the user."
+                .into()
+        }
+        "fontmatrix_payload_present" => {
+            "Injected FontMatrix entries can trigger script execution in vulnerable PDF renderers."
+                .into()
+        }
         "parser_object_count_diff"
         | "parser_trailer_count_diff"
         | "parser_startxref_count_diff" => {

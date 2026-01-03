@@ -46,7 +46,8 @@ impl Detector for ContentPhishingDetector {
             }
         }
         if !has_keyword {
-            return Ok(Vec::new());
+            let html = detect_html_payload(ctx);
+            return Ok(html.into_iter().collect());
         }
         let has_uri = ctx.graph.objects.iter().any(|e| {
             if let Some(dict) = entry_dict(e) {
@@ -72,8 +73,41 @@ impl Detector for ContentPhishingDetector {
                 yara: None,
             }]);
         }
-        Ok(Vec::new())
+        let mut out = Vec::new();
+        if let Some(html) = detect_html_payload(ctx) {
+            out.push(html);
+        }
+        Ok(out)
     }
+}
+
+fn detect_html_payload(ctx: &ysnp_core::scan::ScanContext) -> Option<Finding> {
+    let patterns: &[&[u8]] = &[b"<script", b"<iframe", b"javascript:"]; 
+    for entry in &ctx.graph.objects {
+        for (bytes, span) in extract_strings_with_span(entry) {
+            let lower = bytes.to_ascii_lowercase();
+            if patterns
+                .iter()
+                .any(|p| lower.windows(p.len()).any(|w| w == *p))
+            {
+                return Some(Finding {
+                    id: String::new(),
+                    surface: AttackSurface::ContentPhishing,
+                    kind: "content_html_payload".into(),
+                    severity: Severity::Low,
+                    confidence: Confidence::Heuristic,
+                    title: "HTML-like payload in content".into(),
+                    description: "Content contains HTML or javascript-like sequences.".into(),
+                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                    evidence: vec![span_to_evidence(span, "HTML-like content")],
+                    remediation: Some("Review rendered text for embedded scripts or links.".into()),
+                    meta: Default::default(),
+                    yara: None,
+                });
+            }
+        }
+    }
+    None
 }
 
 pub struct ContentDeceptionDetector;
