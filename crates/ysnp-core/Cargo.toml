@@ -10,4 +10,13 @@ blake3 = "1.5"
 rayon = "1.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 ysnp-pdf = { path = "../ysnp-pdf" }
+
+[dev-dependencies]
+ysnp-detectors = { path = "../ysnp-detectors" }
+criterion = "0.5"
+
+[[bench]]
+name = "scan"
+harness = false

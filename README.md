@@ -31,13 +31,13 @@ cargo build
 
 ```
 # Triage scan
-cargo run -p ysnp-cli -- scan path/to/file.pdf
+cargo run -p ysnp-cli --bin ysnp -- scan path/to/file.pdf
 
 # JSON report
-cargo run -p ysnp-cli -- scan path/to/file.pdf --json
+cargo run -p ysnp-cli --bin ysnp -- scan path/to/file.pdf --json
 
 # Deep scan (decodes selected streams)
-cargo run -p ysnp-cli -- scan path/to/file.pdf --deep
+cargo run -p ysnp-cli --bin ysnp -- scan path/to/file.pdf --deep
 ```
 
 ## Tests

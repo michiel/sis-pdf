@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use ysnp_pdf::span::Span;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub enum AttackSurface {
@@ -61,4 +62,6 @@ pub struct Finding {
     pub objects: Vec<String>,
     pub evidence: Vec<EvidenceSpan>,
     pub remediation: Option<String>,
+    #[serde(default)]
+    pub meta: HashMap<String, String>,
 }

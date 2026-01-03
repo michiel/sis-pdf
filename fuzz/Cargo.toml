@@ -1,0 +1,11 @@
+[package]
+name = "ysnp-fuzz"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ysnp-pdf = { path = "../crates/ysnp-pdf" }
+
+[profile.release]
+debug = true

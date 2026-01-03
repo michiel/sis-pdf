@@ -6,12 +6,18 @@ use ysnp_pdf::object::PdfStream;
 use ysnp_pdf::span::Span;
 use ysnp_pdf::ObjectGraph;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ScanOptions {
     pub deep: bool,
     pub max_decode_bytes: usize,
+    pub max_total_decoded_bytes: usize,
     pub recover_xref: bool,
     pub parallel: bool,
+    pub diff_parser: bool,
+    pub max_objects: usize,
+    pub max_recursion_depth: usize,
+    pub fast: bool,
+    pub focus_trigger: Option<String>,
 }
 
 pub struct ScanContext<'a> {
@@ -24,14 +30,18 @@ pub struct ScanContext<'a> {
 #[derive(Debug)]
 pub struct DecodedCache {
     max_decode_bytes: usize,
+    max_total_decoded_bytes: usize,
     cache: Mutex<HashMap<(u64, u64), DecodedStream>>,
+    total_decoded: Mutex<usize>,
 }
 
 impl DecodedCache {
-    pub fn new(max_decode_bytes: usize) -> Self {
+    pub fn new(max_decode_bytes: usize, max_total_decoded_bytes: usize) -> Self {
         Self {
             max_decode_bytes,
+            max_total_decoded_bytes,
             cache: Mutex::new(HashMap::new()),
+            total_decoded: Mutex::new(0),
         }
     }
 
@@ -45,6 +55,12 @@ impl DecodedCache {
             return Ok(v);
         }
         let decoded = decode_stream(bytes, stream, self.max_decode_bytes)?;
+        if let Ok(mut total) = self.total_decoded.lock() {
+            if *total + decoded.data.len() > self.max_total_decoded_bytes {
+                return Err(anyhow::anyhow!("total decoded bytes budget exceeded"));
+            }
+            *total += decoded.data.len();
+        }
         if let Ok(mut c) = self.cache.lock() {
             c.insert(key, decoded.clone());
         }

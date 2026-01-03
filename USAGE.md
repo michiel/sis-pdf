@@ -7,7 +7,13 @@ This guide shows end-to-end workflows with concrete commands and suggested analy
 Use this for first-pass analysis when you need a quick answer.
 
 ```
-cargo run -p ysnp-cli -- scan suspicious.pdf
+cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf
+```
+
+For a stricter fast path:
+
+```
+cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --fast
 ```
 
 Suggested steps:
@@ -18,7 +24,19 @@ Suggested steps:
 ## 2) JSON report for automation
 
 ```
-cargo run -p ysnp-cli -- scan suspicious.pdf --json > report.json
+cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --json > report.json
+```
+
+JSONL (stream-friendly):
+
+```
+cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --jsonl > report.jsonl
+```
+
+SARIF (CI integration):
+
+```
+cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --sarif > report.sarif
 ```
 
 Analysis steps:
@@ -29,7 +47,13 @@ Analysis steps:
 ## 3) Deep scan for decoding risk
 
 ```
-cargo run -p ysnp-cli -- scan suspicious.pdf --deep
+cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --deep
+```
+
+Focused scan for a specific trigger:
+
+```
+cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --focus-trigger openaction
 ```
 
 When to use deep scan:
@@ -42,7 +66,19 @@ When to use deep scan:
 First, run a scan to get an ID, then:
 
 ```
-cargo run -p ysnp-cli -- explain suspicious.pdf ysnp-<finding-id>
+cargo run -p ysnp-cli --bin ysnp -- explain suspicious.pdf ysnp-<finding-id>
+```
+
+## 4b) Generate a full Markdown report
+
+```
+cargo run -p ysnp-cli --bin ysnp -- report suspicious.pdf
+```
+
+Write to a file:
+
+```
+cargo run -p ysnp-cli --bin ysnp -- report suspicious.pdf -o report.md
 ```
 
 Analysis steps:
@@ -54,7 +90,7 @@ Analysis steps:
 
 ```
 mkdir -p out/js
-cargo run -p ysnp-cli -- extract js suspicious.pdf -o out/js
+cargo run -p ysnp-cli --bin ysnp -- extract js suspicious.pdf -o out/js
 ```
 
 Analysis steps:
@@ -66,7 +102,7 @@ Analysis steps:
 
 ```
 mkdir -p out/embedded
-cargo run -p ysnp-cli -- extract embedded suspicious.pdf -o out/embedded
+cargo run -p ysnp-cli --bin ysnp -- extract embedded suspicious.pdf -o out/embedded
 ```
 
 Analysis steps:
@@ -81,6 +117,12 @@ If you see `xref_conflict` or `incremental_update_chain`:
 1) Run `--deep` to gather additional decoder findings.
 2) Use `explain` on shadowed object findings to locate offsets.
 3) Compare object spans across revisions (same object ID, different spans).
+
+If you want a parser-differential view:
+
+```
+cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --diff-parser
+```
 
 ## 8) Decoder-risk triage
 
@@ -135,7 +177,7 @@ PDF
 Then run:
 
 ```
-cargo run -p ysnp-cli -- scan tmp/synthetic.pdf
+cargo run -p ysnp-cli --bin ysnp -- scan tmp/synthetic.pdf
 ```
 
 Expected result:
@@ -147,6 +189,12 @@ Expected result:
 - Keep `--deep` scans for targeted cases; triage scans should be fast.
 - Never execute extracted payloads; treat everything as untrusted.
 - For long-running analyses, prefer JSON output and post-process in separate tools.
+
+Configuration-based scans:
+
+```
+cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --config config.yml --profile interactive
+```
 
 ## 12) Troubleshooting
 

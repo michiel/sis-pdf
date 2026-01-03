@@ -12,6 +12,14 @@ pub struct DecodedStream {
     pub input_len: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct DecodeParms {
+    predictor: u32,
+    colors: u32,
+    bits_per_component: u32,
+    columns: u32,
+}
+
 pub fn decode_stream(bytes: &[u8], stream: &PdfStream<'_>, max_out: usize) -> Result<DecodedStream> {
     let span = stream.data_span;
     let start = span.start as usize;
@@ -22,9 +30,15 @@ pub fn decode_stream(bytes: &[u8], stream: &PdfStream<'_>, max_out: usize) -> Re
     let mut data = bytes[start..end].to_vec();
     let mut truncated = false;
     let filters = stream_filters(&stream.dict);
-    for filter in &filters {
+    let parms = stream_decode_parms(&stream.dict, &filters);
+    for (idx, filter) in filters.iter().enumerate() {
         let decoded = decode_filter(&data, filter, max_out)?;
         data = decoded.0;
+        if let Some(p) = parms.get(idx).copied().flatten() {
+            if is_flate_filter(filter) && p.predictor > 1 {
+                data = apply_predictor(&data, p)?;
+            }
+        }
         if decoded.1 {
             truncated = true;
             break;
@@ -60,6 +74,162 @@ pub fn stream_filters(dict: &PdfDict<'_>) -> Vec<String> {
         _ => {}
     }
     out
+}
+
+fn stream_decode_parms(dict: &PdfDict<'_>, filters: &[String]) -> Vec<Option<DecodeParms>> {
+    let mut out = vec![None; filters.len().max(1)];
+    let (_, obj) = match dict.get_first(b"/DecodeParms") {
+        Some(v) => v,
+        None => return out,
+    };
+    match &obj.atom {
+        PdfAtom::Dict(d) => {
+            if let Some(p) = decode_parms_from_dict(d) {
+                out[0] = Some(p);
+            }
+        }
+        PdfAtom::Array(arr) => {
+            for (idx, o) in arr.iter().enumerate() {
+                if idx >= out.len() {
+                    break;
+                }
+                if let PdfAtom::Dict(d) = &o.atom {
+                    out[idx] = decode_parms_from_dict(d);
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+fn decode_parms_from_dict(dict: &PdfDict<'_>) -> Option<DecodeParms> {
+    let predictor = dict_int(dict, b"/Predictor").unwrap_or(1);
+    let colors = dict_int(dict, b"/Colors").unwrap_or(1);
+    let bits = dict_int(dict, b"/BitsPerComponent").unwrap_or(8);
+    let columns = dict_int(dict, b"/Columns").unwrap_or(1);
+    Some(DecodeParms {
+        predictor,
+        colors,
+        bits_per_component: bits,
+        columns,
+    })
+}
+
+fn dict_int(dict: &PdfDict<'_>, key: &[u8]) -> Option<u32> {
+    let (_, obj) = dict.get_first(key)?;
+    match &obj.atom {
+        PdfAtom::Int(i) if *i >= 0 => Some(*i as u32),
+        _ => None,
+    }
+}
+
+fn is_flate_filter(filter: &str) -> bool {
+    matches!(filter, "/FlateDecode" | "/Fl")
+}
+
+fn apply_predictor(data: &[u8], parms: DecodeParms) -> Result<Vec<u8>> {
+    if parms.bits_per_component != 8 || parms.columns == 0 {
+        return Ok(data.to_vec());
+    }
+    if parms.predictor == 2 {
+        return Ok(apply_tiff_predictor(data, parms)?);
+    }
+    if (10..=15).contains(&parms.predictor) {
+        return Ok(apply_png_predictor(data, parms)?);
+    }
+    Ok(data.to_vec())
+}
+
+fn apply_tiff_predictor(data: &[u8], parms: DecodeParms) -> Result<Vec<u8>> {
+    let bpp = ((parms.colors * parms.bits_per_component + 7) / 8) as usize;
+    let row_len = parms.columns as usize * bpp;
+    if row_len == 0 {
+        return Ok(data.to_vec());
+    }
+    let mut out = Vec::with_capacity(data.len());
+    for chunk in data.chunks(row_len) {
+        let mut row = chunk.to_vec();
+        for i in bpp..row.len() {
+            row[i] = row[i].wrapping_add(row[i - bpp]);
+        }
+        out.extend_from_slice(&row);
+    }
+    Ok(out)
+}
+
+fn apply_png_predictor(data: &[u8], parms: DecodeParms) -> Result<Vec<u8>> {
+    let bpp = ((parms.colors * parms.bits_per_component + 7) / 8) as usize;
+    let row_len = parms.columns as usize * bpp;
+    if row_len == 0 {
+        return Ok(data.to_vec());
+    }
+    let mut out = Vec::new();
+    let mut prev = vec![0u8; row_len];
+    let mut i = 0usize;
+    while i < data.len() {
+        if i + 1 > data.len() {
+            break;
+        }
+        let filter = data[i];
+        i += 1;
+        if i + row_len > data.len() {
+            break;
+        }
+        let mut row = data[i..i + row_len].to_vec();
+        i += row_len;
+        match filter {
+            0 => {} // None
+            1 => {
+                for j in 0..row_len {
+                    let left = if j >= bpp { row[j - bpp] } else { 0 };
+                    row[j] = row[j].wrapping_add(left);
+                }
+            }
+            2 => {
+                for j in 0..row_len {
+                    row[j] = row[j].wrapping_add(prev[j]);
+                }
+            }
+            3 => {
+                for j in 0..row_len {
+                    let left = if j >= bpp { row[j - bpp] } else { 0 };
+                    let up = prev[j];
+                    let avg = ((left as u16 + up as u16) / 2) as u8;
+                    row[j] = row[j].wrapping_add(avg);
+                }
+            }
+            4 => {
+                for j in 0..row_len {
+                    let left = if j >= bpp { row[j - bpp] } else { 0 };
+                    let up = prev[j];
+                    let up_left = if j >= bpp { prev[j - bpp] } else { 0 };
+                    row[j] = row[j].wrapping_add(paeth(left, up, up_left));
+                }
+            }
+            _ => {}
+        }
+        prev = row.clone();
+        out.extend_from_slice(&row);
+    }
+    Ok(out)
+}
+
+fn paeth(a: u8, b: u8, c: u8) -> u8 {
+    let a = a as i32;
+    let b = b as i32;
+    let c = c as i32;
+    let p = a + b - c;
+    let pa = (p - a).abs();
+    let pb = (p - b).abs();
+    let pc = (p - c).abs();
+    if pa <= pb && pa <= pc {
+        a as u8
+    } else if pb <= pc {
+        b as u8
+    } else {
+        c as u8
+    }
 }
 
 fn name_to_string(n: &PdfName<'_>) -> String {
