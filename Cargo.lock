@@ -1282,6 +1282,65 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
+name = "sis-pdf"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "globset",
+ "hex",
+ "memmap2",
+ "serde_json",
+ "sha2",
+ "sis-pdf-core",
+ "sis-pdf-detectors",
+ "sis-pdf-pdf",
+ "walkdir",
+]
+
+[[package]]
+name = "sis-pdf-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitflags",
+ "blake3",
+ "criterion",
+ "lopdf",
+ "rayon",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sis-pdf-detectors",
+ "sis-pdf-pdf",
+]
+
+[[package]]
+name = "sis-pdf-detectors"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "boa_ast",
+ "boa_parser",
+ "hex",
+ "sha2",
+ "sis-pdf-core",
+ "sis-pdf-pdf",
+]
+
+[[package]]
+name = "sis-pdf-pdf"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "flate2",
+ "memchr",
+ "serde",
+ "thiserror 1.0.69",
+ "weezl",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1654,65 +1713,6 @@ dependencies = [
  "quote",
  "syn 2.0.112",
  "synstructure",
-]
-
-[[package]]
-name = "ysnp-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "globset",
- "hex",
- "memmap2",
- "serde_json",
- "sha2",
- "walkdir",
- "ysnp-core",
- "ysnp-detectors",
- "ysnp-pdf",
-]
-
-[[package]]
-name = "ysnp-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bitflags",
- "blake3",
- "criterion",
- "lopdf",
- "rayon",
- "serde",
- "serde_json",
- "serde_yaml",
- "ysnp-detectors",
- "ysnp-pdf",
-]
-
-[[package]]
-name = "ysnp-detectors"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "boa_ast",
- "boa_parser",
- "hex",
- "sha2",
- "ysnp-core",
- "ysnp-pdf",
-]
-
-[[package]]
-name = "ysnp-pdf"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "flate2",
- "memchr",
- "serde",
- "thiserror 1.0.69",
- "weezl",
 ]
 
 [[package]]

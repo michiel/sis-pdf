@@ -10,11 +10,11 @@ This plan addresses detection gaps observed in the sample collections and adds c
 - Payloads with `/URI` actions in annotations did not trigger `uri_present`.
 
 **Implementation**
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Extend `UriDetector` to scan `/A` and `/AA` dictionaries in annotations.
   - Follow indirect references from annotation dictionaries to action dictionaries.
   - Attach evidence spans for the action dictionary and the `/URI` value.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Include action targets in metadata for URI actions when available.
 
 **Tests**
@@ -29,11 +29,11 @@ This plan addresses detection gaps observed in the sample collections and adds c
 - `payload8.pdf` uses a FontMatrix JavaScript payload that does not trigger findings.
 
 **Implementation**
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Add a detector for suspicious `/FontMatrix` entries containing non-numeric tokens.
   - Flag strings or names inside `/FontMatrix` arrays.
   - Provide evidence for the font dictionary span.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Add an impact statement for `fontmatrix_payload_present`.
 
 **Tests**
@@ -48,10 +48,10 @@ This plan addresses detection gaps observed in the sample collections and adds c
 - XSS payloads as visible text do not trigger findings.
 
 **Implementation**
-- `crates/ysnp-detectors/src/content_phishing.rs`
+- `crates/sis-pdf-detectors/src/content_phishing.rs`
   - Add an optional heuristic for HTML-like tags or `javascript:` in visible text.
   - Keep severity low and mark confidence as heuristic.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Add impact text for `content_html_payload`.
 
 **Tests**
@@ -65,7 +65,7 @@ This plan addresses detection gaps observed in the sample collections and adds c
 - No automated regression tests for the external payload collections.
 
 **Implementation**
-- `crates/ysnp-core/tests/regression_payloads.rs` (new)
+- `crates/sis-pdf-core/tests/regression_payloads.rs` (new)
   - Add optional tests that run only when fixtures are present.
   - Use environment flags to skip when collections are absent.
 

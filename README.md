@@ -1,4 +1,4 @@
-# ysnp
+# sis-pdf
 
 _"Smiley is suspicious, Percy"_
 ```text
@@ -33,7 +33,7 @@ _"Smiley is suspicious, Percy"_
 ```
 
 
-ysnp is a Rust PDF analyser that inventories PDF attack surface, detects suspicious or exploitable constructs, and produces grouped findings with evidence spans. It is designed for interactive speed without trading away parser correctness.
+sis-pdf is a Rust PDF analyser that inventories PDF attack surface, detects suspicious or exploitable constructs, and produces grouped findings with evidence spans. It is designed for interactive speed without trading away parser correctness.
 
 Key goals:
 - Viewer-tolerant parsing with recovery scanning for malformed PDFs.
@@ -44,13 +44,13 @@ Key goals:
 ## Workspace layout
 
 ```
-ysnp/
+sis-pdf/
   Cargo.toml
   crates/
-    ysnp-core/      Core scan pipeline, models, reporting
-    ysnp-pdf/       PDF parsing, object graph, decoding
-    ysnp-detectors/ Detection rules
-    ysnp-cli/       CLI front-end
+    sis-pdf-core/      Core scan pipeline, models, reporting
+    sis-pdf-pdf/       PDF parsing, object graph, decoding
+    sis-pdf-detectors/ Detection rules
+    sis-pdf/       CLI front-end
   docs/
 ```
 
@@ -82,11 +82,11 @@ Reporting and evidence:
 - Strict parse deviations grouped in the Markdown report.
 
 CLI workflows:
-- `ysnp scan` for triage, deep scans, strict mode, and focused trigger scans.
-- `ysnp report` for full Markdown reporting, with optional output file.
-- `ysnp explain` for individual finding inspection with evidence previews.
-- `ysnp extract` for JavaScript and embedded files.
-- `ysnp export-graph` for chain export in DOT or JSON.
+- `sis scan` for triage, deep scans, strict mode, and focused trigger scans.
+- `sis report` for full Markdown reporting, with optional output file.
+- `sis explain` for individual finding inspection with evidence previews.
+- `sis extract` for JavaScript and embedded files.
+- `sis export-graph` for chain export in DOT or JSON.
 - Batch scanning with `--path` and `--glob` plus batch summaries.
 
 Testing and fixtures:
@@ -104,13 +104,13 @@ cargo build
 
 ```
 # Triage scan
-cargo run -p ysnp-cli --bin ysnp -- scan path/to/file.pdf
+cargo run -p sis-pdf --bin sis -- scan path/to/file.pdf
 
 # JSON report
-cargo run -p ysnp-cli --bin ysnp -- scan path/to/file.pdf --json
+cargo run -p sis-pdf --bin sis -- scan path/to/file.pdf --json
 
 # Deep scan (decodes selected streams)
-cargo run -p ysnp-cli --bin ysnp -- scan path/to/file.pdf --deep
+cargo run -p sis-pdf --bin sis -- scan path/to/file.pdf --deep
 ```
 
 ## Tests
@@ -121,4 +121,4 @@ cargo test
 
 ## Status
 
-This is a working implementation aligned to the spec in `docs/ysnp-spec.md`. It focuses on parsing correctness, evidence spans, and a practical rule set. Expect iterative hardening and expansion.
+This is a working implementation aligned to the spec in `docs/sis-pdf-spec.md`. It focuses on parsing correctness, evidence spans, and a practical rule set. Expect iterative hardening and expansion.

@@ -11,12 +11,12 @@ This roadmap targets higher-fidelity analysis, stronger evidence capture, and op
 - Attach page numbers to findings derived from page content or annotations.
 
 **Implementation**
-- `crates/ysnp-core/src/page_tree.rs` (new)
+- `crates/sis-pdf-core/src/page_tree.rs` (new)
   - Parse `/Pages` and `/Kids` recursively.
   - Build a map of page object IDs to resolved page index and inherited `/MediaBox`.
-- `crates/ysnp-core/src/content_index.rs`
+- `crates/sis-pdf-core/src/content_index.rs`
   - Use page tree metadata instead of a linear object scan.
-- `crates/ysnp-detectors/src/content_phishing.rs`
+- `crates/sis-pdf-detectors/src/content_phishing.rs`
   - Attach page numbers from page tree map in `meta`.
 
 **Acceptance**
@@ -31,11 +31,11 @@ This roadmap targets higher-fidelity analysis, stronger evidence capture, and op
 - Track annotation actions and build explicit action chains with references.
 
 **Implementation**
-- `crates/ysnp-core/src/graph_walk.rs`
+- `crates/sis-pdf-core/src/graph_walk.rs`
   - Add helper to collect action edges from `/A`, `/AA`, `/OpenAction` and annotation dicts.
-- `crates/ysnp-core/src/chain_synth.rs`
+- `crates/sis-pdf-core/src/chain_synth.rs`
   - Build a chain variant that includes action dictionary IDs and payload refs.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Render action chain with object references and payload types.
 
 **Acceptance**
@@ -50,11 +50,11 @@ This roadmap targets higher-fidelity analysis, stronger evidence capture, and op
 - Improve evidence capture with small inline previews for decoded streams.
 
 **Implementation**
-- `crates/ysnp-core/src/evidence.rs` (new)
+- `crates/sis-pdf-core/src/evidence.rs` (new)
   - Add helper to capture a short decoded preview and its origin span.
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Use snapshot helper in payload-based detectors.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Render decoded previews under **Evidence** for decoded sources.
 
 **Acceptance**
@@ -69,10 +69,10 @@ This roadmap targets higher-fidelity analysis, stronger evidence capture, and op
 - Improve batch scanning output and allow per-profile overrides.
 
 **Implementation**
-- `crates/ysnp-cli/src/main.rs`
+- `crates/sis-pdf/src/main.rs`
   - Add `--batch-out` for JSON summary output.
   - Add `--batch-format` for `json|md` in batch mode.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Add JSON schema-friendly batch summary.
 
 **Acceptance**
@@ -84,13 +84,13 @@ This roadmap targets higher-fidelity analysis, stronger evidence capture, and op
 ## 5) Cross-parser differential tests
 
 **Scope**
-- Add regression tests that compare ysnp output with lopdf and enforce consistent deltas.
+- Add regression tests that compare sis-pdf output with lopdf and enforce consistent deltas.
 
 **Implementation**
-- `crates/ysnp-core/tests/diff.rs` (new)
+- `crates/sis-pdf-core/tests/diff.rs` (new)
   - Add fixtures with deliberate parser differentials.
   - Assert `parser_object_count_diff` on known cases.
-- `crates/ysnp-core/src/diff.rs`
+- `crates/sis-pdf-core/src/diff.rs`
   - Expose a stable diff summary object for testing.
 
 **Acceptance**
@@ -105,9 +105,9 @@ This roadmap targets higher-fidelity analysis, stronger evidence capture, and op
 - Make CLI output more actionable for incident response.
 
 **Implementation**
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Add a "Top Risks" section summarising highest severity findings.
-- `crates/ysnp-cli/src/main.rs`
+- `crates/sis-pdf/src/main.rs`
   - Add `--summary-only` for minimal output.
 
 **Acceptance**

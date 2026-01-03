@@ -1,4 +1,4 @@
-# ysnp Usage
+# sis-pdf Usage
 
 This guide shows end-to-end workflows with concrete commands and suggested analysis steps. All commands assume you run from the repository root.
 
@@ -7,13 +7,13 @@ This guide shows end-to-end workflows with concrete commands and suggested analy
 Use this for first-pass analysis when you need a quick answer.
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf
 ```
 
 For a stricter fast path:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --fast
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --fast
 ```
 
 Suggested steps:
@@ -24,25 +24,25 @@ Suggested steps:
 ## 2) JSON report for automation
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --json > report.json
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --json > report.json
 ```
 
 JSONL (stream-friendly):
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --jsonl > report.jsonl
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --jsonl > report.jsonl
 ```
 
 SARIF (CI integration):
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --sarif > report.sarif
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --sarif > report.sarif
 ```
 
 SARIF to file:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --sarif-out report.sarif
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --sarif-out report.sarif
 ```
 
 Analysis steps:
@@ -53,25 +53,25 @@ Analysis steps:
 ## 3) Deep scan for decoding risk
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --deep
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --deep
 ```
 
 Focused scan for a specific trigger:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --focus-trigger openaction
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --focus-trigger openaction
 ```
 
 Limit reachability to a smaller graph radius:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --focus-trigger openaction --focus-depth 3
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --focus-trigger openaction --focus-depth 3
 ```
 
 Strict parsing (record lexer-level deviations):
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --strict
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --strict
 ```
 
 When to use deep scan:
@@ -84,19 +84,19 @@ When to use deep scan:
 First, run a scan to get an ID, then:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- explain suspicious.pdf ysnp-<finding-id>
+cargo run -p sis-pdf --bin sis -- explain suspicious.pdf sis-<finding-id>
 ```
 
 ## 4b) Generate a full Markdown report
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- report suspicious.pdf
+cargo run -p sis-pdf --bin sis -- report suspicious.pdf
 ```
 
 Write to a file:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- report suspicious.pdf -o report.md
+cargo run -p sis-pdf --bin sis -- report suspicious.pdf -o report.md
 ```
 
 Analysis steps:
@@ -108,7 +108,7 @@ Analysis steps:
 
 ```
 mkdir -p out/js
-cargo run -p ysnp-cli --bin ysnp -- extract js suspicious.pdf -o out/js
+cargo run -p sis-pdf --bin sis -- extract js suspicious.pdf -o out/js
 ```
 
 Analysis steps:
@@ -120,7 +120,7 @@ Analysis steps:
 
 ```
 mkdir -p out/embedded
-cargo run -p ysnp-cli --bin ysnp -- extract embedded suspicious.pdf -o out/embedded
+cargo run -p sis-pdf --bin sis -- extract embedded suspicious.pdf -o out/embedded
 ```
 
 Analysis steps:
@@ -139,7 +139,7 @@ If you see `xref_conflict` or `incremental_update_chain`:
 If you want a parser-differential view:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --diff-parser
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --diff-parser
 ```
 
 Notes:
@@ -199,7 +199,7 @@ PDF
 Then run:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan tmp/synthetic.pdf
+cargo run -p sis-pdf --bin sis -- scan tmp/synthetic.pdf
 ```
 
 Expected result:
@@ -215,19 +215,19 @@ Expected result:
 Batch scans across a directory:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan --path samples --glob \"*.pdf\"
+cargo run -p sis-pdf --bin sis -- scan --path samples --glob \"*.pdf\"
 ```
 
 Batch scan JSON summary:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan --path samples --glob \"*.pdf\" --json
+cargo run -p sis-pdf --bin sis -- scan --path samples --glob \"*.pdf\" --json
 ```
 
 Configuration-based scans:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --config config.yml --profile interactive
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --config config.yml --profile interactive
 ```
 
 Example config for focus depth and strict mode:
@@ -248,32 +248,32 @@ YAML
 Then run:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --config config.yml --profile interactive
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --config config.yml --profile interactive
 ```
 
 YARA export (stdout or file):
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --yara
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --yara-out rules.yar
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --yara
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --yara-out rules.yar
 ```
 
 YARA scope (all/medium/high):
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- scan suspicious.pdf --yara --yara-scope all
+cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --yara --yara-scope all
 ```
 
 JavaScript AST summaries (feature build):
 
 ```
-cargo run -p ysnp-cli --features js-ast --bin ysnp -- scan suspicious.pdf
+cargo run -p sis-pdf --features js-ast --bin sis -- scan suspicious.pdf
 ```
 
 Report example with strict parsing and differential parsing:
 
 ```
-cargo run -p ysnp-cli --bin ysnp -- report suspicious.pdf --strict --diff-parser -o report.md
+cargo run -p sis-pdf --bin sis -- report suspicious.pdf --strict --diff-parser -o report.md
 ```
 
 ## 12) Troubleshooting

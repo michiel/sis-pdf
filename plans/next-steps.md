@@ -59,14 +59,14 @@ This plan defines how to add richer SARIF metadata and YARA annotations, export 
 
 ## Implementation sketch
 
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Extend SARIF output to map evidence and include metadata.
   - Add Markdown sections for SARIF and YARA.
-- `crates/ysnp-core/src/model.rs`
+- `crates/sis-pdf-core/src/model.rs`
   - Add structured `yara` metadata (or standardised meta keys).
-- `crates/ysnp-cli/src/main.rs`
+- `crates/sis-pdf/src/main.rs`
   - Add export flags and file write paths for SARIF/YARA.
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Populate YARA metadata for relevant findings.
 
 ## Acceptance criteria

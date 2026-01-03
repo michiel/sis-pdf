@@ -1,11 +1,11 @@
 [package]
-name = "ysnp-fuzz"
+name = "sis-pdf-fuzz"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 libfuzzer-sys = "0.4"
-ysnp-pdf = { path = "../crates/ysnp-pdf" }
+sis-pdf-pdf = { path = "../crates/sis-pdf-pdf" }
 
 [profile.release]
 debug = true

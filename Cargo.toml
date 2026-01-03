@@ -1,8 +1,8 @@
 [workspace]
 members = [
-  "crates/ysnp-core",
-  "crates/ysnp-pdf",
-  "crates/ysnp-detectors",
-  "crates/ysnp-cli",
+  "crates/sis-pdf-core",
+  "crates/sis-pdf-pdf",
+  "crates/sis-pdf-detectors",
+  "crates/sis-pdf",
 ]
 resolver = "2"

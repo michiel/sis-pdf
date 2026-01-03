@@ -11,15 +11,15 @@ This roadmap focuses on operational readiness, richer analysis output, and deepe
 - Improve reporting with page-aware context and visual coordinates.
 
 **Implementation**
-- `crates/ysnp-pdf/src/content.rs`
+- `crates/sis-pdf-pdf/src/content.rs`
   - Extend tokenisation to include numeric operands and inline content arguments.
   - Track simple text positioning (`Td`, `Tm`) to attach approximate coordinates.
-- `crates/ysnp-core/src/content_index.rs` (new)
+- `crates/sis-pdf-core/src/content_index.rs` (new)
   - Build a per-page index: text bounding boxes, image bounding boxes, and clip regions.
   - Store coordinates in a normalised page space (0..1) for portability.
-- `crates/ysnp-detectors/src/content_phishing.rs` (new)
+- `crates/sis-pdf-detectors/src/content_phishing.rs` (new)
   - Refine deception heuristics using bounding boxes and overlap calculations.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Include page numbers and coordinates in findings where available.
 
 **Acceptance**
@@ -34,12 +34,12 @@ This roadmap focuses on operational readiness, richer analysis output, and deepe
 - Model trigger-to-action-to-payload chains with depth control and action type awareness.
 
 **Implementation**
-- `crates/ysnp-core/src/graph_walk.rs`
+- `crates/sis-pdf-core/src/graph_walk.rs`
   - Add edge labels for action types and payload references.
   - Provide a function to return a traced path for each reachable object.
-- `crates/ysnp-core/src/chain_synth.rs`
+- `crates/sis-pdf-core/src/chain_synth.rs`
   - Enrich chain synthesis with explicit action steps and payload types.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Render multi-step chains and indicate which steps were inferred.
 
 **Acceptance**
@@ -54,12 +54,12 @@ This roadmap focuses on operational readiness, richer analysis output, and deepe
 - Improve strict parser fidelity and reduce false positives.
 
 **Implementation**
-- `crates/ysnp-pdf/src/parser.rs`
+- `crates/sis-pdf-pdf/src/parser.rs`
   - Add explicit deviation types for invalid escape sequences and truncated streams.
   - Capture offsets for partial object reads.
-- `crates/ysnp-detectors/src/strict.rs` (new)
+- `crates/sis-pdf-detectors/src/strict.rs` (new)
   - Map deviation types to severity with richer remediation guidance.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Group strict deviations under a dedicated section in Markdown reports.
 
 **Acceptance**
@@ -74,11 +74,11 @@ This roadmap focuses on operational readiness, richer analysis output, and deepe
 - Provide more metadata in YARA and SARIF outputs for traceability.
 
 **Implementation**
-- `crates/ysnp-core/src/yara.rs`
+- `crates/sis-pdf-core/src/yara.rs`
   - Add optional metadata fields for action type, payload type, and confidence.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Include evidence origin spans for decoded evidence in SARIF.
-- `crates/ysnp-core/src/sarif.rs` (new or split from report)
+- `crates/sis-pdf-core/src/sarif.rs` (new or split from report)
   - Separate SARIF generation to a dedicated module for maintainability.
 
 **Acceptance**
@@ -93,10 +93,10 @@ This roadmap focuses on operational readiness, richer analysis output, and deepe
 - Allow scanning a directory of PDFs with summarised output.
 
 **Implementation**
-- `crates/ysnp-cli/src/main.rs`
-  - Add `ysnp scan --path DIR` and `--glob` options.
+- `crates/sis-pdf/src/main.rs`
+  - Add `sis scan --path DIR` and `--glob` options.
   - Aggregate results into a summary report.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Add a batch summary renderer with per-file totals.
 
 **Acceptance**
@@ -111,9 +111,9 @@ This roadmap focuses on operational readiness, richer analysis output, and deepe
 - Grow the fixture set and regression tests for newly added detection logic.
 
 **Implementation**
-- `crates/ysnp-core/tests/fixtures/`
+- `crates/sis-pdf-core/tests/fixtures/`
   - Add fixtures for signatures, encryption, and ObjStm embedded actions.
-- `crates/ysnp-core/tests/golden.rs`
+- `crates/sis-pdf-core/tests/golden.rs`
   - Extend assertions to cover new detectors and strict deviations.
 
 **Acceptance**

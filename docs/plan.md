@@ -1,4 +1,4 @@
-# ysnp Implementation Plan
+# sis-pdf Implementation Plan
 
 This plan covers the remaining items from the spec and the full roadmap in `docs/roadmap.md`. It is ordered by impact and dependency chain, and includes concrete technical changes per crate.
 
@@ -38,17 +38,17 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Attach metadata and JS signals to findings.
 
 **Implementation**
-- `crates/ysnp-pdf/src/decode.rs`
+- `crates/sis-pdf-pdf/src/decode.rs`
   - Add predictor handling (PNG predictor and TIFF predictor) based on `/DecodeParms`.
   - Expose `decode_stream_with_parms(...) -> DecodedStream` returning filters, decoded length, decode ratio, and error status.
-- `crates/ysnp-pdf/src/object.rs`
+- `crates/sis-pdf-pdf/src/object.rs`
   - Extend `PdfStream` to carry optional `decode_parms` parsed from the dict (as raw `PdfObj` list for now).
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - In `JavaScriptDetector`, resolve `/JS` to inline string or stream. For stream, run decode and feed decoded bytes to JS signals.
   - Add meta fields:
     - `js.stream.filters`, `js.stream.decoded`, `js.stream.decode_error`
     - `js.decoded_len`, `js.decode_ratio`
-- `crates/ysnp-core/src/model.rs`
+- `crates/sis-pdf-core/src/model.rs`
   - Add `meta: HashMap<String, String>` to `Finding` (optional). If not adding to model, add `description` details for JS signals.
 
 **Acceptance**
@@ -63,7 +63,7 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Resolve target payloads (string/stream/ref) and attach safe previews.
 
 **Implementation**
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Add a shared resolver helper:
     - `resolve_payload(graph, bytes, obj) -> PayloadInfo` where `PayloadInfo` includes type, bytes, decoded length, and ref chain.
   - In each action detector, attach meta:
@@ -82,10 +82,10 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Add detectors for: `/RichMedia`, `/3D`/`/U3D`/`/PRC`, `/Sound`, `/Movie`, `/Rendition`, `/EmbeddedFile` + `/Filespec` + `/AF`, `/XFA`, `/AcroForm`, `/OCG` triggers.
 
 **Implementation**
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Add new detector structs per action family.
   - Reuse a common helper for finding name keys in dicts and name trees.
-- `crates/ysnp-pdf/src/parser.rs`
+- `crates/sis-pdf-pdf/src/parser.rs`
   - Ensure name tree parsing support (names dictionaries are already parsed as dicts; add traversal helpers).
 
 **Acceptance**
@@ -99,7 +99,7 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Enumerate additional event keys on annotations, form fields, and document catalog AA.
 
 **Implementation**
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Add an `AAEventDetector` that scans for `/AA` dictionaries and enumerates standard event keys.
   - Emit findings with event path (e.g., `Catalog.AA.O`) in `description` or `meta`.
 
@@ -130,11 +130,11 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Cluster chains that share the same trigger/action/payload.
 
 **Implementation**
-- `crates/ysnp-core/src/chain.rs` (new)
+- `crates/sis-pdf-core/src/chain.rs` (new)
   - Define `ExploitChain`, `ChainTemplate`, and cluster key.
-- `crates/ysnp-core/src/chain_synth.rs` (new)
+- `crates/sis-pdf-core/src/chain_synth.rs` (new)
   - Build chains from detectors, create templates, and output instance lists.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Extend report with `chains` and `chain_templates`.
 
 **Acceptance**
@@ -148,11 +148,11 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Add explainable scoring factors for triggers, action class severity, payload obfuscation, structural suspiciousness, exploitability.
 
 **Implementation**
-- `crates/ysnp-core/src/chain_score.rs` (new)
+- `crates/sis-pdf-core/src/chain_score.rs` (new)
   - Implement a weighted scoring function with rationale strings.
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Expand JS signals to include `js.string_concat_density`, `js.escape_density`, `js.regex_packing`, `js.suspicious_apis`.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Surface scoring reasons in output.
 
 **Acceptance**
@@ -166,11 +166,11 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Build canonical chain paths and export per-chain subgraphs.
 
 **Implementation**
-- `crates/ysnp-core/src/chain_render.rs` (new)
+- `crates/sis-pdf-core/src/chain_render.rs` (new)
   - Render canonical chain path text.
-- `crates/ysnp-core/src/graph_export.rs` (new)
+- `crates/sis-pdf-core/src/graph_export.rs` (new)
   - Export chain subgraphs to DOT and JSON.
-- CLI support: `ysnp export-graph --chains-only`.
+- CLI support: `sis export-graph --chains-only`.
 
 **Acceptance**
 - Stable chain path string emitted per chain; optional graph export works.
@@ -195,9 +195,9 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Implement strict parsing mode; record deviations as findings.
 
 **Implementation**
-- `crates/ysnp-pdf/src/parser.rs`
+- `crates/sis-pdf-pdf/src/parser.rs`
   - Add strict mode flag that records invalid constructs.
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Add `strict_parse_deviation` detector that emits findings with byte spans.
 
 **Acceptance**
@@ -208,12 +208,12 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 ### 9) Cross-parser differential mode
 
 **Scope**
-- Compare ysnp parse results with a second parser or external tool (test harness only).
+- Compare sis-pdf parse results with a second parser or external tool (test harness only).
 
 **Implementation**
-- `crates/ysnp-cli/src/main.rs`
+- `crates/sis-pdf/src/main.rs`
   - Add `--diff-parser` flag to run comparison if available.
-- `crates/ysnp-core/src/diff.rs` (new)
+- `crates/sis-pdf-core/src/diff.rs` (new)
   - Compare object counts, refs, stream decode results, action extraction results.
 
 **Acceptance**
@@ -239,7 +239,7 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Token-level stats, suspicious API signatures, optional parse-only AST extraction.
 
 **Implementation**
-- `crates/ysnp-detectors/src/js_signals.rs` (new)
+- `crates/sis-pdf-detectors/src/js_signals.rs` (new)
   - Add token stats, entropy, escape density, API matchers.
 - Optional feature flag for AST parsing (Boa parse-only).
 
@@ -254,9 +254,9 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Magic bytes, hashes, compression ratios, double extensions, encrypted containers.
 
 **Implementation**
-- `crates/ysnp-detectors/src/embedded.rs` (new)
+- `crates/sis-pdf-detectors/src/embedded.rs` (new)
   - Add file type detection and SHA256.
-- `crates/ysnp-cli/src/main.rs`
+- `crates/sis-pdf/src/main.rs`
   - Emit hashes on `extract embedded`.
 
 **Acceptance**
@@ -286,16 +286,16 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Multi-stage pipeline (fast pre-scan, targeted deep scan, full scan), caching, deterministic parallel traversal.
 
 **Implementation**
-- `crates/ysnp-core/src/scan.rs`
+- `crates/sis-pdf-core/src/scan.rs`
   - Add scan stages with object reachability analysis.
-- `crates/ysnp-pdf/src/graph.rs`
+- `crates/sis-pdf-pdf/src/graph.rs`
   - Add name tree cache and object reachability index.
-- `crates/ysnp-core/src/runner.rs`
+- `crates/sis-pdf-core/src/runner.rs`
   - Execute detectors by stage and cost.
 
 **Acceptance**
-- `ysnp scan --fast` finishes without decoding streams.
-- `ysnp scan --focus trigger=openaction` limits to reachable objects.
+- `sis scan --fast` finishes without decoding streams.
+- `sis scan --focus trigger=openaction` limits to reachable objects.
 
 ---
 
@@ -305,7 +305,7 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - JSONL, SARIF, triage summary, graph export.
 
 **Implementation**
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Add JSONL stream writer and SARIF serializer.
 - CLI:
   - `--jsonl`, `--sarif`, `export-graph`.
@@ -321,7 +321,7 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - YAML-based tuning, profiles, allow/deny lists, budgets.
 
 **Implementation**
-- `crates/ysnp-core/src/config.rs` (new)
+- `crates/sis-pdf-core/src/config.rs` (new)
   - Load profiles `interactive`, `ci`, `forensics`.
 - CLI:
   - `--config`, `--profile`.
@@ -418,7 +418,7 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Unit tests, golden tests, fuzzing, performance benchmarks.
 
 **Implementation**
-- `crates/ysnp-pdf/tests/` for xref/objstm edge cases.
+- `crates/sis-pdf-pdf/tests/` for xref/objstm edge cases.
 - `tests/golden/` with expected JSON outputs.
 - `fuzz/` using cargo-fuzz for tokenizer/xref/decoder.
 - `benches/` with criterion.
@@ -434,9 +434,9 @@ This plan covers the remaining items from the spec and the full roadmap in `docs
 - Hard resource budgets and taint tracking.
 
 **Implementation**
-- `crates/ysnp-core/src/scan.rs`
+- `crates/sis-pdf-core/src/scan.rs`
   - Global caps: recursion depth, object count, total decoded bytes.
-- `crates/ysnp-core/src/taint.rs` (new)
+- `crates/sis-pdf-core/src/taint.rs` (new)
   - Propagate taint across chain scoring.
 
 **Acceptance**

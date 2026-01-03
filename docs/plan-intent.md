@@ -61,15 +61,15 @@ Signals:
 - Content index metadata (page number + coords).
 
 ### Where to implement
-- `crates/ysnp-core/src/intent.rs` (new)
+- `crates/sis-pdf-core/src/intent.rs` (new)
   - Build intent signals from findings and optional AST summaries.
   - Generate intent scores and confidence levels.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Render **Intent Summary** at the top of reports.
   - Attach per-finding intent metadata (non-breaking, in `meta` only).
-- `crates/ysnp-core/src/yara.rs`
+- `crates/sis-pdf-core/src/yara.rs`
   - Add intent tags to YARA metadata if present.
-- `crates/ysnp-core/src/sarif.rs`
+- `crates/sis-pdf-core/src/sarif.rs`
   - Add intent info under `properties` if present.
 
 ---
@@ -107,7 +107,7 @@ Signals:
 - Add `intent` in SARIF `properties` for affected findings.
 
 ### 6) Tests and fixtures
-- Add tests under `crates/ysnp-core/tests/intent.rs` with fixtures that exercise:
+- Add tests under `crates/sis-pdf-core/tests/intent.rs` with fixtures that exercise:
   - Exfiltration (URI + submitForm)
   - Sandbox escape (launch + file path)
   - Phishing (content overlay + JS alert)

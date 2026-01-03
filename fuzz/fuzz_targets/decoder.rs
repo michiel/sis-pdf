@@ -2,5 +2,5 @@
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let _ = ysnp_pdf::decode::decode_ascii_hex(data);
+    let _ = sis_pdf_pdf::decode::decode_ascii_hex(data);
 });

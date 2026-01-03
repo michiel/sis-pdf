@@ -1,4 +1,4 @@
-## Roadmap: next upgrades & steps for **ysnp** (PDF security analyzer)
+## Roadmap: next upgrades & steps for **sis-pdf** (PDF security analyzer)
 
 This is a practical “what next” list, ordered by **highest impact first** (accuracy + triage value), with explicit feature buckets. Treat each bullet as a shippable milestone.
 
@@ -182,9 +182,9 @@ Add scoring factors (all explainable):
   * global graph with chain overlays
 * CLI ergonomics:
 
-  * `ysnp scan file.pdf --fast`
-  * `ysnp scan --focus trigger=openaction`
-  * `ysnp export-graph --chains-only`
+  * `sis scan file.pdf --fast`
+  * `sis scan --focus trigger=openaction`
+  * `sis export-graph --chains-only`
 
 ### 14) Rule system / configuration
 

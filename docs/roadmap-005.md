@@ -11,14 +11,14 @@ This roadmap focuses on higher-fidelity analysis, stronger intent inference, and
 - Trace annotation actions with explicit object references for action chains.
 
 **Implementation**
-- `crates/ysnp-core/src/page_tree.rs` (new)
+- `crates/sis-pdf-core/src/page_tree.rs` (new)
   - Traverse `/Pages` → `/Kids` recursively.
   - Track page index and inherited `/MediaBox`, `/Resources`.
-- `crates/ysnp-core/src/content_index.rs`
+- `crates/sis-pdf-core/src/content_index.rs`
   - Use page tree metadata instead of linear object scan.
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Add annotation parent object metadata where available.
-- `crates/ysnp-core/src/chain_synth.rs`
+- `crates/sis-pdf-core/src/chain_synth.rs`
   - Add action chain steps with object references (page → annot → action → payload).
 
 **Acceptance**
@@ -33,13 +33,13 @@ This roadmap focuses on higher-fidelity analysis, stronger intent inference, and
 - Provide short decoded previews tied to origin spans for high-value findings.
 
 **Implementation**
-- `crates/ysnp-core/src/evidence.rs` (new)
+- `crates/sis-pdf-core/src/evidence.rs` (new)
   - Add helpers to capture decoded previews with byte offsets and origin spans.
-- `crates/ysnp-detectors/src/lib.rs`
+- `crates/sis-pdf-detectors/src/lib.rs`
   - Use snapshot helpers for JS, embedded files, and action payloads.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Render decoded previews under **Evidence** for decoded sources.
-- `crates/ysnp-core/src/sarif.rs`
+- `crates/sis-pdf-core/src/sarif.rs`
   - Include preview metadata in `properties` when present.
 
 **Acceptance**
@@ -54,10 +54,10 @@ This roadmap focuses on higher-fidelity analysis, stronger intent inference, and
 - Move beyond call names to capture arguments and URL/domain hints.
 
 **Implementation**
-- `crates/ysnp-detectors/src/js_signals.rs`
+- `crates/sis-pdf-detectors/src/js_signals.rs`
   - Extract call expressions with argument summaries (string literals, URLs).
   - Summarise domains and endpoint types in `js.behaviour_summary`.
-- `crates/ysnp-core/src/intent.rs`
+- `crates/sis-pdf-core/src/intent.rs`
   - Use argument summaries for stronger exfiltration and escape signals.
 
 **Acceptance**
@@ -72,10 +72,10 @@ This roadmap focuses on higher-fidelity analysis, stronger intent inference, and
 - Improve intent inference by weighting signals based on correlation.
 
 **Implementation**
-- `crates/ysnp-core/src/intent.rs`
+- `crates/sis-pdf-core/src/intent.rs`
   - Add correlation boosts (e.g. action + JS + URI → higher score).
   - Reduce weight of isolated structural anomalies in intent buckets.
-- `crates/ysnp-core/src/report.rs`
+- `crates/sis-pdf-core/src/report.rs`
   - Include top contributing signals per bucket in **Intent Details**.
 
 **Acceptance**
@@ -90,10 +90,10 @@ This roadmap focuses on higher-fidelity analysis, stronger intent inference, and
 - Add deterministic tests for parser differentials and exploit primitives.
 
 **Implementation**
-- `crates/ysnp-core/tests/diff.rs` (new)
+- `crates/sis-pdf-core/tests/diff.rs` (new)
   - Fixtures with known parser differentials.
   - Assertions for `parser_object_count_diff` and `parser_trailer_count_diff`.
-- `crates/ysnp-core/src/diff.rs`
+- `crates/sis-pdf-core/src/diff.rs`
   - Expose a stable diff summary model for tests.
 
 **Acceptance**
@@ -108,9 +108,9 @@ This roadmap focuses on higher-fidelity analysis, stronger intent inference, and
 - Improve batch throughput and consistency across large corpora.
 
 **Implementation**
-- `crates/ysnp-core/src/cache.rs` (new)
+- `crates/sis-pdf-core/src/cache.rs` (new)
   - Cache decoded streams and intent summaries by file hash.
-- `crates/ysnp-cli/src/main.rs`
+- `crates/sis-pdf/src/main.rs`
   - Add `--cache-dir` for batch scans.
   - Provide timing stats in batch summary.
 
