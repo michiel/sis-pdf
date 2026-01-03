@@ -362,10 +362,17 @@ impl Detector for AAEventDetector {
                                 "aa.event_key".into(),
                                 String::from_utf8_lossy(&k.decoded).to_string(),
                             );
-                            let evidence = vec![
+                            let mut evidence = vec![
                                 span_to_evidence(k.span, "AA event key"),
                                 span_to_evidence(v.span, "AA event value"),
                             ];
+                            if let Some(details) = resolve_action_details(ctx, v) {
+                                evidence.extend(details.evidence);
+                                meta.extend(details.meta);
+                            }
+                            if let Some(value) = aa_event_value(ctx, v) {
+                                meta.insert("aa.event_value".into(), value);
+                            }
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
@@ -389,6 +396,21 @@ impl Detector for AAEventDetector {
             }
         }
         Ok(findings)
+    }
+}
+
+fn aa_event_value(ctx: &ysnp_core::scan::ScanContext, obj: &ysnp_pdf::object::PdfObj<'_>) -> Option<String> {
+    if let Some(details) = resolve_action_details(ctx, obj) {
+        if let Some(s) = details.meta.get("action.s") {
+            if let Some(t) = details.meta.get("action.target") {
+                return Some(format!("{} {}", s, t));
+            }
+            return Some(s.clone());
+        }
+    }
+    match &obj.atom {
+        PdfAtom::Name(n) => Some(String::from_utf8_lossy(&n.decoded).to_string()),
+        _ => None,
     }
 }
 
