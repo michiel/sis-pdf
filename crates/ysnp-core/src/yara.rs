@@ -137,6 +137,12 @@ fn build_meta(f: &Finding) -> Vec<(String, String)> {
     let mut out = Vec::new();
     out.push(("surface".into(), format!("{:?}", f.surface)));
     out.push(("confidence".into(), format!("{:?}", f.confidence)));
+    if let Some(bucket) = f.meta.get("intent.bucket") {
+        out.push(("intent_bucket".into(), bucket.clone()));
+    }
+    if let Some(conf) = f.meta.get("intent.confidence") {
+        out.push(("intent_confidence".into(), conf.clone()));
+    }
     if let Some(action) = f.meta.get("action.s") {
         out.push(("action_type".into(), action.clone()));
     }

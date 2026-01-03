@@ -10,6 +10,7 @@ pub mod config;
 pub mod taint;
 pub mod yara;
 pub mod graph_walk;
+pub mod intent;
 pub mod model;
 pub mod report;
 pub mod sarif;

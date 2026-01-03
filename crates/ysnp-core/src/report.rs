@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use anyhow::Result;
 
 use crate::chain::{ChainTemplate, ExploitChain};
+use crate::intent::IntentSummary;
 use crate::model::{AttackSurface, Finding, Severity};
 
 #[derive(Debug, serde::Serialize)]
@@ -23,6 +24,7 @@ pub struct Report {
     pub chain_templates: Vec<ChainTemplate>,
     pub yara_rules: Vec<crate::yara::YaraRule>,
     pub input_path: Option<String>,
+    pub intent_summary: Option<IntentSummary>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -43,6 +45,7 @@ impl Report {
         chains: Vec<ExploitChain>,
         chain_templates: Vec<ChainTemplate>,
         yara_rules: Vec<crate::yara::YaraRule>,
+        intent_summary: Option<IntentSummary>,
     ) -> Self {
         let mut grouped: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
         for f in &findings {
@@ -63,6 +66,7 @@ impl Report {
             chain_templates,
             yara_rules,
             input_path: None,
+            intent_summary,
         }
     }
 
@@ -269,6 +273,22 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
 
     if let Some(path) = input_path {
         out.push_str(&format!("- Input: `{}`\n\n", path));
+    }
+
+    if let Some(summary) = &report.intent_summary {
+        if !summary.buckets.is_empty() {
+            out.push_str("## Intent Summary\n\n");
+            for bucket in &summary.buckets {
+                out.push_str(&format!(
+                    "- {}: score={} confidence={:?} findings={}\n",
+                    format!("{:?}", bucket.bucket),
+                    bucket.score,
+                    bucket.confidence,
+                    bucket.findings.len()
+                ));
+            }
+            out.push('\n');
+        }
     }
 
     let strict_findings: Vec<&Finding> = report
