@@ -48,10 +48,10 @@ pub fn extract_js_signals(data: &[u8]) -> HashMap<String, String> {
     out.insert("js.ast_parsed".into(), "false".into());
     #[cfg(feature = "js-ast")]
     {
-        if let Ok(src) = std::str::from_utf8(data) {
-            let mut parser = boa_parser::Parser::new(src);
-            if parser.parse().is_ok() {
-                out.insert("js.ast_parsed".into(), "true".into());
+        if let Some(summary) = ast_behaviour_summary(data) {
+            out.insert("js.ast_parsed".into(), "true".into());
+            if let Some(summary) = summary {
+                out.insert("js.behaviour_summary".into(), summary);
             }
         }
     }
@@ -237,4 +237,98 @@ fn contains_suspicious_api(data: &[u8]) -> bool {
         b"app.mailMsg",
     ];
     apis.iter().any(|pat| find_token(data, pat))
+}
+
+#[cfg(feature = "js-ast")]
+fn ast_behaviour_summary(data: &[u8]) -> Option<Option<String>> {
+    use boa_ast::expression::{Call, Literal};
+    use boa_ast::visitor::{VisitWith, Visitor};
+    use boa_interner::Interner;
+    use boa_parser::{Parser, Source};
+    use std::collections::{BTreeSet, HashMap as Map};
+
+    let src = std::str::from_utf8(data).ok()?;
+    let mut interner = Interner::default();
+    let source = Source::from_bytes(src);
+    let mut parser = Parser::new(source);
+    let script = parser.parse_script(&mut interner).ok()?;
+
+    struct JsAstVisitor<'a> {
+        interner: &'a Interner,
+        calls: Map<String, usize>,
+        urls: BTreeSet<String>,
+    }
+
+    impl<'ast, 'a> Visitor<'ast> for JsAstVisitor<'a> {
+        type BreakTy = ();
+
+        fn visit_call(&mut self, node: &'ast Call) -> std::ops::ControlFlow<Self::BreakTy> {
+            use boa_interner::ToInternedString;
+            let name = node.function().to_interned_string(self.interner);
+            if !name.is_empty() {
+                *self.calls.entry(name).or_insert(0) += 1;
+            }
+            node.visit_with(self)
+        }
+
+        fn visit_literal(&mut self, node: &'ast Literal) -> std::ops::ControlFlow<Self::BreakTy> {
+            if let Literal::String(sym) = node {
+                let value = self
+                    .interner
+                    .resolve_expect(*sym)
+                    .join(|s| s.to_string(), String::from_utf16_lossy, true);
+                if looks_like_url(&value) {
+                    self.urls.insert(value);
+                }
+            }
+            node.visit_with(self)
+        }
+    }
+
+    let mut visitor = JsAstVisitor {
+        interner: &interner,
+        calls: Map::new(),
+        urls: BTreeSet::new(),
+    };
+    let _ = script.visit_with(&mut visitor);
+
+    let mut parts = Vec::new();
+    if !visitor.calls.is_empty() {
+        let mut calls: Vec<_> = visitor.calls.into_iter().collect();
+        calls.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let summary = calls
+            .into_iter()
+            .take(10)
+            .map(|(name, count)| format!("{} ({})", name, count))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !summary.is_empty() {
+            parts.push(format!("Calls: {}", summary));
+        }
+    }
+    if !visitor.urls.is_empty() {
+        let summary = visitor
+            .urls
+            .into_iter()
+            .take(5)
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !summary.is_empty() {
+            parts.push(format!("URLs: {}", summary));
+        }
+    }
+    if parts.is_empty() {
+        Some(None)
+    } else {
+        Some(Some(parts.join("; ")))
+    }
+}
+
+#[cfg(feature = "js-ast")]
+fn looks_like_url(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("mailto:")
+        || lower.starts_with("javascript:")
 }

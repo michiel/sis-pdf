@@ -65,7 +65,7 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
 }
 
 fn parse_xref_table<'a>(bytes: &'a [u8], offset: usize) -> Result<(Option<PdfDict<'a>>, Option<u64>)> {
-    let mut p = Parser::new(bytes, offset);
+    let mut p = Parser::new(bytes, offset, false);
     p.consume_keyword(b"xref");
     // Skip subsection headers and entries, then find "trailer".
     if let Some(pos) = memchr::memmem::find(&bytes[p.position()..], b"trailer") {
@@ -84,7 +84,8 @@ fn parse_xref_stream<'a>(
     bytes: &'a [u8],
     offset: usize,
 ) -> Result<(Option<PdfDict<'a>>, Option<u64>)> {
-    let (entry, _) = parse_indirect_object_at(bytes, offset)?;
+    let (res, _) = parse_indirect_object_at(bytes, offset, false);
+    let (entry, _) = res?;
     match entry.atom {
         PdfAtom::Stream(st) => {
             if st.dict.has_name(b"/Type", b"/XRef") {

@@ -10,6 +10,7 @@ sha2 = "0.10"
 ysnp-core = { path = "../ysnp-core" }
 ysnp-pdf = { path = "../ysnp-pdf" }
 boa_parser = { version = "0.17", optional = true }
+boa_ast = { version = "0.17", optional = true }
 
 [features]
-js-ast = ["boa_parser"]
+js-ast = ["boa_parser", "boa_ast"]

@@ -6,10 +6,21 @@ use crate::object::{PdfAtom, PdfDict, PdfObj};
 use crate::parser::scan_indirect_objects;
 use crate::span::Span;
 use crate::xref::parse_xref_chain;
+use crate::objstm::{expand_objstm, ObjStmExpansion};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ParseOptions {
     pub recover_xref: bool,
+    pub deep: bool,
+    pub strict: bool,
+    pub max_objstm_bytes: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct Deviation {
+    pub kind: String,
+    pub span: Span,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -29,6 +40,8 @@ pub struct ObjectGraph<'a> {
     pub index: HashMap<(u32, u16), Vec<usize>>,
     pub trailers: Vec<PdfDict<'a>>,
     pub startxrefs: Vec<u64>,
+    pub deviations: Vec<Deviation>,
+    pub decoded_buffers: Vec<Vec<u8>>,
 }
 
 impl<'a> ObjectGraph<'a> {
@@ -67,18 +80,26 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
             }
         }
     }
-    let objects = scan_indirect_objects(bytes);
+    let (mut objects, deviations) = scan_indirect_objects(bytes, options.strict);
+    let mut decoded_buffers = Vec::new();
+    if options.deep {
+        let ObjStmExpansion { objects: mut extra, buffers } =
+            expand_objstm(bytes, &objects, options.strict, options.max_objstm_bytes);
+        objects.append(&mut extra);
+        decoded_buffers = buffers;
+    }
     let mut index: HashMap<(u32, u16), Vec<usize>> = HashMap::new();
     for (i, o) in objects.iter().enumerate() {
         index.entry((o.obj, o.gen)).or_default().push(i);
     }
-    let _ = options;
     Ok(ObjectGraph {
         bytes,
         objects,
         index,
         trailers,
         startxrefs,
+        deviations,
+        decoded_buffers,
     })
 }
 

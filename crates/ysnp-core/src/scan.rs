@@ -19,6 +19,8 @@ pub struct ScanOptions {
     pub fast: bool,
     pub focus_trigger: Option<String>,
     pub yara_scope: Option<String>,
+    pub focus_depth: usize,
+    pub strict: bool,
 }
 
 pub struct ScanContext<'a> {

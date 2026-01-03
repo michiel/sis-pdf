@@ -45,6 +45,10 @@ enum Command {
         fast: bool,
         #[arg(long)]
         focus_trigger: Option<String>,
+        #[arg(long, default_value_t = 5)]
+        focus_depth: usize,
+        #[arg(long)]
+        strict: bool,
         #[arg(long, default_value_t = 500_000)]
         max_objects: usize,
         #[arg(long, default_value_t = 64)]
@@ -81,6 +85,8 @@ enum Command {
         max_objects: usize,
         #[arg(long, default_value_t = 64)]
         max_recursion_depth: usize,
+        #[arg(long)]
+        strict: bool,
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
@@ -114,6 +120,8 @@ fn main() -> Result<()> {
             diff_parser,
             fast,
             focus_trigger,
+            focus_depth,
+            strict,
             max_objects,
             max_recursion_depth,
             config,
@@ -134,6 +142,8 @@ fn main() -> Result<()> {
             diff_parser,
             fast,
             focus_trigger,
+            focus_depth,
+            strict,
             max_objects,
             max_recursion_depth,
             config.as_deref(),
@@ -150,6 +160,7 @@ fn main() -> Result<()> {
             diff_parser,
             max_objects,
             max_recursion_depth,
+            strict,
             out,
         } => run_report(
             &pdf,
@@ -160,6 +171,7 @@ fn main() -> Result<()> {
             diff_parser,
             max_objects,
             max_recursion_depth,
+            strict,
             out.as_deref(),
         ),
         Command::ExportGraph {
@@ -192,6 +204,8 @@ fn run_scan(
     diff_parser: bool,
     fast: bool,
     focus_trigger: Option<String>,
+    focus_depth: usize,
+    strict: bool,
     max_objects: usize,
     max_recursion_depth: usize,
     config: Option<&std::path::Path>,
@@ -209,7 +223,9 @@ fn run_scan(
         max_recursion_depth,
         fast,
         focus_trigger,
+        focus_depth,
         yara_scope: Some(yara_scope.to_string()),
+        strict,
     };
     if let Some(path) = config {
         let cfg = ysnp_core::config::Config::load(path)?;
@@ -260,7 +276,9 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         max_recursion_depth: 64,
         fast: false,
         focus_trigger: None,
+        focus_depth: 0,
         yara_scope: None,
+        strict: false,
     };
     let detectors = ysnp_detectors::default_detectors();
     let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
@@ -295,7 +313,15 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
 fn run_extract(kind: &str, pdf: &str, outdir: &PathBuf) -> Result<()> {
     let mmap = mmap_file(pdf)?;
     fs::create_dir_all(outdir)?;
-    let graph = ysnp_pdf::parse_pdf(&mmap, ysnp_pdf::ParseOptions { recover_xref: true })?;
+    let graph = ysnp_pdf::parse_pdf(
+        &mmap,
+        ysnp_pdf::ParseOptions {
+            recover_xref: true,
+            deep: false,
+            strict: false,
+            max_objstm_bytes: 32 * 1024 * 1024,
+        },
+    )?;
     match kind {
         "js" => extract_js(&graph, &mmap, outdir),
         "embedded" => extract_embedded(&graph, &mmap, outdir),
@@ -317,7 +343,9 @@ fn run_export_graph(pdf: &str, chains_only: bool, format: &str, outdir: &PathBuf
         max_recursion_depth: 64,
         fast: false,
         focus_trigger: None,
+        focus_depth: 0,
         yara_scope: None,
+        strict: false,
     };
     let detectors = ysnp_detectors::default_detectors();
     let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
@@ -351,6 +379,7 @@ fn run_report(
     diff_parser: bool,
     max_objects: usize,
     max_recursion_depth: usize,
+    strict: bool,
     out: Option<&std::path::Path>,
 ) -> Result<()> {
     let mmap = mmap_file(pdf)?;
@@ -366,6 +395,8 @@ fn run_report(
         fast: false,
         focus_trigger: None,
         yara_scope: None,
+        focus_depth: 0,
+        strict,
     };
     let detectors = ysnp_detectors::default_detectors();
     let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?

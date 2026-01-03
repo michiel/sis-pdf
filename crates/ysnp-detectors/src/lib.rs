@@ -29,6 +29,7 @@ pub fn default_detectors() -> Vec<Box<dyn Detector>> {
         Box::new(ThreeDDetector),
         Box::new(SoundMovieDetector),
         Box::new(FileSpecDetector),
+        Box::new(CryptoDetector),
         Box::new(XfaDetector),
         Box::new(AcroFormDetector),
         Box::new(OCGDetector),
@@ -36,6 +37,7 @@ pub fn default_detectors() -> Vec<Box<dyn Detector>> {
         Box::new(DecompressionRatioDetector),
         Box::new(HugeImageDetector),
         Box::new(ContentPhishingDetector),
+        Box::new(ContentDeceptionDetector),
         Box::new(StrictParseDeviationDetector),
     ]
 }
@@ -856,6 +858,121 @@ impl Detector for FileSpecDetector {
     }
 }
 
+struct CryptoDetector;
+
+impl Detector for CryptoDetector {
+    fn id(&self) -> &'static str {
+        "crypto_signatures"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::CryptoSignatures
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Cheap
+    }
+    fn run(&self, ctx: &ysnp_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+
+        let mut encrypt_evidence = Vec::new();
+        for trailer in &ctx.graph.trailers {
+            if trailer.get_first(b"/Encrypt").is_some() {
+                encrypt_evidence.push(span_to_evidence(trailer.span, "Trailer /Encrypt"));
+                if encrypt_evidence.len() >= 2 {
+                    break;
+                }
+            }
+        }
+        if !encrypt_evidence.is_empty() {
+            findings.push(Finding {
+                id: String::new(),
+                surface: self.surface(),
+                kind: "encryption_present".into(),
+                severity: Severity::Medium,
+                confidence: Confidence::Probable,
+                title: "Encryption dictionary present".into(),
+                description: "Trailer indicates encrypted content via /Encrypt.".into(),
+                objects: vec!["trailer".into()],
+                evidence: encrypt_evidence,
+                remediation: Some("Decrypt with trusted tooling to inspect all objects.".into()),
+                meta: Default::default(),
+                yara: None,
+            });
+        }
+
+        let mut sig_evidence = Vec::new();
+        let mut sig_meta = std::collections::HashMap::new();
+        for entry in &ctx.graph.objects {
+            if let Some(dict) = entry_dict(entry) {
+                if dict.has_name(b"/Type", b"/Sig") || dict.get_first(b"/ByteRange").is_some() {
+                    sig_evidence.push(span_to_evidence(entry.full_span, "Signature object"));
+                    if sig_meta.get("signature.subfilter").is_none() {
+                        if let Some((_, obj)) = dict.get_first(b"/SubFilter") {
+                            if let PdfAtom::Name(n) = &obj.atom {
+                                sig_meta.insert(
+                                    "signature.subfilter".into(),
+                                    String::from_utf8_lossy(&n.decoded).to_string(),
+                                );
+                            }
+                        }
+                    }
+                    if sig_evidence.len() >= 3 {
+                        break;
+                    }
+                }
+            }
+        }
+        if !sig_evidence.is_empty() {
+            findings.push(Finding {
+                id: String::new(),
+                surface: self.surface(),
+                kind: "signature_present".into(),
+                severity: Severity::Low,
+                confidence: Confidence::Probable,
+                title: "Digital signature present".into(),
+                description: "Signature dictionaries or ByteRange entries detected.".into(),
+                objects: vec!["signature".into()],
+                evidence: sig_evidence,
+                remediation: Some("Validate signature chain and inspect signed content.".into()),
+                meta: sig_meta,
+                yara: None,
+            });
+        }
+
+        let mut dss_evidence = Vec::new();
+        for entry in &ctx.graph.objects {
+            if let Some(dict) = entry_dict(entry) {
+                if dict.get_first(b"/DSS").is_some() || dict.has_name(b"/Type", b"/DSS") {
+                    dss_evidence.push(span_to_evidence(entry.full_span, "DSS object"));
+                    if dss_evidence.len() >= 3 {
+                        break;
+                    }
+                }
+            }
+        }
+        if !dss_evidence.is_empty() {
+            findings.push(Finding {
+                id: String::new(),
+                surface: self.surface(),
+                kind: "dss_present".into(),
+                severity: Severity::Low,
+                confidence: Confidence::Probable,
+                title: "DSS structures present".into(),
+                description: "Document Security Store (DSS) entries detected.".into(),
+                objects: vec!["dss".into()],
+                evidence: dss_evidence,
+                remediation: Some("Inspect DSS for embedded validation material.".into()),
+                meta: Default::default(),
+                yara: None,
+            });
+        }
+
+        Ok(findings)
+    }
+}
+
 struct XfaDetector;
 
 impl Detector for XfaDetector {
@@ -1190,6 +1307,111 @@ impl Detector for ContentPhishingDetector {
     }
 }
 
+struct ContentDeceptionDetector;
+
+impl Detector for ContentDeceptionDetector {
+    fn id(&self) -> &'static str {
+        "content_deception"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::ContentPhishing
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH | Needs::STREAM_DECODE
+    }
+    fn cost(&self) -> Cost {
+        Cost::Moderate
+    }
+    fn run(&self, ctx: &ysnp_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        for entry in &ctx.graph.objects {
+            if let Some(dict) = entry_dict(entry) {
+                if !dict.has_name(b"/Type", b"/Page") {
+                    continue;
+                }
+                let contents = page_contents_streams(ctx, dict);
+                if contents.is_empty() {
+                    continue;
+                }
+                let mut has_text = false;
+                let mut has_image = false;
+                let mut has_invisible_text = false;
+                let mut evidence = vec![span_to_evidence(entry.full_span, "Page object")];
+                for st in contents {
+                    if let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, &st) {
+                        let ops = ysnp_pdf::content::parse_content_ops(&decoded.data);
+                        for op in ops {
+                            match op.op.as_str() {
+                                "BT" | "Tj" | "TJ" | "Tf" => has_text = true,
+                                "Do" => has_image = true,
+                                "Tr" => {
+                                    // Heuristic: look for '3 Tr' (invisible text)
+                                    has_invisible_text = has_invisible_text
+                                        || decoded
+                                            .data
+                                            .windows(4)
+                                            .any(|w| w == b"3 Tr");
+                                }
+                                _ => {}
+                            }
+                        }
+                        evidence.push(span_to_evidence(st.data_span, "Content stream"));
+                    }
+                }
+                if has_image && !has_text {
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: self.surface(),
+                        kind: "content_image_only_page".into(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::Heuristic,
+                        title: "Image-only page".into(),
+                        description: "Page content contains images without detectable text.".into(),
+                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                        evidence: evidence.clone(),
+                        remediation: Some("Review for deceptive overlays or lures.".into()),
+                        meta: Default::default(),
+                        yara: None,
+                    });
+                }
+                if has_invisible_text {
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: self.surface(),
+                        kind: "content_invisible_text".into(),
+                        severity: Severity::Low,
+                        confidence: Confidence::Heuristic,
+                        title: "Invisible text rendering".into(),
+                        description: "Content stream suggests invisible text rendering mode.".into(),
+                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                        evidence: evidence.clone(),
+                        remediation: Some("Inspect for hidden text or overlays.".into()),
+                        meta: Default::default(),
+                        yara: None,
+                    });
+                }
+                if has_image && page_has_uri_annot(ctx, dict) {
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: self.surface(),
+                        kind: "content_overlay_link".into(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::Heuristic,
+                        title: "Potential overlay link".into(),
+                        description: "Page combines image content with URI annotations.".into(),
+                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                        evidence,
+                        remediation: Some("Inspect annotation overlays and link targets.".into()),
+                        meta: Default::default(),
+                        yara: None,
+                    });
+                }
+            }
+        }
+        Ok(findings)
+    }
+}
+
 struct StrictParseDeviationDetector;
 
 impl Detector for StrictParseDeviationDetector {
@@ -1287,7 +1509,36 @@ impl Detector for StrictParseDeviationDetector {
                 }
             }
         }
+        if ctx.options.strict {
+            for dev in &ctx.graph.deviations {
+                let mut description = format!("Strict parser recorded a deviation: {}.", dev.kind);
+                if let Some(note) = &dev.note {
+                    description.push_str(&format!(" {}", note));
+                }
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: self.surface(),
+                    kind: "strict_parse_deviation".into(),
+                    severity: deviation_severity(&dev.kind),
+                    confidence: Confidence::Probable,
+                    title: format!("Strict parser deviation: {}", dev.kind),
+                    description,
+                    objects: vec!["parser".into()],
+                    evidence: vec![span_to_evidence(dev.span, "Parser deviation")],
+                    remediation: Some("Inspect malformed tokens or truncated objects.".into()),
+                    meta: Default::default(),
+                    yara: None,
+                });
+            }
+        }
         Ok(findings)
+    }
+}
+
+fn deviation_severity(kind: &str) -> Severity {
+    match kind {
+        "missing_endobj" | "missing_endstream" | "invalid_number" => Severity::Medium,
+        _ => Severity::Low,
     }
 }
 
@@ -1648,6 +1899,77 @@ fn s_span(s: &ysnp_pdf::object::PdfStr<'_>) -> ysnp_pdf::span::Span {
         ysnp_pdf::object::PdfStr::Literal { span, .. } => *span,
         ysnp_pdf::object::PdfStr::Hex { span, .. } => *span,
     }
+}
+
+fn page_contents_streams<'a>(
+    ctx: &'a ysnp_core::scan::ScanContext,
+    dict: &'a PdfDict<'a>,
+) -> Vec<ysnp_pdf::object::PdfStream<'a>> {
+    let mut out = Vec::new();
+    if let Some((_, obj)) = dict.get_first(b"/Contents") {
+        match &obj.atom {
+            PdfAtom::Stream(st) => out.push(st.clone()),
+            PdfAtom::Ref { .. } => {
+                if let Some(entry) = ctx.graph.resolve_ref(obj) {
+                    if let PdfAtom::Stream(st) = entry.atom {
+                        out.push(st);
+                    }
+                }
+            }
+            PdfAtom::Array(arr) => {
+                for o in arr {
+                    if let PdfAtom::Stream(st) = &o.atom {
+                        out.push(st.clone());
+                    } else if let PdfAtom::Ref { .. } = o.atom {
+                        if let Some(entry) = ctx.graph.resolve_ref(o) {
+                            if let PdfAtom::Stream(st) = entry.atom {
+                                out.push(st);
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn page_has_uri_annot(ctx: &ysnp_core::scan::ScanContext, dict: &PdfDict<'_>) -> bool {
+    if let Some((_, obj)) = dict.get_first(b"/Annots") {
+        match &obj.atom {
+            PdfAtom::Array(arr) => arr.iter().any(|o| annot_has_uri(ctx, o)),
+            PdfAtom::Ref { .. } => annot_has_uri(ctx, obj),
+            _ => false,
+        }
+    } else {
+        false
+    }
+}
+
+fn annot_has_uri(ctx: &ysnp_core::scan::ScanContext, obj: &ysnp_pdf::object::PdfObj<'_>) -> bool {
+    let annot_obj = match &obj.atom {
+        PdfAtom::Dict(_) => obj.clone(),
+        PdfAtom::Ref { .. } => {
+            if let Some(entry) = ctx.graph.resolve_ref(obj) {
+                ysnp_pdf::object::PdfObj {
+                    span: entry.body_span,
+                    atom: entry.atom,
+                }
+            } else {
+                return false;
+            }
+        }
+        _ => return false,
+    };
+    if let PdfAtom::Dict(d) = &annot_obj.atom {
+        if let Some((_, a)) = d.get_first(b"/A") {
+            if let PdfAtom::Dict(ad) = &a.atom {
+                return ad.get_first(b"/URI").is_some();
+            }
+        }
+    }
+    false
 }
 
 fn embedded_filename(dict: &PdfDict<'_>) -> Option<String> {

@@ -3,16 +3,20 @@ use anyhow::{anyhow, Result};
 use crate::lexer::{is_delim, is_whitespace, Cursor};
 use crate::object::{PdfAtom, PdfDict, PdfName, PdfObj, PdfStr, PdfStream};
 use crate::span::Span;
-use crate::graph::ObjEntry;
+use crate::graph::{Deviation, ObjEntry};
 
 pub struct Parser<'a> {
     cur: Cursor<'a>,
+    strict: bool,
+    deviations: Vec<Deviation>,
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(bytes: &'a [u8], pos: usize) -> Self {
+    pub fn new(bytes: &'a [u8], pos: usize, strict: bool) -> Self {
         Self {
             cur: Cursor { bytes, pos },
+            strict,
+            deviations: Vec::new(),
         }
     }
 
@@ -30,6 +34,20 @@ impl<'a> Parser<'a> {
 
     pub fn consume_keyword(&mut self, kw: &[u8]) -> bool {
         self.cur.consume_keyword(kw)
+    }
+
+    pub fn take_deviations(&mut self) -> Vec<Deviation> {
+        std::mem::take(&mut self.deviations)
+    }
+
+    fn record_deviation(&mut self, kind: &str, span: Span, note: Option<String>) {
+        if self.strict {
+            self.deviations.push(Deviation {
+                kind: kind.to_string(),
+                span,
+                note,
+            });
+        }
     }
 
     pub fn parse_object(&mut self) -> Result<PdfObj<'a>> {
@@ -84,7 +102,17 @@ impl<'a> Parser<'a> {
             b'+' | b'-' | b'.' | b'0'..=b'9' => {
                 self.parse_number_or_ref()?
             }
-            _ => return Err(anyhow!("unexpected byte {:x}", b)),
+            _ => {
+                self.record_deviation(
+                    "unexpected_token",
+                    Span {
+                        start: self.cur.pos as u64,
+                        end: (self.cur.pos + 1) as u64,
+                    },
+                    Some(format!("byte=0x{:02x}", b)),
+                );
+                return Err(anyhow!("unexpected byte {:x}", b));
+            }
         };
         let end = self.cur.pos;
         Ok(PdfObj {
@@ -97,13 +125,23 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_number_or_ref(&mut self) -> Result<PdfAtom<'a>> {
-        let (_, num1_str) = self.read_number_token()?;
-        let num1 = parse_number(&num1_str)?;
+        let (num1_span, num1_str) = self.read_number_token()?;
+        let num1 = match parse_number(&num1_str) {
+            Ok(v) => v,
+            Err(e) => {
+                self.record_deviation(
+                    "invalid_number",
+                    num1_span,
+                    Some(num1_str.clone()),
+                );
+                return Err(e);
+            }
+        };
         let after_first = self.cur.pos;
 
         self.cur.skip_ws_and_comments();
         let second_mark = self.cur.mark();
-        if let Ok((_, num2_str)) = self.read_number_token() {
+        if let Ok((num2_span, num2_str)) = self.read_number_token() {
             self.cur.skip_ws_and_comments();
             if self.cur.consume_keyword(b"R") {
                 if let (Some(obj), Some(gen)) = (num1.as_i64(), parse_number(&num2_str)?.as_i64())
@@ -115,6 +153,13 @@ impl<'a> Parser<'a> {
                         });
                     }
                 }
+            }
+            if self.strict && parse_number(&num2_str).is_err() {
+                self.record_deviation(
+                    "invalid_number",
+                    num2_span,
+                    Some(num2_str.clone()),
+                );
             }
         }
         self.cur.restore(second_mark);
@@ -135,6 +180,14 @@ impl<'a> Parser<'a> {
                 break;
             }
             if self.cur.eof() {
+                self.record_deviation(
+                    "unterminated_array",
+                    Span {
+                        start: self.cur.pos as u64,
+                        end: self.cur.pos as u64,
+                    },
+                    None,
+                );
                 break;
             }
             out.push(self.parse_object()?);
@@ -152,6 +205,14 @@ impl<'a> Parser<'a> {
                 break;
             }
             if self.cur.eof() {
+                self.record_deviation(
+                    "unterminated_dict",
+                    Span {
+                        start: start as u64,
+                        end: self.cur.pos as u64,
+                    },
+                    None,
+                );
                 break;
             }
             let name = self.parse_name()?;
@@ -195,6 +256,30 @@ impl<'a> Parser<'a> {
             self.cur.pos += 1;
         }
         let raw_end = self.cur.pos;
+        if self.strict {
+            let raw = &self.cur.bytes[raw_start..raw_end];
+            let mut i = 0usize;
+            while i < raw.len() {
+                if raw[i] == b'#' {
+                    let bad = i + 2 >= raw.len()
+                        || hex_val(raw[i + 1]).is_none()
+                        || hex_val(raw[i + 2]).is_none();
+                    if bad {
+                        self.record_deviation(
+                            "invalid_name_escape",
+                            Span {
+                                start: (raw_start + i) as u64,
+                                end: (raw_start + i + 1).min(raw_end) as u64,
+                            },
+                            None,
+                        );
+                    }
+                    i += 3;
+                    continue;
+                }
+                i += 1;
+            }
+        }
         let raw = &self.cur.bytes[start..raw_end];
         let decoded = decode_name(&self.cur.bytes[raw_start..raw_end]);
         Ok(PdfName {
@@ -212,6 +297,7 @@ impl<'a> Parser<'a> {
         let _ = self.cur.consume();
         let mut depth = 1;
         let mut out = Vec::new();
+        let mut unterminated = false;
         while let Some(b) = self.cur.consume() {
             match b {
                 b'(' => {
@@ -263,7 +349,20 @@ impl<'a> Parser<'a> {
                 _ => out.push(b),
             }
         }
+        if depth != 0 {
+            unterminated = true;
+        }
         let end = self.cur.pos;
+        if unterminated {
+            self.record_deviation(
+                "unterminated_literal_string",
+                Span {
+                    start: start as u64,
+                    end: end as u64,
+                },
+                None,
+            );
+        }
         Ok(PdfStr::Literal {
             span: Span {
                 start: start as u64,
@@ -279,12 +378,18 @@ impl<'a> Parser<'a> {
         let _ = self.cur.consume();
         let mut out = Vec::new();
         let mut buf = Vec::new();
+        let mut saw_end = false;
+        let mut invalid = false;
         while let Some(b) = self.cur.consume() {
             if b == b'>' {
+                saw_end = true;
                 break;
             }
             if is_whitespace(b) {
                 continue;
+            }
+            if hex_val(b).is_none() {
+                invalid = true;
             }
             buf.push(b);
         }
@@ -298,6 +403,36 @@ impl<'a> Parser<'a> {
             i += 2;
         }
         let end = self.cur.pos;
+        if !saw_end {
+            self.record_deviation(
+                "unterminated_hex_string",
+                Span {
+                    start: start as u64,
+                    end: end as u64,
+                },
+                None,
+            );
+        }
+        if invalid {
+            self.record_deviation(
+                "invalid_hex_string",
+                Span {
+                    start: start as u64,
+                    end: end as u64,
+                },
+                None,
+            );
+        }
+        if buf.len() % 2 == 1 {
+            self.record_deviation(
+                "odd_length_hex_string",
+                Span {
+                    start: start as u64,
+                    end: end as u64,
+                },
+                None,
+            );
+        }
         Ok(PdfStr::Hex {
             span: Span {
                 start: start as u64,
@@ -311,23 +446,48 @@ impl<'a> Parser<'a> {
     fn read_number_token(&mut self) -> Result<(Span, String)> {
         let start = self.cur.pos;
         let mut out = Vec::new();
+        let mut dot_count = 0usize;
         if let Some(b) = self.cur.peek() {
             if b == b'+' || b == b'-' || b == b'.' || (b'0'..=b'9').contains(&b) {
                 out.push(b);
+                if b == b'.' {
+                    dot_count += 1;
+                }
                 self.cur.consume();
             } else {
+                self.record_deviation(
+                    "invalid_number_token",
+                    Span {
+                        start: start as u64,
+                        end: (start + 1) as u64,
+                    },
+                    None,
+                );
                 return Err(anyhow!("not a number"));
             }
         }
         while let Some(b) = self.cur.peek() {
             if (b'0'..=b'9').contains(&b) || b == b'.' {
                 out.push(b);
+                if b == b'.' {
+                    dot_count += 1;
+                }
                 self.cur.consume();
             } else {
                 break;
             }
         }
         let end = self.cur.pos;
+        if dot_count > 1 {
+            self.record_deviation(
+                "invalid_number_format",
+                Span {
+                    start: start as u64,
+                    end: end as u64,
+                },
+                None,
+            );
+        }
         Ok((
             Span {
                 start: start as u64,
@@ -368,7 +528,16 @@ impl<'a> Parser<'a> {
             find_endstream(self.cur.bytes, data_start).unwrap_or(self.cur.bytes.len())
         };
         self.cur.pos = data_end;
-        let _ = consume_endstream(self.cur.bytes, &mut self.cur.pos);
+        if !consume_endstream(self.cur.bytes, &mut self.cur.pos) {
+            self.record_deviation(
+                "missing_endstream",
+                Span {
+                    start: data_end as u64,
+                    end: data_end as u64,
+                },
+                None,
+            );
+        }
         Ok(PdfStream {
             dict,
             data_span: Span {
@@ -462,8 +631,10 @@ fn consume_endstream(bytes: &[u8], pos: &mut usize) -> bool {
 pub fn parse_indirect_object_at<'a>(
     bytes: &'a [u8],
     offset: usize,
-) -> Result<(ObjEntry<'a>, usize)> {
-    let mut p = Parser::new(bytes, offset);
+    strict: bool,
+) -> (Result<(ObjEntry<'a>, usize)>, Vec<Deviation>) {
+    let mut p = Parser::new(bytes, offset, strict);
+    let res = (|| -> Result<(ObjEntry<'a>, usize)> {
     p.cur.skip_ws_and_comments();
     let header_start = p.cur.pos;
     let (_, obj_str) = p.read_number_token()?;
@@ -471,6 +642,14 @@ pub fn parse_indirect_object_at<'a>(
     let (_, gen_str) = p.read_number_token()?;
     p.cur.skip_ws_and_comments();
     if !p.cur.consume_keyword(b"obj") {
+        p.record_deviation(
+            "missing_obj_keyword",
+            Span {
+                start: header_start as u64,
+                end: p.cur.pos as u64,
+            },
+            None,
+        );
         return Err(anyhow!("missing obj keyword"));
     }
     let header_end = p.cur.pos;
@@ -482,6 +661,14 @@ pub fn parse_indirect_object_at<'a>(
     let body_end = p.cur.pos;
     p.cur.skip_ws_and_comments();
     if !p.cur.consume_keyword(b"endobj") {
+        p.record_deviation(
+            "missing_endobj",
+            Span {
+                start: p.cur.pos as u64,
+                end: p.cur.pos as u64,
+            },
+            None,
+        );
         if let Some(pos) = memchr::memmem::find(&bytes[p.cur.pos..], b"endobj") {
             p.cur.pos += pos + "endobj".len();
         }
@@ -505,10 +692,14 @@ pub fn parse_indirect_object_at<'a>(
         },
     };
     Ok((entry, full_end))
+    })();
+    let devs = p.take_deviations();
+    (res, devs)
 }
 
-pub fn scan_indirect_objects<'a>(bytes: &'a [u8]) -> Vec<ObjEntry<'a>> {
+pub fn scan_indirect_objects<'a>(bytes: &'a [u8], strict: bool) -> (Vec<ObjEntry<'a>>, Vec<Deviation>) {
     let mut out = Vec::new();
+    let mut deviations = Vec::new();
     let mut i = 0usize;
     while i + 7 < bytes.len() {
         if !bytes[i].is_ascii_digit() {
@@ -516,12 +707,26 @@ pub fn scan_indirect_objects<'a>(bytes: &'a [u8]) -> Vec<ObjEntry<'a>> {
             continue;
         }
         let mark = i;
-        if let Ok((entry, end_pos)) = parse_indirect_object_at(bytes, i) {
+        let (res, mut devs) = parse_indirect_object_at(bytes, i, strict);
+        if strict {
+            deviations.append(&mut devs);
+        }
+        if let Ok((entry, end_pos)) = res {
             out.push(entry);
             i = end_pos;
         } else {
+            if strict {
+                deviations.push(Deviation {
+                    kind: "indirect_object_parse_error".into(),
+                    span: Span {
+                        start: mark as u64,
+                        end: (mark + 1) as u64,
+                    },
+                    note: None,
+                });
+            }
             i = mark + 1;
         }
     }
-    out
+    (out, deviations)
 }

@@ -1,21 +1,39 @@
 use anyhow::Result;
+use std::collections::{HashMap, HashSet};
 
 use crate::model::Finding;
 use crate::report::Report;
 use crate::scan::{DecodedCache, ScanContext, ScanOptions};
-use ysnp_pdf::{parse_pdf, ParseOptions};
+use ysnp_pdf::{parse_pdf, ObjectGraph, ParseOptions};
+use ysnp_pdf::object::{PdfAtom, PdfDict, PdfObj};
+use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
 
 pub fn run_scan_with_detectors(
     bytes: &[u8],
     options: ScanOptions,
     detectors: &[Box<dyn crate::detect::Detector>],
 ) -> Result<Report> {
-    let graph = parse_pdf(bytes, ParseOptions { recover_xref: options.recover_xref })?;
-    let diff_graph = if options.diff_parser {
-        Some(parse_pdf(bytes, ParseOptions { recover_xref: false })?)
-    } else {
-        None
-    };
+    let mut graph = parse_pdf(
+        bytes,
+        ParseOptions {
+            recover_xref: options.recover_xref,
+            deep: options.deep,
+            strict: options.strict,
+            max_objstm_bytes: options.max_decode_bytes,
+        },
+    )?;
+    let mut focus_filtered = false;
+    if let Some(trigger) = options.focus_trigger.as_deref() {
+        let seeds = focus_seeds_for_trigger(&graph, trigger);
+        if !seeds.is_empty() {
+            let adjacency = build_adjacency(&graph.objects);
+            let reachable = reachable_from(&adjacency, &seeds, options.focus_depth);
+            if !reachable.is_empty() {
+                graph = filter_graph_by_refs(&graph, &reachable);
+                focus_filtered = true;
+            }
+        }
+    }
     let ctx = ScanContext {
         bytes,
         graph,
@@ -80,16 +98,18 @@ pub fn run_scan_with_detectors(
         });
     }
 
-    if let Some(ref secondary) = diff_graph {
-        findings.extend(crate::diff::diff_graphs(ctx.bytes, &ctx.graph, secondary));
+    if ctx.options.diff_parser {
+        findings.extend(crate::diff::diff_with_lopdf(ctx.bytes, &ctx.graph));
     }
 
     if let Some(ref trigger) = ctx.options.focus_trigger {
-        let target = map_focus_trigger(trigger);
-        findings.retain(|f| match &target {
-            Some(kind) => &f.kind == kind,
-            None => f.kind.contains(trigger),
-        });
+        if !focus_filtered {
+            let target = map_focus_trigger(trigger);
+            findings.retain(|f| match &target {
+                Some(kind) => &f.kind == kind,
+                None => f.kind.contains(trigger),
+            });
+        }
     }
     for f in &mut findings {
         if f.id.is_empty() {
@@ -128,5 +148,74 @@ fn map_focus_trigger(trigger: &str) -> Option<String> {
         "javascript" | "js" => Some("js_present".into()),
         "uri" => Some("uri_present".into()),
         _ => None,
+    }
+}
+
+fn focus_seeds_for_trigger(graph: &ObjectGraph<'_>, trigger: &str) -> Vec<ObjRef> {
+    let mut seeds = Vec::new();
+    let key = match trigger.to_lowercase().as_str() {
+        "openaction" | "open_action" => b"/OpenAction".as_slice(),
+        "aa" | "aae" | "additional_actions" => b"/AA".as_slice(),
+        _ => return seeds,
+    };
+    for entry in &graph.objects {
+        let dict = match entry_dict(entry) {
+            Some(d) => d,
+            None => continue,
+        };
+        if let Some((_, obj)) = dict.get_first(key) {
+            seeds.push(ObjRef {
+                obj: entry.obj,
+                gen: entry.gen,
+            });
+            collect_refs_from_obj(obj, &mut seeds);
+            if key == b"/AA" {
+                if let PdfAtom::Dict(aa_dict) = &obj.atom {
+                    for (_, v) in &aa_dict.entries {
+                        collect_refs_from_obj(v, &mut seeds);
+                    }
+                }
+            }
+        }
+    }
+    seeds
+}
+
+fn entry_dict<'a>(entry: &'a ysnp_pdf::graph::ObjEntry<'a>) -> Option<&'a PdfDict<'a>> {
+    match &entry.atom {
+        PdfAtom::Dict(d) => Some(d),
+        PdfAtom::Stream(st) => Some(&st.dict),
+        _ => None,
+    }
+}
+
+fn collect_refs_from_obj(obj: &PdfObj<'_>, out: &mut Vec<ObjRef>) {
+    if let PdfAtom::Ref { obj, gen } = obj.atom {
+        out.push(ObjRef { obj, gen });
+    }
+}
+
+fn filter_graph_by_refs<'a>(
+    graph: &ObjectGraph<'a>,
+    keep: &HashSet<ObjRef>,
+) -> ObjectGraph<'a> {
+    let objects: Vec<_> = graph
+        .objects
+        .iter()
+        .filter(|e| keep.contains(&ObjRef { obj: e.obj, gen: e.gen }))
+        .cloned()
+        .collect();
+    let mut index: HashMap<(u32, u16), Vec<usize>> = HashMap::new();
+    for (i, o) in objects.iter().enumerate() {
+        index.entry((o.obj, o.gen)).or_default().push(i);
+    }
+    ObjectGraph {
+        bytes: graph.bytes,
+        objects,
+        index,
+        trailers: graph.trailers.clone(),
+        startxrefs: graph.startxrefs.clone(),
+        deviations: graph.deviations.clone(),
+        decoded_buffers: graph.decoded_buffers.clone(),
     }
 }

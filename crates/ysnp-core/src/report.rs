@@ -284,6 +284,9 @@ fn render_payload_behaviour(f: &Finding) -> Option<String> {
     if f.meta.get("js.obfuscation_suspected").map(|v| v == "true").unwrap_or(false) {
         notes.push("Obfuscation suspected".into());
     }
+    if let Some(summary) = f.meta.get("js.behaviour_summary") {
+        notes.push(format!("Behaviour summary: {}", summary));
+    }
     let ent = f.meta.get("js.entropy").cloned();
     if let Some(ent) = ent {
         notes.push(format!("Entropy {}", ent));
@@ -326,6 +329,18 @@ fn impact_for_finding(f: &Finding) -> String {
         }
         "embedded_file_present" | "filespec_present" => {
             "Embedded files and file specifications can deliver secondary payloads or hidden content."
+                .into()
+        }
+        "signature_present" => {
+            "Digital signatures embed cryptographic structures that can carry additional objects or trust anchors."
+                .into()
+        }
+        "encryption_present" => {
+            "Encrypted documents obscure content and can limit visibility for security tooling."
+                .into()
+        }
+        "dss_present" => {
+            "DSS structures add validation data that may include embedded streams or certificates."
                 .into()
         }
         "richmedia_present" | "3d_present" | "sound_movie_present" => {

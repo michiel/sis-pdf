@@ -1,14 +1,32 @@
 use crate::model::{AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity};
+use std::io::Cursor;
 use ysnp_pdf::ObjectGraph;
 
-pub fn diff_graphs(
-    bytes: &[u8],
-    primary: &ObjectGraph<'_>,
-    secondary: &ObjectGraph<'_>,
-) -> Vec<Finding> {
+pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> Vec<Finding> {
     let evidence = keyword_evidence(bytes, b"startxref", "startxref marker", 3);
     let mut findings = Vec::new();
-    if primary.objects.len() != secondary.objects.len() {
+    let doc = match lopdf::Document::load_from(Cursor::new(bytes)) {
+        Ok(v) => v,
+        Err(err) => {
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::FileStructure,
+                kind: "secondary_parser_failure".into(),
+                severity: Severity::Low,
+                confidence: Confidence::Probable,
+                title: "Secondary parser failed".into(),
+                description: format!("lopdf failed to parse the document: {}", err),
+                objects: vec!["parser".into()],
+                evidence,
+                remediation: Some("Compare with a stricter parser or inspect file integrity.".into()),
+                meta: Default::default(),
+                yara: None,
+            });
+            return findings;
+        }
+    };
+    let secondary_object_count = doc.objects.len();
+    if primary.objects.len() != secondary_object_count {
         findings.push(Finding {
             id: String::new(),
             surface: AttackSurface::FileStructure,
@@ -17,9 +35,9 @@ pub fn diff_graphs(
             confidence: Confidence::Probable,
             title: "Parser object count mismatch".into(),
             description: format!(
-                "Primary parser saw {} objects; secondary parser saw {} objects.",
+                "Primary parser saw {} objects; lopdf saw {} objects.",
                 primary.objects.len(),
-                secondary.objects.len()
+                secondary_object_count
             ),
             objects: vec!["object_graph".into()],
             evidence: evidence.clone(),
@@ -28,7 +46,8 @@ pub fn diff_graphs(
             yara: None,
         });
     }
-    if primary.trailers.len() != secondary.trailers.len() {
+    let secondary_trailer_count = doc.trailer.len();
+    if primary.trailers.len() != secondary_trailer_count {
         findings.push(Finding {
             id: String::new(),
             surface: AttackSurface::XRefTrailer,
@@ -37,33 +56,13 @@ pub fn diff_graphs(
             confidence: Confidence::Probable,
             title: "Parser trailer count mismatch".into(),
             description: format!(
-                "Primary parser saw {} trailers; secondary parser saw {} trailers.",
+                "Primary parser saw {} trailers; lopdf saw {} trailer entries.",
                 primary.trailers.len(),
-                secondary.trailers.len()
+                secondary_trailer_count
             ),
             objects: vec!["xref".into()],
             evidence: evidence.clone(),
             remediation: Some("Inspect xref and trailer sections.".into()),
-            meta: Default::default(),
-            yara: None,
-        });
-    }
-    if primary.startxrefs.len() != secondary.startxrefs.len() {
-        findings.push(Finding {
-            id: String::new(),
-            surface: AttackSurface::XRefTrailer,
-            kind: "parser_startxref_count_diff".into(),
-            severity: Severity::Low,
-            confidence: Confidence::Probable,
-            title: "Parser startxref mismatch".into(),
-            description: format!(
-                "Primary parser found {} startxref markers; secondary parser found {}.",
-                primary.startxrefs.len(),
-                secondary.startxrefs.len()
-            ),
-            objects: vec!["startxref".into()],
-            evidence,
-            remediation: Some("Inspect incremental updates and xref offsets.".into()),
             meta: Default::default(),
             yara: None,
         });
