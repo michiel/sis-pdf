@@ -9,6 +9,8 @@ use ysnp_pdf::object::{PdfAtom, PdfDict};
 use sha2::{Digest, Sha256};
 
 pub mod js_signals;
+pub mod content_phishing;
+pub mod strict;
 
 pub fn default_detectors() -> Vec<Box<dyn Detector>> {
     vec![
@@ -36,9 +38,9 @@ pub fn default_detectors() -> Vec<Box<dyn Detector>> {
         Box::new(DecoderRiskDetector),
         Box::new(DecompressionRatioDetector),
         Box::new(HugeImageDetector),
-        Box::new(ContentPhishingDetector),
-        Box::new(ContentDeceptionDetector),
-        Box::new(StrictParseDeviationDetector),
+        Box::new(content_phishing::ContentPhishingDetector),
+        Box::new(content_phishing::ContentDeceptionDetector),
+        Box::new(strict::StrictParseDeviationDetector),
     ]
 }
 
@@ -1241,308 +1243,7 @@ impl Detector for HugeImageDetector {
     }
 }
 
-struct ContentPhishingDetector;
-
-impl Detector for ContentPhishingDetector {
-    fn id(&self) -> &'static str {
-        "content_phishing"
-    }
-    fn surface(&self) -> AttackSurface {
-        AttackSurface::ContentPhishing
-    }
-    fn needs(&self) -> Needs {
-        Needs::OBJECT_GRAPH
-    }
-    fn cost(&self) -> Cost {
-        Cost::Moderate
-    }
-    fn run(&self, ctx: &ysnp_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let keywords: &[&[u8]] = &[b"invoice", b"secure", b"view document", b"account", b"verify"];
-        let mut has_keyword = false;
-        let mut evidence = Vec::new();
-        for entry in &ctx.graph.objects {
-            for (bytes, span) in extract_strings_with_span(entry) {
-                let lower = bytes.to_ascii_lowercase();
-                if keywords
-                    .iter()
-                    .any(|k| lower.windows(k.len()).any(|w| w == *k))
-                {
-                    has_keyword = true;
-                    evidence.push(span_to_evidence(span, "Phishing-like keyword"));
-                    break;
-                }
-            }
-            if has_keyword {
-                break;
-            }
-        }
-        if !has_keyword {
-            return Ok(Vec::new());
-        }
-        let has_uri = ctx.graph.objects.iter().any(|e| {
-            if let Some(dict) = entry_dict(e) {
-                dict.get_first(b"/URI").is_some()
-            } else {
-                false
-            }
-        });
-        if has_uri {
-            return Ok(vec![Finding {
-                id: String::new(),
-                surface: self.surface(),
-                kind: "content_phishing".into(),
-                severity: Severity::Medium,
-                confidence: Confidence::Heuristic,
-                title: "Potential phishing content".into(),
-                description:
-                    "Detected phishing-like keywords alongside external URI actions.".into(),
-                objects: vec!["content".into()],
-                evidence,
-                remediation: Some("Manually review page content and links.".into()),
-                meta: Default::default(),
-                yara: None,
-            }]);
-        }
-        Ok(Vec::new())
-    }
-}
-
-struct ContentDeceptionDetector;
-
-impl Detector for ContentDeceptionDetector {
-    fn id(&self) -> &'static str {
-        "content_deception"
-    }
-    fn surface(&self) -> AttackSurface {
-        AttackSurface::ContentPhishing
-    }
-    fn needs(&self) -> Needs {
-        Needs::OBJECT_GRAPH | Needs::STREAM_DECODE
-    }
-    fn cost(&self) -> Cost {
-        Cost::Moderate
-    }
-    fn run(&self, ctx: &ysnp_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let mut findings = Vec::new();
-        for entry in &ctx.graph.objects {
-            if let Some(dict) = entry_dict(entry) {
-                if !dict.has_name(b"/Type", b"/Page") {
-                    continue;
-                }
-                let contents = page_contents_streams(ctx, dict);
-                if contents.is_empty() {
-                    continue;
-                }
-                let mut has_text = false;
-                let mut has_image = false;
-                let mut has_invisible_text = false;
-                let mut evidence = vec![span_to_evidence(entry.full_span, "Page object")];
-                for st in contents {
-                    if let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, &st) {
-                        let ops = ysnp_pdf::content::parse_content_ops(&decoded.data);
-                        for op in ops {
-                            match op.op.as_str() {
-                                "BT" | "Tj" | "TJ" | "Tf" => has_text = true,
-                                "Do" => has_image = true,
-                                "Tr" => {
-                                    // Heuristic: look for '3 Tr' (invisible text)
-                                    has_invisible_text = has_invisible_text
-                                        || decoded
-                                            .data
-                                            .windows(4)
-                                            .any(|w| w == b"3 Tr");
-                                }
-                                _ => {}
-                            }
-                        }
-                        evidence.push(span_to_evidence(st.data_span, "Content stream"));
-                    }
-                }
-                if has_image && !has_text {
-                    findings.push(Finding {
-                        id: String::new(),
-                        surface: self.surface(),
-                        kind: "content_image_only_page".into(),
-                        severity: Severity::Medium,
-                        confidence: Confidence::Heuristic,
-                        title: "Image-only page".into(),
-                        description: "Page content contains images without detectable text.".into(),
-                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                        evidence: evidence.clone(),
-                        remediation: Some("Review for deceptive overlays or lures.".into()),
-                        meta: Default::default(),
-                        yara: None,
-                    });
-                }
-                if has_invisible_text {
-                    findings.push(Finding {
-                        id: String::new(),
-                        surface: self.surface(),
-                        kind: "content_invisible_text".into(),
-                        severity: Severity::Low,
-                        confidence: Confidence::Heuristic,
-                        title: "Invisible text rendering".into(),
-                        description: "Content stream suggests invisible text rendering mode.".into(),
-                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                        evidence: evidence.clone(),
-                        remediation: Some("Inspect for hidden text or overlays.".into()),
-                        meta: Default::default(),
-                        yara: None,
-                    });
-                }
-                if has_image && page_has_uri_annot(ctx, dict) {
-                    findings.push(Finding {
-                        id: String::new(),
-                        surface: self.surface(),
-                        kind: "content_overlay_link".into(),
-                        severity: Severity::Medium,
-                        confidence: Confidence::Heuristic,
-                        title: "Potential overlay link".into(),
-                        description: "Page combines image content with URI annotations.".into(),
-                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                        evidence,
-                        remediation: Some("Inspect annotation overlays and link targets.".into()),
-                        meta: Default::default(),
-                        yara: None,
-                    });
-                }
-            }
-        }
-        Ok(findings)
-    }
-}
-
-struct StrictParseDeviationDetector;
-
-impl Detector for StrictParseDeviationDetector {
-    fn id(&self) -> &'static str {
-        "strict_parse_deviation"
-    }
-    fn surface(&self) -> AttackSurface {
-        AttackSurface::FileStructure
-    }
-    fn needs(&self) -> Needs {
-        Needs::OBJECT_GRAPH
-    }
-    fn cost(&self) -> Cost {
-        Cost::Moderate
-    }
-    fn run(&self, ctx: &ysnp_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let mut findings = Vec::new();
-        if !ctx.bytes.starts_with(b"%PDF-") {
-            findings.push(Finding {
-                id: String::new(),
-                surface: self.surface(),
-                kind: "missing_pdf_header".into(),
-                severity: Severity::Low,
-                confidence: Confidence::Probable,
-                title: "Missing PDF header".into(),
-                description: "PDF header not found at start of file.".into(),
-                objects: vec!["header".into()],
-                evidence: vec![ysnp_core::model::EvidenceSpan {
-                    source: ysnp_core::model::EvidenceSource::File,
-                    offset: 0,
-                    length: 8.min(ctx.bytes.len() as u32),
-                    origin: None,
-                    note: Some("File start".into()),
-                }],
-                remediation: Some("Verify file type and parser tolerance.".into()),
-                meta: Default::default(),
-                yara: None,
-            });
-        }
-        let tail = if ctx.bytes.len() > 1024 {
-            &ctx.bytes[ctx.bytes.len() - 1024..]
-        } else {
-            ctx.bytes
-        };
-        if !tail.windows(5).any(|w| w == b"%%EOF") {
-            findings.push(Finding {
-                id: String::new(),
-                surface: self.surface(),
-                kind: "missing_eof_marker".into(),
-                severity: Severity::Low,
-                confidence: Confidence::Probable,
-                title: "Missing EOF marker".into(),
-                description: "EOF marker not found near end of file.".into(),
-                objects: vec!["eof".into()],
-                evidence: vec![ysnp_core::model::EvidenceSpan {
-                    source: ysnp_core::model::EvidenceSource::File,
-                    offset: ctx.bytes.len().saturating_sub(1024) as u64,
-                    length: tail.len().min(u32::MAX as usize) as u32,
-                    origin: None,
-                    note: Some("File tail".into()),
-                }],
-                remediation: Some("Check for truncated or malformed file.".into()),
-                meta: Default::default(),
-                yara: None,
-            });
-        }
-        for entry in &ctx.graph.objects {
-            if let PdfAtom::Stream(st) = &entry.atom {
-                if let Some((_, len_obj)) = st.dict.get_first(b"/Length") {
-                    if let PdfAtom::Int(i) = len_obj.atom {
-                        let declared = i.max(0) as u64;
-                        let actual = st.data_span.len();
-                        if declared != actual {
-                            findings.push(Finding {
-                                id: String::new(),
-                                surface: self.surface(),
-                                kind: "stream_length_mismatch".into(),
-                                severity: Severity::Medium,
-                                confidence: Confidence::Probable,
-                                title: "Stream length mismatch".into(),
-                                description: format!(
-                                    "Stream length mismatch: declared {} bytes, actual {} bytes.",
-                                    declared, actual
-                                ),
-                                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                                evidence: vec![span_to_evidence(st.data_span, "Stream data span")],
-                                remediation: Some(
-                                    "Inspect stream boundaries and filters for tampering.".into(),
-                                ),
-                                meta: Default::default(),
-                                yara: None,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        if ctx.options.strict {
-            for dev in &ctx.graph.deviations {
-                let mut description = format!("Strict parser recorded a deviation: {}.", dev.kind);
-                if let Some(note) = &dev.note {
-                    description.push_str(&format!(" {}", note));
-                }
-                findings.push(Finding {
-                    id: String::new(),
-                    surface: self.surface(),
-                    kind: "strict_parse_deviation".into(),
-                    severity: deviation_severity(&dev.kind),
-                    confidence: Confidence::Probable,
-                    title: format!("Strict parser deviation: {}", dev.kind),
-                    description,
-                    objects: vec!["parser".into()],
-                    evidence: vec![span_to_evidence(dev.span, "Parser deviation")],
-                    remediation: Some("Inspect malformed tokens or truncated objects.".into()),
-                    meta: Default::default(),
-                    yara: None,
-                });
-            }
-        }
-        Ok(findings)
-    }
-}
-
-fn deviation_severity(kind: &str) -> Severity {
-    match kind {
-        "missing_endobj" | "missing_endstream" | "invalid_number" => Severity::Medium,
-        _ => Severity::Low,
-    }
-}
-
-fn entry_dict<'a>(entry: &'a ObjEntry<'a>) -> Option<&'a PdfDict<'a>> {
+pub(crate) fn entry_dict<'a>(entry: &'a ObjEntry<'a>) -> Option<&'a PdfDict<'a>> {
     match &entry.atom {
         PdfAtom::Dict(d) => Some(d),
         PdfAtom::Stream(st) => Some(&st.dict),
@@ -1596,7 +1297,9 @@ fn dict_int(dict: &PdfDict<'_>, key: &[u8]) -> Option<u32> {
     }
 }
 
-fn extract_strings_with_span(entry: &ObjEntry<'_>) -> Vec<(Vec<u8>, ysnp_pdf::span::Span)> {
+pub(crate) fn extract_strings_with_span(
+    entry: &ObjEntry<'_>,
+) -> Vec<(Vec<u8>, ysnp_pdf::span::Span)> {
     let mut out = Vec::new();
     match &entry.atom {
         PdfAtom::Str(s) => out.push((string_bytes(s), s_span(s))),
@@ -1901,41 +1604,10 @@ fn s_span(s: &ysnp_pdf::object::PdfStr<'_>) -> ysnp_pdf::span::Span {
     }
 }
 
-fn page_contents_streams<'a>(
-    ctx: &'a ysnp_core::scan::ScanContext,
-    dict: &'a PdfDict<'a>,
-) -> Vec<ysnp_pdf::object::PdfStream<'a>> {
-    let mut out = Vec::new();
-    if let Some((_, obj)) = dict.get_first(b"/Contents") {
-        match &obj.atom {
-            PdfAtom::Stream(st) => out.push(st.clone()),
-            PdfAtom::Ref { .. } => {
-                if let Some(entry) = ctx.graph.resolve_ref(obj) {
-                    if let PdfAtom::Stream(st) = entry.atom {
-                        out.push(st);
-                    }
-                }
-            }
-            PdfAtom::Array(arr) => {
-                for o in arr {
-                    if let PdfAtom::Stream(st) = &o.atom {
-                        out.push(st.clone());
-                    } else if let PdfAtom::Ref { .. } = o.atom {
-                        if let Some(entry) = ctx.graph.resolve_ref(o) {
-                            if let PdfAtom::Stream(st) = entry.atom {
-                                out.push(st);
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    out
-}
-
-fn page_has_uri_annot(ctx: &ysnp_core::scan::ScanContext, dict: &PdfDict<'_>) -> bool {
+pub(crate) fn page_has_uri_annot(
+    ctx: &ysnp_core::scan::ScanContext,
+    dict: &PdfDict<'_>,
+) -> bool {
     if let Some((_, obj)) = dict.get_first(b"/Annots") {
         match &obj.atom {
             PdfAtom::Array(arr) => arr.iter().any(|o| annot_has_uri(ctx, o)),
@@ -1947,7 +1619,10 @@ fn page_has_uri_annot(ctx: &ysnp_core::scan::ScanContext, dict: &PdfDict<'_>) ->
     }
 }
 
-fn annot_has_uri(ctx: &ysnp_core::scan::ScanContext, obj: &ysnp_pdf::object::PdfObj<'_>) -> bool {
+pub(crate) fn annot_has_uri(
+    ctx: &ysnp_core::scan::ScanContext,
+    obj: &ysnp_pdf::object::PdfObj<'_>,
+) -> bool {
     let annot_obj = match &obj.atom {
         PdfAtom::Dict(_) => obj.clone(),
         PdfAtom::Ref { .. } => {

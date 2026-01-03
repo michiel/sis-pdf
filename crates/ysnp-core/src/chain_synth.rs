@@ -23,9 +23,22 @@ pub fn synthesise_chains(findings: &[Finding]) -> (Vec<ExploitChain>, Vec<ChainT
     let mut chains = Vec::new();
     for f in findings {
         let trigger = trigger_from_kind(&f.kind);
-        let action = action_from_kind(&f.kind);
+        let action = f
+            .meta
+            .get("action.s")
+            .cloned()
+            .or_else(|| action_from_kind(&f.kind));
         let payload = payload_from_finding(f);
         let mut notes = HashMap::new();
+        if let Some(action_type) = f.meta.get("action.s") {
+            notes.insert("action.type".into(), action_type.clone());
+        }
+        if let Some(action_target) = f.meta.get("action.target") {
+            notes.insert("action.target".into(), action_target.clone());
+        }
+        if let Some(payload_type) = f.meta.get("payload.type") {
+            notes.insert("payload.type".into(), payload_type.clone());
+        }
         for (k, v) in &f.meta {
             if k.starts_with("js.") || k.starts_with("payload.") {
                 notes.insert(k.clone(), v.clone());

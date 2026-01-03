@@ -3,8 +3,10 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
+use globset::Glob;
 use memmap2::Mmap;
 use sha2::{Digest, Sha256};
+use walkdir::WalkDir;
 
 #[derive(Parser)]
 #[command(name = "ysnp")]
@@ -16,7 +18,12 @@ struct Args {
 #[derive(Subcommand)]
 enum Command {
     Scan {
-        pdf: String,
+        #[arg(value_name = "PDF", required_unless_present = "path")]
+        pdf: Option<String>,
+        #[arg(long)]
+        path: Option<PathBuf>,
+        #[arg(long, default_value = "*.pdf")]
+        glob: String,
         #[arg(long)]
         deep: bool,
         #[arg(long, default_value_t = 32 * 1024 * 1024)]
@@ -106,6 +113,8 @@ fn main() -> Result<()> {
     match args.command {
         Command::Scan {
             pdf,
+            path,
+            glob,
             deep,
             max_decode_bytes,
             max_total_decoded_bytes,
@@ -127,7 +136,9 @@ fn main() -> Result<()> {
             config,
             profile,
         } => run_scan(
-            &pdf,
+            pdf.as_deref(),
+            path.as_deref(),
+            &glob,
             deep,
             max_decode_bytes,
             max_total_decoded_bytes,
@@ -189,7 +200,9 @@ fn mmap_file(path: &str) -> Result<Mmap> {
 }
 
 fn run_scan(
-    pdf: &str,
+    pdf: Option<&str>,
+    path: Option<&std::path::Path>,
+    glob: &str,
     deep: bool,
     max_decode_bytes: usize,
     max_total_decoded_bytes: usize,
@@ -211,7 +224,9 @@ fn run_scan(
     config: Option<&std::path::Path>,
     profile: Option<&str>,
 ) -> Result<()> {
-    let mmap = mmap_file(pdf)?;
+    if path.is_some() && pdf.is_some() {
+        return Err(anyhow!("provide either a PDF path or --path, not both"));
+    }
     let mut opts = ysnp_core::scan::ScanOptions {
         deep,
         max_decode_bytes,
@@ -232,8 +247,22 @@ fn run_scan(
         cfg.apply(&mut opts, profile);
     }
     let detectors = ysnp_detectors::default_detectors();
-    let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
-        .with_input_path(Some(pdf.to_string()));
+    if let Some(dir) = path {
+        return run_scan_batch(
+            dir,
+            glob,
+            opts,
+            &detectors,
+            json,
+            jsonl,
+            sarif,
+            sarif_out,
+            yara,
+            yara_out,
+        );
+    }
+    let pdf = pdf.ok_or_else(|| anyhow!("PDF path is required unless --path is set"))?;
+    let report = run_scan_single(pdf, &opts, &detectors)?;
     let want_sarif = sarif || sarif_out.is_some();
     let want_yara = yara || yara_out.is_some();
     if json {
@@ -241,7 +270,7 @@ fn run_scan(
     } else if jsonl {
         ysnp_core::report::print_jsonl(&report)?;
     } else if want_sarif {
-        let v = ysnp_core::report::to_sarif(&report, Some(pdf));
+        let v = ysnp_core::sarif::to_sarif(&report, Some(pdf));
         let data = serde_json::to_string_pretty(&v)?;
         if let Some(path) = sarif_out {
             fs::write(path, data)?;
@@ -260,6 +289,88 @@ fn run_scan(
             println!("{}", rules);
         }
     }
+    Ok(())
+}
+
+fn run_scan_single(
+    pdf: &str,
+    opts: &ysnp_core::scan::ScanOptions,
+    detectors: &[Box<dyn ysnp_core::detect::Detector>],
+) -> Result<ysnp_core::report::Report> {
+    let mmap = mmap_file(pdf)?;
+    let report = ysnp_core::runner::run_scan_with_detectors(&mmap, opts.clone(), detectors)?
+        .with_input_path(Some(pdf.to_string()));
+    Ok(report)
+}
+
+fn run_scan_batch(
+    dir: &std::path::Path,
+    glob: &str,
+    opts: ysnp_core::scan::ScanOptions,
+    detectors: &[Box<dyn ysnp_core::detect::Detector>],
+    json: bool,
+    jsonl: bool,
+    sarif: bool,
+    sarif_out: Option<&std::path::Path>,
+    yara: bool,
+    yara_out: Option<&std::path::Path>,
+) -> Result<()> {
+    if sarif || sarif_out.is_some() {
+        return Err(anyhow!("SARIF output is not supported for batch scans"));
+    }
+    if yara || yara_out.is_some() {
+        return Err(anyhow!("YARA output is not supported for batch scans"));
+    }
+    let matcher = Glob::new(glob)?.compile_matcher();
+    let mut entries = Vec::new();
+    let mut summary = ysnp_core::report::Summary {
+        total: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+        info: 0,
+    };
+    let iter = if dir.is_file() {
+        WalkDir::new(dir.parent().unwrap_or(dir))
+    } else {
+        WalkDir::new(dir)
+    };
+    for entry in iter.into_iter().filter_map(Result::ok) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if !matcher.is_match(path) {
+            continue;
+        }
+        let path_str = path.display().to_string();
+        let report = run_scan_single(&path_str, &opts, detectors)?;
+        summary.total += report.summary.total;
+        summary.high += report.summary.high;
+        summary.medium += report.summary.medium;
+        summary.low += report.summary.low;
+        summary.info += report.summary.info;
+        entries.push(ysnp_core::report::BatchEntry {
+            path: path_str,
+            summary: report.summary,
+        });
+    }
+    if entries.is_empty() {
+        return Err(anyhow!("no files matched {} in {}", glob, dir.display()));
+    }
+    let batch = ysnp_core::report::BatchReport { summary, entries };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&batch)?);
+        return Ok(());
+    }
+    if jsonl {
+        for entry in &batch.entries {
+            println!("{}", serde_json::to_string(entry)?);
+        }
+        return Ok(());
+    }
+    let md = ysnp_core::report::render_batch_markdown(&batch);
+    println!("{}", md);
     Ok(())
 }
 

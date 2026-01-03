@@ -312,6 +312,7 @@ impl<'a> Parser<'a> {
                     out.push(b);
                 }
                 b'\\' => {
+                    let esc_pos = self.cur.pos.saturating_sub(1);
                     if let Some(next) = self.cur.consume() {
                         match next {
                             b'n' => out.push(b'\n'),
@@ -342,7 +343,17 @@ impl<'a> Parser<'a> {
                                     .fold(0u8, |acc, d| acc * 8 + (d - b'0'));
                                 out.push(val);
                             }
-                            other => out.push(other),
+                            other => {
+                                self.record_deviation(
+                                    "invalid_escape_sequence",
+                                    Span {
+                                        start: esc_pos as u64,
+                                        end: (esc_pos + 2).min(self.cur.bytes.len()) as u64,
+                                    },
+                                    None,
+                                );
+                                out.push(other);
+                            }
                         }
                     }
                 }
@@ -523,6 +534,16 @@ impl<'a> Parser<'a> {
         let length = stream_length_from_dict(&dict);
         let data_end = if let Some(len) = length {
             let end = data_start.saturating_add(len as usize);
+            if end > self.cur.bytes.len() {
+                self.record_deviation(
+                    "truncated_stream_data",
+                    Span {
+                        start: data_start as u64,
+                        end: self.cur.bytes.len() as u64,
+                    },
+                    None,
+                );
+            }
             end.min(self.cur.bytes.len())
         } else {
             find_endstream(self.cur.bytes, data_start).unwrap_or(self.cur.bytes.len())

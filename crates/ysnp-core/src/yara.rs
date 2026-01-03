@@ -7,6 +7,7 @@ pub struct YaraRule {
     pub strings: Vec<(String, String)>,
     pub condition: String,
     pub namespace: Option<String>,
+    pub meta: Vec<(String, String)>,
 }
 
 pub fn annotate_findings(findings: &mut [Finding], scope: Option<&str>) -> Vec<YaraRule> {
@@ -38,6 +39,12 @@ pub fn render_rules(rules: &[YaraRule]) -> String {
             format!(" : {}", rule.tags.join(" "))
         };
         out.push_str(&format!("rule {}{} {{\n", rule.name, tags));
+        if !rule.meta.is_empty() {
+            out.push_str("  meta:\n");
+            for (k, v) in &rule.meta {
+                out.push_str(&format!("    {} = \"{}\"\n", k, escape_yara_string(v)));
+            }
+        }
         if !rule.strings.is_empty() {
             out.push_str("  strings:\n");
             for (id, val) in &rule.strings {
@@ -94,6 +101,7 @@ fn rule_for_finding(f: &Finding) -> Option<YaraRule> {
         strings,
         condition: "any of them".into(),
         namespace: Some("ysnp".into()),
+        meta: build_meta(f),
     })
 }
 
@@ -121,6 +129,19 @@ fn build_strings(f: &Finding) -> Vec<(String, String)> {
     for (idx, v) in vals.into_iter().enumerate().take(6) {
         let id = format!("$s{}", idx + 1);
         out.push((id, escape_yara_string(&v)));
+    }
+    out
+}
+
+fn build_meta(f: &Finding) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    out.push(("surface".into(), format!("{:?}", f.surface)));
+    out.push(("confidence".into(), format!("{:?}", f.confidence)));
+    if let Some(action) = f.meta.get("action.s") {
+        out.push(("action_type".into(), action.clone()));
+    }
+    if let Some(payload) = f.meta.get("payload.type") {
+        out.push(("payload_type".into(), payload.clone()));
     }
     out
 }

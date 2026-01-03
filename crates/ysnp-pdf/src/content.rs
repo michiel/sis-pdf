@@ -1,13 +1,21 @@
 use crate::span::Span;
 
 #[derive(Debug, Clone)]
+pub enum ContentOperand {
+    Number(f32),
+    Name(String),
+}
+
+#[derive(Debug, Clone)]
 pub struct ContentOp {
     pub op: String,
+    pub operands: Vec<ContentOperand>,
     pub span: Span,
 }
 
 pub fn parse_content_ops(bytes: &[u8]) -> Vec<ContentOp> {
     let mut ops = Vec::new();
+    let mut operands: Vec<ContentOperand> = Vec::new();
     let mut i = 0usize;
     while i < bytes.len() {
         while i < bytes.len() && bytes[i].is_ascii_whitespace() {
@@ -25,11 +33,18 @@ pub fn parse_content_ops(bytes: &[u8]) -> Vec<ContentOp> {
             let op = String::from_utf8_lossy(tok).to_string();
             ops.push(ContentOp {
                 op,
+                operands: std::mem::take(&mut operands),
                 span: Span {
                     start: start as u64,
                     end: i as u64,
                 },
             });
+        } else if tok.starts_with(b"/") {
+            operands.push(ContentOperand::Name(
+                String::from_utf8_lossy(tok).to_string(),
+            ));
+        } else if let Some(val) = parse_number(tok) {
+            operands.push(ContentOperand::Number(val));
         }
     }
     ops
@@ -41,4 +56,9 @@ fn is_operator(tok: &[u8]) -> bool {
         b"q" | b"Q" | b"cm" | b"Do" | b"BT" | b"ET" | b"Tf" | b"Tj" | b"TJ" | b"Td" | b"Tm"
             | b"Tr" | b"re" | b"W" | b"W*"
     )
+}
+
+fn parse_number(tok: &[u8]) -> Option<f32> {
+    let s = std::str::from_utf8(tok).ok()?;
+    s.parse::<f32>().ok()
 }

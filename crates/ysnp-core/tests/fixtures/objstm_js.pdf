@@ -1,0 +1,16 @@
+%PDF-1.4
+1 0 obj
+<< /Type /ObjStm /N 1 /First 4 /Length 43 >>
+stream
+5 0 << /S /JavaScript /JS (app.alert(1)) >>
+endstream
+endobj
+xref
+0 2
+0000000000 65535 f 
+0000000010 00000 n 
+trailer
+<< /Size 2 >>
+startxref
+0000000130
+%%EOF

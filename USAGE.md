@@ -212,6 +212,18 @@ Expected result:
 - Never execute extracted payloads; treat everything as untrusted.
 - For long-running analyses, prefer JSON output and post-process in separate tools.
 
+Batch scans across a directory:
+
+```
+cargo run -p ysnp-cli --bin ysnp -- scan --path samples --glob \"*.pdf\"
+```
+
+Batch scan JSON summary:
+
+```
+cargo run -p ysnp-cli --bin ysnp -- scan --path samples --glob \"*.pdf\" --json
+```
+
 Configuration-based scans:
 
 ```
