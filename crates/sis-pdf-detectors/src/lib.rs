@@ -20,6 +20,10 @@ pub mod page_tree_anomalies;
 pub mod js_polymorphic;
 pub mod evasion_time;
 pub mod evasion_env;
+pub mod supply_chain;
+pub mod advanced_crypto;
+pub mod multi_stage;
+pub mod quantum_risk;
 #[cfg(feature = "js-sandbox")]
 pub mod js_sandbox;
 
@@ -38,6 +42,10 @@ pub fn default_detectors() -> Vec<Box<dyn Detector>> {
         Box::new(js_polymorphic::JsPolymorphicDetector),
         Box::new(evasion_time::TimingEvasionDetector),
         Box::new(evasion_env::EnvProbeDetector),
+        Box::new(supply_chain::SupplyChainDetector),
+        Box::new(advanced_crypto::AdvancedCryptoDetector),
+        Box::new(multi_stage::MultiStageDetector),
+        Box::new(quantum_risk::QuantumRiskDetector),
         Box::new(LaunchActionDetector),
         Box::new(GoToRDetector),
         Box::new(UriDetector),
@@ -1658,12 +1666,12 @@ struct PayloadEnrichment {
     meta: std::collections::HashMap<String, String>,
 }
 
-struct ActionDetails {
-    evidence: Vec<sis_pdf_core::model::EvidenceSpan>,
-    meta: std::collections::HashMap<String, String>,
+pub(crate) struct ActionDetails {
+    pub evidence: Vec<sis_pdf_core::model::EvidenceSpan>,
+    pub meta: std::collections::HashMap<String, String>,
 }
 
-fn resolve_action_details(
+pub(crate) fn resolve_action_details(
     ctx: &sis_pdf_core::scan::ScanContext,
     obj: &sis_pdf_pdf::object::PdfObj<'_>,
 ) -> Option<ActionDetails> {

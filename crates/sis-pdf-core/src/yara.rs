@@ -152,7 +152,7 @@ fn build_meta(f: &Finding) -> Vec<(String, String)> {
     out
 }
 
-fn escape_yara_string(s: &str) -> String {
+pub(crate) fn escape_yara_string(s: &str) -> String {
     let mut out = String::new();
     for ch in s.chars().take(128) {
         match ch {

@@ -1,6 +1,6 @@
 # sis-pdf Usage
 
-This guide shows end-to-end workflows with concrete commands and suggested analysis steps. All commands assume you run from the repository root.
+This guide shows end-to-end workflows with concrete commands and suggested analysis steps. All commands assume you run the `sis` binary in your executable path.
 
 ## 1) Triage scan (fast, default)
 
@@ -267,7 +267,13 @@ sis scan suspicious.pdf --yara --yara-scope all
 JavaScript AST summaries (feature build):
 
 ```
-sis scan suspicious.pdf
+cargo run -p sis-pdf --features js-ast --bin sis -- scan suspicious.pdf
+```
+
+Optional JavaScript sandbox execution (feature build):
+
+```
+cargo run -p sis-pdf --features js-sandbox --bin sis -- scan suspicious.pdf --deep
 ```
 
 Report example with strict parsing and differential parsing:
@@ -287,6 +293,7 @@ sis scan suspicious.pdf --ml --ml-model-dir models --ml-threshold 0.9
 Notes:
 - `--ml-model-dir` can point to a directory containing `stacking.json`, `model.json`, or `ml.json`.
 - The ML score adds a `ml_malware_score_high` finding when it exceeds the threshold.
+- Adversarial checks add `ml_adversarial_suspected` when feature profiles look manipulated.
 
 ## 13) Export features for datasets
 
@@ -302,13 +309,130 @@ CSV feature export:
 sis export-features --path samples --glob "*.pdf" --format csv -o features.csv
 ```
 
-## 14) Troubleshooting
+## 14) Advanced detectors (supply chain, crypto, multi-stage, quantum)
+
+These detectors run automatically during `sis scan` and surface the following finding kinds:
+- `supply_chain_staged_payload`, `supply_chain_update_vector`, `supply_chain_persistence`
+- `crypto_weak_algo`, `crypto_cert_anomaly`, `crypto_mining_js`
+- `multi_stage_attack_chain`
+- `quantum_vulnerable_crypto`
+
+Example triage:
+
+```
+sis scan suspicious.pdf --json
+```
+
+## 15) Stream analysis (CLI)
+
+```
+sis stream-analyze suspicious.pdf --chunk-size 65536 --max-buffer 262144
+```
+
+## 16) Campaign correlation (CLI)
+
+Provide JSONL with fields `path` and `url`:
+
+```
+cat > intents.jsonl <<'JSONL'
+{"path":"sample_a.pdf","url":"http://example.com/c2"}
+{"path":"sample_b.pdf","url":"http://example.com/c2"}
+JSONL
+
+sis campaign-correlate --input intents.jsonl -o campaigns.json
+```
+
+## 17) Response generation (CLI)
+
+```
+sis response-generate --kind js_present -o response_rules.yar
+```
+
+## 18) Mutation testing (CLI)
+
+```
+sis mutate suspicious.pdf -o tmp/mutants
+```
+
+## 19) Red-team simulation (CLI)
+
+```
+sis red-team --target js_present -o tmp/redteam.pdf
+```
+
+## 20) Stream analysis (library API)
+
+The stream analyzer is a library helper for gateway-style streaming inspection.
+
+```rust
+use sis_pdf_core::stream_analyzer::StreamAnalyzer;
+
+let mut analyzer = StreamAnalyzer::new(64 * 1024);
+for chunk in pdf_chunks {
+    let state = analyzer.analyze_chunk(chunk);
+    if let Some(threat) = analyzer.early_terminate(&state) {
+        println!("early terminate: {} {}", threat.kind, threat.reason);
+        break;
+    }
+}
+```
+
+## 21) Campaign correlation (library API)
+
+```rust
+use sis_pdf_core::campaign::{extract_domain, MultiStageCorrelator, NetworkIntent, PDFAnalysis};
+
+let analyses = vec![
+    PDFAnalysis {
+        id: "a".into(),
+        path: Some("sample_a.pdf".into()),
+        network_intents: vec![NetworkIntent {
+            url: "http://example.com/c2".into(),
+            domain: extract_domain("http://example.com/c2"),
+        }],
+    },
+];
+let correlator = MultiStageCorrelator;
+let campaigns = correlator.correlate_campaign(&analyses);
+```
+
+## 22) Automated response generation (library API)
+
+```rust
+use sis_pdf_core::behavior::ThreatPattern;
+use sis_pdf_core::response::ResponseGenerator;
+
+let pattern = ThreatPattern {
+    id: "kind:js_present".into(),
+    kinds: vec!["js_present".into()],
+    objects: vec!["2 0 obj".into()],
+    severity: sis_pdf_core::model::Severity::Medium,
+    summary: "JS present".into(),
+};
+let generator = ResponseGenerator;
+let yara_rules = generator.generate_yara_variants(&pattern);
+```
+
+## 23) Mutation testing and red-team simulation (library API)
+
+```rust
+use sis_pdf_core::mutation::MutationTester;
+use sis_pdf_core::redteam::{DetectorProfile, RedTeamSimulator};
+
+let tester = MutationTester;
+let mutants = tester.mutate_malware(pdf_bytes);
+
+let simulator = RedTeamSimulator;
+let evasive = simulator.generate_evasive_pdf(&DetectorProfile { target: "js_present".into() });
+```
+
+## 24) Troubleshooting
 
 - If `scan` misses objects, try `--deep` and check for `/ObjStm` usage.
 - If findings have no evidence spans, the detector may not yet attach spans for that rule.
 - If decoding fails, the stream may be malformed or use unsupported filters.
 
-## 15) Notes on evidence spans
+## 25) Notes on evidence spans
 
 - `source=File` offsets are absolute in the original PDF.
 - `source=Decoded` offsets refer to decoded buffers and should include `origin` spans when available.

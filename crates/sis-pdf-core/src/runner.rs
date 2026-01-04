@@ -113,6 +113,7 @@ pub fn run_scan_with_detectors(
     }
     if let Some(ml_cfg) = &ctx.options.ml_config {
         let feature_vec = crate::features::FeatureExtractor::extract(&ctx);
+        let defense = crate::adversarial::AdversarialDefense;
         match crate::ml_models::load_stacking(&ml_cfg.model_path) {
             Ok(model) => {
                 let prediction = model.predict(&feature_vec, ml_cfg.threshold);
@@ -129,6 +130,8 @@ pub fn run_scan_with_detectors(
                             .collect::<Vec<_>>()
                             .join(","),
                     );
+                    let stability = defense.validate_prediction_stability(&feature_vec);
+                    meta.insert("ml.stability".into(), format!("{:.3}", stability.score));
                     if let Ok(fv_json) = serde_json::to_string(&feature_vec) {
                         meta.insert("ml.features".into(), fv_json);
                     }
@@ -168,6 +171,25 @@ pub fn run_scan_with_detectors(
                 });
             }
         }
+        if let Some(attempt) = defense.detect_adversarial(&feature_vec) {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("ml.adversarial_score".into(), format!("{:.2}", attempt.score));
+            meta.insert("ml.adversarial_reason".into(), attempt.reason);
+            findings.push(Finding {
+                id: String::new(),
+                surface: crate::model::AttackSurface::Metadata,
+                kind: "ml_adversarial_suspected".into(),
+                severity: crate::model::Severity::Low,
+                confidence: crate::model::Confidence::Heuristic,
+                title: "Potential adversarial ML sample".into(),
+                description: "Feature profile suggests adversarial manipulation attempts.".into(),
+                objects: vec!["ml".into()],
+                evidence: Vec::new(),
+                remediation: Some("Validate findings against alternate detectors.".into()),
+                meta,
+                yara: None,
+            });
+        }
     }
     for f in &mut findings {
         if f.id.is_empty() {
@@ -179,6 +201,10 @@ pub fn run_scan_with_detectors(
     findings.sort_by(|a, b| (a.surface as u32, &a.kind, &a.id).cmp(&(b.surface as u32, &b.kind, &b.id)));
     let (chains, templates) = crate::chain_synth::synthesise_chains(&findings);
     let behavior_summary = Some(crate::behavior::correlate_findings(&findings));
+    let future_threats = behavior_summary
+        .as_ref()
+        .map(|s| crate::predictor::BehavioralPredictor.predict_evolution(&s.patterns))
+        .unwrap_or_default();
     Ok(Report::from_findings(
         findings,
         chains,
@@ -186,6 +212,7 @@ pub fn run_scan_with_detectors(
         yara_rules,
         intent_summary,
         behavior_summary,
+        future_threats,
     ))
 }
 

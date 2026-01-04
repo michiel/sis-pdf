@@ -1,0 +1,24 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>
+endobj
+4 0 obj
+<< /S /JavaScript /JS (app.launchURL('http://example.com'); CryptoJS.SHA256('x'); update;) >>
+endobj
+5 0 obj
+<< /Type /Sig /SubFilter /adbe.pkcs7.detached /Filter /Adobe.PPKLite >>
+endobj
+10 0 obj
+<< /Filter /Standard /V 1 /R 2 /Length 40 >>
+endobj
+trailer
+<< /Root 1 0 R /Encrypt 10 0 R >>
+startxref
+0
+%%EOF

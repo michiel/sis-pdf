@@ -27,6 +27,8 @@ pub struct Report {
     pub intent_summary: Option<IntentSummary>,
     #[serde(default)]
     pub behavior_summary: Option<crate::behavior::BehaviorSummary>,
+    #[serde(default)]
+    pub future_threats: Vec<crate::predictor::FutureThreat>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -58,6 +60,7 @@ impl Report {
         yara_rules: Vec<crate::yara::YaraRule>,
         intent_summary: Option<IntentSummary>,
         behavior_summary: Option<crate::behavior::BehaviorSummary>,
+        future_threats: Vec<crate::predictor::FutureThreat>,
     ) -> Self {
         let mut grouped: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
         for f in &findings {
@@ -80,6 +83,7 @@ impl Report {
             input_path: None,
             intent_summary,
             behavior_summary,
+            future_threats,
         }
     }
 
@@ -320,6 +324,28 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
             "Evasion-oriented JavaScript can delay or gate malicious behavior based on environment."
                 .into()
         }
+        "supply_chain_staged_payload"
+        | "supply_chain_update_vector"
+        | "supply_chain_persistence" => {
+            "Supply-chain style indicators suggest staged payload delivery or update abuse."
+                .into()
+        }
+        "crypto_weak_algo" | "crypto_cert_anomaly" | "crypto_mining_js" => {
+            "Cryptographic anomalies or mining indicators can signal malicious behavior."
+                .into()
+        }
+        "multi_stage_attack_chain" => {
+            "Multiple attack stages detected, indicating coordinated execution paths."
+                .into()
+        }
+        "quantum_vulnerable_crypto" => {
+            "Legacy cryptography may be vulnerable to future quantum attacks."
+                .into()
+        }
+        "ml_adversarial_suspected" => {
+            "ML features suggest possible adversarial manipulation."
+                .into()
+        }
         "js_runtime_network_intent" => {
             "Runtime JavaScript calls indicate network-capable behavior during execution."
                 .into()
@@ -459,6 +485,17 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             }
             out.push('\n');
         }
+    }
+
+    if !report.future_threats.is_empty() {
+        out.push_str("## Predicted Threat Evolution\n\n");
+        for threat in &report.future_threats {
+            out.push_str(&format!(
+                "- {} (confidence {:.2})\n",
+                threat.label, threat.confidence
+            ));
+        }
+        out.push('\n');
     }
 
     let strict_findings: Vec<&Finding> = report

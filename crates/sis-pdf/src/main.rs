@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
@@ -145,6 +145,36 @@ enum Command {
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
+    StreamAnalyze {
+        pdf: String,
+        #[arg(long, default_value_t = 64 * 1024)]
+        chunk_size: usize,
+        #[arg(long, default_value_t = 256 * 1024)]
+        max_buffer: usize,
+    },
+    CampaignCorrelate {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    ResponseGenerate {
+        #[arg(long)]
+        kind: String,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    Mutate {
+        pdf: String,
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+    RedTeam {
+        #[arg(long)]
+        target: String,
+        #[arg(short, long)]
+        out: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -269,6 +299,17 @@ fn main() -> Result<()> {
             &format,
             out.as_deref(),
         ),
+        Command::StreamAnalyze {
+            pdf,
+            chunk_size,
+            max_buffer,
+        } => run_stream_analyze(&pdf, chunk_size, max_buffer),
+        Command::CampaignCorrelate { input, out } => {
+            run_campaign_correlate(&input, out.as_deref())
+        }
+        Command::ResponseGenerate { kind, out } => run_response_generate(&kind, out.as_deref()),
+        Command::Mutate { pdf, out } => run_mutate(&pdf, &out),
+        Command::RedTeam { target, out } => run_redteam(&target, &out),
     }
 }
 
@@ -780,6 +821,129 @@ fn run_export_features(
         }
     }
     Ok(())
+}
+
+fn run_stream_analyze(pdf: &str, chunk_size: usize, max_buffer: usize) -> Result<()> {
+    let mut f = fs::File::open(pdf)?;
+    let mut analyzer = sis_pdf_core::stream_analyzer::StreamAnalyzer::new(max_buffer);
+    let mut buf = vec![0u8; chunk_size];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        let state = analyzer.analyze_chunk(&buf[..n]);
+        if let Some(threat) = analyzer.early_terminate(&state) {
+            println!("early_terminate kind={} reason={}", threat.kind, threat.reason);
+            return Ok(());
+        }
+    }
+    let state = analyzer.analyze_chunk(&[]);
+    if state.indicators.is_empty() {
+        println!("no indicators found");
+    } else {
+        println!("indicators: {}", state.indicators.join(", "));
+    }
+    Ok(())
+}
+
+fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>) -> Result<()> {
+    let data = fs::read_to_string(input)?;
+    let mut by_path: std::collections::HashMap<String, sis_pdf_core::campaign::PDFAnalysis> =
+        std::collections::HashMap::new();
+    for line in data.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let v: serde_json::Value = serde_json::from_str(line)?;
+        let path = v.get("path").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let url = v.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        if url.is_empty() {
+            continue;
+        }
+        let domain = sis_pdf_core::campaign::extract_domain(url);
+        let entry = by_path.entry(path.to_string()).or_insert_with(|| {
+            sis_pdf_core::campaign::PDFAnalysis {
+                id: path.to_string(),
+                path: Some(path.to_string()),
+                network_intents: Vec::new(),
+            }
+        });
+        entry.network_intents.push(sis_pdf_core::campaign::NetworkIntent {
+            url: url.to_string(),
+            domain,
+        });
+    }
+    let analyses: Vec<sis_pdf_core::campaign::PDFAnalysis> = by_path.into_values().collect();
+    let correlator = sis_pdf_core::campaign::MultiStageCorrelator;
+    let campaigns = correlator.correlate_campaign(&analyses);
+    let mut output = serde_json::json!({
+        "campaigns": campaigns,
+    });
+    if let serde_json::Value::Object(map) = &mut output {
+        let intents: Vec<sis_pdf_core::campaign::NetworkIntent> = analyses
+            .iter()
+            .flat_map(|a| a.network_intents.iter().cloned())
+            .collect();
+        let c2 = correlator.detect_c2_infrastructure(&intents);
+        map.insert("c2_domains".into(), serde_json::json!(c2));
+    }
+    let rendered = serde_json::to_string_pretty(&output)?;
+    if let Some(path) = out {
+        fs::write(path, rendered)?;
+    } else {
+        println!("{}", rendered);
+    }
+    Ok(())
+}
+
+fn run_response_generate(kind: &str, out: Option<&std::path::Path>) -> Result<()> {
+    let pattern = sis_pdf_core::behavior::ThreatPattern {
+        id: format!("kind:{}", kind),
+        kinds: vec![kind.to_string()],
+        objects: vec!["-".into()],
+        severity: sis_pdf_core::model::Severity::Medium,
+        summary: format!("Generated for {}", kind),
+    };
+    let generator = sis_pdf_core::response::ResponseGenerator;
+    let rules = generator.generate_yara_variants(&pattern);
+    let rendered = sis_pdf_core::yara::render_rules(&rules);
+    if let Some(path) = out {
+        fs::write(path, rendered)?;
+    } else {
+        println!("{}", rendered);
+    }
+    Ok(())
+}
+
+fn run_mutate(pdf: &str, out: &std::path::Path) -> Result<()> {
+    let data = fs::read(pdf)?;
+    fs::create_dir_all(out)?;
+    let tester = sis_pdf_core::mutation::MutationTester;
+    let mutants = tester.mutate_malware(&data);
+    for (idx, mutant) in mutants.iter().enumerate() {
+        let name = format!("mutant_{:02}_{}.pdf", idx + 1, sanitize_filename(&mutant.note));
+        let path = out.join(name);
+        fs::write(path, &mutant.bytes)?;
+    }
+    println!("generated {} mutants", mutants.len());
+    Ok(())
+}
+
+fn run_redteam(target: &str, out: &std::path::Path) -> Result<()> {
+    let sim = sis_pdf_core::redteam::RedTeamSimulator;
+    let pdf = sim.generate_evasive_pdf(&sis_pdf_core::redteam::DetectorProfile {
+        target: target.to_string(),
+    });
+    fs::write(out, pdf.bytes)?;
+    println!("wrote red-team fixture: {}", out.display());
+    Ok(())
+}
+
+fn sanitize_filename(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
 }
 
 fn extract_js(graph: &sis_pdf_pdf::ObjectGraph<'_>, bytes: &[u8], outdir: &PathBuf) -> Result<()> {
