@@ -1,4 +1,4 @@
-# sis - _"Smiley is suspicious, Percy"_
+# _"Smiley is suspicious, Percy"_
 ```text
 ██████████▅▄▅▟███████████▇▆▇████▛▜▜▜██████████████▊▜██████████▛▀▘▔╵╵█████████▉▔▔▔ ╵▗██████
 ▊╴  ╵▀██████████╴   ╵▜█████████▍    ╵█████████████████████████╴    ▗█████████▎    ╶███████
@@ -31,7 +31,7 @@
 ```
 
 
-sis-pdf is a PDF analyser that inventories PDF attack surface, detects suspicious or exploitable constructs, and produces grouped findings with evidence spans. It is designed for interactive speed without trading away parser correctness.
+_Smiley Is Suspicious_ (`sis`) is a PDF analyser that inventories PDF attack surface, detects suspicious or exploitable constructs, and produces grouped findings with evidence spans. It is designed for interactive speed without trading away parser correctness.
 
 Key goals:
 - Viewer-tolerant parsing with recovery scanning for malformed PDFs.
