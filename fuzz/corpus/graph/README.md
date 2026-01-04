@@ -18,6 +18,7 @@ Anomaly types:
 | bad_real_number.pdf |  |  | X |  |  |  | X |  |
 | bad_token_stream.pdf |  |  |  | X |  |  |  | X |
 | bad_xref.pdf |  | X |  |  |  |  |  |  |
+| array_missing_bracket.pdf |  |  | X |  |  |  |  |  |
 | bad_stream_filter_params.pdf |  |  |  | X |  |  | X |  |
 | broken_stream_dict.pdf |  |  |  | X |  |  |  |  |
 | broken_objstm.pdf |  |  |  |  | X |  | X |  |
@@ -35,6 +36,7 @@ Anomaly types:
 | invalid_obj_header.pdf |  |  | X |  |  |  |  |  |
 | invalid_dict_nested_array.pdf |  |  | X |  |  |  |  |  |
 | invalid_ref.pdf |  |  |  |  |  | X |  |  |
+| invalid_string_escape.pdf |  |  | X |  |  |  |  |  |
 | invalid_string_literal.pdf |  |  | X |  |  |  |  |  |
 | invalid_utf8_name.pdf |  |  |  |  |  | X |  | X |
 | invalid_xref_format.pdf |  | X |  |  |  |  |  |  |
@@ -51,6 +53,7 @@ Anomaly types:
 | negative_obj_number.pdf |  |  | X |  |  |  | X |  |
 | nested_xref.pdf |  | X |  |  |  |  |  |  |
 | objstm_missing_first.pdf |  |  |  |  | X |  |  |  |
+| objstm_negative_first.pdf |  |  |  |  | X |  | X |  |
 | odd_hex_escapes.pdf |  |  | X |  |  |  |  |  |
 | overflow_integer.pdf |  |  | X |  |  |  | X |  |
 | stream_length_mismatch.pdf |  |  |  | X |  |  |  |  |
@@ -62,7 +65,9 @@ Anomaly types:
 | weird_whitespace.pdf |  |  |  |  |  |  |  | X |
 | xref_subsection_mismatch.pdf |  | X |  |  |  |  |  |  |
 | xref_missing_trailer.pdf |  | X |  |  |  |  |  |  |
+| xref_negative_offset.pdf |  | X |  |  |  |  | X |  |
 | xref_overlap.pdf |  | X |  |  |  |  |  |  |
 | xref_with_gaps.pdf |  | X |  |  |  |  |  |  |
+| xref_zero_entries.pdf |  | X |  |  |  |  |  |  |
 | zero_length_filtered_stream.pdf |  |  |  | X |  |  |  |  |
 | malformed_indirect_ref.pdf |  |  |  |  |  | X |  |  |
