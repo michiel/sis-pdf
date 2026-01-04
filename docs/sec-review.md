@@ -1514,6 +1514,7 @@ The maintainers demonstrate security awareness (existing sec-review.md, fuzz tar
 
 Implemented in this pass:
 - ObjStm expansion pre-checks, object count caps, recursive reference detection, and budget logging.
+- ObjStm streaming parse refactor: decoded buffers are no longer retained; unsafe lifetime transmute removed; ObjStm objects now own raw slices via `Cow`.
 - Checked arithmetic for predictor parameters with safe upper bounds.
 - Parser caps for array/dict sizes and stream length overflow detection.
 - Global decode budget reservation and parallel thread pool cap.
