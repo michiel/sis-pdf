@@ -12,27 +12,46 @@ use sha2::{Digest, Sha256};
 pub mod js_signals;
 pub mod content_phishing;
 pub mod strict;
+pub mod linearization;
+pub mod font_exploits;
+pub mod icc_profiles;
+pub mod annotations_advanced;
+pub mod page_tree_anomalies;
+pub mod js_polymorphic;
+pub mod evasion_time;
+pub mod evasion_env;
+#[cfg(feature = "js-sandbox")]
+pub mod js_sandbox;
 
 pub fn default_detectors() -> Vec<Box<dyn Detector>> {
-    vec![
+    #[allow(unused_mut)]
+    let mut detectors: Vec<Box<dyn Detector>> = vec![
         Box::new(XrefConflictDetector),
         Box::new(IncrementalUpdateDetector),
         Box::new(ObjectIdShadowingDetector),
+        Box::new(linearization::LinearizationDetector),
         Box::new(ObjStmDensityDetector),
         Box::new(OpenActionDetector),
         Box::new(AAPresentDetector),
         Box::new(AAEventDetector),
         Box::new(JavaScriptDetector),
+        Box::new(js_polymorphic::JsPolymorphicDetector),
+        Box::new(evasion_time::TimingEvasionDetector),
+        Box::new(evasion_env::EnvProbeDetector),
         Box::new(LaunchActionDetector),
         Box::new(GoToRDetector),
         Box::new(UriDetector),
         Box::new(SubmitFormDetector),
         Box::new(FontMatrixDetector),
+        Box::new(font_exploits::FontExploitDetector),
         Box::new(EmbeddedFileDetector),
         Box::new(RichMediaDetector),
         Box::new(ThreeDDetector),
         Box::new(SoundMovieDetector),
         Box::new(FileSpecDetector),
+        Box::new(icc_profiles::ICCProfileDetector),
+        Box::new(annotations_advanced::AnnotationAttackDetector),
+        Box::new(page_tree_anomalies::PageTreeManipulationDetector),
         Box::new(CryptoDetector),
         Box::new(XfaDetector),
         Box::new(AcroFormDetector),
@@ -43,7 +62,10 @@ pub fn default_detectors() -> Vec<Box<dyn Detector>> {
         Box::new(content_phishing::ContentPhishingDetector),
         Box::new(content_phishing::ContentDeceptionDetector),
         Box::new(strict::StrictParseDeviationDetector),
-    ]
+    ];
+    #[cfg(feature = "js-sandbox")]
+    detectors.push(Box::new(js_sandbox::JavaScriptSandboxDetector));
+    detectors
 }
 
 struct XrefConflictDetector;
@@ -489,6 +511,21 @@ impl Detector for JavaScriptDetector {
                             let sig = js_signals::extract_js_signals(&payload.bytes);
                             for (k, v) in sig {
                                 meta.insert(k, v);
+                            }
+                            let decoded = js_signals::decode_layers(&payload.bytes, 3);
+                            meta.insert(
+                                "payload.decode_layers".into(),
+                                decoded.layers.to_string(),
+                            );
+                            if decoded.layers > 0 && decoded.bytes != payload.bytes {
+                                meta.insert(
+                                    "payload.deobfuscated_len".into(),
+                                    decoded.bytes.len().to_string(),
+                                );
+                                meta.insert(
+                                    "payload.deobfuscated_preview".into(),
+                                    preview_ascii(&decoded.bytes, 120),
+                                );
                             }
                             meta.insert("js.stream.decoded".into(), "true".into());
                             meta.insert(
@@ -1462,7 +1499,7 @@ fn action_by_s(
     Ok(findings)
 }
 
-fn dict_int(dict: &PdfDict<'_>, key: &[u8]) -> Option<u32> {
+pub(crate) fn dict_int(dict: &PdfDict<'_>, key: &[u8]) -> Option<u32> {
     let (_, obj) = dict.get_first(key)?;
     match &obj.atom {
         PdfAtom::Int(i) if *i >= 0 => Some(*i as u32),
@@ -1502,21 +1539,21 @@ pub(crate) fn extract_strings_with_span(
     out
 }
 
-struct PayloadInfo {
-    bytes: Vec<u8>,
-    kind: String,
-    ref_chain: String,
-    origin: Option<sis_pdf_pdf::span::Span>,
-    filters: Option<String>,
-    decode_ratio: Option<f64>,
+pub(crate) struct PayloadInfo {
+    pub bytes: Vec<u8>,
+    pub kind: String,
+    pub ref_chain: String,
+    pub origin: Option<sis_pdf_pdf::span::Span>,
+    pub filters: Option<String>,
+    pub decode_ratio: Option<f64>,
 }
 
-struct PayloadResult {
-    payload: Option<PayloadInfo>,
-    error: Option<String>,
+pub(crate) struct PayloadResult {
+    pub payload: Option<PayloadInfo>,
+    pub error: Option<String>,
 }
 
-fn resolve_payload(
+pub(crate) fn resolve_payload(
     ctx: &sis_pdf_core::scan::ScanContext,
     obj: &sis_pdf_pdf::object::PdfObj<'_>,
 ) -> PayloadResult {

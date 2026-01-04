@@ -9,8 +9,11 @@ hex = "0.4"
 sha2 = "0.10"
 sis-pdf-core = { path = "../sis-pdf-core" }
 sis-pdf-pdf = { path = "../sis-pdf-pdf" }
+base64 = "0.22"
 boa_parser = { version = "0.17", optional = true }
 boa_ast = { version = "0.17", optional = true }
+boa_engine = { version = "0.17", optional = true }
 
 [features]
 js-ast = ["boa_parser", "boa_ast"]
+js-sandbox = ["boa_engine"]

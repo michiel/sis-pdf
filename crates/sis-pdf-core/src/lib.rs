@@ -1,4 +1,8 @@
 pub mod detect;
+pub mod features;
+pub mod ml;
+pub mod ml_models;
+pub mod behavior;
 pub mod chain;
 pub mod chain_render;
 pub mod chain_score;

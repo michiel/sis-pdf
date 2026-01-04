@@ -32,6 +32,8 @@ pub struct ScanConfig {
     pub focus_depth: Option<usize>,
     pub yara_scope: Option<String>,
     pub strict: Option<bool>,
+    pub ml_model: Option<String>,
+    pub ml_threshold: Option<f32>,
 }
 
 impl Config {
@@ -96,5 +98,16 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
     }
     if let Some(v) = scan.strict {
         opts.strict = v;
+    }
+    if let Some(model) = &scan.ml_model {
+        let threshold = scan.ml_threshold.unwrap_or(0.9);
+        opts.ml_config = Some(crate::ml::MlConfig {
+            model_path: model.into(),
+            threshold,
+        });
+    } else if let Some(v) = scan.ml_threshold {
+        if let Some(cfg) = &mut opts.ml_config {
+            cfg.threshold = v;
+        }
     }
 }

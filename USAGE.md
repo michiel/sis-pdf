@@ -7,13 +7,13 @@ This guide shows end-to-end workflows with concrete commands and suggested analy
 Use this for first-pass analysis when you need a quick answer.
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf
+sis scan suspicious.pdf
 ```
 
 For a stricter fast path:
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --fast
+sis scan suspicious.pdf --fast
 ```
 
 Suggested steps:
@@ -24,25 +24,25 @@ Suggested steps:
 ## 2) JSON report for automation
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --json > report.json
+sis scan suspicious.pdf --json > report.json
 ```
 
 JSONL (stream-friendly):
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --jsonl > report.jsonl
+sis scan suspicious.pdf --jsonl > report.jsonl
 ```
 
 SARIF (CI integration):
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --sarif > report.sarif
+sis scan suspicious.pdf --sarif > report.sarif
 ```
 
 SARIF to file:
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --sarif-out report.sarif
+sis scan suspicious.pdf --sarif-out report.sarif
 ```
 
 Analysis steps:
@@ -53,25 +53,25 @@ Analysis steps:
 ## 3) Deep scan for decoding risk
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --deep
+sis scan suspicious.pdf --deep
 ```
 
 Focused scan for a specific trigger:
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --focus-trigger openaction
+sis scan suspicious.pdf --focus-trigger openaction
 ```
 
 Limit reachability to a smaller graph radius:
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --focus-trigger openaction --focus-depth 3
+sis scan suspicious.pdf --focus-trigger openaction --focus-depth 3
 ```
 
 Strict parsing (record lexer-level deviations):
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --strict
+sis scan suspicious.pdf --strict
 ```
 
 When to use deep scan:
@@ -84,19 +84,19 @@ When to use deep scan:
 First, run a scan to get an ID, then:
 
 ```
-cargo run -p sis-pdf --bin sis -- explain suspicious.pdf sis-<finding-id>
+sis explain suspicious.pdf sis-<finding-id>
 ```
 
 ## 4b) Generate a full Markdown report
 
 ```
-cargo run -p sis-pdf --bin sis -- report suspicious.pdf
+sis report suspicious.pdf
 ```
 
 Write to a file:
 
 ```
-cargo run -p sis-pdf --bin sis -- report suspicious.pdf -o report.md
+sis report suspicious.pdf -o report.md
 ```
 
 Analysis steps:
@@ -108,7 +108,7 @@ Analysis steps:
 
 ```
 mkdir -p out/js
-cargo run -p sis-pdf --bin sis -- extract js suspicious.pdf -o out/js
+sis extract js suspicious.pdf -o out/js
 ```
 
 Analysis steps:
@@ -120,7 +120,7 @@ Analysis steps:
 
 ```
 mkdir -p out/embedded
-cargo run -p sis-pdf --bin sis -- extract embedded suspicious.pdf -o out/embedded
+sis extract embedded suspicious.pdf -o out/embedded
 ```
 
 Analysis steps:
@@ -139,7 +139,7 @@ If you see `xref_conflict` or `incremental_update_chain`:
 If you want a parser-differential view:
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --diff-parser
+sis scan suspicious.pdf --diff-parser
 ```
 
 Notes:
@@ -199,7 +199,7 @@ PDF
 Then run:
 
 ```
-cargo run -p sis-pdf --bin sis -- scan tmp/synthetic.pdf
+sis scan tmp/synthetic.pdf
 ```
 
 Expected result:
@@ -215,19 +215,19 @@ Expected result:
 Batch scans across a directory:
 
 ```
-cargo run -p sis-pdf --bin sis -- scan --path samples --glob \"*.pdf\"
+sis scan --path samples --glob \"*.pdf\"
 ```
 
 Batch scan JSON summary:
 
 ```
-cargo run -p sis-pdf --bin sis -- scan --path samples --glob \"*.pdf\" --json
+sis scan --path samples --glob \"*.pdf\" --json
 ```
 
 Configuration-based scans:
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --config config.yml --profile interactive
+sis scan suspicious.pdf --config config.yml --profile interactive
 ```
 
 Example config for focus depth and strict mode:
@@ -248,41 +248,67 @@ YAML
 Then run:
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --config config.yml --profile interactive
+sis scan suspicious.pdf --config config.yml --profile interactive
 ```
 
 YARA export (stdout or file):
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --yara
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --yara-out rules.yar
+sis scan suspicious.pdf --yara
+sis scan suspicious.pdf --yara-out rules.yar
 ```
 
 YARA scope (all/medium/high):
 
 ```
-cargo run -p sis-pdf --bin sis -- scan suspicious.pdf --yara --yara-scope all
+sis scan suspicious.pdf --yara --yara-scope all
 ```
 
 JavaScript AST summaries (feature build):
 
 ```
-cargo run -p sis-pdf --features js-ast --bin sis -- scan suspicious.pdf
+sis scan suspicious.pdf
 ```
 
 Report example with strict parsing and differential parsing:
 
 ```
-cargo run -p sis-pdf --bin sis -- report suspicious.pdf --strict --diff-parser -o report.md
+sis report suspicious.pdf --strict --diff-parser -o report.md
 ```
 
-## 12) Troubleshooting
+## 12) ML classification
+
+Enable the stacking classifier (requires a model JSON file or directory).
+
+```
+sis scan suspicious.pdf --ml --ml-model-dir models --ml-threshold 0.9
+```
+
+Notes:
+- `--ml-model-dir` can point to a directory containing `stacking.json`, `model.json`, or `ml.json`.
+- The ML score adds a `ml_malware_score_high` finding when it exceeds the threshold.
+
+## 13) Export features for datasets
+
+JSONL feature export:
+
+```
+sis export-features --path samples --glob "*.pdf" --format jsonl -o features.jsonl
+```
+
+CSV feature export:
+
+```
+sis export-features --path samples --glob "*.pdf" --format csv -o features.csv
+```
+
+## 14) Troubleshooting
 
 - If `scan` misses objects, try `--deep` and check for `/ObjStm` usage.
 - If findings have no evidence spans, the detector may not yet attach spans for that rule.
 - If decoding fails, the stream may be malformed or use unsupported filters.
 
-## 13) Notes on evidence spans
+## 15) Notes on evidence spans
 
 - `source=File` offsets are absolute in the original PDF.
 - `source=Decoded` offsets refer to decoded buffers and should include `origin` spans when available.

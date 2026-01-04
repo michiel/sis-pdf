@@ -111,6 +111,64 @@ pub fn run_scan_with_detectors(
             });
         }
     }
+    if let Some(ml_cfg) = &ctx.options.ml_config {
+        let feature_vec = crate::features::FeatureExtractor::extract(&ctx);
+        match crate::ml_models::load_stacking(&ml_cfg.model_path) {
+            Ok(model) => {
+                let prediction = model.predict(&feature_vec, ml_cfg.threshold);
+                if prediction.label {
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("ml.score".into(), format!("{:.4}", prediction.score));
+                    meta.insert("ml.threshold".into(), format!("{:.4}", prediction.threshold));
+                    meta.insert(
+                        "ml.base_scores".into(),
+                        prediction
+                            .base_scores
+                            .iter()
+                            .map(|v| format!("{:.4}", v))
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    );
+                    if let Ok(fv_json) = serde_json::to_string(&feature_vec) {
+                        meta.insert("ml.features".into(), fv_json);
+                    }
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: crate::model::AttackSurface::Metadata,
+                        kind: "ml_malware_score_high".into(),
+                        severity: crate::model::Severity::High,
+                        confidence: crate::model::Confidence::Probable,
+                        title: "ML classifier score high".into(),
+                        description: format!(
+                            "Stacking classifier scored {:.4} (threshold {:.4}).",
+                            prediction.score, prediction.threshold
+                        ),
+                        objects: vec!["ml".into()],
+                        evidence: Vec::new(),
+                        remediation: Some("Review ML features and validate with manual analysis.".into()),
+                        meta,
+                        yara: None,
+                    });
+                }
+            }
+            Err(err) => {
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: crate::model::AttackSurface::Metadata,
+                    kind: "ml_model_error".into(),
+                    severity: crate::model::Severity::Low,
+                    confidence: crate::model::Confidence::Heuristic,
+                    title: "ML model load failed".into(),
+                    description: format!("Failed to load ML model: {}", err),
+                    objects: vec!["ml".into()],
+                    evidence: Vec::new(),
+                    remediation: Some("Check ML model path and format.".into()),
+                    meta: Default::default(),
+                    yara: None,
+                });
+            }
+        }
+    }
     for f in &mut findings {
         if f.id.is_empty() {
             f.id = stable_id(f);
@@ -120,7 +178,15 @@ pub fn run_scan_with_detectors(
     let yara_rules = crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());
     findings.sort_by(|a, b| (a.surface as u32, &a.kind, &a.id).cmp(&(b.surface as u32, &b.kind, &b.id)));
     let (chains, templates) = crate::chain_synth::synthesise_chains(&findings);
-    Ok(Report::from_findings(findings, chains, templates, yara_rules, intent_summary))
+    let behavior_summary = Some(crate::behavior::correlate_findings(&findings));
+    Ok(Report::from_findings(
+        findings,
+        chains,
+        templates,
+        yara_rules,
+        intent_summary,
+        behavior_summary,
+    ))
 }
 
 fn stable_id(f: &Finding) -> String {

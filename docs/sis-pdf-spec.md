@@ -379,12 +379,15 @@ These map cleanly to what practitioners triage in tools like PeePDF/PDFiD. ([Len
 
 * `sis scan <file.pdf>`
   Fast triage (default), prints grouped summary + JSON option
+  - Optional ML scoring: `--ml --ml-model-dir <dir> --ml-threshold <value>`
 * `sis scan --deep <file.pdf>`
   Deep scan (decodes selected streams, extracts JS/embedded files)
 * `sis explain <finding-id>`
   Shows the per-finding evidence with source (file/decoded), offsets, and decoded excerpt when applicable
 * `sis extract js|embedded <file.pdf> -o outdir/`
   Defensive extraction (never execute)
+* `sis export-features --path <dir> --glob \"*.pdf\" --format jsonl|csv -o features.*`
+  Feature extraction for ML pipelines and datasets
 
 ### Output grouping
 

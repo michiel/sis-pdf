@@ -25,6 +25,8 @@ pub struct Report {
     pub yara_rules: Vec<crate::yara::YaraRule>,
     pub input_path: Option<String>,
     pub intent_summary: Option<IntentSummary>,
+    #[serde(default)]
+    pub behavior_summary: Option<crate::behavior::BehaviorSummary>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -55,6 +57,7 @@ impl Report {
         chain_templates: Vec<ChainTemplate>,
         yara_rules: Vec<crate::yara::YaraRule>,
         intent_summary: Option<IntentSummary>,
+        behavior_summary: Option<crate::behavior::BehaviorSummary>,
     ) -> Self {
         let mut grouped: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
         for f in &findings {
@@ -76,6 +79,7 @@ impl Report {
             yara_rules,
             input_path: None,
             intent_summary,
+            behavior_summary,
         }
     }
 
@@ -286,6 +290,56 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
             "Very large object graphs can be used to hide content or exhaust parser resources."
                 .into()
         }
+        "linearization_invalid"
+        | "linearization_multiple"
+        | "linearization_hint_anomaly" => {
+            "Linearization anomalies can be used to confuse parsers and hide content or offsets."
+                .into()
+        }
+        "font_payload_present" | "font_table_anomaly" => {
+            "Suspicious embedded fonts can exploit font parsing vulnerabilities."
+                .into()
+        }
+        "icc_profile_anomaly" | "icc_profile_oversized" => {
+            "Malformed ICC profiles can trigger vulnerable color management code paths."
+                .into()
+        }
+        "annotation_hidden" | "annotation_action_chain" => {
+            "Annotation manipulation can hide actions or trigger unexpected viewer behavior."
+                .into()
+        }
+        "page_tree_cycle" | "page_tree_mismatch" => {
+            "Page tree inconsistencies can hide pages or confuse rendering traversal."
+                .into()
+        }
+        "js_polymorphic" | "js_multi_stage_decode" | "js_obfuscation_deep" => {
+            "Obfuscated JavaScript indicates potential attempts to evade static analysis."
+                .into()
+        }
+        "js_time_evasion" | "js_env_probe" => {
+            "Evasion-oriented JavaScript can delay or gate malicious behavior based on environment."
+                .into()
+        }
+        "js_runtime_network_intent" => {
+            "Runtime JavaScript calls indicate network-capable behavior during execution."
+                .into()
+        }
+        "js_runtime_file_probe" => {
+            "Runtime JavaScript calls indicate file or export behavior during execution."
+                .into()
+        }
+        "parser_diff_structural" => {
+            "Structural parser differentials indicate malformed structure and possible parser confusion."
+                .into()
+        }
+        "ml_malware_score_high" => {
+            "Machine-learning classifier indicates the file resembles known malicious PDFs."
+                .into()
+        }
+        "ml_model_error" => {
+            "ML classification was requested but the model failed to load."
+                .into()
+        }
         _ => "This construct increases attack surface or indicates a potentially unsafe PDF feature."
             .into(),
     }
@@ -388,6 +442,22 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 }
                 out.push('\n');
             }
+        }
+    }
+
+    if let Some(summary) = &report.behavior_summary {
+        if !summary.patterns.is_empty() {
+            out.push_str("## Behavior Correlation\n\n");
+            for pattern in &summary.patterns {
+                out.push_str(&format!(
+                    "- {} (severity {:?}) kinds=[{}] objects=[{}]\n",
+                    pattern.summary,
+                    pattern.severity,
+                    pattern.kinds.join(", "),
+                    pattern.objects.join(", ")
+                ));
+            }
+            out.push('\n');
         }
     }
 

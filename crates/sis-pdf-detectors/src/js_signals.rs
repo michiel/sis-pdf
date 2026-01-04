@@ -1,5 +1,14 @@
 use std::collections::HashMap;
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+
+#[derive(Debug, Clone)]
+pub struct DecodedLayers {
+    pub bytes: Vec<u8>,
+    pub layers: usize,
+}
+
 pub fn extract_js_signals(data: &[u8]) -> HashMap<String, String> {
     let mut out = HashMap::new();
     let entropy = shannon_entropy(data);
@@ -68,6 +77,110 @@ pub fn extract_js_signals(data: &[u8]) -> HashMap<String, String> {
     let obf = is_obfuscationish(&out);
     out.insert("js.obfuscation_suspected".into(), bool_str(obf));
     out
+}
+
+pub fn decode_layers(data: &[u8], max_layers: usize) -> DecodedLayers {
+    let mut current = data.to_vec();
+    let mut layers = 0usize;
+    loop {
+        if layers >= max_layers {
+            break;
+        }
+        if let Some(next) = decode_once(&current) {
+            current = next;
+            layers += 1;
+            continue;
+        }
+        break;
+    }
+    DecodedLayers { bytes: current, layers }
+}
+
+fn decode_once(data: &[u8]) -> Option<Vec<u8>> {
+    if let Some(decoded) = decode_js_escapes(data) {
+        return Some(decoded);
+    }
+    if let Some(decoded) = decode_hex_string(data) {
+        return Some(decoded);
+    }
+    if is_base64_like(data) {
+        if let Ok(decoded) = STANDARD.decode(data) {
+            if decoded.len() > 16 {
+                return Some(decoded);
+            }
+        }
+    }
+    None
+}
+
+fn decode_js_escapes(data: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(data.len());
+    let mut i = 0usize;
+    let mut changed = false;
+    while i < data.len() {
+        if data[i] == b'\\' && i + 3 < data.len() && data[i + 1] == b'x' {
+            if let (Some(a), Some(b)) = (from_hex(data[i + 2]), from_hex(data[i + 3])) {
+                out.push((a << 4) | b);
+                i += 4;
+                changed = true;
+                continue;
+            }
+        }
+        if data[i] == b'\\' && i + 5 < data.len() && (data[i + 1] == b'u' || data[i + 1] == b'U') {
+            if let (Some(a), Some(b), Some(c), Some(d)) = (
+                from_hex(data[i + 2]),
+                from_hex(data[i + 3]),
+                from_hex(data[i + 4]),
+                from_hex(data[i + 5]),
+            ) {
+                let code = ((a as u16) << 12) | ((b as u16) << 8) | ((c as u16) << 4) | (d as u16);
+                if code <= 0x7f {
+                    out.push(code as u8);
+                    i += 6;
+                    changed = true;
+                    continue;
+                }
+            }
+        }
+        out.push(data[i]);
+        i += 1;
+    }
+    if changed { Some(out) } else { None }
+}
+
+fn decode_hex_string(data: &[u8]) -> Option<Vec<u8>> {
+    let trimmed = data.iter().filter(|b| !b.is_ascii_whitespace()).cloned().collect::<Vec<_>>();
+    if trimmed.len() < 32 || trimmed.len() % 2 != 0 {
+        return None;
+    }
+    if !trimmed.iter().all(|b| is_hex(*b)) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(trimmed.len() / 2);
+    let mut i = 0usize;
+    while i + 1 < trimmed.len() {
+        let hi = from_hex(trimmed[i])?;
+        let lo = from_hex(trimmed[i + 1])?;
+        out.push((hi << 4) | lo);
+        i += 2;
+    }
+    Some(out)
+}
+
+fn from_hex(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(10 + b - b'a'),
+        b'A'..=b'F' => Some(10 + b - b'A'),
+        _ => None,
+    }
+}
+
+fn is_base64_like(data: &[u8]) -> bool {
+    if data.len() < 40 {
+        return false;
+    }
+    data.iter().all(|b| is_b64_char(*b))
 }
 
 fn bool_str(v: bool) -> String {

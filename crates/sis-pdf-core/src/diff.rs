@@ -8,6 +8,8 @@ pub struct DiffSummary {
     pub secondary_objects: usize,
     pub primary_trailers: usize,
     pub secondary_trailers: usize,
+    pub missing_in_secondary: usize,
+    pub missing_in_primary: usize,
 }
 
 pub fn diff_summary(
@@ -15,11 +17,23 @@ pub fn diff_summary(
     primary: &ObjectGraph<'_>,
 ) -> Result<DiffSummary, lopdf::Error> {
     let doc = lopdf::Document::load_from(Cursor::new(bytes))?;
+    let primary_ids: std::collections::HashSet<(u32, u16)> =
+        primary.index.keys().cloned().collect();
+    let secondary_ids: std::collections::HashSet<(u32, u16)> =
+        doc.objects.keys().cloned().collect();
+    let missing_in_secondary = primary_ids
+        .difference(&secondary_ids)
+        .count();
+    let missing_in_primary = secondary_ids
+        .difference(&primary_ids)
+        .count();
     Ok(DiffSummary {
         primary_objects: primary.objects.len(),
         secondary_objects: doc.objects.len(),
         primary_trailers: primary.trailers.len(),
         secondary_trailers: doc.trailer.len(),
+        missing_in_secondary,
+        missing_in_primary,
     })
 }
 
@@ -83,6 +97,34 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> Vec<Finding> 
             evidence: evidence.clone(),
             remediation: Some("Inspect xref and trailer sections.".into()),
             meta: Default::default(),
+            yara: None,
+        });
+    }
+    if summary.missing_in_secondary > 0 || summary.missing_in_primary > 0 {
+        let mut meta = std::collections::HashMap::new();
+        meta.insert(
+            "diff.missing_in_secondary".into(),
+            summary.missing_in_secondary.to_string(),
+        );
+        meta.insert(
+            "diff.missing_in_primary".into(),
+            summary.missing_in_primary.to_string(),
+        );
+        findings.push(Finding {
+            id: String::new(),
+            surface: AttackSurface::FileStructure,
+            kind: "parser_diff_structural".into(),
+            severity: Severity::Medium,
+            confidence: Confidence::Probable,
+            title: "Structural parser differential".into(),
+            description: format!(
+                "Primary parser missing in lopdf: {}; lopdf-only objects: {}.",
+                summary.missing_in_secondary, summary.missing_in_primary
+            ),
+            objects: vec!["object_graph".into()],
+            evidence,
+            remediation: Some("Inspect missing objects and xref consistency.".into()),
+            meta,
             yara: None,
         });
     }

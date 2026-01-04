@@ -1,6 +1,4 @@
-# sis-pdf
-
-_"Smiley is suspicious, Percy"_
+# sis - _"Smiley is suspicious, Percy"_
 ```text
 ██████████▅▄▅▟███████████▇▆▇████▛▜▜▜██████████████▊▜██████████▛▀▘▔╵╵█████████▉▔▔▔ ╵▗██████
 ▊╴  ╵▀██████████╴   ╵▜█████████▍    ╵█████████████████████████╴    ▗█████████▎    ╶███████
@@ -33,7 +31,7 @@ _"Smiley is suspicious, Percy"_
 ```
 
 
-sis-pdf is a Rust PDF analyser that inventories PDF attack surface, detects suspicious or exploitable constructs, and produces grouped findings with evidence spans. It is designed for interactive speed without trading away parser correctness.
+sis-pdf is a PDF analyser that inventories PDF attack surface, detects suspicious or exploitable constructs, and produces grouped findings with evidence spans. It is designed for interactive speed without trading away parser correctness.
 
 Key goals:
 - Viewer-tolerant parsing with recovery scanning for malformed PDFs.
@@ -66,7 +64,10 @@ Core analysis:
 Detection surfaces:
 - Actions: OpenAction, Additional Actions, Launch, GoToR, URI, SubmitForm.
 - JavaScript detection with payload inspection and optional AST summaries.
+- Optional JavaScript sandboxing for runtime API intent (feature build).
 - Embedded files, filespecs, and rich media constructs (3D, sound, movie).
+- Linearization anomalies, page tree mismatches, and annotation action chains.
+- Font embedding anomalies and ICC profile stream checks.
 - Form technologies: AcroForm and XFA.
 - Decoder risks and decompression ratio anomalies.
 - Crypto indicators: signatures, DSS structures, and encryption dictionaries.
@@ -77,6 +78,7 @@ Reporting and evidence:
 - Human-readable reports and Markdown reports with impacts and remediation.
 - JSON, JSONL, and SARIF outputs for automation and CI workflows.
 - YARA rule generation with action and payload metadata.
+- ML feature extraction and optional stacking classifier scoring.
 - Action chain synthesis and chain templates.
 - Input path tracking in JSON and reports.
 - Strict parse deviations grouped in the Markdown report.
@@ -87,6 +89,7 @@ CLI workflows:
 - `sis explain` for individual finding inspection with evidence previews.
 - `sis extract` for JavaScript and embedded files.
 - `sis export-graph` for chain export in DOT or JSON.
+- `sis export-features` for ML dataset feature extraction.
 - Batch scanning with `--path` and `--glob` plus batch summaries.
 
 Testing and fixtures:
@@ -111,6 +114,9 @@ cargo run -p sis-pdf --bin sis -- scan path/to/file.pdf --json
 
 # Deep scan (decodes selected streams)
 cargo run -p sis-pdf --bin sis -- scan path/to/file.pdf --deep
+
+# Export features for ML pipelines
+cargo run -p sis-pdf --bin sis -- export-features --path samples --glob "*.pdf" --format jsonl -o features.jsonl
 ```
 
 ## Tests

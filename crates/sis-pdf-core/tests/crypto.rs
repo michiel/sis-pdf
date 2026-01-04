@@ -19,6 +19,7 @@ fn detects_signature_and_encryption() {
         focus_depth: 0,
         yara_scope: None,
         strict: false,
+        ml_config: None,
     };
 
     let sig_report = sis_pdf_core::runner::run_scan_with_detectors(sig, opts.clone(), &detectors)

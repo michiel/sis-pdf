@@ -18,6 +18,7 @@ fn strict_mode_emits_deviation() {
         focus_depth: 0,
         yara_scope: None,
         strict: true,
+        ml_config: None,
     };
 
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts, &detectors)

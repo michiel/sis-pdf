@@ -18,6 +18,7 @@ fn golden_synthetic_findings() {
         focus_depth: 0,
         yara_scope: None,
         strict: false,
+        ml_config: None,
     };
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts, &detectors)
         .expect("scan should succeed");

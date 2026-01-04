@@ -18,6 +18,7 @@ fn bench_scan(c: &mut Criterion) {
         focus_depth: 0,
         yara_scope: None,
         strict: false,
+        ml_config: None,
     };
     c.bench_function("sis_pdf_scan_synthetic", |b| {
         b.iter(|| sis_pdf_core::runner::run_scan_with_detectors(bytes, opts, &detectors).unwrap())

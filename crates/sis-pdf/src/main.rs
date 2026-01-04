@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
@@ -66,6 +67,12 @@ enum Command {
         profile: Option<String>,
         #[arg(long)]
         cache_dir: Option<PathBuf>,
+        #[arg(long)]
+        ml: bool,
+        #[arg(long)]
+        ml_model_dir: Option<PathBuf>,
+        #[arg(long, default_value_t = 0.9)]
+        ml_threshold: f32,
     },
     Explain {
         pdf: String,
@@ -98,6 +105,12 @@ enum Command {
         strict: bool,
         #[arg(short, long)]
         out: Option<PathBuf>,
+        #[arg(long)]
+        ml: bool,
+        #[arg(long)]
+        ml_model_dir: Option<PathBuf>,
+        #[arg(long, default_value_t = 0.9)]
+        ml_threshold: f32,
     },
     ExportGraph {
         pdf: String,
@@ -107,6 +120,30 @@ enum Command {
         format: String,
         #[arg(short, long)]
         out: PathBuf,
+    },
+    ExportFeatures {
+        #[arg(value_name = "PDF", required_unless_present = "path")]
+        pdf: Option<String>,
+        #[arg(long)]
+        path: Option<PathBuf>,
+        #[arg(long, default_value = "*.pdf")]
+        glob: String,
+        #[arg(long)]
+        deep: bool,
+        #[arg(long, default_value_t = 32 * 1024 * 1024)]
+        max_decode_bytes: usize,
+        #[arg(long, default_value_t = 256 * 1024 * 1024)]
+        max_total_decoded_bytes: usize,
+        #[arg(long)]
+        no_recover: bool,
+        #[arg(long)]
+        strict: bool,
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long, default_value = "jsonl", value_parser = ["jsonl", "csv"])]
+        format: String,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
     },
 }
 
@@ -138,6 +175,9 @@ fn main() -> Result<()> {
             config,
             profile,
             cache_dir,
+            ml,
+            ml_model_dir,
+            ml_threshold,
         } => run_scan(
             pdf.as_deref(),
             path.as_deref(),
@@ -163,6 +203,9 @@ fn main() -> Result<()> {
             config.as_deref(),
             profile.as_deref(),
             cache_dir.as_deref(),
+            ml,
+            ml_model_dir.as_deref(),
+            ml_threshold,
         ),
         Command::Explain { pdf, finding_id } => run_explain(&pdf, &finding_id),
         Command::Extract { kind, pdf, out } => run_extract(&kind, &pdf, &out),
@@ -177,6 +220,9 @@ fn main() -> Result<()> {
             max_recursion_depth,
             strict,
             out,
+            ml,
+            ml_model_dir,
+            ml_threshold,
         } => run_report(
             &pdf,
             deep,
@@ -188,6 +234,9 @@ fn main() -> Result<()> {
             max_recursion_depth,
             strict,
             out.as_deref(),
+            ml,
+            ml_model_dir.as_deref(),
+            ml_threshold,
         ),
         Command::ExportGraph {
             pdf,
@@ -195,6 +244,31 @@ fn main() -> Result<()> {
             format,
             out,
         } => run_export_graph(&pdf, chains_only, &format, &out),
+        Command::ExportFeatures {
+            pdf,
+            path,
+            glob,
+            deep,
+            max_decode_bytes,
+            max_total_decoded_bytes,
+            no_recover,
+            strict,
+            label,
+            format,
+            out,
+        } => run_export_features(
+            pdf.as_deref(),
+            path.as_deref(),
+            &glob,
+            deep,
+            max_decode_bytes,
+            max_total_decoded_bytes,
+            !no_recover,
+            strict,
+            label.as_deref(),
+            &format,
+            out.as_deref(),
+        ),
     }
 }
 
@@ -228,6 +302,9 @@ fn run_scan(
     config: Option<&std::path::Path>,
     profile: Option<&str>,
     cache_dir: Option<&std::path::Path>,
+    ml: bool,
+    ml_model_dir: Option<&std::path::Path>,
+    ml_threshold: f32,
 ) -> Result<()> {
     if path.is_some() && pdf.is_some() {
         return Err(anyhow!("provide either a PDF path or --path, not both"));
@@ -246,10 +323,23 @@ fn run_scan(
         focus_depth,
         yara_scope: Some(yara_scope.to_string()),
         strict,
+        ml_config: None,
     };
     if let Some(path) = config {
         let cfg = sis_pdf_core::config::Config::load(path)?;
         cfg.apply(&mut opts, profile);
+    }
+    if ml {
+        let model_dir = ml_model_dir.ok_or_else(|| anyhow!("--ml requires --ml-model-dir"))?;
+        opts.ml_config = Some(sis_pdf_core::ml::MlConfig {
+            model_path: model_dir.to_path_buf(),
+            threshold: ml_threshold,
+        });
+    } else if let Some(dir) = ml_model_dir {
+        opts.ml_config = Some(sis_pdf_core::ml::MlConfig {
+            model_path: dir.to_path_buf(),
+            threshold: ml_threshold,
+        });
     }
     let detectors = sis_pdf_detectors::default_detectors();
     if let Some(dir) = path {
@@ -440,6 +530,7 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         focus_depth: 0,
         yara_scope: None,
         strict: false,
+        ml_config: None,
     };
     let detectors = sis_pdf_detectors::default_detectors();
     let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
@@ -507,6 +598,7 @@ fn run_export_graph(pdf: &str, chains_only: bool, format: &str, outdir: &PathBuf
         focus_depth: 0,
         yara_scope: None,
         strict: false,
+        ml_config: None,
     };
     let detectors = sis_pdf_detectors::default_detectors();
     let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
@@ -542,6 +634,9 @@ fn run_report(
     max_recursion_depth: usize,
     strict: bool,
     out: Option<&std::path::Path>,
+    ml: bool,
+    ml_model_dir: Option<&std::path::Path>,
+    ml_threshold: f32,
 ) -> Result<()> {
     let mmap = mmap_file(pdf)?;
     let opts = sis_pdf_core::scan::ScanOptions {
@@ -558,7 +653,21 @@ fn run_report(
         yara_scope: None,
         focus_depth: 0,
         strict,
+        ml_config: None,
     };
+    let mut opts = opts;
+    if ml {
+        let model_dir = ml_model_dir.ok_or_else(|| anyhow!("--ml requires --ml-model-dir"))?;
+        opts.ml_config = Some(sis_pdf_core::ml::MlConfig {
+            model_path: model_dir.to_path_buf(),
+            threshold: ml_threshold,
+        });
+    } else if let Some(dir) = ml_model_dir {
+        opts.ml_config = Some(sis_pdf_core::ml::MlConfig {
+            model_path: dir.to_path_buf(),
+            threshold: ml_threshold,
+        });
+    }
     let detectors = sis_pdf_detectors::default_detectors();
     let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
         .with_input_path(Some(pdf.to_string()));
@@ -567,6 +676,108 @@ fn run_report(
         fs::write(path, md)?;
     } else {
         println!("{}", md);
+    }
+    Ok(())
+}
+
+fn run_export_features(
+    pdf: Option<&str>,
+    path: Option<&std::path::Path>,
+    glob: &str,
+    deep: bool,
+    max_decode_bytes: usize,
+    max_total_decoded_bytes: usize,
+    recover_xref: bool,
+    strict: bool,
+    label: Option<&str>,
+    format: &str,
+    out: Option<&std::path::Path>,
+) -> Result<()> {
+    if path.is_some() && pdf.is_some() {
+        return Err(anyhow!("provide either a PDF path or --path, not both"));
+    }
+    let opts = sis_pdf_core::scan::ScanOptions {
+        deep,
+        max_decode_bytes,
+        max_total_decoded_bytes,
+        recover_xref,
+        parallel: false,
+        diff_parser: false,
+        max_objects: 500_000,
+        max_recursion_depth: 64,
+        fast: false,
+        focus_trigger: None,
+        yara_scope: None,
+        focus_depth: 0,
+        strict,
+        ml_config: None,
+    };
+    let mut paths = Vec::new();
+    if let Some(pdf) = pdf {
+        paths.push(std::path::PathBuf::from(pdf));
+    } else if let Some(dir) = path {
+        let matcher = Glob::new(glob)?.compile_matcher();
+        let iter = if dir.is_file() {
+            WalkDir::new(dir.parent().unwrap_or(dir))
+        } else {
+            WalkDir::new(dir)
+        };
+        for entry in iter.into_iter().filter_map(Result::ok) {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            if matcher.is_match(path) {
+                paths.push(path.to_path_buf());
+            }
+        }
+    }
+    if paths.is_empty() {
+        return Err(anyhow!("no files matched {} in export", glob));
+    }
+    let mut writer: Box<dyn Write> = if let Some(path) = out {
+        Box::new(fs::File::create(path)?)
+    } else {
+        Box::new(std::io::stdout())
+    };
+    let names = sis_pdf_core::features::feature_names();
+    if format == "csv" {
+        let mut header = String::from("path,label");
+        for name in &names {
+            header.push(',');
+            header.push_str(name);
+        }
+        header.push('\n');
+        writer.write_all(header.as_bytes())?;
+    }
+    for path in paths {
+        let path_str = path.display().to_string();
+        let mmap = mmap_file(&path_str)?;
+        let fv = sis_pdf_core::features::FeatureExtractor::extract_from_bytes(&mmap, &opts)?;
+        match format {
+            "jsonl" => {
+                let record = serde_json::json!({
+                    "path": path_str,
+                    "label": label,
+                    "features": fv,
+                });
+                writer.write_all(serde_json::to_string(&record)?.as_bytes())?;
+                writer.write_all(b"\n")?;
+            }
+            "csv" => {
+                let mut row = String::new();
+                row.push_str(&path_str);
+                row.push(',');
+                row.push_str(label.unwrap_or(""));
+                for v in fv.as_f32_vec() {
+                    row.push(',');
+                    row.push_str(&format!("{:.6}", v));
+                }
+                row.push('\n');
+                writer.write_all(row.as_bytes())?;
+            }
+            _ => return Err(anyhow!("unsupported format: {}", format)),
+        }
     }
     Ok(())
 }
