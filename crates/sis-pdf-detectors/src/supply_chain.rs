@@ -29,6 +29,7 @@ impl Detector for SupplyChainDetector {
         let mut findings = Vec::new();
         let mut has_embedded = false;
         let mut embedded_names = Vec::new();
+        let mut action_targets_global = Vec::new();
         for entry in &ctx.graph.objects {
             if let Some(dict) = entry_dict(entry) {
                 if dict.has_name(b"/Type", b"/EmbeddedFile") || dict.has_name(b"/Type", b"/Filespec") {
@@ -37,6 +38,7 @@ impl Detector for SupplyChainDetector {
                         embedded_names.push(name);
                     }
                 }
+                collect_action_targets(ctx, dict, &mut action_targets_global);
             }
         }
         let analyzer = sis_pdf_core::supply_chain::SupplyChainDetector;
@@ -167,6 +169,30 @@ impl Detector for SupplyChainDetector {
                 });
             }
         }
+        if findings.is_empty() && !action_targets_global.is_empty() {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert(
+                "supply_chain.action_targets".into(),
+                action_targets_global.join(","),
+            );
+            if !embedded_names.is_empty() {
+                meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
+            }
+            findings.push(Finding {
+                id: String::new(),
+                surface: self.surface(),
+                kind: "supply_chain_staged_payload".into(),
+                severity: Severity::Medium,
+                confidence: Confidence::Heuristic,
+                title: "Action targets indicate staged payloads".into(),
+                description: "Action targets reference external resources or files without JavaScript payloads.".into(),
+                objects: vec!["action_targets".into()],
+                evidence: Vec::new(),
+                remediation: Some("Inspect action targets and embedded files.".into()),
+                meta,
+                yara: None,
+            });
+        }
         Ok(findings)
     }
 }
@@ -184,4 +210,42 @@ fn filespec_name(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> Option<String> {
         }
     }
     None
+}
+
+fn collect_action_targets(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    dict: &sis_pdf_pdf::object::PdfDict<'_>,
+    out: &mut Vec<String>,
+) {
+    for key in [b"/A".as_slice(), b"/OpenAction".as_slice()] {
+        if let Some((_, obj)) = dict.get_first(key) {
+            if let Some(details) = resolve_action_details(ctx, obj) {
+                if let Some(target) = details.meta.get("action.target") {
+                    out.push(target.clone());
+                }
+            }
+        }
+    }
+    if let Some((_, aa)) = dict.get_first(b"/AA") {
+        if let sis_pdf_pdf::object::PdfAtom::Dict(aa_dict) = &aa.atom {
+            for (_, obj) in &aa_dict.entries {
+                if let Some(details) = resolve_action_details(ctx, obj) {
+                    if let Some(target) = details.meta.get("action.target") {
+                        out.push(target.clone());
+                    }
+                }
+            }
+        }
+    }
+    if dict.has_name(b"/Type", b"/Action") || dict.get_first(b"/S").is_some() {
+        let action_obj = sis_pdf_pdf::object::PdfObj {
+            span: dict.span,
+            atom: sis_pdf_pdf::object::PdfAtom::Dict(dict.clone()),
+        };
+        if let Some(details) = resolve_action_details(ctx, &action_obj) {
+            if let Some(target) = details.meta.get("action.target") {
+                out.push(target.clone());
+            }
+        }
+    }
 }

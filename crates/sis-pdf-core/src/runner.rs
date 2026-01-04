@@ -205,6 +205,17 @@ pub fn run_scan_with_detectors(
         .as_ref()
         .map(|s| crate::predictor::BehavioralPredictor.predict_evolution(&s.patterns))
         .unwrap_or_default();
+    let network_intents = extract_network_intents(&findings);
+    let response_rules = behavior_summary
+        .as_ref()
+        .map(|s| {
+            let generator = crate::response::ResponseGenerator;
+            s.patterns
+                .iter()
+                .flat_map(|p| generator.generate_yara_variants(p))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     Ok(Report::from_findings(
         findings,
         chains,
@@ -213,6 +224,8 @@ pub fn run_scan_with_detectors(
         intent_summary,
         behavior_summary,
         future_threats,
+        network_intents,
+        response_rules,
     ))
 }
 
@@ -312,4 +325,41 @@ fn filter_graph_by_refs<'a>(
         deviations: graph.deviations.clone(),
         decoded_buffers: graph.decoded_buffers.clone(),
     }
+}
+
+fn extract_network_intents(findings: &[Finding]) -> Vec<crate::campaign::NetworkIntent> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for f in findings {
+        for (k, v) in &f.meta {
+            if k == "action.target"
+                || k == "supply_chain.action_targets"
+                || k == "js.ast_urls"
+                || k.starts_with("js.")
+            {
+                for url in extract_urls(v) {
+                    if seen.insert(url.clone()) {
+                        out.push(crate::campaign::NetworkIntent {
+                            domain: crate::campaign::extract_domain(&url),
+                            url,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn extract_urls(input: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for token in input
+        .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
+        .filter(|s| !s.is_empty())
+    {
+        if token.starts_with("http://") || token.starts_with("https://") {
+            out.push(token.trim_matches(['"', '\'']).to_string());
+        }
+    }
+    out
 }

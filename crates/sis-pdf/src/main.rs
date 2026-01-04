@@ -18,6 +18,7 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(about = "Scan PDFs for suspicious indicators and report findings")]
     Scan {
         #[arg(value_name = "PDF", required_unless_present = "path")]
         pdf: Option<String>,
@@ -41,6 +42,10 @@ enum Command {
         sarif: bool,
         #[arg(long)]
         sarif_out: Option<PathBuf>,
+        #[arg(long)]
+        export_intents: bool,
+        #[arg(long)]
+        export_intents_out: Option<PathBuf>,
         #[arg(long)]
         yara: bool,
         #[arg(long)]
@@ -74,10 +79,12 @@ enum Command {
         #[arg(long, default_value_t = 0.9)]
         ml_threshold: f32,
     },
+    #[command(about = "Explain a specific finding with evidence details")]
     Explain {
         pdf: String,
         finding_id: String,
     },
+    #[command(about = "Extract JavaScript or embedded files from a PDF")]
     Extract {
         #[arg(value_parser = ["js", "embedded"])]
         kind: String,
@@ -85,6 +92,7 @@ enum Command {
         #[arg(short, long)]
         out: PathBuf,
     },
+    #[command(about = "Generate a full Markdown report for a PDF scan")]
     Report {
         pdf: String,
         #[arg(long)]
@@ -112,6 +120,7 @@ enum Command {
         #[arg(long, default_value_t = 0.9)]
         ml_threshold: f32,
     },
+    #[command(about = "Export action chains from a scan as DOT or JSON")]
     ExportGraph {
         pdf: String,
         #[arg(long)]
@@ -121,6 +130,7 @@ enum Command {
         #[arg(short, long)]
         out: PathBuf,
     },
+    #[command(about = "Export feature vectors for ML pipelines")]
     ExportFeatures {
         #[arg(value_name = "PDF", required_unless_present = "path")]
         pdf: Option<String>,
@@ -145,6 +155,7 @@ enum Command {
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
+    #[command(about = "Analyze a PDF stream in chunks and stop on indicators")]
     StreamAnalyze {
         pdf: String,
         #[arg(long, default_value_t = 64 * 1024)]
@@ -152,23 +163,31 @@ enum Command {
         #[arg(long, default_value_t = 256 * 1024)]
         max_buffer: usize,
     },
+    #[command(about = "Correlate network intents across PDFs from JSONL input")]
     CampaignCorrelate {
         #[arg(long)]
         input: PathBuf,
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
+    #[command(about = "Generate response YARA rules for a threat kind or report")]
     ResponseGenerate {
         #[arg(long)]
-        kind: String,
+        kind: Option<String>,
+        #[arg(long)]
+        from_report: Option<PathBuf>,
         #[arg(short, long)]
         out: Option<PathBuf>,
     },
+    #[command(about = "Generate mutated PDFs for detection testing")]
     Mutate {
         pdf: String,
         #[arg(short, long)]
         out: PathBuf,
+        #[arg(long)]
+        scan: bool,
     },
+    #[command(about = "Generate red-team evasive PDF fixtures")]
     RedTeam {
         #[arg(long)]
         target: String,
@@ -192,6 +211,8 @@ fn main() -> Result<()> {
             jsonl,
             sarif,
             sarif_out,
+            export_intents,
+            export_intents_out,
             yara,
             yara_out,
             yara_scope,
@@ -220,6 +241,8 @@ fn main() -> Result<()> {
             jsonl,
             sarif,
             sarif_out.as_deref(),
+            export_intents,
+            export_intents_out.as_deref(),
             yara,
             yara_out.as_deref(),
             &yara_scope,
@@ -307,8 +330,12 @@ fn main() -> Result<()> {
         Command::CampaignCorrelate { input, out } => {
             run_campaign_correlate(&input, out.as_deref())
         }
-        Command::ResponseGenerate { kind, out } => run_response_generate(&kind, out.as_deref()),
-        Command::Mutate { pdf, out } => run_mutate(&pdf, &out),
+        Command::ResponseGenerate {
+            kind,
+            from_report,
+            out,
+        } => run_response_generate(kind.as_deref(), from_report.as_deref(), out.as_deref()),
+        Command::Mutate { pdf, out, scan } => run_mutate(&pdf, &out, scan),
         Command::RedTeam { target, out } => run_redteam(&target, &out),
     }
 }
@@ -330,6 +357,8 @@ fn run_scan(
     jsonl: bool,
     sarif: bool,
     sarif_out: Option<&std::path::Path>,
+    export_intents: bool,
+    export_intents_out: Option<&std::path::Path>,
     yara: bool,
     yara_out: Option<&std::path::Path>,
     yara_scope: &str,
@@ -382,6 +411,7 @@ fn run_scan(
             threshold: ml_threshold,
         });
     }
+    let want_export_intents = export_intents || export_intents_out.is_some();
     let detectors = sis_pdf_detectors::default_detectors();
     if let Some(dir) = path {
         return run_scan_batch(
@@ -393,6 +423,8 @@ fn run_scan(
             jsonl,
             sarif,
             sarif_out,
+            want_export_intents,
+            export_intents_out,
             yara,
             yara_out,
             cache_dir,
@@ -400,6 +432,15 @@ fn run_scan(
     }
     let pdf = pdf.ok_or_else(|| anyhow!("PDF path is required unless --path is set"))?;
     let report = run_scan_single(pdf, &opts, &detectors)?;
+    if want_export_intents {
+        let mut writer: Box<dyn Write> = if let Some(path) = export_intents_out {
+            Box::new(fs::File::create(path)?)
+        } else {
+            Box::new(std::io::stdout())
+        };
+        write_intents_jsonl(&report, writer.as_mut())?;
+        return Ok(());
+    }
     let want_sarif = sarif || sarif_out.is_some();
     let want_yara = yara || yara_out.is_some();
     if json {
@@ -440,6 +481,23 @@ fn run_scan_single(
     Ok(report)
 }
 
+fn write_intents_jsonl(
+    report: &sis_pdf_core::report::Report,
+    writer: &mut dyn Write,
+) -> Result<()> {
+    let path = report.input_path.as_deref().unwrap_or("-");
+    for intent in &report.network_intents {
+        let record = serde_json::json!({
+            "path": path,
+            "url": intent.url,
+            "domain": intent.domain,
+        });
+        writer.write_all(serde_json::to_string(&record)?.as_bytes())?;
+        writer.write_all(b"\n")?;
+    }
+    Ok(())
+}
+
 fn run_scan_batch(
     dir: &std::path::Path,
     glob: &str,
@@ -449,6 +507,8 @@ fn run_scan_batch(
     jsonl: bool,
     sarif: bool,
     sarif_out: Option<&std::path::Path>,
+    export_intents: bool,
+    export_intents_out: Option<&std::path::Path>,
     yara: bool,
     yara_out: Option<&std::path::Path>,
     cache_dir: Option<&std::path::Path>,
@@ -465,6 +525,15 @@ fn run_scan_batch(
         None
     };
     let matcher = Glob::new(glob)?.compile_matcher();
+    let mut intent_writer: Option<Box<dyn Write>> = if export_intents {
+        Some(if let Some(path) = export_intents_out {
+            Box::new(fs::File::create(path)?)
+        } else {
+            Box::new(std::io::stdout())
+        })
+    } else {
+        None
+    };
     let mut entries = Vec::new();
     let mut summary = sis_pdf_core::report::Summary {
         total: 0,
@@ -509,6 +578,9 @@ fn run_scan_batch(
             report = Some(rep.with_input_path(Some(path_str.clone())));
         }
         let report = report.expect("report");
+        if let Some(writer) = intent_writer.as_mut() {
+            write_intents_jsonl(&report, writer.as_mut())?;
+        }
         let duration_ms = start.elapsed().as_millis() as u64;
         timing_total_ms = timing_total_ms.saturating_add(duration_ms);
         timing_max_ms = timing_max_ms.max(duration_ms);
@@ -525,6 +597,9 @@ fn run_scan_batch(
     }
     if entries.is_empty() {
         return Err(anyhow!("no files matched {} in {}", glob, dir.display()));
+    }
+    if export_intents {
+        return Ok(());
     }
     let avg_ms = if entries.is_empty() {
         0
@@ -897,16 +972,33 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
     Ok(())
 }
 
-fn run_response_generate(kind: &str, out: Option<&std::path::Path>) -> Result<()> {
-    let pattern = sis_pdf_core::behavior::ThreatPattern {
-        id: format!("kind:{}", kind),
-        kinds: vec![kind.to_string()],
-        objects: vec!["-".into()],
-        severity: sis_pdf_core::model::Severity::Medium,
-        summary: format!("Generated for {}", kind),
-    };
+fn run_response_generate(
+    kind: Option<&str>,
+    from_report: Option<&std::path::Path>,
+    out: Option<&std::path::Path>,
+) -> Result<()> {
     let generator = sis_pdf_core::response::ResponseGenerator;
-    let rules = generator.generate_yara_variants(&pattern);
+    let mut rules = Vec::new();
+    if let Some(path) = from_report {
+        let data = fs::read_to_string(path)?;
+        let report: sis_pdf_core::report::Report = serde_json::from_str(&data)?;
+        if let Some(summary) = &report.behavior_summary {
+            for pattern in &summary.patterns {
+                rules.extend(generator.generate_yara_variants(pattern));
+            }
+        }
+    }
+    if rules.is_empty() {
+        let kind = kind.ok_or_else(|| anyhow!("--kind or --from-report is required"))?;
+        let pattern = sis_pdf_core::behavior::ThreatPattern {
+            id: format!("kind:{}", kind),
+            kinds: vec![kind.to_string()],
+            objects: vec!["-".into()],
+            severity: sis_pdf_core::model::Severity::Medium,
+            summary: format!("Generated for {}", kind),
+        };
+        rules.extend(generator.generate_yara_variants(&pattern));
+    }
     let rendered = sis_pdf_core::yara::render_rules(&rules);
     if let Some(path) = out {
         fs::write(path, rendered)?;
@@ -916,7 +1008,7 @@ fn run_response_generate(kind: &str, out: Option<&std::path::Path>) -> Result<()
     Ok(())
 }
 
-fn run_mutate(pdf: &str, out: &std::path::Path) -> Result<()> {
+fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
     let data = fs::read(pdf)?;
     fs::create_dir_all(out)?;
     let tester = sis_pdf_core::mutation::MutationTester;
@@ -927,7 +1019,73 @@ fn run_mutate(pdf: &str, out: &std::path::Path) -> Result<()> {
         fs::write(path, &mutant.bytes)?;
     }
     println!("generated {} mutants", mutants.len());
+    if scan {
+        let detectors = sis_pdf_detectors::default_detectors();
+        let opts = sis_pdf_core::scan::ScanOptions {
+            deep: true,
+            max_decode_bytes: 32 * 1024 * 1024,
+            max_total_decoded_bytes: 256 * 1024 * 1024,
+            recover_xref: true,
+            parallel: false,
+            diff_parser: false,
+            max_objects: 500_000,
+            max_recursion_depth: 64,
+            fast: false,
+            focus_trigger: None,
+            focus_depth: 0,
+            yara_scope: None,
+            strict: false,
+            ml_config: None,
+        };
+        let base_report =
+            sis_pdf_core::runner::run_scan_with_detectors(&data, opts.clone(), &detectors)?;
+        let base_counts = count_kinds(&base_report.findings);
+        println!("base findings: {}", base_report.findings.len());
+        for (idx, mutant) in mutants.iter().enumerate() {
+            let report = sis_pdf_core::runner::run_scan_with_detectors(
+                &mutant.bytes,
+                opts.clone(),
+                &detectors,
+            )?;
+            let counts = count_kinds(&report.findings);
+            let deltas = diff_kind_counts(&base_counts, &counts);
+            println!(
+                "mutant {:02} {} deltas: {}",
+                idx + 1,
+                mutant.note,
+                deltas.join(", ")
+            );
+        }
+    }
     Ok(())
+}
+
+fn count_kinds(findings: &[sis_pdf_core::model::Finding]) -> std::collections::BTreeMap<String, usize> {
+    let mut out = std::collections::BTreeMap::new();
+    for f in findings {
+        *out.entry(f.kind.clone()).or_insert(0) += 1;
+    }
+    out
+}
+
+fn diff_kind_counts(
+    base: &std::collections::BTreeMap<String, usize>,
+    current: &std::collections::BTreeMap<String, usize>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let keys: std::collections::BTreeSet<&String> =
+        base.keys().chain(current.keys()).collect();
+    for key in keys {
+        let b = *base.get(key).unwrap_or(&0) as i64;
+        let c = *current.get(key).unwrap_or(&0) as i64;
+        if b != c {
+            out.push(format!("{} {:+}", key, c - b));
+        }
+    }
+    if out.is_empty() {
+        out.push("no_deltas".into());
+    }
+    out
 }
 
 fn run_redteam(target: &str, out: &std::path::Path) -> Result<()> {

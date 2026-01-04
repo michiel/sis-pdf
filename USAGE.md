@@ -33,6 +33,12 @@ JSONL (stream-friendly):
 sis scan suspicious.pdf --jsonl > report.jsonl
 ```
 
+Export network intents for correlation:
+
+```
+sis scan suspicious.pdf --export-intents --export-intents-out intents.jsonl
+```
+
 SARIF (CI integration):
 
 ```
@@ -331,6 +337,12 @@ sis stream-analyze suspicious.pdf --chunk-size 65536 --max-buffer 262144
 
 ## 16) Campaign correlation (CLI)
 
+Generate intent JSONL from scans:
+
+```
+sis scan --path samples --glob "*.pdf" --export-intents --export-intents-out intents.jsonl
+```
+
 Provide JSONL with fields `path` and `url`:
 
 ```
@@ -348,10 +360,23 @@ sis campaign-correlate --input intents.jsonl -o campaigns.json
 sis response-generate --kind js_present -o response_rules.yar
 ```
 
+From an existing JSON report:
+
+```
+sis scan suspicious.pdf --json > report.json
+sis response-generate --from-report report.json -o response_rules.yar
+```
+
 ## 18) Mutation testing (CLI)
 
 ```
 sis mutate suspicious.pdf -o tmp/mutants
+```
+
+Scan mutants and summarize detection deltas:
+
+```
+sis mutate suspicious.pdf -o tmp/mutants --scan
 ```
 
 ## 19) Red-team simulation (CLI)

@@ -29,6 +29,10 @@ pub struct Report {
     pub behavior_summary: Option<crate::behavior::BehaviorSummary>,
     #[serde(default)]
     pub future_threats: Vec<crate::predictor::FutureThreat>,
+    #[serde(default)]
+    pub network_intents: Vec<crate::campaign::NetworkIntent>,
+    #[serde(default)]
+    pub response_rules: Vec<crate::yara::YaraRule>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -61,6 +65,8 @@ impl Report {
         intent_summary: Option<IntentSummary>,
         behavior_summary: Option<crate::behavior::BehaviorSummary>,
         future_threats: Vec<crate::predictor::FutureThreat>,
+        network_intents: Vec<crate::campaign::NetworkIntent>,
+        response_rules: Vec<crate::yara::YaraRule>,
     ) -> Self {
         let mut grouped: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
         for f in &findings {
@@ -84,6 +90,8 @@ impl Report {
             intent_summary,
             behavior_summary,
             future_threats,
+            network_intents,
+            response_rules,
         }
     }
 
@@ -494,6 +502,23 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 "- {} (confidence {:.2})\n",
                 threat.label, threat.confidence
             ));
+        }
+        out.push('\n');
+    }
+
+    if !report.network_intents.is_empty() {
+        out.push_str("## Network Intents\n\n");
+        for intent in &report.network_intents {
+            let domain = intent.domain.as_deref().unwrap_or("-");
+            out.push_str(&format!("- {} (domain {})\n", intent.url, domain));
+        }
+        out.push('\n');
+    }
+
+    if !report.response_rules.is_empty() {
+        out.push_str("## Response Rules\n\n");
+        for rule in &report.response_rules {
+            out.push_str(&format!("- {} (tags: {})\n", rule.name, rule.tags.join(", ")));
         }
         out.push('\n');
     }

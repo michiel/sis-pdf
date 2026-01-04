@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NetworkIntent {
     pub url: String,
     pub domain: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PDFAnalysis {
     pub id: String,
     pub path: Option<String>,
