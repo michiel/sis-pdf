@@ -88,6 +88,8 @@ pub struct GraphMlLimits {
 
 ## Detailed Implementation Steps
 
+Stage 1 focuses on core IR/ORG + ONNX embedding + GNN inference. Stage 2 defers advanced safety policy, proposed UX flags, and OOD/evasion detection until after the core pipeline is stable.
+
 ### 1) IR Extraction (PDFObj IR) - Security Hardened
 
 **Core functionality:**
@@ -470,7 +472,7 @@ fn validate_file_integrity(path: &Path, expected_hash: Option<&str>) -> Result<(
 }
 ```
 
-**ONNX safety validation (inspectable checks):**
+**ONNX safety validation (inspectable checks, Stage 1):**
 ```rust
 fn validate_onnx_safety(path: &Path) -> Result<()> {
     // Parse ONNX model and enforce checks we can actually inspect.
@@ -501,7 +503,7 @@ fn validate_onnx_safety(path: &Path) -> Result<()> {
         }
     }
 
-    // 3) Optional: enforce an op allowlist for ai.onnx.
+    // 3) Optional: enforce an op allowlist for ai.onnx (Stage 2).
     // (Keep this list short and audited; otherwise skip.)
     // for node in &model.graph.node {
     //     if !ALLOWED_OPS.contains(&node.op_type.as_str()) {
@@ -911,7 +913,7 @@ if size_bytes > MAX_GRAPH_MEMORY_BYTES {
 
 ---
 
-### 8) Adversarial Detection - OOD and Evasion Markers
+### 8) Adversarial Detection - OOD and Evasion Markers (Stage 2)
 
 **Out-of-Distribution (OOD) Detection:**
 
@@ -1157,9 +1159,9 @@ if let Some(evasion) = ml_result.evasion_finding {
 
 ---
 
-### 10) CLI and Ergonomics - Progress & Errors
+### 10) CLI and Ergonomics - Progress & Errors (Stage 2 for proposed UX flags)
 
-**CLI flags (proposed UX):**
+**CLI flags (proposed UX, Stage 2):**
 ```bash
 sis scan file.pdf --ml --ml-mode graph --ml-model-dir models
 
@@ -1244,7 +1246,7 @@ fn run_scan_with_progress(path: &Path, options: &ScanOptions) -> Result<Report> 
   Consider increasing timeout with --ml-graph-timeout 60000"
 ```
 
-**Export commands (proposed UX for normalized IR):**
+**Export commands (proposed UX for normalized IR, Stage 2):**
 ```bash
 # Export IR for debugging
 sis export-ir file.pdf --format json -o ir.json
@@ -1783,7 +1785,7 @@ sis validate-ml-config ./models/pdfobj2vec_v1
 
 ---
 
-## Security Review Alignment
+## Security Review Alignment (Stage 2 hardening)
 
 This plan addresses prior security review findings:
 
