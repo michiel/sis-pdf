@@ -147,6 +147,7 @@ Focus: textual cues and overlay links.
 
 ### ML Summary
 - `ml_summary` provides score/threshold/label for traditional or graph ML.
+- Graph ML packaging schema: `docs/graph-model-schema.md`.
 
 ## 6) Operator Workflow
 
