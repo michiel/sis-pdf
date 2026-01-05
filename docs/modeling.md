@@ -131,25 +131,37 @@ for label, base in [("benign", "data/benign"), ("malicious", "data/malicious")]:
         dataset.append({"label": label, "node_texts": node_texts, "edge_index": edge_index})
 
 # Step 2: Embed IR texts with a transformer, then train GNN on graphs.
-# Example: embed IR texts to vectors
+# Example: embed IR texts to vectors (Linux + AMD Radeon ROCm)
 #
 # from transformers import AutoTokenizer, AutoModel
 # import torch
 #
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#
 # tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-# model = AutoModel.from_pretrained("bert-base-uncased")
+# model = AutoModel.from_pretrained("bert-base-uncased").to(device)
 # model.eval()
 #
-# def embed_texts(texts):
-#     batch = tokenizer(texts, padding=True, truncation=True, max_length=256, return_tensors="pt")
-#     with torch.no_grad():
-#         outputs = model(**batch)
-#     # CLS pooling
-#     return outputs.last_hidden_state[:, 0, :].cpu().numpy()
+# def embed_texts(texts, batch_size=32):
+#     vectors = []
+#     for i in range(0, len(texts), batch_size):
+#         chunk = texts[i:i + batch_size]
+#         batch = tokenizer(
+#             chunk,
+#             padding=True,
+#             truncation=True,
+#             max_length=256,
+#             return_tensors="pt",
+#         )
+#         batch = {k: v.to(device) for k, v in batch.items()}
+#         with torch.no_grad():
+#             outputs = model(**batch)
+#         vectors.append(outputs.last_hidden_state[:, 0, :].cpu())
+#     return torch.cat(vectors, dim=0).numpy()
 #
-# node_features = embed_texts(node_texts)
+# node_features = embed_texts(node_texts, batch_size=64)
 #
-# Example: train a GIN on graph data (PyTorch Geometric style)
+# Example: train a GIN on graph data (PyTorch Geometric style, ROCm)
 #
 # from torch_geometric.data import Data
 # from torch_geometric.nn import GINConv, global_add_pool
@@ -170,6 +182,7 @@ for label, base in [("benign", "data/benign"), ("malicious", "data/malicious")]:
 #         return self.lin(x)
 #
 # data = Data(x=torch.tensor(node_features), edge_index=edge_index, y=label)
+# data = data.to(device)
 # loss = torch.nn.BCEWithLogitsLoss()
 # logits = model(data.x, data.edge_index, data.batch)
 # loss(logits.view(-1), data.y.float())
@@ -179,7 +192,7 @@ for label, base in [("benign", "data/benign"), ("malicious", "data/malicious")]:
 #
 # torch.onnx.export(
 #     model,
-#     (batch["input_ids"], batch["attention_mask"]),
+#     (batch["input_ids"].to(device), batch["attention_mask"].to(device)),
 #     "embedding.onnx",
 #     input_names=["input_ids", "attention_mask"],
 #     output_names=["last_hidden_state"],
@@ -189,9 +202,9 @@ for label, base in [("benign", "data/benign"), ("malicious", "data/malicious")]:
 #
 # Example: export GNN to ONNX (fixed-size example)
 #
-# dummy_x = torch.randn(10, 768)
-# dummy_edge_index = torch.zeros(2, 20, dtype=torch.long)
-# dummy_batch = torch.zeros(10, dtype=torch.long)
+# dummy_x = torch.randn(10, 768, device=device)
+# dummy_edge_index = torch.zeros(2, 20, dtype=torch.long, device=device)
+# dummy_batch = torch.zeros(10, dtype=torch.long, device=device)
 # torch.onnx.export(
 #     gnn_model,
 #     (dummy_x, dummy_edge_index, dummy_batch),
