@@ -84,6 +84,7 @@ Reporting and evidence:
 - Strict parse deviations grouped in the Markdown report.
 
 CLI workflows:
+- `docs/scenarios.md` for end-to-end operator workflows.
 - `sis scan` for triage, deep scans, strict mode, and focused trigger scans.
 - `sis report` for full Markdown reporting, with optional output file.
 - `sis explain` for individual finding inspection with evidence previews.

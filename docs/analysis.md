@@ -156,6 +156,8 @@ Focus: textual cues and overlay links.
 2) Review grouped findings and high severity alerts.
 3) If structural anomalies or ObjStm density is present, run deep scan.
 
+For complete end-to-end workflows, see `docs/scenarios.md`.
+
 ### Deep Analysis
 1) `sis scan file.pdf --deep --diff-parser`
 2) Extract JS and embedded files as needed.
