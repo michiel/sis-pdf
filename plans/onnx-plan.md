@@ -15,7 +15,7 @@ This plan merges the IR/ORG pipeline work and the ONNX embedding/GNN backend int
 ## Scope
 
 - Inference only (training stays external).
-- ONNXRuntime is the primary backend (CPU by default; optional GPU if runtime supports it).
+- `tract-onnx` is the primary ONNX backend (CPU by default; GPU depends on tract build options).
 - Tokenizers from HuggingFace format (`tokenizer.json` or `vocab.json` + `merges.txt`).
 - IR/ORG export remains available without ML.
 - No raw stream bytes inside IR text.
@@ -645,7 +645,7 @@ impl TokenizerWrapper {
 ### 6) ONNX Embedding Backend - With Timeout
 
 **Core functionality:**
-- Add `onnxruntime` dependency (feature-gated under `ml-graph`).
+- Add `tract-onnx` dependency (feature-gated under `ml-graph`).
 - Load embedding model once per run (store in `GraphModelRunner`).
 - Implement pooling: `cls` (first token) and `mean` (average with mask).
 - Batching to reduce overhead.
@@ -1561,6 +1561,7 @@ Short summary:
 - `embedding.output_dim` must equal `graph.input_dim`.
 - Paths are relative to `ml_model_dir` and must stay inside it.
 - Optional sections: `integrity`, `adversarial`, `limits`.
+- Optional I/O names: `embedding.input_names`, `embedding.output_name`, `graph.input_names`, `graph.output_name`.
 - Full schema: `docs/graph-model-schema.md`.
 
 ```json

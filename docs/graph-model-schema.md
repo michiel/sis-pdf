@@ -63,6 +63,43 @@ All paths are resolved relative to the model directory passed via `--ml-model-di
 - Required: yes
 - Notes: normalization rules for IR before tokenization.
 
+##### embedding.normalize.normalize_numbers
+- Type: boolean
+
+##### embedding.normalize.normalize_strings
+- Type: boolean
+
+##### embedding.normalize.collapse_obj_refs
+- Type: boolean
+
+##### embedding.normalize.preserve_keywords
+- Type: array of strings
+
+##### embedding.normalize.hash_strings
+- Type: boolean
+
+##### embedding.normalize.include_deviation_markers
+- Type: boolean
+
+#### embedding.input_names
+- Type: object
+- Required: no
+- Notes: input tensor names used by the embedding model.
+
+##### embedding.input_names.input_ids
+- Type: string
+
+##### embedding.input_names.attention_mask
+- Type: string
+
+##### embedding.input_names.token_type_ids
+- Type: string
+
+#### embedding.output_name
+- Type: string
+- Required: no
+- Notes: output tensor name; if omitted, the first output is used.
+
 ### graph
 - Type: object
 - Required: yes
@@ -97,10 +134,26 @@ All paths are resolved relative to the model directory passed via `--ml-model-di
 - Required: yes
 - Notes: if `kind` is `logit`, apply sigmoid when true.
 
+#### graph.input_names
+- Type: object
+- Required: no
+- Notes: input tensor names used by the graph model.
+
+##### graph.input_names.node_features
+- Type: string
+
+##### graph.input_names.edge_index
+- Type: string
+
+#### graph.output_name
+- Type: string
+- Required: no
+- Notes: output tensor name; if omitted, the first output is used.
+
 ### threshold
 - Type: number
 - Required: yes
-- Notes: threshold for malicious label.
+- Notes: threshold for malicious label; CLI `--ml-threshold` overrides this value when provided.
 
 ### edge_index
 - Type: object
@@ -202,6 +255,12 @@ All paths are resolved relative to the model directory passed via `--ml-model-di
     "max_length": 256,
     "pooling": "cls",
     "output_dim": 768,
+    "input_names": {
+      "input_ids": "input_ids",
+      "attention_mask": "attention_mask",
+      "token_type_ids": "token_type_ids"
+    },
+    "output_name": "last_hidden_state",
     "normalize": {
       "normalize_numbers": true,
       "normalize_strings": true,
@@ -219,6 +278,11 @@ All paths are resolved relative to the model directory passed via `--ml-model-di
     "backend": "onnx",
     "model_path": "graph.onnx",
     "input_dim": 768,
+    "input_names": {
+      "node_features": "node_features",
+      "edge_index": "edge_index"
+    },
+    "output_name": "score",
     "output": {
       "kind": "logit",
       "apply_sigmoid": true
