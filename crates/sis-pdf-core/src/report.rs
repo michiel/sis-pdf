@@ -728,6 +728,67 @@ fn chain_effect_summary(chain: &ExploitChain) -> String {
     }
 }
 
+fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    if let Some(trigger) = &chain.trigger {
+        if trigger.contains("OpenAction") {
+            lines.push("Execution starts automatically when the document opens.".into());
+        } else if trigger.contains("AA") {
+            lines.push("Execution is tied to viewer events (Additional Actions).".into());
+        }
+    }
+    if let Some(action) = &chain.action {
+        if action.contains("JavaScript") {
+            lines.push("JavaScript runs in the viewer context and can access document APIs.".into());
+        } else if action.contains("URI") {
+            lines.push("Viewer may navigate to an external URL or fetch remote content.".into());
+        } else if action.contains("Launch") {
+            lines.push("Viewer may launch an external application or file.".into());
+        } else if action.contains("SubmitForm") {
+            lines.push("Form data can be transmitted to external endpoints.".into());
+        }
+    }
+    if let Some(payload) = &chain.payload {
+        if payload.contains("JS") || payload.contains("JavaScript") {
+            lines.push("Chain contains a script payload that can alter viewer behavior.".into());
+        } else if payload.contains("URI") {
+            lines.push("Chain references external URL payloads.".into());
+        } else if payload.contains("Embedded") {
+            lines.push("Chain involves embedded file payloads.".into());
+        }
+    }
+    if let Some(target) = chain.notes.get("action.target") {
+        lines.push(format!("Action target: {}.", target));
+    }
+    let mut js_notes: Vec<String> = Vec::new();
+    for fid in &chain.findings {
+        if let Some(f) = findings.iter().find(|f| &f.id == fid) {
+            if let Some(summary) = f.meta.get("js.behaviour_summary") {
+                js_notes.push(summary.clone());
+            }
+            if f.meta.get("js.obfuscation_suspected").map(|v| v == "true").unwrap_or(false) {
+                js_notes.push("Obfuscation suspected in script payloads.".into());
+            }
+            if f.kind == "uri_present" {
+                if let Some(url) = f.meta.get("uri.value") {
+                    js_notes.push(format!("External URL observed: {}", url));
+                }
+            }
+        }
+    }
+    if !js_notes.is_empty() {
+        let mut uniq = js_notes;
+        uniq.sort();
+        uniq.dedup();
+        lines.push(format!("Observed behavior signals: {}.", uniq.join("; ")));
+    }
+    if lines.is_empty() {
+        "Insufficient context for a detailed narrative; review chain findings and payload details.".into()
+    } else {
+        lines.join(" ")
+    }
+}
+
 fn runtime_behavior_summary(findings: &[Finding]) -> Vec<String> {
     let mut auto_exec = false;
     let mut js = false;
@@ -1251,6 +1312,10 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             out.push_str(&format!(
                 "- Effect: {}\n",
                 escape_markdown(&chain_effect_summary(chain))
+            ));
+            out.push_str(&format!(
+                "- Narrative: {}\n",
+                escape_markdown(&chain_execution_narrative(chain, &report.findings))
             ));
             if let Some(target) = chain.notes.get("action.target") {
                 out.push_str(&format!(
