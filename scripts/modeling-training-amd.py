@@ -87,7 +87,15 @@ def build_dataset(manifest_path: Path):
     return dataset
 
 
-def embed_texts(tokenizer, model, texts, device, batch_size=32, max_length=256):
+def embed_texts(
+    tokenizer,
+    model,
+    texts,
+    device,
+    batch_size=32,
+    max_length=256,
+    pooling="cls",
+):
     model.eval()
     outputs = []
     batches = range(0, len(texts), batch_size)
@@ -105,7 +113,16 @@ def embed_texts(tokenizer, model, texts, device, batch_size=32, max_length=256):
         batch = {k: v.to(device) for k, v in batch.items()}
         with torch.no_grad():
             out = model(**batch)
-        outputs.append(out.last_hidden_state[:, 0, :].cpu())
+        last_hidden = out.last_hidden_state
+        if pooling == "mean":
+            mask = batch["attention_mask"].unsqueeze(-1).to(last_hidden.dtype)
+            masked = last_hidden * mask
+            summed = masked.sum(dim=1)
+            denom = mask.sum(dim=1).clamp(min=1.0)
+            pooled = summed / denom
+        else:
+            pooled = last_hidden[:, 0, :]
+        outputs.append(pooled.cpu())
     return torch.cat(outputs, dim=0)
 
 
@@ -184,25 +201,30 @@ def export_onnx(encoder, tokenizer, gnn_model, out_dir: Path, device, opset_vers
 
     dummy = tokenizer(["/Type /Page"], return_tensors="pt")
     dummy = {k: v.to(device) for k, v in dummy.items()}
+    embed_inputs = [dummy["input_ids"], dummy["attention_mask"]]
+    embed_names = ["input_ids", "attention_mask"]
+    embed_dynamic_axes = {
+        "input_ids": {0: "batch", 1: "seq"},
+        "attention_mask": {0: "batch", 1: "seq"},
+    }
+    if "token_type_ids" in dummy:
+        embed_inputs.append(dummy["token_type_ids"])
+        embed_names.append("token_type_ids")
+        embed_dynamic_axes["token_type_ids"] = {0: "batch", 1: "seq"}
 
     torch.onnx.export(
         encoder,
-        (dummy["input_ids"], dummy["attention_mask"]),
+        tuple(embed_inputs),
         str(out_dir / "embedding.onnx"),
-        input_names=["input_ids", "attention_mask"],
+        input_names=embed_names,
         output_names=["last_hidden_state"],
-        dynamic_axes={
-            "input_ids": {0: "batch", 1: "seq"},
-            "attention_mask": {0: "batch", 1: "seq"},
-        },
+        dynamic_axes=embed_dynamic_axes,
         opset_version=opset_version,
         dynamo=False,
     )
 
     dummy_x = torch.randn(10, gnn_model.conv1.nn[0].in_features, device=device)
     dummy_edge_index = torch.zeros(2, 10, dtype=torch.long, device=device)
-    dummy_batch = torch.zeros(10, dtype=torch.long, device=device)
-
     class GnnWrapper(nn.Module):
         def __init__(self, gnn):
             super().__init__()
@@ -249,6 +271,7 @@ def write_graph_model_config(
     output_dim: int,
     max_length: int,
     pooling: str,
+    embedding_input_names: dict,
 ):
     embedding_path = out_dir / "embedding.onnx"
     graph_path = out_dir / "graph.onnx"
@@ -264,6 +287,7 @@ def write_graph_model_config(
             "max_length": max_length,
             "pooling": pooling,
             "output_dim": output_dim,
+            "input_names": embedding_input_names,
             "normalize": {
                 "normalize_numbers": True,
                 "normalize_strings": True,
@@ -373,7 +397,7 @@ def main():
     configure_sdp(device, args.allow_experimental_sdpa)
 
     dataset = build_dataset(Path(args.manifest))
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=True)
     encoder = AutoModel.from_pretrained(args.model).to(device)
 
     graphs = []
@@ -388,6 +412,7 @@ def main():
             device,
             batch_size=args.batch_size,
             max_length=args.max_length,
+            pooling=args.pooling,
         )
         graphs.append(build_graph_data(node_features, edge_index, label))
 
@@ -398,12 +423,22 @@ def main():
     export_onnx(encoder, tokenizer, gnn_model, Path(args.out), device, args.onnx_opset)
     out_dir = Path(args.out)
     write_tokenizer(tokenizer, out_dir)
+    has_token_type = (
+        tokenizer.model_input_names
+        and "token_type_ids" in tokenizer.model_input_names
+    )
+    embedding_input_names = {
+        "input_ids": "input_ids",
+        "attention_mask": "attention_mask",
+        "token_type_ids": "token_type_ids" if has_token_type else None,
+    }
     write_graph_model_config(
         out_dir,
         args.model,
         in_dim,
         max_length=args.max_length,
         pooling=args.pooling,
+        embedding_input_names=embedding_input_names,
     )
     counts = {
         "total": len(dataset),
