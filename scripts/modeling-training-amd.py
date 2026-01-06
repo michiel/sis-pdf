@@ -219,6 +219,11 @@ def export_onnx(encoder, tokenizer, gnn_model, out_dir: Path, device, opset_vers
         str(out_dir / "graph.onnx"),
         input_names=["node_features", "edge_index"],
         output_names=["score"],
+        dynamic_axes={
+            "node_features": {0: "num_nodes"},
+            "edge_index": {1: "num_edges"},
+            "score": {0: "batch"},
+        },
         opset_version=opset_version,
         dynamo=False,
     )
