@@ -16,6 +16,8 @@ Notes:
 
 import argparse
 import json
+import hashlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
@@ -201,15 +203,147 @@ def export_onnx(encoder, tokenizer, gnn_model, out_dir: Path, device, opset_vers
     dummy_edge_index = torch.zeros(2, 10, dtype=torch.long, device=device)
     dummy_batch = torch.zeros(10, dtype=torch.long, device=device)
 
+    class GnnWrapper(nn.Module):
+        def __init__(self, gnn):
+            super().__init__()
+            self.gnn = gnn
+
+        def forward(self, x, edge_index):
+            batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+            return self.gnn(x, edge_index, batch)
+
+    wrapper = GnnWrapper(gnn_model)
     torch.onnx.export(
-        gnn_model,
-        (dummy_x, dummy_edge_index, dummy_batch),
+        wrapper,
+        (dummy_x, dummy_edge_index),
         str(out_dir / "graph.onnx"),
-        input_names=["node_features", "edge_index", "batch"],
+        input_names=["node_features", "edge_index"],
         output_names=["score"],
         opset_version=opset_version,
         dynamo=False,
     )
+
+
+def write_tokenizer(tokenizer, out_dir: Path):
+    if not hasattr(tokenizer, "backend_tokenizer"):
+        raise RuntimeError("Tokenizer is not a fast tokenizer; cannot save tokenizer.json")
+    tokenizer.backend_tokenizer.save(str(out_dir / "tokenizer.json"))
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def write_graph_model_config(
+    out_dir: Path,
+    model_name: str,
+    output_dim: int,
+    max_length: int,
+    pooling: str,
+):
+    embedding_path = out_dir / "embedding.onnx"
+    graph_path = out_dir / "graph.onnx"
+    tokenizer_path = out_dir / "tokenizer.json"
+    graph_model = {
+        "schema_version": 1,
+        "name": f"pdfobj2vec_{model_name.replace('/', '_')}",
+        "version": "1.0.0",
+        "embedding": {
+            "backend": "onnx",
+            "model_path": "embedding.onnx",
+            "tokenizer_path": "tokenizer.json",
+            "max_length": max_length,
+            "pooling": pooling,
+            "output_dim": output_dim,
+            "normalize": {
+                "normalize_numbers": True,
+                "normalize_strings": True,
+                "collapse_obj_refs": True,
+                "preserve_keywords": [
+                    "/JS",
+                    "/JavaScript",
+                    "/OpenAction",
+                    "/AA",
+                    "/Launch",
+                    "/GoToR",
+                    "/URI",
+                    "/SubmitForm",
+                    "/RichMedia",
+                    "/EmbeddedFile",
+                    "/ObjStm",
+                ],
+                "hash_strings": True,
+                "include_deviation_markers": True,
+            },
+        },
+        "graph": {
+            "backend": "onnx",
+            "model_path": "graph.onnx",
+            "input_dim": output_dim,
+            "output": {"kind": "logit", "apply_sigmoid": True},
+        },
+        "threshold": 0.9,
+        "edge_index": {"directed": True, "add_reverse_edges": True},
+        "integrity": {
+            "embedding_sha256": sha256_file(embedding_path),
+            "graph_sha256": sha256_file(graph_path),
+            "tokenizer_sha256": sha256_file(tokenizer_path),
+        },
+    }
+    (out_dir / "graph_model.json").write_text(
+        json.dumps(graph_model, indent=2) + "\n"
+    )
+
+
+def write_metadata(
+    out_dir: Path,
+    manifest_path: Path,
+    model_name: str,
+    opset_version: int,
+    output_dim: int,
+    max_length: int,
+    counts: dict,
+):
+    def size_of(name):
+        path = out_dir / name
+        return path.stat().st_size if path.exists() else None
+
+    metadata = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source": {
+            "manifest": str(manifest_path),
+            "samples": counts,
+        },
+        "model": {
+            "encoder": model_name,
+            "embedding_output_dim": output_dim,
+            "max_length": max_length,
+            "graph_opset": opset_version,
+        },
+        "artifacts": {
+            "embedding.onnx": {
+                "bytes": size_of("embedding.onnx"),
+                "sha256": sha256_file(out_dir / "embedding.onnx"),
+            },
+            "graph.onnx": {
+                "bytes": size_of("graph.onnx"),
+                "sha256": sha256_file(out_dir / "graph.onnx"),
+            },
+            "tokenizer.json": {
+                "bytes": size_of("tokenizer.json"),
+                "sha256": sha256_file(out_dir / "tokenizer.json"),
+            },
+            "graph_model.json": {
+                "bytes": size_of("graph_model.json"),
+                "sha256": sha256_file(out_dir / "graph_model.json"),
+            },
+        },
+    }
+    (out_dir / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
 
 
 def main():
@@ -219,6 +353,8 @@ def main():
     parser.add_argument("--model", default="bert-base-uncased", help="HF encoder name")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--max-length", type=int, default=256)
+    parser.add_argument("--pooling", default="cls", choices=["cls", "mean"])
     parser.add_argument("--onnx-opset", type=int, default=18)
     parser.add_argument(
         "--allow-experimental-sdpa",
@@ -241,7 +377,12 @@ def main():
         graph_iter = tqdm(dataset, desc="building graphs", unit="graph")
     for node_texts, edge_index, label in graph_iter:
         node_features = embed_texts(
-            tokenizer, encoder, node_texts, device, batch_size=args.batch_size
+            tokenizer,
+            encoder,
+            node_texts,
+            device,
+            batch_size=args.batch_size,
+            max_length=args.max_length,
         )
         graphs.append(build_graph_data(node_features, edge_index, label))
 
@@ -250,6 +391,29 @@ def main():
     in_dim = graphs[0].x.shape[1]
     gnn_model = train_gnn(graphs, in_dim, device, epochs=args.epochs)
     export_onnx(encoder, tokenizer, gnn_model, Path(args.out), device, args.onnx_opset)
+    out_dir = Path(args.out)
+    write_tokenizer(tokenizer, out_dir)
+    write_graph_model_config(
+        out_dir,
+        args.model,
+        in_dim,
+        max_length=args.max_length,
+        pooling=args.pooling,
+    )
+    counts = {
+        "total": len(dataset),
+        "malicious": sum(1 for _, _, label in dataset if label == 1),
+        "benign": sum(1 for _, _, label in dataset if label == 0),
+    }
+    write_metadata(
+        out_dir,
+        Path(args.manifest),
+        args.model,
+        args.onnx_opset,
+        in_dim,
+        args.max_length,
+        counts,
+    )
 
 
 if __name__ == "__main__":
