@@ -89,11 +89,45 @@ impl GraphModelRunner {
         );
         let batch_size = max_batch_size(&self.config);
         let embeddings = embed_in_batches(&self.tokenizer, &self.embedder, &normalized, batch_size)?;
-        let mut edges = edge_index.to_vec();
-        if self.config.edge_index.add_reverse_edges {
-            edges.extend(edge_index.iter().map(|(s, t)| (*t, *s)));
+        let node_count = embeddings.len();
+        let mut edges: Vec<(usize, usize)> = edge_index
+            .iter()
+            .cloned()
+            .filter(|(s, t)| *s < node_count && *t < node_count)
+            .collect();
+        let dropped = edge_index.len().saturating_sub(edges.len());
+        if dropped > 0 {
+            eprintln!(
+                "warning: ml_graph: dropped {} edges with out-of-range nodes (nodes={})",
+                dropped, node_count
+            );
         }
-        let score = self.gnn.infer(&embeddings, &edges)?;
+        if self.config.edge_index.add_reverse_edges {
+            let mut reversed = edges.iter().map(|(s, t)| (*t, *s)).collect::<Vec<_>>();
+            edges.append(&mut reversed);
+        }
+        if edges.is_empty() {
+            edges.push((0, 0));
+        }
+        let edge_count = edges.len();
+        let feature_dim = embeddings.get(0).map(|v| v.len()).unwrap_or(0);
+        let max_node = edges
+            .iter()
+            .flat_map(|(s, t)| [*s, *t])
+            .max()
+            .unwrap_or(0);
+        let score = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.gnn.infer(&embeddings, &edges)
+        })) {
+            Ok(result) => result?,
+            Err(_) => {
+                eprintln!(
+                    "error: ml_graph: gnn inference panicked (nodes={} feat_dim={} edges={} max_edge_node={})",
+                    node_count, feature_dim, edge_count, max_node
+                );
+                return Err(anyhow!("gnn inference panicked"));
+            }
+        };
         let threshold = if threshold_override > 0.0 {
             threshold_override
         } else {
