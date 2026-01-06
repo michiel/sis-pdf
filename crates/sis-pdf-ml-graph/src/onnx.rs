@@ -313,7 +313,7 @@ fn extract_node_scores(output: &Tensor) -> Result<Vec<f32>> {
             .map(|row| row[0])
             .collect::<Vec<f32>>()),
         2 if shape[0] == 1 => Ok(view
-            .row(0)
+            .index_axis(tract_onnx::prelude::tract_ndarray::Axis(0), 0)
             .iter()
             .copied()
             .collect::<Vec<f32>>()),
