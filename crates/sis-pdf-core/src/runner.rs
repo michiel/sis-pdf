@@ -2,10 +2,13 @@ use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
 use crate::model::Finding;
-use crate::report::{MlRunSummary, MlSummary, Report, SecondaryParserSummary, StructuralSummary};
+use crate::report::{
+    MlNodeAttribution, MlRunSummary, MlSummary, Report, SecondaryParserSummary, StructuralSummary,
+};
 use crate::scan::{DecodedCache, ScanContext, ScanOptions};
 use sis_pdf_pdf::{parse_pdf, ObjectGraph, ParseOptions};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
+use sis_pdf_pdf::ir::PdfIrObject;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
 
 const PARALLEL_DETECTOR_THREADS: usize = 4;
@@ -258,13 +261,17 @@ pub fn run_scan_with_detectors(
                     );
                     match prediction {
                         Ok(prediction) => {
+                            let top_nodes = prediction
+                                .node_scores
+                                .as_ref()
+                                .map(|scores| top_node_attributions(scores, &ir_graph));
                             if let Some(summary) = &mut ml_summary_override {
                                 summary.graph = Some(MlRunSummary {
                                     score: prediction.score,
                                     threshold: prediction.threshold,
                                     label: prediction.label,
                                     kind: "ml_graph_score".into(),
-                                    top_nodes: None,
+                                    top_nodes,
                                 });
                             }
                             if prediction.label {
@@ -401,6 +408,62 @@ fn stable_id(f: &Finding) -> String {
         }
     }
     format!("sis-{}", hasher.finalize().to_hex())
+}
+
+fn summarize_ir_object(obj: &PdfIrObject) -> String {
+    let mut parts = Vec::new();
+    for line in obj.lines.iter().take(3) {
+        let mut piece = format!("{} {}", line.path, line.value_type);
+        if !line.value.is_empty() {
+            let mut value = line.value.clone();
+            if value.len() > 40 {
+                value.truncate(40);
+                value.push_str("...");
+            }
+            piece.push(' ');
+            piece.push_str(&value);
+        }
+        parts.push(piece);
+    }
+    if parts.is_empty() {
+        "<no_ir_lines>".into()
+    } else {
+        parts.join(" ; ")
+    }
+}
+
+fn top_node_attributions(
+    node_scores: &[f32],
+    ir_graph: &crate::ir_pipeline::IrGraphArtifacts,
+) -> Vec<MlNodeAttribution> {
+    let mut ir_map: std::collections::HashMap<ObjRef, &PdfIrObject> = std::collections::HashMap::new();
+    for obj in &ir_graph.ir_objects {
+        let key = ObjRef {
+            obj: obj.obj_ref.0,
+            gen: obj.obj_ref.1,
+        };
+        ir_map.insert(key, obj);
+    }
+    let mut entries = Vec::new();
+    let node_count = ir_graph.org.nodes.len();
+    for (idx, score) in node_scores.iter().enumerate() {
+        if idx >= node_count {
+            break;
+        }
+        let node_ref = ir_graph.org.nodes[idx];
+        let summary = ir_map
+            .get(&node_ref)
+            .map(|obj| summarize_ir_object(obj))
+            .unwrap_or_else(|| "<missing_object>".into());
+        entries.push(MlNodeAttribution {
+            obj_ref: format!("{} {}", node_ref.obj, node_ref.gen),
+            summary,
+            score: *score,
+        });
+    }
+    entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    entries.truncate(5);
+    entries
 }
 
 fn map_focus_trigger(trigger: &str) -> Option<String> {

@@ -22,6 +22,7 @@ pub struct GraphPrediction {
     pub score: f32,
     pub label: bool,
     pub threshold: f32,
+    pub node_scores: Option<Vec<f32>>,
 }
 
 pub struct GraphModelRunner {
@@ -60,6 +61,7 @@ impl GraphModelRunner {
             &paths.graph_model,
             graph_input_names(&config),
             config.graph.output_name.clone(),
+            config.graph.node_scores_name.clone(),
             output_kind,
             config.graph.output.apply_sigmoid,
             inference_timeout_ms(&config),
@@ -116,11 +118,11 @@ impl GraphModelRunner {
             .flat_map(|(s, t)| [*s, *t])
             .max()
             .unwrap_or(0);
-        let score = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let inference = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.gnn.infer(&embeddings, &edges)
         })) {
             Ok(result) => match result {
-                Ok(score) => score,
+                Ok(result) => result,
                 Err(err) => {
                     eprintln!(
                         "error: ml_graph: gnn inference failed (nodes={} feat_dim={} edges={} max_edge_node={}): {}",
@@ -143,9 +145,10 @@ impl GraphModelRunner {
             self.config.threshold
         };
         Ok(GraphPrediction {
-            score,
-            label: score >= threshold,
+            score: inference.score,
+            label: inference.score >= threshold,
             threshold,
+            node_scores: inference.node_scores,
         })
     }
 }
@@ -216,6 +219,7 @@ mod tests {
                 },
                 input_names: None,
                 output_name: None,
+                node_scores_name: None,
             },
             threshold: 0.9,
             edge_index: config::EdgeIndexConfig {

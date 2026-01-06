@@ -150,6 +150,11 @@ All paths are resolved relative to the model directory passed via `--ml-model-di
 - Required: no
 - Notes: output tensor name; if omitted, the first output is used.
 
+#### graph.node_scores_name
+- Type: string
+- Required: no
+- Notes: optional output tensor name for per-node attribution scores; if set, the model must emit a 1D or Nx1 vector aligned to node order.
+
 ### threshold
 - Type: number
 - Required: yes
@@ -282,7 +287,8 @@ All paths are resolved relative to the model directory passed via `--ml-model-di
       "node_features": "node_features",
       "edge_index": "edge_index"
     },
-    "output_name": "score",
+    "output_name": "graph_score",
+    "node_scores_name": "node_scores",
     "output": {
       "kind": "logit",
       "apply_sigmoid": true

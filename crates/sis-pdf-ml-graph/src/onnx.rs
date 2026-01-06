@@ -30,6 +30,7 @@ pub struct OnnxGnn {
     model: TypedSimplePlan<TypedModel>,
     input_names: GraphInputNames,
     output_name: Option<String>,
+    node_scores_name: Option<String>,
     output_kind: OutputKind,
     apply_sigmoid: bool,
     timeout: Duration,
@@ -164,6 +165,7 @@ impl OnnxGnn {
         path: &std::path::Path,
         input_names: GraphInputNames,
         output_name: Option<String>,
+        node_scores_name: Option<String>,
         output_kind: OutputKind,
         apply_sigmoid: bool,
         timeout_ms: u64,
@@ -176,6 +178,7 @@ impl OnnxGnn {
             model,
             input_names,
             output_name,
+            node_scores_name,
             output_kind,
             apply_sigmoid,
             timeout: Duration::from_millis(timeout_ms),
@@ -187,6 +190,7 @@ impl OnnxGnn {
         model: TypedSimplePlan<TypedModel>,
         input_names: GraphInputNames,
         output_name: Option<String>,
+        node_scores_name: Option<String>,
         output_kind: OutputKind,
         apply_sigmoid: bool,
     ) -> Self {
@@ -194,13 +198,18 @@ impl OnnxGnn {
             model,
             input_names,
             output_name,
+            node_scores_name,
             output_kind,
             apply_sigmoid,
             timeout: Duration::from_millis(1_000),
         }
     }
 
-    pub fn infer(&self, node_features: &[Vec<f32>], edge_index: &[(usize, usize)]) -> Result<f32> {
+    pub fn infer(
+        &self,
+        node_features: &[Vec<f32>],
+        edge_index: &[(usize, usize)],
+    ) -> Result<GraphInference> {
         let start = Instant::now();
         let inputs = self.build_inputs(node_features, edge_index)?;
         let outputs = self.model.run(inputs)?;
@@ -221,7 +230,16 @@ impl OnnxGnn {
         if self.apply_sigmoid {
             out = 1.0 / (1.0 + (-out).exp());
         }
-        Ok(out)
+        let node_scores = if let Some(name) = &self.node_scores_name {
+            let node_tensor = pick_output_tensor(&self.model, &outputs, Some(name))?;
+            Some(extract_node_scores(&node_tensor)?)
+        } else {
+            None
+        };
+        Ok(GraphInference {
+            score: out,
+            node_scores,
+        })
     }
 
     fn build_inputs(&self, node_features: &[Vec<f32>], edge_index: &[(usize, usize)]) -> Result<TVec<TValue>> {
@@ -283,6 +301,29 @@ fn pick_output_tensor(
         .cloned()
         .map(|v| v.into_tensor())
         .ok_or_else(|| anyhow!("missing model output"))
+}
+
+fn extract_node_scores(output: &Tensor) -> Result<Vec<f32>> {
+    let view = output.to_array_view::<f32>()?;
+    let shape = view.shape();
+    match shape.len() {
+        1 => Ok(view.iter().copied().collect()),
+        2 if shape[1] == 1 => Ok(view
+            .outer_iter()
+            .map(|row| row[0])
+            .collect::<Vec<f32>>()),
+        2 if shape[0] == 1 => Ok(view
+            .row(0)
+            .iter()
+            .copied()
+            .collect::<Vec<f32>>()),
+        _ => Err(anyhow!("unexpected node_scores shape: {:?}", shape)),
+    }
+}
+
+pub struct GraphInference {
+    pub score: f32,
+    pub node_scores: Option<Vec<f32>>,
 }
 
 fn build_inputs_for_model(
@@ -377,11 +418,12 @@ mod tests {
                 edge_index: None,
             },
             Some("score".into()),
+            None,
             OutputKind::Probability,
             false,
         );
-        let score = gnn.infer(&vec![vec![0.5, 0.5, 0.5, 0.5]], &[])?;
-        assert!((score - 0.7).abs() < 1e-6);
+        let result = gnn.infer(&vec![vec![0.5, 0.5, 0.5, 0.5]], &[])?;
+        assert!((result.score - 0.7).abs() < 1e-6);
         Ok(())
     }
 }

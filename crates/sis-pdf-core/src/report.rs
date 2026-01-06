@@ -285,6 +285,15 @@ pub fn print_human(report: &Report) {
                 run.label,
                 ml_assessment(run.label)
             );
+            if let Some(nodes) = &run.top_nodes {
+                println!("  Graph top nodes:");
+                for node in nodes {
+                    println!(
+                        "    - {} score {:.4} ({})",
+                        node.obj_ref, node.score, node.summary
+                    );
+                }
+            }
         } else if has_ml_error(&report.findings) {
             println!("  Graph: error (see ml_model_error findings)");
         } else {
@@ -299,6 +308,15 @@ pub fn print_human(report: &Report) {
                 run.label,
                 ml_assessment(run.label)
             );
+            if let Some(nodes) = &run.top_nodes {
+                println!("  Traditional top nodes:");
+                for node in nodes {
+                    println!(
+                        "    - {} score {:.4} ({})",
+                        node.obj_ref, node.score, node.summary
+                    );
+                }
+            }
         } else if has_ml_error(&report.findings) {
             println!("  Traditional: error (see ml_model_error findings)");
         } else {

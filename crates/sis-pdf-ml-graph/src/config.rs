@@ -56,6 +56,7 @@ pub struct GraphConfig {
     pub output: GraphOutput,
     pub input_names: Option<GraphInputNames>,
     pub output_name: Option<String>,
+    pub node_scores_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

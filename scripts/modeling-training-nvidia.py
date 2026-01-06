@@ -85,12 +85,13 @@ class GIN(nn.Module):
                 nn.Linear(hidden_dim, hidden_dim),
             )
         )
-        self.lin = nn.Linear(hidden_dim, 1)
+        self.node_head = nn.Linear(hidden_dim, 1)
 
     def forward(self, x, edge_index, batch):
         x = self.conv1(x, edge_index)
-        x = global_add_pool(x, batch)
-        return self.lin(x)
+        node_logits = self.node_head(x)
+        graph_logit = global_add_pool(node_logits, batch)
+        return graph_logit, node_logits
 
 
 def build_graph_data(node_features, edge_index, label):
@@ -112,8 +113,8 @@ def train_gnn(graphs, in_dim, device, epochs=5):
         for batch in loader:
             batch = batch.to(device)
             optimizer.zero_grad()
-            logits = model(batch.x, batch.edge_index, batch.batch)
-            loss = loss_fn(logits.view(-1), batch.y.float().to(device))
+            graph_logits, _ = model(batch.x, batch.edge_index, batch.batch)
+            loss = loss_fn(graph_logits.view(-1), batch.y.float().to(device))
             loss.backward()
             optimizer.step()
             total += loss.item()
@@ -142,14 +143,29 @@ def export_onnx(encoder, tokenizer, gnn_model, out_dir: Path, device):
 
     dummy_x = torch.randn(10, gnn_model.conv1.nn[0].in_features, device=device)
     dummy_edge_index = torch.zeros(2, 10, dtype=torch.long, device=device)
-    dummy_batch = torch.zeros(10, dtype=torch.long, device=device)
+    class GnnWrapper(torch.nn.Module):
+        def __init__(self, gnn):
+            super().__init__()
+            self.gnn = gnn
 
+        def forward(self, x, edge_index):
+            batch = torch.zeros(x.size(0), dtype=torch.long, device=x.device)
+            graph_logit, node_logits = self.gnn(x, edge_index, batch)
+            return graph_logit, node_logits.squeeze(-1)
+
+    wrapper = GnnWrapper(gnn_model)
     torch.onnx.export(
-        gnn_model,
-        (dummy_x, dummy_edge_index, dummy_batch),
+        wrapper,
+        (dummy_x, dummy_edge_index),
         str(out_dir / "graph.onnx"),
-        input_names=["node_features", "edge_index", "batch"],
-        output_names=["score"],
+        input_names=["node_features", "edge_index"],
+        output_names=["graph_score", "node_scores"],
+        dynamic_axes={
+            "node_features": {0: "num_nodes"},
+            "edge_index": {1: "num_edges"},
+            "graph_score": {0: "batch"},
+            "node_scores": {0: "num_nodes"},
+        },
         opset_version=17,
     )
 
