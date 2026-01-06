@@ -20,10 +20,14 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch_geometric.loader import DataLoader
 from transformers import AutoTokenizer, AutoModel
 from torch_geometric.data import Data
 from torch_geometric.nn import GINConv, global_add_pool
+try:
+    from tqdm import tqdm
+except ImportError:  # Optional dependency.
+    tqdm = None
 
 
 def load_sample(ir_path: Path, org_path: Path):
@@ -31,15 +35,38 @@ def load_sample(ir_path: Path, org_path: Path):
     org = json.loads(org_path.read_text())
 
     node_texts = []
-    for obj in ir["objects"]:
+    node_ids = {}
+    for idx, obj in enumerate(ir.get("objects", [])):
         lines = []
-        for line in obj["lines"]:
-            lines.append(f'{line["path"]} {line["type"]} {line["value"]}')
+        for line in obj.get("lines", []):
+            path = line.get("path", "")
+            line_type = line.get("type", "")
+            value = line.get("value", "")
+            lines.append(f"{path} {line_type} {value}".strip())
         node_texts.append(" ; ".join(lines))
+        if "obj" in obj:
+            node_ids[obj["obj"]] = idx
+    if not node_texts:
+        print(f"warning: {ir_path} has no objects; using placeholder node")
+        node_texts = ["/EMPTY"]
 
     edge_index = []
+    unresolved = 0
     for edge in org.get("edges", []):
-        edge_index.append((edge["src"], edge["dst"]))
+        # Accept both "src/dst" and "from/to" edge formats.
+        if "src" in edge and "dst" in edge:
+            src, dst = edge["src"], edge["dst"]
+        else:
+            src, dst = edge["from"], edge["to"]
+        if src in node_ids and dst in node_ids:
+            edge_index.append((node_ids[src], node_ids[dst]))
+        else:
+            unresolved += 1
+
+    if unresolved:
+        print(
+            f"warning: {org_path} has {unresolved} edges that don't resolve to IR nodes"
+        )
 
     return node_texts, edge_index
 
@@ -53,13 +80,18 @@ def build_dataset(manifest_path: Path):
         node_texts, edge_index = load_sample(Path(item["ir"]), Path(item["org"]))
         label = 1 if item["label"] == "malicious" else 0
         dataset.append((node_texts, edge_index, label))
+    if not dataset:
+        raise RuntimeError(f"No samples found in manifest: {manifest_path}")
     return dataset
 
 
 def embed_texts(tokenizer, model, texts, device, batch_size=32, max_length=256):
     model.eval()
     outputs = []
-    for i in range(0, len(texts), batch_size):
+    batches = range(0, len(texts), batch_size)
+    if tqdm:
+        batches = tqdm(batches, desc="embedding", unit="batch")
+    for i in batches:
         chunk = texts[i : i + batch_size]
         batch = tokenizer(
             chunk,
@@ -121,7 +153,31 @@ def train_gnn(graphs, in_dim, device, epochs=5):
     return model
 
 
-def export_onnx(encoder, tokenizer, gnn_model, out_dir: Path, device):
+def configure_sdp(device, allow_experimental):
+    if device.type != "cuda":
+        return
+    if not hasattr(torch.backends, "cuda"):
+        return
+    # Avoid ROCm experimental Flash/Mem Efficient SDPA warnings by default.
+    if allow_experimental:
+        settings = (
+            ("enable_flash_sdp", True),
+            ("enable_mem_efficient_sdp", True),
+            ("enable_math_sdp", True),
+        )
+    else:
+        settings = (
+            ("enable_flash_sdp", False),
+            ("enable_mem_efficient_sdp", False),
+            ("enable_math_sdp", True),
+        )
+    for name, value in settings:
+        fn = getattr(torch.backends.cuda, name, None)
+        if callable(fn):
+            fn(value)
+
+
+def export_onnx(encoder, tokenizer, gnn_model, out_dir: Path, device, opset_version):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     dummy = tokenizer(["/Type /Page"], return_tensors="pt")
@@ -137,7 +193,8 @@ def export_onnx(encoder, tokenizer, gnn_model, out_dir: Path, device):
             "input_ids": {0: "batch", 1: "seq"},
             "attention_mask": {0: "batch", 1: "seq"},
         },
-        opset_version=17,
+        opset_version=opset_version,
+        dynamo=False,
     )
 
     dummy_x = torch.randn(10, gnn_model.conv1.nn[0].in_features, device=device)
@@ -150,7 +207,8 @@ def export_onnx(encoder, tokenizer, gnn_model, out_dir: Path, device):
         str(out_dir / "graph.onnx"),
         input_names=["node_features", "edge_index", "batch"],
         output_names=["score"],
-        opset_version=17,
+        opset_version=opset_version,
+        dynamo=False,
     )
 
 
@@ -161,24 +219,37 @@ def main():
     parser.add_argument("--model", default="bert-base-uncased", help="HF encoder name")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--onnx-opset", type=int, default=18)
+    parser.add_argument(
+        "--allow-experimental-sdpa",
+        action="store_true",
+        help="Enable ROCm experimental Flash/Mem Efficient SDPA kernels.",
+    )
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"using device: {device}")
+    configure_sdp(device, args.allow_experimental_sdpa)
 
     dataset = build_dataset(Path(args.manifest))
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     encoder = AutoModel.from_pretrained(args.model).to(device)
 
     graphs = []
-    for node_texts, edge_index, label in dataset:
+    graph_iter = dataset
+    if tqdm:
+        graph_iter = tqdm(dataset, desc="building graphs", unit="graph")
+    for node_texts, edge_index, label in graph_iter:
         node_features = embed_texts(
             tokenizer, encoder, node_texts, device, batch_size=args.batch_size
         )
         graphs.append(build_graph_data(node_features, edge_index, label))
 
-    gnn_model = train_gnn(graphs, node_features.shape[1], device, epochs=args.epochs)
-    export_onnx(encoder, tokenizer, gnn_model, Path(args.out), device)
+    if not graphs:
+        raise RuntimeError("No graphs constructed from dataset; check input data.")
+    in_dim = graphs[0].x.shape[1]
+    gnn_model = train_gnn(graphs, in_dim, device, epochs=args.epochs)
+    export_onnx(encoder, tokenizer, gnn_model, Path(args.out), device, args.onnx_opset)
 
 
 if __name__ == "__main__":

@@ -56,7 +56,10 @@ fn ir_string_preview_truncates_on_char_boundary() {
         for line in obj.lines {
             if line.value_type == "str" {
                 found = true;
-                assert_eq!(line.value, "len_bytes=4 hex=41c3 truncated=true");
+                assert_eq!(
+                    line.value,
+                    "len_bytes=4 hex=41c3 ascii=A\\xc3 truncated=true"
+                );
             }
         }
     }

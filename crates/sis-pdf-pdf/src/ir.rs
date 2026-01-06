@@ -269,10 +269,23 @@ fn string_preview(s: &PdfStr<'_>, max_len: usize) -> String {
         .iter()
         .map(|b| format!("{:02x}", b))
         .collect::<String>();
+    let ascii = raw[..end]
+        .iter()
+        .map(|b| match b {
+            b'\n' => "\\n".to_string(),
+            b'\r' => "\\r".to_string(),
+            b'\t' => "\\t".to_string(),
+            b'\\' => "\\\\".to_string(),
+            b'"' => "\\\"".to_string(),
+            0x20..=0x7e => (*b as char).to_string(),
+            _ => format!("\\x{:02x}", b),
+        })
+        .collect::<String>();
     format!(
-        "len_bytes={} hex={} truncated={}",
+        "len_bytes={} hex={} ascii={} truncated={}",
         raw.len(),
         hex,
+        ascii,
         truncated
     )
 }

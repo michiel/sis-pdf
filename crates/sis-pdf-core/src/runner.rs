@@ -193,6 +193,7 @@ pub fn run_scan_with_detectors(
                         }
                     }
                     Err(err) => {
+                        eprintln!("warning: ml_model_error: failed to load ML model: {}", err);
                         findings.push(Finding {
                             id: String::new(),
                             surface: crate::model::AttackSurface::Metadata,
@@ -271,24 +272,30 @@ pub fn run_scan_with_detectors(
                                 });
                             }
                         }
-                        Err(err) => findings.push(Finding {
-                            id: String::new(),
-                            surface: crate::model::AttackSurface::Metadata,
-                            kind: "ml_model_error".into(),
-                            severity: crate::model::Severity::Low,
-                            confidence: crate::model::Confidence::Heuristic,
-                            title: "ML model load failed".into(),
-                            description: format!("Graph ML failed: {}", err),
-                            objects: vec!["ml".into()],
-                            evidence: Vec::new(),
-                            remediation: Some("Check graph model files and format.".into()),
-                            meta: Default::default(),
-                            yara: None,
-                        }),
+                        Err(err) => {
+                            eprintln!("warning: ml_model_error: graph ML failed: {}", err);
+                            findings.push(Finding {
+                                id: String::new(),
+                                surface: crate::model::AttackSurface::Metadata,
+                                kind: "ml_model_error".into(),
+                                severity: crate::model::Severity::Low,
+                                confidence: crate::model::Confidence::Heuristic,
+                                title: "ML model load failed".into(),
+                                description: format!("Graph ML failed: {}", err),
+                                objects: vec!["ml".into()],
+                                evidence: Vec::new(),
+                                remediation: Some("Check graph model files and format.".into()),
+                                meta: Default::default(),
+                                yara: None,
+                            });
+                        }
                     }
                 }
                 #[cfg(not(feature = "ml-graph"))]
                 {
+                    eprintln!(
+                        "error: ml_model_error: graph ML mode requested but not compiled (enable feature ml-graph)"
+                    );
                     findings.push(Finding {
                         id: String::new(),
                         surface: crate::model::AttackSurface::Metadata,
