@@ -166,6 +166,7 @@ pub fn run_scan_with_detectors(
                                 threshold: prediction.threshold,
                                 label: prediction.label,
                                 kind: "ml_malware_score".into(),
+                                top_nodes: None,
                             });
                         }
                         if prediction.label {
@@ -263,6 +264,7 @@ pub fn run_scan_with_detectors(
                                     threshold: prediction.threshold,
                                     label: prediction.label,
                                     kind: "ml_graph_score".into(),
+                                    top_nodes: None,
                                 });
                             }
                             if prediction.label {

@@ -145,11 +145,20 @@ pub struct MlSummary {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct MlNodeAttribution {
+    pub obj_ref: String,
+    pub summary: String,
+    pub score: f32,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct MlRunSummary {
     pub score: f32,
     pub threshold: f32,
     pub label: bool,
     pub kind: String,
+    #[serde(default)]
+    pub top_nodes: Option<Vec<MlNodeAttribution>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -457,6 +466,7 @@ fn ml_summary_from_findings(findings: &[Finding]) -> Option<MlSummary> {
                 threshold,
                 label: true,
                 kind: f.kind.clone(),
+                top_nodes: None,
             });
         } else if f.kind == "ml_malware_score_high" {
             let score = f
@@ -474,6 +484,7 @@ fn ml_summary_from_findings(findings: &[Finding]) -> Option<MlSummary> {
                 threshold,
                 label: true,
                 kind: f.kind.clone(),
+                top_nodes: None,
             });
         }
     }
@@ -1194,6 +1205,18 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 run.label,
                 ml_assessment(run.label)
             ));
+            if let Some(nodes) = &run.top_nodes {
+                out.push_str("**Top contributing nodes**\n\n");
+                for node in nodes {
+                    out.push_str(&format!(
+                        "- `{}` score {:.4} — {}\n",
+                        escape_markdown(&node.obj_ref),
+                        node.score,
+                        escape_markdown(&node.summary)
+                    ));
+                }
+                out.push('\n');
+            }
         } else if has_ml_error(&report.findings) {
             out.push_str("### Graph ML\n\n- Status: error (see ml_model_error findings)\n\n");
         } else {
@@ -1208,6 +1231,18 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 run.label,
                 ml_assessment(run.label)
             ));
+            if let Some(nodes) = &run.top_nodes {
+                out.push_str("**Top contributing nodes**\n\n");
+                for node in nodes {
+                    out.push_str(&format!(
+                        "- `{}` score {:.4} — {}\n",
+                        escape_markdown(&node.obj_ref),
+                        node.score,
+                        escape_markdown(&node.summary)
+                    ));
+                }
+                out.push('\n');
+            }
         } else if has_ml_error(&report.findings) {
             out.push_str("### Traditional ML\n\n- Status: error (see ml_model_error findings)\n\n");
         } else {
