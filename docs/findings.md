@@ -508,6 +508,336 @@ This document describes every finding ID that `sis-pdf` can emit. Each entry inc
   - Meaning: code spread across many lines with whitespace to avoid detection.
   - Chain usage: used as an obfuscation technique to hide malicious patterns.
 
+## js_annotation_abuse
+
+- ID: `js_annotation_abuse`
+- Label: PDF annotation manipulation
+- Description: JavaScript manipulates PDF annotations for exploitation or data hiding.
+- Tags: exploit, javascript, pdf
+- Details:
+  - Relevance: PDF-specific exploitation.
+  - Meaning: annotation objects can hide payloads or be exploited for code execution.
+  - Chain usage: used as a payload delivery or hiding mechanism in PDF exploits.
+
+## js_array_manipulation_exploit
+
+- ID: `js_array_manipulation_exploit`
+- Label: Suspicious array manipulation
+- Description: JavaScript exhibits high density of array operations suggesting exploitation.
+- Tags: exploit, javascript
+- Details:
+  - Relevance: memory corruption precursor.
+  - Meaning: excessive array operations can indicate type confusion or memory manipulation attempts.
+  - Chain usage: used as a setup stage for memory corruption exploits.
+
+## js_beaconing_pattern
+
+- ID: `js_beaconing_pattern`
+- Label: Network beaconing detected
+- Description: JavaScript shows patterns of regular network communication (beaconing).
+- Tags: c2, javascript, network
+- Details:
+  - Relevance: command and control communication.
+  - Meaning: multiple network operations suggest C2 beaconing or data exfiltration.
+  - Chain usage: used as a C2 communication or data exfiltration stage.
+
+## js_c2_beaconing
+
+- ID: `js_c2_beaconing`
+- Label: C2 beaconing pattern
+- Description: JavaScript exhibits command and control beaconing behavior.
+- Tags: c2, javascript, network
+- Details:
+  - Relevance: command and control.
+  - Meaning: regular network requests suggest C2 communication.
+  - Chain usage: used as ongoing C2 communication stage.
+
+## js_control_flow_flattening
+
+- ID: `js_control_flow_flattening`
+- Label: Control flow flattening obfuscation
+- Description: JavaScript uses control flow flattening with dispatcher patterns.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: advanced obfuscation.
+  - Meaning: large switch statements or dispatchers hide actual program flow.
+  - Chain usage: used as an obfuscation technique to evade analysis.
+
+## js_credential_harvesting
+
+- ID: `js_credential_harvesting`
+- Label: Credential harvesting attempt
+- Description: JavaScript attempts to collect user credentials or sensitive input.
+- Tags: exfiltration, javascript
+- Details:
+  - Relevance: data theft.
+  - Meaning: password fields or input listeners suggest credential collection.
+  - Chain usage: used as a data collection stage before exfiltration.
+
+## js_cryptomining_library
+
+- ID: `js_cryptomining_library`
+- Label: Cryptomining library detected
+- Description: JavaScript references known cryptomining libraries or signatures.
+- Tags: cryptomining, javascript
+- Details:
+  - Relevance: resource abuse.
+  - Meaning: presence of mining libraries indicates cryptojacking attempt.
+  - Chain usage: used as a payload stage for cryptocurrency mining.
+
+## js_debugger_detection
+
+- ID: `js_debugger_detection`
+- Label: Debugger detection techniques
+- Description: JavaScript attempts to detect debugging or analysis tools.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: anti-analysis.
+  - Meaning: debugger checks allow malware to evade analysis.
+  - Chain usage: used as an evasion layer before malicious payload execution.
+
+## js_dga_pattern
+
+- ID: `js_dga_pattern`
+- Label: Domain generation algorithm
+- Description: JavaScript uses algorithmic domain generation (DGA).
+- Tags: c2, evasion, javascript
+- Details:
+  - Relevance: command and control evasion.
+  - Meaning: algorithmically generated domains evade blocklists.
+  - Chain usage: used to establish resilient C2 communication channels.
+
+## js_encoded_transmission
+
+- ID: `js_encoded_transmission`
+- Label: Encoded data transmission
+- Description: JavaScript encodes data before network transmission.
+- Tags: exfiltration, javascript
+- Details:
+  - Relevance: data exfiltration.
+  - Meaning: encoding before transmission hides exfiltrated data.
+  - Chain usage: used as an exfiltration technique to evade detection.
+
+## js_exception_abuse
+
+- ID: `js_exception_abuse`
+- Label: Exception handling abuse
+- Description: JavaScript uses excessive exception handling for control flow.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: control flow obfuscation.
+  - Meaning: try-catch blocks used for obfuscation rather than error handling.
+  - Chain usage: used as an obfuscation technique.
+
+## js_exploit_chain_multi_stage
+
+- ID: `js_exploit_chain_multi_stage`
+- Label: Multi-stage exploit chain
+- Description: JavaScript exhibits multiple stages of exploitation (probe, exploit, payload).
+- Tags: chain, exploit, javascript
+- Details:
+  - Relevance: coordinated exploitation.
+  - Meaning: multiple exploit stages suggest sophisticated attack.
+  - Chain usage: represents complete attack chain from reconnaissance to payload.
+
+## js_font_exploitation
+
+- ID: `js_font_exploitation`
+- Label: Font parser exploitation
+- Description: JavaScript manipulates font structures for exploitation.
+- Tags: exploit, javascript, pdf
+- Details:
+  - Relevance: PDF font parser exploitation.
+  - Meaning: font manipulation can trigger renderer vulnerabilities.
+  - Chain usage: used as an exploitation technique targeting font parsers.
+
+## js_form_manipulation
+
+- ID: `js_form_manipulation`
+- Label: Dynamic form manipulation
+- Description: JavaScript dynamically creates or manipulates forms.
+- Tags: exfiltration, javascript, phishing
+- Details:
+  - Relevance: data collection.
+  - Meaning: dynamic forms can collect data for exfiltration.
+  - Chain usage: used as a data collection mechanism.
+
+## js_geofencing
+
+- ID: `js_geofencing`
+- Label: Geographic targeting
+- Description: JavaScript checks locale or language for conditional execution.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: targeted attacks.
+  - Meaning: region-based execution limits malware exposure.
+  - Chain usage: used as a targeting filter before payload delivery.
+
+## js_homoglyph_attack
+
+- ID: `js_homoglyph_attack`
+- Label: Homoglyph character substitution
+- Description: JavaScript uses look-alike Unicode characters for obfuscation.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: obfuscation via Unicode.
+  - Meaning: homoglyphs evade string-based detection.
+  - Chain usage: used as an obfuscation layer.
+
+## js_identifier_mangling
+
+- ID: `js_identifier_mangling`
+- Label: Extreme identifier obfuscation
+- Description: JavaScript uses heavily mangled or obfuscated variable names.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: code obfuscation.
+  - Meaning: mangled identifiers hinder analysis.
+  - Chain usage: used as an obfuscation technique.
+
+## js_integer_overflow_setup
+
+- ID: `js_integer_overflow_setup`
+- Label: Integer overflow exploitation setup
+- Description: JavaScript contains patterns suggesting integer overflow exploitation.
+- Tags: exploit, javascript
+- Details:
+  - Relevance: memory corruption.
+  - Meaning: large constants with bitwise operations suggest overflow exploits.
+  - Chain usage: used as a setup stage for memory corruption.
+
+## js_nop_sled
+
+- ID: `js_nop_sled`
+- Label: NOP sled in shellcode
+- Description: JavaScript contains NOP sled patterns in character code sequences.
+- Tags: exploit, javascript, shellcode
+- Details:
+  - Relevance: shellcode delivery.
+  - Meaning: NOP sleds are classic shellcode patterns for reliable exploitation.
+  - Chain usage: used as part of shellcode payload delivery.
+
+## js_opaque_predicates
+
+- ID: `js_opaque_predicates`
+- Label: Opaque predicate obfuscation
+- Description: JavaScript uses always-true or always-false conditions for obfuscation.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: control flow obfuscation.
+  - Meaning: opaque predicates hide actual program logic.
+  - Chain usage: used as an obfuscation technique.
+
+## js_rop_chain
+
+- ID: `js_rop_chain`
+- Label: ROP chain pattern detected
+- Description: JavaScript contains return-oriented programming patterns.
+- Tags: exploit, javascript
+- Details:
+  - Relevance: advanced exploitation.
+  - Meaning: ROP chains bypass DEP/NX protections.
+  - Chain usage: used as an exploitation technique for code execution.
+
+## js_rtl_override
+
+- ID: `js_rtl_override`
+- Label: Right-to-left override character
+- Description: JavaScript contains RTL override Unicode character for obfuscation.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: visual obfuscation.
+  - Meaning: RTL override can hide malicious code in source view.
+  - Chain usage: used as an obfuscation technique.
+
+## js_sandbox_evasion
+
+- ID: `js_sandbox_evasion`
+- Label: Sandbox environment detection
+- Description: JavaScript attempts to detect sandbox or analysis environment.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: anti-analysis.
+  - Meaning: environment detection allows malware to evade sandboxes.
+  - Chain usage: used as an evasion layer before payload execution.
+
+## js_shellcode_pattern
+
+- ID: `js_shellcode_pattern`
+- Label: Shellcode patterns detected
+- Description: JavaScript contains byte patterns matching shellcode signatures.
+- Tags: exploit, javascript, shellcode
+- Details:
+  - Relevance: code execution payload.
+  - Meaning: shellcode patterns indicate exploit payload.
+  - Chain usage: used as the exploitation payload stage.
+
+## js_time_bomb
+
+- ID: `js_time_bomb`
+- Label: Time-based conditional execution
+- Description: JavaScript uses date/time checks for conditional execution.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: delayed or targeted execution.
+  - Meaning: time-based execution evades immediate analysis.
+  - Chain usage: used as a trigger mechanism for delayed payload.
+
+## js_type_confusion
+
+- ID: `js_type_confusion`
+- Label: Type confusion exploitation
+- Description: JavaScript exhibits type confusion patterns targeting JavaScript engine.
+- Tags: exploit, javascript
+- Details:
+  - Relevance: memory corruption.
+  - Meaning: type confusion can lead to arbitrary code execution.
+  - Chain usage: used as a vulnerability exploitation technique.
+
+## js_unicode_obfuscation
+
+- ID: `js_unicode_obfuscation`
+- Label: Unicode-based obfuscation
+- Description: JavaScript uses non-ASCII characters for obfuscation.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: encoding obfuscation.
+  - Meaning: Unicode characters evade ASCII-based analysis.
+  - Chain usage: used as an obfuscation layer.
+
+## js_use_after_free
+
+- ID: `js_use_after_free`
+- Label: Use-after-free pattern
+- Description: JavaScript contains use-after-free exploitation patterns.
+- Tags: exploit, javascript
+- Details:
+  - Relevance: memory corruption.
+  - Meaning: use-after-free can lead to arbitrary code execution.
+  - Chain usage: used as a vulnerability exploitation technique.
+
+## js_wasm_mining
+
+- ID: `js_wasm_mining`
+- Label: WebAssembly-based cryptomining
+- Description: JavaScript uses WebAssembly for cryptocurrency mining.
+- Tags: cryptomining, javascript
+- Details:
+  - Relevance: resource abuse.
+  - Meaning: WebAssembly provides high-performance mining.
+  - Chain usage: used as a cryptomining payload.
+
+## js_xfa_exploitation
+
+- ID: `js_xfa_exploitation`
+- Label: XFA form exploitation
+- Description: JavaScript manipulates XFA forms for exploitation.
+- Tags: exploit, javascript, pdf
+- Details:
+  - Relevance: PDF XFA exploitation.
+  - Meaning: XFA manipulation can trigger parser vulnerabilities.
+  - Chain usage: used as an exploitation vector in PDF files.
+
 ## launch_action_present
 
 - ID: `launch_action_present`

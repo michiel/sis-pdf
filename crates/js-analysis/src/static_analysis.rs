@@ -35,7 +35,7 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
     );
     out.insert("js.contains_eval".into(), bool_str(find_token(data, b"eval")));
     out.insert(
-        "js.dynamic_eval_construction".into(), 
+        "js.dynamic_eval_construction".into(),
         bool_str(contains_dynamic_eval_construction(data))
     );
     out.insert(
@@ -70,6 +70,143 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
         "js.suspicious_apis".into(),
         bool_str(contains_suspicious_api(data)),
     );
+
+    // Shellcode detection
+    out.insert(
+        "js.shellcode_pattern".into(),
+        bool_str(detect_shellcode_pattern(data))
+    );
+    out.insert(
+        "js.nop_sled".into(),
+        bool_str(detect_nop_sled(data))
+    );
+
+    // Memory corruption primitives
+    out.insert(
+        "js.type_confusion_risk".into(),
+        bool_str(detect_type_confusion(data))
+    );
+    out.insert(
+        "js.integer_overflow_setup".into(),
+        bool_str(detect_integer_overflow(data))
+    );
+    out.insert(
+        "js.array_manipulation_exploit".into(),
+        bool_str(detect_array_manipulation(data))
+    );
+
+    // Anti-analysis techniques
+    out.insert(
+        "js.debugger_detection".into(),
+        bool_str(detect_debugger_detection(data))
+    );
+    out.insert(
+        "js.sandbox_evasion".into(),
+        bool_str(detect_sandbox_evasion(data))
+    );
+    out.insert(
+        "js.exception_abuse".into(),
+        bool_str(detect_exception_abuse(data))
+    );
+    out.insert(
+        "js.time_bomb".into(),
+        bool_str(detect_time_bomb(data))
+    );
+
+    // Data exfiltration
+    out.insert(
+        "js.form_manipulation".into(),
+        bool_str(detect_form_manipulation(data))
+    );
+    out.insert(
+        "js.credential_harvesting".into(),
+        bool_str(detect_credential_harvesting(data))
+    );
+    out.insert(
+        "js.encoded_transmission".into(),
+        bool_str(detect_encoded_transmission(data))
+    );
+
+    // Advanced obfuscation
+    out.insert(
+        "js.control_flow_flattening".into(),
+        bool_str(detect_control_flow_flattening(data))
+    );
+    out.insert(
+        "js.opaque_predicates".into(),
+        bool_str(detect_opaque_predicates(data))
+    );
+    out.insert(
+        "js.identifier_mangling".into(),
+        bool_str(detect_identifier_mangling(data))
+    );
+
+    // PDF exploitation
+    out.insert(
+        "js.font_exploitation".into(),
+        bool_str(detect_font_exploitation(data))
+    );
+    out.insert(
+        "js.annotation_abuse".into(),
+        bool_str(detect_annotation_abuse(data))
+    );
+    out.insert(
+        "js.xfa_exploitation".into(),
+        bool_str(detect_xfa_exploitation(data))
+    );
+
+    // C2 patterns
+    out.insert(
+        "js.dga_pattern".into(),
+        bool_str(detect_dga_pattern(data))
+    );
+    out.insert(
+        "js.beaconing_pattern".into(),
+        bool_str(detect_beaconing_pattern(data))
+    );
+
+    // Cryptomining
+    out.insert(
+        "js.cryptomining_library".into(),
+        bool_str(detect_cryptomining_library(data))
+    );
+    out.insert(
+        "js.wasm_mining".into(),
+        bool_str(detect_wasm_mining(data))
+    );
+
+    // Unicode abuse
+    out.insert(
+        "js.unicode_obfuscation".into(),
+        bool_str(detect_unicode_obfuscation(data))
+    );
+    out.insert(
+        "js.rtl_override".into(),
+        bool_str(detect_rtl_override(data))
+    );
+    out.insert(
+        "js.homoglyph_attack".into(),
+        bool_str(detect_homoglyph_attack(data))
+    );
+
+    // Custom decoders
+    out.insert(
+        "js.custom_decoder".into(),
+        bool_str(detect_custom_decoder(data))
+    );
+
+    // Function introspection
+    out.insert(
+        "js.function_introspection".into(),
+        bool_str(detect_function_introspection(data))
+    );
+
+    // Excessive string allocation
+    out.insert(
+        "js.excessive_string_allocation".into(),
+        bool_str(detect_excessive_string_allocation(data))
+    );
+
     out.insert("js.ast_parsed".into(), "false".into());
     out.insert("js.sandbox_exec".into(), "false".into());
     #[cfg(feature = "js-ast")]
@@ -587,4 +724,557 @@ fn domain_from_url(value: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+// ============================================================================
+// Shellcode Detection
+// ============================================================================
+
+fn detect_shellcode_pattern(data: &[u8]) -> bool {
+    // Extract char codes from fromCharCode calls
+    let char_codes = extract_char_codes(data);
+    if char_codes.is_empty() {
+        return false;
+    }
+
+    // Check for common shellcode signatures
+    if has_shellcode_signature(&char_codes) {
+        return true;
+    }
+
+    // Check for high entropy in char codes (encrypted shellcode)
+    if !char_codes.is_empty() {
+        let entropy = shannon_entropy(&char_codes);
+        if entropy > 7.5 {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn detect_nop_sled(data: &[u8]) -> bool {
+    let char_codes = extract_char_codes(data);
+    if char_codes.len() < 10 {
+        return false;
+    }
+
+    // Check for NOP patterns (0x90 and equivalents)
+    let nop_variants = [0x90, 0x97, 0x9F, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x98];
+    let mut consecutive_nops = 0;
+
+    for &byte in &char_codes {
+        if nop_variants.contains(&byte) {
+            consecutive_nops += 1;
+            if consecutive_nops >= 10 {
+                return true;
+            }
+        } else {
+            consecutive_nops = 0;
+        }
+    }
+
+    false
+}
+
+fn extract_char_codes(data: &[u8]) -> Vec<u8> {
+    let s = String::from_utf8_lossy(data);
+    let mut codes = Vec::new();
+
+    // Simple extraction of numeric values after fromCharCode
+    for (i, _) in s.match_indices("fromCharCode") {
+        let rest = &s[i..];
+        // Find opening paren
+        if let Some(paren_pos) = rest.find('(') {
+            let after_paren = &rest[paren_pos + 1..];
+            // Extract numbers until closing paren
+            if let Some(close_paren) = after_paren.find(')') {
+                let args = &after_paren[..close_paren];
+                for num_str in args.split(',') {
+                    let trimmed = num_str.trim();
+                    // Parse decimal or hex numbers
+                    if let Ok(val) = if trimmed.starts_with("0x") || trimmed.starts_with("0X") {
+                        u32::from_str_radix(&trimmed[2..], 16)
+                    } else {
+                        trimmed.parse::<u32>()
+                    } {
+                        if val <= 255 {
+                            codes.push(val as u8);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    codes
+}
+
+fn has_shellcode_signature(bytes: &[u8]) -> bool {
+    if bytes.len() < 10 {
+        return false;
+    }
+
+    // Common x86/x64 shellcode patterns
+    let signatures: &[&[u8]] = &[
+        &[0x55, 0x89, 0xE5],             // push ebp; mov ebp, esp
+        &[0x48, 0x89, 0xE5],             // mov rbp, rsp (x64)
+        &[0xEB, 0xFE],                   // jmp $
+        &[0xE8, 0x00, 0x00, 0x00, 0x00], // call $+5
+        &[0xFF, 0xD0],                   // call eax
+        &[0xFF, 0xE0],                   // jmp eax
+        &[0x6A, 0x00],                   // push 0
+        &[0x68],                          // push imm32
+    ];
+
+    for window in bytes.windows(3) {
+        for sig in signatures {
+            if window.starts_with(sig) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+// ============================================================================
+// Memory Corruption Primitives
+// ============================================================================
+
+fn detect_type_confusion(data: &[u8]) -> bool {
+    // Array prototype manipulation
+    let array_proto_patterns: &[&[u8]] = &[
+        b"Array.prototype.__proto__",
+        b"Array.prototype.constructor",
+        b".prototype.__proto__",
+    ];
+
+    for pattern in array_proto_patterns {
+        if find_token(data, pattern) {
+            return true;
+        }
+    }
+
+    // Suspicious array operations
+    let suspicious_array_ops: &[&[u8]] = &[
+        b".length = 0x",
+        b".length = -",
+        b"arr.length",
+    ];
+
+    let mut array_length_manipulation = 0;
+    for pattern in suspicious_array_ops {
+        if find_token(data, pattern) {
+            array_length_manipulation += 1;
+        }
+    }
+
+    array_length_manipulation >= 2
+}
+
+fn detect_integer_overflow(data: &[u8]) -> bool {
+    // Look for large integer constants and bitwise operations
+    let patterns: &[&[u8]] = &[
+        b"0x7fffffff",
+        b"0x7FFFFFFF",
+        b"0xffffffff",
+        b"0xFFFFFFFF",
+        b"MAX_SAFE_INTEGER",
+        b"Number.MAX_VALUE",
+    ];
+
+    let has_large_constant = patterns.iter().any(|p| find_token(data, p));
+
+    // Bitwise operations that might indicate overflow exploitation
+    let bitwise_ops: &[&[u8]] = &[
+        b">>>",
+        b"<< ",
+        b">> ",
+        b"& 0x",
+        b"| 0x",
+    ];
+
+    let has_bitwise = bitwise_ops.iter().any(|p| find_token(data, p));
+
+    has_large_constant && has_bitwise
+}
+
+fn detect_array_manipulation(data: &[u8]) -> bool {
+    let array_methods: &[&[u8]] = &[
+        b".push(",
+        b".pop(",
+        b".shift(",
+        b".unshift(",
+        b".splice(",
+        b"Array(",
+        b"new Array",
+    ];
+
+    let count = array_methods.iter().filter(|p| find_token(data, p)).count();
+
+    // High density of array operations
+    count >= 4
+}
+
+// ============================================================================
+// Anti-Analysis Techniques
+// ============================================================================
+
+fn detect_debugger_detection(data: &[u8]) -> bool {
+    let debugger_patterns: &[&[u8]] = &[
+        b"eval.toString().length",
+        b"Function.prototype.toString",
+        b"performance.now()",
+        b"Date.now()",
+        b".toString.call(",
+        b"constructor.name",
+    ];
+
+    let count = debugger_patterns.iter().filter(|p| find_token(data, p)).count();
+    count >= 2
+}
+
+fn detect_sandbox_evasion(data: &[u8]) -> bool {
+    let sandbox_checks: &[&[u8]] = &[
+        b"typeof window",
+        b"typeof document",
+        b"typeof navigator",
+        b"app.viewerType",
+        b"app.platform",
+        b"app.viewerVersion",
+        b"screen.width",
+        b"screen.height",
+        b"navigator.plugins",
+    ];
+
+    let count = sandbox_checks.iter().filter(|p| find_token(data, p)).count();
+    count >= 3
+}
+
+fn detect_exception_abuse(data: &[u8]) -> bool {
+    // Count try-catch blocks
+    let try_count = data.windows(3).filter(|w| w == b"try").count();
+    let catch_count = data.windows(5).filter(|w| w == b"catch").count();
+
+    // Excessive exception handling (more than 5 try-catch blocks)
+    try_count >= 5 && catch_count >= 5
+}
+
+fn detect_time_bomb(data: &[u8]) -> bool {
+    let time_apis: &[&[u8]] = &[b"Date()", b"getTime()", b"getHours()", b"getDate()", b"getMonth()"];
+    let has_time_api = time_apis.iter().any(|p| find_token(data, p));
+
+    let conditionals: &[&[u8]] = &[b"if", b">", b"<", b"==", b"!="];
+    let has_conditional = conditionals.iter().all(|p| find_token(data, p));
+
+    has_time_api && has_conditional
+}
+
+// ============================================================================
+// Data Exfiltration
+// ============================================================================
+
+fn detect_form_manipulation(data: &[u8]) -> bool {
+    let form_patterns: &[&[u8]] = &[
+        b"createElement('form')",
+        b"createElement(\"form\")",
+        b".submit(",
+        b"type=\"hidden\"",
+        b"type='hidden'",
+    ];
+
+    let count = form_patterns.iter().filter(|p| find_token(data, p)).count();
+    count >= 2
+}
+
+fn detect_credential_harvesting(data: &[u8]) -> bool {
+    let credential_patterns: &[&[u8]] = &[
+        b"type=\"password\"",
+        b"type='password'",
+        b"addEventListener('input'",
+        b"addEventListener(\"input\"",
+        b".value",
+        b"clipboard",
+    ];
+
+    let count = credential_patterns.iter().filter(|p| find_token(data, p)).count();
+    count >= 2
+}
+
+fn detect_encoded_transmission(data: &[u8]) -> bool {
+    let encoding_funcs: &[&[u8]] = &[b"btoa(", b"encodeURIComponent(", b"encodeURI("];
+    let has_encoding = encoding_funcs.iter().any(|p| find_token(data, p));
+
+    let transmission_funcs: &[&[u8]] = &[
+        b"submitForm",
+        b"app.launchURL",
+        b"this.submitForm",
+        b"mailMsg",
+    ];
+    let has_transmission = transmission_funcs.iter().any(|p| find_token(data, p));
+
+    has_encoding && has_transmission
+}
+
+// ============================================================================
+// Advanced Obfuscation
+// ============================================================================
+
+fn detect_control_flow_flattening(data: &[u8]) -> bool {
+    let switch_count = data.windows(6).filter(|w| w == b"switch").count();
+
+    // Large switch statements (potential dispatcher)
+    if switch_count >= 3 {
+        return true;
+    }
+
+    // Check for while(true) with switch (common flattening pattern)
+    let has_infinite_loop = find_token(data, b"while(true)") || find_token(data, b"while(1)");
+    has_infinite_loop && switch_count >= 1
+}
+
+fn detect_opaque_predicates(data: &[u8]) -> bool {
+    // Look for complex mathematical expressions in conditionals
+    let math_funcs: &[&[u8]] = &[b"Math.abs(", b"Math.floor(", b"Math.ceil(", b"Math.random()"];
+    let has_math = math_funcs.iter().filter(|p| find_token(data, p)).count() >= 2;
+
+    let if_count = data.windows(2).filter(|w| w == b"if").count();
+
+    // Many conditionals with mathematical operations
+    has_math && if_count >= 5
+}
+
+fn detect_identifier_mangling(data: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(data);
+
+    // Count identifiers that look obfuscated (single letters or hex-like)
+    let mut obfuscated_count = 0;
+    let mut total_identifiers = 0;
+
+    for word in s.split(|c: char| !c.is_alphanumeric() && c != '_') {
+        if word.len() > 0 && (word.chars().next().unwrap().is_alphabetic() || word.starts_with('_')) {
+            total_identifiers += 1;
+
+            // Single letter variables (excluding common ones like i, j, k)
+            if word.len() == 1 && !matches!(word, "i" | "j" | "k" | "x" | "y" | "z") {
+                obfuscated_count += 1;
+            }
+            // Hex-like identifiers (e.g., _0x1234, var_a1b2c3)
+            else if word.contains("0x") || (word.len() > 5 && word.chars().filter(|c| c.is_numeric()).count() > word.len() / 2) {
+                obfuscated_count += 1;
+            }
+        }
+    }
+
+    if total_identifiers > 10 {
+        let ratio = obfuscated_count as f64 / total_identifiers as f64;
+        ratio > 0.5 // More than 50% obfuscated identifiers
+    } else {
+        false
+    }
+}
+
+// ============================================================================
+// PDF-Specific Exploitation
+// ============================================================================
+
+fn detect_font_exploitation(data: &[u8]) -> bool {
+    let font_patterns: &[&[u8]] = &[
+        b"FontMatrix",
+        b"CIDFont",
+        b"Type1Font",
+        b"TrueType",
+        b"FontFile",
+        b"FontDescriptor",
+    ];
+
+    let count = font_patterns.iter().filter(|p| find_token(data, p)).count();
+
+    // Multiple font-related operations suggest exploitation
+    count >= 2
+}
+
+fn detect_annotation_abuse(data: &[u8]) -> bool {
+    let annotation_patterns: &[&[u8]] = &[
+        b"getAnnots",
+        b"syncAnnotScan",
+        b".subject",
+        b"addAnnot",
+        b"removeAnnot",
+    ];
+
+    let count = annotation_patterns.iter().filter(|p| find_token(data, p)).count();
+
+    // Two or more annotation operations
+    count >= 2
+}
+
+fn detect_xfa_exploitation(data: &[u8]) -> bool {
+    let xfa_patterns: &[&[u8]] = &[
+        b"XFA",
+        b"xfa.form",
+        b"xfa.dataset",
+        b"xfa.template",
+        b"xfa.host",
+    ];
+
+    xfa_patterns.iter().any(|p| find_token(data, p))
+}
+
+// ============================================================================
+// C2 Patterns
+// ============================================================================
+
+fn detect_dga_pattern(data: &[u8]) -> bool {
+    let has_random = find_token(data, b"Math.random()");
+    let has_time = find_token(data, b"getTime()") || find_token(data, b"getDate()");
+    let has_string_building = find_token(data, b"String.fromCharCode") || find_token(data, b".concat(");
+    let has_url = find_token(data, b"http://") || find_token(data, b"https://");
+
+    // Algorithmic domain construction
+    (has_random || has_time) && has_string_building && has_url
+}
+
+fn detect_beaconing_pattern(data: &[u8]) -> bool {
+    let network_calls: &[&[u8]] = &[
+        b"launchURL",
+        b"submitForm",
+        b"mailMsg",
+        b"getURL",
+    ];
+
+    let network_count = network_calls.iter().filter(|p| find_token(data, p)).count();
+
+    // Multiple network operations suggest beaconing
+    network_count >= 3
+}
+
+// ============================================================================
+// Cryptomining
+// ============================================================================
+
+fn detect_cryptomining_library(data: &[u8]) -> bool {
+    let mining_signatures: &[&[u8]] = &[
+        b"coinhive",
+        b"CoinHive",
+        b"cryptonight",
+        b"crypto-loot",
+        b"CryptoLoot",
+        b"stratum+tcp",
+        b"xmr-stak",
+        b"monero",
+    ];
+
+    mining_signatures.iter().any(|p| find_token(data, p))
+}
+
+fn detect_wasm_mining(data: &[u8]) -> bool {
+    let wasm_patterns: &[&[u8]] = &[
+        b"WebAssembly.instantiate",
+        b"WebAssembly.Module",
+        b"new Worker(",
+        b"SharedArrayBuffer",
+        b"Atomics.",
+    ];
+
+    let count = wasm_patterns.iter().filter(|p| find_token(data, p)).count();
+
+    // WebAssembly with workers suggests mining
+    count >= 2
+}
+
+// ============================================================================
+// Unicode Abuse
+// ============================================================================
+
+fn detect_unicode_obfuscation(data: &[u8]) -> bool {
+    // Check for non-ASCII characters
+    let non_ascii_count = data.iter().filter(|&&b| b > 127).count();
+
+    if data.is_empty() {
+        return false;
+    }
+
+    let non_ascii_ratio = non_ascii_count as f64 / data.len() as f64;
+
+    // More than 10% non-ASCII characters
+    non_ascii_ratio > 0.1
+}
+
+fn detect_rtl_override(data: &[u8]) -> bool {
+    // Check for RTL override character (U+202E)
+    data.windows(3).any(|w| w == &[0xE2, 0x80, 0xAE])
+}
+
+fn detect_homoglyph_attack(data: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(data);
+
+    // Check for Cyrillic or Greek characters that look like Latin
+    let homoglyph_ranges = [
+        ('\u{0400}', '\u{04FF}'), // Cyrillic
+        ('\u{0370}', '\u{03FF}'), // Greek
+    ];
+
+    for ch in s.chars() {
+        for (start, end) in &homoglyph_ranges {
+            if ch >= *start && ch <= *end {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+// ============================================================================
+// Additional Detection Functions
+// ============================================================================
+
+fn detect_custom_decoder(data: &[u8]) -> bool {
+    // Custom Base64 decoder
+    let has_custom_base64 = find_token(data, b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+
+    // Custom character code decoder
+    let has_custom_decoder = find_token(data, b"function") &&
+                            find_token(data, b"fromCharCode") &&
+                            find_token(data, b"split(");
+
+    // Hex decoder patterns
+    let has_hex_decoder = find_token(data, b"parseInt") &&
+                         (find_token(data, b", 16") || find_token(data, b",16"));
+
+    has_custom_base64 || has_custom_decoder || has_hex_decoder
+}
+
+fn detect_function_introspection(data: &[u8]) -> bool {
+    let introspection_patterns: &[&[u8]] = &[
+        b"arguments.callee",
+        b"Function.toString()",
+        b".toString.call(",
+        b"constructor.toString()",
+    ];
+
+    introspection_patterns.iter().any(|p| find_token(data, p))
+}
+
+fn detect_excessive_string_allocation(data: &[u8]) -> bool {
+    // Look for large string allocations or repeated concatenations
+    let string_patterns: &[&[u8]] = &[
+        b"new Array(",
+        b".substring(",
+        b".concat(",
+        b"while(",
+        b"for(",
+    ];
+
+    let has_loops = find_token(data, b"while(") || find_token(data, b"for(");
+    let has_string_ops = string_patterns.iter().filter(|p| find_token(data, p)).count() >= 3;
+
+    // Large string constants
+    let s = String::from_utf8_lossy(data);
+    let has_large_strings = s.contains("\"") &&
+                           s.match_indices('"').count() >= 10;
+
+    (has_loops && has_string_ops) || has_large_strings
 }
