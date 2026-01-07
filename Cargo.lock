@@ -1337,6 +1337,7 @@ dependencies = [
  "boa_engine",
  "boa_interner",
  "boa_parser",
+ "regex",
 ]
 
 [[package]]
