@@ -486,7 +486,11 @@ def main():
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"using device: {device}")
+    rocm_version = getattr(torch.version, "hip", None)
+    cuda_version = torch.version.cuda
+    backend = "rocm" if rocm_version else ("cuda" if cuda_version else "cpu")
+    version_tag = rocm_version or cuda_version or "n/a"
+    print(f"using device: {device} (backend={backend} version={version_tag})")
     configure_sdp(device, args.allow_experimental_sdpa)
 
     dataset = build_dataset(Path(args.manifest))
