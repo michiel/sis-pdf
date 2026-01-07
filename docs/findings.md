@@ -365,6 +365,17 @@ This document describes every finding ID that `sis-pdf` can emit. Each entry inc
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
+## js_custom_decoder
+
+- ID: `js_custom_decoder`
+- Label: Custom decoder implementation
+- Description: JavaScript implements custom decoding routines (Base64, character codes, hex).
+- Tags: evasion, javascript
+- Details:
+  - Relevance: evasion via custom encoding.
+  - Meaning: custom decoders hide malicious payloads from static analysis.
+  - Chain usage: used as an obfuscation/evasion stage before payload execution.
+
 ## js_env_probe
 
 - ID: `js_env_probe`
@@ -375,6 +386,39 @@ This document describes every finding ID that `sis-pdf` can emit. Each entry inc
   - Relevance: scriptable execution.
   - Meaning: JavaScript executes in the viewer context and may be obfuscated or evasive.
   - Chain usage: used as the action/payload stage and to model evasive or staged execution.
+
+## js_excessive_string_allocation
+
+- ID: `js_excessive_string_allocation`
+- Label: Excessive string allocation
+- Description: JavaScript performs large-scale string allocation or concatenation.
+- Tags: javascript, resource
+- Details:
+  - Relevance: resource exhaustion or heap spray precursor.
+  - Meaning: large string operations can cause DoS or prepare heap spray attacks.
+  - Chain usage: used as a payload delivery or exploitation preparation stage.
+
+## js_function_introspection
+
+- ID: `js_function_introspection`
+- Label: Function source introspection
+- Description: JavaScript uses arguments.callee or Function.toString() for self-inspection.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: polymorphic or self-modifying code.
+  - Meaning: code inspects its own source to build dynamic payloads.
+  - Chain usage: used as an obfuscation/evasion technique in payload stages.
+
+## js_heap_spray
+
+- ID: `js_heap_spray`
+- Label: Heap spray pattern detected
+- Description: JavaScript exhibits heap spray characteristics (large string padding, repeated allocations).
+- Tags: exploit, javascript
+- Details:
+  - Relevance: memory corruption exploitation.
+  - Meaning: heap spray prepares memory for vulnerability exploitation.
+  - Chain usage: used as the exploitation stage targeting renderer memory corruption.
 
 ## js_multi_stage_decode
 
@@ -452,6 +496,17 @@ This document describes every finding ID that `sis-pdf` can emit. Each entry inc
   - Relevance: scriptable execution.
   - Meaning: JavaScript executes in the viewer context and may be obfuscated or evasive.
   - Chain usage: used as the action/payload stage and to model evasive or staged execution.
+
+## js_whitespace_evasion
+
+- ID: `js_whitespace_evasion`
+- Label: Whitespace-based obfuscation
+- Description: JavaScript uses excessive whitespace padding to evade pattern matching.
+- Tags: evasion, javascript
+- Details:
+  - Relevance: static analysis evasion.
+  - Meaning: code spread across many lines with whitespace to avoid detection.
+  - Chain usage: used as an obfuscation technique to hide malicious patterns.
 
 ## launch_action_present
 
