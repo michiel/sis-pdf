@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 base64 = "0.22"
+regex = "1.10"
 boa_parser = { version = "0.21", optional = true }
 boa_ast = { version = "0.21", optional = true }
 boa_engine = { version = "0.21", optional = true }

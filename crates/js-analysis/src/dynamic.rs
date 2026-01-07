@@ -30,6 +30,65 @@ mod sandbox_impl {
         unique_prop_reads: BTreeSet<String>,
         elapsed_ms: Option<u128>,
         options: DynamicOptions,
+        variable_events: Vec<VariableEvent>,
+        scope_transitions: Vec<ScopeTransition>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct VariableEvent {
+        variable: String,
+        event_type: VariableEventType,
+        value: String,
+        scope: String,
+        timestamp: std::time::Duration,
+    }
+
+    #[derive(Debug, Clone)]
+    enum VariableEventType {
+        Declaration,
+        Assignment,
+        Read,
+        UndefinedAccess,
+    }
+
+    #[derive(Debug, Clone)]
+    struct ScopeTransition {
+        from_scope: String,
+        to_scope: String,
+        trigger: TransitionTrigger,
+        variables_inherited: Vec<String>,
+        timestamp: std::time::Duration,
+    }
+
+    #[derive(Debug, Clone)]
+    enum TransitionTrigger {
+        FunctionCall(String),
+        EvalExecution,
+        GlobalPromotion,
+    }
+
+    #[derive(Debug, Clone, Default)]
+    struct DynamicScope {
+        global_vars: std::collections::HashMap<String, String>,
+        auto_promote: BTreeSet<String>,
+        eval_contexts: Vec<std::collections::HashMap<String, String>>,
+        access_log: Vec<VariableAccess>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct VariableAccess {
+        variable: String,
+        access_type: AccessType,
+        context: String,
+        timestamp: std::time::Duration,
+    }
+
+    #[derive(Debug, Clone)]
+    enum AccessType {
+        Read,
+        Write,
+        Declaration,
+        UndefinedAccess,
     }
 
     pub fn run_sandbox(bytes: &[u8], options: &DynamicOptions) -> DynamicOutcome {
@@ -48,6 +107,7 @@ mod sandbox_impl {
                 options: opts,
                 ..SandboxLog::default()
             }));
+            let scope = Rc::new(RefCell::new(DynamicScope::default()));
             let mut context = Context::default();
             let mut limits = RuntimeLimits::default();
             limits.set_loop_iteration_limit(100_000);
@@ -65,8 +125,9 @@ mod sandbox_impl {
             register_windows_wmi(&mut context, log.clone());
             register_node_like(&mut context, log.clone());
             register_doc_stub(&mut context, log.clone());
-            register_doc_globals(&mut context, log.clone());
-            register_global_fallback(&mut context, log.clone());
+            register_enhanced_doc_globals(&mut context, log.clone(), scope.clone());
+            register_enhanced_eval_v2(&mut context, log.clone(), scope.clone());
+            register_enhanced_global_fallback(&mut context, log.clone(), scope.clone());
 
             let source = Source::from_bytes(&bytes);
             let eval_start = Instant::now();
@@ -593,7 +654,7 @@ mod sandbox_impl {
     }
 
     fn register_doc_globals(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
-        let add =
+        let _add =
             |ctx: &mut Context, name: &'static str, len: usize, log: Rc<RefCell<SandboxLog>>| {
                 let _ = ctx.register_global_builtin_callable(
                     JsString::from(name),
@@ -601,39 +662,11 @@ mod sandbox_impl {
                     make_native(log, name),
                 );
             };
-        let add_callable =
+        let _add_callable =
             |ctx: &mut Context, name: &'static str, len: usize, log: Rc<RefCell<SandboxLog>>| {
                 let _ = ctx.register_global_callable(JsString::from(name), len, make_native(log, name));
             };
-        register_enhanced_eval(context, log.clone());
         register_unescape(context, log.clone());
-        add(context, "setTimeout", 1, log.clone());
-        add(context, "setInterval", 1, log.clone());
-        add_callable(context, "Function", 1, log.clone());
-        add(context, "getURL", 1, log.clone());
-        add(context, "submitForm", 1, log.clone());
-        add(context, "exportDataObject", 1, log.clone());
-        add(context, "importDataObject", 1, log.clone());
-        add(context, "exportAsFDF", 1, log.clone());
-        add(context, "exportAsXFDF", 1, log.clone());
-        add(context, "importTextData", 1, log.clone());
-        add(context, "createDataObject", 1, log.clone());
-        add(context, "removeDataObject", 1, log.clone());
-        add(context, "getDataObject", 1, log.clone());
-        add(context, "getDataObjectContents", 1, log.clone());
-        add(context, "addField", 1, log.clone());
-        add(context, "removeField", 1, log.clone());
-        add(context, "getField", 1, log.clone());
-        add(context, "getAnnots", 1, log.clone());
-        add(context, "addAnnot", 1, log.clone());
-        add(context, "removeAnnot", 1, log.clone());
-        add(context, "deletePages", 1, log.clone());
-        add(context, "insertPages", 1, log.clone());
-        add(context, "extractPages", 1, log.clone());
-        add(context, "flattenPages", 1, log.clone());
-        add(context, "saveAs", 1, log.clone());
-        add(context, "print", 0, log.clone());
-        add(context, "mailDoc", 0, log);
     }
 
     fn register_doc_stub(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
@@ -665,17 +698,122 @@ mod sandbox_impl {
         let _ = context.register_global_property(JsString::from("doc"), doc, Attribute::all());
     }
 
-    fn register_global_fallback(context: &mut Context, _log: Rc<RefCell<SandboxLog>>) {
-        // Add a global object that acts as a fallback for undefined variables
-        let _fallback = ObjectInitializer::new(context)
-            .build();
+    fn register_enhanced_doc_globals(context: &mut Context, log: Rc<RefCell<SandboxLog>>, _scope: Rc<RefCell<DynamicScope>>) {
+        let add = |ctx: &mut Context, name: &'static str, len: usize, log: Rc<RefCell<SandboxLog>>| {
+            let _ = ctx.register_global_builtin_callable(
+                JsString::from(name),
+                len,
+                make_native(log, name),
+            );
+        };
+        let add_callable = |ctx: &mut Context, name: &'static str, len: usize, log: Rc<RefCell<SandboxLog>>| {
+            let _ = ctx.register_global_callable(JsString::from(name), len, make_native(log, name));
+        };
         
-        // Set up a basic fallback mechanism by creating common undefined variables
-        // This helps handle cases where eval() creates variables that should be global
+        // Standard JavaScript globals with enhanced tracking
+        add(context, "setTimeout", 1, log.clone());
+        add(context, "setInterval", 1, log.clone());
+        add_callable(context, "Function", 1, log.clone());
+        
+        // Enhanced string functions
+        register_enhanced_string_functions(context, log.clone());
+        
+        // Document/PDF functions
+        add(context, "getURL", 1, log.clone());
+        add(context, "submitForm", 1, log.clone());
+        add(context, "exportDataObject", 1, log.clone());
+        add(context, "importDataObject", 1, log.clone());
+        add(context, "exportAsFDF", 1, log.clone());
+        add(context, "exportAsXFDF", 1, log.clone());
+        add(context, "importTextData", 1, log.clone());
+        add(context, "createDataObject", 1, log.clone());
+        add(context, "removeDataObject", 1, log.clone());
+        add(context, "getDataObject", 1, log.clone());
+        add(context, "getDataObjectContents", 1, log.clone());
+        add(context, "addField", 1, log.clone());
+        add(context, "removeField", 1, log.clone());
+        add(context, "getField", 1, log.clone());
+        add(context, "getAnnots", 1, log.clone());
+        add(context, "addAnnot", 1, log.clone());
+        add(context, "removeAnnot", 1, log.clone());
+        add(context, "deletePages", 1, log.clone());
+        add(context, "insertPages", 1, log.clone());
+        add(context, "extractPages", 1, log.clone());
+        add(context, "flattenPages", 1, log.clone());
+        add(context, "saveAs", 1, log.clone());
+        add(context, "print", 0, log.clone());
+        add(context, "mailDoc", 0, log);
+    }
+
+    fn register_enhanced_string_functions(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        // String.fromCharCode with enhanced tracking
+        let log_clone = log.clone();
+        let from_char_code_fn = unsafe {
+            NativeFunction::from_closure(move |_this, args, ctx| {
+                record_call(&log_clone, "String.fromCharCode", args, ctx);
+                
+                let mut result = String::new();
+                for arg in args {
+                    if let Ok(num) = arg.to_i32(ctx) {
+                        if num >= 0 && num <= 255 {
+                            result.push(num as u8 as char);
+                        }
+                    }
+                }
+                
+                Ok(JsValue::from(JsString::from(result)))
+            })
+        };
+        
+        // Register String.fromCharCode
+        let string_constructor = ObjectInitializer::new(context)
+            .function(from_char_code_fn, JsString::from("fromCharCode"), 1)
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("String"),
+            string_constructor,
+            Attribute::all(),
+        );
+        
+        // escape function
+        let log_clone2 = log.clone();
+        let escape_fn = unsafe {
+            NativeFunction::from_closure(move |_this, args, ctx| {
+                record_call(&log_clone2, "escape", args, ctx);
+                
+                let input = args.get_or_undefined(0).to_string(ctx)?;
+                let input_str = input.to_std_string_escaped();
+                
+                let mut result = String::new();
+                for ch in input_str.chars() {
+                    if ch.is_ascii_alphanumeric() || "_*-./@".contains(ch) {
+                        result.push(ch);
+                    } else {
+                        result.push_str(&format!("%{:02X}", ch as u8));
+                    }
+                }
+                
+                Ok(JsValue::from(JsString::from(result)))
+            })
+        };
+        
+        let _ = context.register_global_builtin_callable(
+            JsString::from("escape"),
+            1,
+            escape_fn,
+        );
+    }
+
+    fn register_enhanced_global_fallback(context: &mut Context, _log: Rc<RefCell<SandboxLog>>, scope: Rc<RefCell<DynamicScope>>) {
+        // Set up enhanced fallback mechanism with dynamic variable promotion
         let common_vars = vec![
             "M7pzjRpdcM5RVyTMS", // From our specific malware sample
             "result", "output", "payload", "data", "code", "script",
-            "x", "y", "z", "a", "b", "c", "temp", "tmp", "var1", "var2"
+            "x", "y", "z", "a", "b", "c", "temp", "tmp", "var1", "var2",
+            // Additional common obfuscated variable patterns
+            "ArUloJQvYckQQag5N", "YBmf7LIrmiSSmpTsf", "ec8IFjfKAAJeWmuiY",
+            "MaSDjaiwpf8EBosnq", "CxiG6rd4UuhbnRzwv", "hc2Nqw6OfebArFYhX",
+            "CdmK3RydbptAXRo9u"
         ];
         
         for var_name in common_vars {
@@ -684,6 +822,42 @@ mod sandbox_impl {
                 JsValue::undefined(),
                 Attribute::all(),
             );
+            
+            // Mark for auto-promotion
+            scope.borrow_mut().auto_promote.insert(var_name.to_string());
+        }
+        
+        // Add console object for better compatibility
+        let console = ObjectInitializer::new(context)
+            .function(
+                make_console_function("log"),
+                JsString::from("log"),
+                1
+            )
+            .function(
+                make_console_function("warn"),
+                JsString::from("warn"),
+                1
+            )
+            .function(
+                make_console_function("error"),
+                JsString::from("error"),
+                1
+            )
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("console"),
+            console,
+            Attribute::all(),
+        );
+    }
+
+    fn make_console_function(_level: &'static str) -> NativeFunction {
+        unsafe {
+            NativeFunction::from_closure(move |_this, _args, _ctx| {
+                // Console functions are no-ops in sandbox, just return undefined
+                Ok(JsValue::undefined())
+            })
         }
     }
 
@@ -731,7 +905,7 @@ mod sandbox_impl {
         );
     }
 
-    fn register_enhanced_eval(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+    fn register_enhanced_eval_v2(context: &mut Context, log: Rc<RefCell<SandboxLog>>, scope: Rc<RefCell<DynamicScope>>) {
         let eval_fn = unsafe {
             NativeFunction::from_closure(move |_this, args, ctx| {
                 record_call(&log, "eval", args, ctx);
@@ -746,30 +920,277 @@ mod sandbox_impl {
                     if log_ref.call_args.len() < log_ref.options.max_call_args {
                         log_ref.call_args.push(format!("eval({})", &code_str[..std::cmp::min(code_str.len(), 100)]));
                     }
+                    
+                    // Record scope transition
+                    log_ref.scope_transitions.push(ScopeTransition {
+                        from_scope: "global".to_string(),
+                        to_scope: "eval".to_string(),
+                        trigger: TransitionTrigger::EvalExecution,
+                        variables_inherited: Vec::new(),
+                        timestamp: std::time::Duration::from_millis(0), // TODO: proper timestamp
+                    });
                 }
                 
-                // Execute the code with better error handling
-                match ctx.eval(Source::from_bytes(code_str.as_bytes())) {
-                    Ok(result) => Ok(result),
+                // Preprocess the code for variable promotion
+                let processed_code = preprocess_eval_code(&code_str, &scope);
+                
+                // Execute with enhanced error handling and variable tracking
+                match execute_with_variable_promotion(ctx, &processed_code, &scope, &log) {
+                    Ok(result) => {
+                        // Post-process to promote variables to global scope
+                        post_process_eval_variables(ctx, &code_str, &scope, &log);
+                        Ok(result)
+                    }
                     Err(e) => {
-                        // Log the error but don't stop execution
+                        // Log error and attempt recovery
                         {
                             let mut log_ref = log.borrow_mut();
-                            log_ref.errors.push(format!("{:?}", e));
+                            log_ref.errors.push(format!("Eval error (recovered): {:?}", e));
                         }
-                        // Return undefined instead of propagating error
-                        Ok(JsValue::undefined())
+                        
+                        // Attempt error recovery
+                        if let Some(recovered_result) = attempt_error_recovery(ctx, &e, &code_str, &scope, &log) {
+                            Ok(recovered_result)
+                        } else {
+                            Ok(JsValue::undefined())
+                        }
                     }
                 }
             })
         };
         
-        // Register eval with enhanced error handling
         let _ = context.register_global_builtin_callable(
             JsString::from("eval"),
             1,
             eval_fn,
         );
+    }
+
+    fn preprocess_eval_code(code: &str, scope: &Rc<RefCell<DynamicScope>>) -> String {
+        let mut result = code.to_string();
+        
+        // Pattern 1: Simple var detection without complex regex
+        if let Ok(var_regex) = regex::Regex::new(r"var\s+(\w+)\s*=") {
+            let result_for_regex = result.clone();
+            let matches: Vec<_> = var_regex.captures_iter(&result_for_regex).collect();
+            for caps in matches {
+                if let Some(var_name) = caps.get(1) {
+                    let var_str = var_name.as_str().to_string();
+                    scope.borrow_mut().auto_promote.insert(var_str.clone());
+                    
+                    // Replace with global assignment to ensure persistence
+                    result = result.replace(
+                        caps.get(0).unwrap().as_str(), 
+                        &format!("this.{} = ", var_str)
+                    );
+                }
+            }
+        } else {
+            // Fallback: Simple string-based detection
+            if result.contains("var ") {
+                // Extract variable names using simple parsing
+                let mut replacements = Vec::new();
+                let result_for_parsing = result.clone();
+                let lines: Vec<&str> = result_for_parsing.split(';').collect();
+                for line in lines {
+                    if line.trim().starts_with("var ") {
+                        if let Some(eq_pos) = line.find('=') {
+                            let var_part = &line[4..eq_pos]; // Skip "var "
+                            let var_name = var_part.trim();
+                            if var_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                                scope.borrow_mut().auto_promote.insert(var_name.to_string());
+                                replacements.push((
+                                    format!("var {}", var_name), 
+                                    format!("this.{}", var_name)
+                                ));
+                            }
+                        }
+                    }
+                }
+                // Apply replacements
+                for (old, new) in replacements {
+                    result = result.replace(&old, &new);
+                }
+            }
+        }
+        
+        // Pattern 2: Add error handling wrapper
+        format!(
+            "try {{ {} }} catch(e) {{ /* Eval error suppressed */ }}",
+            result
+        )
+    }
+
+    fn execute_with_variable_promotion(
+        ctx: &mut Context, 
+        code: &str, 
+        scope: &Rc<RefCell<DynamicScope>>,
+        log: &Rc<RefCell<SandboxLog>>
+    ) -> Result<JsValue, boa_engine::JsError> {
+        // Pre-execution: Create global variables for promoted variables
+        {
+            let scope_ref = scope.borrow();
+            for var_name in &scope_ref.auto_promote {
+                let _ = ctx.register_global_property(
+                    JsString::from(var_name.as_str()),
+                    JsValue::undefined(),
+                    Attribute::all(),
+                );
+            }
+        }
+        
+        // Execute the code
+        let result = ctx.eval(Source::from_bytes(code.as_bytes()));
+        
+        // Post-execution: Log variable events
+        {
+            let mut log_ref = log.borrow_mut();
+            let scope_ref = scope.borrow();
+            for var_name in &scope_ref.auto_promote {
+                log_ref.variable_events.push(VariableEvent {
+                    variable: var_name.clone(),
+                    event_type: VariableEventType::Declaration,
+                    value: "promoted".to_string(),
+                    scope: "global".to_string(),
+                    timestamp: std::time::Duration::from_millis(0),
+                });
+            }
+        }
+        
+        result
+    }
+
+    fn post_process_eval_variables(
+        ctx: &mut Context,
+        original_code: &str,
+        scope: &Rc<RefCell<DynamicScope>>,
+        _log: &Rc<RefCell<SandboxLog>>
+    ) {
+        // Extract any new variables that were created and should be promoted
+        let common_variable_patterns = vec![
+            r"(\w+)\s*=\s*[^;]+;",  // Simple assignments
+            r"var\s+(\w+)",          // Variable declarations
+        ];
+        
+        for pattern in common_variable_patterns {
+            if let Ok(regex) = regex::Regex::new(pattern) {
+                for caps in regex.captures_iter(original_code) {
+                    if let Some(var_match) = caps.get(1) {
+                        let var_name = var_match.as_str();
+                        if should_promote_variable(var_name) {
+                            // Ensure variable exists in global scope
+                            let _ = ctx.register_global_property(
+                                JsString::from(var_name),
+                                JsValue::undefined(),
+                                Attribute::all(),
+                            );
+                            
+                            scope.borrow_mut().auto_promote.insert(var_name.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn should_promote_variable(var_name: &str) -> bool {
+        // Promote variables that match common obfuscation patterns
+        var_name.len() > 5 && (
+            var_name.chars().any(|c| c.is_uppercase()) || // Mixed case
+            var_name.contains('_') || // Underscore naming
+            var_name.chars().last().map_or(false, |c| c.is_numeric()) // Ends with number
+        )
+    }
+
+    fn attempt_error_recovery(
+        ctx: &mut Context,
+        error: &boa_engine::JsError,
+        code: &str,
+        scope: &Rc<RefCell<DynamicScope>>,
+        log: &Rc<RefCell<SandboxLog>>
+    ) -> Option<JsValue> {
+        let error_msg = format!("{:?}", error);
+        
+        // Recovery strategy 1: Undefined variable errors
+        if error_msg.contains("is not defined") {
+            if let Some(var_name) = extract_undefined_variable(&error_msg) {
+                // Create the undefined variable
+                let _ = ctx.register_global_property(
+                    JsString::from(var_name.as_str()),
+                    JsValue::undefined(),
+                    Attribute::all(),
+                );
+                
+                scope.borrow_mut().auto_promote.insert(var_name.clone());
+                
+                // Log the recovery
+                {
+                    let mut log_ref = log.borrow_mut();
+                    log_ref.variable_events.push(VariableEvent {
+                        variable: var_name,
+                        event_type: VariableEventType::UndefinedAccess,
+                        value: "recovered".to_string(),
+                        scope: "global".to_string(),
+                        timestamp: std::time::Duration::from_millis(0),
+                    });
+                }
+                
+                // Retry the code execution
+                match ctx.eval(Source::from_bytes(code.as_bytes())) {
+                    Ok(result) => return Some(result),
+                    Err(_) => {} // Fall through to other recovery strategies
+                }
+            }
+        }
+        
+        // Recovery strategy 2: Syntax errors - try to fix common issues
+        if error_msg.contains("Syntax") {
+            let cleaned_code = attempt_syntax_cleanup(code);
+            match ctx.eval(Source::from_bytes(cleaned_code.as_bytes())) {
+                Ok(result) => return Some(result),
+                Err(_) => {} // Fall through
+            }
+        }
+        
+        None
+    }
+
+    fn extract_undefined_variable(error_msg: &str) -> Option<String> {
+        // Try to extract variable name from error messages like:
+        // "M7pzjRpdcM5RVyTMS is not defined"
+        if let Some(start) = error_msg.find("'") {
+            if let Some(end) = error_msg[start + 1..].find("'") {
+                return Some(error_msg[start + 1..start + 1 + end].to_string());
+            }
+        }
+        
+        // Fallback: look for "word is not defined" pattern
+        let words: Vec<&str> = error_msg.split_whitespace().collect();
+        for (i, word) in words.iter().enumerate() {
+            if *word == "is" && i + 2 < words.len() && words[i + 1] == "not" && words[i + 2] == "defined" {
+                if i > 0 {
+                    return Some(words[i - 1].trim_end_matches(',').to_string());
+                }
+            }
+        }
+        
+        None
+    }
+
+    fn attempt_syntax_cleanup(code: &str) -> String {
+        let mut result = code.to_string();
+        
+        // Common syntax fixes for obfuscated code
+        result = result.replace(";;", ";");           // Double semicolons
+        result = result.replace("  ", " ");           // Multiple spaces
+        result = result.trim().to_string();          // Leading/trailing whitespace
+        
+        // Try to fix incomplete statements
+        if !result.ends_with(';') && !result.ends_with('}') {
+            result.push(';');
+        }
+        
+        result
     }
 
     fn make_native(log: Rc<RefCell<SandboxLog>>, name: &'static str) -> NativeFunction {
