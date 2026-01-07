@@ -1,10 +1,12 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use globset::Glob;
 use memmap2::Mmap;
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 const MAX_REPORT_BYTES: u64 = 50 * 1024 * 1024;
@@ -81,6 +83,8 @@ enum Command {
         profile: Option<String>,
         #[arg(long)]
         cache_dir: Option<PathBuf>,
+        #[arg(long, alias = "seq")]
+        sequential: bool,
         #[arg(long)]
         ml: bool,
         #[arg(long)]
@@ -259,6 +263,7 @@ fn main() -> Result<()> {
             config,
             profile,
             cache_dir,
+            sequential,
             ml,
             ml_model_dir,
             ml_threshold,
@@ -291,6 +296,7 @@ fn main() -> Result<()> {
             config.as_deref(),
             profile.as_deref(),
             cache_dir.as_deref(),
+            sequential,
             ml,
             ml_model_dir.as_deref(),
             ml_threshold,
@@ -432,6 +438,7 @@ fn run_scan(
     config: Option<&std::path::Path>,
     profile: Option<&str>,
     cache_dir: Option<&std::path::Path>,
+    sequential: bool,
     ml: bool,
     ml_model_dir: Option<&std::path::Path>,
     ml_threshold: f32,
@@ -450,6 +457,7 @@ fn run_scan(
         max_total_decoded_bytes,
         recover_xref,
         parallel: false,
+        batch_parallel: !sequential,
         diff_parser,
         max_objects,
         max_recursion_depth,
@@ -482,6 +490,7 @@ fn run_scan(
     let want_export_intents = export_intents || export_intents_out.is_some();
     let detectors = sis_pdf_detectors::default_detectors();
     if let Some(dir) = path {
+        let batch_parallel = opts.batch_parallel;
         return run_scan_batch(
             dir,
             glob,
@@ -496,6 +505,7 @@ fn run_scan(
             yara,
             yara_out,
             cache_dir,
+            batch_parallel,
         );
     }
     let pdf = pdf.ok_or_else(|| anyhow!("PDF path is required unless --path is set"))?;
@@ -577,6 +587,7 @@ fn run_scan_batch(
     yara: bool,
     yara_out: Option<&std::path::Path>,
     cache_dir: Option<&std::path::Path>,
+    batch_parallel: bool,
 ) -> Result<()> {
     if sarif || sarif_out.is_some() {
         return Err(anyhow!("SARIF output is not supported for batch scans"));
@@ -585,30 +596,21 @@ fn run_scan_batch(
         return Err(anyhow!("YARA output is not supported for batch scans"));
     }
     let cache = if let Some(dir) = cache_dir {
-        Some(sis_pdf_core::cache::ScanCache::new(dir)?)
+        Some(Arc::new(sis_pdf_core::cache::ScanCache::new(dir)?))
     } else {
         None
     };
     let matcher = Glob::new(glob)?.compile_matcher();
-    let mut intent_writer: Option<Box<dyn Write>> = if export_intents {
-        Some(if let Some(path) = export_intents_out {
+    let intent_writer: Option<Arc<Mutex<Box<dyn Write + Send>>>> = if export_intents {
+        let writer: Box<dyn Write + Send> = if let Some(path) = export_intents_out {
             Box::new(fs::File::create(path)?)
         } else {
             Box::new(std::io::stdout())
-        })
+        };
+        Some(Arc::new(Mutex::new(writer)))
     } else {
         None
     };
-    let mut entries = Vec::new();
-    let mut summary = sis_pdf_core::report::Summary {
-        total: 0,
-        high: 0,
-        medium: 0,
-        low: 0,
-        info: 0,
-    };
-    let mut timing_total_ms = 0u64;
-    let mut timing_max_ms = 0u64;
     let iter = if dir.is_file() {
         WalkDir::new(dir.parent().unwrap_or(dir))
             .follow_links(false)
@@ -620,6 +622,7 @@ fn run_scan_batch(
     };
     let mut total_bytes = 0u64;
     let mut file_count = 0usize;
+    let mut paths = Vec::new();
     for entry in iter.into_iter().filter_map(Result::ok) {
         if !entry.file_type().is_file() {
             continue;
@@ -646,6 +649,17 @@ fn run_scan_batch(
                 return Err(anyhow!("batch size exceeds limit"));
             }
         }
+        paths.push(path.to_path_buf());
+    }
+    if paths.is_empty() {
+        return Err(anyhow!("no files matched {} in {}", glob, dir.display()));
+    }
+    let thread_count = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    let use_parallel = batch_parallel && thread_count > 1 && paths.len() > 1;
+    let indexed_paths: Vec<(usize, PathBuf)> = paths.into_iter().enumerate().collect();
+    let process_path = |path: &PathBuf| -> Result<sis_pdf_core::report::BatchEntry> {
         let path_str = path.display().to_string();
         let start = std::time::Instant::now();
         let mmap = mmap_file(&path_str)?;
@@ -667,26 +681,70 @@ fn run_scan_batch(
             report = Some(rep.with_input_path(Some(path_str.clone())));
         }
         let report = report.expect("report");
-        if let Some(writer) = intent_writer.as_mut() {
-            write_intents_jsonl(&report, writer.as_mut())?;
+        if let Some(writer) = intent_writer.as_ref() {
+            let mut guard = writer
+                .lock()
+                .map_err(|_| anyhow!("intent writer lock poisoned"))?;
+            write_intents_jsonl(&report, guard.as_mut())?;
         }
         let duration_ms = start.elapsed().as_millis() as u64;
-        timing_total_ms = timing_total_ms.saturating_add(duration_ms);
-        timing_max_ms = timing_max_ms.max(duration_ms);
-        summary.total += report.summary.total;
-        summary.high += report.summary.high;
-        summary.medium += report.summary.medium;
-        summary.low += report.summary.low;
-        summary.info += report.summary.info;
-        entries.push(sis_pdf_core::report::BatchEntry {
+        Ok(sis_pdf_core::report::BatchEntry {
             path: path_str,
             summary: report.summary,
             duration_ms,
-        });
-    }
-    if entries.is_empty() {
-        return Err(anyhow!("no files matched {} in {}", glob, dir.display()));
-    }
+        })
+    };
+    let mut entries: Vec<(usize, sis_pdf_core::report::BatchEntry)> = if use_parallel {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(thread_count)
+            .build();
+        match pool {
+            Ok(pool) => pool.install(|| {
+                indexed_paths
+                    .par_iter()
+                    .map(|(idx, path)| process_path(path).map(|entry| (*idx, entry)))
+                    .collect::<Result<Vec<_>>>()
+            })?,
+            Err(err) => {
+                eprintln!(
+                    "security_boundary: failed to build batch worker pool; falling back to sequential ({})",
+                    err
+                );
+                indexed_paths
+                    .iter()
+                    .map(|(idx, path)| process_path(path).map(|entry| (*idx, entry)))
+                    .collect::<Result<Vec<_>>>()?
+            }
+        }
+    } else {
+        indexed_paths
+            .iter()
+            .map(|(idx, path)| process_path(path).map(|entry| (*idx, entry)))
+            .collect::<Result<Vec<_>>>()?
+    };
+    entries.sort_by_key(|(idx, _)| *idx);
+    let mut summary = sis_pdf_core::report::Summary {
+        total: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+        info: 0,
+    };
+    let mut timing_total_ms = 0u64;
+    let mut timing_max_ms = 0u64;
+    let entries: Vec<sis_pdf_core::report::BatchEntry> = entries
+        .into_iter()
+        .map(|(_, entry)| {
+            timing_total_ms = timing_total_ms.saturating_add(entry.duration_ms);
+            timing_max_ms = timing_max_ms.max(entry.duration_ms);
+            summary.total += entry.summary.total;
+            summary.high += entry.summary.high;
+            summary.medium += entry.summary.medium;
+            summary.low += entry.summary.low;
+            summary.info += entry.summary.info;
+            entry
+        })
+        .collect();
     if export_intents {
         return Ok(());
     }
@@ -728,6 +786,7 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         max_total_decoded_bytes: 256 * 1024 * 1024,
         recover_xref: true,
         parallel: false,
+        batch_parallel: false,
         diff_parser: false,
         max_objects: 500_000,
         max_recursion_depth: 64,
@@ -801,6 +860,7 @@ fn run_export_graph(pdf: &str, chains_only: bool, format: &str, outdir: &PathBuf
         max_total_decoded_bytes: 256 * 1024 * 1024,
         recover_xref: true,
         parallel: false,
+        batch_parallel: false,
         diff_parser: false,
         max_objects: 500_000,
         max_recursion_depth: 64,
@@ -914,6 +974,7 @@ fn run_report(
         max_total_decoded_bytes,
         recover_xref,
         parallel: false,
+        batch_parallel: false,
         diff_parser,
         max_objects,
         max_recursion_depth,
@@ -973,6 +1034,7 @@ fn run_export_features(
         max_total_decoded_bytes,
         recover_xref,
         parallel: false,
+        batch_parallel: false,
         diff_parser: false,
         max_objects: 500_000,
         max_recursion_depth: 64,
@@ -1240,6 +1302,7 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
             max_total_decoded_bytes: 256 * 1024 * 1024,
             recover_xref: true,
             parallel: false,
+        batch_parallel: false,
             diff_parser: false,
             max_objects: 500_000,
             max_recursion_depth: 64,

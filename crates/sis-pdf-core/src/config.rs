@@ -31,6 +31,7 @@ pub struct ScanConfig {
     pub max_total_decoded_bytes: Option<usize>,
     pub recover_xref: Option<bool>,
     pub parallel: Option<bool>,
+    pub batch_parallel: Option<bool>,
     pub diff_parser: Option<bool>,
     pub max_objects: Option<usize>,
     pub max_recursion_depth: Option<usize>,
@@ -114,6 +115,9 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
     }
     if let Some(v) = scan.parallel {
         opts.parallel = v;
+    }
+    if let Some(v) = scan.batch_parallel {
+        opts.batch_parallel = v;
     }
     if let Some(v) = scan.diff_parser {
         opts.diff_parser = v;

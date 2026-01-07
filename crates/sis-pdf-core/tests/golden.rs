@@ -10,6 +10,7 @@ fn golden_synthetic_findings() {
         max_total_decoded_bytes: 64 * 1024 * 1024,
         recover_xref: true,
         parallel: false,
+        batch_parallel: false,
         diff_parser: false,
         max_objects: 100_000,
         max_recursion_depth: 64,

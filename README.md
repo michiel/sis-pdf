@@ -92,6 +92,7 @@ CLI workflows:
 - `sis export-graph` for chain export in DOT or JSON.
 - `sis export-features` for ML dataset feature extraction.
 - Batch scanning with `--path` and `--glob` plus batch summaries.
+- Batch scans are parallel by default; use `--sequential` (alias `--seq`) to disable.
 
 Testing and fixtures:
 - Golden test fixtures for action and JavaScript findings.
@@ -118,6 +119,15 @@ cargo run -p sis-pdf --bin sis -- scan path/to/file.pdf --deep
 
 # Export features for ML pipelines
 cargo run -p sis-pdf --bin sis -- export-features --path samples --glob "*.pdf" --format jsonl -o features.jsonl
+```
+
+## Configuration
+
+Batch scan parallelism can be enabled in config:
+
+```yaml
+scan:
+  batch_parallel: false
 ```
 
 ## Tests

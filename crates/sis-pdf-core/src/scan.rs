@@ -14,6 +14,7 @@ pub struct ScanOptions {
     pub max_total_decoded_bytes: usize,
     pub recover_xref: bool,
     pub parallel: bool,
+    pub batch_parallel: bool,
     pub diff_parser: bool,
     pub max_objects: usize,
     pub max_recursion_depth: usize,
