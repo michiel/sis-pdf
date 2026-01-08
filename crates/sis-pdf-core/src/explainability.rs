@@ -574,7 +574,11 @@ mod tests {
         );
         assert_eq!(
             humanize_feature_name("unknown_feature"),
-            "unknown: feature"
+            "unknown feature"  // Underscores replaced with spaces
+        );
+        assert_eq!(
+            humanize_feature_name("group.feature_name"),
+            "group: feature name"  // Both dots and underscores replaced
         );
     }
 
@@ -596,5 +600,260 @@ mod tests {
         assert!(summary.contains("highly suspicious"));
         assert!(summary.contains("obfuscated JavaScript"));
         assert!(summary.contains("Block and investigate"));
+    }
+
+    #[test]
+    fn test_compute_permutation_importance() {
+        // Mock model that returns sum of features
+        let model = |features: &[f32]| -> f32 {
+            features.iter().sum::<f32>() / features.len() as f32
+        };
+
+        let feature_values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let feature_names = vec![
+            "feature_a".to_string(),
+            "feature_b".to_string(),
+            "feature_c".to_string(),
+            "feature_d".to_string(),
+            "feature_e".to_string(),
+        ];
+
+        let mut baseline = BenignBaseline::default();
+        baseline.feature_means.insert("feature_a".to_string(), 0.5);
+        baseline.feature_means.insert("feature_b".to_string(), 1.0);
+        baseline.feature_means.insert("feature_c".to_string(), 1.5);
+        baseline.feature_means.insert("feature_d".to_string(), 2.0);
+        baseline.feature_means.insert("feature_e".to_string(), 2.5);
+
+        let attributions = compute_permutation_importance(
+            &model,
+            &feature_values,
+            &feature_names,
+            &baseline,
+        );
+
+        assert_eq!(attributions.len(), 5);
+
+        // All contributions should be positive since we're replacing with smaller values
+        for attr in &attributions {
+            assert!(attr.contribution >= 0.0,
+                "Feature {} contribution should be positive: {}",
+                attr.feature_name, attr.contribution);
+        }
+
+        // Should be sorted by absolute contribution
+        for i in 0..attributions.len()-1 {
+            assert!(attributions[i].contribution.abs() >= attributions[i+1].contribution.abs(),
+                "Attributions should be sorted by absolute contribution");
+        }
+    }
+
+    #[test]
+    fn test_compute_feature_group_importance() {
+        let attributions = vec![
+            FeatureAttribution {
+                feature_name: "js_signals.obfuscation".to_string(),
+                value: 0.8,
+                contribution: 0.15,
+                baseline: 0.1,
+                percentile: 95.0,
+            },
+            FeatureAttribution {
+                feature_name: "js_signals.eval_count".to_string(),
+                value: 5.0,
+                contribution: 0.10,
+                baseline: 0.0,
+                percentile: 98.0,
+            },
+            FeatureAttribution {
+                feature_name: "uri_signals.ip_address".to_string(),
+                value: 1.0,
+                contribution: 0.08,
+                baseline: 0.0,
+                percentile: 90.0,
+            },
+            FeatureAttribution {
+                feature_name: "general.file_size".to_string(),
+                value: 1000.0,
+                contribution: 0.02,
+                baseline: 500.0,
+                percentile: 60.0,
+            },
+        ];
+
+        let group_importance = compute_feature_group_importance(&attributions);
+
+        assert!(group_importance.contains_key("js_signals"));
+        assert!(group_importance.contains_key("uri_signals"));
+        assert!(group_importance.contains_key("general"));
+
+        // JS signals should have highest importance (0.15 + 0.10 = 0.25)
+        assert_eq!(group_importance.get("js_signals").unwrap(), &0.25);
+        assert_eq!(group_importance.get("uri_signals").unwrap(), &0.08);
+        assert_eq!(group_importance.get("general").unwrap(), &0.02);
+    }
+
+    #[test]
+    fn test_create_ml_explanation() {
+        let attributions = vec![
+            FeatureAttribution {
+                feature_name: "js_signals.max_obfuscation_score".to_string(),
+                value: 0.9,
+                contribution: 0.20,
+                baseline: 0.1,
+                percentile: 99.0,
+            },
+            FeatureAttribution {
+                feature_name: "uri_signals.ip_address_count".to_string(),
+                value: 2.0,
+                contribution: 0.15,
+                baseline: 0.0,
+                percentile: 95.0,
+            },
+            FeatureAttribution {
+                feature_name: "general.object_count".to_string(),
+                value: 100.0,
+                contribution: -0.05, // Negative contribution
+                baseline: 150.0,
+                percentile: 40.0,
+            },
+        ];
+
+        let mut baseline = BenignBaseline::default();
+        baseline.feature_means.insert("test".to_string(), 0.5);
+
+        let findings = vec![];
+
+        let explanation = create_ml_explanation(
+            0.85,
+            attributions,
+            &baseline,
+            &findings,
+        );
+
+        assert_eq!(explanation.prediction, 0.85);
+        assert_eq!(explanation.top_positive_features.len(), 2);
+        assert_eq!(explanation.top_negative_features.len(), 1);
+
+        // Check positive features are sorted correctly
+        assert_eq!(explanation.top_positive_features[0].feature_name,
+            "js_signals.max_obfuscation_score");
+        assert_eq!(explanation.top_positive_features[1].feature_name,
+            "uri_signals.ip_address_count");
+
+        // Check group importance
+        assert!(explanation.feature_group_importance.contains_key("js_signals"));
+        assert!(explanation.feature_group_importance.contains_key("uri_signals"));
+
+        // Check summary is generated
+        assert!(!explanation.summary.is_empty());
+        assert!(explanation.summary.contains("suspicious"));
+    }
+
+    #[test]
+    fn test_compute_baseline_from_samples() {
+        let mut sample1 = HashMap::new();
+        sample1.insert("feature_a".to_string(), 1.0);
+        sample1.insert("feature_b".to_string(), 2.0);
+        sample1.insert("feature_c".to_string(), 3.0);
+
+        let mut sample2 = HashMap::new();
+        sample2.insert("feature_a".to_string(), 3.0);
+        sample2.insert("feature_b".to_string(), 4.0);
+        sample2.insert("feature_c".to_string(), 5.0);
+
+        let mut sample3 = HashMap::new();
+        sample3.insert("feature_a".to_string(), 5.0);
+        sample3.insert("feature_b".to_string(), 6.0);
+        sample3.insert("feature_c".to_string(), 7.0);
+
+        let samples = vec![sample1, sample2, sample3];
+
+        let baseline = compute_baseline_from_samples(&samples);
+
+        // Check means
+        assert_eq!(baseline.feature_means.get("feature_a").unwrap(), &3.0); // (1+3+5)/3
+        assert_eq!(baseline.feature_means.get("feature_b").unwrap(), &4.0); // (2+4+6)/3
+        assert_eq!(baseline.feature_means.get("feature_c").unwrap(), &5.0); // (3+5+7)/3
+
+        // Check stddevs exist
+        assert!(baseline.feature_stddevs.contains_key("feature_a"));
+        assert!(baseline.feature_stddevs.get("feature_a").unwrap() > &0.0);
+
+        // Check percentiles
+        assert!(baseline.feature_percentiles.contains_key("feature_a"));
+        assert_eq!(baseline.feature_percentiles.get("feature_a").unwrap().len(), 7);
+    }
+
+    #[test]
+    fn test_compute_nth_percentile() {
+        let values = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
+
+        assert_eq!(compute_nth_percentile(&values, 0.0), 1.0);   // Min (index 0)
+        assert_eq!(compute_nth_percentile(&values, 50.0), 6.0);  // Median (index 5 after rounding 4.5)
+        assert_eq!(compute_nth_percentile(&values, 100.0), 10.0); // Max (index 9)
+
+        // Test with smaller array
+        let small = vec![1.0, 5.0, 10.0];
+        assert_eq!(compute_nth_percentile(&small, 50.0), 5.0);  // Index 1
+        assert_eq!(compute_nth_percentile(&small, 0.0), 1.0);
+        assert_eq!(compute_nth_percentile(&small, 100.0), 10.0);
+    }
+
+    #[test]
+    fn test_compute_nth_percentile_empty() {
+        let values = vec![];
+        assert_eq!(compute_nth_percentile(&values, 50.0), 0.0);
+    }
+
+    #[test]
+    fn test_baseline_save_and_load() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("baseline.json");
+
+        let mut baseline = BenignBaseline::default();
+        baseline.feature_means.insert("test_feature".to_string(), 1.5);
+        baseline.feature_stddevs.insert("test_feature".to_string(), 0.5);
+        baseline.feature_percentiles.insert(
+            "test_feature".to_string(),
+            vec![0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
+        );
+
+        // Save
+        baseline.save_to_file(&file_path).unwrap();
+
+        // Load
+        let loaded = BenignBaseline::load_from_file(&file_path).unwrap();
+
+        assert_eq!(loaded.feature_means.get("test_feature").unwrap(), &1.5);
+        assert_eq!(loaded.feature_stddevs.get("test_feature").unwrap(), &0.5);
+        assert_eq!(loaded.feature_percentiles.get("test_feature").unwrap().len(), 7);
+    }
+
+    #[test]
+    fn test_feature_group_importance_with_negative_contributions() {
+        let attributions = vec![
+            FeatureAttribution {
+                feature_name: "js_signals.obfuscation".to_string(),
+                value: 0.8,
+                contribution: 0.15,
+                baseline: 0.1,
+                percentile: 95.0,
+            },
+            FeatureAttribution {
+                feature_name: "js_signals.eval_count".to_string(),
+                value: 5.0,
+                contribution: -0.10, // Negative contribution
+                baseline: 0.0,
+                percentile: 98.0,
+            },
+        ];
+
+        let group_importance = compute_feature_group_importance(&attributions);
+
+        // Should sum absolute values: |0.15| + |-0.10| = 0.25
+        assert_eq!(group_importance.get("js_signals").unwrap(), &0.25);
     }
 }

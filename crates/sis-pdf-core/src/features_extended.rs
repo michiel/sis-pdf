@@ -2048,11 +2048,11 @@ mod tests {
         let features = ExtendedFeatureVector::default();
         let vec = features.as_f32_vec();
 
-        // 35 (legacy) + 11 (attack surfaces) + 15 (severity) + 9 (confidence) +
-        // 70 (presence) + 70 (counts) + 30 (JS) + 20 (URI) + 15 (content) +
+        // 35 (legacy) + 12 (attack surfaces) + 15 (severity) + 9 (confidence) +
+        // 71 (presence) + 71 (counts) + 30 (JS) + 20 (URI) + 15 (content) +
         // 10 (supply chain) + 20 (structural) + 10 (crypto) + 15 (embedded)
-        // = 35 + 285 = 320
-        assert_eq!(vec.len(), 320, "Expected 320 features, got {}", vec.len());
+        // = 35 + 298 = 333
+        assert_eq!(vec.len(), 333, "Expected 333 features, got {}", vec.len());
     }
 
     #[test]
@@ -2064,7 +2064,7 @@ mod tests {
         assert_eq!(names.len(), values.len(),
             "Feature names ({}) and values ({}) must match",
             names.len(), values.len());
-        assert_eq!(names.len(), 320, "Expected 320 feature names");
+        assert_eq!(names.len(), 333, "Expected 333 feature names");
     }
 
     #[test]
@@ -2072,7 +2072,7 @@ mod tests {
         let features = ExtendedFeatureVector::default();
         let map = features.to_named_map();
 
-        assert_eq!(map.len(), 320, "Named map should have 320 entries");
+        assert_eq!(map.len(), 333, "Named map should have 333 entries");
         assert!(map.contains_key("general.file_size"));
         assert!(map.contains_key("js_signals.max_obfuscation_score"));
         assert!(map.contains_key("uri_signals.total_count"));
@@ -2096,13 +2096,350 @@ mod tests {
     fn test_finding_presence_feature_count() {
         let features = FindingPresenceFeatures::default();
         let vec = features.as_f32_vec();
-        assert_eq!(vec.len(), 70, "Finding presence should have 70 features");
+        assert_eq!(vec.len(), 71, "Finding presence should have 71 features");
     }
 
     #[test]
     fn test_finding_count_feature_count() {
         let features = FindingCountFeatures::default();
         let vec = features.as_f32_vec();
-        assert_eq!(vec.len(), 70, "Finding counts should have 70 features");
+        assert_eq!(vec.len(), 71, "Finding counts should have 71 features");
+    }
+
+    #[test]
+    fn test_attack_surface_extraction() {
+        let findings = vec![
+            Finding {
+                id: "1".to_string(),
+                surface: AttackSurface::JavaScript,
+                kind: "js_present".to_string(),
+                severity: Severity::Medium,
+                confidence: Confidence::Strong,
+                title: "JavaScript Present".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+            Finding {
+                id: "2".to_string(),
+                surface: AttackSurface::JavaScript,
+                kind: "js_obfuscation".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                title: "Obfuscated JS".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+            Finding {
+                id: "3".to_string(),
+                surface: AttackSurface::Actions,
+                kind: "open_action".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                title: "OpenAction".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+        ];
+
+        let features = extract_attack_surface_features(&findings);
+        assert_eq!(features.javascript_count, 2.0);
+        assert_eq!(features.actions_count, 1.0);
+        assert_eq!(features.forms_count, 0.0);
+    }
+
+    #[test]
+    fn test_severity_extraction() {
+        let findings = vec![
+            Finding {
+                id: "1".to_string(),
+                surface: AttackSurface::JavaScript,
+                kind: "test".to_string(),
+                severity: Severity::Critical,
+                confidence: Confidence::Strong,
+                title: "Test".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+            Finding {
+                id: "2".to_string(),
+                surface: AttackSurface::Actions,
+                kind: "test".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Probable,
+                title: "Test".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+            Finding {
+                id: "3".to_string(),
+                surface: AttackSurface::Forms,
+                kind: "test".to_string(),
+                severity: Severity::Medium,
+                confidence: Confidence::Heuristic,
+                title: "Test".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+        ];
+
+        let features = extract_severity_features(&findings);
+        assert_eq!(features.total_critical, 1.0);
+        assert_eq!(features.total_high, 1.0);
+        assert_eq!(features.total_medium, 1.0);
+        assert_eq!(features.max_severity_score, 4.0); // Critical = 4
+        assert!(features.avg_severity_score > 0.0);
+    }
+
+    #[test]
+    fn test_confidence_extraction() {
+        let findings = vec![
+            Finding {
+                id: "1".to_string(),
+                surface: AttackSurface::JavaScript,
+                kind: "test".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                title: "Test".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+            Finding {
+                id: "2".to_string(),
+                surface: AttackSurface::Actions,
+                kind: "test".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Probable,
+                title: "Test".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+        ];
+
+        let features = extract_confidence_features(&findings);
+        assert_eq!(features.strong_count, 1.0);
+        assert_eq!(features.probable_count, 1.0);
+        assert_eq!(features.strong_high_severity, 1.0);
+        assert_eq!(features.probable_high_severity, 1.0);
+    }
+
+    #[test]
+    fn test_js_feature_extraction_from_metadata() {
+        let mut meta = HashMap::new();
+        meta.insert("js.obfuscation_score".to_string(), "0.85".to_string());
+        meta.insert("js.eval_count".to_string(), "5".to_string());
+        meta.insert("js.entropy".to_string(), "7.2".to_string());
+        meta.insert("js.decode_ratio".to_string(), "3.5".to_string());
+        meta.insert("js.suspicious_apis".to_string(), "eval,unescape".to_string());
+
+        let findings = vec![
+            Finding {
+                id: "1".to_string(),
+                surface: AttackSurface::JavaScript,
+                kind: "js_polymorphic".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                title: "Polymorphic JS".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: meta.clone(),
+                yara: None,
+            },
+            Finding {
+                id: "2".to_string(),
+                surface: AttackSurface::JavaScript,
+                kind: "js_time_evasion".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                title: "Time Evasion".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: {
+                    let mut m = HashMap::new();
+                    m.insert("js.time_evasion".to_string(), "true".to_string());
+                    m
+                },
+                yara: None,
+            },
+        ];
+
+        let features = extract_js_features(&findings);
+        assert_eq!(features.max_obfuscation_score, 0.85);
+        assert_eq!(features.max_eval_count, 5.0);
+        assert_eq!(features.max_entropy, 7.2);
+        assert_eq!(features.polymorphic_present, 1.0);  // Finding kind is "js_polymorphic" which contains "polymorphic"
+        assert_eq!(features.time_evasion_present, 1.0); // Metadata key "js.time_evasion" is present
+        assert_eq!(features.total_js_objects, 2.0);
+    }
+
+    #[test]
+    fn test_uri_feature_extraction() {
+        let mut meta = HashMap::new();
+        meta.insert("uri.scheme".to_string(), "http".to_string());
+        meta.insert("uri.is_ip_address".to_string(), "true".to_string());
+        meta.insert("uri.risk_score".to_string(), "0.75".to_string());
+
+        let findings = vec![
+            Finding {
+                id: "1".to_string(),
+                surface: AttackSurface::Actions,
+                kind: "uri_content_analysis".to_string(),
+                severity: Severity::Medium,
+                confidence: Confidence::Probable,
+                title: "Suspicious URI".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta,
+                yara: None,
+            },
+        ];
+
+        let features = extract_uri_features(&findings);
+        assert_eq!(features.http_count, 1.0);
+        assert_eq!(features.ip_address_count, 1.0);
+        assert_eq!(features.max_risk_score, 0.75);
+        assert_eq!(features.total_count, 1.0);
+    }
+
+    #[test]
+    fn test_finding_presence_and_counts() {
+        let findings = vec![
+            Finding {
+                id: "1".to_string(),
+                surface: AttackSurface::FileStructure,
+                kind: "xref_conflict".to_string(),
+                severity: Severity::Medium,
+                confidence: Confidence::Strong,
+                title: "XRef Conflict".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+            Finding {
+                id: "2".to_string(),
+                surface: AttackSurface::FileStructure,
+                kind: "xref_conflict".to_string(),
+                severity: Severity::Medium,
+                confidence: Confidence::Strong,
+                title: "XRef Conflict 2".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+            Finding {
+                id: "3".to_string(),
+                surface: AttackSurface::JavaScript,
+                kind: "js_polymorphic".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                title: "Polymorphic JS".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+        ];
+
+        let (presence, counts) = extract_finding_features(&findings);
+        assert_eq!(presence.xref_conflict, 1.0); // Binary flag
+        assert_eq!(counts.xref_conflict_count, 2.0); // Count
+        assert_eq!(presence.js_polymorphic, 1.0);
+        assert_eq!(counts.js_polymorphic_count, 1.0);
+    }
+
+    #[test]
+    fn test_content_feature_extraction() {
+        let findings = vec![
+            Finding {
+                id: "1".to_string(),
+                surface: AttackSurface::ContentPhishing,
+                kind: "phishing_indicator".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                title: "Phishing".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+            Finding {
+                id: "2".to_string(),
+                surface: AttackSurface::ContentPhishing,
+                kind: "invisible_text".to_string(),
+                severity: Severity::Medium,
+                confidence: Confidence::Probable,
+                title: "Invisible Text".to_string(),
+                description: "Test".to_string(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+        ];
+
+        let features = extract_content_features(&findings);
+        assert_eq!(features.phishing_indicators, 1.0);
+        assert_eq!(features.invisible_text_pages, 1.0);
+    }
+
+    #[test]
+    fn test_extended_feature_vector_update_count() {
+        // This test verifies we have 333 features total
+        let features = ExtendedFeatureVector::default();
+        let vec = features.as_f32_vec();
+
+        // 35 (legacy) + 12 (attack surfaces - added ContentPhishing) + 15 (severity) + 9 (confidence) +
+        // 71 (presence) + 71 (counts) + 30 (JS) + 20 (URI) + 15 (content) +
+        // 10 (supply chain) + 20 (structural) + 10 (crypto) + 15 (embedded)
+        // = 35 + 298 = 333
+        assert_eq!(vec.len(), 333, "Expected 333 features total, got {}", vec.len());
     }
 }
