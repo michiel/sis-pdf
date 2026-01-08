@@ -117,8 +117,39 @@ This plan merges two complementary initiatives:
   - `compute_nth_percentile()` - Percentile helper
 - **File**: `crates/sis-pdf-core/src/explainability.rs` now 600+ lines
 
+#### ✅ Completed (Phase 1.6) - Commit `0080520`
+- **Comprehensive Test Suite**: 27 unit tests with full coverage
+  - **Feature Extraction Tests** (10 tests):
+    - `test_attack_surface_extraction` - 12 attack surface counters
+    - `test_severity_extraction` - Severity distributions and scoring
+    - `test_confidence_extraction` - Confidence distributions
+    - `test_js_feature_extraction_from_metadata` - 30 JS signals from metadata
+    - `test_uri_feature_extraction` - 20 URI signals
+    - `test_finding_presence_and_counts` - 142 finding features (71 presence + 71 counts)
+    - `test_content_feature_extraction` - Content phishing signals
+    - Dimension validation tests for 333 total features
+  - **Attribution/Explainability Tests** (11 tests):
+    - `test_compute_permutation_importance` - Model-agnostic attribution
+    - `test_compute_feature_group_importance` - Group-level aggregation
+    - `test_create_ml_explanation` - Complete explanation generation
+    - `test_compute_baseline_from_samples` - Baseline statistics computation
+    - `test_compute_nth_percentile` - Percentile calculation
+    - `test_baseline_save_and_load` - Serialization/deserialization with tempfile
+    - `test_feature_group_importance_with_negative_contributions`
+    - `test_humanize_feature_name` - Natural language conversion
+    - `test_explanation_text_generation` - Summary generation
+    - `test_percentile_computation` - Percentile lookup
+  - **Existing Tests** (6 tests): Dimension checks, feature naming, conversions
+- **Coverage**: Extraction functions, attribution, baseline computation, explanation generation, serialization
+- **Final Feature Count**: **333 features** (35 legacy + 298 new)
+  - 35 legacy + 12 attack surfaces + 15 severity + 9 confidence
+  - 71 finding presence + 71 finding counts
+  - 30 JS + 20 URI + 15 content + 10 supply chain
+  - 20 structural + 10 crypto + 15 embedded
+- All 27 tests passing ✅
+
 #### ⏳ Pending
-- Phase 1.4-1.7: Enhanced testing, documentation, integration
+- Phase 1.4-1.5, 1.7: Documentation, integration examples
 
 ### Phase 2-6: Not Started
 
