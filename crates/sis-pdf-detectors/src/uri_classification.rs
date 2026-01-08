@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::preview_ascii;
@@ -8,6 +8,7 @@ use sis_pdf_core::scan::ScanContext;
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::graph::ObjEntry;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
+use sis_pdf_pdf::typed_graph::EdgeType;
 
 use crate::entry_dict;
 
@@ -588,24 +589,37 @@ impl Detector for UriContentDetector {
 
     fn run(&self, ctx: &ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        let mut uri_count = 0;
         const MAX_URIS: usize = 1000;
 
-        for entry in &ctx.graph.objects {
-            if uri_count >= MAX_URIS {
-                break;
+        // Build typed graph to find URI edges
+        let typed_graph = ctx.build_typed_graph();
+
+        // Collect unique URI source objects (deduplicate)
+        let mut uri_objects = HashSet::new();
+        for edge in &typed_graph.edges {
+            if matches!(edge.edge_type, EdgeType::UriTarget) {
+                uri_objects.insert(edge.src);
+                if uri_objects.len() >= MAX_URIS {
+                    break;
+                }
             }
+        }
+
+        // Analyze each URI object
+        for (obj, gen) in uri_objects {
+            let entry = match ctx.graph.get_object(obj, gen) {
+                Some(e) => e,
+                None => continue,
+            };
 
             let dict = match entry_dict(entry) {
                 Some(d) => d,
                 None => continue,
             };
 
-            // Look for URI actions
+            // Extract URI
             if let Some((k, v)) = dict.get_first(b"/URI") {
                 if let Some(uri_bytes) = extract_uri_bytes(v) {
-                    uri_count += 1;
-
                     let content = analyze_uri_content(&uri_bytes);
                     let context = analyze_uri_context(ctx, entry, dict);
                     let trigger = analyze_uri_trigger(ctx, entry, dict);
@@ -776,11 +790,27 @@ impl Detector for UriPresenceDetector {
     }
 
     fn run(&self, ctx: &ScanContext) -> Result<Vec<Finding>> {
-        let mut uri_count = 0;
-        let mut unique_domains = std::collections::HashSet::new();
+        let mut unique_domains = HashSet::new();
         let mut scheme_counts = HashMap::new();
 
-        for entry in &ctx.graph.objects {
+        // Build typed graph to find URI edges
+        let typed_graph = ctx.build_typed_graph();
+
+        // Collect unique URI source objects
+        let mut uri_objects = HashSet::new();
+        for edge in &typed_graph.edges {
+            if matches!(edge.edge_type, EdgeType::UriTarget) {
+                uri_objects.insert(edge.src);
+            }
+        }
+
+        // Analyze each URI
+        for (obj, gen) in &uri_objects {
+            let entry = match ctx.graph.get_object(*obj, *gen) {
+                Some(e) => e,
+                None => continue,
+            };
+
             let dict = match entry_dict(entry) {
                 Some(d) => d,
                 None => continue,
@@ -788,8 +818,6 @@ impl Detector for UriPresenceDetector {
 
             if let Some((_, v)) = dict.get_first(b"/URI") {
                 if let Some(uri_bytes) = extract_uri_bytes(v) {
-                    uri_count += 1;
-
                     let content = analyze_uri_content(&uri_bytes);
 
                     // Track scheme
@@ -802,6 +830,8 @@ impl Detector for UriPresenceDetector {
                 }
             }
         }
+
+        let uri_count = uri_objects.len();
 
         // Only create finding if URIs are present
         if uri_count > 0 {

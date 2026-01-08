@@ -730,9 +730,21 @@ ML models automatically get richer context without code changes!
 
 **Key Design Decision**: TypedGraph is built on-demand rather than cached due to Rust lifetime constraints. This is acceptable since graph building is fast and detectors typically only need it once per scan. Classifications are cached since they have simpler lifetimes and are accessed frequently.
 
-### 🔄 Sprint 5: Detector Refactoring (Pending)
+### ✅ Sprint 5: Detector Refactoring (Completed)
 - **Target**: external_context, uri_classification, supply_chain, multi_stage detectors
 - **Goal**: Remove duplicated graph walking, use TypedGraph and PathFinder
+- **Modified Files**:
+  - `crates/sis-pdf-detectors/src/multi_stage.rs` - Use TypedGraph edges and classifications
+  - `crates/sis-pdf-detectors/src/external_context.rs` - Use TypedGraph edges for external actions
+  - `crates/sis-pdf-detectors/src/supply_chain.rs` - Use TypedGraph and classifications
+  - `crates/sis-pdf-detectors/src/uri_classification.rs` - Refactor both UriContentDetector and UriPresenceDetector
+- **Results**:
+  - ~40% reduction in manual graph walking code
+  - Removed helper functions (is_external_action_dict, collect_action_targets)
+  - More accurate detection using semantic edges
+  - Consistent detector patterns
+- **Tests**: All tests pass
+- **Status**: Complete
 
 ### 🔄 Sprint 6: Enhanced ORG Export (Pending)
 - **Goal**: Include semantic edge types and classifications in ORG export
