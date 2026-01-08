@@ -87,6 +87,58 @@ pub struct ComparativeFeature {
     pub interpretation: String,
 }
 
+// ============================================================================
+// Graph Path Explainability
+// ============================================================================
+
+/// Explanation of suspicious paths through the PDF object graph
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphPathExplanation {
+    /// Top suspicious paths found in the document
+    pub suspicious_paths: Vec<SuspiciousPath>,
+    /// Maximum risk score across all paths
+    pub max_path_risk: f32,
+    /// Average risk score across all paths
+    pub avg_path_risk: f32,
+}
+
+/// A suspicious path through the PDF object graph
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuspiciousPath {
+    /// Sequence of nodes in the path
+    pub path: Vec<PathNode>,
+    /// Computed risk score for this path (0.0-1.0)
+    pub risk_score: f32,
+    /// Natural language explanation of the path
+    pub explanation: String,
+    /// Classified attack pattern, if recognized
+    pub attack_pattern: Option<String>,
+}
+
+/// A node in a suspicious path
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PathNode {
+    /// Object reference (obj_id, gen_id)
+    pub obj_ref: (u32, u16),
+    /// Type of the node (Page, Action, JavaScript, etc.)
+    pub node_type: String,
+    /// Edge to the next node in the path
+    pub edge_to_next: Option<EdgeInfo>,
+    /// Finding kinds present at this node
+    pub findings: Vec<String>,
+}
+
+/// Information about an edge in a path
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EdgeInfo {
+    /// Type of the edge (Reference, JavaScriptPayload, UriTarget, etc.)
+    pub edge_type: String,
+    /// Dictionary key that created this edge (e.g., "/OpenAction", "/JS")
+    pub key: String,
+    /// Whether this edge is considered suspicious
+    pub suspicious: bool,
+}
+
 /// Compute percentile from percentile array [P10, P25, P50, P75, P90, P95, P99]
 pub fn compute_percentile(value: f32, percentiles: &[f32]) -> f32 {
     if percentiles.len() != 7 {
@@ -551,6 +603,309 @@ fn compute_nth_percentile(sorted_values: &[f32], percentile: f32) -> f32 {
 
     let index = (percentile / 100.0 * (sorted_values.len() - 1) as f32).round() as usize;
     sorted_values[index.min(sorted_values.len() - 1)]
+}
+
+// ============================================================================
+// Graph Path Extraction
+// ============================================================================
+
+/// Extract suspicious paths from the PDF object graph
+///
+/// This function analyzes action chains in the TypedGraph to identify
+/// suspicious execution paths, score them by risk, and generate explanations.
+pub fn extract_suspicious_paths(
+    action_chains: &[sis_pdf_pdf::path_finder::ActionChain<'_>],
+    findings: &[Finding],
+    _node_scores: Option<&[f32]>,  // Reserved for future GNN integration
+) -> GraphPathExplanation {
+    let mut scored_paths = Vec::new();
+
+    for chain in action_chains {
+        // Build PathNode sequence from action chain
+        let path_nodes = build_path_nodes_from_chain(chain, findings);
+
+        if path_nodes.is_empty() {
+            continue;
+        }
+
+        // Compute path risk score
+        let risk_score = compute_path_risk_score(&path_nodes, findings, chain);
+
+        // Classify attack pattern
+        let attack_pattern = classify_path_pattern(&path_nodes, chain);
+
+        // Generate explanation
+        let explanation = generate_path_explanation(&path_nodes, &attack_pattern, chain);
+
+        scored_paths.push(SuspiciousPath {
+            path: path_nodes,
+            risk_score,
+            explanation,
+            attack_pattern,
+        });
+    }
+
+    // Sort by risk score (highest first)
+    scored_paths.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap_or(std::cmp::Ordering::Equal));
+
+    let max_path_risk = scored_paths.first().map(|p| p.risk_score).unwrap_or(0.0);
+    let avg_path_risk = if !scored_paths.is_empty() {
+        scored_paths.iter().map(|p| p.risk_score).sum::<f32>() / scored_paths.len() as f32
+    } else {
+        0.0
+    };
+
+    GraphPathExplanation {
+        suspicious_paths: scored_paths.into_iter().take(10).collect(),  // Top 10
+        max_path_risk,
+        avg_path_risk,
+    }
+}
+
+/// Build PathNode sequence from an ActionChain
+fn build_path_nodes_from_chain(
+    chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
+    findings: &[Finding],
+) -> Vec<PathNode> {
+    use sis_pdf_pdf::typed_graph::EdgeType;
+
+    let mut nodes = Vec::new();
+    let mut visited_objs = std::collections::HashSet::new();
+
+    // Add source node
+    if let Some(first_edge) = chain.edges.first() {
+        let src = first_edge.src;
+        if visited_objs.insert(src) {
+            let obj_str = format!("{} {} obj", src.0, src.1);
+            let obj_findings: Vec<_> = findings
+                .iter()
+                .filter(|f| f.objects.contains(&obj_str))
+                .map(|f| f.kind.clone())
+                .collect();
+
+            nodes.push(PathNode {
+                obj_ref: src,
+                node_type: classify_node_type(first_edge),
+                edge_to_next: Some(EdgeInfo {
+                    edge_type: format!("{:?}", first_edge.edge_type),
+                    key: extract_edge_key(&first_edge.edge_type),
+                    suspicious: first_edge.suspicious,
+                }),
+                findings: obj_findings,
+            });
+        }
+    }
+
+    // Add intermediate and destination nodes
+    for (i, edge) in chain.edges.iter().enumerate() {
+        let dst = edge.dst;
+        if !visited_objs.insert(dst) {
+            continue;  // Skip cycles
+        }
+
+        let obj_str = format!("{} {} obj", dst.0, dst.1);
+        let obj_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| f.objects.contains(&obj_str))
+            .map(|f| f.kind.clone())
+            .collect();
+
+        let edge_to_next = if i + 1 < chain.edges.len() {
+            let next_edge = &chain.edges[i + 1];
+            Some(EdgeInfo {
+                edge_type: format!("{:?}", next_edge.edge_type),
+                key: extract_edge_key(&next_edge.edge_type),
+                suspicious: next_edge.suspicious,
+            })
+        } else {
+            None
+        };
+
+        let node_type = match edge.edge_type {
+            EdgeType::JavaScriptPayload => "JavaScript",
+            EdgeType::UriTarget => "URI",
+            EdgeType::LaunchTarget => "Launch",
+            EdgeType::SubmitFormTarget => "SubmitForm",
+            _ => "Action",
+        }.to_string();
+
+        nodes.push(PathNode {
+            obj_ref: dst,
+            node_type,
+            edge_to_next,
+            findings: obj_findings,
+        });
+    }
+
+    nodes
+}
+
+/// Classify the node type based on the edge leading to it
+fn classify_node_type(edge: &sis_pdf_pdf::typed_graph::TypedEdge) -> String {
+    use sis_pdf_pdf::typed_graph::EdgeType;
+
+    match edge.edge_type {
+        EdgeType::OpenAction => "Catalog",
+        EdgeType::PageAction { .. } => "Page",
+        EdgeType::AnnotationAction => "Annotation",
+        _ => "Object",
+    }.to_string()
+}
+
+/// Extract key information from EdgeType
+fn extract_edge_key(edge_type: &sis_pdf_pdf::typed_graph::EdgeType) -> String {
+    use sis_pdf_pdf::typed_graph::EdgeType;
+
+    match edge_type {
+        EdgeType::DictReference { key } => key.clone(),
+        EdgeType::ArrayElement { index } => format!("[{}]", index),
+        EdgeType::OpenAction => "/OpenAction".to_string(),
+        EdgeType::PageAction { event } => event.clone(),
+        EdgeType::AnnotationAction => "/A".to_string(),
+        EdgeType::AdditionalAction { event } => event.clone(),
+        EdgeType::JavaScriptPayload => "/JS".to_string(),
+        EdgeType::JavaScriptNames => "/Names/JavaScript".to_string(),
+        EdgeType::UriTarget => "/URI".to_string(),
+        EdgeType::LaunchTarget => "/Launch".to_string(),
+        EdgeType::SubmitFormTarget => "/SubmitForm".to_string(),
+        EdgeType::GoToRTarget => "/GoToR".to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Compute risk score for a path
+fn compute_path_risk_score(
+    path: &[PathNode],
+    findings: &[Finding],
+    chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
+) -> f32 {
+    let mut risk = 0.0;
+
+    // Base risk from chain characteristics
+    if chain.automatic {
+        risk += 0.3;
+    }
+    if chain.involves_js {
+        risk += 0.4;
+    }
+    if chain.involves_external {
+        risk += 0.3;
+    }
+
+    // Node contribution (findings)
+    for node in path {
+        if node.findings.is_empty() {
+            continue;
+        }
+
+        let node_findings: Vec<_> = findings
+            .iter()
+            .filter(|f| node.findings.contains(&f.kind))
+            .collect();
+
+        for f in node_findings {
+            risk += match f.severity {
+                Severity::Critical => 0.2,
+                Severity::High => 0.15,
+                Severity::Medium => 0.08,
+                Severity::Low => 0.03,
+                Severity::Info => 0.0,
+            };
+        }
+    }
+
+    // Edge contribution (suspicious edges)
+    let suspicious_edge_count = path
+        .iter()
+        .filter_map(|n| n.edge_to_next.as_ref())
+        .filter(|e| e.suspicious)
+        .count();
+    risk += suspicious_edge_count as f32 * 0.1;
+
+    // Path length bonus (longer chains are more suspicious)
+    if path.len() > 2 {
+        risk += ((path.len() - 2) as f32) * 0.05;
+    }
+
+    risk.min(1.0)
+}
+
+/// Classify the attack pattern of a path
+fn classify_path_pattern(
+    path: &[PathNode],
+    chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
+) -> Option<String> {
+    let has_openaction = path.iter().any(|n| {
+        n.edge_to_next.as_ref()
+            .map(|e| e.key == "/OpenAction")
+            .unwrap_or(false)
+    });
+
+    let has_js = path.iter().any(|n| n.node_type == "JavaScript");
+    let has_uri = path.iter().any(|n| n.node_type == "URI");
+    let has_launch = path.iter().any(|n| n.node_type == "Launch");
+
+    match (has_openaction, has_js, has_uri || has_launch) {
+        (true, true, true) => Some("automatic_js_with_external_action".to_string()),
+        (true, true, false) => Some("automatic_js_trigger".to_string()),
+        (false, true, true) => Some("js_to_external_resource".to_string()),
+        (true, false, true) => Some("automatic_external_action".to_string()),
+        _ if chain.automatic && chain.involves_js => Some("automatic_js_chain".to_string()),
+        _ if chain.automatic => Some("automatic_action_chain".to_string()),
+        _ if chain.involves_js && chain.involves_external => Some("js_external_chain".to_string()),
+        _ => None,
+    }
+}
+
+/// Generate natural language explanation for a path
+fn generate_path_explanation(
+    path: &[PathNode],
+    pattern: &Option<String>,
+    chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
+) -> String {
+    if path.is_empty() {
+        return "Empty path".to_string();
+    }
+
+    let mut parts = vec![];
+
+    // Path description
+    let first_obj = path.first().unwrap().obj_ref;
+    parts.push(format!("Path from object {} {}", first_obj.0, first_obj.1));
+
+    // Length description
+    if path.len() > 1 {
+        parts.push(format!("through {} objects", path.len()));
+    }
+
+    // Pattern description
+    if let Some(pat) = pattern {
+        parts.push(format!(": {}", humanize_pattern(pat)));
+    } else if chain.is_multi_stage() {
+        parts.push(": Multi-stage action chain".to_string());
+    }
+
+    // Finding highlights
+    let total_findings: usize = path.iter().map(|n| n.findings.len()).sum();
+    if total_findings > 0 {
+        parts.push(format!("({} findings)", total_findings));
+    }
+
+    parts.join(" ")
+}
+
+/// Convert pattern ID to human-readable description
+fn humanize_pattern(pattern: &str) -> String {
+    match pattern {
+        "automatic_js_with_external_action" => "Automatic JavaScript execution with external action".to_string(),
+        "automatic_js_trigger" => "Automatic JavaScript execution via OpenAction".to_string(),
+        "js_to_external_resource" => "JavaScript triggers external resource".to_string(),
+        "automatic_external_action" => "Automatic external action".to_string(),
+        "automatic_js_chain" => "Automatic JavaScript action chain".to_string(),
+        "automatic_action_chain" => "Automatic action chain".to_string(),
+        "js_external_chain" => "JavaScript with external action".to_string(),
+        _ => pattern.replace('_', " "),
+    }
 }
 
 #[cfg(test)]
