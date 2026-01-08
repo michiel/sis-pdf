@@ -8,7 +8,7 @@ use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr, PdfStream};
 use sis_pdf_pdf::typed_graph::EdgeType;
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct GeneralFeatures {
     pub file_size: usize,
     pub file_entropy: f64,
@@ -16,7 +16,7 @@ pub struct GeneralFeatures {
     pub object_count: usize,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct StructuralFeatures {
     pub startxref_count: usize,
     pub trailer_count: usize,
@@ -25,7 +25,7 @@ pub struct StructuralFeatures {
     pub max_object_id: u32,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct BehavioralFeatures {
     pub action_count: usize,
     pub js_object_count: usize,
@@ -36,7 +36,7 @@ pub struct BehavioralFeatures {
     pub env_probe_count: usize,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct ContentFeatures {
     pub embedded_file_count: usize,
     pub rich_media_count: usize,
@@ -44,7 +44,7 @@ pub struct ContentFeatures {
     pub page_count: usize,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct GraphFeatures {
     pub total_edges: usize,
     pub open_action_edges: usize,
