@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use crate::model::{Finding, Severity, AttackSurface, EvidenceSpan};
+use crate::model::{Finding, Severity, Confidence, AttackSurface, EvidenceSpan};
 
 /// Feature attribution showing how much a feature contributed to the prediction
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,6 +137,211 @@ pub struct EdgeInfo {
     pub key: String,
     /// Whether this edge is considered suspicious
     pub suspicious: bool,
+}
+
+// ============================================================================
+// Document-Level Risk Profile
+// ============================================================================
+
+/// Comprehensive document-level risk assessment with calibrated predictions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentRiskProfile {
+    /// Calibrated ML prediction
+    pub prediction: CalibratedPrediction,
+
+    /// Basic statistics
+    pub total_findings: usize,
+    pub critical_count: usize,
+    pub high_severity_count: usize,
+    pub medium_severity_count: usize,
+    pub low_severity_count: usize,
+    pub attack_surface_diversity: usize,
+    pub max_confidence: String,
+
+    // Category-specific risk profiles
+    pub js_risk: JsRiskProfile,
+    pub uri_risk: UriRiskProfile,
+    pub structural_risk: StructuralRiskProfile,
+    pub supply_chain_risk: SupplyChainRiskProfile,
+    pub content_risk: ContentRiskProfile,
+    pub crypto_risk: CryptoRiskProfile,
+
+    // Comprehensive explanations
+    pub explanation: MlExplanation,
+    pub comparative_analysis: Vec<ComparativeFeature>,
+    pub graph_paths: Option<GraphPathExplanation>,
+    pub evidence_chains: Vec<EvidenceChain>,
+}
+
+/// Calibrated prediction with confidence intervals
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalibratedPrediction {
+    /// Raw model score (0.0-1.0)
+    pub raw_score: f32,
+    /// Calibrated probability (0.0-1.0)
+    pub calibrated_score: f32,
+    /// 95% confidence interval
+    pub confidence_interval: (f32, f32),
+    /// Calibration method used
+    pub calibration_method: String,
+    /// Human-readable interpretation
+    pub interpretation: String,
+}
+
+/// JavaScript risk profile
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsRiskProfile {
+    pub present: bool,
+    pub count: usize,
+    pub max_obfuscation: f32,
+    pub avg_obfuscation: f32,
+    pub evasion_techniques: Vec<String>,
+    pub multi_stage: bool,
+    pub eval_usage: bool,
+    pub risk_score: f32,
+}
+
+impl Default for JsRiskProfile {
+    fn default() -> Self {
+        Self {
+            present: false,
+            count: 0,
+            max_obfuscation: 0.0,
+            avg_obfuscation: 0.0,
+            evasion_techniques: vec![],
+            multi_stage: false,
+            eval_usage: false,
+            risk_score: 0.0,
+        }
+    }
+}
+
+/// URI/external action risk profile
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UriRiskProfile {
+    pub present: bool,
+    pub count: usize,
+    pub suspicious_domains: Vec<String>,
+    pub suspicious_schemes: Vec<String>,
+    pub phishing_indicators: usize,
+    pub external_connections: usize,
+    pub risk_score: f32,
+}
+
+impl Default for UriRiskProfile {
+    fn default() -> Self {
+        Self {
+            present: false,
+            count: 0,
+            suspicious_domains: vec![],
+            suspicious_schemes: vec![],
+            phishing_indicators: 0,
+            external_connections: 0,
+            risk_score: 0.0,
+        }
+    }
+}
+
+/// Structural anomaly risk profile
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructuralRiskProfile {
+    pub spec_violations: usize,
+    pub xref_issues: usize,
+    pub object_stream_anomalies: usize,
+    pub compression_ratio: f32,
+    pub encryption_present: bool,
+    pub risk_score: f32,
+}
+
+impl Default for StructuralRiskProfile {
+    fn default() -> Self {
+        Self {
+            spec_violations: 0,
+            xref_issues: 0,
+            object_stream_anomalies: 0,
+            compression_ratio: 0.0,
+            encryption_present: false,
+            risk_score: 0.0,
+        }
+    }
+}
+
+/// Supply chain risk profile
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupplyChainRiskProfile {
+    pub producer: Option<String>,
+    pub creator: Option<String>,
+    pub creation_date: Option<String>,
+    pub modification_date: Option<String>,
+    pub producer_trusted: bool,
+    pub timestamps_consistent: bool,
+    pub signature_present: bool,
+    pub signature_valid: bool,
+    pub risk_score: f32,
+}
+
+impl Default for SupplyChainRiskProfile {
+    fn default() -> Self {
+        Self {
+            producer: None,
+            creator: None,
+            creation_date: None,
+            modification_date: None,
+            producer_trusted: false,
+            timestamps_consistent: true,
+            signature_present: false,
+            signature_valid: false,
+            risk_score: 0.0,
+        }
+    }
+}
+
+/// Content-based risk profile
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentRiskProfile {
+    pub text_anomalies: usize,
+    pub font_issues: usize,
+    pub image_anomalies: usize,
+    pub hidden_content: bool,
+    pub overlapping_objects: bool,
+    pub phishing_keywords: Vec<String>,
+    pub risk_score: f32,
+}
+
+impl Default for ContentRiskProfile {
+    fn default() -> Self {
+        Self {
+            text_anomalies: 0,
+            font_issues: 0,
+            image_anomalies: 0,
+            hidden_content: false,
+            overlapping_objects: false,
+            phishing_keywords: vec![],
+            risk_score: 0.0,
+        }
+    }
+}
+
+/// Cryptographic risk profile
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CryptoRiskProfile {
+    pub encryption_algorithm: Option<String>,
+    pub weak_encryption: bool,
+    pub certificate_issues: usize,
+    pub signature_anomalies: usize,
+    pub risk_score: f32,
+}
+
+impl Default for CryptoRiskProfile {
+    fn default() -> Self {
+        Self {
+            encryption_algorithm: None,
+            weak_encryption: false,
+            certificate_issues: 0,
+            signature_anomalies: 0,
+            risk_score: 0.0,
+        }
+    }
 }
 
 /// Compute percentile from percentile array [P10, P25, P50, P75, P90, P95, P99]
@@ -337,6 +542,154 @@ fn recognize_attack_pattern(findings: &[Finding]) -> Option<String> {
         Some("automatic external resource loading".to_string())
     } else {
         None
+    }
+}
+
+// ============================================================================
+// Risk Score Calibration
+// ============================================================================
+
+/// Calibration model for converting raw scores to calibrated probabilities
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CalibrationModel {
+    pub method: CalibrationMethod,
+}
+
+/// Calibration methods supported
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CalibrationMethod {
+    /// Platt scaling: logistic regression on raw scores
+    PlattScaling { a: f32, b: f32 },
+    /// Isotonic regression: piecewise constant calibration
+    IsotonicRegression { x: Vec<f32>, y: Vec<f32> },
+}
+
+impl CalibrationModel {
+    /// Create a new Platt scaling calibration model
+    pub fn platt_scaling(a: f32, b: f32) -> Self {
+        Self {
+            method: CalibrationMethod::PlattScaling { a, b },
+        }
+    }
+
+    /// Create a new isotonic regression calibration model
+    pub fn isotonic_regression(x: Vec<f32>, y: Vec<f32>) -> Self {
+        Self {
+            method: CalibrationMethod::IsotonicRegression { x, y },
+        }
+    }
+
+    /// Calibrate a raw score
+    pub fn calibrate(&self, raw_score: f32) -> f32 {
+        match &self.method {
+            CalibrationMethod::PlattScaling { a, b } => {
+                // Sigmoid: 1 / (1 + exp(-a * raw_score - b))
+                1.0 / (1.0 + (-a * raw_score - b).exp())
+            }
+            CalibrationMethod::IsotonicRegression { x, y } => {
+                // Linear interpolation in isotonic curve
+                if x.is_empty() {
+                    return raw_score;
+                }
+
+                if raw_score <= x[0] {
+                    return y[0];
+                }
+                if raw_score >= *x.last().unwrap() {
+                    return *y.last().unwrap();
+                }
+
+                for i in 0..x.len() - 1 {
+                    if raw_score >= x[i] && raw_score <= x[i + 1] {
+                        let ratio = (raw_score - x[i]) / (x[i + 1] - x[i]);
+                        return y[i] + ratio * (y[i + 1] - y[i]);
+                    }
+                }
+
+                raw_score
+            }
+        }
+    }
+
+    /// Load calibration model from JSON file
+    pub fn load_from_file(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+        let json = std::fs::read_to_string(path)?;
+        let model: CalibrationModel = serde_json::from_str(&json)?;
+        Ok(model)
+    }
+
+    /// Save calibration model to JSON file
+    pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_string_pretty(self)?;
+        std::fs::write(path, json)?;
+        Ok(())
+    }
+}
+
+/// Calibrate a prediction and generate comprehensive metadata
+pub fn calibrate_prediction(
+    raw_score: f32,
+    calibrator: &CalibrationModel,
+) -> CalibratedPrediction {
+    let calibrated_score = calibrator.calibrate(raw_score);
+
+    // Estimate confidence interval (simplified - real implementation would use bootstrap)
+    // Width is wider near 0.5 (maximum uncertainty) and narrower near 0 or 1
+    let ci_width = 0.1 * (1.0 - calibrated_score) * calibrated_score * 4.0;
+    let confidence_interval = (
+        (calibrated_score - ci_width).max(0.0),
+        (calibrated_score + ci_width).min(1.0),
+    );
+
+    let calibration_method = match &calibrator.method {
+        CalibrationMethod::PlattScaling { .. } => "Platt Scaling",
+        CalibrationMethod::IsotonicRegression { .. } => "Isotonic Regression",
+    }
+    .to_string();
+
+    let interpretation = if calibrated_score >= 0.9 {
+        format!(
+            "Very high confidence malicious: {:.1}% probability ({:.1}%-{:.1}% CI)",
+            calibrated_score * 100.0,
+            confidence_interval.0 * 100.0,
+            confidence_interval.1 * 100.0
+        )
+    } else if calibrated_score >= 0.7 {
+        format!(
+            "Likely malicious: {:.1}% probability ({:.1}%-{:.1}% CI)",
+            calibrated_score * 100.0,
+            confidence_interval.0 * 100.0,
+            confidence_interval.1 * 100.0
+        )
+    } else if calibrated_score >= 0.5 {
+        format!(
+            "Possibly malicious: {:.1}% probability ({:.1}%-{:.1}% CI)",
+            calibrated_score * 100.0,
+            confidence_interval.0 * 100.0,
+            confidence_interval.1 * 100.0
+        )
+    } else if calibrated_score >= 0.3 {
+        format!(
+            "Unlikely malicious: {:.1}% probability ({:.1}%-{:.1}% CI)",
+            calibrated_score * 100.0,
+            confidence_interval.0 * 100.0,
+            confidence_interval.1 * 100.0
+        )
+    } else {
+        format!(
+            "Very low risk: {:.1}% probability ({:.1}%-{:.1}% CI)",
+            calibrated_score * 100.0,
+            confidence_interval.0 * 100.0,
+            confidence_interval.1 * 100.0
+        )
+    };
+
+    CalibratedPrediction {
+        raw_score,
+        calibrated_score,
+        confidence_interval,
+        calibration_method,
+        interpretation,
     }
 }
 
@@ -603,6 +956,364 @@ fn compute_nth_percentile(sorted_values: &[f32], percentile: f32) -> f32 {
 
     let index = (percentile / 100.0 * (sorted_values.len() - 1) as f32).round() as usize;
     sorted_values[index.min(sorted_values.len() - 1)]
+}
+
+// ============================================================================
+// Document Risk Profile Generation
+// ============================================================================
+
+/// Generate comprehensive document-level risk profile
+pub fn generate_document_risk_profile(
+    findings: &[Finding],
+    prediction: CalibratedPrediction,
+    explanation: MlExplanation,
+    comparative_analysis: Vec<ComparativeFeature>,
+    graph_paths: Option<GraphPathExplanation>,
+    evidence_chains: Vec<EvidenceChain>,
+) -> DocumentRiskProfile {
+    // Count findings by severity
+    let critical_count = findings.iter().filter(|f| f.severity == Severity::Critical).count();
+    let high_severity_count = findings.iter().filter(|f| f.severity == Severity::High).count();
+    let medium_severity_count = findings.iter().filter(|f| f.severity == Severity::Medium).count();
+    let low_severity_count = findings.iter().filter(|f| f.severity == Severity::Low).count();
+
+    // Attack surface diversity
+    let surfaces: std::collections::HashSet<_> = findings.iter().map(|f| f.surface).collect();
+    let attack_surface_diversity = surfaces.len();
+
+    // Max confidence
+    let max_confidence = findings
+        .iter()
+        .map(|f| f.confidence)
+        .max()
+        .map(|c| format!("{:?}", c))
+        .unwrap_or_else(|| "None".to_string());
+
+    // Generate category-specific risk profiles
+    let js_risk = extract_js_risk_profile(findings);
+    let uri_risk = extract_uri_risk_profile(findings);
+    let structural_risk = extract_structural_risk_profile(findings);
+    let supply_chain_risk = extract_supply_chain_risk_profile(findings);
+    let content_risk = extract_content_risk_profile(findings);
+    let crypto_risk = extract_crypto_risk_profile(findings);
+
+    DocumentRiskProfile {
+        prediction,
+        total_findings: findings.len(),
+        critical_count,
+        high_severity_count,
+        medium_severity_count,
+        low_severity_count,
+        attack_surface_diversity,
+        max_confidence,
+        js_risk,
+        uri_risk,
+        structural_risk,
+        supply_chain_risk,
+        content_risk,
+        crypto_risk,
+        explanation,
+        comparative_analysis,
+        graph_paths,
+        evidence_chains,
+    }
+}
+
+/// Extract JavaScript risk profile from findings
+fn extract_js_risk_profile(findings: &[Finding]) -> JsRiskProfile {
+    let js_findings: Vec<_> = findings
+        .iter()
+        .filter(|f| f.surface == AttackSurface::JavaScript)
+        .collect();
+
+    if js_findings.is_empty() {
+        return JsRiskProfile::default();
+    }
+
+    let count = js_findings.len();
+    let mut obfuscation_scores = Vec::new();
+    let mut evasion_techniques = Vec::new();
+    let mut eval_usage = false;
+    let mut multi_stage = false;
+
+    for finding in &js_findings {
+        // Parse obfuscation score
+        if let Some(score_str) = finding.meta.get("js.obfuscation_score") {
+            if let Ok(score) = score_str.parse::<f32>() {
+                obfuscation_scores.push(score);
+            }
+        }
+
+        // Check for evasion techniques
+        if finding.meta.contains_key("js.time_evasion") {
+            evasion_techniques.push("time-based evasion".to_string());
+        }
+        if finding.meta.contains_key("js.environment_detect") {
+            evasion_techniques.push("environment detection".to_string());
+        }
+
+        // Check for eval usage
+        if finding.kind.contains("eval") || finding.kind.contains("function_constructor") {
+            eval_usage = true;
+        }
+
+        // Check for multi-stage
+        if finding.kind.contains("multi_stage") || finding.kind.contains("polymorphic") {
+            multi_stage = true;
+        }
+    }
+
+    let max_obfuscation = obfuscation_scores.iter().fold(0.0f32, |a, &b| a.max(b));
+    let avg_obfuscation = if !obfuscation_scores.is_empty() {
+        obfuscation_scores.iter().sum::<f32>() / obfuscation_scores.len() as f32
+    } else {
+        0.0
+    };
+
+    // Compute risk score
+    let risk_score = (max_obfuscation * 0.4
+        + if eval_usage { 0.3 } else { 0.0 }
+        + if multi_stage { 0.2 } else { 0.0 }
+        + (evasion_techniques.len() as f32 * 0.1))
+        .min(1.0);
+
+    JsRiskProfile {
+        present: true,
+        count,
+        max_obfuscation,
+        avg_obfuscation,
+        evasion_techniques,
+        multi_stage,
+        eval_usage,
+        risk_score,
+    }
+}
+
+/// Extract URI risk profile from findings
+fn extract_uri_risk_profile(findings: &[Finding]) -> UriRiskProfile {
+    let uri_findings: Vec<_> = findings
+        .iter()
+        .filter(|f| matches!(f.surface, AttackSurface::Actions | AttackSurface::Forms))
+        .filter(|f| f.kind.contains("uri") || f.kind.contains("launch") || f.kind.contains("url"))
+        .collect();
+
+    if uri_findings.is_empty() {
+        return UriRiskProfile::default();
+    }
+
+    let count = uri_findings.len();
+    let mut suspicious_domains = Vec::new();
+    let mut suspicious_schemes = Vec::new();
+    let mut phishing_indicators = 0;
+    let external_connections = count;
+
+    for finding in &uri_findings {
+        if let Some(domain) = finding.meta.get("uri.domain") {
+            if finding.kind.contains("suspicious") || finding.kind.contains("phishing") {
+                suspicious_domains.push(domain.clone());
+            }
+        }
+
+        if let Some(scheme) = finding.meta.get("uri.scheme") {
+            if scheme != "http" && scheme != "https" {
+                suspicious_schemes.push(scheme.clone());
+            }
+        }
+
+        if finding.kind.contains("phishing") {
+            phishing_indicators += 1;
+        }
+    }
+
+    let risk_score = ((suspicious_domains.len() as f32 * 0.3)
+        + (suspicious_schemes.len() as f32 * 0.2)
+        + (phishing_indicators as f32 * 0.4)
+        + 0.1)
+        .min(1.0);
+
+    UriRiskProfile {
+        present: true,
+        count,
+        suspicious_domains,
+        suspicious_schemes,
+        phishing_indicators,
+        external_connections,
+        risk_score,
+    }
+}
+
+/// Extract structural risk profile from findings
+fn extract_structural_risk_profile(findings: &[Finding]) -> StructuralRiskProfile {
+    let structural_findings: Vec<_> = findings
+        .iter()
+        .filter(|f| matches!(
+            f.surface,
+            AttackSurface::FileStructure
+                | AttackSurface::XRefTrailer
+                | AttackSurface::ObjectStreams
+                | AttackSurface::StreamsAndFilters
+        ))
+        .collect();
+
+    let spec_violations = structural_findings
+        .iter()
+        .filter(|f| f.kind.contains("invalid") || f.kind.contains("malformed"))
+        .count();
+
+    let xref_issues = structural_findings
+        .iter()
+        .filter(|f| f.kind.contains("xref"))
+        .count();
+
+    let object_stream_anomalies = structural_findings
+        .iter()
+        .filter(|f| f.kind.contains("objstm") || f.kind.contains("object_stream"))
+        .count();
+
+    let encryption_present = findings
+        .iter()
+        .any(|f| f.kind.contains("encrypted") || f.kind.contains("encryption"));
+
+    let risk_score = ((spec_violations as f32 * 0.2)
+        + (xref_issues as f32 * 0.3)
+        + (object_stream_anomalies as f32 * 0.2)
+        + if encryption_present { 0.1 } else { 0.0 })
+        .min(1.0);
+
+    StructuralRiskProfile {
+        spec_violations,
+        xref_issues,
+        object_stream_anomalies,
+        compression_ratio: 0.0, // TODO: extract from metadata
+        encryption_present,
+        risk_score,
+    }
+}
+
+/// Extract supply chain risk profile from findings
+fn extract_supply_chain_risk_profile(findings: &[Finding]) -> SupplyChainRiskProfile {
+    let supply_chain_findings: Vec<_> = findings
+        .iter()
+        .filter(|f| f.kind.contains("producer") || f.kind.contains("creator") || f.kind.contains("metadata"))
+        .collect();
+
+    let mut profile = SupplyChainRiskProfile::default();
+
+    for finding in &supply_chain_findings {
+        if let Some(producer) = finding.meta.get("metadata.producer") {
+            profile.producer = Some(producer.clone());
+        }
+        if let Some(creator) = finding.meta.get("metadata.creator") {
+            profile.creator = Some(creator.clone());
+        }
+        if let Some(date) = finding.meta.get("metadata.creation_date") {
+            profile.creation_date = Some(date.clone());
+        }
+        if let Some(date) = finding.meta.get("metadata.mod_date") {
+            profile.modification_date = Some(date.clone());
+        }
+
+        if finding.kind.contains("suspicious_producer") {
+            profile.producer_trusted = false;
+            profile.risk_score += 0.3;
+        }
+
+        if finding.kind.contains("signature") {
+            profile.signature_present = true;
+            if finding.kind.contains("invalid") {
+                profile.signature_valid = false;
+                profile.risk_score += 0.4;
+            } else {
+                profile.signature_valid = true;
+            }
+        }
+    }
+
+    profile.risk_score = profile.risk_score.min(1.0);
+    profile
+}
+
+/// Extract content risk profile from findings
+fn extract_content_risk_profile(findings: &[Finding]) -> ContentRiskProfile {
+    let content_findings: Vec<_> = findings
+        .iter()
+        .filter(|f| f.surface == AttackSurface::ContentPhishing || f.kind.contains("content") || f.kind.contains("text"))
+        .collect();
+
+    let text_anomalies = content_findings
+        .iter()
+        .filter(|f| f.kind.contains("text_anomaly") || f.kind.contains("hidden_text"))
+        .count();
+
+    let font_issues = content_findings
+        .iter()
+        .filter(|f| f.kind.contains("font"))
+        .count();
+
+    let image_anomalies = content_findings
+        .iter()
+        .filter(|f| f.kind.contains("image"))
+        .count();
+
+    let hidden_content = content_findings.iter().any(|f| f.kind.contains("hidden"));
+    let overlapping_objects = content_findings.iter().any(|f| f.kind.contains("overlapping"));
+
+    let phishing_keywords: Vec<String> = content_findings
+        .iter()
+        .filter(|f| f.kind.contains("phishing"))
+        .filter_map(|f| f.meta.get("keyword").cloned())
+        .collect();
+
+    let risk_score = ((text_anomalies as f32 * 0.1)
+        + (font_issues as f32 * 0.1)
+        + (phishing_keywords.len() as f32 * 0.3)
+        + if hidden_content { 0.2 } else { 0.0 }
+        + if overlapping_objects { 0.1 } else { 0.0 })
+        .min(1.0);
+
+    ContentRiskProfile {
+        text_anomalies,
+        font_issues,
+        image_anomalies,
+        hidden_content,
+        overlapping_objects,
+        phishing_keywords,
+        risk_score,
+    }
+}
+
+/// Extract crypto risk profile from findings
+fn extract_crypto_risk_profile(findings: &[Finding]) -> CryptoRiskProfile {
+    let crypto_findings: Vec<_> = findings
+        .iter()
+        .filter(|f| f.surface == AttackSurface::CryptoSignatures || f.kind.contains("crypto") || f.kind.contains("encryption"))
+        .collect();
+
+    let mut profile = CryptoRiskProfile::default();
+
+    for finding in &crypto_findings {
+        if let Some(algo) = finding.meta.get("encryption.algorithm") {
+            profile.encryption_algorithm = Some(algo.clone());
+
+            if algo.contains("RC4") || algo.contains("DES") || algo.contains("MD5") {
+                profile.weak_encryption = true;
+                profile.risk_score += 0.4;
+            }
+        }
+
+        if finding.kind.contains("certificate") {
+            profile.certificate_issues += 1;
+            profile.risk_score += 0.2;
+        }
+
+        if finding.kind.contains("signature") && finding.kind.contains("anomaly") {
+            profile.signature_anomalies += 1;
+            profile.risk_score += 0.3;
+        }
+    }
+
+    profile.risk_score = profile.risk_score.min(1.0);
+    profile
 }
 
 // ============================================================================
@@ -1367,5 +2078,268 @@ mod tests {
         assert_eq!(deserialized.obj_ref, (1, 0));
         assert_eq!(deserialized.node_type, "JavaScript");
         assert_eq!(deserialized.findings.len(), 1);
+    }
+
+    // ========================================================================
+    // Risk Profile and Calibration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_platt_scaling_calibration() {
+        let calibrator = CalibrationModel::platt_scaling(1.0, 0.0);
+
+        // Test sigmoid behavior
+        let calibrated = calibrator.calibrate(0.0);
+        assert!((calibrated - 0.5).abs() < 0.01); // Should be ~0.5 at 0
+
+        let calibrated = calibrator.calibrate(5.0);
+        assert!(calibrated > 0.99); // Should be close to 1 for large positive
+
+        let calibrated = calibrator.calibrate(-5.0);
+        assert!(calibrated < 0.01); // Should be close to 0 for large negative
+    }
+
+    #[test]
+    fn test_isotonic_regression_calibration() {
+        let x = vec![0.0, 0.2, 0.5, 0.8, 1.0];
+        let y = vec![0.0, 0.15, 0.4, 0.7, 1.0];
+        let calibrator = CalibrationModel::isotonic_regression(x, y);
+
+        // Test interpolation
+        let calibrated = calibrator.calibrate(0.5);
+        assert!((calibrated - 0.4).abs() < 0.01);
+
+        let calibrated = calibrator.calibrate(0.35); // Between 0.2 and 0.5
+        assert!(calibrated > 0.15 && calibrated < 0.4);
+
+        // Test extrapolation (should clip)
+        let calibrated = calibrator.calibrate(1.5);
+        assert!((calibrated - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_calibrate_prediction() {
+        let calibrator = CalibrationModel::platt_scaling(1.0, 0.0);
+        let prediction = calibrate_prediction(0.8, &calibrator);
+
+        // Check that calibration was applied
+        assert!(prediction.calibrated_score >= 0.0 && prediction.calibrated_score <= 1.0);
+        assert!(prediction.confidence_interval.0 < prediction.calibrated_score);
+        assert!(prediction.confidence_interval.1 > prediction.calibrated_score);
+        assert!(prediction.interpretation.contains("%"));
+        assert_eq!(prediction.raw_score, 0.8);
+    }
+
+    #[test]
+    fn test_calibration_model_save_load() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("calibration.json");
+
+        let calibrator = CalibrationModel::platt_scaling(2.5, -1.0);
+        calibrator.save_to_file(&file_path).unwrap();
+
+        let loaded = CalibrationModel::load_from_file(&file_path).unwrap();
+
+        // Verify it works the same
+        let score1 = calibrator.calibrate(0.5);
+        let score2 = loaded.calibrate(0.5);
+        assert!((score1 - score2).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_js_risk_profile_extraction() {
+        let mut findings = vec![];
+
+        // Add JS finding with metadata
+        let mut meta = HashMap::new();
+        meta.insert("js.obfuscation_score".to_string(), "0.85".to_string());
+        meta.insert("js.time_evasion".to_string(), "true".to_string());
+
+        findings.push(Finding {
+            id: "js-1".to_string(),
+            kind: "js_eval".to_string(),
+            severity: Severity::High,
+            confidence: Confidence::Strong,
+            surface: AttackSurface::JavaScript,
+            title: "JavaScript eval usage".to_string(),
+            description: "test".to_string(),
+            objects: vec!["1 0 obj".to_string()],
+            evidence: vec![],
+            remediation: None,
+            meta,
+            yara: None,
+        });
+
+        let profile = extract_js_risk_profile(&findings);
+
+        assert!(profile.present);
+        assert_eq!(profile.count, 1);
+        assert!(profile.max_obfuscation > 0.8);
+        assert!(profile.eval_usage);
+        assert!(!profile.evasion_techniques.is_empty());
+        assert!(profile.risk_score > 0.0);
+    }
+
+    #[test]
+    fn test_uri_risk_profile_extraction() {
+        let mut findings = vec![];
+
+        let mut meta = HashMap::new();
+        meta.insert("uri.domain".to_string(), "malicious.com".to_string());
+        meta.insert("uri.scheme".to_string(), "javascript".to_string());
+
+        findings.push(Finding {
+            id: "uri-1".to_string(),
+            kind: "aa_uri_suspicious".to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Probable,
+            surface: AttackSurface::Actions,
+            title: "Suspicious URI".to_string(),
+            description: "test".to_string(),
+            objects: vec!["2 0 obj".to_string()],
+            evidence: vec![],
+            remediation: None,
+            meta,
+            yara: None,
+        });
+
+        let profile = extract_uri_risk_profile(&findings);
+
+        assert!(profile.present);
+        assert_eq!(profile.count, 1);
+        assert!(!profile.suspicious_domains.is_empty());
+        assert!(!profile.suspicious_schemes.is_empty());
+        assert!(profile.risk_score > 0.0);
+    }
+
+    #[test]
+    fn test_structural_risk_profile_extraction() {
+        let findings = vec![
+            Finding {
+                id: "xref-1".to_string(),
+                kind: "xref_conflict".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                surface: AttackSurface::XRefTrailer,
+                title: "XRef conflict".to_string(),
+                description: "test".to_string(),
+                objects: vec!["3 0 obj".to_string()],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+            Finding {
+                id: "struct-1".to_string(),
+                kind: "invalid_structure".to_string(),
+                severity: Severity::Medium,
+                confidence: Confidence::Probable,
+                surface: AttackSurface::FileStructure,
+                title: "Invalid structure".to_string(),
+                description: "test".to_string(),
+                objects: vec!["4 0 obj".to_string()],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+        ];
+
+        let profile = extract_structural_risk_profile(&findings);
+
+        assert_eq!(profile.spec_violations, 1);
+        assert_eq!(profile.xref_issues, 1);
+        assert!(profile.risk_score > 0.0);
+    }
+
+    #[test]
+    fn test_generate_document_risk_profile() {
+        let findings = vec![
+            Finding {
+                id: "js-1".to_string(),
+                kind: "js_eval".to_string(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                surface: AttackSurface::JavaScript,
+                title: "JavaScript eval".to_string(),
+                description: "test".to_string(),
+                objects: vec!["1 0 obj".to_string()],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+            Finding {
+                id: "xref-1".to_string(),
+                kind: "xref_conflict".to_string(),
+                severity: Severity::Critical,
+                confidence: Confidence::Strong,
+                surface: AttackSurface::XRefTrailer,
+                title: "XRef conflict".to_string(),
+                description: "test".to_string(),
+                objects: vec!["2 0 obj".to_string()],
+                evidence: vec![],
+                remediation: None,
+                meta: HashMap::new(),
+                yara: None,
+            },
+        ];
+
+        let calibrator = CalibrationModel::platt_scaling(1.0, 0.0);
+        let prediction = calibrate_prediction(0.8, &calibrator);
+
+        let explanation = MlExplanation {
+            prediction: 0.8,
+            baseline_score: 0.1,
+            top_positive_features: vec![],
+            top_negative_features: vec![],
+            feature_group_importance: HashMap::new(),
+            summary: "High risk document".to_string(),
+        };
+
+        let profile = generate_document_risk_profile(
+            &findings,
+            prediction,
+            explanation,
+            vec![],
+            None,
+            vec![],
+        );
+
+        assert_eq!(profile.total_findings, 2);
+        assert_eq!(profile.critical_count, 1);
+        assert_eq!(profile.high_severity_count, 1);
+        assert_eq!(profile.attack_surface_diversity, 2);
+        assert!(profile.js_risk.present);
+        assert!(profile.structural_risk.xref_issues > 0);
+    }
+
+    #[test]
+    fn test_category_risk_profiles_default() {
+        let js_profile = JsRiskProfile::default();
+        assert!(!js_profile.present);
+        assert_eq!(js_profile.count, 0);
+
+        let uri_profile = UriRiskProfile::default();
+        assert!(!uri_profile.present);
+
+        let structural_profile = StructuralRiskProfile::default();
+        assert_eq!(structural_profile.spec_violations, 0);
+    }
+
+    #[test]
+    fn test_calibrated_prediction_interpretation() {
+        let calibrator = CalibrationModel::platt_scaling(1.0, 0.0);
+
+        let pred_high = calibrate_prediction(5.0, &calibrator);
+        assert!(pred_high.interpretation.contains("Very high confidence"));
+
+        let pred_low = calibrate_prediction(-5.0, &calibrator);
+        assert!(pred_low.interpretation.contains("Very low risk"));
+
+        let pred_medium = calibrate_prediction(0.5, &calibrator);
+        assert!(pred_medium.interpretation.contains("Possibly") || pred_medium.interpretation.contains("Likely"));
     }
 }
