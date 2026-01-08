@@ -29,6 +29,7 @@ pub mod external_context;
 pub mod filter_depth;
 pub mod objstm_summary;
 pub mod ir_graph_static;
+pub mod uri_classification;
 #[cfg(feature = "js-sandbox")]
 pub mod js_sandbox;
 
@@ -79,6 +80,8 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(LaunchActionDetector),
         Box::new(GoToRDetector),
         Box::new(UriDetector),
+        Box::new(uri_classification::UriPresenceDetector),
+        Box::new(uri_classification::UriContentDetector),
         Box::new(SubmitFormDetector),
         Box::new(external_context::ExternalActionContextDetector),
         Box::new(FontMatrixDetector),
