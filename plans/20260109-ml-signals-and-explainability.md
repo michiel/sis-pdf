@@ -1,8 +1,9 @@
 # ML Signals and Explainability - Integrated Implementation Plan
 
 **Date**: 2026-01-09
-**Status**: Planning
+**Status**: 🚧 In Progress - Phase 1
 **Prerequisite**: ✅ Graph integration (all 7 sprints complete)
+**Last Updated**: 2026-01-09
 
 ---
 
@@ -55,6 +56,44 @@ This plan merges two complementary initiatives:
 10. ✅ Comparative explanations (vs. benign baseline)
 11. ✅ Risk score calibration (confidence intervals)
 12. ✅ Counterfactual explanations (what-if analysis)
+
+---
+
+## Implementation Progress
+
+### Phase 1: Extended Feature Vector with Attribution (3 weeks) - 🚧 In Progress
+
+#### ✅ Completed (Phase 1.1)
+- **Commit**: `9cb0e72` - feat(ml): Phase 1.1 - Add explainability and extended features (320)
+- **Files Created**:
+  - `crates/sis-pdf-core/src/explainability.rs` (450 lines)
+  - `crates/sis-pdf-core/src/features_extended.rs` (965 lines)
+- **Structures Implemented**:
+  - `ExtendedFeatureVector` with 320 features (35 legacy + 285 new)
+  - All 11 feature group structs (AttackSurfaceFeatures, SeverityFeatures, etc.)
+  - `FeatureAttribution` for SHAP-style attribution
+  - `MlExplanation` with natural language summaries
+  - `BenignBaseline` for comparative analysis
+  - `EvidenceChain` linking features → findings → byte offsets
+- **Functions Implemented**:
+  - `generate_explanation_text()` - Natural language generation
+  - `build_evidence_chains()` - Evidence linking
+  - `compute_comparative_explanation()` - Comparative analysis
+  - `humanize_feature_name()` - Feature name translation
+  - `compute_percentile()` - Percentile computation
+- **Tests**: 8 unit tests covering feature dimensions, naming, conversions
+
+#### 🚧 In Progress (Phase 1.2)
+- Feature extraction functions from findings
+- JS signal extraction (30 features)
+- URI signal extraction (20 features)
+- Severity/confidence distribution extraction
+
+#### ⏳ Pending
+- Phase 1.3: Feature attribution (permutation importance)
+- Phase 1.4-1.7: Testing, documentation, integration
+
+### Phase 2-6: Not Started
 
 ---
 
