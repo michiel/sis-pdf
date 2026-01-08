@@ -1211,4 +1211,161 @@ mod tests {
         // Should sum absolute values: |0.15| + |-0.10| = 0.25
         assert_eq!(group_importance.get("js_signals").unwrap(), &0.25);
     }
+
+    // ========================================================================
+    // Graph Path Tests
+    // ========================================================================
+
+    #[test]
+    fn test_humanize_pattern() {
+        assert_eq!(
+            humanize_pattern("automatic_js_trigger"),
+            "Automatic JavaScript execution via OpenAction"
+        );
+        assert_eq!(
+            humanize_pattern("automatic_action_chain"),
+            "Automatic action chain"
+        );
+        assert_eq!(
+            humanize_pattern("custom_pattern_name"),
+            "custom pattern name"
+        );
+    }
+
+    #[test]
+    fn test_extract_edge_key() {
+        use sis_pdf_pdf::typed_graph::EdgeType;
+
+        assert_eq!(
+            extract_edge_key(&EdgeType::DictReference { key: "/Type".to_string() }),
+            "/Type"
+        );
+        assert_eq!(
+            extract_edge_key(&EdgeType::ArrayElement { index: 5 }),
+            "[5]"
+        );
+        assert_eq!(
+            extract_edge_key(&EdgeType::OpenAction),
+            "/OpenAction"
+        );
+        assert_eq!(
+            extract_edge_key(&EdgeType::PageAction { event: "/O".to_string() }),
+            "/O"
+        );
+        assert_eq!(
+            extract_edge_key(&EdgeType::JavaScriptPayload),
+            "/JS"
+        );
+        assert_eq!(
+            extract_edge_key(&EdgeType::UriTarget),
+            "/URI"
+        );
+    }
+
+    #[test]
+    fn test_path_node_creation() {
+        let node = PathNode {
+            obj_ref: (1, 0),
+            node_type: "JavaScript".to_string(),
+            edge_to_next: Some(EdgeInfo {
+                edge_type: "JavaScriptPayload".to_string(),
+                key: "/JS".to_string(),
+                suspicious: true,
+            }),
+            findings: vec!["js_eval".to_string(), "js_obfuscated".to_string()],
+        };
+
+        assert_eq!(node.obj_ref, (1, 0));
+        assert_eq!(node.node_type, "JavaScript");
+        assert_eq!(node.findings.len(), 2);
+        assert!(node.edge_to_next.is_some());
+        assert!(node.edge_to_next.as_ref().unwrap().suspicious);
+    }
+
+    #[test]
+    fn test_suspicious_path_creation() {
+        let path = SuspiciousPath {
+            path: vec![
+                PathNode {
+                    obj_ref: (1, 0),
+                    node_type: "Catalog".to_string(),
+                    edge_to_next: None,
+                    findings: vec![],
+                },
+                PathNode {
+                    obj_ref: (2, 0),
+                    node_type: "JavaScript".to_string(),
+                    edge_to_next: None,
+                    findings: vec!["js_eval".to_string()],
+                },
+            ],
+            risk_score: 0.75,
+            explanation: "Test path".to_string(),
+            attack_pattern: Some("automatic_js_trigger".to_string()),
+        };
+
+        assert_eq!(path.path.len(), 2);
+        assert_eq!(path.risk_score, 0.75);
+        assert!(path.attack_pattern.is_some());
+    }
+
+    #[test]
+    fn test_graph_path_explanation_creation() {
+        let explanation = GraphPathExplanation {
+            suspicious_paths: vec![
+                SuspiciousPath {
+                    path: vec![],
+                    risk_score: 0.8,
+                    explanation: "High risk path".to_string(),
+                    attack_pattern: Some("automatic_js_trigger".to_string()),
+                },
+                SuspiciousPath {
+                    path: vec![],
+                    risk_score: 0.5,
+                    explanation: "Medium risk path".to_string(),
+                    attack_pattern: None,
+                },
+            ],
+            max_path_risk: 0.8,
+            avg_path_risk: 0.65,
+        };
+
+        assert_eq!(explanation.suspicious_paths.len(), 2);
+        assert_eq!(explanation.max_path_risk, 0.8);
+        assert_eq!(explanation.avg_path_risk, 0.65);
+    }
+
+    #[test]
+    fn test_graph_path_explanation_empty() {
+        let explanation = GraphPathExplanation {
+            suspicious_paths: vec![],
+            max_path_risk: 0.0,
+            avg_path_risk: 0.0,
+        };
+
+        assert_eq!(explanation.suspicious_paths.len(), 0);
+        assert_eq!(explanation.max_path_risk, 0.0);
+        assert_eq!(explanation.avg_path_risk, 0.0);
+    }
+
+    #[test]
+    fn test_graph_path_serialization() {
+        let node = PathNode {
+            obj_ref: (1, 0),
+            node_type: "JavaScript".to_string(),
+            edge_to_next: Some(EdgeInfo {
+                edge_type: "JavaScriptPayload".to_string(),
+                key: "/JS".to_string(),
+                suspicious: true,
+            }),
+            findings: vec!["js_eval".to_string()],
+        };
+
+        let json = serde_json::to_string(&node).unwrap();
+        let deserialized: PathNode = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.obj_ref, (1, 0));
+        assert_eq!(deserialized.node_type, "JavaScript");
+        assert_eq!(deserialized.findings.len(), 1);
+    }
 }
