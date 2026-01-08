@@ -838,6 +838,479 @@ This document describes every finding ID that `sis-pdf` can emit. Each entry inc
   - Meaning: XFA manipulation can trigger parser vulnerabilities.
   - Chain usage: used as an exploitation vector in PDF files.
 
+## js_infinite_loop_risk
+
+- ID: `js_infinite_loop_risk`
+- Label: Infinite loop detected
+- Description: JavaScript contains patterns indicative of infinite loops.
+- Tags: dos, javascript, resource-exhaustion
+- Details:
+  - Relevance: denial of service attack.
+  - Meaning: infinite loops can hang execution or exhaust resources.
+  - Chain usage: used to cause DoS during analysis or execution.
+
+## js_memory_bomb
+
+- ID: `js_memory_bomb`
+- Label: Memory bomb pattern
+- Description: JavaScript contains patterns that allocate excessive memory.
+- Tags: dos, javascript, resource-exhaustion
+- Details:
+  - Relevance: memory exhaustion attack.
+  - Meaning: rapid memory allocation can crash analysis tools or systems.
+  - Chain usage: used to evade analysis or cause system failure.
+
+## js_computational_bomb
+
+- ID: `js_computational_bomb`
+- Label: Computational bomb detected
+- Description: JavaScript contains computationally expensive patterns.
+- Tags: dos, javascript, resource-exhaustion
+- Details:
+  - Relevance: CPU exhaustion attack.
+  - Meaning: nested loops or complex operations consume excessive CPU.
+  - Chain usage: used to slow or crash analysis infrastructure.
+
+## js_recursive_bomb
+
+- ID: `js_recursive_bomb`
+- Label: Recursive bomb pattern
+- Description: JavaScript contains recursive functions without proper termination.
+- Tags: dos, javascript, resource-exhaustion
+- Details:
+  - Relevance: stack exhaustion attack.
+  - Meaning: uncontrolled recursion can cause stack overflow.
+  - Chain usage: used as denial of service mechanism.
+
+## js_redos_pattern
+
+- ID: `js_redos_pattern`
+- Label: ReDoS pattern detected
+- Description: Regular expression with catastrophic backtracking.
+- Tags: dos, javascript, regex
+- Details:
+  - Relevance: regex denial of service.
+  - Meaning: nested quantifiers can cause exponential execution time.
+  - Chain usage: used to hang regex engines during analysis.
+
+## js_dom_xss_sink
+
+- ID: `js_dom_xss_sink`
+- Label: DOM XSS sink detected
+- Description: JavaScript uses DOM manipulation sinks that enable XSS.
+- Tags: injection, javascript, xss
+- Details:
+  - Relevance: code injection vector.
+  - Meaning: innerHTML and similar sinks allow script injection.
+  - Chain usage: used to inject malicious code into DOM.
+
+## js_innerHTML_injection
+
+- ID: `js_innerHTML_injection`
+- Label: innerHTML injection detected
+- Description: JavaScript sets innerHTML with potentially malicious content.
+- Tags: injection, javascript, xss
+- Details:
+  - Relevance: HTML injection attack.
+  - Meaning: innerHTML with script tags enables code execution.
+  - Chain usage: primary vector for DOM-based XSS attacks.
+
+## js_prototype_pollution_gadget
+
+- ID: `js_prototype_pollution_gadget`
+- Label: Prototype pollution detected
+- Description: JavaScript modifies object prototypes maliciously.
+- Tags: exploit, javascript, pollution
+- Details:
+  - Relevance: prototype chain manipulation.
+  - Meaning: polluting prototypes enables gadget chain exploitation.
+  - Chain usage: used to bypass security checks or trigger exploits.
+
+## js_script_injection
+
+- ID: `js_script_injection`
+- Label: Dynamic script injection
+- Description: JavaScript dynamically creates and injects script elements.
+- Tags: injection, javascript
+- Details:
+  - Relevance: code injection vector.
+  - Meaning: createElement('script') enables loading external code.
+  - Chain usage: used to load malicious scripts from remote sources.
+
+## js_eval_sink
+
+- ID: `js_eval_sink`
+- Label: Eval sink with user input
+- Description: JavaScript uses eval or Function with variables.
+- Tags: injection, javascript, eval
+- Details:
+  - Relevance: arbitrary code execution.
+  - Meaning: eval with variables enables code injection.
+  - Chain usage: primary method for executing dynamically constructed code.
+
+## js_angler_ek
+
+- ID: `js_angler_ek`
+- Label: Angler Exploit Kit detected
+- Description: JavaScript matches Angler EK patterns.
+- Tags: exploit-kit, javascript, threat
+- Details:
+  - Relevance: known exploit framework.
+  - Meaning: Angler EK is a sophisticated exploit delivery system.
+  - Chain usage: identifies known malware campaign infrastructure.
+
+## js_magnitude_ek
+
+- ID: `js_magnitude_ek`
+- Label: Magnitude Exploit Kit detected
+- Description: JavaScript matches Magnitude EK patterns.
+- Tags: exploit-kit, javascript, threat
+- Details:
+  - Relevance: known exploit framework.
+  - Meaning: Magnitude EK uses RC4 encryption for payload delivery.
+  - Chain usage: identifies specific exploit kit infrastructure.
+
+## js_rig_ek
+
+- ID: `js_rig_ek`
+- Label: RIG Exploit Kit detected
+- Description: JavaScript matches RIG EK patterns.
+- Tags: exploit-kit, javascript, threat
+- Details:
+  - Relevance: known exploit framework.
+  - Meaning: RIG EK uses multi-stage loading and plugin detection.
+  - Chain usage: identifies exploit kit delivery mechanism.
+
+## js_exploit_kit_pattern
+
+- ID: `js_exploit_kit_pattern`
+- Label: Generic exploit kit pattern
+- Description: JavaScript matches generic exploit kit indicators.
+- Tags: exploit-kit, javascript, threat
+- Details:
+  - Relevance: exploit framework detection.
+  - Meaning: generic patterns shared across multiple exploit kits.
+  - Chain usage: identifies potential exploit delivery infrastructure.
+
+## js_file_enumeration
+
+- ID: `js_file_enumeration`
+- Label: File enumeration detected
+- Description: JavaScript enumerates files or directories.
+- Tags: ransomware, javascript, reconnaissance
+- Details:
+  - Relevance: file system reconnaissance.
+  - Meaning: enumerating files precedes encryption or exfiltration.
+  - Chain usage: initial phase of ransomware or data theft.
+
+## js_bulk_encryption
+
+- ID: `js_bulk_encryption`
+- Label: Bulk encryption pattern
+- Description: JavaScript encrypts multiple files in a loop.
+- Tags: ransomware, javascript, encryption
+- Details:
+  - Relevance: ransomware behavior.
+  - Meaning: bulk encryption indicates ransomware-like activity.
+  - Chain usage: execution phase of ransomware attack.
+
+## js_ransom_note
+
+- ID: `js_ransom_note`
+- Label: Ransom note keywords
+- Description: JavaScript contains ransom-related keywords.
+- Tags: ransomware, javascript, extortion
+- Details:
+  - Relevance: ransomware indicator.
+  - Meaning: ransom keywords indicate extortion attempt.
+  - Chain usage: final phase where ransom demand is displayed.
+
+## js_bitcoin_address
+
+- ID: `js_bitcoin_address`
+- Label: Cryptocurrency address present
+- Description: JavaScript contains Bitcoin or cryptocurrency addresses.
+- Tags: ransomware, javascript, payment
+- Details:
+  - Relevance: payment mechanism.
+  - Meaning: cryptocurrency addresses indicate ransom payment method.
+  - Chain usage: used for receiving ransom payments.
+
+## js_jit_spray
+
+- ID: `js_jit_spray`
+- Label: JIT spray detected
+- Description: JavaScript contains patterns for JIT compiler spraying.
+- Tags: exploit, javascript, shellcode
+- Details:
+  - Relevance: advanced exploitation technique.
+  - Meaning: JIT spray places shellcode in predictable memory.
+  - Chain usage: used in browser exploitation and memory corruption attacks.
+
+## js_unicode_shellcode
+
+- ID: `js_unicode_shellcode`
+- Label: Unicode-encoded shellcode
+- Description: JavaScript contains Unicode escapes that decode to shellcode.
+- Tags: exploit, javascript, shellcode, encoding
+- Details:
+  - Relevance: obfuscated exploitation payload.
+  - Meaning: Unicode encoding hides x86/x64 instructions.
+  - Chain usage: used to deliver shellcode while evading detection.
+
+## js_constant_spray
+
+- ID: `js_constant_spray`
+- Label: Constant spray pattern
+- Description: JavaScript contains many large numeric constants.
+- Tags: exploit, javascript, spray
+- Details:
+  - Relevance: heap spray technique.
+  - Meaning: numeric constants fill memory with exploit payloads.
+  - Chain usage: used in exploitation to control memory layout.
+
+## js_fingerprint_check
+
+- ID: `js_fingerprint_check`
+- Label: Environment fingerprinting
+- Description: JavaScript fingerprints browser or system environment.
+- Tags: evasion, javascript, fingerprinting
+- Details:
+  - Relevance: targeted execution.
+  - Meaning: fingerprinting enables attacks on specific configurations.
+  - Chain usage: used to evade sandboxes or target specific victims.
+
+## js_timing_evasion
+
+- ID: `js_timing_evasion`
+- Label: Timing-based evasion
+- Description: JavaScript uses timing to detect analysis environments.
+- Tags: evasion, javascript, anti-analysis
+- Details:
+  - Relevance: sandbox detection.
+  - Meaning: timing checks differentiate real systems from sandboxes.
+  - Chain usage: used to evade automated analysis.
+
+## js_interaction_required
+
+- ID: `js_interaction_required`
+- Label: User interaction required
+- Description: JavaScript requires user interaction to execute payload.
+- Tags: evasion, javascript, behavioral
+- Details:
+  - Relevance: behavioral evasion.
+  - Meaning: requiring clicks/movement evades automated analysis.
+  - Chain usage: used to bypass sandboxes that don't simulate interaction.
+
+## js_targeted_execution
+
+- ID: `js_targeted_execution`
+- Label: Targeted execution detected
+- Description: JavaScript executes only for specific targets.
+- Tags: evasion, javascript, targeting
+- Details:
+  - Relevance: victim targeting.
+  - Meaning: targeting by timezone/language limits victim pool.
+  - Chain usage: used in targeted attacks or APT campaigns.
+
+## js_localStorage_write
+
+- ID: `js_localStorage_write`
+- Label: localStorage write detected
+- Description: JavaScript writes to browser localStorage.
+- Tags: persistence, javascript, storage
+- Details:
+  - Relevance: persistent storage.
+  - Meaning: localStorage enables persistence across sessions.
+  - Chain usage: used to maintain infection or track victims.
+
+## js_cookie_manipulation
+
+- ID: `js_cookie_manipulation`
+- Label: Cookie manipulation detected
+- Description: JavaScript creates or modifies cookies.
+- Tags: persistence, javascript, tracking
+- Details:
+  - Relevance: session persistence.
+  - Meaning: cookie manipulation enables tracking or session hijacking.
+  - Chain usage: used for persistence or credential theft.
+
+## js_global_pollution
+
+- ID: `js_global_pollution`
+- Label: Global namespace pollution
+- Description: JavaScript pollutes global namespace.
+- Tags: persistence, javascript, pollution
+- Details:
+  - Relevance: state manipulation.
+  - Meaning: global pollution can affect other scripts or bypass checks.
+  - Chain usage: used to maintain state or interfere with security checks.
+
+## js_history_manipulation
+
+- ID: `js_history_manipulation`
+- Label: History manipulation detected
+- Description: JavaScript manipulates browser history.
+- Tags: phishing, javascript, navigation
+- Details:
+  - Relevance: navigation hijacking.
+  - Meaning: history manipulation can hide malicious URLs.
+  - Chain usage: used in phishing attacks to disguise destination.
+
+## js_dynamic_import
+
+- ID: `js_dynamic_import`
+- Label: Dynamic import detected
+- Description: JavaScript uses dynamic import or require.
+- Tags: supply-chain, javascript, loading
+- Details:
+  - Relevance: dependency loading.
+  - Meaning: dynamic imports can load untrusted code.
+  - Chain usage: used in supply chain attacks or code injection.
+
+## js_remote_script_load
+
+- ID: `js_remote_script_load`
+- Label: Remote script loading
+- Description: JavaScript loads scripts from remote URLs.
+- Tags: supply-chain, javascript, remote
+- Details:
+  - Relevance: external code loading.
+  - Meaning: remote script loading introduces supply chain risk.
+  - Chain usage: used to load malicious code from attacker infrastructure.
+
+## js_suspicious_package
+
+- ID: `js_suspicious_package`
+- Label: Suspicious package reference
+- Description: JavaScript references suspicious package names or versions.
+- Tags: supply-chain, javascript, typosquatting
+- Details:
+  - Relevance: dependency confusion.
+  - Meaning: unusual versions or private scopes indicate attack.
+  - Chain usage: used in supply chain attacks via dependency confusion.
+
+## js_port_scan
+
+- ID: `js_port_scan`
+- Label: Port scanning detected
+- Description: JavaScript attempts to scan network ports.
+- Tags: reconnaissance, javascript, network
+- Details:
+  - Relevance: network enumeration.
+  - Meaning: port scanning identifies vulnerable services.
+  - Chain usage: used for reconnaissance before lateral movement.
+
+## js_internal_probe
+
+- ID: `js_internal_probe`
+- Label: Internal network probing
+- Description: JavaScript probes internal network addresses.
+- Tags: reconnaissance, javascript, network
+- Details:
+  - Relevance: internal reconnaissance.
+  - Meaning: probing private IPs indicates lateral movement attempt.
+  - Chain usage: used to map internal network topology.
+
+## js_dns_rebinding
+
+- ID: `js_dns_rebinding`
+- Label: DNS rebinding attack
+- Description: JavaScript pattern suggests DNS rebinding attack.
+- Tags: network, javascript, attack
+- Details:
+  - Relevance: same-origin bypass.
+  - Meaning: DNS rebinding circumvents same-origin policy.
+  - Chain usage: used to access internal services from external attacker.
+
+## js_comment_payload
+
+- ID: `js_comment_payload`
+- Label: Payload in comments
+- Description: JavaScript hides executable code in comments.
+- Tags: steganography, javascript, obfuscation
+- Details:
+  - Relevance: covert storage.
+  - Meaning: comments can store and extract hidden payloads.
+  - Chain usage: used to evade signature-based detection.
+
+## js_zero_width_chars
+
+- ID: `js_zero_width_chars`
+- Label: Zero-width characters detected
+- Description: JavaScript contains zero-width Unicode characters.
+- Tags: steganography, javascript, encoding
+- Details:
+  - Relevance: hidden data encoding.
+  - Meaning: zero-width chars encode data invisibly.
+  - Chain usage: used for steganographic communication or obfuscation.
+
+## js_canvas_decode
+
+- ID: `js_canvas_decode`
+- Label: Canvas data extraction
+- Description: JavaScript extracts data from canvas pixels.
+- Tags: steganography, javascript, extraction
+- Details:
+  - Relevance: image steganography.
+  - Meaning: extracting pixel data reveals hidden payloads.
+  - Chain usage: used to decode images containing malicious code.
+
+## js_polyglot_pdf
+
+- ID: `js_polyglot_pdf`
+- Label: PDF/JavaScript polyglot
+- Description: Code valid as both PDF and JavaScript.
+- Tags: polyglot, javascript, pdf, evasion
+- Details:
+  - Relevance: format confusion attack.
+  - Meaning: polyglot files bypass format-specific filters.
+  - Chain usage: used to evade detection and analysis tools.
+
+## js_polyglot_html
+
+- ID: `js_polyglot_html`
+- Label: HTML/JavaScript polyglot
+- Description: Code valid as both HTML and JavaScript.
+- Tags: polyglot, javascript, html, evasion
+- Details:
+  - Relevance: multi-format evasion.
+  - Meaning: polyglot structure confuses parsers and scanners.
+  - Chain usage: used to bypass content filters.
+
+## js_canvas_fingerprint
+
+- ID: `js_canvas_fingerprint`
+- Label: Canvas fingerprinting detected
+- Description: JavaScript uses canvas for browser fingerprinting.
+- Tags: fingerprinting, javascript, privacy
+- Details:
+  - Relevance: tracking mechanism.
+  - Meaning: canvas rendering differences enable unique identification.
+  - Chain usage: used for tracking users across sessions.
+
+## js_webgl_fingerprint
+
+- ID: `js_webgl_fingerprint`
+- Label: WebGL fingerprinting detected
+- Description: JavaScript uses WebGL for device fingerprinting.
+- Tags: fingerprinting, javascript, privacy
+- Details:
+  - Relevance: hardware identification.
+  - Meaning: WebGL capabilities create unique device signatures.
+  - Chain usage: used for persistent tracking and identification.
+
+## js_font_enumeration
+
+- ID: `js_font_enumeration`
+- Label: Font enumeration detected
+- Description: JavaScript enumerates installed fonts.
+- Tags: fingerprinting, javascript, privacy
+- Details:
+  - Relevance: system fingerprinting.
+  - Meaning: installed fonts reveal system configuration.
+  - Chain usage: used as part of comprehensive fingerprinting.
+
 ## launch_action_present
 
 - ID: `launch_action_present`
