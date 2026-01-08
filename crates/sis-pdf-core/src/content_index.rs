@@ -15,7 +15,7 @@ pub struct PageContent {
     pub invisible_text: bool,
 }
 
-pub fn build_content_index(ctx: &ScanContext<'_>) -> Vec<PageContent> {
+pub fn build_content_index<'a>(ctx: &'a ScanContext<'a>) -> Vec<PageContent> {
     let mut out = Vec::new();
     let tree = build_page_tree(&ctx.graph);
     for page in &tree.pages {

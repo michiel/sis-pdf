@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
+use sis_pdf_pdf::classification::ClassificationMap;
 use sis_pdf_pdf::decode::{decode_stream, DecodedStream};
 use sis_pdf_pdf::object::PdfStream;
 use sis_pdf_pdf::span::Span;
+use sis_pdf_pdf::typed_graph::TypedGraph;
 use sis_pdf_pdf::ObjectGraph;
 
 #[derive(Debug, Clone)]
@@ -32,6 +34,77 @@ pub struct ScanContext<'a> {
     pub graph: ObjectGraph<'a>,
     pub decoded: DecodedCache,
     pub options: ScanOptions,
+
+    // Lazy-initialized graph infrastructure (Sprint 4)
+    classifications: OnceLock<ClassificationMap>,
+}
+
+impl<'a> ScanContext<'a> {
+    /// Creates a new ScanContext
+    pub fn new(
+        bytes: &'a [u8],
+        graph: ObjectGraph<'a>,
+        options: ScanOptions,
+    ) -> Self {
+        Self {
+            bytes,
+            graph,
+            decoded: DecodedCache::new(options.max_decode_bytes, options.max_total_decoded_bytes),
+            options,
+            classifications: OnceLock::new(),
+        }
+    }
+
+    /// Gets or creates the classification map
+    ///
+    /// This is lazily initialized on first access. Classifications identify object
+    /// types (Catalog, Page, Action, etc.) and roles (JsContainer, UriTarget, etc.)
+    /// for all objects in the document.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let classifications = ctx.classifications();
+    /// if let Some(classified) = classifications.get(&(obj, gen)) {
+    ///     if classified.has_role(ObjectRole::JsContainer) {
+    ///         // This object contains JavaScript
+    ///     }
+    /// }
+    /// ```
+    pub fn classifications(&self) -> &ClassificationMap {
+        self.classifications.get_or_init(|| {
+            self.graph.classify_objects()
+        })
+    }
+
+    /// Builds a typed graph
+    ///
+    /// Creates a typed graph with semantic edge information (OpenAction, JavaScriptPayload,
+    /// UriTarget, etc.) with forward/reverse indices for efficient traversal.
+    ///
+    /// Note: This is not cached due to lifetime constraints. Detectors should call this
+    /// once and reuse the result.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let typed_graph = ctx.build_typed_graph();
+    ///
+    /// // Find all JavaScript sources
+    /// let js_sources = typed_graph.path_finder().find_javascript_sources();
+    ///
+    /// // Find action chains
+    /// let chains = typed_graph.path_finder().find_all_action_chains();
+    /// for chain in chains {
+    ///     if chain.is_multi_stage() && chain.involves_js {
+    ///         eprintln!("Multi-stage JS attack detected!");
+    ///     }
+    /// }
+    /// ```
+    pub fn build_typed_graph(&'a self) -> TypedGraph<'a> {
+        let classifications = self.classifications();
+        TypedGraph::build(&self.graph, classifications)
+    }
 }
 
 #[derive(Debug)]

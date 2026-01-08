@@ -5,7 +5,7 @@ use crate::model::Finding;
 use crate::report::{
     MlNodeAttribution, MlRunSummary, MlSummary, Report, SecondaryParserSummary, StructuralSummary,
 };
-use crate::scan::{DecodedCache, ScanContext, ScanOptions};
+use crate::scan::{ScanContext, ScanOptions};
 use sis_pdf_pdf::{parse_pdf, ObjectGraph, ParseOptions};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use sis_pdf_pdf::ir::PdfIrObject;
@@ -41,12 +41,7 @@ pub fn run_scan_with_detectors(
             }
         }
     }
-    let ctx = ScanContext {
-        bytes,
-        graph,
-        decoded: DecodedCache::new(options.max_decode_bytes, options.max_total_decoded_bytes),
-        options,
-    };
+    let ctx = ScanContext::new(bytes, graph, options);
 
     let mut findings: Vec<Finding> = if ctx.options.parallel {
         use rayon::prelude::*;

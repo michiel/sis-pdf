@@ -694,6 +694,52 @@ ML models automatically get richer context without code changes!
 - **IR quality**: Automatic semantic annotations
 - **Training data**: Richer ORG exports
 
+## Implementation Status
+
+### ✅ Sprint 1: Object Classification (Completed)
+- **File**: `crates/sis-pdf-pdf/src/classification.rs` (450 lines)
+- **Implemented**: 12 object types, 14 security roles
+- **Tests**: 5 integration tests (all passing)
+- **Status**: Complete
+
+### ✅ Sprint 2: Typed Reference Graph (Completed)
+- **File**: `crates/sis-pdf-pdf/src/typed_graph.rs` (680 lines)
+- **Implemented**: 32 semantic edge types, forward/reverse indices
+- **Tests**: 8 unit tests (all passing)
+- **Status**: Complete
+
+### ✅ Sprint 3: Path Finding (Completed)
+- **File**: `crates/sis-pdf-pdf/src/path_finder.rs` (520 lines)
+- **Implemented**: BFS/DFS, action chains, reachability, suspiciousness propagation
+- **Tests**: 2 unit tests (all passing)
+- **Status**: Complete
+
+### ✅ Sprint 4: ScanContext Integration (Completed)
+- **Modified Files**:
+  - `crates/sis-pdf-core/src/scan.rs` - Added lazy-initialized classifications (OnceLock), build_typed_graph() method
+  - `crates/sis-pdf-core/src/runner.rs` - Updated to use ScanContext::new()
+  - `crates/sis-pdf-core/src/features.rs` - Updated to use ScanContext::new()
+  - `crates/sis-pdf-core/src/content_index.rs` - Fixed lifetime parameters
+- **Implementation Approach**:
+  - `classifications`: Lazy-initialized with OnceLock (cached on first access)
+  - `build_typed_graph()`: Builder pattern (not cached due to lifetime constraints)
+  - Both use the `'a` lifetime from ScanContext<'a>
+- **Documentation**: Comprehensive doc comments with usage examples
+- **Tests**: All existing tests pass, manual scan verified
+- **Status**: Complete
+
+**Key Design Decision**: TypedGraph is built on-demand rather than cached due to Rust lifetime constraints. This is acceptable since graph building is fast and detectors typically only need it once per scan. Classifications are cached since they have simpler lifetimes and are accessed frequently.
+
+### 🔄 Sprint 5: Detector Refactoring (Pending)
+- **Target**: external_context, uri_classification, supply_chain, multi_stage detectors
+- **Goal**: Remove duplicated graph walking, use TypedGraph and PathFinder
+
+### 🔄 Sprint 6: Enhanced ORG Export (Pending)
+- **Goal**: Include semantic edge types and classifications in ORG export
+
+### 🔄 Sprint 7: ML Feature Enhancement (Pending)
+- **Goal**: Add graph-based features to ML feature extraction
+
 ## Conclusion
 
 By prioritizing graph infrastructure integration FIRST, we create a solid foundation that:

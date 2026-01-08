@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::scan::{DecodedCache, ScanContext, ScanOptions};
+use crate::scan::{ScanContext, ScanOptions};
 use crate::page_tree::build_page_tree;
 use sis_pdf_pdf::graph::ObjEntry;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr, PdfStream};
@@ -220,12 +220,7 @@ impl FeatureExtractor {
                 max_objstm_total_bytes: opts.max_total_decoded_bytes,
             },
         )?;
-        let ctx = ScanContext {
-            bytes,
-            graph,
-            decoded: DecodedCache::new(opts.max_decode_bytes, opts.max_total_decoded_bytes),
-            options: opts.clone(),
-        };
+        let ctx = ScanContext::new(bytes, graph, opts.clone());
         Ok(Self::extract(&ctx))
     }
 }
