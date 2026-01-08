@@ -1,10 +1,12 @@
 use anyhow::Result;
+use std::collections::HashSet;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::decode::stream_filters;
-use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName};
+use sis_pdf_pdf::object::{PdfAtom, PdfName};
+use sis_pdf_pdf::typed_graph::EdgeType;
 
 pub struct ExternalActionContextDetector;
 
@@ -22,43 +24,50 @@ impl Detector for ExternalActionContextDetector {
         Cost::Moderate
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let mut action_targets = Vec::new();
-        let mut action_evidence = Vec::new();
-        let mut action_objects = Vec::new();
-        for entry in &ctx.graph.objects {
-            let dict = match crate::entry_dict(entry) {
-                Some(d) => d,
-                None => continue,
-            };
-            if !is_external_action_dict(dict) {
-                continue;
-            }
-            if let Some(details) = crate::resolve_action_details(ctx, &sis_pdf_pdf::object::PdfObj {
-                span: dict.span,
-                atom: PdfAtom::Dict(dict.clone()),
-            }) {
-                if let Some(target) = details.meta.get("action.target") {
-                    action_targets.push(target.clone());
+        // Build typed graph to find external actions
+        let typed_graph = ctx.build_typed_graph();
+
+        // Find external action edges
+        let mut action_objects = HashSet::new();
+        let mut action_types = Vec::new();
+
+        for edge in &typed_graph.edges {
+            match &edge.edge_type {
+                EdgeType::UriTarget => {
+                    action_objects.insert(edge.src);
+                    action_types.push("URI");
                 }
-                action_evidence.extend(details.evidence);
-            } else {
-                action_evidence.push(span_to_evidence(dict.span, "Action dict"));
+                EdgeType::LaunchTarget => {
+                    action_objects.insert(edge.src);
+                    action_types.push("Launch");
+                }
+                EdgeType::GoToRTarget => {
+                    action_objects.insert(edge.src);
+                    action_types.push("GoToR");
+                }
+                EdgeType::SubmitFormTarget => {
+                    action_objects.insert(edge.src);
+                    action_types.push("SubmitForm");
+                }
+                _ => {}
             }
-            action_objects.push(format!("{} {} obj", entry.obj, entry.gen));
         }
-        if action_targets.is_empty() {
+
+        if action_objects.is_empty() {
             return Ok(Vec::new());
         }
 
+        // Count obfuscation markers
         let hex_name_count = count_hex_names(&ctx.graph);
         let deep_filter_count = count_deep_filters(&ctx.graph);
+
         if hex_name_count == 0 && deep_filter_count == 0 {
             return Ok(Vec::new());
         }
 
         let mut meta = std::collections::HashMap::new();
-        meta.insert("external.action_count".into(), action_targets.len().to_string());
-        meta.insert("external.action_targets".into(), action_targets.join(", "));
+        meta.insert("external.action_count".into(), action_objects.len().to_string());
+        meta.insert("external.action_types".into(), action_types.join(", "));
         if hex_name_count > 0 {
             meta.insert(
                 "obfuscation.hex_name_count".into(),
@@ -72,8 +81,18 @@ impl Detector for ExternalActionContextDetector {
             );
         }
 
-        let mut evidence = action_evidence;
-        evidence.truncate(8);
+        // Collect evidence from action source objects
+        let mut evidence = Vec::new();
+        for (obj, gen) in action_objects.iter().take(8) {
+            if let Some(entry) = ctx.graph.get_object(*obj, *gen) {
+                evidence.push(span_to_evidence(entry.full_span, "External action"));
+            }
+        }
+
+        let objects: Vec<String> = action_objects
+            .iter()
+            .map(|(obj, gen)| format!("{} {} obj", obj, gen))
+            .collect();
 
         Ok(vec![Finding {
             id: String::new(),
@@ -85,7 +104,7 @@ impl Detector for ExternalActionContextDetector {
             description:
                 "External action targets are present alongside obfuscation markers (hex-encoded names or deep filter chains)."
                     .into(),
-            objects: action_objects,
+            objects,
             evidence,
             remediation: Some(
                 "Inspect action targets and decode nested streams to confirm intent.".into(),
@@ -94,15 +113,6 @@ impl Detector for ExternalActionContextDetector {
             yara: None,
         }])
     }
-}
-
-fn is_external_action_dict(dict: &PdfDict<'_>) -> bool {
-    dict.has_name(b"/S", b"/URI")
-        || dict.has_name(b"/S", b"/GoToR")
-        || dict.has_name(b"/S", b"/Launch")
-        || dict.has_name(b"/S", b"/SubmitForm")
-        || dict.get_first(b"/URI").is_some()
-        || dict.get_first(b"/F").is_some()
 }
 
 fn count_hex_names(graph: &sis_pdf_pdf::ObjectGraph<'_>) -> usize {

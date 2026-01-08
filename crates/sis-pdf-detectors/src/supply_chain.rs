@@ -1,10 +1,14 @@
 use anyhow::Result;
+use std::collections::HashSet;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_pdf::classification::ObjectRole;
+use sis_pdf_pdf::object::PdfAtom;
+use sis_pdf_pdf::typed_graph::EdgeType;
 
-use crate::{entry_dict, resolve_action_details, resolve_payload};
+use crate::{entry_dict, resolve_payload};
 
 pub struct SupplyChainDetector;
 
@@ -27,53 +31,62 @@ impl Detector for SupplyChainDetector {
 
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        let mut has_embedded = false;
+
+        // Build typed graph and get classifications
+        let typed_graph = ctx.build_typed_graph();
+        let classifications = ctx.classifications();
+
+        // Find embedded files using classifications
         let mut embedded_names = Vec::new();
-        let mut action_targets_global = Vec::new();
-        for entry in &ctx.graph.objects {
-            if let Some(dict) = entry_dict(entry) {
-                if dict.has_name(b"/Type", b"/EmbeddedFile") || dict.has_name(b"/Type", b"/Filespec") {
-                    has_embedded = true;
-                    if let Some(name) = filespec_name(dict) {
-                        embedded_names.push(name);
+        for ((obj, gen), classified) in classifications.iter() {
+            if classified.has_role(ObjectRole::EmbeddedFile) {
+                if let Some(entry) = ctx.graph.get_object(*obj, *gen) {
+                    if let Some(dict) = entry_dict(entry) {
+                        if let Some(name) = filespec_name(dict) {
+                            embedded_names.push(name);
+                        }
                     }
                 }
-                collect_action_targets(ctx, dict, &mut action_targets_global);
             }
         }
-        let analyzer = sis_pdf_core::supply_chain::SupplyChainDetector;
-        for entry in &ctx.graph.objects {
-            let Some(dict) = entry_dict(entry) else { continue };
-            if dict.get_first(b"/JS").is_none() && !dict.has_name(b"/S", b"/JavaScript") {
-                continue;
+        let has_embedded = !embedded_names.is_empty();
+
+        // Collect all action targets from typed graph edges
+        let mut action_targets_global = HashSet::new();
+        for edge in &typed_graph.edges {
+            if let Some(target) = extract_action_target(edge) {
+                action_targets_global.insert(target);
             }
-            let Some((_, obj)) = dict.get_first(b"/JS") else { continue };
-            let payload = resolve_payload(ctx, obj);
+        }
+
+        let analyzer = sis_pdf_core::supply_chain::SupplyChainDetector;
+
+        // Find all JavaScript objects via typed graph edges
+        let mut js_objects = HashSet::new();
+        for edge in &typed_graph.edges {
+            if matches!(edge.edge_type, EdgeType::JavaScriptPayload) {
+                js_objects.insert(edge.dst);
+            }
+        }
+
+        // Analyze each JavaScript object
+        for (obj, gen) in js_objects {
+            let Some(entry) = ctx.graph.get_object(obj, gen) else { continue };
+            let Some(dict) = entry_dict(entry) else { continue };
+            let Some((_, js_obj)) = dict.get_first(b"/JS") else { continue };
+
+            let payload = resolve_payload(ctx, js_obj);
             let Some(info) = payload.payload else { continue };
 
-            let staged = analyzer.detect_staged_payload(&info.bytes);
-            let mut action_targets = Vec::new();
-            for key in [b"/A".as_slice(), b"/OpenAction".as_slice()] {
-                if let Some((_, v)) = dict.get_first(key) {
-                    if let Some(details) = resolve_action_details(ctx, v) {
-                        if let Some(target) = details.meta.get("action.target") {
-                            action_targets.push(target.clone());
-                        }
-                    }
-                }
-            }
-            if let Some((_, aa)) = dict.get_first(b"/AA") {
-                if let sis_pdf_pdf::object::PdfAtom::Dict(aa_dict) = &aa.atom {
-                    for (_, v) in &aa_dict.entries {
-                        if let Some(details) = resolve_action_details(ctx, v) {
-                            if let Some(target) = details.meta.get("action.target") {
-                                action_targets.push(target.clone());
-                            }
-                        }
-                    }
+            // Collect action targets reachable from this JS object
+            let mut local_action_targets = Vec::new();
+            for edge in typed_graph.outgoing_edges(obj, gen) {
+                if let Some(target) = extract_action_target(edge) {
+                    local_action_targets.push(target);
                 }
             }
 
+            let staged = analyzer.detect_staged_payload(&info.bytes);
             if !staged.is_empty() {
                 let indicators = staged
                     .iter()
@@ -88,8 +101,8 @@ impl Detector for SupplyChainDetector {
                 if !embedded_names.is_empty() {
                     meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
                 }
-                if !action_targets.is_empty() {
-                    meta.insert("supply_chain.action_targets".into(), action_targets.join(","));
+                if !local_action_targets.is_empty() {
+                    meta.insert("supply_chain.action_targets".into(), local_action_targets.join(","));
                 }
                 findings.push(Finding {
                     id: String::new(),
@@ -99,8 +112,8 @@ impl Detector for SupplyChainDetector {
                     confidence: Confidence::Probable,
                     title: "Staged payload delivery".into(),
                     description: "JavaScript indicates download or staged payload execution.".into(),
-                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                    evidence: vec![span_to_evidence(dict.span, "JavaScript dict")],
+                    objects: vec![format!("{} {} obj", obj, gen)],
+                    evidence: vec![span_to_evidence(entry.full_span, "JavaScript dict")],
                     remediation: Some("Inspect outbound URLs and staged payloads.".into()),
                     meta,
                     yara: None,
@@ -119,8 +132,8 @@ impl Detector for SupplyChainDetector {
                 if !embedded_names.is_empty() {
                     meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
                 }
-                if !action_targets.is_empty() {
-                    meta.insert("supply_chain.action_targets".into(), action_targets.join(","));
+                if !local_action_targets.is_empty() {
+                    meta.insert("supply_chain.action_targets".into(), local_action_targets.join(","));
                 }
                 findings.push(Finding {
                     id: String::new(),
@@ -130,8 +143,8 @@ impl Detector for SupplyChainDetector {
                     confidence: Confidence::Heuristic,
                     title: "Update mechanism references".into(),
                     description: "JavaScript references update or installer logic.".into(),
-                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                    evidence: vec![span_to_evidence(dict.span, "JavaScript dict")],
+                    objects: vec![format!("{} {} obj", obj, gen)],
+                    evidence: vec![span_to_evidence(entry.full_span, "JavaScript dict")],
                     remediation: Some("Verify update channels and signing policies.".into()),
                     meta,
                     yara: None,
@@ -150,8 +163,8 @@ impl Detector for SupplyChainDetector {
                 if !embedded_names.is_empty() {
                     meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
                 }
-                if !action_targets.is_empty() {
-                    meta.insert("supply_chain.action_targets".into(), action_targets.join(","));
+                if !local_action_targets.is_empty() {
+                    meta.insert("supply_chain.action_targets".into(), local_action_targets.join(","));
                 }
                 findings.push(Finding {
                     id: String::new(),
@@ -161,19 +174,22 @@ impl Detector for SupplyChainDetector {
                     confidence: Confidence::Probable,
                     title: "Persistence-related JavaScript".into(),
                     description: "JavaScript references persistence-like viewer hooks.".into(),
-                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                    evidence: vec![span_to_evidence(dict.span, "JavaScript dict")],
+                    objects: vec![format!("{} {} obj", obj, gen)],
+                    evidence: vec![span_to_evidence(entry.full_span, "JavaScript dict")],
                     remediation: Some("Review persistence-related APIs and triggers.".into()),
                     meta,
                     yara: None,
                 });
             }
         }
+
+        // If no JS findings but we have action targets, report that
         if findings.is_empty() && !action_targets_global.is_empty() {
+            let targets_vec: Vec<String> = action_targets_global.into_iter().collect();
             let mut meta = std::collections::HashMap::new();
             meta.insert(
                 "supply_chain.action_targets".into(),
-                action_targets_global.join(","),
+                targets_vec.join(","),
             );
             if !embedded_names.is_empty() {
                 meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
@@ -212,40 +228,13 @@ fn filespec_name(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> Option<String> {
     None
 }
 
-fn collect_action_targets(
-    ctx: &sis_pdf_core::scan::ScanContext,
-    dict: &sis_pdf_pdf::object::PdfDict<'_>,
-    out: &mut Vec<String>,
-) {
-    for key in [b"/A".as_slice(), b"/OpenAction".as_slice()] {
-        if let Some((_, obj)) = dict.get_first(key) {
-            if let Some(details) = resolve_action_details(ctx, obj) {
-                if let Some(target) = details.meta.get("action.target") {
-                    out.push(target.clone());
-                }
-            }
-        }
-    }
-    if let Some((_, aa)) = dict.get_first(b"/AA") {
-        if let sis_pdf_pdf::object::PdfAtom::Dict(aa_dict) = &aa.atom {
-            for (_, obj) in &aa_dict.entries {
-                if let Some(details) = resolve_action_details(ctx, obj) {
-                    if let Some(target) = details.meta.get("action.target") {
-                        out.push(target.clone());
-                    }
-                }
-            }
-        }
-    }
-    if dict.has_name(b"/Type", b"/Action") || dict.get_first(b"/S").is_some() {
-        let action_obj = sis_pdf_pdf::object::PdfObj {
-            span: dict.span,
-            atom: sis_pdf_pdf::object::PdfAtom::Dict(dict.clone()),
-        };
-        if let Some(details) = resolve_action_details(ctx, &action_obj) {
-            if let Some(target) = details.meta.get("action.target") {
-                out.push(target.clone());
-            }
-        }
+/// Extract action target from a typed graph edge
+fn extract_action_target(edge: &sis_pdf_pdf::typed_graph::TypedEdge) -> Option<String> {
+    match &edge.edge_type {
+        EdgeType::UriTarget => Some(format!("URI:{:?}", edge.dst)),
+        EdgeType::LaunchTarget => Some(format!("Launch:{:?}", edge.dst)),
+        EdgeType::GoToRTarget => Some(format!("GoToR:{:?}", edge.dst)),
+        EdgeType::SubmitFormTarget => Some(format!("SubmitForm:{:?}", edge.dst)),
+        _ => None,
     }
 }
