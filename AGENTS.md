@@ -27,6 +27,7 @@ This project is a security tool focused on analysing PDF files to determine if t
   `crates/sis-pdf-core/tests/fixtures/` and `crates/js-analysis/tests/fixtures/`.
   - Hostile payload tests use real VirusShare malware samples for validation.
 
+
 ## Build, Test, and Development Commands
 
 - `cargo build` builds the workspace.
