@@ -7,6 +7,8 @@ This project is a security tool focused on analysing PDF files to determine if t
 - Safety, accuracy, efficiency and completeness are primary goals.
 - Use Australian English spelling
 - Do not use emojis
+- Planning and implementation documentation is in ./plans/
+- User facing documentation (e.g. for Github Pages) is in ./docs/
 
 ## Project Structure & Module Organization
 
@@ -17,7 +19,8 @@ This project is a security tool focused on analysing PDF files to determine if t
   - `crates/sis-pdf-detectors/` detection rules and heuristics.
   - `crates/sis-pdf-ml-graph/` ML graph utilities.
   - `crates/js-analysis/` JavaScript static and dynamic analysis with sandboxing (feature: `js-sandbox`).
-- `docs/` holds specs and analysis notes (see `docs/sis-pdf-spec.md`).
+- `plans/` holds development planning and implementation documentation
+- `docs/` holds user facing documentation
   - `docs/findings.md` documents all 72+ JavaScript finding IDs.
   - `docs/js-detection-*.md` comprehensive JavaScript malware detection documentation.
 - `fuzz/` contains cargo-fuzz targets and corpora.

@@ -1,2 +1,5 @@
 - Embedded font verification
-
+- The presence of URIs themselves is not necessarily suspicious (an INFO item)
+  - Where they are, clearly marked in text as a hyperlink is a legitimate use case
+  - How they trigger, javascript triggers, submit form are clear data exfil signs)
+  - What the URI content is (obfuscated, tracking, etc)
