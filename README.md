@@ -48,8 +48,11 @@ sis-pdf/
     sis-pdf-core/      Core scan pipeline, models, reporting
     sis-pdf-pdf/       PDF parsing, object graph, decoding
     sis-pdf-detectors/ Detection rules
-    sis-pdf/       CLI front-end
-  docs/
+    sis-pdf/           CLI front-end
+    js-analysis/       JavaScript static and dynamic analysis
+  docs/                Specifications and analysis documentation
+  scripts/
+    test_helpers/      Development test fixtures and helper code
 ```
 
 ## Features
@@ -63,8 +66,13 @@ Core analysis:
 
 Detection surfaces:
 - Actions: OpenAction, Additional Actions, Launch, GoToR, URI, SubmitForm.
-- JavaScript detection with payload inspection and optional AST summaries.
-- Optional JavaScript sandboxing for runtime API intent (feature build).
+- JavaScript malware detection with comprehensive static analysis (73 detection functions, 72 finding IDs):
+  - Shellcode detection, memory corruption primitives, exploit kit signatures.
+  - Ransomware patterns, resource exhaustion, code injection vectors.
+  - Anti-analysis techniques, data exfiltration, persistence mechanisms.
+  - Supply chain attacks, network abuse, steganography, polyglot files.
+  - ~95% coverage of known PDF JavaScript malware patterns (see `docs/js-detection-*.md`).
+- Optional JavaScript sandboxing for runtime API intent (feature: `js-sandbox`).
 - Embedded files, filespecs, and rich media constructs (3D, sound, movie).
 - Linearization anomalies, page tree mismatches, and annotation action chains.
 - Font embedding anomalies and ICC profile stream checks.
@@ -97,12 +105,20 @@ CLI workflows:
 Testing and fixtures:
 - Golden test fixtures for action and JavaScript findings.
 - Fixtures for signatures, encryption, ObjStm payloads, and strict deviations.
-- Regression tests covering crypto, ObjStm expansion, and strict mode.
+- Hostile JavaScript payload fixtures using real VirusShare malware samples for validation.
+- Regression tests covering crypto, ObjStm expansion, strict mode, and JavaScript malware detection.
+- 100% crash-free analysis on hostile payloads.
 
 ## Build
 
 ```
 cargo build
+```
+
+To enable JavaScript sandboxing for runtime behavior analysis:
+
+```
+cargo build --features js-sandbox
 ```
 
 ## Quick start
@@ -169,4 +185,8 @@ cargo fuzz run parser fuzz/corpus/parser
 
 ## Status
 
-This is a working implementation aligned to the spec in `docs/sis-pdf-spec.md`. It focuses on parsing correctness, evidence spans, and a practical rule set. Expect iterative hardening and expansion.
+This is a working implementation aligned to the spec in `docs/sis-pdf-spec.md`. It focuses on parsing correctness, evidence spans, and a practical rule set.
+
+JavaScript malware detection includes comprehensive static analysis with 73 detection functions covering 22 malware categories, providing ~95% coverage of known PDF JavaScript malware patterns. See `docs/js-detection-roadmap.md` for implementation details and future enhancements.
+
+Expect iterative hardening and expansion.

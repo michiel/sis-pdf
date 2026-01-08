@@ -93,6 +93,10 @@ enum Command {
         ml_threshold: f32,
         #[arg(long, default_value = "traditional", value_parser = ["traditional", "graph"])]
         ml_mode: String,
+        #[arg(long)]
+        no_js_ast: bool,
+        #[arg(long)]
+        no_js_sandbox: bool,
     },
     #[command(about = "Explain a specific finding with evidence details")]
     Explain {
@@ -140,6 +144,10 @@ enum Command {
         ml_threshold: f32,
         #[arg(long, default_value = "traditional", value_parser = ["traditional", "graph"])]
         ml_mode: String,
+        #[arg(long)]
+        no_js_ast: bool,
+        #[arg(long)]
+        no_js_sandbox: bool,
     },
     #[command(about = "Export action chains from a scan as DOT or JSON")]
     ExportGraph {
@@ -268,6 +276,8 @@ fn main() -> Result<()> {
             ml_model_dir,
             ml_threshold,
             ml_mode,
+            no_js_ast,
+            no_js_sandbox,
         } => run_scan(
             pdf.as_deref(),
             path.as_deref(),
@@ -301,6 +311,8 @@ fn main() -> Result<()> {
             ml_model_dir.as_deref(),
             ml_threshold,
             &ml_mode,
+            !no_js_ast,
+            !no_js_sandbox,
         ),
         Command::Explain { pdf, finding_id } => run_explain(&pdf, &finding_id),
         Command::Extract {
@@ -325,6 +337,8 @@ fn main() -> Result<()> {
             ml_model_dir,
             ml_threshold,
             ml_mode,
+            no_js_ast,
+            no_js_sandbox,
         } => run_report(
             &pdf,
             deep,
@@ -341,6 +355,8 @@ fn main() -> Result<()> {
             ml_model_dir.as_deref(),
             ml_threshold,
             &ml_mode,
+            !no_js_ast,
+            !no_js_sandbox,
         ),
         Command::ExportGraph {
             pdf,
@@ -443,6 +459,8 @@ fn run_scan(
     ml_model_dir: Option<&std::path::Path>,
     ml_threshold: f32,
     ml_mode: &str,
+    js_ast: bool,
+    js_sandbox: bool,
 ) -> Result<()> {
     if path.is_some() && pdf.is_some() {
         return Err(anyhow!("provide either a PDF path or --path, not both"));
@@ -488,7 +506,12 @@ fn run_scan(
         });
     }
     let want_export_intents = export_intents || export_intents_out.is_some();
-    let detectors = sis_pdf_detectors::default_detectors();
+    let detectors = sis_pdf_detectors::default_detectors_with_settings(
+        sis_pdf_detectors::DetectorSettings {
+            js_ast,
+            js_sandbox,
+        },
+    );
     if let Some(dir) = path {
         let batch_parallel = opts.batch_parallel;
         return run_scan_batch(
@@ -509,7 +532,8 @@ fn run_scan(
         );
     }
     let pdf = pdf.ok_or_else(|| anyhow!("PDF path is required unless --path is set"))?;
-    let report = run_scan_single(pdf, &opts, &detectors)?;
+    let sandbox_summary = sis_pdf_detectors::sandbox_summary(js_sandbox);
+    let report = run_scan_single(pdf, &opts, &detectors)?.with_sandbox_summary(sandbox_summary);
     if want_export_intents {
         let mut writer: Box<dyn Write> = if let Some(path) = export_intents_out {
             Box::new(fs::File::create(path)?)
@@ -797,8 +821,10 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         ml_config: None,
     };
     let detectors = sis_pdf_detectors::default_detectors();
+    let sandbox_summary = sis_pdf_detectors::sandbox_summary(true);
     let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
-        .with_input_path(Some(pdf.to_string()));
+        .with_input_path(Some(pdf.to_string()))
+        .with_sandbox_summary(sandbox_summary);
     let Some(finding) = report.findings.iter().find(|f| f.id == finding_id) else {
         return Err(anyhow!("finding id not found"));
     };
@@ -962,6 +988,8 @@ fn run_report(
     ml_model_dir: Option<&std::path::Path>,
     ml_threshold: f32,
     ml_mode: &str,
+    js_ast: bool,
+    js_sandbox: bool,
 ) -> Result<()> {
     let mmap = mmap_file(pdf)?;
     let diff_parser = diff_parser || strict;
@@ -1001,7 +1029,12 @@ fn run_report(
             mode: parse_ml_mode(ml_mode),
         });
     }
-    let detectors = sis_pdf_detectors::default_detectors();
+    let detectors = sis_pdf_detectors::default_detectors_with_settings(
+        sis_pdf_detectors::DetectorSettings {
+            js_ast,
+            js_sandbox,
+        },
+    );
     let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
         .with_input_path(Some(pdf.to_string()));
     let md = sis_pdf_core::report::render_markdown(&report, Some(pdf));

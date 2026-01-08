@@ -1,0 +1,18 @@
+[package]
+name = "js-analysis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+base64 = "0.22"
+regex = "1.10"
+serde_json = "1.0"
+boa_parser = { version = "0.21", optional = true }
+boa_ast = { version = "0.21", optional = true }
+boa_engine = { version = "0.21", optional = true }
+boa_interner = { version = "0.21", optional = true }
+
+[features]
+default = []
+js-ast = ["boa_parser", "boa_ast", "boa_interner"]
+js-sandbox = ["boa_engine"]

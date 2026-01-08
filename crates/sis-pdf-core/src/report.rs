@@ -15,6 +15,12 @@ pub struct Summary {
     pub info: usize,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct SandboxSummary {
+    pub enabled: bool,
+    pub disabled_reason: Option<String>,
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Report {
     pub summary: Summary,
@@ -37,6 +43,8 @@ pub struct Report {
     pub structural_summary: Option<StructuralSummary>,
     #[serde(default)]
     pub ml_summary: Option<MlSummary>,
+    #[serde(default)]
+    pub sandbox_summary: Option<SandboxSummary>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -101,11 +109,17 @@ impl Report {
             response_rules,
             structural_summary,
             ml_summary,
+            sandbox_summary: None,
         }
     }
 
     pub fn with_input_path(mut self, input_path: Option<String>) -> Self {
         self.input_path = input_path;
+        self
+    }
+
+    pub fn with_sandbox_summary(mut self, summary: SandboxSummary) -> Self {
+        self.sandbox_summary = Some(summary);
         self
     }
 }
@@ -862,6 +876,90 @@ fn chain_effect_summary(chain: &ExploitChain) -> String {
     }
 }
 
+fn chain_sandbox_observations(
+    chain: &ExploitChain,
+    findings: &[Finding],
+    sandbox_summary: Option<&SandboxSummary>,
+    linked_ids: &BTreeSet<String>,
+) -> String {
+    let mut calls: Vec<String> = Vec::new();
+    let mut executed = false;
+    let mut js_present = false;
+    let mut skipped: Vec<String> = Vec::new();
+    let mut timed_out = false;
+    if let Some(summary) = sandbox_summary {
+        if !summary.enabled {
+            let reason = summary
+                .disabled_reason
+                .as_deref()
+                .unwrap_or("disabled");
+            return format!("Not executed: {}.", reason);
+        }
+    }
+    let mut ids: BTreeSet<String> = chain.findings.iter().cloned().collect();
+    ids.extend(linked_ids.iter().cloned());
+    for fid in &ids {
+        if let Some(f) = findings.iter().find(|f| &f.id == fid) {
+            if f.kind == "js_runtime_network_intent" || f.kind == "js_runtime_file_probe" {
+                executed = true;
+            }
+            if f.kind == "js_present" {
+                js_present = true;
+            }
+            if f.kind == "js_sandbox_skipped" {
+                if let Some(reason) = f.meta.get("js.sandbox_skip_reason") {
+                    skipped.push(reason.clone());
+                } else {
+                    skipped.push("skipped".into());
+                }
+            }
+            if f.kind == "js_sandbox_timeout" {
+                executed = true;
+                timed_out = true;
+            }
+            if f.kind == "js_sandbox_exec" {
+                executed = true;
+            }
+            if let Some(value) = f.meta.get("js.sandbox_exec") {
+                if value == "true" {
+                    executed = true;
+                }
+            }
+            if let Some(value) = f.meta.get("js.runtime.calls") {
+                executed = true;
+                calls.push(value.clone());
+            }
+        }
+    }
+    if !calls.is_empty() {
+        calls.sort();
+        calls.dedup();
+        return format!("Executed; calls: {}", calls.join("; "));
+    }
+    if timed_out {
+        return "Executed; sandbox timed out.".into();
+    }
+    if executed {
+        "Executed; no monitored API calls observed.".into()
+    } else if !skipped.is_empty() {
+        skipped.sort();
+        skipped.dedup();
+        let reasons = skipped
+            .into_iter()
+            .map(|r| match r.as_str() {
+                "payload_too_large" => "payload exceeds size limit".to_string(),
+                other => other.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        format!("Not executed: {}.", reasons)
+    } else if js_present {
+        "Not executed: no sandbox execution recorded.".into()
+    } else {
+        "Not executed (no JavaScript finding for this chain).".into()
+    }
+}
+
 fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> String {
     let mut lines: Vec<String> = Vec::new();
     if let Some(trigger) = &chain.trigger {
@@ -920,6 +1018,81 @@ fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> Stri
         "Insufficient context for a detailed narrative; review chain findings and payload details.".into()
     } else {
         lines.join(" ")
+    }
+}
+
+fn sandbox_summary_line(report: &Report) -> Option<String> {
+    if let Some(summary) = report.sandbox_summary.as_ref() {
+        if !summary.enabled {
+            let reason = summary
+                .disabled_reason
+                .as_deref()
+                .unwrap_or("disabled");
+            return Some(format!("Not executed: {}.", reason));
+        }
+    }
+    let js_present = report.findings.iter().any(|f| f.kind == "js_present");
+    let mut calls: Vec<String> = Vec::new();
+    let mut executed = false;
+    let mut skipped: Vec<String> = Vec::new();
+    let mut timed_out = false;
+    for f in &report.findings {
+        if f.kind == "js_runtime_network_intent" || f.kind == "js_runtime_file_probe" {
+            executed = true;
+        }
+        if f.kind == "js_sandbox_timeout" {
+            executed = true;
+            timed_out = true;
+        }
+        if f.kind == "js_sandbox_exec" {
+            executed = true;
+        }
+        if f.kind == "js_sandbox_skipped" {
+            if let Some(reason) = f.meta.get("js.sandbox_skip_reason") {
+                skipped.push(reason.clone());
+            } else {
+                skipped.push("skipped".into());
+            }
+        }
+        if let Some(value) = f.meta.get("js.sandbox_exec") {
+            if value == "true" {
+                executed = true;
+            }
+        }
+        if let Some(value) = f.meta.get("js.runtime.calls") {
+            executed = true;
+            calls.push(value.clone());
+        }
+    }
+    if !js_present && !executed && skipped.is_empty() {
+        return None;
+    }
+    if !calls.is_empty() {
+        calls.sort();
+        calls.dedup();
+        return Some(format!("Executed; calls: {}", calls.join("; ")));
+    }
+    if timed_out {
+        return Some("Executed; sandbox timed out.".into());
+    }
+    if executed {
+        Some("Executed; no monitored API calls observed.".into())
+    } else if !skipped.is_empty() {
+        skipped.sort();
+        skipped.dedup();
+        let reasons = skipped
+            .into_iter()
+            .map(|r| match r.as_str() {
+                "payload_too_large" => "payload exceeds size limit".to_string(),
+                other => other.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        Some(format!("Not executed: {}.", reasons))
+    } else if js_present {
+        Some("Not executed: no sandbox execution recorded.".into())
+    } else {
+        Some("Not executed (no JavaScript findings).".into())
     }
 }
 
@@ -1155,6 +1328,12 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         };
         out.push_str(&format!(
             "- Polyglot risk: {}\n\n",
+            escape_markdown(&line)
+        ));
+    }
+    if let Some(line) = sandbox_summary_line(report) {
+        out.push_str(&format!(
+            "- Sandbox observations: {}\n\n",
             escape_markdown(&line)
         ));
     }
@@ -1532,6 +1711,27 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 "- Narrative: {}\n",
                 escape_markdown(&chain_execution_narrative(chain, &report.findings))
             ));
+            out.push_str(&format!(
+                "- Sandbox observations: {}\n",
+                escape_markdown(&chain_sandbox_observations(
+                    chain,
+                    &report.findings,
+                    report.sandbox_summary.as_ref(),
+                    &{
+                        let mut linked = BTreeSet::new();
+                        for edge in &link_edges {
+                            let in_chain = chain.findings.iter().any(|fid| {
+                                fid == &edge.from || fid == &edge.to
+                            });
+                            if in_chain {
+                                linked.insert(edge.from.clone());
+                                linked.insert(edge.to.clone());
+                            }
+                        }
+                        linked
+                    }
+                ))
+            ));
             if let Some(target) = chain.notes.get("action.target") {
                 out.push_str(&format!(
                     "- Action target: {}\n",
@@ -1539,10 +1739,10 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 ));
             }
             if !chain.reasons.is_empty() {
-                out.push_str(&format!(
-                    "- Score reasons: {}\n",
-                    escape_markdown(&chain.reasons.join("; "))
-                ));
+                out.push_str("- Score reasons:\n");
+                for reason in &chain.reasons {
+                    out.push_str(&format!("  - {}\n", escape_markdown(reason)));
+                }
             }
             out.push('\n');
             out.push_str("**Findings in chain**\n\n");
@@ -1672,8 +1872,8 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     for f in &report.findings {
         out.push_str(&format!(
             "### {} — {}\n\n",
-            escape_markdown(&f.id),
-            escape_markdown(&f.title)
+            escape_markdown(&f.title),
+            escape_markdown(&f.id)
         ));
         out.push_str(&format!("- Surface: `{:?}`\n", f.surface));
         out.push_str(&format!("- Kind: `{}`\n", escape_markdown(&f.kind)));

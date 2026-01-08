@@ -15,19 +15,19 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
         match action.as_str() {
             "launch_action_present" => {
                 score = score.max(0.85);
-                reasons.push("Action severity: Launch".into());
+                reasons.push("Action severity: High (Launch)".into());
             }
             "js_present" => {
                 score = score.max(0.75);
-                reasons.push("Action severity: JavaScript".into());
+                reasons.push("Action severity: Medium (JavaScript)".into());
             }
             "submitform_present" => {
                 score = score.max(0.6);
-                reasons.push("Action severity: SubmitForm".into());
+                reasons.push("Action severity: Medium (SubmitForm)".into());
             }
             "uri_present" => {
                 score = score.max(0.5);
-                reasons.push("Action severity: URI".into());
+                reasons.push("Action severity: Low (URI)".into());
             }
             _ => {}
         }

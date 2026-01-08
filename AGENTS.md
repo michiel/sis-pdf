@@ -1,5 +1,13 @@
 # Repository Guidelines
 
+## Project background
+
+This project is a security tool focused on analysing PDF files to determine if they are malicious. This involves detecting, analysing and handling potentially malicious code, data.
+
+- Safety, accuracy, efficiency and completeness are primary goals.
+- Use Australian English spelling
+- Do not use emojis
+
 ## Project Structure & Module Organization
 
 - `crates/` contains the Rust workspace members:
@@ -8,11 +16,17 @@
   - `crates/sis-pdf-pdf/` PDF parsing, object graph, and decoding.
   - `crates/sis-pdf-detectors/` detection rules and heuristics.
   - `crates/sis-pdf-ml-graph/` ML graph utilities.
+  - `crates/js-analysis/` JavaScript static and dynamic analysis with sandboxing (feature: `js-sandbox`).
 - `docs/` holds specs and analysis notes (see `docs/sis-pdf-spec.md`).
+  - `docs/findings.md` documents all 72+ JavaScript finding IDs.
+  - `docs/js-detection-*.md` comprehensive JavaScript malware detection documentation.
 - `fuzz/` contains cargo-fuzz targets and corpora.
-- `scripts/` includes helper tooling (e.g., `scripts/eval_features.py`).
+- `scripts/` includes helper tooling (e.g., `scripts/eval_features.py`, `scripts/extract_js_payloads.py`).
+  - `scripts/test_helpers/` development test fixtures and helper code.
 - Tests live under `crates/*/tests/` with fixtures in
-  `crates/sis-pdf-core/tests/fixtures/`.
+  `crates/sis-pdf-core/tests/fixtures/` and `crates/js-analysis/tests/fixtures/`.
+  - Hostile payload tests use real VirusShare malware samples for validation.
+
 
 ## Build, Test, and Development Commands
 

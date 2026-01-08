@@ -280,4 +280,4 @@ What it is: A structured representation of JavaScript code.
 What it captures: Syntax nodes and code structure.
 Why it exists: It enables static JS analysis beyond string matching.
 Relevance to SIS-PDF: Optional JS analysis feature.
-Where it is used: `--features js-ast`.
+Where it is used: enabled by default (can be disabled with `--no-default-features`).

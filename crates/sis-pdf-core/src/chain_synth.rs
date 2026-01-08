@@ -42,6 +42,11 @@ pub fn synthesise_chains(findings: &[Finding]) -> (Vec<ExploitChain>, Vec<ChainT
         }
         for (k, v) in &f.meta {
             if k.starts_with("js.") || k.starts_with("payload.") {
+                if k == "js.sandbox_exec" {
+                    if matches!(notes.get(k).map(String::as_str), Some("true")) {
+                        continue;
+                    }
+                }
                 notes.insert(k.clone(), v.clone());
             }
         }

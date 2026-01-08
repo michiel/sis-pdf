@@ -9,3 +9,6 @@ sis-pdf-pdf = { path = "../crates/sis-pdf-pdf" }
 
 [profile.release]
 debug = true
+
+[package.metadata]
+cargo-fuzz = true

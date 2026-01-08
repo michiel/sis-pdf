@@ -1,3 +1,16 @@
 target/
 *log
 tmp/
+extracted_js/
+
+# Test artifacts
+test_direct
+test_sandbox
+test_all_fixtures.sh
+demo_sample.js
+*.pdf
+!crates/*/tests/**/*.pdf
+
+# Rust build artifacts
+**/*.rs.bk
+*.pdb

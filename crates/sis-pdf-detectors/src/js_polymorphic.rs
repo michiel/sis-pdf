@@ -5,9 +5,11 @@ use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 
 use crate::{entry_dict, resolve_payload};
-use crate::js_signals::{decode_layers, extract_js_signals};
+use js_analysis::static_analysis::{decode_layers, extract_js_signals_with_ast};
 
-pub struct JsPolymorphicDetector;
+pub struct JsPolymorphicDetector {
+    pub(crate) enable_ast: bool,
+}
 
 impl Detector for JsPolymorphicDetector {
     fn id(&self) -> &'static str {
@@ -37,7 +39,7 @@ impl Detector for JsPolymorphicDetector {
             let payload = resolve_payload(ctx, obj);
             let Some(info) = payload.payload else { continue };
             let decoded = decode_layers(&info.bytes, 4);
-            let sig = extract_js_signals(&info.bytes);
+            let sig = extract_js_signals_with_ast(&info.bytes, self.enable_ast);
             let mut meta = sig;
             meta.insert("payload.decode_layers".into(), decoded.layers.to_string());
             let base64_like = meta

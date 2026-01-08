@@ -1,0 +1,2 @@
+- Embedded font verification
+
