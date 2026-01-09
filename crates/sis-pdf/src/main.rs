@@ -233,6 +233,13 @@ enum Command {
         #[arg(long, help = "Export basic 35-feature vector only (legacy format)")]
         basic: bool,
     },
+    #[command(about = "Compute benign baseline from feature vectors")]
+    ComputeBaseline {
+        #[arg(long, help = "Path to JSONL file with benign feature vectors")]
+        input: PathBuf,
+        #[arg(short, long, help = "Output baseline JSON file")]
+        out: PathBuf,
+    },
     #[command(about = "Analyze a PDF stream in chunks and stop on indicators")]
     StreamAnalyze {
         pdf: String,
@@ -453,6 +460,9 @@ fn main() -> Result<()> {
             out.as_deref(),
             !basic,
         ),
+        Command::ComputeBaseline { input, out } => {
+            run_compute_baseline(&input, &out)
+        }
         Command::StreamAnalyze {
             pdf,
             chunk_size,
@@ -1137,7 +1147,7 @@ fn run_export_org(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Res
             ir: false,
             ml_config: None,
         };
-        let ctx = sis_pdf_core::scan::ScanContext::new(&mmap, graph, opts);
+        let ctx = sis_pdf_core::scan::ScanContext::new(&mmap, graph, opts.clone());
         let classifications = ctx.classifications();
         let typed_graph = ctx.build_typed_graph();
         let org = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
@@ -1463,11 +1473,12 @@ fn run_export_features(
         let mmap = mmap_file(&path_str)?;
 
         let feature_vec = if extended {
-            // Clone opts for this iteration
-            let opts = opts_template;
+            // Clone opts for this iteration to avoid move issues
+            let opts1 = opts_template.clone();
+            let opts2 = opts_template.clone();
 
             // Run full scan to get findings
-            let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, detectors.as_ref().unwrap())?;
+            let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts1, detectors.as_ref().unwrap())?;
 
             // Parse PDF again to create ScanContext for feature extraction
             let graph = sis_pdf_pdf::parse_pdf(
@@ -1481,7 +1492,7 @@ fn run_export_features(
                     max_objstm_total_bytes: opts_template.max_total_decoded_bytes,
                 },
             )?;
-            let ctx = sis_pdf_core::scan::ScanContext::new(&mmap, graph, opts_template);
+            let ctx = sis_pdf_core::scan::ScanContext::new(&mmap, graph, opts2);
 
             // Extract extended features
             let extended_fv = sis_pdf_core::features_extended::extract_extended_features(&ctx, &report.findings);
@@ -1519,6 +1530,84 @@ fn run_export_features(
     }
     Ok(())
 }
+
+fn run_compute_baseline(input: &PathBuf, out: &PathBuf) -> Result<()> {
+    // Read JSONL file with feature vectors
+    let data = fs::read_to_string(input)?;
+    let mut feature_samples = Vec::new();
+
+    for (line_num, line) in data.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let record: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("Warning: skipping line {}: {}", line_num + 1, e);
+                continue;
+            }
+        };
+
+        // Extract features array
+        if let Some(features) = record.get("features").and_then(|f| f.as_array()) {
+            let vec: Vec<f32> = features
+                .iter()
+                .filter_map(|v| v.as_f64().map(|f| f as f32))
+                .collect();
+
+            if vec.len() == 333 || vec.len() == 35 {
+                feature_samples.push(vec);
+            } else {
+                eprintln!("Warning: line {} has unexpected feature count: {}", line_num + 1, vec.len());
+            }
+        } else {
+            eprintln!("Warning: line {} missing features array", line_num + 1);
+        }
+    }
+
+    if feature_samples.is_empty() {
+        return Err(anyhow!("No valid feature vectors found in input file"));
+    }
+
+    eprintln!("Loaded {} benign samples", feature_samples.len());
+
+    // Get feature names based on vector size
+    let feature_names = if feature_samples[0].len() == 333 {
+        sis_pdf_core::features_extended::extended_feature_names()
+    } else {
+        sis_pdf_core::features::feature_names()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+    };
+
+    // Convert Vec<f32> to HashMap<String, f32>
+    let feature_maps: Vec<std::collections::HashMap<String, f32>> = feature_samples
+        .iter()
+        .map(|vec| {
+            feature_names
+                .iter()
+                .zip(vec.iter())
+                .map(|(name, &value)| (name.clone(), value))
+                .collect()
+        })
+        .collect();
+
+    // Compute baseline using explainability module
+    let baseline = sis_pdf_core::explainability::compute_baseline_from_samples(&feature_maps);
+
+    // Save to JSON
+    let json = serde_json::to_string_pretty(&baseline)?;
+    fs::write(out, json)?;
+
+    eprintln!("Baseline saved to {}", out.display());
+    eprintln!("  Feature count: {}", baseline.feature_means.len());
+    eprintln!("  Sample count: {}", feature_samples.len());
+
+    Ok(())
+}
+
 fn run_stream_analyze(pdf: &str, chunk_size: usize, max_buffer: usize) -> Result<()> {
     let mut f = fs::File::open(pdf)?;
     let mut analyzer = sis_pdf_core::stream_analyzer::StreamAnalyzer::new(max_buffer);

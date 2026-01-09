@@ -385,68 +385,147 @@ Static IR/ORG finding kinds:
 
 ## 12c) Export object reference graph (ORG)
 
-DOT export:
+**By default, ORG exports include suspicious paths and classifications (enhanced mode).**
+
+DOT export with paths:
 
 ```
 sis export-org suspicious.pdf --format dot -o org.dot
 ```
 
-JSON export:
+JSON export with paths and risk analysis:
 
 ```
 sis export-org suspicious.pdf --format json -o org.json
 ```
 
+Basic graph only (no enhancements):
+
+```
+sis export-org suspicious.pdf --basic --format json -o org_basic.json
+```
+
 ## 12d) Export PDFObj IR
 
-Text export:
+**By default, IR exports include findings and risk scores (enhanced mode).**
+
+Text export with findings:
 
 ```
 sis export-ir suspicious.pdf --format text -o ir.txt
 ```
 
-JSON export:
+JSON export with findings and risk analysis:
 
 ```
 sis export-ir suspicious.pdf --format json -o ir.json
 ```
 
+Basic IR only (no findings):
+
+```
+sis export-ir suspicious.pdf --basic --format text -o ir_basic.txt
+```
+
 ## 13) Export features for datasets
 
-JSONL feature export:
+**By default, feature export generates the extended 333-feature vector.**
+
+JSONL feature export (333 features):
 
 ```
 sis export-features --path samples --glob "*.pdf" --format jsonl -o features.jsonl
 ```
 
-CSV feature export:
+CSV feature export (333 features):
 
 ```
 sis export-features --path samples --glob "*.pdf" --format csv -o features.csv
 ```
 
-### Feature Categories
+Basic features only (35 features, legacy mode):
 
-The feature extractor generates **35 features** organized into 5 categories:
+```
+sis export-features --path samples --glob "*.pdf" --basic --format jsonl -o features_basic.jsonl
+```
 
-**General (3 features):**
-- `file_size`, `file_entropy`, `binary_ratio`
+### Extended Feature Vector (333 Features)
 
-**Structural (5 features):**
-- `max_object_id`, `objstm_count`, `trailer_count`, `startxref_count`, `linearized_present`
+The extended feature extractor generates **333 features** for ML training pipelines:
 
-**Content (3 features):**
-- `page_count`, `annotation_count`, `embedded_file_count`, `rich_media_count`
+**Legacy features (35):** General, Structural, Behavioral, Content, Graph
+**Attack surface distribution (12):** Counts per surface (JavaScript, Actions, etc.)
+**Severity distribution (15):** Critical/High/Medium/Low counts with confidence weights
+**Confidence distribution (9):** Strong/Probable/Heuristic per severity level
+**Finding presence/counts (142):** Binary flags + count for each finding type (71 × 2)
+**JS signals (30):** Obfuscation, eval, string operations, API usage
+**URI signals (20):** IP addresses, obfuscation, automatic triggers, JS-triggered
+**Content signals (15):** Overlays, full-page images, forms, phishing indicators
+**Supply chain signals (10):** Staged payloads, update vectors, persistence
+**Structural anomaly signals (20):** Xref conflicts, shadowing, objstm depth
+**Crypto signals (10):** Weak algorithms, certificate anomalies, mining patterns
+**Embedded content signals (15):** Executable embedding, nested archives, auto-launch
 
-**Behavioral (7 features):**
-- `js_object_count`, `js_eval_count`, `js_suspicious_api_count`, `env_probe_count`, `time_api_count`, `action_count`, `js_entropy_avg`
+See `docs/training-pipeline.md` for ML training workflow.
 
-**Graph (15 features):**
-- Edge counts: `total_edges`, `open_action_edges`, `js_payload_edges`, `uri_target_edges`, `launch_target_edges`, `suspicious_edge_count`
-- Action chains: `action_chain_count`, `max_chain_length`, `automatic_chain_count`, `js_chain_count`, `external_chain_count`
-- Graph metrics: `max_graph_depth`, `avg_graph_depth`, `catalog_to_js_paths`, `multi_stage_indicators`
+## 13b) ML Training Pipeline
 
-Graph features leverage the typed reference graph to detect complex attack patterns like multi-stage execution chains, automatic JavaScript triggers, and external resource loading.
+### Compute Benign Baseline
+
+After extracting features from benign samples, compute a statistical baseline:
+
+```
+sis compute-baseline --input benign_features.jsonl --out baseline.json
+```
+
+The baseline includes feature means, standard deviations, and percentiles for:
+- Feature normalization
+- Anomaly detection (values beyond p99 are suspicious)
+- Explainability (show deviation from benign baseline)
+
+### Complete Training Pipeline
+
+Use the automated pipeline script to extract features, compute baseline, train model, and fit calibration:
+
+```bash
+python scripts/training_pipeline.py \
+    --benign-dir /path/to/benign/pdfs \
+    --malicious-dir /path/to/malicious/pdfs \
+    --output-dir models \
+    --sis-binary ./target/release/sis \
+    --calibration-method platt
+```
+
+**Pipeline outputs:**
+- `models/model.json`: Trained logistic regression model
+- `models/baseline.json`: Benign feature baseline
+- `models/calibration.json`: Platt scaling or isotonic regression calibration
+- `models/metrics.json`: Test set evaluation metrics
+
+### Model Calibration
+
+Calibrate raw model scores to well-calibrated probabilities:
+
+```bash
+# Fit calibration from validation predictions
+python scripts/calibrate.py \
+    --predictions validation_predictions.jsonl \
+    --method platt \
+    --output calibration.json \
+    --evaluate
+
+# Apply calibration to new predictions
+python scripts/apply_calibration.py \
+    --calibration calibration.json \
+    --predictions raw_predictions.jsonl \
+    --output calibrated_predictions.jsonl
+```
+
+**Calibration methods:**
+- `platt`: Logistic regression on predictions (recommended, works with 100-1000 samples)
+- `isotonic`: Non-parametric monotonic mapping (requires 1000+ samples)
+
+See `docs/training-pipeline.md` for comprehensive ML training documentation.
 
 ## 14) Advanced detectors (supply chain, crypto, multi-stage, quantum)
 
