@@ -48,6 +48,7 @@ sis-pdf/
     sis-pdf-core/      Core scan pipeline, models, reporting
     sis-pdf-pdf/       PDF parsing, object graph, decoding
     sis-pdf-detectors/ Detection rules
+    sis-pdf-ml-graph/  Graph ML inference utilities
     sis-pdf/           CLI front-end
     js-analysis/       JavaScript static and dynamic analysis
   docs/                Specifications and analysis documentation
@@ -86,7 +87,8 @@ Reporting and evidence:
 - Human-readable reports and Markdown reports with impacts and remediation.
 - JSON, JSONL, and SARIF outputs for automation and CI workflows.
 - YARA rule generation with action and payload metadata.
-- ML feature extraction and optional stacking classifier scoring.
+- ML feature extraction and optional classifier scoring with explanations.
+- Temporal signals for incremental updates (ML and non-ML).
 - Action chain synthesis and chain templates.
 - Input path tracking in JSON and reports.
 - Strict parse deviations grouped in the Markdown report.
@@ -100,6 +102,7 @@ CLI workflows:
 - `sis extract` for JavaScript and embedded files.
 - `sis export-graph` for chain export in DOT or JSON.
 - `sis export-features` for ML dataset feature extraction.
+- `sis scan --ml-explain` for ML explanations, `--ml-temporal` and `--temporal-signals` for revision analysis.
 - Batch scanning with `--path` and `--glob` plus batch summaries.
 - Batch scans are parallel by default; use `--sequential` (alias `--seq`) to disable.
 
@@ -126,16 +129,16 @@ cargo build --features js-sandbox
 
 ```
 # Triage scan
-cargo run -p sis-pdf --bin sis -- scan path/to/file.pdf
+sis scan path/to/file.pdf
 
 # JSON report
-cargo run -p sis-pdf --bin sis -- scan path/to/file.pdf --json
+sis scan path/to/file.pdf --json
 
 # Deep scan (decodes selected streams)
-cargo run -p sis-pdf --bin sis -- scan path/to/file.pdf --deep
+sis scan path/to/file.pdf --deep
 
 # Export features for ML pipelines
-cargo run -p sis-pdf --bin sis -- export-features --path samples --glob "*.pdf" --format jsonl -o features.jsonl
+sis export-features --path samples --glob "*.pdf" --format jsonl -o features.jsonl
 ```
 
 ## Configuration
