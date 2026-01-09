@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use crate::model::{Finding, Severity, Confidence, AttackSurface, EvidenceSpan};
+use crate::model::{Finding, Severity, AttackSurface, EvidenceSpan};
 use crate::ml::LinearModel;
 
 /// Feature attribution showing how much a feature contributed to the prediction
@@ -1866,6 +1866,7 @@ fn humanize_pattern(pattern: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Confidence;
 
     #[test]
     fn test_percentile_computation() {

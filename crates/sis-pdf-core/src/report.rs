@@ -2175,6 +2175,64 @@ fn format_ml_explanation_for_report(
         report.push('\n');
     }
 
+    if let Some(counterfactual) = &explanation.counterfactual {
+        report.push_str("### Counterfactual changes\n\n");
+        report.push_str(&format!(
+            "- Target score: {:.2}\n- Achieved score: {:.2}\n",
+            counterfactual.target_score,
+            counterfactual.achieved_score
+        ));
+        if counterfactual.changes.is_empty() {
+            report.push_str("- No changes suggested\n");
+        } else {
+            for change in counterfactual.changes.iter().take(6) {
+                report.push_str(&format!(
+                    "- {}: {:.2} -> {:.2} (delta {:+.2})\n",
+                    escape_markdown(&crate::explainability::humanize_feature_name(&change.feature_name)),
+                    change.from_value,
+                    change.to_value,
+                    change.delta
+                ));
+            }
+        }
+        if !counterfactual.notes.is_empty() {
+            for note in counterfactual.notes.iter().take(3) {
+                report.push_str(&format!("- Note: {}\n", escape_markdown(note)));
+            }
+        }
+        report.push('\n');
+    }
+
+    if !explanation.feature_interactions.is_empty() {
+        report.push_str("### Feature interactions\n\n");
+        for interaction in explanation.feature_interactions.iter().take(5) {
+            report.push_str(&format!(
+                "- {} (score {:.2})\n",
+                escape_markdown(&interaction.summary),
+                interaction.interaction_score
+            ));
+        }
+        report.push('\n');
+    }
+
+    if let Some(temporal) = &explanation.temporal_analysis {
+        report.push_str("### Temporal analysis\n\n");
+        report.push_str(&format!(
+            "- Trend: {}\n- Score delta: {:.2}\n",
+            escape_markdown(&temporal.trend),
+            temporal.score_delta
+        ));
+        if !temporal.notable_changes.is_empty() {
+            for change in temporal.notable_changes.iter().take(5) {
+                report.push_str(&format!(
+                    "- {}\n",
+                    escape_markdown(change)
+                ));
+            }
+        }
+        report.push('\n');
+    }
+
     report
 }
 

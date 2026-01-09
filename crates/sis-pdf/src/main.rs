@@ -97,6 +97,8 @@ enum Command {
         ml_extended_features: bool,
         #[arg(long, help = "Generate comprehensive ML explanation")]
         ml_explain: bool,
+        #[arg(long, help = "Include advanced ML explainability (counterfactuals and interactions)")]
+        ml_advanced: bool,
         #[arg(long, help = "Path to benign baseline JSON for explanations")]
         ml_baseline: Option<PathBuf>,
         #[arg(long, help = "Path to calibration model JSON")]
@@ -183,6 +185,8 @@ enum Command {
         ml_extended_features: bool,
         #[arg(long, help = "Generate comprehensive ML explanation")]
         ml_explain: bool,
+        #[arg(long, help = "Include advanced ML explainability (counterfactuals and interactions)")]
+        ml_advanced: bool,
         #[arg(long, help = "Path to benign baseline JSON for explanations")]
         ml_baseline: Option<PathBuf>,
         #[arg(long, help = "Path to calibration model JSON")]
@@ -334,6 +338,7 @@ fn main() -> Result<()> {
             ml_mode,
             ml_extended_features,
             ml_explain,
+            ml_advanced,
             ml_baseline,
             ml_calibration,
             no_js_ast,
@@ -373,6 +378,7 @@ fn main() -> Result<()> {
             &ml_mode,
             ml_extended_features,
             ml_explain,
+            ml_advanced,
             ml_baseline.as_deref(),
             ml_calibration.as_deref(),
             !no_js_ast,
@@ -430,6 +436,7 @@ fn main() -> Result<()> {
             ml_mode,
             ml_extended_features,
             ml_explain,
+            ml_advanced,
             ml_baseline,
             ml_calibration,
             no_js_ast,
@@ -452,6 +459,7 @@ fn main() -> Result<()> {
             &ml_mode,
             ml_extended_features,
             ml_explain,
+            ml_advanced,
             ml_baseline.as_deref(),
             ml_calibration.as_deref(),
             !no_js_ast,
@@ -565,6 +573,7 @@ fn run_scan(
     ml_mode: &str,
     ml_extended_features: bool,
     ml_explain: bool,
+    ml_advanced: bool,
     ml_baseline: Option<&std::path::Path>,
     ml_calibration: Option<&std::path::Path>,
     js_ast: bool,
@@ -622,6 +631,7 @@ fn run_scan(
     );
     let ml_inference_requested = ml_extended_features
         || ml_explain
+        || ml_advanced
         || ml_baseline.is_some()
         || ml_calibration.is_some();
     if let Some(dir) = path {
@@ -660,6 +670,7 @@ fn run_scan(
             ml_threshold,
             ml_extended_features,
             ml_explain,
+            ml_advanced,
             ml_baseline,
             ml_calibration,
         ) {
@@ -739,10 +750,14 @@ fn run_ml_inference_for_scan(
     ml_threshold: f32,
     ml_extended_features: bool,
     ml_explain: bool,
+    ml_advanced: bool,
     ml_baseline: Option<&std::path::Path>,
     ml_calibration: Option<&std::path::Path>,
 ) -> Result<sis_pdf_core::ml_inference::MlInferenceResult> {
     let model_path = ml_model_dir.ok_or_else(|| anyhow!("--ml-model-dir is required for ML inference"))?;
+    if ml_advanced && !ml_explain {
+        return Err(anyhow!("--ml-advanced requires --ml-explain"));
+    }
     if ml_explain && ml_baseline.is_none() {
         return Err(anyhow!("--ml-explain requires --ml-baseline"));
     }
@@ -753,6 +768,7 @@ fn run_ml_inference_for_scan(
         threshold: ml_threshold,
         explain: ml_explain,
         use_extended_features: ml_extended_features || ml_explain || ml_baseline.is_some(),
+        explain_advanced: ml_advanced,
     };
     let ctx = build_scan_context(mmap, opts)?;
     sis_pdf_core::ml_inference::run_ml_inference(&ctx, &report.findings, &config)
@@ -1408,6 +1424,7 @@ fn run_report(
     ml_mode: &str,
     ml_extended_features: bool,
     ml_explain: bool,
+    ml_advanced: bool,
     ml_baseline: Option<&std::path::Path>,
     ml_calibration: Option<&std::path::Path>,
     js_ast: bool,
@@ -1461,6 +1478,7 @@ fn run_report(
         .with_input_path(Some(pdf.to_string()));
     let ml_inference_requested = ml_extended_features
         || ml_explain
+        || ml_advanced
         || ml_baseline.is_some()
         || ml_calibration.is_some();
     if ml_inference_requested {
@@ -1472,6 +1490,7 @@ fn run_report(
             ml_threshold,
             ml_extended_features,
             ml_explain,
+            ml_advanced,
             ml_baseline,
             ml_calibration,
         ) {

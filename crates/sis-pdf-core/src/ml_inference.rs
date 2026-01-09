@@ -22,6 +22,7 @@ pub struct MlInferenceConfig {
     pub threshold: f32,
     pub explain: bool,
     pub use_extended_features: bool,
+    pub explain_advanced: bool,
 }
 
 /// Result of ML inference with optional explanation
@@ -52,6 +53,12 @@ pub struct ComprehensiveExplanation {
     pub comparative_analysis: Vec<ComparativeFeature>,
     pub evidence_chains: Vec<EvidenceChain>,
     pub decision_factors: Vec<String>,
+    #[serde(default)]
+    pub counterfactual: Option<crate::explainability::CounterfactualExplanation>,
+    #[serde(default)]
+    pub feature_interactions: Vec<crate::explainability::FeatureInteraction>,
+    #[serde(default)]
+    pub temporal_analysis: Option<crate::explainability::TemporalExplanation>,
 }
 
 /// Calibration model for score calibration
@@ -191,6 +198,7 @@ pub fn run_ml_inference(
             findings,
             &calibrated,
             &model,
+            config.explain_advanced,
         )?)
     } else {
         None
@@ -209,6 +217,7 @@ fn generate_comprehensive_explanation(
     findings: &[Finding],
     prediction: &CalibratedPrediction,
     model: &LinearModel,
+    explain_advanced: bool,
 ) -> Result<ComprehensiveExplanation> {
     // Feature attribution via permutation importance
     let feature_vec = features.as_f32_vec();
@@ -254,6 +263,25 @@ fn generate_comprehensive_explanation(
         findings,
     );
 
+    let (counterfactual, feature_interactions, temporal_analysis) = if explain_advanced {
+        let counterfactual = crate::explainability::generate_counterfactual_linear(
+            model,
+            &feature_vec,
+            &feature_names,
+            prediction.threshold,
+            8,
+            Some(baseline),
+        );
+        let interactions = crate::explainability::detect_feature_interactions(
+            &feature_map,
+            baseline,
+            5,
+        );
+        (Some(counterfactual), interactions, None)
+    } else {
+        (None, Vec::new(), None)
+    };
+
     Ok(ComprehensiveExplanation {
         summary,
         feature_attribution: attribution.into_iter().take(10).collect(),
@@ -261,6 +289,9 @@ fn generate_comprehensive_explanation(
         comparative_analysis: comparative,
         evidence_chains: evidence_chains.into_iter().take(10).collect(),
         decision_factors,
+        counterfactual,
+        feature_interactions,
+        temporal_analysis,
     })
 }
 

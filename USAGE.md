@@ -127,6 +127,12 @@ Run ML inference with explanations (requires a benign baseline):
 sis scan suspicious.pdf --ml-model-dir models/ --ml-extended-features --ml-explain --ml-baseline models/benign_baseline.json
 ```
 
+Include advanced explainability (counterfactuals and interactions):
+
+```
+sis scan suspicious.pdf --ml-model-dir models/ --ml-extended-features --ml-explain --ml-advanced --ml-baseline models/benign_baseline.json
+```
+
 Include calibration if available:
 
 ```
