@@ -235,17 +235,145 @@ This plan merges two complementary initiatives:
 
 ---
 
+### Phase 6: Inference Integration with Comprehensive Explanations (2 weeks) - 🚧 IN PROGRESS
+
+**Status**: Core infrastructure complete, CLI integration in progress
+
+#### ✅ Completed (Phase 6.1-6.4)
+
+**Created `ml_inference.rs` Module** (315 lines):
+- **MlInferenceConfig**: Configuration for ML inference
+  - `model_path`: Path to trained model JSON
+  - `baseline_path`: Path to benign baseline JSON
+  - `calibration_path`: Optional path to calibration model
+  - `threshold`: Decision threshold (default 0.5)
+  - `explain`: Whether to generate explanations
+  - `use_extended_features`: Use 333-feature vector vs 35-feature legacy
+
+- **MlInferenceResult**: Results structure
+  - `prediction`: CalibratedPrediction with score, label, confidence interval
+  - `explanation`: Optional ComprehensiveExplanation
+
+- **CalibratedPrediction**: Prediction with calibration
+  - `raw_score`: Uncalibrated model output
+  - `calibrated_score`: Calibrated probability
+  - `confidence_interval`: Optional (lower, upper) bounds
+  - `calibration_method`: "PlattScaling", "IsotonicRegression", or "none"
+  - `interpretation`: Natural language interpretation
+  - `label`: Binary decision based on threshold
+
+- **CalibrationModel**: Score calibration
+  - `PlattScaling`: Logistic regression on predictions (coef, intercept)
+  - `IsotonicRegression`: Non-parametric monotonic mapping (x/y thresholds)
+  - `load_from_file()`: Load calibration from JSON
+  - `calibrate()`: Transform raw score to calibrated probability
+
+- **ComprehensiveExplanation**: Full explanation structure
+  - `summary`: Natural language summary
+  - `feature_attribution`: Top 10 features (FeatureAttribution)
+  - `feature_group_importance`: Importance by feature group
+  - `comparative_analysis`: Top 10 comparisons vs baseline (ComparativeFeature)
+  - `evidence_chains`: Top 10 evidence chains linking features → findings → offsets
+  - `decision_factors`: Bullet points for key decision factors
+
+- **run_ml_inference()**: Main inference pipeline
+  1. Load model (LinearModel from JSON)
+  2. Load baseline (BenignBaseline from JSON)
+  3. Extract features (extended 333 or legacy 35)
+  4. Run model prediction
+  5. Calibrate score (if calibration model provided)
+  6. Generate explanation (if requested)
+
+- **generate_comprehensive_explanation()**: Explanation builder
+  - Feature attribution via permutation importance
+  - Natural language summary generation
+  - Feature group importance aggregation
+  - Comparative analysis (z-scores vs baseline)
+  - Evidence chain linking
+  - Decision factor bullet points
+
+- **Tests**: 3 unit tests for calibration methods
+
+**Extended `ExtendedFeatureVector`**:
+- Added `from_legacy()` method to convert 35-feature vectors to 333-feature format
+  - Preserves legacy features, fills extended features with zeros
+  - Enables backwards compatibility with legacy models
+
+**CLI Integration** (Partial):
+- Added new flags to `Scan` command:
+  - `--ml-extended-features`: Use 333-feature extended vector (default with --ml)
+  - `--ml-explain`: Generate comprehensive ML explanation
+  - `--ml-baseline <path>`: Path to benign baseline JSON for explanations
+  - `--ml-calibration <path>`: Path to calibration model JSON
+- Updated `Command::Scan` match arm to pass new parameters
+
+**Module Export**:
+- Added `pub mod ml_inference;` to `crates/sis-pdf-core/src/lib.rs`
+
+#### 🚧 Pending (Phase 6.5-6.7)
+
+**Phase 6.5: Complete CLI Integration** (IMMEDIATE NEXT)
+- Update `run_scan()` function signature to accept new ML parameters
+- Integrate `run_ml_inference()` into scan workflow
+- Add ML results to scan output (JSON/JSONL/text)
+- Handle ML errors gracefully (missing models, incompatible features)
+
+**Phase 6.6: Add ML Explanation to Reports**
+- Create `format_ml_explanation_for_report()` function
+- Add ML Analysis section to Markdown reports
+- Include:
+  - Prediction summary with confidence interval
+  - Top contributing features table
+  - Comparative analysis (z-scores)
+  - Decision factors (bullet points)
+  - Evidence chains summary
+- Format for human readability
+
+**Phase 6.7: Test and Commit**
+- Build and test ML inference end-to-end
+- Create test fixtures (model.json, baseline.json, calibration.json)
+- Verify CLI flags work correctly
+- Test with both extended (333) and legacy (35) features
+- Update USAGE.md with ML inference examples
+- Commit Phase 6 implementation
+
+#### Files Modified/Created
+
+**Created**:
+- `crates/sis-pdf-core/src/ml_inference.rs` (315 lines) - Core inference pipeline
+
+**Modified**:
+- `crates/sis-pdf-core/src/lib.rs` - Exported ml_inference module
+- `crates/sis-pdf-core/src/features_extended.rs` - Added from_legacy() method
+- `crates/sis-pdf/src/main.rs` - Added CLI flags (run_scan integration pending)
+
+#### Implementation Notes
+
+**Calibration Support**:
+- Both Platt scaling and isotonic regression implemented
+- JSON format matches Python scripts output (scripts/calibrate.py)
+- Linear interpolation used for isotonic regression bins
+- Graceful fallback to uncalibrated scores if no calibration provided
+
+**Explanation Generation**:
+- Uses existing explainability.rs functions (permutation importance, comparative analysis)
+- Feature attribution computed via model-agnostic permutation
+- Evidence chains link features → findings → byte offsets
+- Decision factors provide human-readable bullet points
+
+**Backwards Compatibility**:
+- Legacy 35-feature models supported via from_legacy() conversion
+- Extended features filled with zeros for legacy mode
+- Recommendation: Use extended features for new models (better signal quality)
+
+---
+
 ### Phase 2-4: Not Started
 - Phase 2: Enhanced IR with Semantic Annotations
 - Phase 3: Enhanced ORG with Graph Paths
 - Phase 4: Document-Level Risk Profile with Calibration
 
-### Phase 6: Next Phase
-- Phase 6: Inference Integration with Comprehensive Explanations
-  - Integrate trained models into CLI and reporting
-  - Use extended features during inference
-  - Generate comprehensive explanations
-  - Wire up calibration models
+**Note**: Phases 2-4 can be implemented in parallel with Phase 6 completion. Phase 6 provides immediate value by enabling ML inference with the completed extended features and training pipeline.
 
 ---
 
