@@ -93,6 +93,14 @@ enum Command {
         ml_threshold: f32,
         #[arg(long, default_value = "traditional", value_parser = ["traditional", "graph"])]
         ml_mode: String,
+        #[arg(long, help = "Use extended 333-feature vector for ML (default with --ml)")]
+        ml_extended_features: bool,
+        #[arg(long, help = "Generate comprehensive ML explanation")]
+        ml_explain: bool,
+        #[arg(long, help = "Path to benign baseline JSON for explanations")]
+        ml_baseline: Option<PathBuf>,
+        #[arg(long, help = "Path to calibration model JSON")]
+        ml_calibration: Option<PathBuf>,
         #[arg(long)]
         no_js_ast: bool,
         #[arg(long)]
@@ -171,6 +179,14 @@ enum Command {
         ml_threshold: f32,
         #[arg(long, default_value = "traditional", value_parser = ["traditional", "graph"])]
         ml_mode: String,
+        #[arg(long, help = "Use extended 333-feature vector for ML (default with --ml)")]
+        ml_extended_features: bool,
+        #[arg(long, help = "Generate comprehensive ML explanation")]
+        ml_explain: bool,
+        #[arg(long, help = "Path to benign baseline JSON for explanations")]
+        ml_baseline: Option<PathBuf>,
+        #[arg(long, help = "Path to calibration model JSON")]
+        ml_calibration: Option<PathBuf>,
         #[arg(long)]
         no_js_ast: bool,
         #[arg(long)]
@@ -316,6 +332,10 @@ fn main() -> Result<()> {
             ml_model_dir,
             ml_threshold,
             ml_mode,
+            ml_extended_features,
+            ml_explain,
+            ml_baseline,
+            ml_calibration,
             no_js_ast,
             no_js_sandbox,
         } => run_scan(
@@ -351,6 +371,10 @@ fn main() -> Result<()> {
             ml_model_dir.as_deref(),
             ml_threshold,
             &ml_mode,
+            ml_extended_features,
+            ml_explain,
+            ml_baseline.as_deref(),
+            ml_calibration.as_deref(),
             !no_js_ast,
             !no_js_sandbox,
         ),
@@ -404,6 +428,10 @@ fn main() -> Result<()> {
             ml_model_dir,
             ml_threshold,
             ml_mode,
+            ml_extended_features,
+            ml_explain,
+            ml_baseline,
+            ml_calibration,
             no_js_ast,
             no_js_sandbox,
         } => run_report(
@@ -422,6 +450,10 @@ fn main() -> Result<()> {
             ml_model_dir.as_deref(),
             ml_threshold,
             &ml_mode,
+            ml_extended_features,
+            ml_explain,
+            ml_baseline.as_deref(),
+            ml_calibration.as_deref(),
             !no_js_ast,
             !no_js_sandbox,
         ),
@@ -531,6 +563,10 @@ fn run_scan(
     ml_model_dir: Option<&std::path::Path>,
     ml_threshold: f32,
     ml_mode: &str,
+    ml_extended_features: bool,
+    ml_explain: bool,
+    ml_baseline: Option<&std::path::Path>,
+    ml_calibration: Option<&std::path::Path>,
     js_ast: bool,
     js_sandbox: bool,
 ) -> Result<()> {
@@ -584,7 +620,14 @@ fn run_scan(
             js_sandbox,
         },
     );
+    let ml_inference_requested = ml_extended_features
+        || ml_explain
+        || ml_baseline.is_some()
+        || ml_calibration.is_some();
     if let Some(dir) = path {
+        if ml_inference_requested {
+            return Err(anyhow!("ML inference is not supported for batch scans"));
+        }
         let batch_parallel = opts.batch_parallel;
         return run_scan_batch(
             dir,
@@ -604,8 +647,30 @@ fn run_scan(
         );
     }
     let pdf = pdf.ok_or_else(|| anyhow!("PDF path is required unless --path is set"))?;
+    let mmap = mmap_file(pdf)?;
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(js_sandbox);
-    let report = run_scan_single(pdf, &opts, &detectors)?.with_sandbox_summary(sandbox_summary);
+    let mut report =
+        run_scan_single(&mmap, pdf, &opts, &detectors)?.with_sandbox_summary(sandbox_summary);
+    if ml_inference_requested {
+        match run_ml_inference_for_scan(
+            &mmap,
+            &opts,
+            &report,
+            ml_model_dir,
+            ml_threshold,
+            ml_extended_features,
+            ml_explain,
+            ml_baseline,
+            ml_calibration,
+        ) {
+            Ok(ml_result) => {
+                report = report.with_ml_inference(Some(ml_result));
+            }
+            Err(err) => {
+                eprintln!("warning: ml_inference_error: {}", err);
+            }
+        }
+    }
     if want_export_intents {
         let mut writer: Box<dyn Write> = if let Some(path) = export_intents_out {
             Box::new(fs::File::create(path)?)
@@ -643,12 +708,62 @@ fn run_scan(
     }
     Ok(())
 }
+
+fn build_scan_context<'a>(
+    mmap: &'a [u8],
+    opts: &sis_pdf_core::scan::ScanOptions,
+) -> Result<sis_pdf_core::scan::ScanContext<'a>> {
+    let graph = sis_pdf_pdf::parse_pdf(
+        mmap,
+        sis_pdf_pdf::ParseOptions {
+            recover_xref: opts.recover_xref,
+            deep: opts.deep,
+            strict: opts.strict,
+            max_objstm_bytes: opts.max_decode_bytes,
+            max_objects: opts.max_objects,
+            max_objstm_total_bytes: opts.max_total_decoded_bytes,
+        },
+    )?;
+    Ok(sis_pdf_core::scan::ScanContext::new(
+        mmap,
+        graph,
+        opts.clone(),
+    ))
+}
+
+fn run_ml_inference_for_scan(
+    mmap: &[u8],
+    opts: &sis_pdf_core::scan::ScanOptions,
+    report: &sis_pdf_core::report::Report,
+    ml_model_dir: Option<&std::path::Path>,
+    ml_threshold: f32,
+    ml_extended_features: bool,
+    ml_explain: bool,
+    ml_baseline: Option<&std::path::Path>,
+    ml_calibration: Option<&std::path::Path>,
+) -> Result<sis_pdf_core::ml_inference::MlInferenceResult> {
+    let model_path = ml_model_dir.ok_or_else(|| anyhow!("--ml-model-dir is required for ML inference"))?;
+    if ml_explain && ml_baseline.is_none() {
+        return Err(anyhow!("--ml-explain requires --ml-baseline"));
+    }
+    let config = sis_pdf_core::ml_inference::MlInferenceConfig {
+        model_path: model_path.to_path_buf(),
+        baseline_path: ml_baseline.map(|p| p.to_path_buf()),
+        calibration_path: ml_calibration.map(|p| p.to_path_buf()),
+        threshold: ml_threshold,
+        explain: ml_explain,
+        use_extended_features: ml_extended_features || ml_explain || ml_baseline.is_some(),
+    };
+    let ctx = build_scan_context(mmap, opts)?;
+    sis_pdf_core::ml_inference::run_ml_inference(&ctx, &report.findings, &config)
+}
+
 fn run_scan_single(
+    mmap: &Mmap,
     pdf: &str,
     opts: &sis_pdf_core::scan::ScanOptions,
     detectors: &[Box<dyn sis_pdf_core::detect::Detector>],
 ) -> Result<sis_pdf_core::report::Report> {
-    let mmap = mmap_file(pdf)?;
     let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), detectors)?
         .with_input_path(Some(pdf.to_string()));
     Ok(report)
@@ -1291,6 +1406,10 @@ fn run_report(
     ml_model_dir: Option<&std::path::Path>,
     ml_threshold: f32,
     ml_mode: &str,
+    ml_extended_features: bool,
+    ml_explain: bool,
+    ml_baseline: Option<&std::path::Path>,
+    ml_calibration: Option<&std::path::Path>,
     js_ast: bool,
     js_sandbox: bool,
 ) -> Result<()> {
@@ -1338,8 +1457,32 @@ fn run_report(
             js_sandbox,
         },
     );
-    let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
+    let mut report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), &detectors)?
         .with_input_path(Some(pdf.to_string()));
+    let ml_inference_requested = ml_extended_features
+        || ml_explain
+        || ml_baseline.is_some()
+        || ml_calibration.is_some();
+    if ml_inference_requested {
+        match run_ml_inference_for_scan(
+            &mmap,
+            &opts,
+            &report,
+            ml_model_dir,
+            ml_threshold,
+            ml_extended_features,
+            ml_explain,
+            ml_baseline,
+            ml_calibration,
+        ) {
+            Ok(ml_result) => {
+                report = report.with_ml_inference(Some(ml_result));
+            }
+            Err(err) => {
+                eprintln!("warning: ml_inference_error: {}", err);
+            }
+        }
+    }
     let md = sis_pdf_core::report::render_markdown(&report, Some(pdf));
     if let Some(path) = out {
         fs::write(path, md)?;

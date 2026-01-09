@@ -33,6 +33,9 @@ JSONL (stream-friendly):
 sis scan suspicious.pdf --jsonl > report.jsonl
 ```
 
+Notes:
+- JSONL output emits one record per finding plus an optional `ml_inference` record if ML inference is requested.
+
 Export network intents for correlation:
 
 ```
@@ -109,6 +112,32 @@ Analysis steps:
 - Use evidence source to decide if you need to inspect raw bytes or decoded output.
 - For file-backed evidence, offsets are absolute in the original PDF.
 - For decoded evidence, consult `origin` spans to map back to raw stream bytes.
+
+## 4c) ML inference and explanations
+
+Run ML inference with a trained model:
+
+```
+sis scan suspicious.pdf --ml-model-dir models/ --ml-extended-features
+```
+
+Run ML inference with explanations (requires a benign baseline):
+
+```
+sis scan suspicious.pdf --ml-model-dir models/ --ml-extended-features --ml-explain --ml-baseline models/benign_baseline.json
+```
+
+Include calibration if available:
+
+```
+sis scan suspicious.pdf --ml-model-dir models/ --ml-extended-features --ml-explain --ml-baseline models/benign_baseline.json --ml-calibration models/calibration.json
+```
+
+Generate a Markdown report with ML inference:
+
+```
+sis report suspicious.pdf --ml-model-dir models/ --ml-extended-features --ml-explain --ml-baseline models/benign_baseline.json
+```
 
 ## 5) Extract JavaScript payloads
 

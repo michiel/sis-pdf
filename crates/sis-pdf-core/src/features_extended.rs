@@ -83,6 +83,26 @@ impl ExtendedFeatureVector {
         vec
     }
 
+    /// Create extended feature vector from legacy feature vector
+    /// All extended features will be zero (use extract_extended_features for full extraction)
+    pub fn from_legacy(legacy: crate::features::FeatureVector) -> Self {
+        Self {
+            legacy,
+            attack_surfaces: AttackSurfaceFeatures::default(),
+            severity_dist: SeverityFeatures::default(),
+            confidence_dist: ConfidenceFeatures::default(),
+            finding_presence: FindingPresenceFeatures::default(),
+            finding_counts: FindingCountFeatures::default(),
+            js_signals: JsSignalFeatures::default(),
+            uri_signals: UriSignalFeatures::default(),
+            content_signals: ContentSignalFeatures::default(),
+            supply_chain: SupplyChainFeatures::default(),
+            structural_anomalies: StructuralAnomalyFeatures::default(),
+            crypto_signals: CryptoFeatures::default(),
+            embedded_content: EmbeddedContentFeatures::default(),
+        }
+    }
+
     /// Get feature names (320 names)
     pub fn feature_names() -> Vec<String> {
         let mut names = crate::features::feature_names()
