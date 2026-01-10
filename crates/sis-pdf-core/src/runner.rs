@@ -369,6 +369,7 @@ pub fn run_scan_with_detectors(
         }
     }
     annotate_positions(&ctx, &mut findings);
+    annotate_orphaned_page_context(&mut findings);
     let intent_summary = Some(crate::intent::apply_intent(&mut findings));
     let yara_rules = crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());
     findings.sort_by(|a, b| (a.surface as u32, &a.kind, &a.id).cmp(&(b.surface as u32, &b.kind, &b.id)));
@@ -464,6 +465,80 @@ fn annotate_positions(ctx: &ScanContext, findings: &mut [Finding]) {
             finding.positions = positions;
         }
     }
+}
+
+fn annotate_orphaned_page_context(findings: &mut [Finding]) {
+    let mut suspicious_by_obj: HashMap<String, Vec<String>> = HashMap::new();
+    for finding in findings.iter() {
+        if !is_suspicious_orphan_payload(finding) {
+            continue;
+        }
+        for obj in &finding.objects {
+            if let Some((obj_id, gen_id)) = position::parse_obj_ref(obj) {
+                let key = format!("{} {}", obj_id, gen_id);
+                suspicious_by_obj
+                    .entry(key)
+                    .or_default()
+                    .push(finding.id.clone());
+            }
+        }
+    }
+
+    for finding in findings.iter_mut() {
+        if finding.kind != "page_tree_mismatch" {
+            continue;
+        }
+        if finding
+            .meta
+            .get("page_tree.orphaned")
+            .map(|v| v == "0")
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        let mut related = Vec::new();
+        for obj in &finding.objects {
+            let Some((obj_id, gen_id)) = position::parse_obj_ref(obj) else {
+                continue;
+            };
+            let key = format!("{} {}", obj_id, gen_id);
+            if let Some(ids) = suspicious_by_obj.get(&key) {
+                related.extend(ids.iter().cloned());
+            }
+        }
+        related.sort();
+        related.dedup();
+        if !related.is_empty() {
+            finding
+                .meta
+                .insert("page_tree.orphaned_has_payload".into(), "true".into());
+            finding.meta.insert(
+                "page_tree.orphaned_payload_count".into(),
+                related.len().to_string(),
+            );
+            let list = related.into_iter().take(8).collect::<Vec<_>>().join(", ");
+            finding
+                .meta
+                .insert("page_tree.orphaned_payload_findings".into(), list);
+        }
+    }
+}
+
+fn is_suspicious_orphan_payload(finding: &Finding) -> bool {
+    if finding.kind == "page_tree_mismatch" || finding.kind == "page_tree_cycle" {
+        return false;
+    }
+    matches!(
+        finding.surface,
+        crate::model::AttackSurface::JavaScript
+            | crate::model::AttackSurface::Actions
+            | crate::model::AttackSurface::EmbeddedFiles
+            | crate::model::AttackSurface::ContentPhishing
+            | crate::model::AttackSurface::RichMedia3D
+    ) || finding.kind.contains("js_")
+        || finding.kind.contains("uri_")
+        || finding.kind.contains("embedded")
+        || finding.kind.contains("launch")
 }
 
 fn raw_node_preview(

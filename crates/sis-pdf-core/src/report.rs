@@ -1732,42 +1732,412 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
     }
 }
 
+fn severity_score(sev: Severity) -> u8 {
+    match sev {
+        Severity::Critical => 5,
+        Severity::High => 4,
+        Severity::Medium => 3,
+        Severity::Low => 2,
+        Severity::Info => 1,
+    }
+}
+
+fn confidence_score(conf: crate::model::Confidence) -> u8 {
+    match conf {
+        crate::model::Confidence::Strong => 3,
+        crate::model::Confidence::Probable => 2,
+        crate::model::Confidence::Heuristic => 1,
+    }
+}
+
+fn attack_surface_label(surface: AttackSurface) -> &'static str {
+    match surface {
+        AttackSurface::FileStructure => "File structure",
+        AttackSurface::XRefTrailer => "XRef and trailers",
+        AttackSurface::ObjectStreams => "Object streams",
+        AttackSurface::StreamsAndFilters => "Streams and filters",
+        AttackSurface::Actions => "Actions",
+        AttackSurface::JavaScript => "JavaScript",
+        AttackSurface::Forms => "Forms",
+        AttackSurface::EmbeddedFiles => "Embedded files",
+        AttackSurface::RichMedia3D => "Rich media and 3D",
+        AttackSurface::CryptoSignatures => "Cryptographic signatures",
+        AttackSurface::Metadata => "Metadata",
+        AttackSurface::ContentPhishing => "Content and phishing",
+    }
+}
+
+fn join_list(items: &[String]) -> String {
+    match items.len() {
+        0 => "-".into(),
+        1 => items[0].clone(),
+        _ => items.join(", "),
+    }
+}
+
+fn keyword_match(f: &Finding, keywords: &[&str]) -> bool {
+    let text = format!("{} {} {}", f.kind, f.title, f.description).to_lowercase();
+    keywords.iter().any(|kw| text.contains(kw))
+}
+
+fn top_findings<'a>(findings: &'a [Finding], limit: usize) -> Vec<&'a Finding> {
+    let mut ranked: Vec<&Finding> = findings.iter().collect();
+    ranked.sort_by(|a, b| {
+        severity_score(b.severity)
+            .cmp(&severity_score(a.severity))
+            .then_with(|| confidence_score(b.confidence).cmp(&confidence_score(a.confidence)))
+            .then_with(|| a.title.cmp(&b.title))
+    });
+    ranked.truncate(limit);
+    ranked
+}
+
+fn verdict_label(report: &Report) -> (String, String) {
+    let mut verdict = "Benign".to_string();
+    let mut confidence = "low".to_string();
+
+    let ml_signal = report
+        .ml_inference
+        .as_ref()
+        .map(|ml| (ml.prediction.label, ml.prediction.calibrated_score, ml.prediction.threshold))
+        .or_else(|| {
+            report.ml_summary.as_ref().and_then(|ml| {
+                ml.graph
+                    .as_ref()
+                    .map(|run| (run.label, run.score, run.threshold))
+                    .or_else(|| {
+                        ml.traditional
+                            .as_ref()
+                            .map(|run| (run.label, run.score, run.threshold))
+                    })
+            })
+        });
+
+    if let Some((label, score, threshold)) = ml_signal {
+        if label {
+            verdict = "Malicious".to_string();
+            confidence = if score - threshold >= 0.15 {
+                "high".to_string()
+            } else {
+                "medium".to_string()
+            };
+            return (verdict, confidence);
+        }
+    }
+
+    if report.summary.high > 0 {
+        verdict = "Suspicious".to_string();
+        confidence = "high".to_string();
+    } else if report.summary.medium > 0 {
+        verdict = "Suspicious".to_string();
+        confidence = "medium".to_string();
+    } else if report.summary.low > 0 || report.summary.info > 0 {
+        verdict = "Benign".to_string();
+        confidence = "low".to_string();
+    }
+
+    (verdict, confidence)
+}
+
+fn build_recommendations(report: &Report) -> Vec<String> {
+    let mut steps = Vec::new();
+    let has_js = report
+        .findings
+        .iter()
+        .any(|f| f.surface == AttackSurface::JavaScript);
+    let has_embedded = report.findings.iter().any(|f| {
+        f.surface == AttackSurface::EmbeddedFiles || f.surface == AttackSurface::RichMedia3D
+    });
+    let polyglot_flag = report
+        .structural_summary
+        .as_ref()
+        .map(|s| s.polyglot_risk)
+        .unwrap_or(false)
+        || report
+            .findings
+            .iter()
+            .any(|f| keyword_match(f, &["polyglot"]));
+
+    if has_js {
+        if let Some(summary) = report.sandbox_summary.as_ref() {
+            if !summary.enabled {
+                steps.push(
+                    "Enable the JavaScript sandbox and re-run to capture dynamic behaviour."
+                        .to_string(),
+                );
+            } else {
+                steps.push(
+                    "Review extracted JavaScript payloads with static and dynamic analysis."
+                        .to_string(),
+                );
+            }
+        } else {
+            steps.push(
+                "Review extracted JavaScript payloads with static and dynamic analysis.".to_string(),
+            );
+        }
+    }
+    if has_embedded {
+        steps.push("Extract embedded files and scan them separately.".to_string());
+    }
+    if report
+        .structural_summary
+        .as_ref()
+        .map(|s| !s.deep_scan)
+        .unwrap_or(false)
+    {
+        steps.push("Re-run with `sis scan --deep` to reconcile object structure.".to_string());
+    }
+    if polyglot_flag {
+        steps.push("Validate file type integrity and strip trailing data before distribution.".to_string());
+    }
+    if !report.chains.is_empty() {
+        steps.push("Review chain analysis for likely execution paths.".to_string());
+    }
+    if report.summary.high > 0 {
+        steps.push("Quarantine the file until the findings are cleared.".to_string());
+    }
+
+    steps.truncate(4);
+    steps
+}
+
+fn build_id_map(report: &Report) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    let mut used = BTreeSet::new();
+    for f in &report.findings {
+        let long = f.id.clone();
+        let short = shorten_id(&long, &mut used);
+        map.insert(long, short);
+    }
+    for chain in &report.chains {
+        let long = chain.id.clone();
+        let short = shorten_id(&long, &mut used);
+        map.insert(long, short);
+    }
+    map
+}
+
+fn shorten_id(long: &str, used: &mut BTreeSet<String>) -> String {
+    if long.len() <= 14 {
+        used.insert(long.to_string());
+        return long.to_string();
+    }
+    if let Some(rest) = long.strip_prefix("sis-") {
+        for len in [8usize, 12, 16, rest.len()] {
+            let slice_len = len.min(rest.len());
+            let candidate = format!("sis-{}", &rest[..slice_len]);
+            if used.insert(candidate.clone()) {
+                return candidate;
+            }
+        }
+    } else {
+        for len in [8usize, 12, 16, long.len()] {
+            let slice_len = len.min(long.len());
+            let candidate = long[..slice_len].to_string();
+            if used.insert(candidate.clone()) {
+                return candidate;
+            }
+        }
+    }
+    long.to_string()
+}
+
+fn display_id(id: &str, id_map: &BTreeMap<String, String>) -> String {
+    id_map.get(id).cloned().unwrap_or_else(|| id.to_string())
+}
+
+fn replace_ids(text: &str, id_map: &BTreeMap<String, String>) -> String {
+    let mut out = text.to_string();
+    for (long, short) in id_map {
+        if long != short {
+            out = out.replace(long, short);
+        }
+    }
+    out
+}
+
+fn render_finding_list(
+    out: &mut String,
+    findings: &[&Finding],
+    limit: usize,
+    id_map: &BTreeMap<String, String>,
+) {
+    if findings.is_empty() {
+        out.push_str("- No findings recorded.\n\n");
+        return;
+    }
+    out.push_str(&format!("- Findings: {}\n", findings.len()));
+    for f in findings.iter().take(limit) {
+        out.push_str(&format!(
+            "- {}: {} (severity {:?}, confidence {:?})\n",
+            escape_markdown(&display_id(&f.id, id_map)),
+            escape_markdown(&f.title),
+            f.severity,
+            f.confidence
+        ));
+    }
+    if findings.len() > limit {
+        out.push_str(&format!(
+            "- Additional findings: {} more (see Appendix)\n",
+            findings.len() - limit
+        ));
+    }
+    out.push('\n');
+}
+
 pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     let mut out = String::new();
-    out.push_str("# sis-pdf Report\n\n");
-    out.push_str("## Summary\n\n");
+    let id_map = build_id_map(report);
+    out.push_str("# Summary\n\n");
+    let (verdict, verdict_confidence) = verdict_label(report);
     out.push_str(&format!(
-        "- Total findings: {}\n- High: {}\n- Medium: {}\n- Low: {}\n- Info: {}\n\n",
-        report.summary.total,
-        report.summary.high,
-        report.summary.medium,
-        report.summary.low,
-        report.summary.info
+        "- Verdict: {} (confidence {})\n",
+        verdict, verdict_confidence
     ));
-    if let Some((risk, sigs)) = polyglot_summary(&report.findings) {
-        let line = if sigs.is_empty() {
-            risk
-        } else {
-            format!("{} ({})", risk, sigs.join(", "))
-        };
+    if report.summary.total > 0 {
+        let mut domains = BTreeSet::new();
+        for f in &report.findings {
+            domains.insert(attack_surface_label(f.surface).to_string());
+        }
+        let domain_list: Vec<String> = domains.into_iter().collect();
         out.push_str(&format!(
-            "- Polyglot risk: {}\n\n",
-            escape_markdown(&line)
+            "- Findings: {} total (high {}, medium {}, low {}, info {}) across {}\n",
+            report.summary.total,
+            report.summary.high,
+            report.summary.medium,
+            report.summary.low,
+            report.summary.info,
+            join_list(&domain_list)
+        ));
+        let key_findings = top_findings(&report.findings, 3);
+        if !key_findings.is_empty() {
+            let summary = key_findings
+                .iter()
+                .map(|f| format!("{} ({})", f.title, display_id(&f.id, &id_map)))
+                .collect::<Vec<String>>()
+                .join("; ");
+            out.push_str(&format!(
+                "- Key findings: {}\n",
+                escape_markdown(&summary)
+            ));
+        }
+        let mut impacts = Vec::new();
+        for f in key_findings {
+            let impact = f
+                .meta
+                .get("impact")
+                .cloned()
+                .unwrap_or_else(|| impact_for_finding(f));
+            if !impacts.contains(&impact) {
+                impacts.push(impact);
+            }
+        }
+        if !impacts.is_empty() {
+            out.push_str(&format!(
+                "- Impact: {}\n",
+                escape_markdown(&impacts.join("; "))
+            ));
+        }
+    } else {
+        out.push_str("- Findings: no findings recorded\n");
+    }
+    let recommendations = build_recommendations(report);
+    if !recommendations.is_empty() {
+        out.push_str(&format!(
+            "- Recommended next steps: {}\n",
+            escape_markdown(&recommendations.join("; "))
+        ));
+    }
+    if let Some(path) = input_path {
+        out.push_str(&format!(
+            "- Input: `{}`\n",
+            escape_markdown(path)
         ));
     }
     if let Some(line) = sandbox_summary_line(report) {
         out.push_str(&format!(
-            "- Sandbox observations: {}\n\n",
+            "- Sandbox observations: {}\n",
             escape_markdown(&line)
         ));
     }
+    out.push('\n');
 
-    if let Some(path) = input_path {
-        out.push_str(&format!("- Input: `{}`\n\n", escape_markdown(path)));
-    }
+    out.push_str("# Findings by scan domain\n\n");
+    out.push_str("## Surface\n\n");
+    let surface_findings: Vec<&Finding> = report
+        .findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.surface,
+                AttackSurface::FileStructure
+                    | AttackSurface::XRefTrailer
+                    | AttackSurface::ObjectStreams
+                    | AttackSurface::StreamsAndFilters
+            )
+        })
+        .collect();
+    let sizing_keywords = [
+        "size",
+        "length",
+        "truncat",
+        "overlap",
+        "gap",
+        "boundary",
+        "offset",
+    ];
+    let sizing_findings: Vec<&Finding> = surface_findings
+        .iter()
+        .copied()
+        .filter(|f| keyword_match(f, &sizing_keywords))
+        .collect();
+    let polyglot_findings: Vec<&Finding> = surface_findings
+        .iter()
+        .copied()
+        .filter(|f| keyword_match(f, &["polyglot"]))
+        .collect();
+    let sizing_ids: BTreeSet<String> = sizing_findings
+        .iter()
+        .map(|f| f.id.clone())
+        .collect();
+    let polyglot_ids: BTreeSet<String> = polyglot_findings
+        .iter()
+        .map(|f| f.id.clone())
+        .collect();
+    let other_surface: Vec<&Finding> = surface_findings
+        .iter()
+        .copied()
+        .filter(|f| !sizing_ids.contains(&f.id) && !polyglot_ids.contains(&f.id))
+        .collect();
 
+    out.push_str("### Sizing\n\n");
+    render_finding_list(&mut out, &sizing_findings, 6, &id_map);
+
+    out.push_str("### Polyglot\n\n");
     if let Some(summary) = &report.structural_summary {
-        out.push_str("## Structural Reconciliation\n\n");
+        if summary.polyglot_risk {
+            let sigs = if summary.polyglot_signatures.is_empty() {
+                "no signatures recorded".to_string()
+            } else {
+                summary.polyglot_signatures.join(", ")
+            };
+            out.push_str(&format!(
+                "- Structural summary indicates polyglot risk ({})\n",
+                escape_markdown(&sigs)
+            ));
+        } else {
+            out.push_str("- Structural summary does not indicate polyglot risk\n");
+        }
+    }
+    render_finding_list(&mut out, &polyglot_findings, 6, &id_map);
+
+    out.push_str("### Other surface findings\n\n");
+    render_finding_list(&mut out, &other_surface, 8, &id_map);
+
+    out.push_str("## Structure\n\n");
+    out.push_str("### Found contents\n\n");
+    if let Some(summary) = &report.structural_summary {
         out.push_str(&format!(
             "- Objects: {} (ObjStm: {}, ratio {:.3})\n",
             summary.object_count, summary.objstm_count, summary.objstm_ratio
@@ -1782,8 +2152,6 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         ));
         if let Some(offset) = summary.header_offset {
             out.push_str(&format!("- Header offset: {}\n", offset));
-        } else {
-            out.push_str("- Header offset: not found\n");
         }
         if let Some(offset) = summary.eof_offset {
             let distance = summary.eof_distance_to_end.unwrap_or(0);
@@ -1791,18 +2159,6 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 "- EOF offset: {} (distance to end {})\n",
                 offset, distance
             ));
-        } else {
-            out.push_str("- EOF offset: not found\n");
-        }
-        if summary.polyglot_risk {
-            let sigs = if summary.polyglot_signatures.is_empty() {
-                "-".into()
-            } else {
-                summary.polyglot_signatures.join(", ")
-            };
-            out.push_str(&format!("- Polyglot risk: yes ({})\n", escape_markdown(&sigs)));
-        } else {
-            out.push_str("- Polyglot risk: no\n");
         }
         if let Some(ir) = &summary.ir_summary {
             out.push_str(&format!(
@@ -1831,12 +2187,258 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         } else {
             out.push_str("- Secondary parser: not run\n");
         }
+    } else {
+        out.push_str("- Structural summary not available\n");
+    }
+    out.push('\n');
+
+    out.push_str("### Content inventory\n\n");
+    let mut inventory: BTreeMap<&'static str, usize> = BTreeMap::new();
+    for f in &report.findings {
+        *inventory.entry(attack_surface_label(f.surface)).or_insert(0) += 1;
+    }
+    if inventory.is_empty() {
+        out.push_str("- No content inventory findings recorded\n\n");
+    } else {
+        for (label, count) in inventory {
+            out.push_str(&format!("- {}: {}\n", label, count));
+        }
         out.push('\n');
     }
 
+    out.push_str("## Content details and analysis\n\n");
+    out.push_str("### JavaScript analysis\n\n");
+    let js_findings: Vec<&Finding> = report
+        .findings
+        .iter()
+        .filter(|f| f.surface == AttackSurface::JavaScript)
+        .collect();
+    if js_findings.is_empty() {
+        out.push_str("- No JavaScript findings recorded\n\n");
+    } else {
+        out.push_str(&format!("- Findings: {}\n", js_findings.len()));
+        let severity_summary = js_findings.iter().fold(
+            Summary {
+                total: 0,
+                high: 0,
+                medium: 0,
+                low: 0,
+                info: 0,
+            },
+            |mut acc, f| {
+                acc.total += 1;
+                match f.severity {
+                    Severity::High | Severity::Critical => acc.high += 1,
+                    Severity::Medium => acc.medium += 1,
+                    Severity::Low => acc.low += 1,
+                    Severity::Info => acc.info += 1,
+                }
+                acc
+            },
+        );
+        out.push_str(&format!(
+            "- Severity breakdown: high {} medium {} low {} info {}\n",
+            severity_summary.high,
+            severity_summary.medium,
+            severity_summary.low,
+            severity_summary.info
+        ));
+        out.push('\n');
+        out.push_str("#### Static analysis\n\n");
+        render_finding_list(&mut out, &js_findings, 6, &id_map);
+        out.push_str("#### Dynamic analysis\n\n");
+        let dynamic_findings: Vec<&Finding> = report
+            .findings
+            .iter()
+            .filter(|f| f.kind.starts_with("js_runtime_") || f.kind.starts_with("js_sandbox_"))
+            .collect();
+        if dynamic_findings.is_empty() {
+            out.push_str("- No dynamic analysis findings recorded\n");
+        } else {
+            render_finding_list(&mut out, &dynamic_findings, 6, &id_map);
+        }
+        let mut calls: Vec<String> = Vec::new();
+        let mut exec_ms: Vec<String> = Vec::new();
+        let mut timeout_ms: Vec<String> = Vec::new();
+        let mut skip_reasons: Vec<String> = Vec::new();
+        let mut risky_calls: Vec<String> = Vec::new();
+        for f in &dynamic_findings {
+            if let Some(value) = f.meta.get("js.runtime.calls") {
+                calls.push(value.clone());
+            }
+            if let Some(value) = f.meta.get("js.sandbox_exec_ms") {
+                exec_ms.push(value.clone());
+            }
+            if let Some(value) = f.meta.get("js.sandbox_timeout_ms") {
+                timeout_ms.push(value.clone());
+            }
+            if let Some(value) = f.meta.get("js.sandbox_skip_reason") {
+                skip_reasons.push(value.clone());
+            }
+            if let Some(value) = f.meta.get("js.runtime.risky_calls") {
+                risky_calls.push(value.clone());
+            }
+        }
+        if !calls.is_empty() {
+            calls.sort();
+            calls.dedup();
+            out.push_str(&format!(
+                "- Observed runtime calls: {}\n",
+                escape_markdown(&calls.join("; "))
+            ));
+        }
+        if !risky_calls.is_empty() {
+            risky_calls.sort();
+            risky_calls.dedup();
+            out.push_str(&format!(
+                "- Runtime risky calls: {}\n",
+                escape_markdown(&risky_calls.join(", "))
+            ));
+        }
+        if !exec_ms.is_empty() {
+            exec_ms.sort();
+            exec_ms.dedup();
+            out.push_str(&format!(
+                "- Sandbox execution time (ms): {}\n",
+                escape_markdown(&exec_ms.join(", "))
+            ));
+        }
+        if !timeout_ms.is_empty() {
+            timeout_ms.sort();
+            timeout_ms.dedup();
+            out.push_str(&format!(
+                "- Sandbox timeout (ms): {}\n",
+                escape_markdown(&timeout_ms.join(", "))
+            ));
+        }
+        if !skip_reasons.is_empty() {
+            skip_reasons.sort();
+            skip_reasons.dedup();
+            out.push_str(&format!(
+                "- Sandbox skip reasons: {}\n",
+                escape_markdown(&skip_reasons.join(", "))
+            ));
+        }
+        if let Some(line) = sandbox_summary_line(report) {
+            out.push_str(&format!(
+                "- Sandbox status: {}\n",
+                escape_markdown(&line)
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("### Fonts\n\n");
+    let font_findings: Vec<&Finding> = report
+        .findings
+        .iter()
+        .filter(|f| keyword_match(f, &["font", "cff", "truetype", "opentype"]))
+        .collect();
+    render_finding_list(&mut out, &font_findings, 6, &id_map);
+
+    out.push_str("### Embedded media\n\n");
+    let embedded_findings: Vec<&Finding> = report
+        .findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.surface,
+                AttackSurface::EmbeddedFiles | AttackSurface::RichMedia3D
+            )
+        })
+        .collect();
+    render_finding_list(&mut out, &embedded_findings, 6, &id_map);
+
+    out.push_str("### Other content analysis\n\n");
+    let other_content: Vec<&Finding> = report
+        .findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.surface,
+                AttackSurface::Actions
+                    | AttackSurface::Forms
+                    | AttackSurface::Metadata
+                    | AttackSurface::ContentPhishing
+                    | AttackSurface::CryptoSignatures
+            )
+        })
+        .collect();
+    render_finding_list(&mut out, &other_content, 8, &id_map);
+
+    out.push_str("## Interactions\n\n");
+    let mut interactions = Vec::new();
+    if let Some(summary) = &report.behavior_summary {
+        for pattern in summary.patterns.iter().take(5) {
+            interactions.push(format!(
+                "Behaviour pattern: {} (severity {:?}) kinds=[{}]",
+                pattern.summary,
+                pattern.severity,
+                pattern.kinds.join(", ")
+            ));
+        }
+    }
+    if !report.chains.is_empty() {
+        for chain in report.chains.iter().take(5) {
+            interactions.push(format!(
+                "Chain {} links {} findings with path {}",
+                display_id(&chain.id, &id_map),
+                chain.findings.len(),
+                replace_ids(&chain.path, &id_map)
+            ));
+        }
+    }
+    if !report.network_intents.is_empty() {
+        interactions.push(format!(
+            "Network intents observed: {}",
+            report.network_intents.len()
+        ));
+    }
+    if let Some(signals) = &report.temporal_signals {
+        interactions.push(format!(
+            "Temporal signals: revisions {} new high-severity {} new findings {} removed {}",
+            signals.revisions,
+            signals.new_high_severity,
+            signals.new_findings.len(),
+            signals.removed_findings.len()
+        ));
+    }
+    if let Some(summary) = &report.intent_summary {
+        if !summary.buckets.is_empty() {
+            let mut buckets = summary.buckets.clone();
+            buckets.sort_by(|a, b| b.score.cmp(&a.score));
+            if let Some(top) = buckets.first() {
+                interactions.push(format!(
+                    "Intent signal: {:?} score {} confidence {:?}",
+                    top.bucket, top.score, top.confidence
+                ));
+            }
+        }
+    }
+    if !report.future_threats.is_empty() {
+        let labels = report
+            .future_threats
+            .iter()
+            .take(3)
+            .map(|t| t.label.clone())
+            .collect::<Vec<_>>();
+        interactions.push(format!(
+            "Predicted threat evolution: {}",
+            labels.join(", ")
+        ));
+    }
+    if interactions.is_empty() {
+        out.push_str("- No cross-domain interactions recorded\n\n");
+    } else {
+        for line in interactions {
+            out.push_str(&format!("- {}\n", escape_markdown(&line)));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("# ML Analysis\n\n");
+    out.push_str("## ML summary\n\n");
     if let Some(ml) = &report.ml_summary {
-        out.push_str("## ML Findings\n\n");
-        out.push_str("### ML Summary\n\n");
         if let Some(mode) = ml_mode_label(ml) {
             out.push_str(&format!(
                 "- Mode: `{}`\n",
@@ -1871,9 +2473,15 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         } else if has_ml_error(&report.findings) {
             out.push_str("- Status: error (see ml_model_error findings)\n");
         }
-        out.push('\n');
+    } else if has_ml_error(&report.findings) {
+        out.push_str("- Status: error (see ml_model_error findings)\n");
+    } else {
+        out.push_str("- ML summary not available\n");
+    }
+    out.push('\n');
 
-        out.push_str("### ML Details\n\n");
+    out.push_str("## ML details\n\n");
+    if let Some(ml) = &report.ml_summary {
         if let Some(mode) = ml_mode_label(ml) {
             if ml_mode_includes_graph(mode) {
                 if let Some(run) = &ml.graph {
@@ -1931,242 +2539,50 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             out.push_str("- Status: error (see ml_model_error findings)\n\n");
         }
     }
-
     if let Some(ml) = &report.ml_inference {
         out.push_str(&format_ml_explanation_for_report(
             ml.explanation.as_ref(),
             &ml.prediction,
         ));
+    } else if report.ml_summary.is_none() {
+        out.push_str("- No ML details recorded\n\n");
     }
 
-    if let Some(signals) = &report.temporal_signals {
-        out.push_str("## Temporal signals\n\n");
-        out.push_str(&format!(
-            "- Revisions: {}\n",
-            signals.revisions
-        ));
-        if signals.new_high_severity > 0 {
-            out.push_str(&format!(
-                "- New high-severity findings: {}\n",
-                signals.new_high_severity
-            ));
-        }
-        if !signals.new_attack_surfaces.is_empty() {
-            out.push_str(&format!(
-                "- New attack surfaces: {}\n",
-                escape_markdown(&signals.new_attack_surfaces.join(", "))
-            ));
-        }
-        if !signals.structural_deltas.is_empty() {
-            out.push_str("- Structural deltas:\n");
-            for delta in signals.structural_deltas.iter().take(5) {
-                out.push_str(&format!(
-                    "  - {}\n",
-                    escape_markdown(delta)
-                ));
-            }
-        }
-        if !signals.new_findings.is_empty() {
-            out.push_str(&format!(
-                "- New findings: {}\n",
-                signals.new_findings.len()
-            ));
-        }
-        if !signals.removed_findings.is_empty() {
-            out.push_str(&format!(
-                "- Removed findings: {}\n",
-                signals.removed_findings.len()
-            ));
-        }
-        out.push('\n');
-    }
-
-    if let Some(resource) = resource_risk_summary(&report.findings) {
-        out.push_str("## Resource Risks\n\n");
-        out.push_str(&format!(
-            "- Embedded files: {}\n- File specs: {}\n- Rich media: {}\n- 3D: {}\n- Sound/Movie: {}\n\n",
-            resource.embedded_files,
-            resource.filespecs,
-            resource.richmedia,
-            resource.three_d,
-            resource.sound_movie
-        ));
-    }
-
-    let runtime_summary = runtime_behavior_summary(&report.findings);
-    if !runtime_summary.is_empty() {
-        out.push_str("## Static Runtime Behavior\n\n");
-        for line in runtime_summary {
-            out.push_str(&format!("- {}\n", escape_markdown(&line)));
-        }
-        out.push('\n');
-    }
-
-    if let Some(summary) = &report.intent_summary {
-        if !summary.buckets.is_empty() {
-            out.push_str("## Intent Summary\n\n");
-            for bucket in &summary.buckets {
-                out.push_str(&format!(
-                    "- {}: score={} confidence={:?} findings={}\n",
-                    escape_markdown(&format!("{:?}", bucket.bucket)),
-                    bucket.score,
-                    bucket.confidence,
-                    bucket.findings.len()
-                ));
-            }
-            out.push('\n');
-            out.push_str("## Intent Details\n\n");
-            for bucket in &summary.buckets {
-                out.push_str(&format!(
-                    "### {:?} — score={} confidence={:?}\n\n",
-                    bucket.bucket, bucket.score, bucket.confidence
-                ));
-                if !bucket.signals.is_empty() {
-                    let mut weights: std::collections::BTreeMap<String, u32> =
-                        std::collections::BTreeMap::new();
-                    for sig in &bucket.signals {
-                        *weights.entry(sig.label.clone()).or_insert(0) += sig.weight;
-                    }
-                    let mut ranked: Vec<(String, u32)> = weights.into_iter().collect();
-                    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-                    out.push_str("**Classification signals**\n\n");
-                    for (label, weight) in ranked.into_iter().take(8) {
-                        out.push_str(&format!(
-                            "- {} (weight {})\n",
-                            escape_markdown(&label),
-                            weight
-                        ));
-                    }
-                    out.push('\n');
-                }
-                out.push_str("**Sequence of events**\n\n");
-                let mut shown = 0usize;
-                for fid in &bucket.findings {
-                    if shown >= 3 {
-                        break;
-                    }
-                    if let Some(f) = report.findings.iter().find(|f| &f.id == fid) {
-                        if let Some(chain) = render_action_chain(f) {
-                            out.push_str(&format!(
-                                "- {}: {}\n",
-                                escape_markdown(&f.id),
-                                escape_markdown(&chain)
-                            ));
-                        } else {
-                            out.push_str(&format!(
-                                "- {}: {}\n",
-                                escape_markdown(&f.id),
-                                escape_markdown(&f.title)
-                            ));
-                        }
-                        shown += 1;
-                    }
-                }
-                if shown == 0 {
-                    out.push_str("- No sequence available\n");
-                }
-                out.push('\n');
-                out.push_str("**Supporting evidence**\n\n");
-                let mut ev_count = 0usize;
-                for fid in &bucket.findings {
-                    if ev_count >= 3 {
-                        break;
-                    }
-                    if let Some(f) = report.findings.iter().find(|f| &f.id == fid) {
-                        for ev in &f.evidence {
-                            if ev_count >= 3 {
-                                break;
-                            }
-                            let origin = ev
-                                .origin
-                                .map(|o| format!("origin={}..{}", o.start, o.end))
-                                .unwrap_or_else(|| "origin=-".into());
-                            out.push_str(&format!(
-                                "- {} source={:?} offset={} length={} {}\n",
-                                escape_markdown(&f.id),
-                                ev.source,
-                                ev.offset,
-                                ev.length,
-                                escape_markdown(&origin)
-                            ));
-                            ev_count += 1;
-                        }
-                    }
-                }
-                if ev_count == 0 {
-                    out.push_str("- No evidence captured\n");
-                }
-                out.push('\n');
-            }
-        }
-    }
-
-    if let Some(summary) = &report.behavior_summary {
-        if !summary.patterns.is_empty() {
-            out.push_str("## Behavior Correlation\n\n");
-            for pattern in &summary.patterns {
-                out.push_str(&format!(
-                    "- {} (severity {:?}) kinds=[{}] objects=[{}]\n",
-                    escape_markdown(&pattern.summary),
-                    pattern.severity,
-                    escape_markdown(&pattern.kinds.join(", ")),
-                    escape_markdown(&pattern.objects.join(", "))
-                ));
-            }
-            out.push('\n');
-        }
-    }
-
-    if !report.future_threats.is_empty() {
-        out.push_str("## Predicted Threat Evolution\n\n");
-        for threat in &report.future_threats {
-            out.push_str(&format!(
-                "- {} (confidence {:.2})\n",
-                escape_markdown(&threat.label),
-                threat.confidence
-            ));
-        }
-        out.push('\n');
-    }
-
-    if !report.network_intents.is_empty() {
-        out.push_str("## Network Intents\n\n");
-        for intent in &report.network_intents {
-            let domain = intent.domain.as_deref().unwrap_or("-");
-            out.push_str(&format!(
-                "- {} (domain {})\n",
-                escape_markdown(&intent.url),
-                escape_markdown(domain)
-            ));
-        }
-        out.push('\n');
-    }
-
-    if !report.response_rules.is_empty() {
-        out.push_str("## Response Rules\n\n");
-        for rule in &report.response_rules {
-            out.push_str(&format!(
-                "- {} (tags: {})\n",
-                escape_markdown(&rule.name),
-                escape_markdown(&rule.tags.join(", "))
-            ));
-        }
-        out.push('\n');
-    }
-
-    if !report.chains.is_empty() {
+    out.push_str("# Chain analysis\n\n");
+    if report.chains.is_empty() {
+        out.push_str("- No chain analysis recorded\n\n");
+    } else {
         let link_edges = build_link_edges(report);
         let position_previews = build_position_preview_map(&report.findings);
-        out.push_str("## Exploit Chain Reconstruction\n\n");
         for chain in &report.chains {
             out.push_str(&format!(
-                "### {} (score {:.2})\n\n",
-                escape_markdown(&chain.id),
+                "## {} (score {:.2})\n\n",
+                escape_markdown(&display_id(&chain.id, &id_map)),
                 chain.score
             ));
             out.push_str(&format!(
                 "- Path: {}\n",
-                escape_markdown(&chain.path)
+                escape_markdown(&replace_ids(&chain.path, &id_map))
+            ));
+            out.push_str(&format!(
+                "- Effect: {}\n",
+                escape_markdown(&chain_effect_summary(chain))
+            ));
+            if let Some(trigger) = &chain.trigger {
+                out.push_str(&format!("- Trigger: `{}`\n", escape_markdown(trigger)));
+            }
+            if let Some(action) = &chain.action {
+                out.push_str(&format!("- Action: `{}`\n", escape_markdown(action)));
+            }
+            if let Some(payload) = &chain.payload {
+                out.push_str(&format!("- Payload: `{}`\n", escape_markdown(payload)));
+            }
+            out.push_str(&format!(
+                "- Narrative: {}\n",
+                escape_markdown(&replace_ids(
+                    &chain_execution_narrative(chain, &report.findings),
+                    &id_map
+                ))
             ));
             if !chain.nodes.is_empty() {
                 out.push_str("- Nodes:\n");
@@ -2179,60 +2595,8 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                     entries.push((node.clone(), preview));
                 }
                 for line in render_aligned_preview_lines(&entries, 40) {
-                    out.push_str(&format!("  - {}\n", escape_markdown(&line)));
+                    out.push_str(&format!("  - `{}`\n", escape_markdown(&line)));
                 }
-                let tree_lines = render_position_tree(&entries, 40);
-                if !tree_lines.is_empty() {
-                    out.push_str("\n- Nodes tree:\n\n```\n");
-                    for line in tree_lines {
-                        out.push_str(&format!("{}\n", escape_control(&line)));
-                    }
-                    out.push_str("```\n");
-                }
-            }
-            if let Some(trigger) = &chain.trigger {
-                out.push_str(&format!("- Trigger: `{}`\n", escape_markdown(trigger)));
-            }
-            if let Some(action) = &chain.action {
-                out.push_str(&format!("- Action: `{}`\n", escape_markdown(action)));
-            }
-            if let Some(payload) = &chain.payload {
-                out.push_str(&format!("- Payload: `{}`\n", escape_markdown(payload)));
-            }
-            out.push_str(&format!(
-                "- Effect: {}\n",
-                escape_markdown(&chain_effect_summary(chain))
-            ));
-            out.push_str(&format!(
-                "- Narrative: {}\n",
-                escape_markdown(&chain_execution_narrative(chain, &report.findings))
-            ));
-            out.push_str(&format!(
-                "- Sandbox observations: {}\n",
-                escape_markdown(&chain_sandbox_observations(
-                    chain,
-                    &report.findings,
-                    report.sandbox_summary.as_ref(),
-                    &{
-                        let mut linked = BTreeSet::new();
-                        for edge in &link_edges {
-                            let in_chain = chain.findings.iter().any(|fid| {
-                                fid == &edge.from || fid == &edge.to
-                            });
-                            if in_chain {
-                                linked.insert(edge.from.clone());
-                                linked.insert(edge.to.clone());
-                            }
-                        }
-                        linked
-                    }
-                ))
-            ));
-            if let Some(target) = chain.notes.get("action.target") {
-                out.push_str(&format!(
-                    "- Action target: {}\n",
-                    escape_markdown(target)
-                ));
             }
             if !chain.reasons.is_empty() {
                 out.push_str("- Score reasons:\n");
@@ -2240,82 +2604,250 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                     out.push_str(&format!("  - {}\n", escape_markdown(reason)));
                 }
             }
+            let linked_findings: BTreeSet<String> = link_edges
+                .iter()
+                .filter(|edge| {
+                    chain.findings.iter().any(|fid| fid == &edge.from || fid == &edge.to)
+                })
+                .flat_map(|edge| [edge.from.clone(), edge.to.clone()])
+                .collect();
+            if !linked_findings.is_empty() {
+                let linked_short = linked_findings
+                    .into_iter()
+                    .map(|fid| display_id(&fid, &id_map))
+                    .collect::<Vec<_>>();
+                out.push_str(&format!(
+                    "- Linked findings: {}\n",
+                    escape_markdown(&linked_short.join(", "))
+                ));
+            }
             out.push('\n');
-            out.push_str("**Findings in chain**\n\n");
-            if chain.findings.is_empty() {
-                out.push_str("- No findings recorded\n\n");
-            } else {
-                for fid in &chain.findings {
-                    if let Some(f) = report.findings.iter().find(|f| &f.id == fid) {
+        }
+    }
+
+    out.push_str("# Appendix\n\n");
+    out.push_str("## List of findings and details\n\n");
+    if report.findings.is_empty() {
+        out.push_str("- No findings recorded\n\n");
+    } else {
+        for f in &report.findings {
+            out.push_str(&format!(
+                "### {} — {}\n\n",
+                escape_markdown(&display_id(&f.id, &id_map)),
+                escape_markdown(&f.title)
+            ));
+            out.push_str(&format!("- Surface: `{:?}`\n", f.surface));
+            out.push_str(&format!("- Kind: `{}`\n", escape_markdown(&f.kind)));
+            out.push_str(&format!("- Severity: `{:?}`\n", f.severity));
+            out.push_str(&format!(
+                "- Impact rating: `{}`\n",
+                impact_rating_for_finding(f)
+            ));
+            out.push_str(&format!("- Confidence: `{:?}`\n", f.confidence));
+            if !f.objects.is_empty() {
+                out.push_str(&format!(
+                    "- Objects: {}\n",
+                    escape_markdown(&f.objects.join(", "))
+                ));
+            }
+            if let Some(position) = &f.position {
+                out.push_str(&format!(
+                    "- Position: `{}`\n",
+                    escape_markdown(position)
+                ));
+            }
+            if f.positions.len() > 1 {
+                out.push_str(&format!(
+                    "- Positions: {}\n",
+                    escape_markdown(&f.positions.join(", "))
+                ));
+            }
+            if f
+                .meta
+                .get("page_tree.orphaned_has_payload")
+                .map(|v| v == "true")
+                .unwrap_or(false)
+            {
+                out.push_str("- Orphaned page contains suspicious content; likely concealment.\n");
+                if let Some(ids) = f.meta.get("page_tree.orphaned_payload_findings") {
+                    out.push_str(&format!(
+                        "- Related findings: {}\n",
+                        escape_markdown(&replace_ids(ids, &id_map))
+                    ));
+                }
+            }
+            if let Some(page) = f.meta.get("page.number") {
+                out.push_str(&format!("- Page: {}\n", escape_markdown(page)));
+            }
+            if let Some(coord) = f.meta.get("content.coord") {
+                out.push_str(&format!("- Coord: {}\n", escape_markdown(coord)));
+            }
+            out.push_str("\n**Description**\n\n");
+            out.push_str(&format!("{}\n\n", escape_markdown(&f.description)));
+            out.push_str("**Runtime effect**\n\n");
+            out.push_str(&format!(
+                "{}\n\n",
+                escape_markdown(&runtime_effect_for_finding(f))
+            ));
+            if let Some(s) = f.meta.get("action.s") {
+                out.push_str("**Action details**\n\n");
+                out.push_str(&format!(
+                    "- Action type: `{}`\n",
+                    escape_markdown(s)
+                ));
+                if let Some(t) = f.meta.get("action.target") {
+                    out.push_str(&format!("- Target: {}\n", escape_markdown(t)));
+                }
+                out.push('\n');
+            }
+            if let Some(payload) = f
+                .meta
+                .get("payload.decoded_preview")
+                .or_else(|| f.meta.get("payload.preview"))
+            {
+                out.push_str("**Payload**\n\n");
+                out.push_str("```\n");
+                out.push_str(&escape_control(payload));
+                out.push_str("\n```\n\n");
+            }
+            if let Some(chain) = render_action_chain(f) {
+                out.push_str("**Action chain**\n\n");
+                out.push_str(&format!(
+                    "{}\n\n",
+                    escape_markdown(&replace_ids(&chain, &id_map))
+                ));
+            }
+            if let Some(behaviour) = render_payload_behaviour(f) {
+                out.push_str("**Payload behaviour**\n\n");
+                out.push_str(&format!(
+                    "{}\n\n",
+                    escape_markdown(&replace_ids(&behaviour, &id_map))
+                ));
+            }
+            let impact = f
+                .meta
+                .get("impact")
+                .cloned()
+                .unwrap_or_else(|| impact_for_finding(f));
+            out.push_str("**Impact**\n\n");
+            out.push_str(&format!("{}\n\n", escape_markdown(&impact)));
+            if let Some(y) = &f.yara {
+                out.push_str("**YARA**\n\n");
+                out.push_str(&format!(
+                    "- Rule: `{}`\n",
+                    escape_markdown(&y.rule_name)
+                ));
+                if !y.tags.is_empty() {
+                    out.push_str(&format!(
+                        "- Tags: {}\n",
+                        escape_markdown(&y.tags.join(", "))
+                    ));
+                }
+                if !y.strings.is_empty() {
+                    out.push_str(&format!(
+                        "- Strings: {}\n",
+                        escape_markdown(&y.strings.join(", "))
+                    ));
+                }
+                if let Some(ns) = &y.namespace {
+                    out.push_str(&format!("- Namespace: {}\n", escape_markdown(ns)));
+                }
+                out.push('\n');
+            }
+            if let Some(rem) = &f.remediation {
+                out.push_str("**Remediation**\n\n");
+                out.push_str(&format!("{}\n\n", escape_markdown(rem)));
+            }
+            if !f.evidence.is_empty() {
+                out.push_str("**Evidence**\n\n");
+                for ev in &f.evidence {
+                    let origin = ev
+                        .origin
+                        .map(|o| format!("origin={}..{}", o.start, o.end))
+                        .unwrap_or_else(|| "origin=-".into());
+                    out.push_str(&format!(
+                        "- source={:?} offset={} length={} {}",
+                        ev.source,
+                        ev.offset,
+                        ev.length,
+                        escape_markdown(&origin)
+                    ));
+                    if let Some(note) = &ev.note {
+                        out.push_str(&format!(" note={}", escape_markdown(note)));
+                    }
+                    out.push('\n');
+                }
+                out.push('\n');
+            }
+            if !f.meta.is_empty() {
+                let mut js_meta: Vec<(&String, &String)> = f
+                    .meta
+                    .iter()
+                    .filter(|(k, _)| k.starts_with("js."))
+                    .collect();
+                js_meta.sort_by(|a, b| a.0.cmp(b.0));
+                let mut other_meta: Vec<(&String, &String)> = f
+                    .meta
+                    .iter()
+                    .filter(|(k, _)| !k.starts_with("js."))
+                    .collect();
+                other_meta.sort_by(|a, b| a.0.cmp(b.0));
+
+                if !other_meta.is_empty() {
+                    out.push_str("**Metadata**\n\n");
+                    out.push_str("| Key | Value |\n");
+                    out.push_str("| --- | ----- |\n");
+                    for (k, v) in other_meta {
                         out.push_str(&format!(
-                            "- {}: {} (surface `{:?}`) [{}]\n",
-                            escape_markdown(&f.id),
-                            escape_markdown(&f.title),
-                            f.surface,
-                            escape_markdown(&render_finding_context(f))
-                        ));
-                    } else {
-                        out.push_str(&format!(
-                            "- {}: (missing finding)\n",
-                            escape_markdown(fid)
+                            "| {} | {} |\n",
+                            escape_markdown(k),
+                            escape_markdown(&escape_control(v))
                         ));
                     }
+                    out.push('\n');
                 }
-                out.push('\n');
+            if !js_meta.is_empty() {
+                let js_meta: Vec<(&String, &String)> = js_meta
+                    .into_iter()
+                    .filter(|(_, v)| v.trim() != "false")
+                    .collect();
+                if !js_meta.is_empty() {
+                    out.push_str("**JavaScript metadata**\n\n");
+                    out.push_str("| Key | Value |\n");
+                    out.push_str("| --- | ----- |\n");
+                    for (k, v) in js_meta {
+                        out.push_str(&format!(
+                            "| {} | {} |\n",
+                            escape_markdown(k),
+                            escape_markdown(&escape_control(v))
+                        ));
+                    }
+                    out.push('\n');
+                }
             }
-            let notes = render_chain_notes(chain);
-            if !notes.is_empty() {
-                out.push_str("**Chain notes**\n\n");
-                for (k, v) in notes.into_iter().take(12) {
-                    out.push_str(&format!(
-                        "- {}: {}\n",
-                        escape_markdown(&k),
-                        escape_markdown(&v)
-                    ));
-                }
-                out.push('\n');
-            }
-            out.push_str("**Link details**\n\n");
-            let mut links = Vec::new();
-            for edge in &link_edges {
-                if chain.findings.iter().any(|fid| fid == &edge.from || fid == &edge.to) {
-                    links.push(edge);
-                }
-            }
-            if links.is_empty() {
-                out.push_str("- No linked findings\n\n");
-            } else {
-                for edge in links.iter().take(12) {
-                    let from_f = report.findings.iter().find(|f| f.id == edge.from);
-                    let to_f = report.findings.iter().find(|f| f.id == edge.to);
-                    let from_title = from_f.map(|f| f.title.as_str()).unwrap_or("unknown");
-                    let to_title = to_f.map(|f| f.title.as_str()).unwrap_or("unknown");
-                    let from_ctx = from_f
-                        .map(render_finding_context)
-                        .unwrap_or_else(|| "-".into());
-                    let to_ctx = to_f
-                        .map(render_finding_context)
-                        .unwrap_or_else(|| "-".into());
-                    out.push_str(&format!(
-                        "- {} ({}) -> {} ({}) via {}\n",
-                        escape_markdown(&edge.from),
-                        escape_markdown(from_title),
-                        escape_markdown(&edge.to),
-                        escape_markdown(to_title),
-                        escape_markdown(&edge.reason)
-                    ));
-                    out.push_str(&format!(
-                        "  - left: {}\n",
-                        escape_markdown(&from_ctx)
-                    ));
-                    out.push_str(&format!(
-                        "  - right: {}\n",
-                        escape_markdown(&to_ctx)
-                    ));
-                }
-                out.push('\n');
             }
         }
+    }
+
+    out.push_str("## Identifier lookup\n\n");
+    let mut id_pairs: Vec<(&String, &String)> = id_map
+        .iter()
+        .filter(|(long, short)| long != short)
+        .collect();
+    id_pairs.sort_by(|a, b| a.1.cmp(b.1).then_with(|| a.0.cmp(b.0)));
+    if id_pairs.is_empty() {
+        out.push_str("- No identifiers were shortened\n\n");
+    } else {
+        out.push_str("| Short | Long |\n");
+        out.push_str("| --- | --- |\n");
+        for (long, short) in id_pairs {
+            out.push_str(&format!(
+                "| {} | {} |\n",
+                escape_markdown(short),
+                escape_markdown(long)
+            ));
+        }
+        out.push('\n');
     }
 
     let strict_findings: Vec<&Finding> = report
@@ -2324,7 +2856,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         .filter(|f| f.kind == "strict_parse_deviation")
         .collect();
     if !strict_findings.is_empty() {
-        out.push_str("## Strict Parse Deviations\n\n");
+        out.push_str("## Strict parse deviations\n\n");
         out.push_str(&format!(
             "- Count: {}\n\n",
             strict_findings.len()
@@ -2332,7 +2864,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         for f in &strict_findings {
             out.push_str(&format!(
                 "- {}: {}\n",
-                escape_markdown(&f.id),
+                escape_markdown(&display_id(&f.id, &id_map)),
                 escape_markdown(&f.title)
             ));
         }
@@ -2364,178 +2896,47 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         out.push('\n');
     }
 
-    out.push_str("## Findings\n\n");
-    for f in &report.findings {
+    out.push_str("## Sis scanner details\n\n");
+    out.push_str(&format!(
+        "- sis-pdf-core version: {}\n",
+        env!("CARGO_PKG_VERSION")
+    ));
+    out.push_str(&format!(
+        "- ML graph feature enabled: {}\n",
+        if cfg!(feature = "ml-graph") { "yes" } else { "no" }
+    ));
+    if let Some(summary) = &report.structural_summary {
         out.push_str(&format!(
-            "### {} — {}\n\n",
-            escape_markdown(&f.title),
-            escape_markdown(&f.id)
+            "- Scan profile: {}\n",
+            if summary.deep_scan { "deep" } else { "triage" }
         ));
-        out.push_str(&format!("- Surface: `{:?}`\n", f.surface));
-        out.push_str(&format!("- Kind: `{}`\n", escape_markdown(&f.kind)));
-        out.push_str(&format!("- Severity: `{:?}`\n", f.severity));
-        out.push_str(&format!(
-            "- Impact rating: `{}`\n",
-            impact_rating_for_finding(f)
-        ));
-        out.push_str(&format!("- Confidence: `{:?}`\n", f.confidence));
-        if !f.objects.is_empty() {
-            out.push_str(&format!(
-                "- Objects: {}\n",
-                escape_markdown(&f.objects.join(", "))
-            ));
-        }
-        if let Some(position) = &f.position {
-            out.push_str(&format!(
-                "- Position: `{}`\n",
-                escape_markdown(position)
-            ));
-        }
-        if f.positions.len() > 1 {
-            out.push_str(&format!(
-                "- Positions: {}\n",
-                escape_markdown(&f.positions.join(", "))
-            ));
-        }
-        if let Some(page) = f.meta.get("page.number") {
-            out.push_str(&format!("- Page: {}\n", escape_markdown(page)));
-        }
-        if let Some(coord) = f.meta.get("content.coord") {
-            out.push_str(&format!("- Coord: {}\n", escape_markdown(coord)));
-        }
-        out.push_str("\n**Description**\n\n");
-        out.push_str(&format!("{}\n\n", escape_markdown(&f.description)));
-        out.push_str("**Runtime Effect**\n\n");
-        out.push_str(&format!(
-            "{}\n\n",
-            escape_markdown(&runtime_effect_for_finding(f))
-        ));
-        if let Some(s) = f.meta.get("action.s") {
-            out.push_str("**Action Details**\n\n");
-            out.push_str(&format!(
-                "- Action type: `{}`\n",
-                escape_markdown(s)
-            ));
-            if let Some(t) = f.meta.get("action.target") {
-                out.push_str(&format!("- Target: {}\n", escape_markdown(t)));
-            }
-            out.push('\n');
-        }
-        if let Some(payload) = f
-            .meta
-            .get("payload.decoded_preview")
-            .or_else(|| f.meta.get("payload.preview"))
-        {
-            out.push_str("**Payload**\n\n");
-            out.push_str("```\n");
-            out.push_str(&escape_control(payload));
-            out.push_str("\n```\n\n");
-        }
-        if let Some(chain) = render_action_chain(f) {
-            out.push_str("**Action Chain**\n\n");
-            out.push_str(&format!("{}\n\n", escape_markdown(&chain)));
-        }
-        if let Some(behaviour) = render_payload_behaviour(f) {
-            out.push_str("**Payload Behaviour**\n\n");
-            out.push_str(&format!("{}\n\n", escape_markdown(&behaviour)));
-        }
-        let impact = f
-            .meta
-            .get("impact")
-            .cloned()
-            .unwrap_or_else(|| impact_for_finding(f));
-        out.push_str("**Impact**\n\n");
-        out.push_str(&format!("{}\n\n", escape_markdown(&impact)));
-        if let Some(y) = &f.yara {
-            out.push_str("**YARA**\n\n");
-            out.push_str(&format!(
-                "- Rule: `{}`\n",
-                escape_markdown(&y.rule_name)
-            ));
-            if !y.tags.is_empty() {
-                out.push_str(&format!(
-                    "- Tags: {}\n",
-                    escape_markdown(&y.tags.join(", "))
-                ));
-            }
-            if !y.strings.is_empty() {
-                out.push_str(&format!(
-                    "- Strings: {}\n",
-                    escape_markdown(&y.strings.join(", "))
-                ));
-            }
-            if let Some(ns) = &y.namespace {
-                out.push_str(&format!("- Namespace: {}\n", escape_markdown(ns)));
-            }
-            out.push('\n');
-        }
-        if let Some(rem) = &f.remediation {
-            out.push_str("**Remediation**\n\n");
-            out.push_str(&format!("{}\n\n", escape_markdown(rem)));
-        }
-        if !f.evidence.is_empty() {
-            out.push_str("**Evidence**\n\n");
-            for ev in &f.evidence {
-                let origin = ev
-                    .origin
-                    .map(|o| format!("origin={}..{}", o.start, o.end))
-                    .unwrap_or_else(|| "origin=-".into());
-                out.push_str(&format!(
-                    "- source={:?} offset={} length={} {}",
-                    ev.source,
-                    ev.offset,
-                    ev.length,
-                    escape_markdown(&origin)
-                ));
-                if let Some(note) = &ev.note {
-                    out.push_str(&format!(" note={}", escape_markdown(note)));
-                }
-                out.push('\n');
-            }
-            out.push('\n');
-        }
-        if !f.meta.is_empty() {
-            let mut js_meta: Vec<(&String, &String)> = f
-                .meta
-                .iter()
-                .filter(|(k, _)| k.starts_with("js."))
-                .collect();
-            js_meta.sort_by(|a, b| a.0.cmp(b.0));
-            let mut other_meta: Vec<(&String, &String)> = f
-                .meta
-                .iter()
-                .filter(|(k, _)| !k.starts_with("js."))
-                .collect();
-            other_meta.sort_by(|a, b| a.0.cmp(b.0));
-
-            if !other_meta.is_empty() {
-                out.push_str("**Metadata**\n\n");
-                out.push_str("| Key | Value |\n");
-                out.push_str("| --- | ----- |\n");
-                for (k, v) in other_meta {
-                    out.push_str(&format!(
-                        "| {} | {} |\n",
-                        escape_markdown(k),
-                        escape_markdown(&escape_control(v))
-                    ));
-                }
-                out.push('\n');
-            }
-            if !js_meta.is_empty() {
-                out.push_str("**JavaScript Metadata**\n\n");
-                out.push_str("| Key | Value |\n");
-                out.push_str("| --- | ----- |\n");
-                for (k, v) in js_meta {
-                    out.push_str(&format!(
-                        "| {} | {} |\n",
-                        escape_markdown(k),
-                        escape_markdown(&escape_control(v))
-                    ));
-                }
-                out.push('\n');
-            }
-        }
     }
+    if let Some(line) = sandbox_summary_line(report) {
+        out.push_str(&format!(
+            "- Sandbox status: {}\n",
+            escape_markdown(&line)
+        ));
+    }
+    out.push('\n');
+
+    out.push_str("## Metadata and timestamps\n\n");
+    if let Some(path) = input_path {
+        out.push_str(&format!(
+            "- Input path: `{}`\n",
+            escape_markdown(path)
+        ));
+    } else {
+        out.push_str("- Input path: not captured\n");
+    }
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    out.push_str(&format!(
+        "- Timestamp (UTC, unix seconds): {}\n",
+        timestamp
+    ));
+    out.push_str("- File metadata: not captured in report output\n");
     out
 }
 
@@ -2544,7 +2945,7 @@ fn format_ml_explanation_for_report(
     prediction: &crate::ml_inference::CalibratedPrediction,
 ) -> String {
     let mut report = String::new();
-    report.push_str("## ML Inference\n\n");
+    report.push_str("### ML inference\n\n");
     report.push_str(&format!(
         "- Score: {:.4}\n- Threshold: {:.4}\n- Label: {} ({})\n- Calibration: `{}`\n",
         prediction.calibrated_score,
@@ -2565,14 +2966,14 @@ fn format_ml_explanation_for_report(
         return report;
     };
 
-    report.push_str("### Summary\n\n");
+    report.push_str("#### Summary\n\n");
     report.push_str(&format!(
         "{}\n\n",
         escape_markdown(&explanation.summary)
     ));
 
     if !explanation.decision_factors.is_empty() {
-        report.push_str("### Decision factors\n\n");
+        report.push_str("#### Decision factors\n\n");
         for factor in explanation.decision_factors.iter().take(10) {
             report.push_str(&format!(
                 "- {}\n",
@@ -2583,7 +2984,7 @@ fn format_ml_explanation_for_report(
     }
 
     if !explanation.feature_attribution.is_empty() {
-        report.push_str("### Top contributing features\n\n");
+        report.push_str("#### Top contributing features\n\n");
         report.push_str("| Feature | Value | Contribution | Baseline |\n");
         report.push_str("| --- | --- | --- | --- |\n");
         for attr in explanation.feature_attribution.iter().take(10) {
@@ -2599,7 +3000,7 @@ fn format_ml_explanation_for_report(
     }
 
     if !explanation.comparative_analysis.is_empty() {
-        report.push_str("### Comparison with benign baseline\n\n");
+        report.push_str("#### Comparison with benign baseline\n\n");
         for comp in explanation.comparative_analysis.iter().take(5) {
             report.push_str(&format!(
                 "- **{}**: {:.2} (benign mean {:.2}, z-score {:.1}) — {}\n",
@@ -2614,7 +3015,7 @@ fn format_ml_explanation_for_report(
     }
 
     if !explanation.evidence_chains.is_empty() {
-        report.push_str("### Evidence chains\n\n");
+        report.push_str("#### Evidence chains\n\n");
         for chain in explanation.evidence_chains.iter().take(5) {
             report.push_str(&format!(
                 "- **{}** -> findings [{}] (spans {})\n",
@@ -2627,7 +3028,7 @@ fn format_ml_explanation_for_report(
     }
 
     if let Some(counterfactual) = &explanation.counterfactual {
-        report.push_str("### Counterfactual changes\n\n");
+        report.push_str("#### Counterfactual changes\n\n");
         report.push_str(&format!(
             "- Target score: {:.2}\n- Achieved score: {:.2}\n",
             counterfactual.target_score,
@@ -2655,7 +3056,7 @@ fn format_ml_explanation_for_report(
     }
 
     if !explanation.feature_interactions.is_empty() {
-        report.push_str("### Feature interactions\n\n");
+        report.push_str("#### Feature interactions\n\n");
         for interaction in explanation.feature_interactions.iter().take(5) {
             report.push_str(&format!(
                 "- {} (score {:.2})\n",
@@ -2667,7 +3068,7 @@ fn format_ml_explanation_for_report(
     }
 
     if let Some(temporal) = &explanation.temporal_analysis {
-        report.push_str("### Temporal analysis\n\n");
+        report.push_str("#### Temporal analysis\n\n");
         report.push_str(&format!(
             "- Trend: {}\n- Score delta: {:.2}\n",
             escape_markdown(&temporal.trend),

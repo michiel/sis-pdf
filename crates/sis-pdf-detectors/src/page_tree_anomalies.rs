@@ -81,10 +81,21 @@ impl Detector for PageTreeManipulationDetector {
                     }
                 })
                 .collect();
-            let orphaned = all_pages.difference(&tree_pages).count();
-            if orphaned > 0 {
+            let orphaned_pages: Vec<ObjRef> = all_pages
+                .difference(&tree_pages)
+                .copied()
+                .collect();
+            if !orphaned_pages.is_empty() {
                 let mut meta = std::collections::HashMap::new();
-                meta.insert("page_tree.orphaned".into(), orphaned.to_string());
+                meta.insert(
+                    "page_tree.orphaned".into(),
+                    orphaned_pages.len().to_string(),
+                );
+                let mut objects = Vec::with_capacity(orphaned_pages.len() + 1);
+                objects.push("page_tree".into());
+                for orphaned in &orphaned_pages {
+                    objects.push(format!("{} {} obj", orphaned.obj, orphaned.gen));
+                }
                 findings.push(Finding {
                     id: String::new(),
                     surface: self.surface(),
@@ -93,7 +104,7 @@ impl Detector for PageTreeManipulationDetector {
                     confidence: Confidence::Probable,
                     title: "Orphaned page objects".into(),
                     description: "Some /Page objects are not reachable from the page tree.".into(),
-                    objects: vec!["page_tree".into()],
+                    objects,
                     evidence: vec![],
                     remediation: Some("Inspect page tree references and catalog root.".into()),
                     meta,
