@@ -19,11 +19,17 @@ const MAX_FOCUS_DEPTH: usize = 64;
 pub struct Config {
     pub profiles: Option<HashMap<String, Profile>>,
     pub scan: Option<ScanConfig>,
+    pub logging: Option<LoggingConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Profile {
     pub scan: Option<ScanConfig>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct LoggingConfig {
+    pub level: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -46,6 +52,12 @@ pub struct ScanConfig {
     pub ml_model: Option<String>,
     pub ml_threshold: Option<f32>,
     pub ml_mode: Option<String>,
+    pub ml_provider: Option<String>,
+    pub ml_provider_order: Option<Vec<String>>,
+    pub ml_ort_dylib: Option<String>,
+    pub ml_quantized: Option<bool>,
+    pub ml_batch_size: Option<usize>,
+    pub ml_provider_info: Option<bool>,
 }
 
 impl Config {
@@ -60,7 +72,12 @@ impl Config {
             }
         }
         let data = fs::read_to_string(path)?;
-        let cfg = serde_yaml::from_str::<Config>(&data)?;
+        let cfg = match path.extension().and_then(|s| s.to_str()) {
+            Some("toml") => toml::from_str::<Config>(&data)?,
+            Some("yaml") | Some("yml") => serde_yaml::from_str::<Config>(&data)?,
+            _ => toml::from_str::<Config>(&data)
+                .or_else(|_| serde_yaml::from_str::<Config>(&data))?,
+        };
         Ok(cfg)
     }
 
@@ -259,6 +276,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
             model_path: model.into(),
             threshold,
             mode,
+            runtime: crate::ml::MlRuntimeConfig::default(),
         });
     } else if let Some(v) = scan.ml_threshold {
         if !(0.0..=1.0).contains(&v) {
@@ -282,6 +300,27 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
             );
         } else if let Some(cfg) = &mut opts.ml_config {
             cfg.threshold = v;
+        }
+    }
+
+    if let Some(cfg) = opts.ml_config.as_mut() {
+        if let Some(provider) = &scan.ml_provider {
+            cfg.runtime.provider = Some(provider.clone());
+        }
+        if let Some(order) = &scan.ml_provider_order {
+            cfg.runtime.provider_order = Some(order.clone());
+        }
+        if let Some(path) = &scan.ml_ort_dylib {
+            cfg.runtime.ort_dylib_path = Some(path.into());
+        }
+        if let Some(prefer) = scan.ml_quantized {
+            cfg.runtime.prefer_quantized = prefer;
+        }
+        if let Some(size) = scan.ml_batch_size {
+            cfg.runtime.max_embedding_batch_size = Some(size);
+        }
+        if let Some(print) = scan.ml_provider_info {
+            cfg.runtime.print_provider = print;
         }
     }
 }

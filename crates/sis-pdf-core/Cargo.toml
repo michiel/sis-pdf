@@ -12,6 +12,7 @@ rayon = "1.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
+toml = "0.8"
 sis-pdf-pdf = { path = "../sis-pdf-pdf" }
 sis-pdf-ml-graph = { path = "../sis-pdf-ml-graph", optional = true }
 tracing = "0.1"

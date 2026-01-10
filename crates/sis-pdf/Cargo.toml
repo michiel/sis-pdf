@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
+dirs = "5.0"
 hex = "0.4"
 memmap2 = "0.9"
 globset = "0.4"
@@ -22,6 +23,7 @@ walkdir = "2.5"
 sis-pdf-core = { path = "../sis-pdf-core" }
 sis-pdf-detectors = { path = "../sis-pdf-detectors" }
 sis-pdf-pdf = { path = "../sis-pdf-pdf" }
+sis-pdf-ml-graph = { path = "../sis-pdf-ml-graph", optional = true }
 
 [features]
-ml-graph = ["sis-pdf-core/ml-graph"]
+ml-graph = ["sis-pdf-core/ml-graph", "sis-pdf-ml-graph"]

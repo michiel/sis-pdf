@@ -16,12 +16,14 @@ pub struct GraphModelConfig {
     pub edge_index: EdgeIndexConfig,
     pub integrity: Option<IntegrityConfig>,
     pub limits: Option<ResourceLimits>,
+    pub runtime: Option<RuntimeConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct EmbeddingConfig {
     pub backend: String,
     pub model_path: String,
+    pub quantized_model_path: Option<String>,
     pub tokenizer_path: String,
     pub max_length: usize,
     pub pooling: String,
@@ -52,6 +54,7 @@ pub struct NormalizeConfig {
 pub struct GraphConfig {
     pub backend: String,
     pub model_path: String,
+    pub quantized_model_path: Option<String>,
     pub input_dim: usize,
     pub output: GraphOutput,
     pub input_names: Option<GraphInputNames>,
@@ -92,9 +95,20 @@ pub struct ResourceLimits {
     pub inference_timeout_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct RuntimeConfig {
+    pub device_preference: Option<String>,
+    pub execution_providers: Option<Vec<String>>,
+    pub ort_dylib_path: Option<String>,
+    pub prefer_quantized: Option<bool>,
+    pub max_embedding_batch_size: Option<usize>,
+}
+
 pub struct ResolvedModelPaths {
     pub embedding_model: PathBuf,
+    pub embedding_quantized: Option<PathBuf>,
     pub graph_model: PathBuf,
+    pub graph_quantized: Option<PathBuf>,
     pub tokenizer: PathBuf,
 }
 
@@ -111,11 +125,21 @@ impl GraphModelConfig {
 
     pub fn resolve_paths(&self, model_dir: &Path) -> Result<ResolvedModelPaths> {
         let embedding_model = resolve_model_path(model_dir, &self.embedding.model_path)?;
+        let embedding_quantized = match self.embedding.quantized_model_path.as_deref() {
+            Some(path) => Some(resolve_model_path(model_dir, path)?),
+            None => None,
+        };
         let graph_model = resolve_model_path(model_dir, &self.graph.model_path)?;
+        let graph_quantized = match self.graph.quantized_model_path.as_deref() {
+            Some(path) => Some(resolve_model_path(model_dir, path)?),
+            None => None,
+        };
         let tokenizer = resolve_model_path(model_dir, &self.embedding.tokenizer_path)?;
         Ok(ResolvedModelPaths {
             embedding_model,
+            embedding_quantized,
             graph_model,
+            graph_quantized,
             tokenizer,
         })
     }

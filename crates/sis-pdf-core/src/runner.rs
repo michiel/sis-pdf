@@ -15,7 +15,7 @@ use sis_pdf_pdf::ir::PdfIrObject;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
 use crate::position;
 use crate::security_log::{SecurityDomain, SecurityEvent};
-use tracing::{debug, error, info, warn, Level};
+use tracing::{debug, info, warn, Level};
 
 const PARALLEL_DETECTOR_THREADS: usize = 4;
 
@@ -307,11 +307,20 @@ pub fn run_scan_with_detectors(
                     let ir_opts = sis_pdf_pdf::ir::IrOptions::default();
                     let ir_graph = crate::ir_pipeline::build_ir_graph(&ctx.graph, &ir_opts);
                     let edge_index = ir_graph.org.edge_index();
-                    let prediction = sis_pdf_ml_graph::load_and_predict(
+                    let runtime = sis_pdf_ml_graph::RuntimeSettings {
+                        provider: ml_cfg.runtime.provider.clone(),
+                        provider_order: ml_cfg.runtime.provider_order.clone(),
+                        ort_dylib_path: ml_cfg.runtime.ort_dylib_path.clone(),
+                        prefer_quantized: ml_cfg.runtime.prefer_quantized,
+                        max_embedding_batch_size: ml_cfg.runtime.max_embedding_batch_size,
+                        print_provider: ml_cfg.runtime.print_provider,
+                    };
+                    let prediction = sis_pdf_ml_graph::load_and_predict_with_runtime(
                         &ml_cfg.model_path,
                         &ir_graph.node_texts,
                         &edge_index,
                         ml_cfg.threshold,
+                        &runtime,
                     );
                     match prediction {
                         Ok(prediction) => {

@@ -6,17 +6,22 @@ use tracing::{error, warn};
 mod config;
 mod normalize;
 mod onnx;
+mod runtime;
 mod tokenizer;
 
 pub use config::{
     embedding_input_names, embedding_timeout_ms, graph_input_names, inference_timeout_ms,
     max_batch_size, max_ir_string_len, GraphModelConfig,
 };
+pub use runtime::{ProviderInfo, RuntimeSettings};
 
 use config::ResolvedModelPaths;
 use config::validate_onnx_safety;
 use onnx::{OnnxEmbedder, OnnxGnn, OutputKind, PoolingStrategy};
+use runtime::{merge_runtime_settings, provider_info};
 use tokenizer::TokenizerWrapper;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Debug, Clone)]
 pub struct GraphPrediction {
@@ -32,6 +37,7 @@ pub struct GraphModelRunner {
     tokenizer: TokenizerWrapper,
     embedder: OnnxEmbedder,
     gnn: OnnxGnn,
+    runtime: RuntimeSettings,
 }
 
 const CHARS_PER_TOKEN: usize = 4;
@@ -39,10 +45,17 @@ const TAIL_MARKER: &str = " <TAIL> ";
 
 impl GraphModelRunner {
     pub fn load(model_dir: &Path) -> Result<Self> {
+        let runtime = RuntimeSettings::default();
+        Self::load_with_runtime(model_dir, &runtime)
+    }
+
+    pub fn load_with_runtime(model_dir: &Path, runtime: &RuntimeSettings) -> Result<Self> {
         let config = GraphModelConfig::load(model_dir)?;
         let paths = config.resolve_paths(model_dir)?;
-        validate_onnx_safety(&paths.embedding_model)?;
-        validate_onnx_safety(&paths.graph_model)?;
+        let runtime = merge_runtime_settings(config.runtime.as_ref(), runtime);
+        let (embedding_path, graph_path) = resolve_model_paths(&paths, &runtime);
+        validate_onnx_safety(&embedding_path)?;
+        validate_onnx_safety(&graph_path)?;
         let tokenizer = TokenizerWrapper::from_path(&paths.tokenizer, config.embedding.max_length)?;
         let pooling = match config.embedding.pooling.as_str() {
             "cls" => PoolingStrategy::Cls,
@@ -50,11 +63,12 @@ impl GraphModelRunner {
             other => return Err(anyhow!("unsupported pooling strategy {}", other)),
         };
         let embedder = OnnxEmbedder::from_path(
-            &paths.embedding_model,
+            &embedding_path,
             embedding_input_names(&config),
             config.embedding.output_name.clone(),
             pooling,
             embedding_timeout_ms(&config),
+            &runtime,
         )?;
         let output_kind = match config.graph.output.kind.as_str() {
             "logit" => OutputKind::Logit,
@@ -62,13 +76,14 @@ impl GraphModelRunner {
             other => return Err(anyhow!("unsupported graph output kind {}", other)),
         };
         let gnn = OnnxGnn::from_path(
-            &paths.graph_model,
+            &graph_path,
             graph_input_names(&config),
             config.graph.output_name.clone(),
             config.graph.node_scores_name.clone(),
             output_kind,
             config.graph.output.apply_sigmoid,
             inference_timeout_ms(&config),
+            &runtime,
         )?;
         Ok(Self {
             config,
@@ -76,6 +91,7 @@ impl GraphModelRunner {
             tokenizer,
             embedder,
             gnn,
+            runtime,
         })
     }
 
@@ -141,7 +157,7 @@ impl GraphModelRunner {
             &normalized,
             self.tokenizer.max_length(),
         );
-        let batch_size = max_batch_size(&self.config);
+        let batch_size = effective_batch_size(&self.config, &self.runtime);
         let embeddings = embed_in_batches(&self.tokenizer, &self.embedder, &compressed, batch_size)?;
         let node_count = embeddings.len();
         edges.retain(|(s, t)| *s < node_count && *t < node_count);
@@ -207,8 +223,31 @@ pub fn load_and_predict(
     edge_index: &[(usize, usize)],
     threshold: f32,
 ) -> Result<GraphPrediction> {
-    let runner = GraphModelRunner::load(model_dir)?;
+    let runtime = RuntimeSettings::default();
+    load_and_predict_with_runtime(model_dir, node_texts, edge_index, threshold, &runtime)
+}
+
+pub fn load_and_predict_with_runtime(
+    model_dir: &Path,
+    node_texts: &[String],
+    edge_index: &[(usize, usize)],
+    threshold: f32,
+    runtime: &RuntimeSettings,
+) -> Result<GraphPrediction> {
+    let runner = load_cached(model_dir, runtime)?;
     runner.predict(node_texts, edge_index, threshold)
+}
+
+pub fn runtime_provider_info(runtime: &RuntimeSettings) -> Result<ProviderInfo> {
+    provider_info(runtime)
+}
+
+pub fn ml_health_check(model_dir: Option<&Path>, runtime: &RuntimeSettings) -> Result<ProviderInfo> {
+    let info = provider_info(runtime)?;
+    if let Some(path) = model_dir {
+        let _ = GraphModelRunner::load_with_runtime(path, runtime)?;
+    }
+    Ok(info)
 }
 
 fn embed_in_batches(
@@ -227,6 +266,61 @@ fn embed_in_batches(
         out.append(&mut embeddings);
     }
     Ok(out)
+}
+
+fn resolve_model_paths(
+    paths: &ResolvedModelPaths,
+    runtime: &RuntimeSettings,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let embedding = if runtime.prefer_quantized {
+        paths.embedding_quantized.clone().unwrap_or_else(|| paths.embedding_model.clone())
+    } else {
+        paths.embedding_model.clone()
+    };
+    let graph = if runtime.prefer_quantized {
+        paths.graph_quantized.clone().unwrap_or_else(|| paths.graph_model.clone())
+    } else {
+        paths.graph_model.clone()
+    };
+    (embedding, graph)
+}
+
+fn effective_batch_size(config: &GraphModelConfig, runtime: &RuntimeSettings) -> usize {
+    if let Some(size) = runtime.max_embedding_batch_size {
+        return size;
+    }
+    max_batch_size(config)
+}
+
+fn load_cached(model_dir: &Path, runtime: &RuntimeSettings) -> Result<Arc<GraphModelRunner>> {
+    static MODEL_CACHE: OnceLock<Mutex<HashMap<String, Arc<GraphModelRunner>>>> = OnceLock::new();
+    let cache = MODEL_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = cache_key(model_dir, runtime);
+    if let Ok(guard) = cache.lock() {
+        if let Some(runner) = guard.get(&key) {
+            return Ok(Arc::clone(runner));
+        }
+    }
+    let runner = Arc::new(GraphModelRunner::load_with_runtime(model_dir, runtime)?);
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(key, Arc::clone(&runner));
+    }
+    Ok(runner)
+}
+
+fn cache_key(model_dir: &Path, runtime: &RuntimeSettings) -> String {
+    let mut parts = vec![model_dir.display().to_string()];
+    if let Some(provider) = &runtime.provider {
+        parts.push(format!("provider={}", provider));
+    }
+    if let Some(order) = &runtime.provider_order {
+        parts.push(format!("order={}", order.join(",")));
+    }
+    if let Some(path) = &runtime.ort_dylib_path {
+        parts.push(format!("ort_dylib={}", path.display()));
+    }
+    parts.push(format!("quantized={}", runtime.prefer_quantized));
+    parts.join("|")
 }
 
 fn compress_texts_for_max_tokens(texts: &[String], max_length: usize) -> Vec<String> {
@@ -267,6 +361,7 @@ mod tests {
             embedding: config::EmbeddingConfig {
                 backend: "onnx".into(),
                 model_path: "embedding.onnx".into(),
+                quantized_model_path: None,
                 tokenizer_path: "tokenizer.json".into(),
                 max_length: 4,
                 pooling: "cls".into(),
@@ -285,6 +380,7 @@ mod tests {
             graph: config::GraphConfig {
                 backend: "onnx".into(),
                 model_path: "graph.onnx".into(),
+                quantized_model_path: None,
                 input_dim: 4,
                 output: config::GraphOutput {
                     kind: "logit".into(),
@@ -301,6 +397,7 @@ mod tests {
             },
             integrity: None,
             limits: None,
+            runtime: None,
         };
         let texts = vec!["/OpenAction name /JS ; $ num 12".into()];
         let normalized = normalize::normalize_ir_texts(&texts, &cfg.embedding.normalize, None);

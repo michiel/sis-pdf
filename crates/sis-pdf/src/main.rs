@@ -30,6 +30,8 @@ struct Args {
 }
 #[derive(Subcommand)]
 enum Command {
+    #[command(subcommand)]
+    Config(ConfigCommand),
     #[command(about = "Scan PDFs for suspicious indicators and report findings")]
     Scan {
         #[arg(value_name = "PDF", required_unless_present = "path")]
@@ -116,6 +118,18 @@ enum Command {
         ml_baseline: Option<PathBuf>,
         #[arg(long, help = "Path to calibration model JSON")]
         ml_calibration: Option<PathBuf>,
+        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        ml_provider: Option<String>,
+        #[arg(long, help = "Comma-separated ML execution provider order override")]
+        ml_provider_order: Option<String>,
+        #[arg(long, help = "Print selected ML execution provider to STDERR")]
+        ml_provider_info: bool,
+        #[arg(long, help = "Path to ONNX Runtime dynamic library")]
+        ml_ort_dylib: Option<PathBuf>,
+        #[arg(long, help = "Prefer quantised ML models when available")]
+        ml_quantized: bool,
+        #[arg(long, help = "Override embedding batch size")]
+        ml_batch_size: Option<usize>,
         #[arg(long)]
         no_js_ast: bool,
         #[arg(long)]
@@ -208,10 +222,39 @@ enum Command {
         ml_baseline: Option<PathBuf>,
         #[arg(long, help = "Path to calibration model JSON")]
         ml_calibration: Option<PathBuf>,
+        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        ml_provider: Option<String>,
+        #[arg(long, help = "Comma-separated ML execution provider order override")]
+        ml_provider_order: Option<String>,
+        #[arg(long, help = "Print selected ML execution provider to STDERR")]
+        ml_provider_info: bool,
+        #[arg(long, help = "Path to ONNX Runtime dynamic library")]
+        ml_ort_dylib: Option<PathBuf>,
+        #[arg(long, help = "Prefer quantised ML models when available")]
+        ml_quantized: bool,
+        #[arg(long, help = "Override embedding batch size")]
+        ml_batch_size: Option<usize>,
         #[arg(long)]
         no_js_ast: bool,
         #[arg(long)]
         no_js_sandbox: bool,
+    },
+    #[command(about = "Validate ML runtime setup and execution providers")]
+    MlHealth {
+        #[arg(long)]
+        ml_model_dir: Option<PathBuf>,
+        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        ml_provider: Option<String>,
+        #[arg(long, help = "Comma-separated ML execution provider order override")]
+        ml_provider_order: Option<String>,
+        #[arg(long, help = "Print selected ML execution provider to STDERR")]
+        ml_provider_info: bool,
+        #[arg(long, help = "Path to ONNX Runtime dynamic library")]
+        ml_ort_dylib: Option<PathBuf>,
+        #[arg(long, help = "Prefer quantised ML models when available")]
+        ml_quantized: bool,
+        #[arg(long, help = "Override embedding batch size")]
+        ml_batch_size: Option<usize>,
     },
     #[command(about = "Export action chains from a scan as DOT or JSON")]
     ExportGraph {
@@ -319,10 +362,33 @@ enum Command {
         out: PathBuf,
     },
 }
+
+#[derive(Subcommand)]
+enum ConfigCommand {
+    #[command(about = "Create a default configuration file")]
+    Init {
+        #[arg(long, help = "Override config path")]
+        path: Option<PathBuf>,
+    },
+    #[command(about = "Validate configuration file")]
+    Verify {
+        #[arg(long, help = "Override config path")]
+        path: Option<PathBuf>,
+    },
+}
 fn main() -> Result<()> {
-    init_tracing();
     let args = Args::parse();
+    let config_path = resolve_config_path_from_args(&args);
+    let log_level = config_path
+        .as_deref()
+        .and_then(|path| sis_pdf_core::config::Config::load(path).ok())
+        .and_then(|cfg| cfg.logging.and_then(|l| l.level));
+    init_tracing(log_level.as_deref());
     match args.command {
+        Command::Config(cmd) => match cmd {
+            ConfigCommand::Init { path } => run_config_init(path.as_deref()),
+            ConfigCommand::Verify { path } => run_config_verify(path.as_deref()),
+        },
         Command::Scan {
             pdf,
             path,
@@ -351,7 +417,7 @@ fn main() -> Result<()> {
             ir,
             max_objects,
             max_recursion_depth,
-            config,
+            config: _,
             profile,
             cache_dir,
             sequential,
@@ -366,6 +432,12 @@ fn main() -> Result<()> {
             temporal_signals,
             ml_baseline,
             ml_calibration,
+            ml_provider,
+            ml_provider_order,
+            ml_provider_info,
+            ml_ort_dylib,
+            ml_quantized,
+            ml_batch_size,
             no_js_ast,
             no_js_sandbox,
         } => run_scan(
@@ -396,7 +468,7 @@ fn main() -> Result<()> {
             ir,
             max_objects,
             max_recursion_depth,
-            config.as_deref(),
+            config_path.as_deref(),
             profile.as_deref(),
             cache_dir.as_deref(),
             sequential,
@@ -411,6 +483,12 @@ fn main() -> Result<()> {
             temporal_signals,
             ml_baseline.as_deref(),
             ml_calibration.as_deref(),
+            ml_provider.as_deref(),
+            ml_provider_order.as_deref(),
+            ml_provider_info,
+            ml_ort_dylib.as_deref(),
+            ml_quantized,
+            ml_batch_size,
             !no_js_ast,
             !no_js_sandbox,
         ),
@@ -471,6 +549,12 @@ fn main() -> Result<()> {
             temporal_signals,
             ml_baseline,
             ml_calibration,
+            ml_provider,
+            ml_provider_order,
+            ml_provider_info,
+            ml_ort_dylib,
+            ml_quantized,
+            ml_batch_size,
             no_js_ast,
             no_js_sandbox,
         } => run_report(
@@ -496,8 +580,31 @@ fn main() -> Result<()> {
             temporal_signals,
             ml_baseline.as_deref(),
             ml_calibration.as_deref(),
+            ml_provider.as_deref(),
+            ml_provider_order.as_deref(),
+            ml_provider_info,
+            ml_ort_dylib.as_deref(),
+            ml_quantized,
+            ml_batch_size,
             !no_js_ast,
             !no_js_sandbox,
+        ),
+        Command::MlHealth {
+            ml_model_dir,
+            ml_provider,
+            ml_provider_order,
+            ml_provider_info,
+            ml_ort_dylib,
+            ml_quantized,
+            ml_batch_size,
+        } => run_ml_health(
+            ml_model_dir.as_deref(),
+            ml_provider.as_deref(),
+            ml_provider_order.as_deref(),
+            ml_provider_info,
+            ml_ort_dylib.as_deref(),
+            ml_quantized,
+            ml_batch_size,
         ),
         Command::ExportGraph {
             pdf,
@@ -557,14 +664,146 @@ fn main() -> Result<()> {
     }
 }
 
-fn init_tracing() {
+fn init_tracing(level: Option<&str>) {
+    let default_level = level.unwrap_or("warn");
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_level));
     let subscriber = tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(std::io::stderr)
         .with_target(false);
     let _ = subscriber.try_init();
+}
+
+fn resolve_config_path_from_args(args: &Args) -> Option<PathBuf> {
+    match &args.command {
+        Command::Scan { config, .. } => resolve_config_path(config.as_deref()),
+        _ => resolve_config_path(None),
+    }
+}
+
+fn resolve_config_path(config: Option<&std::path::Path>) -> Option<PathBuf> {
+    if let Some(path) = config {
+        return Some(path.to_path_buf());
+    }
+    let default_path = default_config_path()?;
+    if default_path.exists() {
+        Some(default_path)
+    } else {
+        None
+    }
+}
+
+fn default_config_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|dir| dir.join("sis").join("config.toml"))
+}
+
+fn run_config_init(path: Option<&std::path::Path>) -> Result<()> {
+    let path = path
+        .map(|p| p.to_path_buf())
+        .or_else(default_config_path)
+        .ok_or_else(|| anyhow!("config path not available on this platform"))?;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    if path.exists() {
+        return Err(anyhow!("config already exists at {}", path.display()));
+    }
+    fs::write(&path, default_config_template())?;
+    println!("Created config at {}", path.display());
+    Ok(())
+}
+
+fn run_config_verify(path: Option<&std::path::Path>) -> Result<()> {
+    let path = path
+        .map(|p| p.to_path_buf())
+        .or_else(default_config_path)
+        .ok_or_else(|| anyhow!("config path not available on this platform"))?;
+    let cfg = sis_pdf_core::config::Config::load(&path)?;
+    let log_level = cfg.logging.and_then(|l| l.level).unwrap_or_else(|| "warn".into());
+    println!("Config ok: {}", path.display());
+    println!("Logging level: {}", log_level);
+    if let Some(scan) = cfg.scan {
+        validate_ml_config(&scan)?;
+    }
+    Ok(())
+}
+
+fn default_config_template() -> &'static str {
+    include_str!("../../../docs/config.toml")
+}
+
+fn validate_ml_config(scan: &sis_pdf_core::config::ScanConfig) -> Result<()> {
+    const ALLOWED_MODES: &[&str] = &["traditional", "graph"];
+    const ALLOWED_PROVIDERS: &[&str] = &[
+        "auto",
+        "cpu",
+        "cuda",
+        "rocm",
+        "migraphx",
+        "directml",
+        "coreml",
+        "onednn",
+        "openvino",
+    ];
+    if let Some(mode) = &scan.ml_mode {
+        let mode = mode.trim().to_lowercase();
+        if !ALLOWED_MODES.contains(&mode.as_str()) {
+            return Err(anyhow!(
+                "invalid ml_mode {} (expected: {})",
+                mode,
+                ALLOWED_MODES.join(", ")
+            ));
+        }
+    }
+    if let Some(threshold) = scan.ml_threshold {
+        if !(0.0..=1.0).contains(&threshold) {
+            return Err(anyhow!(
+                "invalid ml_threshold {} (expected 0.0..=1.0)",
+                threshold
+            ));
+        }
+    }
+    if let Some(provider) = &scan.ml_provider {
+        let provider = provider.trim().to_lowercase();
+        if !ALLOWED_PROVIDERS.contains(&provider.as_str()) {
+            return Err(anyhow!(
+                "invalid ml_provider {} (expected: {})",
+                provider,
+                ALLOWED_PROVIDERS.join(", ")
+            ));
+        }
+        if provider == "rocm" {
+            warn!("ml_provider rocm is deprecated; use migraphx with ROCm builds");
+        }
+    }
+    if let Some(order) = &scan.ml_provider_order {
+        for provider in order {
+            let provider = provider.trim().to_lowercase();
+            if !ALLOWED_PROVIDERS.contains(&provider.as_str()) {
+                return Err(anyhow!(
+                    "invalid ml_provider_order entry {} (expected: {})",
+                    provider,
+                    ALLOWED_PROVIDERS.join(", ")
+                ));
+            }
+            if provider == "rocm" {
+                warn!("ml_provider_order entry rocm is deprecated; use migraphx with ROCm builds");
+            }
+        }
+    }
+    if let Some(batch) = scan.ml_batch_size {
+        if batch == 0 {
+            return Err(anyhow!("invalid ml_batch_size 0 (expected > 0)"));
+        }
+    }
+    if let Some(path) = &scan.ml_ort_dylib {
+        let path = path.trim();
+        if path.is_empty() {
+            return Err(anyhow!("invalid ml_ort_dylib (empty path)"));
+        }
+    }
+    Ok(())
 }
 fn mmap_file(path: &str) -> Result<Mmap> {
     let f = fs::File::open(path)?;
@@ -654,6 +893,12 @@ fn run_scan(
     temporal_signals: bool,
     ml_baseline: Option<&std::path::Path>,
     ml_calibration: Option<&std::path::Path>,
+    ml_provider: Option<&str>,
+    ml_provider_order: Option<&str>,
+    ml_provider_info: bool,
+    ml_ort_dylib: Option<&std::path::Path>,
+    ml_quantized: bool,
+    ml_batch_size: Option<usize>,
     js_ast: bool,
     js_sandbox: bool,
 ) -> Result<()> {
@@ -700,6 +945,14 @@ fn run_scan(
         ir,
         ml_config: None,
     };
+    let runtime_overrides = build_ml_runtime_config(
+        ml_provider,
+        ml_provider_order,
+        ml_provider_info,
+        ml_ort_dylib,
+        ml_quantized,
+        ml_batch_size,
+    );
     if let Some(path) = config {
         let cfg = sis_pdf_core::config::Config::load(path)?;
         cfg.apply(&mut opts, profile);
@@ -710,13 +963,21 @@ fn run_scan(
             model_path: model_dir.to_path_buf(),
             threshold: ml_threshold,
             mode: parse_ml_mode(ml_mode),
+            runtime: runtime_overrides.clone(),
         });
     } else if let Some(dir) = ml_model_dir {
         opts.ml_config = Some(sis_pdf_core::ml::MlConfig {
             model_path: dir.to_path_buf(),
             threshold: ml_threshold,
             mode: parse_ml_mode(ml_mode),
+            runtime: runtime_overrides.clone(),
         });
+    }
+    if let Some(cfg) = opts.ml_config.as_mut() {
+        apply_ml_runtime_overrides(&mut cfg.runtime, &runtime_overrides);
+        if cfg.runtime.print_provider {
+            log_ml_provider_info(&cfg.runtime)?;
+        }
     }
     let want_export_intents = export_intents || export_intents_out.is_some();
     let detectors = sis_pdf_detectors::default_detectors_with_settings(
@@ -1697,6 +1958,12 @@ fn run_report(
     temporal_signals: bool,
     ml_baseline: Option<&std::path::Path>,
     ml_calibration: Option<&std::path::Path>,
+    ml_provider: Option<&str>,
+    ml_provider_order: Option<&str>,
+    ml_provider_info: bool,
+    ml_ort_dylib: Option<&std::path::Path>,
+    ml_quantized: bool,
+    ml_batch_size: Option<usize>,
     js_ast: bool,
     js_sandbox: bool,
 ) -> Result<()> {
@@ -1739,19 +2006,35 @@ fn run_report(
         ml_config: None,
     };
     let mut opts = opts;
+    let runtime_overrides = build_ml_runtime_config(
+        ml_provider,
+        ml_provider_order,
+        ml_provider_info,
+        ml_ort_dylib,
+        ml_quantized,
+        ml_batch_size,
+    );
     if ml {
         let model_dir = ml_model_dir.ok_or_else(|| anyhow!("--ml requires --ml-model-dir"))?;
         opts.ml_config = Some(sis_pdf_core::ml::MlConfig {
             model_path: model_dir.to_path_buf(),
             threshold: ml_threshold,
             mode: parse_ml_mode(ml_mode),
+            runtime: runtime_overrides.clone(),
         });
     } else if let Some(dir) = ml_model_dir {
         opts.ml_config = Some(sis_pdf_core::ml::MlConfig {
             model_path: dir.to_path_buf(),
             threshold: ml_threshold,
             mode: parse_ml_mode(ml_mode),
+            runtime: runtime_overrides.clone(),
         });
+    }
+    if let Some(cfg) = opts.ml_config.as_mut() {
+        apply_ml_runtime_overrides(&mut cfg.runtime, &runtime_overrides);
+        if cfg.runtime.print_provider {
+            log_ml_provider_info(&cfg.runtime)?;
+        }
     }
     let detectors = sis_pdf_detectors::default_detectors_with_settings(
         sis_pdf_detectors::DetectorSettings {
@@ -2403,6 +2686,55 @@ fn run_redteam(target: &str, out: &std::path::Path) -> Result<()> {
     println!("wrote red-team fixture: {}", out.display());
     Ok(())
 }
+
+#[cfg(feature = "ml-graph")]
+fn run_ml_health(
+    ml_model_dir: Option<&std::path::Path>,
+    ml_provider: Option<&str>,
+    ml_provider_order: Option<&str>,
+    ml_provider_info: bool,
+    ml_ort_dylib: Option<&std::path::Path>,
+    ml_quantized: bool,
+    ml_batch_size: Option<usize>,
+) -> Result<()> {
+    let runtime = build_ml_runtime_config(
+        ml_provider,
+        ml_provider_order,
+        ml_provider_info,
+        ml_ort_dylib,
+        ml_quantized,
+        ml_batch_size,
+    );
+    let info = sis_pdf_ml_graph::ml_health_check(ml_model_dir, &sis_pdf_ml_graph::RuntimeSettings {
+        provider: runtime.provider.clone(),
+        provider_order: runtime.provider_order.clone(),
+        ort_dylib_path: runtime.ort_dylib_path.clone(),
+        prefer_quantized: runtime.prefer_quantized,
+        max_embedding_batch_size: runtime.max_embedding_batch_size,
+        print_provider: runtime.print_provider,
+    })?;
+    println!("ML runtime health");
+    println!("Requested providers: {}", info.requested.join(", "));
+    println!("Available providers: {}", info.available.join(", "));
+    println!("Selected provider: {}", info.selected.unwrap_or_else(|| "none".into()));
+    if ml_model_dir.is_some() {
+        println!("Model load: ok");
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "ml-graph"))]
+fn run_ml_health(
+    _ml_model_dir: Option<&std::path::Path>,
+    _ml_provider: Option<&str>,
+    _ml_provider_order: Option<&str>,
+    _ml_provider_info: bool,
+    _ml_ort_dylib: Option<&std::path::Path>,
+    _ml_quantized: bool,
+    _ml_batch_size: Option<usize>,
+) -> Result<()> {
+    Err(anyhow!("ml-health requires the ml-graph feature"))
+}
 fn sanitize_filename(s: &str) -> String {
     s.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
@@ -2616,6 +2948,88 @@ fn magic_type(data: &[u8]) -> String {
     } else {
         "unknown".into()
     }
+}
+
+fn build_ml_runtime_config(
+    provider: Option<&str>,
+    provider_order: Option<&str>,
+    print_provider: bool,
+    ort_dylib: Option<&std::path::Path>,
+    prefer_quantized: bool,
+    batch_size: Option<usize>,
+) -> sis_pdf_core::ml::MlRuntimeConfig {
+    let provider = provider
+        .and_then(|p| {
+            let p = p.trim();
+            if p.is_empty() || p.eq_ignore_ascii_case("auto") {
+                None
+            } else {
+                Some(p.to_string())
+            }
+        });
+    let provider_order = provider_order.map(|s| {
+        s.split(',')
+            .map(|p| p.trim())
+            .filter(|p| !p.is_empty())
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+    });
+    sis_pdf_core::ml::MlRuntimeConfig {
+        provider,
+        provider_order,
+        ort_dylib_path: ort_dylib.map(|p| p.to_path_buf()),
+        prefer_quantized,
+        max_embedding_batch_size: batch_size,
+        print_provider,
+    }
+}
+
+fn apply_ml_runtime_overrides(
+    runtime: &mut sis_pdf_core::ml::MlRuntimeConfig,
+    overrides: &sis_pdf_core::ml::MlRuntimeConfig,
+) {
+    if overrides.provider.is_some() {
+        runtime.provider = overrides.provider.clone();
+    }
+    if overrides.provider_order.is_some() {
+        runtime.provider_order = overrides.provider_order.clone();
+    }
+    if overrides.ort_dylib_path.is_some() {
+        runtime.ort_dylib_path = overrides.ort_dylib_path.clone();
+    }
+    if overrides.prefer_quantized {
+        runtime.prefer_quantized = true;
+    }
+    if overrides.max_embedding_batch_size.is_some() {
+        runtime.max_embedding_batch_size = overrides.max_embedding_batch_size;
+    }
+    if overrides.print_provider {
+        runtime.print_provider = true;
+    }
+}
+
+#[cfg(feature = "ml-graph")]
+fn log_ml_provider_info(runtime: &sis_pdf_core::ml::MlRuntimeConfig) -> Result<()> {
+    let info = sis_pdf_ml_graph::runtime_provider_info(&sis_pdf_ml_graph::RuntimeSettings {
+        provider: runtime.provider.clone(),
+        provider_order: runtime.provider_order.clone(),
+        ort_dylib_path: runtime.ort_dylib_path.clone(),
+        prefer_quantized: runtime.prefer_quantized,
+        max_embedding_batch_size: runtime.max_embedding_batch_size,
+        print_provider: runtime.print_provider,
+    })?;
+    warn!(
+        requested = %info.requested.join(","),
+        available = %info.available.join(","),
+        selected = %info.selected.clone().unwrap_or_else(|| "none".into()),
+        "ML execution provider selection"
+    );
+    Ok(())
+}
+
+#[cfg(not(feature = "ml-graph"))]
+fn log_ml_provider_info(_runtime: &sis_pdf_core::ml::MlRuntimeConfig) -> Result<()> {
+    Err(anyhow!("ml-provider-info requires the ml-graph feature"))
 }
 fn parse_ml_mode(value: &str) -> sis_pdf_core::ml::MlMode {
     match value.to_lowercase().as_str() {

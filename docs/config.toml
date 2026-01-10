@@ -1,0 +1,44 @@
+# sis configuration (TOML)
+# Default path (when --config is not supplied):
+# - Linux:   ~/.config/sis/config.toml
+# - macOS:   ~/Library/Application Support/sis/config.toml
+# - Windows: %APPDATA%\sis\config.toml
+
+[logging]
+# Default log level if RUST_LOG is unset (trace, debug, info, warn, error)
+level = "warn"
+
+[scan]
+# Core scan behaviour
+# deep = false
+# strict = false
+# fast = false
+# diff_parser = false
+# parallel = false
+# batch_parallel = true
+# recover_xref = true
+# ir = false
+
+# Limits
+# max_decode_bytes = 33554432
+# max_total_decoded_bytes = 268435456
+# max_objects = 500000
+# max_recursion_depth = 64
+# focus_depth = 5
+
+# YARA scope
+# yara_scope = "high"
+
+# ML defaults
+# ml_model = "models/"
+# ml_threshold = 0.9
+# ml_mode = "traditional" # traditional or graph
+# ml_provider = "auto"    # auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino
+# ml_provider_order = ["directml", "cuda", "cpu"]
+# ml_ort_dylib = "/path/to/onnxruntime.dll"
+# Linux (ROCm) example:
+# ml_provider = "migraphx"
+# ml_ort_dylib = "/opt/rocm/lib/libonnxruntime.so"
+# ml_quantized = false
+# ml_batch_size = 32
+# ml_provider_info = false

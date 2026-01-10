@@ -19,6 +19,17 @@ pub struct MlConfig {
     pub model_path: PathBuf,
     pub threshold: f32,
     pub mode: MlMode,
+    pub runtime: MlRuntimeConfig,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MlRuntimeConfig {
+    pub provider: Option<String>,
+    pub provider_order: Option<Vec<String>>,
+    pub ort_dylib_path: Option<PathBuf>,
+    pub prefer_quantized: bool,
+    pub max_embedding_batch_size: Option<usize>,
+    pub print_provider: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

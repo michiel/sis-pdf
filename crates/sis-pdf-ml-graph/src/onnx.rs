@@ -1,9 +1,12 @@
 use std::time::{Duration, Instant};
+use std::sync::Mutex;
 
 use anyhow::{anyhow, Result};
-use tract_onnx::prelude::*;
+use ort::session::Session;
+use ort::value::Tensor;
 
 use crate::config::{EmbeddingInputNames, GraphInputNames};
+use crate::runtime::{ensure_ort_initialised, execution_providers, RuntimeSettings};
 use crate::tokenizer::TokenizedBatch;
 
 #[derive(Debug, Clone, Copy)]
@@ -19,7 +22,7 @@ pub enum OutputKind {
 }
 
 pub struct OnnxEmbedder {
-    model: TypedSimplePlan<TypedModel>,
+    session: Mutex<Session>,
     input_names: EmbeddingInputNames,
     output_name: Option<String>,
     pooling: PoolingStrategy,
@@ -27,7 +30,7 @@ pub struct OnnxEmbedder {
 }
 
 pub struct OnnxGnn {
-    model: TypedSimplePlan<TypedModel>,
+    session: Mutex<Session>,
     input_names: GraphInputNames,
     output_name: Option<String>,
     node_scores_name: Option<String>,
@@ -43,13 +46,12 @@ impl OnnxEmbedder {
         output_name: Option<String>,
         pooling: PoolingStrategy,
         timeout_ms: u64,
+        runtime: &RuntimeSettings,
     ) -> Result<Self> {
-        let model = tract_onnx::onnx()
-            .model_for_path(path)?
-            .into_optimized()?
-            .into_runnable()?;
+        ensure_ort_initialised(runtime)?;
+        let session = build_session(path, runtime)?;
         Ok(Self {
-            model,
+            session: Mutex::new(session),
             input_names,
             output_name,
             pooling,
@@ -57,94 +59,62 @@ impl OnnxEmbedder {
         })
     }
 
-    #[cfg(test)]
-    pub fn from_plan(
-        model: TypedSimplePlan<TypedModel>,
-        input_names: EmbeddingInputNames,
-        output_name: Option<String>,
-        pooling: PoolingStrategy,
-    ) -> Self {
-        Self {
-            model,
-            input_names,
-            output_name,
-            pooling,
-            timeout: Duration::from_millis(1_000),
-        }
-    }
-
     pub fn embed_batch(&self, batch: &TokenizedBatch) -> Result<Vec<Vec<f32>>> {
         let start = Instant::now();
         let inputs = self.build_inputs(batch)?;
-        let outputs = self.model.run(inputs)?;
+        let mut guard = self.session.lock().map_err(|_| anyhow!("embedding session lock poisoned"))?;
+        let outputs = guard.run(inputs)?;
         if start.elapsed() > self.timeout {
             return Err(anyhow!("embedding timeout exceeded"));
         }
-        self.extract_embeddings(&outputs, batch)
-    }
-
-    fn build_inputs(&self, batch: &TokenizedBatch) -> Result<TVec<TValue>> {
-        let mut ordered: Vec<(String, Tensor)> = Vec::new();
-        if let Some(name) = &self.input_names.input_ids {
-            ordered.push((
-                name.clone(),
-                Tensor::from_shape(&[batch.batch, batch.seq_len], &batch.input_ids)?,
-            ));
-        }
-        if let Some(name) = &self.input_names.attention_mask {
-            ordered.push((
-                name.clone(),
-                Tensor::from_shape(&[batch.batch, batch.seq_len], &batch.attention_mask)?,
-            ));
-        }
-        if let Some(name) = &self.input_names.token_type_ids {
-            ordered.push((
-                name.clone(),
-                Tensor::from_shape(&[batch.batch, batch.seq_len], &batch.token_type_ids)?,
-            ));
-        }
-        build_inputs_for_model(&self.model, &ordered)
-    }
-
-    fn extract_embeddings(&self, outputs: &TVec<TValue>, batch: &TokenizedBatch) -> Result<Vec<Vec<f32>>> {
-        let output = pick_output_tensor(&self.model, outputs, self.output_name.as_deref())?;
-        let view = output.to_array_view::<f32>()?;
-        let shape = view.shape();
+        let output = match self.output_name.as_deref() {
+            Some(name) => outputs
+                .get(name)
+                .ok_or_else(|| anyhow!("output {} not found", name))?,
+            None => {
+                if outputs.len() == 0 {
+                    return Err(anyhow!("no outputs found"));
+                }
+                &outputs[0]
+            }
+        };
+        let (shape, data) = output.try_extract_tensor::<f32>()?;
+        let shape = &shape[..];
         if shape.len() == 2 {
-            let dim = shape[1];
+            let dim = shape[1] as usize;
             let mut out = Vec::with_capacity(batch.batch);
             for b in 0..batch.batch {
-                let mut row = Vec::with_capacity(dim);
-                for d in 0..dim {
-                    row.push(view[[b, d]]);
-                }
-                out.push(row);
+                let offset = b * dim;
+                out.push(data[offset..offset + dim].to_vec());
             }
             return Ok(out);
         }
         if shape.len() != 3 {
             return Err(anyhow!("unexpected embedding output shape: {:?}", shape));
         }
-        let dim = shape[2];
+        let seq_len = shape[1] as usize;
+        let dim = shape[2] as usize;
         let mut out = Vec::with_capacity(batch.batch);
         for b in 0..batch.batch {
             let mut row = vec![0.0f32; dim];
             match self.pooling {
                 PoolingStrategy::Cls => {
+                    let base = b * seq_len * dim;
                     for d in 0..dim {
-                        row[d] = view[[b, 0, d]];
+                        row[d] = data[base + d];
                     }
                 }
                 PoolingStrategy::Mean => {
                     let mut count = 0.0f32;
                     for t in 0..batch.seq_len {
-                        let m = batch.attention_mask[b * batch.seq_len + t];
-                        if m == 0 {
+                        let mask = batch.attention_mask[b * batch.seq_len + t];
+                        if mask == 0 {
                             continue;
                         }
                         count += 1.0;
+                        let base = (b * seq_len + t) * dim;
                         for d in 0..dim {
-                            row[d] += view[[b, t, d]];
+                            row[d] += data[base + d];
                         }
                     }
                     if count > 0.0 {
@@ -158,6 +128,24 @@ impl OnnxEmbedder {
         }
         Ok(out)
     }
+
+    fn build_inputs(&self, batch: &TokenizedBatch) -> Result<Vec<(std::borrow::Cow<'static, str>, ort::session::SessionInputValue<'_>)>> {
+        let shape = vec![batch.batch, batch.seq_len];
+        let mut inputs = Vec::new();
+        if let Some(name) = &self.input_names.input_ids {
+            let tensor = Tensor::<i64>::from_array((shape.clone(), batch.input_ids.clone().into_boxed_slice()))?;
+            inputs.push((name.clone().into(), tensor.into()));
+        }
+        if let Some(name) = &self.input_names.attention_mask {
+            let tensor = Tensor::<i64>::from_array((shape.clone(), batch.attention_mask.clone().into_boxed_slice()))?;
+            inputs.push((name.clone().into(), tensor.into()));
+        }
+        if let Some(name) = &self.input_names.token_type_ids {
+            let tensor = Tensor::<i64>::from_array((shape.clone(), batch.token_type_ids.clone().into_boxed_slice()))?;
+            inputs.push((name.clone().into(), tensor.into()));
+        }
+        Ok(inputs)
+    }
 }
 
 impl OnnxGnn {
@@ -169,13 +157,12 @@ impl OnnxGnn {
         output_kind: OutputKind,
         apply_sigmoid: bool,
         timeout_ms: u64,
+        runtime: &RuntimeSettings,
     ) -> Result<Self> {
-        let model = tract_onnx::onnx()
-            .model_for_path(path)?
-            .into_optimized()?
-            .into_runnable()?;
+        ensure_ort_initialised(runtime)?;
+        let session = build_session(path, runtime)?;
         Ok(Self {
-            model,
+            session: Mutex::new(session),
             input_names,
             output_name,
             node_scores_name,
@@ -185,26 +172,6 @@ impl OnnxGnn {
         })
     }
 
-    #[cfg(test)]
-    pub fn from_plan(
-        model: TypedSimplePlan<TypedModel>,
-        input_names: GraphInputNames,
-        output_name: Option<String>,
-        node_scores_name: Option<String>,
-        output_kind: OutputKind,
-        apply_sigmoid: bool,
-    ) -> Self {
-        Self {
-            model,
-            input_names,
-            output_name,
-            node_scores_name,
-            output_kind,
-            apply_sigmoid,
-            timeout: Duration::from_millis(1_000),
-        }
-    }
-
     pub fn infer(
         &self,
         node_features: &[Vec<f32>],
@@ -212,17 +179,27 @@ impl OnnxGnn {
     ) -> Result<GraphInference> {
         let start = Instant::now();
         let inputs = self.build_inputs(node_features, edge_index)?;
-        let outputs = self.model.run(inputs)?;
+        let mut guard = self.session.lock().map_err(|_| anyhow!("gnn session lock poisoned"))?;
+        let outputs = guard.run(inputs)?;
         if start.elapsed() > self.timeout {
             return Err(anyhow!("gnn inference timeout exceeded"));
         }
-        let output = pick_output_tensor(&self.model, &outputs, self.output_name.as_deref())?;
-        let view = output.to_array_view::<f32>()?;
-        let shape = view.shape().to_vec();
-        let score = match view.iter().next() {
-            Some(v) => *v,
-            None => return Err(anyhow!("empty gnn output (shape={:?})", shape)),
+        let output = match self.output_name.as_deref() {
+            Some(name) => outputs
+                .get(name)
+                .ok_or_else(|| anyhow!("output {} not found", name))?,
+            None => {
+                if outputs.len() == 0 {
+                    return Err(anyhow!("no outputs found"));
+                }
+                &outputs[0]
+            }
         };
+        let (shape, data) = output.try_extract_tensor::<f32>()?;
+        let shape = &shape[..];
+        let score = data.first().copied().ok_or_else(|| {
+            anyhow!("empty gnn output (shape={:?})", shape)
+        })?;
         let mut out = match self.output_kind {
             OutputKind::Logit => score,
             OutputKind::Probability => score,
@@ -231,8 +208,10 @@ impl OnnxGnn {
             out = 1.0 / (1.0 + (-out).exp());
         }
         let node_scores = if let Some(name) = &self.node_scores_name {
-            let node_tensor = pick_output_tensor(&self.model, &outputs, Some(name))?;
-            Some(extract_node_scores(&node_tensor)?)
+            let node_tensor = outputs
+                .get(name)
+                .ok_or_else(|| anyhow!("output {} not found", name))?;
+            Some(extract_node_scores(node_tensor)?)
         } else {
             None
         };
@@ -242,7 +221,11 @@ impl OnnxGnn {
         })
     }
 
-    fn build_inputs(&self, node_features: &[Vec<f32>], edge_index: &[(usize, usize)]) -> Result<TVec<TValue>> {
+    fn build_inputs(
+        &self,
+        node_features: &[Vec<f32>],
+        edge_index: &[(usize, usize)],
+    ) -> Result<Vec<(std::borrow::Cow<'static, str>, ort::session::SessionInputValue<'_>)>> {
         if node_features.is_empty() {
             return Err(anyhow!("empty graph: no nodes"));
         }
@@ -261,81 +244,23 @@ impl OnnxGnn {
         for n in node_features {
             features_flat.extend_from_slice(n);
         }
-        let edges_flat: Vec<i64> = edge_index
-            .iter()
-            .flat_map(|(s, t)| vec![*s as i64, *t as i64])
-            .collect();
-        let mut ordered: Vec<(String, Tensor)> = Vec::new();
+        let node_shape = vec![node_features.len(), feat_dim];
+        let node_tensor = Tensor::<f32>::from_array((node_shape, features_flat.into_boxed_slice()))?;
+        let mut edges_flat = Vec::with_capacity(edge_index.len() * 2);
+        for (s, t) in edge_index {
+            edges_flat.push(*s as i64);
+            edges_flat.push(*t as i64);
+        }
+        let edge_shape = vec![2usize, edge_index.len()];
+        let edge_tensor = Tensor::<i64>::from_array((edge_shape, edges_flat.into_boxed_slice()))?;
+        let mut inputs = Vec::new();
         if let Some(name) = &self.input_names.node_features {
-            ordered.push((
-                name.clone(),
-                Tensor::from_shape(&[node_features.len(), feat_dim], &features_flat)?,
-            ));
+            inputs.push((name.clone().into(), node_tensor.into()));
         }
         if let Some(name) = &self.input_names.edge_index {
-            let edge_count = edge_index.len();
-            ordered.push((name.clone(), Tensor::from_shape(&[2, edge_count], &edges_flat)?));
+            inputs.push((name.clone().into(), edge_tensor.into()));
         }
-        build_inputs_for_model(&self.model, &ordered)
-    }
-}
-
-fn pick_output_tensor(
-    model: &TypedSimplePlan<TypedModel>,
-    outputs: &TVec<TValue>,
-    output_name: Option<&str>,
-) -> Result<Tensor> {
-    if let Some(name) = output_name {
-        let model_ref = model.model();
-        let output_outlets = model_ref.output_outlets()?;
-        for (idx, outlet) in output_outlets.iter().enumerate() {
-            if let Some(label) = model_ref.outlet_label(*outlet) {
-                if label == name {
-                    return Ok(outputs[idx].clone().into_tensor());
-                }
-            }
-            let node = &model_ref.node(outlet.node);
-            if node.name == name || format!("{}:{}", node.name, outlet.slot) == name {
-                return Ok(outputs[idx].clone().into_tensor());
-            }
-        }
-        let mut available = std::collections::BTreeSet::new();
-        for outlet in output_outlets.iter() {
-            if let Some(label) = model_ref.outlet_label(*outlet) {
-                available.insert(label.to_string());
-            }
-            let node = &model_ref.node(outlet.node);
-            available.insert(node.name.to_string());
-            available.insert(format!("{}:{}", node.name, outlet.slot));
-        }
-        return Err(anyhow!(
-            "output name not found: {} (available: {})",
-            name,
-            available.into_iter().collect::<Vec<_>>().join(", ")
-        ));
-    }
-    outputs
-        .get(0)
-        .cloned()
-        .map(|v| v.into_tensor())
-        .ok_or_else(|| anyhow!("missing model output"))
-}
-
-fn extract_node_scores(output: &Tensor) -> Result<Vec<f32>> {
-    let view = output.to_array_view::<f32>()?;
-    let shape = view.shape();
-    match shape.len() {
-        1 => Ok(view.iter().copied().collect()),
-        2 if shape[1] == 1 => Ok(view
-            .outer_iter()
-            .map(|row| row[0])
-            .collect::<Vec<f32>>()),
-        2 if shape[0] == 1 => Ok(view
-            .index_axis(tract_onnx::prelude::tract_ndarray::Axis(0), 0)
-            .iter()
-            .copied()
-            .collect::<Vec<f32>>()),
-        _ => Err(anyhow!("unexpected node_scores shape: {:?}", shape)),
+        Ok(inputs)
     }
 }
 
@@ -344,104 +269,16 @@ pub struct GraphInference {
     pub node_scores: Option<Vec<f32>>,
 }
 
-fn build_inputs_for_model(
-    model: &TypedSimplePlan<TypedModel>,
-    ordered: &[(String, Tensor)],
-) -> Result<TVec<TValue>> {
-    let model_ref = model.model();
-    let input_outlets = model_ref.input_outlets()?;
-    let mut ordered_inputs: TVec<TValue> = tvec!();
-    let mut by_name = true;
-    for outlet in input_outlets {
-        let node = &model_ref.node(outlet.node);
-        if node.name.is_empty() {
-            by_name = false;
-            break;
-        }
-        let Some((_, tensor)) = ordered.iter().find(|(name, _)| name == &node.name) else {
-            return Err(anyhow!("missing model input: {}", node.name));
-        };
-        ordered_inputs.push(tensor.clone().into());
+fn build_session(path: &std::path::Path, runtime: &RuntimeSettings) -> Result<Session> {
+    let mut builder = Session::builder()?;
+    let providers = execution_providers(runtime);
+    if !providers.is_empty() {
+        builder = builder.with_execution_providers(providers)?;
     }
-    if by_name {
-        return Ok(ordered_inputs);
-    }
-    let mut fallback: TVec<TValue> = tvec!();
-    for (_, tensor) in ordered.iter() {
-        fallback.push(tensor.clone().into());
-    }
-    if fallback.len() != input_outlets.len() {
-        return Err(anyhow!(
-            "model input count mismatch (model={}, provided={})",
-            input_outlets.len(),
-            fallback.len()
-        ));
-    }
-    Ok(fallback)
+    builder.commit_from_file(path).map_err(|e| anyhow!("failed to load {}: {}", path.display(), e))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::{EmbeddingInputNames, GraphInputNames};
-    use crate::tokenizer::TokenizedBatch;
-
-    #[test]
-    fn embedder_runs_with_constant_output() -> Result<()> {
-        let mut model = TypedModel::default();
-        let input_fact = TypedFact::dt_shape(i64::datum_type(), tvec!(1, 1));
-        let _input = model.add_source("input_ids", input_fact)?;
-        let out_tensor = Tensor::from_shape(&[1usize, 1, 4], &[0.1f32, 0.2, 0.3, 0.4])?;
-        let out = model.add_const("embed_out", out_tensor)?;
-        model.set_output_outlets(&[out])?;
-        let plan = TypedSimplePlan::new(model)?;
-
-        let embedder = OnnxEmbedder::from_plan(
-            plan,
-            EmbeddingInputNames {
-                input_ids: Some("input_ids".into()),
-                attention_mask: None,
-                token_type_ids: None,
-            },
-            Some("embed_out".into()),
-            PoolingStrategy::Cls,
-        );
-        let batch = TokenizedBatch {
-            input_ids: vec![1],
-            attention_mask: vec![1],
-            token_type_ids: vec![0],
-            batch: 1,
-            seq_len: 1,
-        };
-        let embeddings = embedder.embed_batch(&batch)?;
-        assert_eq!(embeddings.len(), 1);
-        assert_eq!(embeddings[0].len(), 4);
-        Ok(())
-    }
-
-    #[test]
-    fn gnn_runs_with_constant_output() -> Result<()> {
-        let mut model = TypedModel::default();
-        let input_fact = TypedFact::dt_shape(f32::datum_type(), tvec!(1, 4));
-        let _input = model.add_source("node_features", input_fact)?;
-        let out_tensor = Tensor::from_shape(&[1usize], &[0.7f32])?;
-        let out = model.add_const("score", out_tensor)?;
-        model.set_output_outlets(&[out])?;
-        let plan = TypedSimplePlan::new(model)?;
-
-        let gnn = OnnxGnn::from_plan(
-            plan,
-            GraphInputNames {
-                node_features: Some("node_features".into()),
-                edge_index: None,
-            },
-            Some("score".into()),
-            None,
-            OutputKind::Probability,
-            false,
-        );
-        let result = gnn.infer(&vec![vec![0.5, 0.5, 0.5, 0.5]], &[])?;
-        assert!((result.score - 0.7).abs() < 1e-6);
-        Ok(())
-    }
+fn extract_node_scores(output: &ort::value::DynValue) -> Result<Vec<f32>> {
+    let (_, data) = output.try_extract_tensor::<f32>()?;
+    Ok(data.to_vec())
 }

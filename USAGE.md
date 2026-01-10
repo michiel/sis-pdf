@@ -117,6 +117,33 @@ Scope logging to specific crates:
 RUST_LOG=sis_pdf=debug,sis_pdf_core=trace,sis_pdf_pdf=trace sis scan suspicious.pdf
 ```
 
+## 3c) Configuration (TOML)
+
+By default, `sis` looks for a config file at:
+- Linux: `~/.config/sis/config.toml`
+- macOS: `~/Library/Application Support/sis/config.toml`
+- Windows: `%APPDATA%\\sis\\config.toml`
+
+Override the config path:
+
+```
+sis scan suspicious.pdf --config /path/to/config.toml
+```
+
+See `docs/config.toml` for a starter configuration.
+
+Create a default config:
+
+```
+sis config init
+```
+
+Verify a config:
+
+```
+sis config verify
+```
+
 ## 4) Explain a specific finding
 
 First, run a scan to get an ID, then:
@@ -172,6 +199,24 @@ Generate a Markdown report with ML inference:
 
 ```
 sis report suspicious.pdf --ml-model-dir models/ --ml-extended-features --ml-explain --ml-baseline models/benign_baseline.json
+```
+
+ML runtime health check (execution providers and model load):
+
+```
+sis ml-health --ml-model-dir models/
+```
+
+Print selected execution provider:
+
+```
+sis scan suspicious.pdf --ml-model-dir models/ --ml-extended-features --ml-provider-info
+```
+
+Point to a custom ONNX Runtime dynamic library:
+
+```
+sis scan suspicious.pdf --ml-model-dir models/ --ml-extended-features --ml-ort-dylib /path/to/onnxruntime.dll
 ```
 
 ## 5) Extract JavaScript payloads
