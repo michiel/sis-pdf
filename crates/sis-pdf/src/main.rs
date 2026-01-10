@@ -748,9 +748,11 @@ fn default_config_template() -> &'static str {
 struct Release {
     tag_name: String,
     assets: Vec<ReleaseAsset>,
+    #[serde(default)]
+    draft: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 struct ReleaseAsset {
     name: String,
     browser_download_url: String,
@@ -764,22 +766,12 @@ enum ArchiveFormat {
 fn run_update() -> Result<()> {
     let (owner, repo) = github_repo()?;
     let (target, archive_format, bin_name) = current_release_target()?;
-    let api_url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
-    let response = ureq::get(&api_url)
-        .set("User-Agent", UPDATE_USER_AGENT)
-        .call()
-        .map_err(|err| anyhow!("failed to query GitHub releases: {err}"))?;
-    let release: Release = serde_json::from_reader(response.into_reader())?;
     let ext = match archive_format {
         ArchiveFormat::TarGz => "tar.gz",
         ArchiveFormat::Zip => "zip",
     };
-    let asset_name = format!("sis-{}-{}.{}", release.tag_name, target, ext);
-    let asset = release
-        .assets
-        .iter()
-        .find(|entry| entry.name == asset_name)
-        .ok_or_else(|| anyhow!("release {} does not include {}", release.tag_name, asset_name))?;
+    let suffix = format!("-{target}.{ext}");
+    let (release, asset) = fetch_release_with_asset(&owner, &repo, &suffix)?;
     eprintln!("Downloading {}", asset.name);
     let temp_dir = tempdir()?;
     let archive_path = temp_dir.path().join(&asset.name);
@@ -800,6 +792,54 @@ fn run_update() -> Result<()> {
     install_update(&new_bin)?;
     eprintln!("Updated sis to {}", release.tag_name);
     Ok(())
+}
+
+fn fetch_release_with_asset(
+    owner: &str,
+    repo: &str,
+    suffix: &str,
+) -> Result<(Release, ReleaseAsset)> {
+    let latest_url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
+    if let Ok(release) = fetch_release(&latest_url) {
+        if let Some(asset) = find_release_asset(&release, suffix) {
+            return Ok((release, asset));
+        }
+    }
+    let list_url = format!("https://api.github.com/repos/{owner}/{repo}/releases?per_page=20");
+    let releases = fetch_release_list(&list_url)?;
+    for release in releases {
+        if release.draft {
+            continue;
+        }
+        if let Some(asset) = find_release_asset(&release, suffix) {
+            return Ok((release, asset));
+        }
+    }
+    Err(anyhow!("no release asset found matching {suffix}"))
+}
+
+fn fetch_release(url: &str) -> Result<Release> {
+    let response = ureq::get(url)
+        .set("User-Agent", UPDATE_USER_AGENT)
+        .call()
+        .map_err(|err| anyhow!("failed to query GitHub releases: {err}"))?;
+    Ok(serde_json::from_reader(response.into_reader())?)
+}
+
+fn fetch_release_list(url: &str) -> Result<Vec<Release>> {
+    let response = ureq::get(url)
+        .set("User-Agent", UPDATE_USER_AGENT)
+        .call()
+        .map_err(|err| anyhow!("failed to query GitHub releases: {err}"))?;
+    Ok(serde_json::from_reader(response.into_reader())?)
+}
+
+fn find_release_asset(release: &Release, suffix: &str) -> Option<ReleaseAsset> {
+    release
+        .assets
+        .iter()
+        .find(|asset| asset.name.starts_with("sis-") && asset.name.ends_with(suffix))
+        .cloned()
 }
 
 fn github_repo() -> Result<(String, String)> {

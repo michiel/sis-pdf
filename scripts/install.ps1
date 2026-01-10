@@ -13,10 +13,22 @@ if ([string]::IsNullOrWhiteSpace($installDir)) {
 $target = "x86_64-pc-windows-msvc"
 $ext = "zip"
 
-$apiUrl = "https://api.github.com/repos/$repo/releases/latest"
-$release = Invoke-RestMethod -Headers @{"User-Agent" = "sis-install"} -Uri $apiUrl
-$assetName = "sis-$($release.tag_name)-$target.$ext"
-$asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
+$apiUrl = "https://api.github.com/repos/$repo/releases?per_page=20"
+$releases = Invoke-RestMethod -Headers @{"User-Agent" = "sis-install"} -Uri $apiUrl
+$suffix = "-$target.$ext"
+$release = $null
+$asset = $null
+foreach ($entry in $releases) {
+  if ($entry.draft) {
+    continue
+  }
+  $candidate = $entry.assets | Where-Object { $_.name -like "sis-*$suffix" } | Select-Object -First 1
+  if ($candidate) {
+    $release = $entry
+    $asset = $candidate
+    break
+  }
+}
 if (-not $asset) {
   throw "No release asset found for $target"
 }
