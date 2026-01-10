@@ -1,17 +1,23 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
 use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
+use flate2::read::GzDecoder;
 use globset::Glob;
 use memmap2::Mmap;
 use rayon::prelude::*;
+use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sis_pdf_core::model::Severity as SecuritySeverity;
 use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
+use tempfile::tempdir;
+use tar::Archive;
 use tracing::{debug, error, info, warn, Level};
 use walkdir::WalkDir;
+use zip::ZipArchive;
 const MAX_REPORT_BYTES: u64 = 50 * 1024 * 1024;
 const WARN_PDF_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_PDF_BYTES: u64 = 500 * 1024 * 1024;
@@ -22,6 +28,8 @@ const MAX_JSONL_LINE_BYTES: usize = 10 * 1024;
 const MAX_JSONL_ENTRIES: usize = 1_000_000;
 const MAX_CAMPAIGN_INTENT_LEN: usize = 1024;
 const MAX_WALK_DEPTH: usize = 10;
+const UPDATE_REPO_DEFAULT: &str = "michiel/sis-pdf";
+const UPDATE_USER_AGENT: &str = "sis-update";
 #[derive(Parser)]
 #[command(name = "sis")]
 struct Args {
@@ -32,6 +40,8 @@ struct Args {
 enum Command {
     #[command(subcommand)]
     Config(ConfigCommand),
+    #[command(about = "Update sis from the latest GitHub release")]
+    Update,
     #[command(about = "Scan PDFs for suspicious indicators and report findings")]
     Scan {
         #[arg(value_name = "PDF", required_unless_present = "path")]
@@ -389,6 +399,7 @@ fn main() -> Result<()> {
             ConfigCommand::Init { path } => run_config_init(path.as_deref()),
             ConfigCommand::Verify { path } => run_config_verify(path.as_deref()),
         },
+        Command::Update => run_update(),
         Command::Scan {
             pdf,
             path,
@@ -731,6 +742,178 @@ fn run_config_verify(path: Option<&std::path::Path>) -> Result<()> {
 
 fn default_config_template() -> &'static str {
     include_str!("../../../docs/config.toml")
+}
+
+#[derive(Deserialize)]
+struct Release {
+    tag_name: String,
+    assets: Vec<ReleaseAsset>,
+}
+
+#[derive(Deserialize)]
+struct ReleaseAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+enum ArchiveFormat {
+    TarGz,
+    Zip,
+}
+
+fn run_update() -> Result<()> {
+    let (owner, repo) = github_repo()?;
+    let (target, archive_format, bin_name) = current_release_target()?;
+    let api_url = format!("https://api.github.com/repos/{owner}/{repo}/releases/latest");
+    let response = ureq::get(&api_url)
+        .set("User-Agent", UPDATE_USER_AGENT)
+        .call()
+        .map_err(|err| anyhow!("failed to query GitHub releases: {err}"))?;
+    let release: Release = serde_json::from_reader(response.into_reader())?;
+    let ext = match archive_format {
+        ArchiveFormat::TarGz => "tar.gz",
+        ArchiveFormat::Zip => "zip",
+    };
+    let asset_name = format!("sis-{}-{}.{}", release.tag_name, target, ext);
+    let asset = release
+        .assets
+        .iter()
+        .find(|entry| entry.name == asset_name)
+        .ok_or_else(|| anyhow!("release {} does not include {}", release.tag_name, asset_name))?;
+    eprintln!("Downloading {}", asset.name);
+    let temp_dir = tempdir()?;
+    let archive_path = temp_dir.path().join(&asset.name);
+    let mut reader = ureq::get(&asset.browser_download_url)
+        .set("User-Agent", UPDATE_USER_AGENT)
+        .call()
+        .map_err(|err| anyhow!("failed to download {}: {err}", asset.name))?
+        .into_reader();
+    let mut out = fs::File::create(&archive_path)?;
+    std::io::copy(&mut reader, &mut out)?;
+    let extract_dir = temp_dir.path().join("extract");
+    fs::create_dir_all(&extract_dir)?;
+    match archive_format {
+        ArchiveFormat::TarGz => extract_tar_gz(&archive_path, &extract_dir)?,
+        ArchiveFormat::Zip => extract_zip(&archive_path, &extract_dir)?,
+    }
+    let new_bin = find_extracted_binary(&extract_dir, &bin_name)?;
+    install_update(&new_bin)?;
+    eprintln!("Updated sis to {}", release.tag_name);
+    Ok(())
+}
+
+fn github_repo() -> Result<(String, String)> {
+    let repo = std::env::var("SIS_GITHUB_REPO").unwrap_or_else(|_| UPDATE_REPO_DEFAULT.into());
+    let mut parts = repo.split('/');
+    let owner = parts.next().unwrap_or_default();
+    let name = parts.next().unwrap_or_default();
+    if owner.is_empty() || name.is_empty() || parts.next().is_some() {
+        return Err(anyhow!(
+            "invalid repository format: {repo} (expected owner/name)"
+        ));
+    }
+    Ok((owner.to_string(), name.to_string()))
+}
+
+fn current_release_target() -> Result<(String, ArchiveFormat, String)> {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    match (os, arch) {
+        ("linux", "x86_64") => Ok((
+            "x86_64-unknown-linux-gnu".to_string(),
+            ArchiveFormat::TarGz,
+            "sis".to_string(),
+        )),
+        ("windows", "x86_64") => Ok((
+            "x86_64-pc-windows-msvc".to_string(),
+            ArchiveFormat::Zip,
+            "sis.exe".to_string(),
+        )),
+        ("macos", "aarch64") => Ok((
+            "aarch64-apple-darwin".to_string(),
+            ArchiveFormat::TarGz,
+            "sis".to_string(),
+        )),
+        _ => Err(anyhow!(
+            "unsupported platform for self-update ({os} {arch})"
+        )),
+    }
+}
+
+fn extract_tar_gz(archive_path: &std::path::Path, out_dir: &std::path::Path) -> Result<()> {
+    let tar_gz = fs::File::open(archive_path)?;
+    let decompressor = GzDecoder::new(tar_gz);
+    let mut archive = Archive::new(decompressor);
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        entry.unpack_in(out_dir)?;
+    }
+    Ok(())
+}
+
+fn extract_zip(archive_path: &std::path::Path, out_dir: &std::path::Path) -> Result<()> {
+    let file = fs::File::open(archive_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let Some(path) = entry.enclosed_name() else {
+            continue;
+        };
+        let out_path = out_dir.join(path);
+        if entry.name().ends_with('/') {
+            fs::create_dir_all(&out_path)?;
+            continue;
+        }
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut out = fs::File::create(&out_path)?;
+        std::io::copy(&mut entry, &mut out)?;
+    }
+    Ok(())
+}
+
+fn find_extracted_binary(base_dir: &std::path::Path, bin_name: &str) -> Result<PathBuf> {
+    for entry in WalkDir::new(base_dir) {
+        let entry = entry?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if entry.file_name() == bin_name {
+            return Ok(entry.path().to_path_buf());
+        }
+    }
+    Err(anyhow!("updated binary not found after extraction"))
+}
+
+fn install_update(new_bin: &std::path::Path) -> Result<()> {
+    let current_exe = std::env::current_exe()?;
+    if cfg!(windows) {
+        stage_windows_update(new_bin, &current_exe)?;
+        return Ok(());
+    }
+    fs::copy(new_bin, &current_exe)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&current_exe)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&current_exe, perms)?;
+    }
+    Ok(())
+}
+
+fn stage_windows_update(new_bin: &std::path::Path, current_exe: &std::path::Path) -> Result<()> {
+    let staged = current_exe.with_extension("new.exe");
+    fs::copy(new_bin, &staged)?;
+    let command = format!(
+        "ping -n 2 127.0.0.1 > NUL & move /Y \"{}\" \"{}\"",
+        staged.display(),
+        current_exe.display()
+    );
+    ProcessCommand::new("cmd").args(["/C", &command]).spawn()?;
+    eprintln!("Update staged; restart the shell to pick up the new binary.");
+    Ok(())
 }
 
 fn validate_ml_config(scan: &sis_pdf_core::config::ScanConfig) -> Result<()> {
