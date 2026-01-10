@@ -41,39 +41,35 @@ if [ -z "$release_json" ]; then
   echo "Empty response from GitHub releases API for $REPO" >&2
   exit 1
 fi
+if printf "%s" "$release_json" | grep -q "API rate limit exceeded"; then
+  echo "Error: GitHub API rate limit exceeded. Try again later or use a GitHub token:" >&2
+  echo "  export GITHUB_TOKEN=...   # then re-run the installer" >&2
+  exit 1
+fi
 
-export SIS_TARGET="$target"
-export SIS_EXT="$ext"
-
+suffix="-$target.$ext"
 read -r tag url <<EOF_META
-$(printf "%s" "$release_json" | python3 - <<'PY'
-import json
-import os
-import sys
-
-data = json.load(sys.stdin)
-suffix = f"-{os.environ['SIS_TARGET']}.{os.environ['SIS_EXT']}"
-
-def iter_releases(payload):
-    if isinstance(payload, list):
-        return payload
-    if isinstance(payload, dict) and "assets" in payload:
-        return [payload]
-    return []
-
-for release in iter_releases(data):
-    if release.get("draft"):
-        continue
-    for asset in release.get("assets", []):
-        name = asset.get("name") or ""
-        if name.startswith("sis-") and name.endswith(suffix):
-            print(release.get("tag_name", ""))
-            print(asset.get("browser_download_url", ""))
-            sys.exit(0)
-print("", file=sys.stderr)
-sys.exit(1)
-PY
-)
+$(printf "%s" "$release_json" | awk -v suffix="$suffix" '
+  /"tag_name":/ {
+    tag=$2
+    gsub(/"|,/, "", tag)
+  }
+  /"draft":/ {
+    draft=$2
+    gsub(/,/, "", draft)
+    skip=(draft=="true")
+  }
+  /"browser_download_url":/ {
+    if (skip) { next }
+    if ($0 ~ suffix && $0 ~ /sis-/) {
+      url=$2
+      gsub(/"|,/, "", url)
+      print tag
+      print url
+      exit
+    }
+  }
+')
 EOF_META
 
 if [ -z "$url" ]; then
@@ -89,7 +85,16 @@ curl -fsSL -H "User-Agent: sis-install" -o "$archive" "$url"
 
 tar -C "$tmpdir" -xzf "$archive"
 
-mkdir -p "$INSTALL_DIR"
+if [ -n "${SIS_INSTALL_DIR:-}" ]; then
+  INSTALL_DIR="$SIS_INSTALL_DIR"
+  mkdir -p "$INSTALL_DIR"
+elif [ -d "$HOME/.local/bin" ]; then
+  INSTALL_DIR="$HOME/.local/bin"
+else
+  INSTALL_DIR="$HOME/.local/bin"
+  mkdir -p "$INSTALL_DIR"
+fi
+
 install -m 755 "$tmpdir/$bin_name" "$INSTALL_DIR/$bin_name"
 
 echo "Installed sis $tag to $INSTALL_DIR/$bin_name"
