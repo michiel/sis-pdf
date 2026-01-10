@@ -2444,6 +2444,8 @@ dependencies = [
  "sis-pdf-core",
  "sis-pdf-detectors",
  "sis-pdf-pdf",
+ "tracing",
+ "tracing-subscriber",
  "walkdir",
 ]
 
@@ -2464,6 +2466,7 @@ dependencies = [
  "sis-pdf-ml-graph",
  "sis-pdf-pdf",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -2477,6 +2480,7 @@ dependencies = [
  "sha2",
  "sis-pdf-core",
  "sis-pdf-pdf",
+ "tracing",
 ]
 
 [[package]]
@@ -2489,6 +2493,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokenizers",
+ "tracing",
  "tract-onnx",
 ]
 
@@ -2501,6 +2506,7 @@ dependencies = [
  "memchr",
  "serde",
  "thiserror 1.0.69",
+ "tracing",
  "weezl",
 ]
 

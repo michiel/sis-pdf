@@ -5,6 +5,7 @@ use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
+use tracing::warn;
 
 use crate::{entry_dict, resolve_payload};
 
@@ -130,7 +131,12 @@ fn fallback_encrypt_dict<'a>(
             })
             .unwrap_or(false)
     })?;
-    eprintln!("security_boundary: using fallback /Encrypt dict from object graph");
+    warn!(
+        security = true,
+        domain = "pdf.encryption",
+        kind = "encrypt_dict_fallback",
+        "Using fallback /Encrypt dict from object graph"
+    );
     match &entry.atom {
         PdfAtom::Dict(d) => Some(d.clone()),
         PdfAtom::Stream(st) => Some(st.dict.clone()),

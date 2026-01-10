@@ -8,6 +8,9 @@ use sis_pdf_pdf::object::PdfStream;
 use sis_pdf_pdf::span::Span;
 use sis_pdf_pdf::typed_graph::TypedGraph;
 use sis_pdf_pdf::ObjectGraph;
+use tracing::{debug, trace, warn, Level};
+
+use crate::security_log::{SecurityDomain, SecurityEvent};
 
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
@@ -131,8 +134,18 @@ impl DecodedCache {
         bytes: &[u8],
         stream: &PdfStream<'_>,
     ) -> anyhow::Result<DecodedStream> {
+        trace!(
+            data_start = stream.data_span.start,
+            data_end = stream.data_span.end,
+            "Decoding stream"
+        );
         let key = (stream.data_span.start, stream.data_span.end);
         if let Some(v) = self.cache.lock().ok().and_then(|c| c.get(&key).cloned()) {
+            debug!(
+                data_start = stream.data_span.start,
+                data_end = stream.data_span.end,
+                "Decoded stream cache hit"
+            );
             return Ok(v);
         }
         let reservation = self.reserve_budget(self.max_decode_bytes)?;
@@ -156,9 +169,25 @@ impl DecodedCache {
         loop {
             let next = current.saturating_add(amount);
             if next > self.max_total_decoded_bytes {
-                eprintln!(
-                    "security_boundary: decode budget exceeded (current={} reserve={} limit={})",
-                    current, amount, self.max_total_decoded_bytes
+                SecurityEvent {
+                    level: Level::WARN,
+                    domain: SecurityDomain::PdfStructure,
+                    severity: crate::model::Severity::Medium,
+                    kind: "decode_budget_exceeded",
+                    policy: None,
+                    object_id: None,
+                    object_type: None,
+                    vector: None,
+                    technique: None,
+                    confidence: None,
+                    message: "Decode budget exceeded",
+                }
+                .emit();
+                warn!(
+                    current = current,
+                    reserve = amount,
+                    limit = self.max_total_decoded_bytes,
+                    "Decode budget exceeded"
                 );
                 return Err(anyhow::anyhow!("total decoded bytes budget exceeded"));
             }
@@ -200,9 +229,24 @@ impl<'a> BudgetReservation<'a> {
         if limit > 0 {
             let current = total.fetch_add(actual, Ordering::SeqCst) + actual;
             if current > limit {
-                eprintln!(
-                    "security_boundary: decode budget exceeded after decode (total={} limit={})",
-                    current, limit
+                SecurityEvent {
+                    level: Level::WARN,
+                    domain: SecurityDomain::PdfStructure,
+                    severity: crate::model::Severity::Medium,
+                    kind: "decode_budget_exceeded_post",
+                    policy: None,
+                    object_id: None,
+                    object_type: None,
+                    vector: None,
+                    technique: None,
+                    confidence: None,
+                    message: "Decode budget exceeded after decode",
+                }
+                .emit();
+                warn!(
+                    total = current,
+                    limit = limit,
+                    "Decode budget exceeded after decode"
                 );
                 return Err(anyhow::anyhow!("total decoded bytes budget exceeded"));
             }

@@ -8,6 +8,9 @@ use globset::Glob;
 use memmap2::Mmap;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
+use sis_pdf_core::model::Severity as SecuritySeverity;
+use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
+use tracing::{debug, error, info, warn, Level};
 use walkdir::WalkDir;
 const MAX_REPORT_BYTES: u64 = 50 * 1024 * 1024;
 const WARN_PDF_BYTES: u64 = 50 * 1024 * 1024;
@@ -317,6 +320,7 @@ enum Command {
     },
 }
 fn main() -> Result<()> {
+    init_tracing();
     let args = Args::parse();
     match args.command {
         Command::Scan {
@@ -552,19 +556,56 @@ fn main() -> Result<()> {
         Command::RedTeam { target, out } => run_redteam(&target, &out),
     }
 }
+
+fn init_tracing() {
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+    let subscriber = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_target(false);
+    let _ = subscriber.try_init();
+}
 fn mmap_file(path: &str) -> Result<Mmap> {
     let f = fs::File::open(path)?;
     let size = f.metadata()?.len();
     if size > WARN_PDF_BYTES {
-        eprintln!(
-            "security_boundary: large file {} ({} bytes)",
-            path, size
-        );
+        SecurityEvent {
+            level: Level::WARN,
+            domain: SecurityDomain::PdfStructure,
+            severity: SecuritySeverity::Low,
+            kind: "file_size_warning",
+            policy: None,
+            object_id: None,
+            object_type: None,
+            vector: None,
+            technique: None,
+            confidence: None,
+            message: "Large PDF file size may impact scan performance",
+        }
+        .emit();
+        warn!(path = path, size_bytes = size, "Large PDF file");
     }
     if size > MAX_PDF_BYTES {
-        eprintln!(
-            "security_boundary: mmap rejected for {} ({} bytes exceeds limit {})",
-            path, size, MAX_PDF_BYTES
+        SecurityEvent {
+            level: Level::ERROR,
+            domain: SecurityDomain::PdfStructure,
+            severity: SecuritySeverity::High,
+            kind: "file_size_rejected",
+            policy: None,
+            object_id: None,
+            object_type: None,
+            vector: None,
+            technique: None,
+            confidence: None,
+            message: "PDF file exceeds max size limit",
+        }
+        .emit();
+        error!(
+            path = path,
+            size_bytes = size,
+            max_bytes = MAX_PDF_BYTES,
+            "PDF file exceeds max size limit"
         );
         return Err(anyhow!("file exceeds max size: {} bytes", size));
     }
@@ -624,7 +665,21 @@ fn run_scan(
     }
     let diff_parser = diff_parser || strict;
     if diff_parser && strict {
-        eprintln!("security_boundary: enabling diff parser in strict mode");
+        SecurityEvent {
+            level: Level::INFO,
+            domain: SecurityDomain::Parser,
+            severity: SecuritySeverity::Info,
+            kind: "diff_parser_enabled",
+            policy: None,
+            object_id: None,
+            object_type: None,
+            vector: None,
+            technique: None,
+            confidence: None,
+            message: "Enabling diff parser in strict mode",
+        }
+        .emit();
+        info!(strict = true, diff_parser = true, "Diff parser enabled for strict mode");
     }
     let mut opts = sis_pdf_core::scan::ScanOptions {
         deep,
@@ -723,7 +778,7 @@ fn run_scan(
                 report = report.with_ml_inference(Some(ml_result));
             }
             Err(err) => {
-                eprintln!("warning: ml_inference_error: {}", err);
+                warn!(error = %err, "ML inference failed");
             }
         }
     }
@@ -1022,18 +1077,44 @@ fn run_scan_batch(
         }
         file_count += 1;
         if file_count > MAX_BATCH_FILES {
-            eprintln!(
-                "security_boundary: batch file count exceeded (max {})",
-                MAX_BATCH_FILES
-            );
+            SecurityEvent {
+                level: Level::ERROR,
+                domain: SecurityDomain::Detection,
+                severity: SecuritySeverity::Medium,
+                kind: "batch_file_limit_exceeded",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Batch scan file count exceeded",
+            }
+            .emit();
+            error!(max_files = MAX_BATCH_FILES, "Batch scan file count exceeded");
             return Err(anyhow!("batch file count exceeds limit"));
         }
         if let Ok(meta) = entry.metadata() {
             total_bytes = total_bytes.saturating_add(meta.len());
             if total_bytes > MAX_BATCH_BYTES {
-                eprintln!(
-                    "security_boundary: batch size exceeded ({} bytes, max {})",
-                    total_bytes, MAX_BATCH_BYTES
+                SecurityEvent {
+                    level: Level::ERROR,
+                    domain: SecurityDomain::Detection,
+                    severity: SecuritySeverity::Medium,
+                    kind: "batch_size_limit_exceeded",
+                    policy: None,
+                    object_id: None,
+                    object_type: None,
+                    vector: None,
+                    technique: None,
+                    confidence: None,
+                    message: "Batch scan byte limit exceeded",
+                }
+                .emit();
+                error!(
+                    total_bytes = total_bytes,
+                    max_bytes = MAX_BATCH_BYTES,
+                    "Batch scan byte limit exceeded"
                 );
                 return Err(anyhow!("batch size exceeds limit"));
             }
@@ -1101,10 +1182,21 @@ fn run_scan_batch(
                     .collect::<Result<Vec<_>>>()
             })?,
             Err(err) => {
-                eprintln!(
-                    "security_boundary: failed to build batch worker pool; falling back to sequential ({})",
-                    err
-                );
+                SecurityEvent {
+                    level: Level::WARN,
+                    domain: SecurityDomain::Detection,
+                    severity: SecuritySeverity::Low,
+                    kind: "batch_pool_fallback",
+                    policy: None,
+                    object_id: None,
+                    object_type: None,
+                    vector: None,
+                    technique: None,
+                    confidence: None,
+                    message: "Failed to build batch worker pool; falling back to sequential",
+                }
+                .emit();
+                warn!(error = %err, "Failed to build batch worker pool; falling back to sequential");
                 indexed_paths
                     .iter()
                     .map(|(idx, path)| process_path(path).map(|entry| (*idx, entry)))
@@ -1611,7 +1703,21 @@ fn run_report(
     let mmap = mmap_file(pdf)?;
     let diff_parser = diff_parser || strict;
     if diff_parser && strict {
-        eprintln!("security_boundary: enabling diff parser in strict mode");
+        SecurityEvent {
+            level: Level::INFO,
+            domain: SecurityDomain::Parser,
+            severity: SecuritySeverity::Info,
+            kind: "diff_parser_enabled",
+            policy: None,
+            object_id: None,
+            object_type: None,
+            vector: None,
+            technique: None,
+            confidence: None,
+            message: "Enabling diff parser in strict mode",
+        }
+        .emit();
+        info!(strict = true, diff_parser = true, "Diff parser enabled for strict mode");
     }
     let opts = sis_pdf_core::scan::ScanOptions {
         deep,
@@ -1679,7 +1785,7 @@ fn run_report(
                 report = report.with_ml_inference(Some(ml_result));
             }
             Err(err) => {
-                eprintln!("warning: ml_inference_error: {}", err);
+                warn!(error = %err, "ML inference failed");
             }
         }
     }
@@ -1777,18 +1883,44 @@ fn run_export_features(
             if matcher.is_match(path) {
                 file_count += 1;
                 if file_count > MAX_BATCH_FILES {
-                    eprintln!(
-                        "security_boundary: export file count exceeded (max {})",
-                        MAX_BATCH_FILES
-                    );
+                    SecurityEvent {
+                        level: Level::ERROR,
+                        domain: SecurityDomain::Detection,
+                        severity: SecuritySeverity::Medium,
+                        kind: "export_file_limit_exceeded",
+                        policy: None,
+                        object_id: None,
+                        object_type: None,
+                        vector: None,
+                        technique: None,
+                        confidence: None,
+                        message: "Export file count exceeded",
+                    }
+                    .emit();
+                    error!(max_files = MAX_BATCH_FILES, "Export file count exceeded");
                     return Err(anyhow!("export file count exceeds limit"));
                 }
                 if let Ok(meta) = entry.metadata() {
                     total_bytes = total_bytes.saturating_add(meta.len());
                     if total_bytes > MAX_BATCH_BYTES {
-                        eprintln!(
-                            "security_boundary: export size exceeded ({} bytes, max {})",
-                            total_bytes, MAX_BATCH_BYTES
+                        SecurityEvent {
+                            level: Level::ERROR,
+                            domain: SecurityDomain::Detection,
+                            severity: SecuritySeverity::Medium,
+                            kind: "export_size_limit_exceeded",
+                            policy: None,
+                            object_id: None,
+                            object_type: None,
+                            vector: None,
+                            technique: None,
+                            confidence: None,
+                            message: "Export byte limit exceeded",
+                        }
+                        .emit();
+                        error!(
+                            total_bytes = total_bytes,
+                            max_bytes = MAX_BATCH_BYTES,
+                            "Export byte limit exceeded"
                         );
                         return Err(anyhow!("export size exceeds limit"));
                     }
@@ -1923,7 +2055,7 @@ fn run_compute_baseline(input: &PathBuf, out: &PathBuf) -> Result<()> {
         let record: serde_json::Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("Warning: skipping line {}: {}", line_num + 1, e);
+                warn!(line = line_num + 1, error = %e, "Skipping invalid JSONL line");
                 continue;
             }
         };
@@ -1938,10 +2070,14 @@ fn run_compute_baseline(input: &PathBuf, out: &PathBuf) -> Result<()> {
             if vec.len() == 333 || vec.len() == 35 {
                 feature_samples.push(vec);
             } else {
-                eprintln!("Warning: line {} has unexpected feature count: {}", line_num + 1, vec.len());
+                warn!(
+                    line = line_num + 1,
+                    feature_count = vec.len(),
+                    "Unexpected feature count"
+                );
             }
         } else {
-            eprintln!("Warning: line {} missing features array", line_num + 1);
+            warn!(line = line_num + 1, "Missing features array");
         }
     }
 
@@ -1949,7 +2085,7 @@ fn run_compute_baseline(input: &PathBuf, out: &PathBuf) -> Result<()> {
         return Err(anyhow!("No valid feature vectors found in input file"));
     }
 
-    eprintln!("Loaded {} benign samples", feature_samples.len());
+    info!(samples = feature_samples.len(), "Loaded benign samples");
 
     // Get feature names based on vector size
     let feature_names = if feature_samples[0].len() == 333 {
@@ -1980,9 +2116,9 @@ fn run_compute_baseline(input: &PathBuf, out: &PathBuf) -> Result<()> {
     let json = serde_json::to_string_pretty(&baseline)?;
     fs::write(out, json)?;
 
-    eprintln!("Baseline saved to {}", out.display());
-    eprintln!("  Feature count: {}", baseline.feature_means.len());
-    eprintln!("  Sample count: {}", feature_samples.len());
+    info!(path = %out.display(), "Baseline saved");
+    debug!(feature_count = baseline.feature_means.len(), "Baseline feature count");
+    debug!(sample_count = feature_samples.len(), "Baseline sample count");
 
     Ok(())
 }
@@ -2020,29 +2156,64 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
             continue;
         }
         if line.len() > MAX_JSONL_LINE_BYTES {
-            eprintln!(
-                "security_boundary: JSONL line {} exceeds {} bytes",
-                idx + 1,
-                MAX_JSONL_LINE_BYTES
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Parser,
+                severity: SecuritySeverity::Low,
+                kind: "jsonl_line_too_large",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "JSONL line exceeds size limit",
+            }
+            .emit();
+            warn!(
+                line = idx + 1,
+                max_bytes = MAX_JSONL_LINE_BYTES,
+                "JSONL line exceeds size limit"
             );
             continue;
         }
         entries += 1;
         if entries > MAX_JSONL_ENTRIES {
-            eprintln!(
-                "security_boundary: JSONL entry limit exceeded (max {})",
-                MAX_JSONL_ENTRIES
-            );
+            SecurityEvent {
+                level: Level::ERROR,
+                domain: SecurityDomain::Parser,
+                severity: SecuritySeverity::Medium,
+                kind: "jsonl_entry_limit_exceeded",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "JSONL entry limit exceeded",
+            }
+            .emit();
+            error!(max_entries = MAX_JSONL_ENTRIES, "JSONL entry limit exceeded");
             return Err(anyhow!("JSONL entry limit exceeded"));
         }
         let v: serde_json::Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(err) => {
-                eprintln!(
-                    "security_boundary: JSONL parse error on line {}: {}",
-                    idx + 1,
-                    err
-                );
+                SecurityEvent {
+                    level: Level::WARN,
+                    domain: SecurityDomain::Parser,
+                    severity: SecuritySeverity::Low,
+                    kind: "jsonl_parse_error",
+                    policy: None,
+                    object_id: None,
+                    object_type: None,
+                    vector: None,
+                    technique: None,
+                    confidence: None,
+                    message: "JSONL parse error",
+                }
+                .emit();
+                warn!(line = idx + 1, error = %err, "JSONL parse error");
                 continue;
             }
         };
@@ -2052,10 +2223,24 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
             continue;
         }
         if url.len() > MAX_CAMPAIGN_INTENT_LEN || !is_printable_ascii(url) {
-            eprintln!(
-                "security_boundary: JSONL url rejected (len={}, printable_ascii={})",
-                url.len(),
-                is_printable_ascii(url)
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Parser,
+                severity: SecuritySeverity::Low,
+                kind: "jsonl_url_rejected",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "JSONL URL rejected",
+            }
+            .emit();
+            warn!(
+                url_len = url.len(),
+                printable_ascii = is_printable_ascii(url),
+                "JSONL URL rejected"
             );
             continue;
         }
@@ -2388,11 +2573,25 @@ fn sha256_hex(data: &[u8]) -> String {
 fn read_text_with_limit(path: &std::path::Path, max_bytes: u64) -> Result<String> {
     if let Ok(meta) = fs::metadata(path) {
         if meta.len() > max_bytes {
-            eprintln!(
-                "security_boundary: read rejected for {} ({} bytes exceeds limit {})",
-                path.display(),
-                meta.len(),
-                max_bytes
+            SecurityEvent {
+                level: Level::ERROR,
+                domain: SecurityDomain::Parser,
+                severity: SecuritySeverity::Medium,
+                kind: "read_limit_exceeded",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Read rejected due to size limit",
+            }
+            .emit();
+            error!(
+                path = %path.display(),
+                size_bytes = meta.len(),
+                max_bytes = max_bytes,
+                "Read rejected due to size limit"
             );
             return Err(anyhow!(
                 "file {} exceeds {} bytes",

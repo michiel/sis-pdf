@@ -8,6 +8,7 @@ use crate::parser::scan_indirect_objects;
 use crate::span::Span;
 use crate::xref::parse_xref_chain;
 use crate::objstm::{expand_objstm, ObjStmExpansion};
+use tracing::{debug, info};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ParseOptions {
@@ -101,18 +102,37 @@ impl<'a> ObjectGraph<'a> {
 }
 
 pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>> {
+    let parse_span = tracing::info_span!(
+        "parse_pdf",
+        bytes_len = bytes.len(),
+        deep = options.deep,
+        strict = options.strict,
+        recover_xref = options.recover_xref
+    );
+    let _parse_guard = parse_span.enter();
+    info!("Parsing PDF object graph");
     let startxrefs = find_startxrefs(bytes);
     let mut trailers = Vec::new();
     if let Some(last) = startxrefs.last().copied() {
         let chain = parse_xref_chain(bytes, last);
-        for sec in chain.sections {
-            if let Some(t) = sec.trailer {
-                trailers.push(t);
+        for sec in &chain.sections {
+            if let Some(t) = sec.trailer.as_ref() {
+                trailers.push(t.clone());
             }
         }
+        debug!(
+            startxrefs = startxrefs.len(),
+            sections = chain.sections.len(),
+            "Parsed xref chain"
+        );
     }
     let (mut objects, deviations) =
         scan_indirect_objects(bytes, options.strict, options.max_objects);
+    debug!(
+        objects = objects.len(),
+        deviations = deviations.len(),
+        "Scanned indirect objects"
+    );
 
     // Always expand object streams to detect hidden JavaScript and other content
     // Resource limits (max 100 ObjStm, byte limits) prevent DoS
@@ -129,6 +149,12 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
     for (i, o) in objects.iter().enumerate() {
         index.entry((o.obj, o.gen)).or_default().push(i);
     }
+    info!(
+        objects = objects.len(),
+        startxrefs = startxrefs.len(),
+        trailers = trailers.len(),
+        "Parsed PDF object graph"
+    );
     Ok(ObjectGraph {
         bytes,
         objects,

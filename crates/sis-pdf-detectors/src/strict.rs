@@ -5,6 +5,7 @@ use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::PdfAtom;
 use std::collections::BTreeMap;
+use tracing::warn;
 
 pub struct StrictParseDeviationDetector;
 
@@ -178,9 +179,12 @@ impl Detector for StrictParseDeviationDetector {
         }
         if ctx.options.strict {
             if ctx.graph.deviations.len() > DEVIATION_CLUSTER_THRESHOLD {
-                eprintln!(
-                    "security_boundary: deviation cluster detected (count={})",
-                    ctx.graph.deviations.len()
+                warn!(
+                    security = true,
+                    domain = "pdf.parser",
+                    kind = "parser_deviation_cluster",
+                    deviation_count = ctx.graph.deviations.len(),
+                    "Deviation cluster detected"
                 );
                 findings.push(Finding {
                     id: String::new(),
@@ -216,7 +220,13 @@ impl Detector for StrictParseDeviationDetector {
                 }
             }
             if action_object.is_some() && !ctx.graph.deviations.is_empty() {
-                eprintln!("security_boundary: deviations present in JS/Action context");
+                warn!(
+                    security = true,
+                    domain = "pdf.parser",
+                    kind = "deviations_in_action_context",
+                    deviation_count = ctx.graph.deviations.len(),
+                    "Deviations present in JS/Action context"
+                );
                 findings.push(Finding {
                     id: String::new(),
                     surface: self.surface(),

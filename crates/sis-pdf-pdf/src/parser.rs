@@ -4,6 +4,7 @@ use crate::lexer::{is_delim, is_whitespace, Cursor};
 use crate::object::{PdfAtom, PdfDict, PdfName, PdfObj, PdfStr, PdfStream};
 use crate::span::Span;
 use crate::graph::{Deviation, ObjEntry};
+use tracing::{trace, warn};
 
 pub struct Parser<'a> {
     cur: Cursor<'a>,
@@ -45,9 +46,15 @@ impl<'a> Parser<'a> {
 
     fn record_deviation(&mut self, kind: &str, span: Span, note: Option<String>) {
         if self.strict {
-            eprintln!(
-                "security_boundary: strict parser deviation kind={} span={}..{}",
-                kind, span.start, span.end
+            let note_preview = note.as_deref();
+            warn!(
+                security = true,
+                domain = "pdf.parser",
+                kind = kind,
+                span_start = span.start,
+                span_end = span.end,
+                note = note_preview,
+                "Strict parser deviation"
             );
             self.deviations.push(Deviation {
                 kind: kind.to_string(),
@@ -206,9 +213,12 @@ impl<'a> Parser<'a> {
                     },
                     Some(format!("max_elements={}", MAX_ARRAY_ELEMENTS)),
                 );
-                eprintln!(
-                    "security_boundary: array size limit exceeded (max={})",
-                    MAX_ARRAY_ELEMENTS
+                warn!(
+                    security = true,
+                    domain = "pdf.parser",
+                    kind = "array_size_limit_exceeded",
+                    max_elements = MAX_ARRAY_ELEMENTS,
+                    "Array size limit exceeded"
                 );
                 return Err(anyhow!("array size limit exceeded"));
             }
@@ -265,9 +275,12 @@ impl<'a> Parser<'a> {
                     },
                     Some(format!("max_entries={}", MAX_DICT_ENTRIES)),
                 );
-                eprintln!(
-                    "security_boundary: dict size limit exceeded (max={})",
-                    MAX_DICT_ENTRIES
+                warn!(
+                    security = true,
+                    domain = "pdf.parser",
+                    kind = "dict_size_limit_exceeded",
+                    max_entries = MAX_DICT_ENTRIES,
+                    "Dictionary size limit exceeded"
                 );
                 return Err(anyhow!("dict size limit exceeded"));
             }
@@ -581,9 +594,13 @@ impl<'a> Parser<'a> {
                         },
                         None,
                     );
-                    eprintln!(
-                        "security_boundary: stream length overflow at start={} len={}",
-                        data_start, len
+                    warn!(
+                        security = true,
+                        domain = "pdf.parser",
+                        kind = "stream_length_overflow",
+                        start = data_start,
+                        length = len,
+                        "Stream length overflow"
                     );
                     return Err(anyhow!("stream length overflow"));
                 }
@@ -792,9 +809,12 @@ pub fn scan_indirect_objects<'a>(
                     note: None,
                 });
             }
-            eprintln!(
-                "security_boundary: max_objects {} reached during indirect scan",
-                max_objects
+            warn!(
+                security = true,
+                domain = "pdf.parser",
+                kind = "max_objects_reached",
+                max_objects = max_objects,
+                "Max objects reached during indirect scan"
             );
             break;
         }
@@ -808,6 +828,15 @@ pub fn scan_indirect_objects<'a>(
             deviations.append(&mut devs);
         }
         if let Ok((entry, end_pos)) = res {
+            trace!(
+                security = true,
+                domain = "pdf.parser",
+                kind = "indirect_object_parsed",
+                obj = entry.obj,
+                gen = entry.gen,
+                end_pos = end_pos,
+                "Parsed indirect object"
+            );
             out.push(entry);
             i = end_pos;
         } else {

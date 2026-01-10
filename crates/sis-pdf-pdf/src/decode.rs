@@ -1,6 +1,7 @@
 use std::io::Read;
 
 use anyhow::{anyhow, Result};
+use tracing::warn;
 
 use crate::object::{PdfAtom, PdfDict, PdfName, PdfStream};
 
@@ -244,9 +245,14 @@ fn validate_decode_parms(parms: DecodeParms) -> Result<()> {
         || parms.bits_per_component > MAX_DECODE_PARMS
         || parms.columns > MAX_DECODE_PARMS
     {
-        eprintln!(
-            "security_boundary: decode parms out of range (colors={}, bits={}, columns={})",
-            parms.colors, parms.bits_per_component, parms.columns
+        warn!(
+            security = true,
+            domain = "pdf.decode",
+            kind = "decode_parms_out_of_range",
+            colors = parms.colors,
+            bits = parms.bits_per_component,
+            columns = parms.columns,
+            "Decode parameters out of range"
         );
         return Err(anyhow!("decode parms exceed safe limits"));
     }

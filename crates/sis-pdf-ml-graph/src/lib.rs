@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
+use tracing::{error, warn};
 
 mod config;
 mod normalize;
@@ -118,9 +119,10 @@ impl GraphModelRunner {
                     unresolved_edges
                 );
             }
-            eprintln!(
-                "warning: ml_graph: remapped {} edges with out-of-range nodes (nodes={})",
-                unresolved_edges, original_node_count
+            warn!(
+                unresolved_edges = unresolved_edges,
+                nodes = original_node_count,
+                "ML graph remapped edges with out-of-range nodes"
             );
         }
         if edges.is_empty() {
@@ -163,17 +165,24 @@ impl GraphModelRunner {
             Ok(result) => match result {
                 Ok(result) => result,
                 Err(err) => {
-                    eprintln!(
-                        "error: ml_graph: gnn inference failed (nodes={} feat_dim={} edges={} max_edge_node={}): {}",
-                        node_count, feature_dim, edge_count, max_node, err
+                    error!(
+                        nodes = node_count,
+                        feat_dim = feature_dim,
+                        edges = edge_count,
+                        max_edge_node = max_node,
+                        error = %err,
+                        "ML graph GNN inference failed"
                     );
                     return Err(err);
                 }
             },
             Err(_) => {
-                eprintln!(
-                    "error: ml_graph: gnn inference panicked (nodes={} feat_dim={} edges={} max_edge_node={})",
-                    node_count, feature_dim, edge_count, max_node
+                error!(
+                    nodes = node_count,
+                    feat_dim = feature_dim,
+                    edges = edge_count,
+                    max_edge_node = max_node,
+                    "ML graph GNN inference panicked"
                 );
                 return Err(anyhow!("gnn inference panicked"));
             }

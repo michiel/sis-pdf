@@ -16,6 +16,8 @@ globset = "0.4"
 rayon = "1.10"
 sha2 = "0.10"
 serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 walkdir = "2.5"
 sis-pdf-core = { path = "../sis-pdf-core" }
 sis-pdf-detectors = { path = "../sis-pdf-detectors" }

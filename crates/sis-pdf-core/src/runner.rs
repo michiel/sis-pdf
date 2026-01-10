@@ -14,6 +14,8 @@ use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use sis_pdf_pdf::ir::PdfIrObject;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
 use crate::position;
+use crate::security_log::{SecurityDomain, SecurityEvent};
+use tracing::{debug, error, info, warn, Level};
 
 const PARALLEL_DETECTOR_THREADS: usize = 4;
 
@@ -22,6 +24,16 @@ pub fn run_scan_with_detectors(
     options: ScanOptions,
     detectors: &[Box<dyn crate::detect::Detector>],
 ) -> Result<Report> {
+    let scan_span = tracing::info_span!(
+        "scan",
+        bytes_len = bytes.len(),
+        deep = options.deep,
+        strict = options.strict,
+        recover_xref = options.recover_xref,
+        diff_parser = options.diff_parser
+    );
+    let _scan_guard = scan_span.enter();
+    info!("Starting scan");
     let mut graph = parse_pdf(
         bytes,
         ParseOptions {
@@ -42,6 +54,12 @@ pub fn run_scan_with_detectors(
             if !reachable.is_empty() {
                 graph = filter_graph_by_refs(&graph, &reachable);
                 focus_filtered = true;
+                debug!(
+                    trigger = trigger,
+                    depth = options.focus_depth,
+                    reachable = reachable.len(),
+                    "Applied focus trigger filtering"
+                );
             }
         }
     }
@@ -70,10 +88,21 @@ pub fn run_scan_with_detectors(
             .flatten()
             .collect(),
             Err(err) => {
-                eprintln!(
-                    "security_boundary: failed to build parallel detector pool; falling back to sequential ({})",
-                    err
-                );
+                SecurityEvent {
+                    level: Level::WARN,
+                    domain: SecurityDomain::Detection,
+                    severity: crate::model::Severity::Low,
+                    kind: "detector_pool_fallback",
+                    policy: None,
+                    object_id: None,
+                    object_type: None,
+                    vector: None,
+                    technique: None,
+                    confidence: None,
+                    message: "Failed to build parallel detector pool; falling back to sequential",
+                }
+                .emit();
+                warn!(error = %err, "Failed to build parallel detector pool; falling back to sequential");
                 let mut out = Vec::new();
                 for d in detectors {
                     if ctx.options.fast && d.cost() != crate::detect::Cost::Cheap {
@@ -102,10 +131,24 @@ pub fn run_scan_with_detectors(
     };
 
     if ctx.graph.objects.len() > ctx.options.max_objects {
-        eprintln!(
-            "security_boundary: object count {} exceeded max_objects {}",
-            ctx.graph.objects.len(),
-            ctx.options.max_objects
+        SecurityEvent {
+            level: Level::WARN,
+            domain: SecurityDomain::PdfStructure,
+            severity: crate::model::Severity::Medium,
+            kind: "object_count_exceeded",
+            policy: None,
+            object_id: None,
+            object_type: None,
+            vector: None,
+            technique: None,
+            confidence: None,
+            message: "Object count exceeded max_objects",
+        }
+        .emit();
+        warn!(
+            object_count = ctx.graph.objects.len(),
+            max_objects = ctx.options.max_objects,
+            "Object count exceeded max_objects"
         );
         let evidence = ctx
             .graph
@@ -217,7 +260,7 @@ pub fn run_scan_with_detectors(
                         }
                     }
                     Err(err) => {
-                        eprintln!("warning: ml_model_error: failed to load ML model: {}", err);
+                        warn!(error = %err, "ML model load failed");
                         findings.push(Finding {
                             id: String::new(),
                             surface: crate::model::AttackSurface::Metadata,
@@ -316,7 +359,7 @@ pub fn run_scan_with_detectors(
                             }
                         }
                         Err(err) => {
-                            eprintln!("warning: ml_model_error: graph ML failed: {}", err);
+                            warn!(error = %err, "Graph ML inference failed");
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: crate::model::AttackSurface::Metadata,
@@ -338,8 +381,8 @@ pub fn run_scan_with_detectors(
                 }
                 #[cfg(not(feature = "ml-graph"))]
                 {
-                    eprintln!(
-                        "error: ml_model_error: graph ML mode requested but not compiled (enable feature ml-graph)"
+                    error!(
+                        "Graph ML mode requested but not compiled (enable feature ml-graph)"
                     );
                     findings.push(Finding {
                         id: String::new(),

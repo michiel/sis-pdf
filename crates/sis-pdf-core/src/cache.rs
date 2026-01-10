@@ -3,9 +3,11 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use tracing::{warn, Level};
 
 use crate::report::Report;
 use crate::features::FeatureVector;
+use crate::security_log::{SecurityDomain, SecurityEvent};
 
 const CACHE_VERSION: u32 = 1;
 const MAX_CACHE_BYTES: u64 = 50 * 1024 * 1024;
@@ -62,10 +64,21 @@ impl ScanCache {
         let path = self.path_for(&safe_hash);
         if let Ok(meta) = fs::metadata(&path) {
             if meta.len() > MAX_CACHE_BYTES {
-                eprintln!(
-                    "security_boundary: cache entry too large ({} bytes)",
-                    meta.len()
-                );
+                SecurityEvent {
+                    level: Level::WARN,
+                    domain: SecurityDomain::Cache,
+                    severity: crate::model::Severity::Low,
+                    kind: "cache_entry_too_large",
+                    policy: None,
+                    object_id: None,
+                    object_type: None,
+                    vector: None,
+                    technique: None,
+                    confidence: None,
+                    message: "Cache entry too large",
+                }
+                .emit();
+                warn!(bytes = meta.len(), "Cache entry too large");
                 return None;
             }
         }
@@ -75,9 +88,24 @@ impl ScanCache {
             return None;
         }
         if entry.file_hash != safe_hash {
-            eprintln!(
-                "security_boundary: cache hash mismatch (requested={} cached={})",
-                safe_hash, entry.file_hash
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Cache,
+                severity: crate::model::Severity::Low,
+                kind: "cache_hash_mismatch",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Cache hash mismatch",
+            }
+            .emit();
+            warn!(
+                requested = %safe_hash,
+                cached = %entry.file_hash,
+                "Cache hash mismatch"
             );
             return None;
         }
@@ -103,10 +131,21 @@ impl ScanCache {
         let path = self.feature_path_for(&safe_hash);
         if let Ok(meta) = fs::metadata(&path) {
             if meta.len() > MAX_CACHE_BYTES {
-                eprintln!(
-                    "security_boundary: cache feature entry too large ({} bytes)",
-                    meta.len()
-                );
+                SecurityEvent {
+                    level: Level::WARN,
+                    domain: SecurityDomain::Cache,
+                    severity: crate::model::Severity::Low,
+                    kind: "cache_feature_entry_too_large",
+                    policy: None,
+                    object_id: None,
+                    object_type: None,
+                    vector: None,
+                    technique: None,
+                    confidence: None,
+                    message: "Cache feature entry too large",
+                }
+                .emit();
+                warn!(bytes = meta.len(), "Cache feature entry too large");
                 return None;
             }
         }
@@ -116,9 +155,24 @@ impl ScanCache {
             return None;
         }
         if entry.file_hash != safe_hash {
-            eprintln!(
-                "security_boundary: cache feature hash mismatch (requested={} cached={})",
-                safe_hash, entry.file_hash
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Cache,
+                severity: crate::model::Severity::Low,
+                kind: "cache_feature_hash_mismatch",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Cache feature hash mismatch",
+            }
+            .emit();
+            warn!(
+                requested = %safe_hash,
+                cached = %entry.file_hash,
+                "Cache feature hash mismatch"
             );
             return None;
         }
@@ -172,14 +226,39 @@ pub fn cache_dir_from_path(path: &Path) -> PathBuf {
 
 fn sanitize_hash(hash: &str) -> Option<String> {
     if hash.len() != 64 {
-        eprintln!(
-            "security_boundary: cache hash rejected (len={}, expected 64)",
-            hash.len()
-        );
+        SecurityEvent {
+            level: Level::WARN,
+            domain: SecurityDomain::Cache,
+            severity: crate::model::Severity::Low,
+            kind: "cache_hash_invalid_len",
+            policy: None,
+            object_id: None,
+            object_type: None,
+            vector: None,
+            technique: None,
+            confidence: None,
+            message: "Cache hash rejected due to length",
+        }
+        .emit();
+        warn!(len = hash.len(), "Cache hash rejected due to length");
         return None;
     }
     if !hash.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) {
-        eprintln!("security_boundary: cache hash rejected (non-hex chars)");
+        SecurityEvent {
+            level: Level::WARN,
+            domain: SecurityDomain::Cache,
+            severity: crate::model::Severity::Low,
+            kind: "cache_hash_invalid_chars",
+            policy: None,
+            object_id: None,
+            object_type: None,
+            vector: None,
+            technique: None,
+            confidence: None,
+            message: "Cache hash rejected due to non-hex characters",
+        }
+        .emit();
+        warn!("Cache hash rejected due to non-hex characters");
         return None;
     }
     Some(hash.to_string())

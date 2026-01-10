@@ -3,6 +3,7 @@ use crate::graph::ObjEntry;
 use crate::object::{PdfAtom, PdfDict};
 use crate::parser::Parser;
 use crate::span::Span;
+use tracing::warn;
 
 const MAX_OBJSTM_COUNT: usize = 100;
 
@@ -24,9 +25,12 @@ pub fn expand_objstm<'a>(
     let mut warned_total = false;
     for entry in objects {
         if max_objects_total > 0 && objects.len() + out.len() >= max_objects_total {
-            eprintln!(
-                "security_boundary: objstm expansion halted; max_objects_total {} reached",
-                max_objects_total
+            warn!(
+                security = true,
+                domain = "pdf.object_stream",
+                kind = "max_objects_total_reached",
+                max_objects_total = max_objects_total,
+                "ObjStm expansion halted due to object budget"
             );
             break;
         }
@@ -39,15 +43,21 @@ pub fn expand_objstm<'a>(
         }
         objstm_count += 1;
         if objstm_count == 11 {
-            eprintln!(
-                "security_boundary: high ObjStm count detected ({} so far)",
-                objstm_count
+            warn!(
+                security = true,
+                domain = "pdf.object_stream",
+                kind = "high_objstm_count",
+                objstm_count = objstm_count,
+                "High ObjStm count detected"
             );
         }
         if objstm_count > MAX_OBJSTM_COUNT {
-            eprintln!(
-                "security_boundary: objstm expansion halted; max ObjStm count {} exceeded",
-                MAX_OBJSTM_COUNT
+            warn!(
+                security = true,
+                domain = "pdf.object_stream",
+                kind = "objstm_count_exceeded",
+                max_objstm_count = MAX_OBJSTM_COUNT,
+                "ObjStm expansion halted due to count limit"
             );
             break;
         }
@@ -61,18 +71,24 @@ pub fn expand_objstm<'a>(
         };
         if max_total_decoded_bytes > 0 {
             if decoded_total >= max_total_decoded_bytes {
-                eprintln!(
-                    "security_boundary: objstm expansion halted; total decoded budget {} reached",
-                    max_total_decoded_bytes
+                warn!(
+                    security = true,
+                    domain = "pdf.object_stream",
+                    kind = "objstm_decode_budget_reached",
+                    max_total_decoded_bytes = max_total_decoded_bytes,
+                    "ObjStm expansion halted due to decode budget"
                 );
                 break;
             }
             if decoded_total.saturating_add(max_objstm_bytes) > max_total_decoded_bytes {
-                eprintln!(
-                    "security_boundary: objstm expansion halted; decoding next ObjStm would exceed budget ({} + {} > {})",
-                    decoded_total,
-                    max_objstm_bytes,
-                    max_total_decoded_bytes
+                warn!(
+                    security = true,
+                    domain = "pdf.object_stream",
+                    kind = "objstm_decode_budget_exceeded",
+                    decoded_total = decoded_total,
+                    max_objstm_bytes = max_objstm_bytes,
+                    max_total_decoded_bytes = max_total_decoded_bytes,
+                    "ObjStm expansion halted due to budget overflow"
                 );
                 break;
             }
@@ -85,16 +101,22 @@ pub fn expand_objstm<'a>(
             decoded_total = decoded_total.saturating_add(decoded.data.len());
             if !warned_total && decoded_total > 100 * 1024 * 1024 {
                 warned_total = true;
-                eprintln!(
-                    "security_boundary: ObjStm decoded bytes exceed 100MB (total={})",
-                    decoded_total
+                warn!(
+                    security = true,
+                    domain = "pdf.object_stream",
+                    kind = "objstm_decoded_bytes_high",
+                    decoded_total = decoded_total,
+                    "ObjStm decoded bytes exceed 100MB"
                 );
             }
             if decoded_total > max_total_decoded_bytes {
-                eprintln!(
-                    "security_boundary: objstm expansion halted; decoded bytes {} exceeded budget {}",
-                    decoded_total,
-                    max_total_decoded_bytes
+                warn!(
+                    security = true,
+                    domain = "pdf.object_stream",
+                    kind = "objstm_decoded_bytes_exceeded",
+                    decoded_total = decoded_total,
+                    max_total_decoded_bytes = max_total_decoded_bytes,
+                    "ObjStm expansion halted; decoded bytes exceeded budget"
                 );
                 break;
             }
@@ -110,17 +132,23 @@ pub fn expand_objstm<'a>(
         }
         for idx in 0..n {
             if max_objects_total > 0 && objects.len() + out.len() >= max_objects_total {
-                eprintln!(
-                    "security_boundary: objstm expansion halted; max_objects_total {} reached",
-                    max_objects_total
+                warn!(
+                    security = true,
+                    domain = "pdf.object_stream",
+                    kind = "max_objects_total_reached",
+                    max_objects_total = max_objects_total,
+                    "ObjStm expansion halted due to object budget"
                 );
                 break;
             }
             let obj_num = tokens[idx * 2] as u32;
             if obj_num == entry.obj {
-                eprintln!(
-                    "security_boundary: detected recursive ObjStm reference to {}",
-                    obj_num
+                warn!(
+                    security = true,
+                    domain = "pdf.object_stream",
+                    kind = "objstm_recursive_reference",
+                    obj = obj_num,
+                    "Detected recursive ObjStm reference"
                 );
                 continue;
             }
@@ -137,9 +165,12 @@ pub fn expand_objstm<'a>(
             let parsed = own_obj(parsed);
             if let PdfAtom::Stream(st) = &parsed.atom {
                 if st.dict.has_name(b"/Type", b"/ObjStm") {
-                    eprintln!(
-                        "security_boundary: ObjStm entry {} references another ObjStm object",
-                        obj_num
+                    warn!(
+                        security = true,
+                        domain = "pdf.object_stream",
+                        kind = "objstm_nested_reference",
+                        obj = obj_num,
+                        "ObjStm entry references another ObjStm object"
                     );
                     continue;
                 }

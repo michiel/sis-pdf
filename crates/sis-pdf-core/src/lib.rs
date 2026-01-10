@@ -43,5 +43,6 @@ pub mod report;
 pub mod sarif;
 pub mod runner;
 pub mod scan;
+pub mod security_log;
 
 pub use detect::{Cost, Detector, Needs};

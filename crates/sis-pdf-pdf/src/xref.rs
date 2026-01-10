@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 
 use crate::object::{PdfAtom, PdfDict};
 use crate::parser::{parse_indirect_object_at, Parser};
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Copy)]
 pub enum XrefKind {
@@ -28,10 +29,25 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
     let mut seen = std::collections::HashSet::new();
     while let Some(off) = next {
         if !seen.insert(off) {
+            warn!(
+                security = true,
+                domain = "pdf.xref",
+                kind = "xref_loop_detected",
+                offset = off,
+                "Detected xref loop"
+            );
             break;
         }
         let offset = off as usize;
         if offset >= bytes.len() {
+            warn!(
+                security = true,
+                domain = "pdf.xref",
+                kind = "xref_offset_oob",
+                offset = off,
+                bytes_len = bytes.len(),
+                "Xref offset out of range"
+            );
             break;
         }
         if bytes[offset..].starts_with(b"xref") {
@@ -41,6 +57,7 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
                     trailer,
                     kind: XrefKind::Table,
                 });
+                debug!(offset = off, kind = ?XrefKind::Table, "Parsed xref table");
                 next = prev;
                 continue;
             }
@@ -51,6 +68,7 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
                 trailer,
                 kind: XrefKind::Stream,
             });
+            debug!(offset = off, kind = ?XrefKind::Stream, "Parsed xref stream");
             next = prev;
             continue;
         }
@@ -59,6 +77,7 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
             trailer: None,
             kind: XrefKind::Unknown,
         });
+        debug!(offset = off, kind = ?XrefKind::Unknown, "Parsed xref with unknown type");
         break;
     }
     XrefChain { sections }

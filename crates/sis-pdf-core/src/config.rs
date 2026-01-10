@@ -5,6 +5,8 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::scan::ScanOptions;
+use crate::security_log::{SecurityDomain, SecurityEvent};
+use tracing::{info, warn, Level};
 
 const MAX_CONFIG_BYTES: u64 = 1 * 1024 * 1024;
 const MAX_OBJECTS: usize = 10_000_000;
@@ -84,29 +86,49 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
     }
     if let Some(v) = scan.max_decode_bytes {
         if v == 0 || v > MAX_DECODE_BYTES {
-            eprintln!(
-                "security_boundary: invalid max_decode_bytes {} (limit {})",
-                v, MAX_DECODE_BYTES
-            );
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Detection,
+                severity: crate::model::Severity::Low,
+                kind: "invalid_max_decode_bytes",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Invalid max_decode_bytes in config",
+            }
+            .emit();
+            warn!(value = v, limit = MAX_DECODE_BYTES, "Invalid max_decode_bytes in config");
         } else {
-            eprintln!(
-                "security_boundary: config override max_decode_bytes {}",
-                v
-            );
+            info!(value = v, "Config override max_decode_bytes");
             opts.max_decode_bytes = v;
         }
     }
     if let Some(v) = scan.max_total_decoded_bytes {
         if v == 0 || v > MAX_TOTAL_DECODE_BYTES {
-            eprintln!(
-                "security_boundary: invalid max_total_decoded_bytes {} (limit {})",
-                v, MAX_TOTAL_DECODE_BYTES
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Detection,
+                severity: crate::model::Severity::Low,
+                kind: "invalid_max_total_decoded_bytes",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Invalid max_total_decoded_bytes in config",
+            }
+            .emit();
+            warn!(
+                value = v,
+                limit = MAX_TOTAL_DECODE_BYTES,
+                "Invalid max_total_decoded_bytes in config"
             );
         } else {
-            eprintln!(
-                "security_boundary: config override max_total_decoded_bytes {}",
-                v
-            );
+            info!(value = v, "Config override max_total_decoded_bytes");
             opts.max_total_decoded_bytes = v;
         }
     }
@@ -124,29 +146,49 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
     }
     if let Some(v) = scan.max_objects {
         if v == 0 || v > MAX_OBJECTS {
-            eprintln!(
-                "security_boundary: invalid max_objects {} (limit {})",
-                v, MAX_OBJECTS
-            );
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Detection,
+                severity: crate::model::Severity::Low,
+                kind: "invalid_max_objects",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Invalid max_objects in config",
+            }
+            .emit();
+            warn!(value = v, limit = MAX_OBJECTS, "Invalid max_objects in config");
         } else {
-            eprintln!(
-                "security_boundary: config override max_objects {}",
-                v
-            );
+            info!(value = v, "Config override max_objects");
             opts.max_objects = v;
         }
     }
     if let Some(v) = scan.max_recursion_depth {
         if v == 0 || v > MAX_RECURSION_DEPTH {
-            eprintln!(
-                "security_boundary: invalid max_recursion_depth {} (limit {})",
-                v, MAX_RECURSION_DEPTH
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Detection,
+                severity: crate::model::Severity::Low,
+                kind: "invalid_max_recursion_depth",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Invalid max_recursion_depth in config",
+            }
+            .emit();
+            warn!(
+                value = v,
+                limit = MAX_RECURSION_DEPTH,
+                "Invalid max_recursion_depth in config"
             );
         } else {
-            eprintln!(
-                "security_boundary: config override max_recursion_depth {}",
-                v
-            );
+            info!(value = v, "Config override max_recursion_depth");
             opts.max_recursion_depth = v;
         }
     }
@@ -158,10 +200,21 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
     }
     if let Some(v) = scan.focus_depth {
         if v > MAX_FOCUS_DEPTH {
-            eprintln!(
-                "security_boundary: invalid focus_depth {} (limit {})",
-                v, MAX_FOCUS_DEPTH
-            );
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Detection,
+                severity: crate::model::Severity::Low,
+                kind: "invalid_focus_depth",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Invalid focus_depth in config",
+            }
+            .emit();
+            warn!(value = v, limit = MAX_FOCUS_DEPTH, "Invalid focus_depth in config");
         } else {
             opts.focus_depth = v;
         }
@@ -178,9 +231,23 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
     if let Some(model) = &scan.ml_model {
         let threshold = scan.ml_threshold.unwrap_or(0.9);
         if !(0.0..=1.0).contains(&threshold) {
-            eprintln!(
-                "security_boundary: invalid ml_threshold {} (expected 0.0..=1.0)",
-                threshold
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Ml,
+                severity: crate::model::Severity::Low,
+                kind: "invalid_ml_threshold",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Invalid ML threshold in config",
+            }
+            .emit();
+            warn!(
+                value = threshold,
+                "Invalid ml_threshold in config (expected 0.0..=1.0)"
             );
         }
         let mode = scan
@@ -195,9 +262,23 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
         });
     } else if let Some(v) = scan.ml_threshold {
         if !(0.0..=1.0).contains(&v) {
-            eprintln!(
-                "security_boundary: invalid ml_threshold {} (expected 0.0..=1.0)",
-                v
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Ml,
+                severity: crate::model::Severity::Low,
+                kind: "invalid_ml_threshold",
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Invalid ML threshold in config",
+            }
+            .emit();
+            warn!(
+                value = v,
+                "Invalid ml_threshold in config (expected 0.0..=1.0)"
             );
         } else if let Some(cfg) = &mut opts.ml_config {
             cfg.threshold = v;

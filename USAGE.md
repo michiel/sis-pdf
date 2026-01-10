@@ -101,6 +101,22 @@ When to use deep scan:
 - You suspect embedded JavaScript or embedded files hidden behind filters.
 - You see `/ObjStm` density warnings or incremental updates.
 
+## 3b) Logging and tracing
+
+`sis` emits structured tracing logs to STDERR so report output on STDOUT stays clean.
+
+Enable verbose logging for loop investigations:
+
+```
+RUST_LOG=trace sis scan suspicious.pdf
+```
+
+Scope logging to specific crates:
+
+```
+RUST_LOG=sis_pdf=debug,sis_pdf_core=trace,sis_pdf_pdf=trace sis scan suspicious.pdf
+```
+
 ## 4) Explain a specific finding
 
 First, run a scan to get an ID, then:
