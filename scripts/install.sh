@@ -4,6 +4,8 @@ set -euo pipefail
 REPO="${SIS_GITHUB_REPO:-michiel/sis-pdf}"
 INSTALL_DIR="${SIS_INSTALL_DIR:-$HOME/.local/bin}"
 
+echo "sis installer: $REPO"
+
 os="$(uname -s)"
 arch="$(uname -m)"
 
@@ -48,30 +50,22 @@ if printf "%s" "$release_json" | grep -q "API rate limit exceeded"; then
 fi
 
 suffix="-$target.$ext"
-read -r tag url <<EOF_META
+{
+  read -r asset_name
+  read -r url
+} <<EOF_META
 $(printf "%s" "$release_json" | awk -v suffix="$suffix" '
-  /"tag_name":/ {
-    if (match($0, /"tag_name":[[:space:]]*"[^"]+"/)) {
-      tag = substr($0, RSTART, RLENGTH)
-      sub(/.*"tag_name":[[:space:]]*"/, "", tag)
-      sub(/".*/, "", tag)
-    }
-  }
-  /"draft":/ {
-    if ($0 ~ /"draft":[[:space:]]*true/) {
-      skip=1
-    } else if ($0 ~ /"draft":[[:space:]]*false/) {
-      skip=0
-    }
-  }
-  /"browser_download_url":/ {
-    if (skip) { next }
-    if ($0 ~ suffix && $0 ~ /sis-/) {
-      if (match($0, /"browser_download_url":[[:space:]]*"[^"]+"/)) {
-        url = substr($0, RSTART, RLENGTH)
-        sub(/.*"browser_download_url":[[:space:]]*"/, "", url)
+  {
+    if (match($0, "\"name\":\"sis-[^\"]*" suffix "\"")) {
+      name = substr($0, RSTART, RLENGTH)
+      sub(/.*"name":"/, "", name)
+      sub(/".*/, "", name)
+      rest = substr($0, RSTART + RLENGTH)
+      if (match(rest, "\"browser_download_url\":\"[^\"]+\"")) {
+        url = substr(rest, RSTART, RLENGTH)
+        sub(/.*"browser_download_url":"/, "", url)
         sub(/".*/, "", url)
-        print tag
+        print name
         print url
         exit
       }
@@ -79,9 +73,21 @@ $(printf "%s" "$release_json" | awk -v suffix="$suffix" '
   }
 ')
 EOF_META
+if [ -n "${asset_name:-}" ]; then
+  tag="${asset_name#sis-}"
+  tag="${tag%-$target.$ext}"
+fi
+
+URL=$url
+echo "Reading from repo $REPO, url $URL"
 
 if [ -z "$url" ]; then
-  echo "No release asset found for $target" >&2
+  if printf "%s" "$release_json" | grep -q "\"message\""; then
+    echo "Error: GitHub API response error:" >&2
+    printf "%s\n" "$release_json" | sed -n '1,5p' >&2
+  else
+    echo "No release asset found for $target" >&2
+  fi
   exit 1
 fi
 
