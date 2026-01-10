@@ -90,7 +90,7 @@ sis explain path/to/file.pdf PDF.JS.OBFUSCATION.001
 sis extract js path/to/file.pdf -o extracted.js
 
 # Validate ML runtime
-sis ml-health --ml-provider auto --ml-provider-info
+sis ml health --ml-provider auto --ml-provider-info
 ```
 
 ## Configuration

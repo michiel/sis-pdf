@@ -1,9 +1,9 @@
-# Plan: Move `ml-health` to `sis ml health` and add `sis ml otr download`
+# Plan: Move `ml-health` to `sis ml health` and add `sis ml ort download`
 
 ## Goals
 
 - Move the ML health check to a namespaced subcommand: `sis ml health`.
-- Add `sis ml otr download` to fetch the correct ONNX Runtime (ORT) dylib for the host platform and configured ML provider.
+- Add `sis ml ort download` to fetch the correct ONNX Runtime (ORT) dylib for the host platform and configured ML provider.
 - Select the ORT build based on OS, architecture, and ML provider (e.g., `migraphx` on Linux).
 - Keep logs on STDERR and preserve structured logging for security telemetry.
 - Add explicit GPU detection via `sis ml detect`.
@@ -14,7 +14,8 @@
 - CLI command structure in `crates/sis-pdf/src/main.rs`.
 - Configuration mapping for ML runtime provider selection.
 - Download/verification logic (reuse existing updater patterns where possible).
-- Documentation updates in `README.md` and `USAGE.md`.
+- Documentation updates in `docs/` and `README.md`/`USAGE.md` as needed.
+- Basic test coverage for provider resolution, mapping selection, and checksum verification.
 - GPU detection logic and config updates.
 
 ## Non-goals
@@ -30,7 +31,7 @@
 
 - Introduce `sis ml` as a parent command with subcommands:
   - `sis ml health` (replacing `sis ml-health`)
-  - `sis ml otr download` (new)
+  - `sis ml ort download` (new)
   - `sis ml detect` (new)
   - `sis ml autoconfig` (new)
 - Keep the old `sis ml-health` as a deprecated alias for one release cycle, or remove if breaking changes are acceptable.
@@ -75,7 +76,7 @@
 
 ### 5) Command behaviour
 
-- `sis ml otr download`:
+- `sis ml ort download`:
   - Resolves target from config + runtime.
   - Downloads and verifies the correct archive (required).
   - Extracts and prints the resolved dylib path.
@@ -103,14 +104,23 @@
 - Add checksum verification for all downloads (required).
 - Allow mirror URLs for enterprises (config option).
 - Add `--dry-run` to show which build would be downloaded.
-- Provide a `sis ml otr list` command to show supported combinations.
+- Provide a `sis ml ort list` command to show supported combinations.
 - Provide `sis ml detect --format json` output for fleet automation.
 
 ## Acceptance criteria
 
 - `sis ml health` works and `sis ml-health` either aliases or provides a clear deprecation message.
-- `sis ml otr download` selects the correct ORT build based on OS/arch/provider.
+- `sis ml ort download` selects the correct ORT build based on OS/arch/provider.
 - Downloaded dylib is verified and cached.
 - Config and docs reflect the new command structure.
 - `sis ml detect` reports detection output and recommended providers.
 - `sis ml autoconfig` updates config predictably with a dry-run mode.
+- Tests cover provider resolution, target mapping, and checksum mismatch handling.
+
+## Progress
+
+- [x] Restructured CLI to add `sis ml` subcommands and deprecated `sis ml-health`.
+- [x] Implemented ORT download, checksum verification, extraction, and caching.
+- [x] Added `sis ml detect` and `sis ml autoconfig` with provider recommendations.
+- [x] Added basic tests for provider order resolution, ORT mapping, and checksum verification.
+- [x] Updated documentation in `docs/`, `README.md`, and `USAGE.md`.

@@ -204,7 +204,27 @@ sis report suspicious.pdf --ml-model-dir models/ --ml-extended-features --ml-exp
 ML runtime health check (execution providers and model load):
 
 ```
-sis ml-health --ml-model-dir models/
+sis ml health --ml-model-dir models/
+```
+
+Detect ML runtime capabilities and provider recommendations:
+
+```
+sis ml detect
+sis ml detect --format json
+```
+
+Download the ONNX Runtime dynamic library for this host:
+
+```
+sis ml ort download --write-config
+```
+
+Auto-configure ML runtime settings:
+
+```
+sis ml autoconfig
+sis ml autoconfig --dry-run
 ```
 
 Print selected execution provider:
