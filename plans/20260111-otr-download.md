@@ -54,6 +54,7 @@
   - Linux x86_64:
     - `cpu` -> `onnxruntime-linux-x64-<ver>.tgz`
     - `cuda` -> `onnxruntime-linux-x64-gpu-<ver>.tgz`
+    - `openvino` -> `onnxruntime-linux-x64-openvino-<ver>.tgz` (Intel Arc)
     - `migraphx` -> ROCm build (e.g., `onnxruntime-linux-x64-rocm-<ver>.tgz`)
   - Windows x86_64:
     - `cpu` -> `onnxruntime-win-x64-<ver>.zip`

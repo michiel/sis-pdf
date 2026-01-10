@@ -73,6 +73,8 @@ ml_provider_order = ["cuda", "migraphx", "cpu"]
 ml_ort_dylib = "/path/to/libonnxruntime.so"
 ```
 
+Intel Arc on Linux typically uses the `openvino` provider.
+
 Environment overrides:
 
 - `SIS_ORT_VERSION`: override the default ORT version.

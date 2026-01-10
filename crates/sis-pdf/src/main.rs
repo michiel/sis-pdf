@@ -1547,6 +1547,7 @@ fn default_provider_order(os: &str) -> Vec<String> {
         order.push("coreml".into());
     } else {
         order.push("cuda".into());
+        order.push("openvino".into());
         order.push("migraphx".into());
     }
     order.push("cpu".into());
@@ -1748,6 +1749,10 @@ fn ort_archive_name(
         )),
         ("linux", "x86_64", "cuda") => Some((
             format!("onnxruntime-linux-x64-gpu-{version}.tgz"),
+            ArchiveFormat::TarGz,
+        )),
+        ("linux", "x86_64", "openvino") => Some((
+            format!("onnxruntime-linux-x64-openvino-{version}.tgz"),
             ArchiveFormat::TarGz,
         )),
         ("linux", "x86_64", "migraphx") => Some((
@@ -4300,6 +4305,17 @@ mod tests {
         };
         let (name, fmt) = ort_archive_name(&target, "cpu", "1.2.3").expect("archive");
         assert_eq!(name, "onnxruntime-linux-x64-1.2.3.tgz");
+        assert!(matches!(fmt, ArchiveFormat::TarGz));
+    }
+
+    #[test]
+    fn ort_archive_name_maps_linux_openvino() {
+        let target = OrtTarget {
+            os: "linux",
+            arch: "x86_64",
+        };
+        let (name, fmt) = ort_archive_name(&target, "openvino", "1.2.3").expect("archive");
+        assert_eq!(name, "onnxruntime-linux-x64-openvino-1.2.3.tgz");
         assert!(matches!(fmt, ArchiveFormat::TarGz));
     }
 
