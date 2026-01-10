@@ -1,0 +1,81 @@
+name: release-cli
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build-${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive_ext: tar.gz
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            archive_ext: zip
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            archive_ext: tar.gz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build CLI
+        run: cargo build --release -p sis-pdf --bin sis --target ${{ matrix.target }}
+
+      - name: Package (linux/macos)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="sis-${GITHUB_REF_NAME}-${{ matrix.target }}.${{ matrix.archive_ext }}"
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/sis" dist/
+          tar -C dist -czf "$archive" sis
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = "sis-$env:GITHUB_REF_NAME-${{ matrix.target }}.${{ matrix.archive_ext }}"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/sis.exe" dist/
+          Compress-Archive -Path dist\sis.exe -DestinationPath $archive
+
+      - name: Upload artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sis-${{ matrix.target }}
+          path: sis-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}
+
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/**/sis-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+            dist/**/sis-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip
+            dist/**/sis-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz
