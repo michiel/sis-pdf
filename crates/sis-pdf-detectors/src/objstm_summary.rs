@@ -95,6 +95,8 @@ impl Detector for ObjStmSummaryDetector {
                 remediation: Some("Inspect embedded objects in deep scans.".into()),
                 meta,
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             });
         }
         Ok(findings)

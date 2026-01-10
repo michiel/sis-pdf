@@ -116,6 +116,8 @@ impl Detector for SupplyChainDetector {
                     remediation: Some("Inspect outbound URLs and staged payloads.".into()),
                     meta,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
 
@@ -147,6 +149,8 @@ impl Detector for SupplyChainDetector {
                     remediation: Some("Verify update channels and signing policies.".into()),
                     meta,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
 
@@ -178,6 +182,8 @@ impl Detector for SupplyChainDetector {
                     remediation: Some("Review persistence-related APIs and triggers.".into()),
                     meta,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
         }
@@ -206,6 +212,8 @@ impl Detector for SupplyChainDetector {
                 remediation: Some("Inspect action targets and embedded files.".into()),
                 meta,
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             });
         }
         Ok(findings)

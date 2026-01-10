@@ -72,6 +72,8 @@ impl Detector for QuantumRiskDetector {
             remediation: Some("Plan migration to post-quantum algorithms.".into()),
             meta,
             yara: None,
+        position: None,
+        positions: Vec::new(),
         }])
     }
 }

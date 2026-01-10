@@ -100,6 +100,8 @@ impl Detector for MultiStageDetector {
                 remediation: Some("Review staging flow and embedded payloads.".into()),
                 meta,
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             }]);
         }
 

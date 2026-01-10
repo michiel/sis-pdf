@@ -63,6 +63,8 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
                 remediation: Some("Compare with a stricter parser or inspect file integrity.".into()),
                 meta: Default::default(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             });
             return DiffResult {
                 findings,
@@ -89,6 +91,8 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             remediation: Some("Investigate parser differential artifacts.".into()),
             meta: Default::default(),
             yara: None,
+        position: None,
+        positions: Vec::new(),
         });
     }
     if summary.primary_trailers != summary.secondary_trailers {
@@ -109,6 +113,8 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             remediation: Some("Inspect xref and trailer sections.".into()),
             meta: Default::default(),
             yara: None,
+        position: None,
+        positions: Vec::new(),
         });
     }
     if summary.missing_in_secondary > 0 || summary.missing_in_primary > 0 {
@@ -137,6 +143,8 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             remediation: Some("Inspect missing objects and xref consistency.".into()),
             meta,
             yara: None,
+        position: None,
+        positions: Vec::new(),
         });
         let mut meta = std::collections::HashMap::new();
         meta.insert(
@@ -163,6 +171,8 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             remediation: Some("Compare recovered objects to xref entries for hidden revisions.".into()),
             meta,
             yara: None,
+        position: None,
+        positions: Vec::new(),
         });
     }
     DiffResult {

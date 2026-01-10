@@ -75,6 +75,8 @@ impl Detector for JsPolymorphicDetector {
                     remediation: Some("Deobfuscate JavaScript and inspect dynamic behavior.".into()),
                     meta: meta.clone(),
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
             if multi_stage {
@@ -96,6 +98,8 @@ impl Detector for JsPolymorphicDetector {
                     remediation: Some("Inspect the deobfuscated payload.".into()),
                     meta: meta2,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
             if decoded.layers > 0 && decoded.bytes != info.bytes {
@@ -117,6 +121,8 @@ impl Detector for JsPolymorphicDetector {
                     remediation: Some("Review decoded layers for hidden behavior.".into()),
                     meta: meta3,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
         }

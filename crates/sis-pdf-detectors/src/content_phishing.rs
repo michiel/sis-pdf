@@ -71,6 +71,8 @@ impl Detector for ContentPhishingDetector {
                 remediation: Some("Manually review page content and links.".into()),
                 meta: Default::default(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             }]);
         }
         let mut out = Vec::new();
@@ -103,6 +105,8 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
                     remediation: Some("Review rendered text for embedded scripts or links.".into()),
                     meta: Default::default(),
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
         }
@@ -157,6 +161,8 @@ impl Detector for ContentDeceptionDetector {
                     remediation: Some("Review for deceptive overlays or lures.".into()),
                     meta,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
             if page.invisible_text {
@@ -178,6 +184,8 @@ impl Detector for ContentDeceptionDetector {
                     remediation: Some("Inspect for hidden text or overlays.".into()),
                     meta,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
             if has_image && page_has_uri_annot(ctx, dict) {
@@ -199,6 +207,8 @@ impl Detector for ContentDeceptionDetector {
                     remediation: Some("Inspect annotation overlays and link targets.".into()),
                     meta,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
         }

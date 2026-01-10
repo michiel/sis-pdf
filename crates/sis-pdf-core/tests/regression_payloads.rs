@@ -19,6 +19,7 @@ fn external_payload_sets_basic_coverage() {
         focus_depth: 0,
         yara_scope: None,
         strict: false,
+        strict_summary: false,
         ir: false,
         ml_config: None,
     };

@@ -48,6 +48,8 @@ impl Detector for FilterChainDepthDetector {
                         ),
                         meta,
                         yara: None,
+        position: None,
+        positions: Vec::new(),
                     });
                 }
             }

@@ -6,11 +6,14 @@ use crate::report::{MlRunSummary, MlSummary, Report, SecondaryParserSummary, Str
 #[cfg(feature = "ml-graph")]
 use crate::report::MlNodeAttribution;
 use crate::scan::{ScanContext, ScanOptions};
+use crate::evidence::preview_ascii;
 use sis_pdf_pdf::{parse_pdf, ObjectGraph, ParseOptions};
+use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 #[cfg(feature = "ml-graph")]
 use sis_pdf_pdf::ir::PdfIrObject;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
+use crate::position;
 
 const PARALLEL_DETECTOR_THREADS: usize = 4;
 
@@ -127,6 +130,8 @@ pub fn run_scan_with_detectors(
             remediation: Some("Reduce scan scope or raise max_objects.".into()),
             meta: Default::default(),
             yara: None,
+        position: None,
+        positions: Vec::new(),
         });
     }
 
@@ -206,6 +211,8 @@ pub fn run_scan_with_detectors(
                                 remediation: Some("Review ML features and validate with manual analysis.".into()),
                                 meta,
                                 yara: None,
+        position: None,
+        positions: Vec::new(),
                             });
                         }
                     }
@@ -224,6 +231,8 @@ pub fn run_scan_with_detectors(
                             remediation: Some("Check ML model path and format.".into()),
                             meta: Default::default(),
                             yara: None,
+        position: None,
+        positions: Vec::new(),
                         });
                     }
                 }
@@ -244,6 +253,8 @@ pub fn run_scan_with_detectors(
                         remediation: Some("Validate findings against alternate detectors.".into()),
                         meta,
                         yara: None,
+        position: None,
+        positions: Vec::new(),
                     });
                 }
             }
@@ -299,6 +310,8 @@ pub fn run_scan_with_detectors(
                                     ),
                                     meta,
                                     yara: None,
+        position: None,
+        positions: Vec::new(),
                                 });
                             }
                         }
@@ -317,6 +330,8 @@ pub fn run_scan_with_detectors(
                                 remediation: Some("Check graph model files and format.".into()),
                                 meta: Default::default(),
                                 yara: None,
+        position: None,
+        positions: Vec::new(),
                             });
                         }
                     }
@@ -341,6 +356,8 @@ pub fn run_scan_with_detectors(
                         remediation: Some("Rebuild with --features ml-graph.".into()),
                         meta: Default::default(),
                         yara: None,
+        position: None,
+        positions: Vec::new(),
                     });
                 }
             }
@@ -351,6 +368,8 @@ pub fn run_scan_with_detectors(
             f.id = stable_id(f);
         }
     }
+    annotate_positions(&ctx, &mut findings);
+    annotate_orphaned_page_context(&mut findings);
     let intent_summary = Some(crate::intent::apply_intent(&mut findings));
     let yara_rules = crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());
     findings.sort_by(|a, b| (a.surface as u32, &a.kind, &a.id).cmp(&(b.surface as u32, &b.kind, &b.id)));
@@ -360,7 +379,8 @@ pub fn run_scan_with_detectors(
         .as_ref()
         .map(|s| crate::predictor::BehavioralPredictor.predict_evolution(&s.patterns))
         .unwrap_or_default();
-    let network_intents = extract_network_intents(&findings);
+    let network_intents =
+        crate::campaign::extract_network_intents_from_findings(&findings, &Default::default());
     let response_rules = behavior_summary
         .as_ref()
         .map(|s| {
@@ -408,6 +428,256 @@ fn stable_id(f: &Finding) -> String {
         }
     }
     format!("sis-{}", hasher.finalize().to_hex())
+}
+
+fn annotate_positions(ctx: &ScanContext, findings: &mut [Finding]) {
+    let classifications = ctx.classifications();
+    let path_map = position::build_path_map(&ctx.graph);
+    for finding in findings {
+        if !finding.positions.is_empty() || finding.position.is_some() {
+            continue;
+        }
+        let mut positions = Vec::new();
+        for obj in &finding.objects {
+            let Some((obj_id, gen_id)) = position::parse_obj_ref(obj) else {
+                continue;
+            };
+            let path_hint = path_map
+                .get(&(obj_id, gen_id))
+                .map(|path| path.as_str());
+            let pos = position::canonical_position_for_obj(
+                &ctx.graph,
+                classifications,
+                obj_id,
+                gen_id,
+                path_hint,
+            );
+            positions.push(pos);
+            if let Some(preview) = raw_node_preview(&ctx.graph, obj_id, gen_id, 120) {
+                let key = format!("position.preview.{}:{}", obj_id, gen_id);
+                finding.meta.entry(key).or_insert(preview);
+            }
+        }
+        positions.sort();
+        positions.dedup();
+        if let Some(first) = positions.first().cloned() {
+            finding.position = Some(first);
+            finding.positions = positions;
+        }
+    }
+}
+
+fn annotate_orphaned_page_context(findings: &mut [Finding]) {
+    let mut suspicious_by_obj: HashMap<String, Vec<String>> = HashMap::new();
+    for finding in findings.iter() {
+        if !is_suspicious_orphan_payload(finding) {
+            continue;
+        }
+        for obj in &finding.objects {
+            if let Some((obj_id, gen_id)) = position::parse_obj_ref(obj) {
+                let key = format!("{} {}", obj_id, gen_id);
+                suspicious_by_obj
+                    .entry(key)
+                    .or_default()
+                    .push(finding.id.clone());
+            }
+        }
+    }
+
+    for finding in findings.iter_mut() {
+        if finding.kind != "page_tree_mismatch" {
+            continue;
+        }
+        if finding
+            .meta
+            .get("page_tree.orphaned")
+            .map(|v| v == "0")
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        let mut related = Vec::new();
+        for obj in &finding.objects {
+            let Some((obj_id, gen_id)) = position::parse_obj_ref(obj) else {
+                continue;
+            };
+            let key = format!("{} {}", obj_id, gen_id);
+            if let Some(ids) = suspicious_by_obj.get(&key) {
+                related.extend(ids.iter().cloned());
+            }
+        }
+        related.sort();
+        related.dedup();
+        if !related.is_empty() {
+            finding
+                .meta
+                .insert("page_tree.orphaned_has_payload".into(), "true".into());
+            finding.meta.insert(
+                "page_tree.orphaned_payload_count".into(),
+                related.len().to_string(),
+            );
+            let list = related.into_iter().take(8).collect::<Vec<_>>().join(", ");
+            finding
+                .meta
+                .insert("page_tree.orphaned_payload_findings".into(), list);
+        }
+    }
+}
+
+fn is_suspicious_orphan_payload(finding: &Finding) -> bool {
+    if finding.kind == "page_tree_mismatch" || finding.kind == "page_tree_cycle" {
+        return false;
+    }
+    matches!(
+        finding.surface,
+        crate::model::AttackSurface::JavaScript
+            | crate::model::AttackSurface::Actions
+            | crate::model::AttackSurface::EmbeddedFiles
+            | crate::model::AttackSurface::ContentPhishing
+            | crate::model::AttackSurface::RichMedia3D
+    ) || finding.kind.contains("js_")
+        || finding.kind.contains("uri_")
+        || finding.kind.contains("embedded")
+        || finding.kind.contains("launch")
+}
+
+fn raw_node_preview(
+    graph: &ObjectGraph<'_>,
+    obj: u32,
+    gen: u16,
+    max_len: usize,
+) -> Option<String> {
+    let entry = graph.get_object(obj, gen)?;
+    let preview = match &entry.atom {
+        PdfAtom::Dict(dict) => dict_preview(dict),
+        PdfAtom::Stream(stream) => stream_preview(stream),
+        PdfAtom::Array(items) => array_preview(items),
+        PdfAtom::Ref { obj, gen } => format!("ref {}:{}", obj, gen),
+        PdfAtom::Name(name) => name_preview(name),
+        PdfAtom::Str(s) => string_preview(s),
+        PdfAtom::Int(v) => format!("int {}", v),
+        PdfAtom::Real(v) => format!("real {:.6}", v),
+        PdfAtom::Bool(v) => format!("bool {}", v),
+        PdfAtom::Null => "null".to_string(),
+    };
+    Some(truncate_preview(preview, max_len))
+}
+
+fn dict_preview(dict: &PdfDict<'_>) -> String {
+    let mut parts = vec!["dict".to_string()];
+    if let Some(type_name) = dict.get_first(b"/Type").and_then(|(_, v)| name_value(&v.atom)) {
+        parts.push(format!("Type={}", type_name.trim_start_matches('/')));
+    }
+    if let Some(subtype) = dict
+        .get_first(b"/Subtype")
+        .and_then(|(_, v)| name_value(&v.atom))
+    {
+        parts.push(format!("Subtype={}", subtype.trim_start_matches('/')));
+    }
+    let mut keys: Vec<String> = dict.entries.iter().map(|(k, _)| name_preview(k)).collect();
+    keys.sort();
+    keys.dedup();
+    if !keys.is_empty() {
+        let keys_preview = keys.into_iter().take(6).collect::<Vec<_>>().join(",");
+        parts.push(format!("keys={}", keys_preview));
+    }
+    parts.join(" ")
+}
+
+fn stream_preview(stream: &sis_pdf_pdf::object::PdfStream<'_>) -> String {
+    let filters = stream_filters(&stream.dict);
+    let filter_list = if filters.is_empty() {
+        "-".to_string()
+    } else {
+        filters.join(",")
+    };
+    let mut parts = vec![
+        "stream".to_string(),
+        format!("len={}", stream.data_span.len()),
+        format!("filters={}", filter_list),
+    ];
+    let mut keys: Vec<String> = stream
+        .dict
+        .entries
+        .iter()
+        .map(|(k, _)| name_preview(k))
+        .collect();
+    keys.sort();
+    keys.dedup();
+    if !keys.is_empty() {
+        let keys_preview = keys.into_iter().take(6).collect::<Vec<_>>().join(",");
+        parts.push(format!("keys={}", keys_preview));
+    }
+    parts.join(" ")
+}
+
+fn array_preview(items: &[PdfObj<'_>]) -> String {
+    let mut item_preview = Vec::new();
+    for item in items.iter().take(3) {
+        item_preview.push(atom_compact_preview(&item.atom));
+    }
+    let suffix = if items.len() > 3 { ", ..." } else { "" };
+    format!(
+        "array len={} [{}{}]",
+        items.len(),
+        item_preview.join(", "),
+        suffix
+    )
+}
+
+fn atom_compact_preview(atom: &PdfAtom<'_>) -> String {
+    match atom {
+        PdfAtom::Ref { obj, gen } => format!("ref {}:{}", obj, gen),
+        PdfAtom::Name(name) => name_preview(name),
+        PdfAtom::Str(s) => string_preview(s),
+        PdfAtom::Int(v) => v.to_string(),
+        PdfAtom::Real(v) => format!("{:.6}", v),
+        PdfAtom::Bool(v) => v.to_string(),
+        PdfAtom::Null => "null".to_string(),
+        PdfAtom::Dict(_) => "dict".to_string(),
+        PdfAtom::Stream(_) => "stream".to_string(),
+        PdfAtom::Array(arr) => format!("array len={}", arr.len()),
+    }
+}
+
+fn name_preview(name: &sis_pdf_pdf::object::PdfName<'_>) -> String {
+    let decoded = String::from_utf8_lossy(&name.decoded);
+    if decoded.starts_with('/') {
+        decoded.to_string()
+    } else {
+        format!("/{}", decoded)
+    }
+}
+
+fn name_value(atom: &PdfAtom<'_>) -> Option<String> {
+    match atom {
+        PdfAtom::Name(name) => Some(name_preview(name)),
+        _ => None,
+    }
+}
+
+fn string_preview(value: &sis_pdf_pdf::object::PdfStr<'_>) -> String {
+    let decoded = match value {
+        sis_pdf_pdf::object::PdfStr::Literal { decoded, .. } => decoded,
+        sis_pdf_pdf::object::PdfStr::Hex { decoded, .. } => decoded,
+    };
+    let preview = preview_ascii(decoded, 48);
+    format!("str \"{}\"", preview)
+}
+
+fn truncate_preview(mut preview: String, max_len: usize) -> String {
+    if max_len == 0 {
+        return String::new();
+    }
+    if preview.len() > max_len {
+        if max_len > 3 {
+            preview.truncate(max_len - 3);
+            preview.push_str("...");
+        } else {
+            preview.truncate(max_len);
+        }
+    }
+    preview
 }
 
 #[cfg(feature = "ml-graph")]
@@ -665,41 +935,4 @@ fn filter_graph_by_refs<'a>(
         startxrefs: graph.startxrefs.clone(),
         deviations: graph.deviations.clone(),
     }
-}
-
-fn extract_network_intents(findings: &[Finding]) -> Vec<crate::campaign::NetworkIntent> {
-    let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for f in findings {
-        for (k, v) in &f.meta {
-            if k == "action.target"
-                || k == "supply_chain.action_targets"
-                || k == "js.ast_urls"
-                || k.starts_with("js.")
-            {
-                for url in extract_urls(v) {
-                    if seen.insert(url.clone()) {
-                        out.push(crate::campaign::NetworkIntent {
-                            domain: crate::campaign::extract_domain(&url),
-                            url,
-                        });
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
-fn extract_urls(input: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for token in input
-        .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
-        .filter(|s| !s.is_empty())
-    {
-        if token.starts_with("http://") || token.starts_with("https://") {
-            out.push(token.trim_matches(['"', '\'']).to_string());
-        }
-    }
-    out
 }

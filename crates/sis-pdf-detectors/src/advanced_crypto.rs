@@ -47,6 +47,8 @@ impl Detector for AdvancedCryptoDetector {
                     remediation: Some("Upgrade encryption algorithm and key length.".into()),
                     meta,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
         }
@@ -68,6 +70,8 @@ impl Detector for AdvancedCryptoDetector {
                 remediation: Some("Validate certificate chain and signature metadata.".into()),
                 meta,
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             });
         }
 
@@ -95,6 +99,8 @@ impl Detector for AdvancedCryptoDetector {
                     remediation: Some("Inspect for cryptomining payloads.".into()),
                     meta,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
         }

@@ -7,6 +7,12 @@ use crate::model::Finding;
 use crate::taint::taint_from_findings;
 
 pub fn synthesise_chains(findings: &[Finding]) -> (Vec<ExploitChain>, Vec<ChainTemplate>) {
+    let mut finding_positions: HashMap<String, Vec<String>> = HashMap::new();
+    for finding in findings {
+        if !finding.positions.is_empty() {
+            finding_positions.insert(finding.id.clone(), finding.positions.clone());
+        }
+    }
     let structural_count = findings
         .iter()
         .filter(|f| {
@@ -21,7 +27,12 @@ pub fn synthesise_chains(findings: &[Finding]) -> (Vec<ExploitChain>, Vec<ChainT
         .count();
     let taint = taint_from_findings(findings);
     let mut chains = Vec::new();
-    chains.extend(build_object_chains(findings, structural_count, &taint));
+    chains.extend(build_object_chains(
+        findings,
+        structural_count,
+        &taint,
+        &finding_positions,
+    ));
     for f in findings {
         let trigger = trigger_from_kind(&f.kind);
         let action = f
@@ -66,9 +77,12 @@ pub fn synthesise_chains(findings: &[Finding]) -> (Vec<ExploitChain>, Vec<ChainT
             score: 0.0,
             reasons: Vec::new(),
             path: String::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
             notes,
         };
         chain.path = render_path(&chain);
+        chain.nodes = chain_nodes(&chain, &finding_positions);
         let (score, reasons) = score_chain(&chain);
         chain.score = score;
         chain.reasons = reasons;
@@ -101,6 +115,7 @@ fn build_object_chains(
     findings: &[Finding],
     structural_count: usize,
     taint: &crate::taint::Taint,
+    finding_positions: &HashMap<String, Vec<String>>,
 ) -> Vec<ExploitChain> {
     let mut by_object: HashMap<String, Vec<&Finding>> = HashMap::new();
     for f in findings {
@@ -160,9 +175,12 @@ fn build_object_chains(
             score: 0.0,
             reasons: Vec::new(),
             path: String::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
             notes,
         };
         chain.path = render_path(&chain);
+        chain.nodes = chain_nodes(&chain, &finding_positions);
         let (score, reasons) = score_chain(&chain);
         chain.score = score;
         chain.reasons = reasons;
@@ -170,6 +188,23 @@ fn build_object_chains(
         chains.push(chain);
     }
     chains
+}
+
+fn chain_nodes(
+    chain: &ExploitChain,
+    finding_positions: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    let mut nodes = Vec::new();
+    for finding_id in &chain.findings {
+        if let Some(positions) = finding_positions.get(finding_id) {
+            for pos in positions {
+                if !nodes.contains(pos) {
+                    nodes.push(pos.clone());
+                }
+            }
+        }
+    }
+    nodes
 }
 
 fn trigger_from_kind(kind: &str) -> Option<String> {

@@ -63,6 +63,10 @@ pub struct Finding {
     pub evidence: Vec<EvidenceSpan>,
     pub remediation: Option<String>,
     #[serde(default)]
+    pub position: Option<String>,
+    #[serde(default)]
+    pub positions: Vec<String>,
+    #[serde(default)]
     pub meta: HashMap<String, String>,
     #[serde(default)]
     pub yara: Option<YaraAnnotation>,

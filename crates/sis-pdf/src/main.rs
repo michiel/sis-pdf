@@ -47,6 +47,8 @@ enum Command {
         json: bool,
         #[arg(long)]
         jsonl: bool,
+        #[arg(long, help = "Emit JSONL findings with input path per entry")]
+        jsonl_findings: bool,
         #[arg(long)]
         sarif: bool,
         #[arg(long)]
@@ -55,6 +57,8 @@ enum Command {
         export_intents: bool,
         #[arg(long)]
         export_intents_out: Option<PathBuf>,
+        #[arg(long, help = "Include derived intent entries (domains and obfuscated URLs)")]
+        intents_derived: bool,
         #[arg(long)]
         yara: bool,
         #[arg(long)]
@@ -71,6 +75,8 @@ enum Command {
         focus_depth: usize,
         #[arg(long)]
         strict: bool,
+        #[arg(long, help = "Summarise strict parser deviations instead of emitting each deviation")]
+        strict_summary: bool,
         #[arg(long)]
         ir: bool,
         #[arg(long, default_value_t = 500_000)]
@@ -260,6 +266,8 @@ enum Command {
         out: Option<PathBuf>,
         #[arg(long, help = "Export basic 35-feature vector only (legacy format)")]
         basic: bool,
+        #[arg(long, help = "Include feature names in JSONL output records")]
+        feature_names: bool,
     },
     #[command(about = "Compute benign baseline from feature vectors")]
     ComputeBaseline {
@@ -321,10 +329,12 @@ fn main() -> Result<()> {
             no_recover,
             json,
             jsonl,
+            jsonl_findings,
             sarif,
             sarif_out,
             export_intents,
             export_intents_out,
+            intents_derived,
             yara,
             yara_out,
             yara_scope,
@@ -333,6 +343,7 @@ fn main() -> Result<()> {
             focus_trigger,
             focus_depth,
             strict,
+            strict_summary,
             ir,
             max_objects,
             max_recursion_depth,
@@ -363,10 +374,12 @@ fn main() -> Result<()> {
             !no_recover,
             json,
             jsonl,
+            jsonl_findings,
             sarif,
             sarif_out.as_deref(),
             export_intents,
             export_intents_out.as_deref(),
+            intents_derived,
             yara,
             yara_out.as_deref(),
             &yara_scope,
@@ -375,6 +388,7 @@ fn main() -> Result<()> {
             focus_trigger,
             focus_depth,
             strict,
+            strict_summary,
             ir,
             max_objects,
             max_recursion_depth,
@@ -502,6 +516,7 @@ fn main() -> Result<()> {
             format,
             out,
             basic,
+            feature_names,
         } => run_export_features(
             pdf.as_deref(),
             path.as_deref(),
@@ -515,6 +530,7 @@ fn main() -> Result<()> {
             &format,
             out.as_deref(),
             !basic,
+            feature_names,
         ),
         Command::ComputeBaseline { input, out } => {
             run_compute_baseline(&input, &out)
@@ -564,10 +580,12 @@ fn run_scan(
     recover_xref: bool,
     json: bool,
     jsonl: bool,
+    jsonl_findings: bool,
     sarif: bool,
     sarif_out: Option<&std::path::Path>,
     export_intents: bool,
     export_intents_out: Option<&std::path::Path>,
+    intents_derived: bool,
     yara: bool,
     yara_out: Option<&std::path::Path>,
     yara_scope: &str,
@@ -576,6 +594,7 @@ fn run_scan(
     focus_trigger: Option<String>,
     focus_depth: usize,
     strict: bool,
+    strict_summary: bool,
     ir: bool,
     max_objects: usize,
     max_recursion_depth: usize,
@@ -600,6 +619,9 @@ fn run_scan(
     if path.is_some() && pdf.is_some() {
         return Err(anyhow!("provide either a PDF path or --path, not both"));
     }
+    if strict_summary && !strict {
+        return Err(anyhow!("--strict-summary requires --strict"));
+    }
     let diff_parser = diff_parser || strict;
     if diff_parser && strict {
         eprintln!("security_boundary: enabling diff parser in strict mode");
@@ -619,6 +641,7 @@ fn run_scan(
         focus_depth,
         yara_scope: Some(yara_scope.to_string()),
         strict,
+        strict_summary,
         ir,
         ml_config: None,
     };
@@ -666,10 +689,12 @@ fn run_scan(
             &detectors,
             json,
             jsonl,
+            jsonl_findings,
             sarif,
             sarif_out,
             want_export_intents,
             export_intents_out,
+            intents_derived,
             yara,
             yara_out,
             cache_dir,
@@ -733,13 +758,15 @@ fn run_scan(
         } else {
             Box::new(std::io::stdout())
         };
-        write_intents_jsonl(&report, writer.as_mut())?;
+        write_intents_jsonl(&report, writer.as_mut(), intents_derived)?;
         return Ok(());
     }
     let want_sarif = sarif || sarif_out.is_some();
     let want_yara = yara || yara_out.is_some();
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
+    } else if jsonl_findings {
+        sis_pdf_core::report::print_jsonl_findings(&report)?;
     } else if jsonl {
         sis_pdf_core::report::print_jsonl(&report)?;
     } else if want_sarif {
@@ -900,9 +927,23 @@ fn run_scan_single(
 fn write_intents_jsonl(
     report: &sis_pdf_core::report::Report,
     writer: &mut dyn Write,
+    intents_derived: bool,
 ) -> Result<()> {
     let path = report.input_path.as_deref().unwrap_or("-");
-    for intent in &report.network_intents {
+    let intents = if intents_derived {
+        let options = sis_pdf_core::campaign::IntentExtractionOptions {
+            include_domains: true,
+            include_obfuscated: true,
+            include_scheme_less: true,
+        };
+        sis_pdf_core::campaign::extract_network_intents_from_findings(
+            &report.findings,
+            &options,
+        )
+    } else {
+        report.network_intents.clone()
+    };
+    for intent in intents {
         let record = serde_json::json!({
             "path": path,
             "url": intent.url,
@@ -920,10 +961,12 @@ fn run_scan_batch(
     detectors: &[Box<dyn sis_pdf_core::detect::Detector>],
     json: bool,
     jsonl: bool,
+    jsonl_findings: bool,
     sarif: bool,
     sarif_out: Option<&std::path::Path>,
     export_intents: bool,
     export_intents_out: Option<&std::path::Path>,
+    intents_derived: bool,
     yara: bool,
     yara_out: Option<&std::path::Path>,
     cache_dir: Option<&std::path::Path>,
@@ -947,6 +990,12 @@ fn run_scan_batch(
         } else {
             Box::new(std::io::stdout())
         };
+        Some(Arc::new(Mutex::new(writer)))
+    } else {
+        None
+    };
+    let findings_writer: Option<Arc<Mutex<Box<dyn Write + Send>>>> = if jsonl_findings {
+        let writer: Box<dyn Write + Send> = Box::new(std::io::stdout());
         Some(Arc::new(Mutex::new(writer)))
     } else {
         None
@@ -1025,7 +1074,13 @@ fn run_scan_batch(
             let mut guard = writer
                 .lock()
                 .map_err(|_| anyhow!("intent writer lock poisoned"))?;
-            write_intents_jsonl(&report, guard.as_mut())?;
+            write_intents_jsonl(&report, guard.as_mut(), intents_derived)?;
+        }
+        if let Some(writer) = findings_writer.as_ref() {
+            let mut guard = writer
+                .lock()
+                .map_err(|_| anyhow!("findings writer lock poisoned"))?;
+            sis_pdf_core::report::write_jsonl_findings(&report, guard.as_mut())?;
         }
         let duration_ms = start.elapsed().as_millis() as u64;
         Ok(sis_pdf_core::report::BatchEntry {
@@ -1088,6 +1143,9 @@ fn run_scan_batch(
     if export_intents {
         return Ok(());
     }
+    if jsonl_findings {
+        return Ok(());
+    }
     let avg_ms = if entries.is_empty() {
         0
     } else {
@@ -1120,6 +1178,7 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
     let mmap = mmap_file(pdf)?;
     let opts = sis_pdf_core::scan::ScanOptions {
         strict: false,
+        strict_summary: false,
         ir: false,
         deep: true,
         max_decode_bytes: 32 * 1024 * 1024,
@@ -1201,6 +1260,7 @@ fn run_detect(
         max_objects,
         max_recursion_depth: 64,
         strict,
+        strict_summary: false,
         ir: false,
         fast: false,
         focus_trigger: None,
@@ -1319,6 +1379,7 @@ fn run_export_graph(pdf: &str, chains_only: bool, format: &str, outdir: &PathBuf
     fs::create_dir_all(outdir)?;
     let opts = sis_pdf_core::scan::ScanOptions {
         strict: false,
+        strict_summary: false,
         ir: false,
         deep: true,
         max_decode_bytes: 32 * 1024 * 1024,
@@ -1388,6 +1449,7 @@ fn run_export_org(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Res
             yara_scope: None,
             focus_depth: 5,
             strict: false,
+            strict_summary: false,
             ir: false,
             ml_config: None,
         };
@@ -1479,6 +1541,7 @@ fn run_export_ir(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Resu
             yara_scope: None,
             focus_depth: 5,
             strict: false,
+            strict_summary: false,
             ir: false,
             ml_config: None,
         };
@@ -1565,6 +1628,7 @@ fn run_report(
         yara_scope: None,
         focus_depth: 0,
         strict,
+        strict_summary: false,
         ir,
         ml_config: None,
     };
@@ -1665,6 +1729,7 @@ fn run_export_features(
     format: &str,
     out: Option<&std::path::Path>,
     extended: bool,
+    feature_names: bool,
 ) -> Result<()> {
     if path.is_some() && pdf.is_some() {
         return Err(anyhow!("provide either a PDF path or --path, not both"));
@@ -1684,6 +1749,7 @@ fn run_export_features(
         yara_scope: None,
         focus_depth: 0,
         strict,
+        strict_summary: false,
         ir: false,
         ml_config: None,
     };
@@ -1809,11 +1875,20 @@ fn run_export_features(
 
         match format {
             "jsonl" => {
-                let record = serde_json::json!({
-                    "path": path_str,
-                    "label": label,
-                    "features": feature_vec,
-                });
+                let record = if feature_names {
+                    serde_json::json!({
+                        "path": path_str,
+                        "label": label,
+                        "features": feature_vec,
+                        "feature_names": &names,
+                    })
+                } else {
+                    serde_json::json!({
+                        "path": path_str,
+                        "label": label,
+                        "features": feature_vec,
+                    })
+                };
                 writer.write_all(serde_json::to_string(&record)?.as_bytes())?;
                 writer.write_all(b"\n")?;
             }
@@ -2069,13 +2144,14 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
         let detectors = sis_pdf_detectors::default_detectors();
         let opts = sis_pdf_core::scan::ScanOptions {
             strict: false,
+            strict_summary: false,
             ir: false,
             deep: true,
             max_decode_bytes: 32 * 1024 * 1024,
             max_total_decoded_bytes: 256 * 1024 * 1024,
             recover_xref: true,
             parallel: false,
-        batch_parallel: false,
+            batch_parallel: false,
             diff_parser: false,
             max_objects: 500_000,
             max_recursion_depth: 64,

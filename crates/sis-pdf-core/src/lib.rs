@@ -34,6 +34,7 @@ pub mod ir_pipeline;
 pub mod org_export;
 pub mod ir_export;
 pub mod ir_enhanced;
+pub mod position;
 pub mod intent;
 pub mod page_tree;
 pub mod cache;

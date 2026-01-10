@@ -57,6 +57,8 @@ impl Detector for LinearizationDetector {
                 remediation: Some("Validate linearization with a strict parser.".into()),
                 meta: Default::default(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             });
         }
         if let Some(entry) = linearized.first() {
@@ -101,6 +103,8 @@ impl Detector for LinearizationDetector {
                         remediation: Some("Inspect linearized offsets and hint tables.".into()),
                         meta,
                         yara: None,
+        position: None,
+        positions: Vec::new(),
                     });
                 } else if dict.get_first(b"/H").is_some() {
                     findings.push(Finding {
@@ -116,6 +120,8 @@ impl Detector for LinearizationDetector {
                         remediation: Some("Validate hint table offsets and object access.".into()),
                         meta,
                         yara: None,
+        position: None,
+        positions: Vec::new(),
                     });
                 }
             }

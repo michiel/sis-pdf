@@ -27,6 +27,7 @@ fn sandbox_exec_records_calls() {
         focus_depth: 0,
         yara_scope: None,
         strict: false,
+        strict_summary: false,
         ir: false,
         ml_config: None,
     };

@@ -694,6 +694,8 @@ impl Detector for UriContentDetector {
                             remediation: Some("Review URI destination and trigger mechanism.".to_string()),
                             meta,
                             yara: None,
+        position: None,
+        positions: Vec::new(),
                         });
                     }
                 }
@@ -866,6 +868,8 @@ impl Detector for UriPresenceDetector {
                 remediation: Some("Review URIs for legitimacy and verify destinations.".to_string()),
                 meta,
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             }])
         } else {
             Ok(Vec::new())

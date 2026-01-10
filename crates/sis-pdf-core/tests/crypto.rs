@@ -20,6 +20,7 @@ fn detects_signature_and_encryption() {
         focus_depth: 0,
         yara_scope: None,
         strict: false,
+        strict_summary: false,
         ir: false,
         ml_config: None,
     };

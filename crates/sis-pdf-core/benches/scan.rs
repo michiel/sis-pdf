@@ -5,6 +5,7 @@ fn bench_scan(c: &mut Criterion) {
     let detectors = sis_pdf_detectors::default_detectors();
     let opts = ScanOptions {
         strict: false,
+        strict_summary: false,
         ir: false,
         deep: true,
         max_decode_bytes: 8 * 1024 * 1024,

@@ -119,7 +119,10 @@ def load_sample(ir_path, org_path):
         for line in obj["lines"]:
             lines.append(f'{line["path"]} {line["type"]} {line["value"]}')
         node_texts.append(" ; ".join(lines))
-    edge_index = [(e["src"], e["dst"]) for e in org["edges"]]
+    edge_index = [
+        (e["src"], e["dst"]) if "src" in e else (e["from"], e["to"])
+        for e in org["edges"]
+    ]
     return node_texts, edge_index
 
 # Step 1: Build dataset

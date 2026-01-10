@@ -2168,6 +2168,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "2".to_string(),
@@ -2182,6 +2184,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "3".to_string(),
@@ -2196,6 +2200,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
         ];
 
@@ -2221,6 +2227,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "2".to_string(),
@@ -2235,6 +2243,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "3".to_string(),
@@ -2249,6 +2259,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
         ];
 
@@ -2276,6 +2288,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "2".to_string(),
@@ -2290,6 +2304,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
         ];
 
@@ -2323,6 +2339,8 @@ mod tests {
                 remediation: None,
                 meta: meta.clone(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "2".to_string(),
@@ -2341,6 +2359,8 @@ mod tests {
                     m
                 },
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
         ];
 
@@ -2374,6 +2394,8 @@ mod tests {
                 remediation: None,
                 meta,
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
         ];
 
@@ -2400,6 +2422,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "2".to_string(),
@@ -2414,6 +2438,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "3".to_string(),
@@ -2428,6 +2454,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
         ];
 
@@ -2454,6 +2482,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "2".to_string(),
@@ -2468,6 +2498,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
         ];
 

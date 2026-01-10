@@ -10,6 +10,10 @@ pub struct ExploitChain {
     pub score: f64,
     pub reasons: Vec<String>,
     pub path: String,
+    #[serde(default)]
+    pub nodes: Vec<String>,
+    #[serde(default)]
+    pub edges: Vec<String>,
     pub notes: HashMap<String, String>,
 }
 

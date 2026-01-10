@@ -34,7 +34,7 @@ impl Detector for PageTreeManipulationDetector {
         let mut visited = HashSet::new();
         let mut stack = Vec::new();
 
-        let root = root_pages_obj(ctx).or_else(|| fallback_pages_root(ctx));
+        let root = root_pages_obj(ctx).or_else(|| fallback_pages_root(ctx, &mut findings));
         if let Some(root) = root {
             detect_cycles(ctx, &root, &mut visited, &mut stack, &mut findings);
             let actual = count_pages(ctx, &root, &mut HashSet::new());
@@ -57,6 +57,8 @@ impl Detector for PageTreeManipulationDetector {
                         remediation: Some("Inspect page tree structure for missing or hidden pages.".into()),
                         meta,
                         yara: None,
+        position: None,
+        positions: Vec::new(),
                     });
                 }
             }
@@ -79,10 +81,21 @@ impl Detector for PageTreeManipulationDetector {
                     }
                 })
                 .collect();
-            let orphaned = all_pages.difference(&tree_pages).count();
-            if orphaned > 0 {
+            let orphaned_pages: Vec<ObjRef> = all_pages
+                .difference(&tree_pages)
+                .copied()
+                .collect();
+            if !orphaned_pages.is_empty() {
                 let mut meta = std::collections::HashMap::new();
-                meta.insert("page_tree.orphaned".into(), orphaned.to_string());
+                meta.insert(
+                    "page_tree.orphaned".into(),
+                    orphaned_pages.len().to_string(),
+                );
+                let mut objects = Vec::with_capacity(orphaned_pages.len() + 1);
+                objects.push("page_tree".into());
+                for orphaned in &orphaned_pages {
+                    objects.push(format!("{} {} obj", orphaned.obj, orphaned.gen));
+                }
                 findings.push(Finding {
                     id: String::new(),
                     surface: self.surface(),
@@ -91,11 +104,13 @@ impl Detector for PageTreeManipulationDetector {
                     confidence: Confidence::Probable,
                     title: "Orphaned page objects".into(),
                     description: "Some /Page objects are not reachable from the page tree.".into(),
-                    objects: vec!["page_tree".into()],
+                    objects,
                     evidence: vec![],
                     remediation: Some("Inspect page tree references and catalog root.".into()),
                     meta,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
         }
@@ -103,13 +118,31 @@ impl Detector for PageTreeManipulationDetector {
     }
 }
 
-fn fallback_pages_root<'a>(ctx: &'a sis_pdf_core::scan::ScanContext<'a>) -> Option<PdfObj<'a>> {
+fn fallback_pages_root<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
+    findings: &mut Vec<Finding>,
+) -> Option<PdfObj<'a>> {
     let entry = ctx.graph.objects.iter().find(|entry| {
         entry_dict(entry)
             .map(|d| d.has_name(b"/Type", b"/Pages"))
             .unwrap_or(false)
     })?;
-    eprintln!("security_boundary: using fallback /Pages root from object graph");
+    findings.push(Finding {
+        id: String::new(),
+        surface: AttackSurface::FileStructure,
+        kind: "page_tree_fallback".into(),
+        severity: Severity::Low,
+        confidence: Confidence::Heuristic,
+        title: "Fallback /Pages root".into(),
+        description: "Page tree root resolved by scanning the object graph, not by the catalog /Root.".into(),
+        objects: vec!["page_tree".into()],
+        evidence: vec![span_to_evidence(entry.body_span, "Fallback /Pages root")],
+        remediation: Some("Inspect catalog /Root and /Pages references for consistency.".into()),
+        meta: Default::default(),
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    });
     Some(PdfObj {
         span: entry.body_span,
         atom: entry.atom.clone(),
@@ -154,6 +187,8 @@ fn detect_cycles(
                 remediation: Some("Inspect /Kids references for cycles.".into()),
                 meta: Default::default(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             });
             return;
         }

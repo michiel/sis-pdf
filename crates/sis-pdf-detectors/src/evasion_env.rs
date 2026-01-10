@@ -49,6 +49,8 @@ impl Detector for EnvProbeDetector {
                     remediation: Some("Inspect conditional logic based on environment probes.".into()),
                     meta: Default::default(),
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
         }

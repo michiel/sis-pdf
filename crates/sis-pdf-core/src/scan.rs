@@ -25,6 +25,7 @@ pub struct ScanOptions {
     pub yara_scope: Option<String>,
     pub focus_depth: usize,
     pub strict: bool,
+    pub strict_summary: bool,
     pub ir: bool,
     pub ml_config: Option<crate::ml::MlConfig>,
 }

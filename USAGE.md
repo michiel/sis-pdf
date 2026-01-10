@@ -35,11 +35,18 @@ sis scan suspicious.pdf --jsonl > report.jsonl
 
 Notes:
 - JSONL output emits one record per finding plus an optional `ml_inference` record if ML inference is requested.
+- Use `--jsonl-findings` to emit findings with the input path attached (useful for batch scans).
 
 Export network intents for correlation:
 
 ```
 sis scan suspicious.pdf --export-intents --export-intents-out intents.jsonl
+```
+
+Include derived intents (domains and obfuscated URLs):
+
+```
+sis scan suspicious.pdf --export-intents --intents-derived --export-intents-out intents.jsonl
 ```
 
 SARIF (CI integration):
@@ -81,6 +88,12 @@ Strict parsing (record lexer-level deviations):
 
 ```
 sis scan suspicious.pdf --strict
+```
+
+Strict parsing with deviation summary (reduces per‑deviation output in batch runs):
+
+```
+sis scan suspicious.pdf --strict --strict-summary
 ```
 
 When to use deep scan:
@@ -470,6 +483,12 @@ JSONL feature export (333 features):
 
 ```
 sis export-features --path samples --glob "*.pdf" --format jsonl -o features.jsonl
+```
+
+Include feature names in each JSONL record:
+
+```
+sis export-features --path samples --glob "*.pdf" --format jsonl --feature-names -o features.jsonl
 ```
 
 CSV feature export (333 features):

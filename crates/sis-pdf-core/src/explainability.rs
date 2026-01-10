@@ -2415,6 +2415,8 @@ mod tests {
             remediation: None,
             meta,
             yara: None,
+        position: None,
+        positions: Vec::new(),
         });
 
         let profile = extract_js_risk_profile(&findings);
@@ -2448,6 +2450,8 @@ mod tests {
             remediation: None,
             meta,
             yara: None,
+        position: None,
+        positions: Vec::new(),
         });
 
         let profile = extract_uri_risk_profile(&findings);
@@ -2475,6 +2479,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "struct-1".to_string(),
@@ -2489,6 +2495,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
         ];
 
@@ -2515,6 +2523,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
             Finding {
                 id: "xref-1".to_string(),
@@ -2529,6 +2539,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
+        position: None,
+        positions: Vec::new(),
             },
         ];
 

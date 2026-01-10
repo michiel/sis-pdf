@@ -67,6 +67,8 @@ impl Detector for JavaScriptSandboxDetector {
                         remediation: Some("Inspect the JS payload size and consider manual analysis.".into()),
                         meta,
                         yara: None,
+        position: None,
+        positions: Vec::new(),
                     });
                 }
                 DynamicOutcome::TimedOut { timeout_ms } => {
@@ -87,6 +89,8 @@ impl Detector for JavaScriptSandboxDetector {
                         remediation: Some("Inspect the JS payload for long-running loops.".into()),
                         meta,
                         yara: None,
+        position: None,
+        positions: Vec::new(),
                     });
                 }
                 DynamicOutcome::Executed(signals) => {
@@ -123,6 +127,8 @@ impl Detector for JavaScriptSandboxDetector {
                             remediation: Some("Review JS payload and runtime errors.".into()),
                             meta,
                             yara: None,
+        position: None,
+        positions: Vec::new(),
                         });
                         continue;
                     }
@@ -150,7 +156,29 @@ impl Detector for JavaScriptSandboxDetector {
                     if let Some(ms) = signals.elapsed_ms {
                         base_meta.insert("js.sandbox_exec_ms".into(), ms.to_string());
                     }
-
+                    let mut risky_calls = Vec::new();
+                    if signals
+                        .calls
+                        .iter()
+                        .any(|c| c.eq_ignore_ascii_case("eval"))
+                    {
+                        risky_calls.push("eval");
+                    }
+                    if signals
+                        .calls
+                        .iter()
+                        .any(|c| c.eq_ignore_ascii_case("unescape"))
+                    {
+                        risky_calls.push("unescape");
+                    }
+                    let risky_call_label = if risky_calls.is_empty() {
+                        None
+                    } else {
+                        Some(risky_calls.join(", "))
+                    };
+                    if let Some(label) = risky_call_label.as_ref() {
+                        base_meta.insert("js.runtime.risky_calls".into(), label.clone());
+                    }
                     let has_network = signals.calls.iter().any(|c| is_network_call(c));
                     let has_file = signals.calls.iter().any(|c| is_file_call(c));
                     if has_network {
@@ -169,6 +197,8 @@ impl Detector for JavaScriptSandboxDetector {
                             remediation: Some("Inspect runtime JS calls and network targets.".into()),
                             meta,
                             yara: None,
+        position: None,
+        positions: Vec::new(),
                         });
                     }
                     if has_file {
@@ -187,6 +217,33 @@ impl Detector for JavaScriptSandboxDetector {
                             remediation: Some("Review runtime JS calls for file or export operations.".into()),
                             meta,
                             yara: None,
+        position: None,
+        positions: Vec::new(),
+                        });
+                    }
+                    if let Some(label) = risky_call_label.as_ref() {
+                        let mut meta = base_meta.clone();
+                        meta.insert("js.sandbox_exec".into(), "true".into());
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "js_runtime_risky_calls".into(),
+                            severity: Severity::High,
+                            confidence: Confidence::Strong,
+                            title: "Runtime risky JavaScript calls".into(),
+                            description: format!(
+                                "JavaScript invoked high-risk calls during sandboxed execution ({}).",
+                                label
+                            ),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence: vec![span_to_evidence(dict.span, "JavaScript dict")],
+                            remediation: Some(
+                                "Review high-risk calls and deobfuscate the payload.".into(),
+                            ),
+                            meta,
+                            yara: None,
+        position: None,
+        positions: Vec::new(),
                         });
                     }
                     if !has_network && !has_file {
@@ -202,9 +259,11 @@ impl Detector for JavaScriptSandboxDetector {
                             description: "Sandbox executed JS; monitored API calls were observed but no network/file APIs.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                             evidence: vec![span_to_evidence(dict.span, "JavaScript dict")],
-                            remediation: Some("Review runtime JS calls for additional behavior.".into()),
+                            remediation: Some("Review runtime JS calls for additional behaviour.".into()),
                             meta,
                             yara: None,
+        position: None,
+        positions: Vec::new(),
                         });
                     }
                 }

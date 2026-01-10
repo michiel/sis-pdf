@@ -60,6 +60,8 @@ impl Detector for AnnotationAttackDetector {
                             remediation: Some("Inspect hidden annotations for actions.".into()),
                             meta: meta.clone(),
                             yara: None,
+        position: None,
+        positions: Vec::new(),
                         });
                     }
                 }
@@ -78,6 +80,8 @@ impl Detector for AnnotationAttackDetector {
                     remediation: Some("Review annotation actions and appearance streams.".into()),
                     meta,
                     yara: None,
+        position: None,
+        positions: Vec::new(),
                 });
             }
         }

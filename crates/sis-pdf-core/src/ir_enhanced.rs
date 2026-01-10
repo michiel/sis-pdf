@@ -419,6 +419,8 @@ mod tests {
             objects: vec![format!("{} 0 obj", obj_id)],
             evidence: vec![],
             remediation: None,
+            position: None,
+            positions: Vec::new(),
             meta,
             yara: None,
         }

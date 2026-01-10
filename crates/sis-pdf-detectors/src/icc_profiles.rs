@@ -50,6 +50,8 @@ impl Detector for ICCProfileDetector {
                             remediation: Some("Inspect ICC profile contents for anomalies.".into()),
                             meta: meta.clone(),
                             yara: None,
+        position: None,
+        positions: Vec::new(),
                         });
                     }
                     if let Some(issue) = icc_header_issue(ctx.bytes, &stream) {
@@ -67,6 +69,8 @@ impl Detector for ICCProfileDetector {
                             remediation: Some("Validate ICC profile header and declared size.".into()),
                             meta,
                             yara: None,
+        position: None,
+        positions: Vec::new(),
                         });
                     }
                 }

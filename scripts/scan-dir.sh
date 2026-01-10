@@ -8,7 +8,7 @@ mkdir -p "${BASE_OUT}/org/benign" "${BASE_OUT}/org/malicious"
 scan_dir() {
   local label="$1"
   local src_dir="$2"
-  for pdf in "${src_dir}"/*; do
+  for pdf in "${src_dir}"/*.pdf; do
     [ -e "$pdf" ] || continue
     local name
     name="$(basename "$pdf" .pdf)"

@@ -19,6 +19,7 @@ fn strict_mode_emits_deviation() {
         focus_depth: 0,
         yara_scope: None,
         strict: true,
+        strict_summary: false,
         ir: false,
         ml_config: None,
     };
