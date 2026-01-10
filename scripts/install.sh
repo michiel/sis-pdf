@@ -33,7 +33,14 @@ case "$os" in
 esac
 
 api_url="https://api.github.com/repos/$REPO/releases?per_page=20"
-release_json="$(curl -fsSL -H "User-Agent: sis-install" "$api_url")"
+release_json="$(curl -fsSL -H "User-Agent: sis-install" "$api_url")" || {
+  echo "Failed to query GitHub releases for $REPO" >&2
+  exit 1
+}
+if [ -z "$release_json" ]; then
+  echo "Empty response from GitHub releases API for $REPO" >&2
+  exit 1
+fi
 
 export SIS_TARGET="$target"
 export SIS_EXT="$ext"
