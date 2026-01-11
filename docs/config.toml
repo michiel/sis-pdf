@@ -39,6 +39,8 @@ level = "warn"
 # Linux (ROCm) example:
 # ml_provider = "migraphx"
 # ml_ort_dylib = "/opt/rocm/lib/libonnxruntime.so"
+# Linux (Intel Arc) example:
+# ml_provider = "openvino"
 # ml_quantized = false
 # ml_batch_size = 32
 # ml_provider_info = false

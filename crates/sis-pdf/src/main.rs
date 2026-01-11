@@ -9,12 +9,13 @@ use flate2::read::GzDecoder;
 use globset::Glob;
 use memmap2::Mmap;
 use rayon::prelude::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sis_pdf_core::model::Severity as SecuritySeverity;
 use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
 use tempfile::tempdir;
 use tar::Archive;
+use toml_edit::{value, Array, DocumentMut, Item, Table, Value};
 use tracing::{debug, error, info, warn, Level};
 use walkdir::WalkDir;
 use zip::ZipArchive;
@@ -30,6 +31,9 @@ const MAX_CAMPAIGN_INTENT_LEN: usize = 1024;
 const MAX_WALK_DEPTH: usize = 10;
 const UPDATE_REPO_DEFAULT: &str = "michiel/sis-pdf";
 const UPDATE_USER_AGENT: &str = "sis-update";
+const ORT_VERSION_DEFAULT: &str = "1.23.2";
+const ORT_USER_AGENT: &str = "sis-ort-download";
+const ORT_RELEASE_BASE: &str = "https://github.com/microsoft/onnxruntime/releases/download";
 #[derive(Parser)]
 #[command(name = "sis")]
 struct Args {
@@ -40,6 +44,8 @@ struct Args {
 enum Command {
     #[command(subcommand)]
     Config(ConfigCommand),
+    #[command(subcommand, about = "Manage ML runtime configuration and ONNX Runtime")]
+    Ml(MlCommand),
     #[command(about = "Update sis from the latest GitHub release")]
     Update {
         #[arg(long, help = "Include prerelease builds when checking for updates")]
@@ -252,7 +258,7 @@ enum Command {
         #[arg(long)]
         no_js_sandbox: bool,
     },
-    #[command(about = "Validate ML runtime setup and execution providers")]
+    #[command(name = "ml-health", about = "Deprecated (use sis ml health)")]
     MlHealth {
         #[arg(long)]
         ml_model_dir: Option<PathBuf>,
@@ -389,6 +395,80 @@ enum ConfigCommand {
         path: Option<PathBuf>,
     },
 }
+
+#[derive(Subcommand)]
+enum MlCommand {
+    #[command(about = "Validate ML runtime setup and execution providers")]
+    Health {
+        #[arg(long)]
+        ml_model_dir: Option<PathBuf>,
+        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        ml_provider: Option<String>,
+        #[arg(long, help = "Comma-separated ML execution provider order override")]
+        ml_provider_order: Option<String>,
+        #[arg(long, help = "Print selected ML execution provider to STDERR")]
+        ml_provider_info: bool,
+        #[arg(long, help = "Path to ONNX Runtime dynamic library")]
+        ml_ort_dylib: Option<PathBuf>,
+        #[arg(long, help = "Prefer quantised ML models when available")]
+        ml_quantized: bool,
+        #[arg(long, help = "Override embedding batch size")]
+        ml_batch_size: Option<usize>,
+    },
+    #[command(subcommand)]
+    Ort(MlOrtCommand),
+    #[command(about = "Detect ML runtime capabilities and provider recommendations")]
+    Detect {
+        #[arg(long, value_parser = ["text", "json"], default_value = "text")]
+        format: String,
+        #[arg(long, help = "Override config path")]
+        config: Option<PathBuf>,
+        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        ml_provider: Option<String>,
+        #[arg(long, help = "Comma-separated ML execution provider order override")]
+        ml_provider_order: Option<String>,
+        #[arg(long, help = "Path to ONNX Runtime dynamic library")]
+        ml_ort_dylib: Option<PathBuf>,
+    },
+    #[command(about = "Auto-configure ML runtime settings from detection output")]
+    Autoconfig {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, help = "Override config path")]
+        config: Option<PathBuf>,
+        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        ml_provider: Option<String>,
+        #[arg(long, help = "Comma-separated ML execution provider order override")]
+        ml_provider_order: Option<String>,
+        #[arg(long, help = "Path to ONNX Runtime dynamic library")]
+        ml_ort_dylib: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum MlOrtCommand {
+    #[command(about = "Download the correct ONNX Runtime library for this host")]
+    Download {
+        #[arg(long)]
+        write_config: bool,
+        #[arg(long, help = "Override config path")]
+        config: Option<PathBuf>,
+        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        ml_provider: Option<String>,
+        #[arg(long, help = "Comma-separated ML execution provider order override")]
+        ml_provider_order: Option<String>,
+        #[arg(long, help = "Path to ONNX Runtime dynamic library")]
+        ml_ort_dylib: Option<PathBuf>,
+        #[arg(long, help = "Override ONNX Runtime version (default via SIS_ORT_VERSION)")]
+        ort_version: Option<String>,
+        #[arg(long, help = "Checksum URL override for the ORT archive")]
+        checksum_url: Option<String>,
+        #[arg(long, help = "Checksum file path override for the ORT archive")]
+        checksum_file: Option<PathBuf>,
+        #[arg(long, help = "Checksum SHA256 override for the ORT archive")]
+        checksum_sha256: Option<String>,
+    },
+}
 fn main() -> Result<()> {
     let args = Args::parse();
     let config_path = resolve_config_path_from_args(&args);
@@ -401,6 +481,72 @@ fn main() -> Result<()> {
         Command::Config(cmd) => match cmd {
             ConfigCommand::Init { path } => run_config_init(path.as_deref()),
             ConfigCommand::Verify { path } => run_config_verify(path.as_deref()),
+        },
+        Command::Ml(cmd) => match cmd {
+            MlCommand::Health {
+                ml_model_dir,
+                ml_provider,
+                ml_provider_order,
+                ml_provider_info,
+                ml_ort_dylib,
+                ml_quantized,
+                ml_batch_size,
+            } => run_ml_health(
+                ml_model_dir.as_deref(),
+                ml_provider.as_deref(),
+                ml_provider_order.as_deref(),
+                ml_provider_info,
+                ml_ort_dylib.as_deref(),
+                ml_quantized,
+                ml_batch_size,
+            ),
+            MlCommand::Ort(MlOrtCommand::Download {
+                write_config,
+                config,
+                ml_provider,
+                ml_provider_order,
+                ml_ort_dylib,
+                ort_version,
+                checksum_url,
+                checksum_file,
+                checksum_sha256,
+            }) => run_ml_ort_download(
+                config.as_deref(),
+                ml_provider.as_deref(),
+                ml_provider_order.as_deref(),
+                ml_ort_dylib.as_deref(),
+                write_config,
+                ort_version.as_deref(),
+                checksum_url.as_deref(),
+                checksum_file.as_deref(),
+                checksum_sha256.as_deref(),
+            ),
+            MlCommand::Detect {
+                format,
+                config,
+                ml_provider,
+                ml_provider_order,
+                ml_ort_dylib,
+            } => run_ml_detect(
+                &format,
+                config.as_deref(),
+                ml_provider.as_deref(),
+                ml_provider_order.as_deref(),
+                ml_ort_dylib.as_deref(),
+            ),
+            MlCommand::Autoconfig {
+                dry_run,
+                config,
+                ml_provider,
+                ml_provider_order,
+                ml_ort_dylib,
+            } => run_ml_autoconfig(
+                config.as_deref(),
+                ml_provider.as_deref(),
+                ml_provider_order.as_deref(),
+                ml_ort_dylib.as_deref(),
+                dry_run,
+            ),
         },
         Command::Update {
             include_prerelease,
@@ -613,15 +759,18 @@ fn main() -> Result<()> {
             ml_ort_dylib,
             ml_quantized,
             ml_batch_size,
-        } => run_ml_health(
-            ml_model_dir.as_deref(),
-            ml_provider.as_deref(),
-            ml_provider_order.as_deref(),
-            ml_provider_info,
-            ml_ort_dylib.as_deref(),
-            ml_quantized,
-            ml_batch_size,
-        ),
+        } => {
+            warn!("ml-health is deprecated; use `sis ml health`");
+            run_ml_health(
+                ml_model_dir.as_deref(),
+                ml_provider.as_deref(),
+                ml_provider_order.as_deref(),
+                ml_provider_info,
+                ml_ort_dylib.as_deref(),
+                ml_quantized,
+                ml_batch_size,
+            )
+        }
         Command::ExportGraph {
             pdf,
             chains_only,
@@ -694,6 +843,14 @@ fn init_tracing(level: Option<&str>) {
 fn resolve_config_path_from_args(args: &Args) -> Option<PathBuf> {
     match &args.command {
         Command::Scan { config, .. } => resolve_config_path(config.as_deref()),
+        Command::Ml(cmd) => match cmd {
+            MlCommand::Detect { config, .. } => resolve_config_path(config.as_deref()),
+            MlCommand::Autoconfig { config, .. } => resolve_config_path(config.as_deref()),
+            MlCommand::Ort(MlOrtCommand::Download { config, .. }) => {
+                resolve_config_path(config.as_deref())
+            }
+            _ => resolve_config_path(None),
+        },
         _ => resolve_config_path(None),
     }
 }
@@ -943,6 +1100,10 @@ fn parse_checksum(contents: &str, asset_name: &str) -> Option<String> {
             }
         }
     }
+    let single = contents.trim();
+    if is_hex_64(single) {
+        return Some(single.to_lowercase());
+    }
     None
 }
 
@@ -1084,6 +1245,1022 @@ fn stage_windows_update(new_bin: &std::path::Path, current_exe: &std::path::Path
         .map_err(|err| anyhow!("failed to stage update: {err}"))?;
     eprintln!("Update staged; restart the shell to pick up the new binary.");
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OrtTarget {
+    os: &'static str,
+    arch: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct MlDetectOutput {
+    os: String,
+    arch: String,
+    cpu_features: Vec<String>,
+    ort_dylib: Option<String>,
+    provider_order: Vec<String>,
+    provider_available: Vec<String>,
+    provider_selected: Option<String>,
+    provider_suggestions: Vec<String>,
+    gpu_tools: Vec<GpuToolDetection>,
+    provider_detection_note: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct GpuToolDetection {
+    tool: String,
+    available: bool,
+    detail: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct MlConfigHints {
+    provider: Option<String>,
+    provider_order: Option<Vec<String>>,
+    ort_dylib: Option<PathBuf>,
+}
+
+fn run_ml_ort_download(
+    config: Option<&std::path::Path>,
+    ml_provider: Option<&str>,
+    ml_provider_order: Option<&str>,
+    ml_ort_dylib: Option<&std::path::Path>,
+    write_config: bool,
+    ort_version: Option<&str>,
+    checksum_url: Option<&str>,
+    checksum_file: Option<&std::path::Path>,
+    checksum_sha256: Option<&str>,
+) -> Result<()> {
+    ensure_single_checksum_override(checksum_url, checksum_file, checksum_sha256)?;
+    let target = current_ort_target()?;
+    let config_scan = load_scan_config(config)?;
+    let hints = ml_config_hints(config_scan.as_ref());
+    let runtime_overrides = build_ml_runtime_config(
+        ml_provider,
+        ml_provider_order,
+        false,
+        ml_ort_dylib,
+        false,
+        None,
+    );
+    if let Some(path) = runtime_overrides
+        .ort_dylib_path
+        .as_ref()
+        .or(hints.ort_dylib.as_ref())
+    {
+        println!("{}", path.display());
+        return Ok(());
+    }
+    let version = resolve_ort_version(ort_version);
+    let mut provider_order = resolve_provider_order(&runtime_overrides, &hints, target.os);
+    let preferred_provider = runtime_overrides
+        .provider
+        .as_deref()
+        .or(hints.provider.as_deref());
+    if preferred_provider.is_none()
+        && runtime_overrides.provider_order.is_none()
+        && hints.provider_order.is_none()
+    {
+        provider_order = prefer_gpu_provider_order(&provider_order);
+    }
+    let provider = select_provider_for_download(
+        preferred_provider,
+        &provider_order,
+        &target,
+        &version,
+    )?;
+    // ROCm/MIGraphX support was dropped after 1.17.3; force that version if user didn't specify
+    let version = if ort_version.is_none() && (provider == "migraphx" || provider == "rocm") {
+        eprintln!("NOTE: Microsoft stopped publishing ROCm builds after ORT 1.17.3");
+        eprintln!("NOTE: The ort crate currently requires ORT >= 1.23.x, which is incompatible");
+        eprintln!("NOTE: ROCm users must either:");
+        eprintln!("      - Build ONNX Runtime 1.23+ from source with ROCm support");
+        eprintln!("      - Use CPU provider instead: --ml-provider cpu");
+        eprintln!("      - Wait for ort crate downgrade to 2.0.0-rc.2 (ORT 1.17.3 compatible)");
+        eprintln!();
+        eprintln!("Downloading ORT 1.17.3 ROCm build anyway (for future use)...");
+        "1.17.3".to_string()
+    } else {
+        version
+    };
+    let (archive_name, archive_format) = ort_archive_name(&target, &provider, &version)
+        .ok_or_else(|| anyhow!("no ORT archive for {provider} on {} {}", target.os, target.arch))?;
+    let base = ort_release_base(&version);
+    let url = format!("{base}/{archive_name}");
+    eprintln!("Downloading {archive_name} for {provider} ({})", target.arch);
+    let temp_dir = tempdir()?;
+    let archive_path = temp_dir.path().join(&archive_name);
+    let mut reader = ureq::get(&url)
+        .set("User-Agent", ORT_USER_AGENT)
+        .call()
+        .map_err(|err| anyhow!("failed to download {archive_name}: {err}"))?
+        .into_reader();
+    let mut out = fs::File::create(&archive_path)?;
+    std::io::copy(&mut reader, &mut out)?;
+    if let Some(checksum) = checksum_sha256 {
+        verify_checksum_hash(checksum, &archive_path)?;
+    } else {
+        match fetch_checksum_contents(
+            &base,
+            &version,
+            &archive_name,
+            checksum_url,
+            checksum_file,
+        ) {
+            Ok(checksum_contents) => {
+                verify_checksum_contents(&checksum_contents, &archive_name, &archive_path)?;
+            }
+            Err(_) => {
+                manual_checksum_verification(&archive_name, &archive_path)?;
+            }
+        }
+    }
+    let extract_dir = temp_dir.path().join("extract");
+    fs::create_dir_all(&extract_dir)?;
+    match archive_format {
+        ArchiveFormat::TarGz => extract_tar_gz(&archive_path, &extract_dir)?,
+        ArchiveFormat::Zip => extract_zip(&archive_path, &extract_dir)?,
+    }
+    let lib_path = find_ort_library(&extract_dir, target)?;
+    let cache_dir = ort_cache_dir()?.join(&version).join(format!(
+        "{}-{}-{}",
+        target.os, target.arch, provider
+    ));
+    fs::create_dir_all(&cache_dir)?;
+
+    // Copy all ORT libraries (main + providers) from the same directory
+    let lib_dir = lib_path.parent().ok_or_else(|| anyhow!("library path has no parent"))?;
+    let mut main_dest = None;
+    for entry in fs::read_dir(lib_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        // Copy all libonnxruntime*.so files (main library + provider libraries)
+        if (target.os == "windows" && name.ends_with(".dll"))
+            || (target.os == "macos" && name.starts_with("libonnxruntime") && name.ends_with(".dylib"))
+            || (target.os == "linux" && name.starts_with("libonnxruntime") && (name.ends_with(".so") || name.contains(".so.")))
+        {
+            let dest = cache_dir.join(path.file_name().ok_or_else(|| anyhow!("missing filename"))?);
+            fs::copy(&path, &dest)?;
+            if is_ort_library(name, target) {
+                main_dest = Some(dest);
+            }
+        }
+    }
+
+    let dest = main_dest.ok_or_else(|| anyhow!("main ORT library not found after copy"))?;
+    println!("{}", dest.display());
+    if write_config {
+        let path = config
+            .map(|p| p.to_path_buf())
+            .or_else(default_config_path)
+            .ok_or_else(|| anyhow!("config path not available on this platform"))?;
+        write_ml_runtime_config(
+            &path,
+            &MlRuntimeUpdate {
+                provider: None,
+                provider_order: None,
+                ort_dylib: Some(dest),
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn run_ml_detect(
+    format: &str,
+    config: Option<&std::path::Path>,
+    ml_provider: Option<&str>,
+    ml_provider_order: Option<&str>,
+    ml_ort_dylib: Option<&std::path::Path>,
+) -> Result<()> {
+    let target = current_ort_target()?;
+    let config_scan = load_scan_config(config)?;
+    let hints = ml_config_hints(config_scan.as_ref());
+    let mut runtime_overrides = build_ml_runtime_config(
+        ml_provider,
+        ml_provider_order,
+        false,
+        ml_ort_dylib,
+        false,
+        None,
+    );
+    if runtime_overrides.ort_dylib_path.is_none() {
+        runtime_overrides.ort_dylib_path = hints.ort_dylib.clone();
+    }
+    let ort_dylib = runtime_overrides
+        .ort_dylib_path
+        .clone()
+        .or(hints.ort_dylib.clone());
+    let provider_order = resolve_provider_order(&runtime_overrides, &hints, target.os);
+    let mut provider_available = Vec::new();
+    let mut provider_selected = None;
+    let mut provider_detection_note = None;
+    #[cfg(feature = "ml-graph")]
+    {
+        match detect_provider_info(&runtime_overrides, &provider_order) {
+            Ok(info) => {
+                provider_available = info.available;
+                provider_selected = info.selected;
+            }
+            Err(err) => {
+                provider_detection_note = Some(format!("provider detection failed: {err}"));
+            }
+        }
+    }
+    #[cfg(not(feature = "ml-graph"))]
+    {
+        provider_detection_note = Some("provider detection requires the ml-graph feature".into());
+    }
+    let provider_suggestions = suggest_providers(&provider_order, &provider_available);
+    let output = MlDetectOutput {
+        os: target.os.to_string(),
+        arch: target.arch.to_string(),
+        cpu_features: detect_cpu_features(),
+        ort_dylib: ort_dylib.map(|p| p.display().to_string()),
+        provider_order,
+        provider_available,
+        provider_selected,
+        provider_suggestions,
+        gpu_tools: detect_gpu_tools(),
+        provider_detection_note,
+    };
+    if format == "json" {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+    print_ml_detect_text(&output);
+    Ok(())
+}
+
+fn run_ml_autoconfig(
+    config: Option<&std::path::Path>,
+    ml_provider: Option<&str>,
+    ml_provider_order: Option<&str>,
+    ml_ort_dylib: Option<&std::path::Path>,
+    dry_run: bool,
+) -> Result<()> {
+    let target = current_ort_target()?;
+    let config_path = config
+        .map(|p| p.to_path_buf())
+        .or_else(default_config_path)
+        .ok_or_else(|| anyhow!("config path not available on this platform"))?;
+    let config_scan = load_scan_config(Some(&config_path))?;
+    let hints = ml_config_hints(config_scan.as_ref());
+    let runtime_overrides = build_ml_runtime_config(
+        ml_provider,
+        ml_provider_order,
+        false,
+        ml_ort_dylib,
+        false,
+        None,
+    );
+    let provider_order = resolve_provider_order(&runtime_overrides, &hints, target.os);
+    let mut provider_available = Vec::new();
+    #[cfg(feature = "ml-graph")]
+    {
+        if let Ok(info) = detect_provider_info(&runtime_overrides, &provider_order) {
+            provider_available = info.available;
+        }
+    }
+    let provider_suggestions = suggest_providers(&provider_order, &provider_available);
+    let selected = provider_suggestions
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "cpu".into());
+    let update = MlRuntimeUpdate {
+        provider: Some(selected),
+        provider_order: Some(provider_suggestions),
+        ort_dylib: runtime_overrides.ort_dylib_path.clone(),
+    };
+    if dry_run {
+        println!(
+            "Config path: {}\nml_provider = {}\nml_provider_order = [{}]{}",
+            config_path.display(),
+            update.provider.clone().unwrap_or_else(|| "cpu".into()),
+            update
+                .provider_order
+                .as_ref()
+                .map(|list| list.join(", "))
+                .unwrap_or_default(),
+            update
+                .ort_dylib
+                .as_ref()
+                .map(|p| format!("\nml_ort_dylib = {}", p.display()))
+                .unwrap_or_default()
+        );
+        return Ok(());
+    }
+    write_ml_runtime_config(&config_path, &update)?;
+    println!(
+        "Updated config at {} (ml_provider = {})",
+        config_path.display(),
+        update.provider.unwrap_or_else(|| "cpu".into())
+    );
+    Ok(())
+}
+
+fn load_scan_config(
+    config: Option<&std::path::Path>,
+) -> Result<Option<sis_pdf_core::config::ScanConfig>> {
+    let Some(path) = config else {
+        return Ok(None);
+    };
+    if !path.exists() {
+        return Ok(None);
+    }
+    let cfg = sis_pdf_core::config::Config::load(path)?;
+    Ok(cfg.scan)
+}
+
+fn ml_config_hints(scan: Option<&sis_pdf_core::config::ScanConfig>) -> MlConfigHints {
+    let (provider, provider_order, ort_dylib) = if let Some(scan) = scan {
+        let provider = scan
+            .ml_provider
+            .as_deref()
+            .map(normalise_provider_name)
+            .filter(|p| !p.is_empty() && p != "auto");
+        let provider_order = scan.ml_provider_order.as_ref().map(|list| {
+            list.iter()
+                .map(|p| normalise_provider_name(p))
+                .filter(|p| !p.is_empty())
+                .collect::<Vec<_>>()
+        });
+        let ort_dylib = scan.ml_ort_dylib.as_ref().map(PathBuf::from);
+        (provider, provider_order, ort_dylib)
+    } else {
+        (None, None, None)
+    };
+    MlConfigHints {
+        provider,
+        provider_order,
+        ort_dylib,
+    }
+}
+
+fn resolve_provider_order(
+    overrides: &sis_pdf_core::ml::MlRuntimeConfig,
+    hints: &MlConfigHints,
+    os: &str,
+) -> Vec<String> {
+    if let Some(order) = overrides.provider_order.as_ref() {
+        return ensure_cpu(sanitise_provider_list(order));
+    }
+    if let Some(provider) = overrides.provider.as_deref() {
+        return ensure_cpu(vec![normalise_provider_name(provider)]);
+    }
+    if let Some(order) = hints.provider_order.as_ref() {
+        return ensure_cpu(sanitise_provider_list(order));
+    }
+    if let Some(provider) = hints.provider.as_deref() {
+        return ensure_cpu(vec![normalise_provider_name(provider)]);
+    }
+    default_provider_order(os)
+}
+
+fn default_provider_order(os: &str) -> Vec<String> {
+    let mut order = Vec::new();
+    if os == "windows" {
+        order.push("directml".into());
+        order.push("cuda".into());
+    } else if os == "macos" {
+        order.push("coreml".into());
+    } else {
+        order.push("cuda".into());
+        order.push("openvino".into());
+        order.push("migraphx".into());
+    }
+    order.push("cpu".into());
+    order
+}
+
+fn sanitise_provider_list(list: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in list {
+        let name = normalise_provider_name(raw);
+        if name.is_empty() {
+            continue;
+        }
+        if name == "auto" {
+            continue;
+        }
+        if !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+fn normalise_provider_name(name: &str) -> String {
+    let name = name.trim().to_lowercase();
+    if name == "rocm" {
+        return "migraphx".into();
+    }
+    name
+}
+
+fn ensure_cpu(mut list: Vec<String>) -> Vec<String> {
+    if !list.iter().any(|p| p == "cpu") {
+        list.push("cpu".into());
+    }
+    list
+}
+
+fn suggest_providers(order: &[String], available: &[String]) -> Vec<String> {
+    if available.is_empty() {
+        return ensure_cpu(order.to_vec());
+    }
+    let mut out = Vec::new();
+    for name in order {
+        if available.iter().any(|p| p == name) {
+            out.push(name.clone());
+        }
+    }
+    ensure_cpu(out)
+}
+
+#[cfg(feature = "ml-graph")]
+fn detect_provider_info(
+    overrides: &sis_pdf_core::ml::MlRuntimeConfig,
+    provider_order: &[String],
+) -> Result<sis_pdf_ml_graph::ProviderInfo> {
+    if resolve_ort_dylib_hint(overrides).is_none() {
+        return Err(anyhow!(
+            "ORT dylib not configured; set ml_ort_dylib or run `sis ml ort download`"
+        ));
+    }
+    let settings = sis_pdf_ml_graph::RuntimeSettings {
+        provider: None,
+        provider_order: Some(provider_order.to_vec()),
+        ort_dylib_path: overrides.ort_dylib_path.clone(),
+        prefer_quantized: overrides.prefer_quantized,
+        max_embedding_batch_size: overrides.max_embedding_batch_size,
+        print_provider: overrides.print_provider,
+    };
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sis_pdf_ml_graph::runtime_provider_info(&settings)
+    }));
+    std::panic::set_hook(previous_hook);
+    match result {
+        Ok(info) => info,
+        Err(_) => Err(anyhow!(
+            "ORT initialisation panicked; configure ml_ort_dylib or run `sis ml ort download`"
+        )),
+    }
+}
+
+fn resolve_ort_dylib_hint(overrides: &sis_pdf_core::ml::MlRuntimeConfig) -> Option<PathBuf> {
+    if let Some(path) = overrides.ort_dylib_path.as_ref() {
+        return Some(path.clone());
+    }
+    if let Ok(path) = std::env::var("SIS_ORT_DYLIB_PATH") {
+        if !path.trim().is_empty() {
+            return Some(PathBuf::from(path));
+        }
+    }
+    None
+}
+
+fn detect_cpu_features() -> Vec<String> {
+    let mut features = Vec::new();
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        if std::is_x86_feature_detected!("sse4.2") {
+            features.push("sse4.2".into());
+        }
+        if std::is_x86_feature_detected!("avx") {
+            features.push("avx".into());
+        }
+        if std::is_x86_feature_detected!("avx2") {
+            features.push("avx2".into());
+        }
+        if std::is_x86_feature_detected!("avx512f") {
+            features.push("avx512f".into());
+        }
+    }
+    features
+}
+
+fn detect_gpu_tools() -> Vec<GpuToolDetection> {
+    let mut detections = Vec::new();
+    detections.push(run_gpu_tool("nvidia-smi", &["-L"]));
+    if cfg!(target_os = "linux") {
+        detections.push(run_gpu_tool("rocminfo", &[]));
+    }
+    if cfg!(target_os = "macos") {
+        detections.push(run_gpu_tool("system_profiler", &["SPDisplaysDataType"]));
+    }
+    detections
+}
+
+fn run_gpu_tool(tool: &str, args: &[&str]) -> GpuToolDetection {
+    let output = ProcessCommand::new(tool).args(args).output();
+    match output {
+        Ok(out) if out.status.success() => {
+            let detail = String::from_utf8_lossy(&out.stdout);
+            let detail = detail.lines().next().map(|line| line.trim().to_string());
+            let detail = detail.filter(|line| !line.is_empty());
+            GpuToolDetection {
+                tool: tool.to_string(),
+                available: true,
+                detail,
+            }
+        }
+        Ok(out) => {
+            let detail = String::from_utf8_lossy(&out.stderr);
+            let detail = detail.lines().next().map(|line| line.trim().to_string());
+            let detail = detail.filter(|line| !line.is_empty());
+            GpuToolDetection {
+                tool: tool.to_string(),
+                available: false,
+                detail,
+            }
+        }
+        Err(_) => GpuToolDetection {
+            tool: tool.to_string(),
+            available: false,
+            detail: None,
+        },
+    }
+}
+
+fn print_ml_detect_text(output: &MlDetectOutput) {
+    println!("OS: {}", output.os);
+    println!("Arch: {}", output.arch);
+    if output.cpu_features.is_empty() {
+        println!("CPU features: none");
+    } else {
+        println!("CPU features: {}", output.cpu_features.join(", "));
+    }
+    if let Some(path) = &output.ort_dylib {
+        println!("ORT dylib: {}", path);
+    }
+    println!(
+        "Provider order: {}",
+        output.provider_order.join(", ")
+    );
+    if output.provider_available.is_empty() {
+        println!("Available providers: none");
+    } else {
+        println!("Available providers: {}", output.provider_available.join(", "));
+    }
+    println!(
+        "Selected provider: {}",
+        output
+            .provider_selected
+            .clone()
+            .unwrap_or_else(|| "none".into())
+    );
+    println!(
+        "Suggested providers: {}",
+        output.provider_suggestions.join(", ")
+    );
+    if let Some(note) = &output.provider_detection_note {
+        println!("Provider detection: {}", note);
+    }
+    for tool in &output.gpu_tools {
+        println!(
+            "GPU tool {}: {}{}",
+            tool.tool,
+            if tool.available { "available" } else { "unavailable" },
+            tool.detail
+                .as_ref()
+                .map(|d| format!(" ({})", d))
+                .unwrap_or_default()
+        );
+    }
+}
+
+fn current_ort_target() -> Result<OrtTarget> {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    match (os, arch) {
+        ("linux", "x86_64") => Ok(OrtTarget { os: "linux", arch: "x86_64" }),
+        ("windows", "x86_64") => Ok(OrtTarget { os: "windows", arch: "x86_64" }),
+        ("macos", "aarch64") => Ok(OrtTarget { os: "macos", arch: "aarch64" }),
+        _ => Err(anyhow!("unsupported platform for ORT download ({os} {arch})")),
+    }
+}
+
+fn ort_archive_name(
+    target: &OrtTarget,
+    provider: &str,
+    version: &str,
+) -> Option<(String, ArchiveFormat)> {
+    let provider = provider.to_lowercase();
+    match (target.os, target.arch, provider.as_str()) {
+        ("linux", "x86_64", "cpu") => Some((
+            format!("onnxruntime-linux-x64-{version}.tgz"),
+            ArchiveFormat::TarGz,
+        )),
+        ("linux", "x86_64", "cuda") => Some((
+            format!("onnxruntime-linux-x64-gpu-{version}.tgz"),
+            ArchiveFormat::TarGz,
+        )),
+        ("linux", "x86_64", "openvino") => Some((
+            format!("onnxruntime-linux-x64-openvino-{version}.tgz"),
+            ArchiveFormat::TarGz,
+        )),
+        ("linux", "x86_64", "migraphx") => Some((
+            format!("onnxruntime-linux-x64-rocm-{version}.tgz"),
+            ArchiveFormat::TarGz,
+        )),
+        ("windows", "x86_64", "cpu") => Some((
+            format!("onnxruntime-win-x64-{version}.zip"),
+            ArchiveFormat::Zip,
+        )),
+        ("windows", "x86_64", "cuda") => Some((
+            format!("onnxruntime-win-x64-gpu-{version}.zip"),
+            ArchiveFormat::Zip,
+        )),
+        ("windows", "x86_64", "directml") => Some((
+            format!("onnxruntime-win-x64-directml-{version}.zip"),
+            ArchiveFormat::Zip,
+        )),
+        ("macos", "aarch64", "cpu") => Some((
+            format!("onnxruntime-osx-arm64-{version}.tgz"),
+            ArchiveFormat::TarGz,
+        )),
+        ("macos", "aarch64", "coreml") => Some((
+            format!("onnxruntime-osx-arm64-coreml-{version}.tgz"),
+            ArchiveFormat::TarGz,
+        )),
+        _ => None,
+    }
+}
+
+fn resolve_ort_version(override_version: Option<&str>) -> String {
+    if let Some(value) = override_version {
+        if !value.trim().is_empty() {
+            return value.trim().to_string();
+        }
+    }
+    std::env::var("SIS_ORT_VERSION").unwrap_or_else(|_| ORT_VERSION_DEFAULT.to_string())
+}
+
+fn embedded_ort_checksum(version: &str, archive_name: &str) -> Option<&'static str> {
+    match (version, archive_name) {
+        ("1.17.3", "onnxruntime-linux-x64-rocm-1.17.3.tgz") => {
+            Some("82a0efd31abf4f3ad1997094915245ab936a7f395d801c8864d6991d9a16f696")
+        }
+        _ => None,
+    }
+}
+
+fn ort_release_base(version: &str) -> String {
+    if let Ok(base) = std::env::var("SIS_ORT_BASE_URL") {
+        let trimmed = base.trim_end_matches('/');
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    format!("{}/v{}", ORT_RELEASE_BASE, version)
+}
+
+fn fetch_checksum_contents(
+    base: &str,
+    version: &str,
+    archive_name: &str,
+    checksum_url: Option<&str>,
+    checksum_file: Option<&std::path::Path>,
+) -> Result<String> {
+    if let Some(url) = checksum_url {
+        let trimmed = url.trim();
+        if !trimmed.is_empty() {
+            return download_text(trimmed, ORT_USER_AGENT);
+        }
+    }
+    if let Some(path) = checksum_file {
+        return fs::read_to_string(path)
+            .map_err(|err| anyhow!("failed to read checksum file {}: {err}", path.display()));
+    }
+    if let Ok(url) = std::env::var("SIS_ORT_CHECKSUM_URL") {
+        let trimmed = url.trim();
+        if !trimmed.is_empty() {
+            return download_text(trimmed, ORT_USER_AGENT);
+        }
+    }
+    if let Some(checksum) = embedded_ort_checksum(version, archive_name) {
+        eprintln!("Using embedded checksum for {archive_name}");
+        return Ok(format!("{checksum}  {archive_name}"));
+    }
+    let urls = [
+        format!("{base}/{archive_name}.sha256"),
+        format!("{base}/{archive_name}.sha256.txt"),
+        format!("{base}/{archive_name}.sha256sum"),
+        format!("{base}/{archive_name}.sha256sum.txt"),
+        format!("{base}/onnxruntime-{version}-sha256.txt"),
+        format!("{base}/onnxruntime-{version}.sha256"),
+        format!("{base}/onnxruntime-{version}-sha256sum.txt"),
+    ];
+    for url in urls {
+        match download_text_optional(&url, ORT_USER_AGENT) {
+            Ok(Some(contents)) => return Ok(contents),
+            Ok(None) => continue,
+            Err(err) => return Err(err),
+        }
+    }
+    if let Ok(contents) = fetch_checksum_from_release(version, archive_name) {
+        return Ok(contents);
+    }
+    Err(anyhow!(
+        "checksum file not available for {archive_name}; use --checksum-url, --checksum-file, or --checksum-sha256"
+    ))
+}
+
+fn download_text(url: &str, user_agent: &str) -> Result<String> {
+    let mut reader = ureq::get(url)
+        .set("User-Agent", user_agent)
+        .call()
+        .map_err(|err| anyhow!("failed to download {url}: {err}"))?
+        .into_reader();
+    let mut contents = String::new();
+    reader.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
+fn download_text_optional(url: &str, user_agent: &str) -> Result<Option<String>> {
+    let response = ureq::get(url).set("User-Agent", user_agent).call();
+    match response {
+        Ok(response) => {
+            let mut contents = String::new();
+            response.into_reader().read_to_string(&mut contents)?;
+            Ok(Some(contents))
+        }
+        Err(ureq::Error::Status(404, _)) => Ok(None),
+        Err(err) => Err(anyhow!("failed to download {url}: {err}")),
+    }
+}
+
+fn fetch_checksum_from_release(version: &str, archive_name: &str) -> Result<String> {
+    let api_url = format!(
+        "https://api.github.com/repos/microsoft/onnxruntime/releases/tags/v{version}"
+    );
+    let response = ureq::get(&api_url)
+        .set("User-Agent", ORT_USER_AGENT)
+        .call()
+        .map_err(|err| anyhow!("failed to query ORT release metadata: {err}"))?;
+    let release: Release = serde_json::from_reader(response.into_reader())?;
+    let mut candidates = release
+        .assets
+        .iter()
+        .filter(|asset| {
+            let name = asset.name.to_lowercase();
+            (name.contains("sha256") || name.contains("checksum"))
+                && (name.ends_with(".txt") || name.ends_with(".sha256") || name.ends_with(".sum"))
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|asset| asset.name.len());
+    for asset in candidates {
+        let contents = download_text(&asset.browser_download_url, ORT_USER_AGENT)?;
+        if parse_checksum(&contents, archive_name).is_some() {
+            return Ok(contents);
+        }
+    }
+    Err(anyhow!(
+        "checksum metadata not found in ORT release assets"
+    ))
+}
+
+fn prefer_gpu_provider_order(order: &[String]) -> Vec<String> {
+    let detections = detect_gpu_tools();
+    let has_rocm = detections
+        .iter()
+        .any(|d| d.tool == "rocminfo" && d.available);
+    let has_nvidia = detections
+        .iter()
+        .any(|d| d.tool == "nvidia-smi" && d.available);
+    let mut preferred = order.to_vec();
+    if has_rocm {
+        preferred = move_provider_to_front(&preferred, "migraphx");
+    } else if has_nvidia {
+        preferred = move_provider_to_front(&preferred, "cuda");
+    }
+    preferred
+}
+
+fn move_provider_to_front(order: &[String], provider: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let target = provider.to_string();
+    if order.iter().any(|p| p == &target) {
+        out.push(target.clone());
+    }
+    for entry in order {
+        if entry != &target {
+            out.push(entry.clone());
+        }
+    }
+    out
+}
+
+fn verify_checksum_contents(
+    contents: &str,
+    asset_name: &str,
+    archive_path: &std::path::Path,
+) -> Result<()> {
+    let Some(expected) = parse_checksum(contents, asset_name) else {
+        return Err(anyhow!(
+            "checksum file does not include {}",
+            asset_name
+        ));
+    };
+    let actual = sha256_file(archive_path)?;
+    if expected != actual {
+        return Err(anyhow!(
+            "checksum mismatch for {} (expected {}, got {})",
+            asset_name,
+            expected,
+            actual
+        ));
+    }
+    eprintln!("Verified checksum for {}", asset_name);
+    Ok(())
+}
+
+fn verify_checksum_hash(checksum: &str, archive_path: &std::path::Path) -> Result<()> {
+    let checksum = checksum.trim();
+    if !is_hex_64(checksum) {
+        return Err(anyhow!("checksum must be 64 hex characters"));
+    }
+    let actual = sha256_file(archive_path)?;
+    let expected = checksum.to_lowercase();
+    if expected != actual {
+        return Err(anyhow!(
+            "checksum mismatch for archive (expected {}, got {})",
+            expected,
+            actual
+        ));
+    }
+    eprintln!("Verified checksum for {}", archive_path.display());
+    Ok(())
+}
+
+fn manual_checksum_verification(archive_name: &str, archive_path: &std::path::Path) -> Result<()> {
+    eprintln!("\nWARNING: No checksum available for {archive_name}");
+    eprintln!("Computing checksum for downloaded file...");
+    let checksum = sha256_file(archive_path)?;
+    eprintln!("\nSHA256: {checksum}");
+    eprintln!("\nPlease verify this checksum matches the official release.");
+    eprintln!("Visit: https://github.com/microsoft/onnxruntime/releases");
+    eprint!("\nProceed with installation? [y/N]: ");
+    use std::io::Write;
+    std::io::stderr().flush()?;
+    let mut response = String::new();
+    std::io::stdin().read_line(&mut response)?;
+    let response = response.trim().to_lowercase();
+    if response == "y" || response == "yes" {
+        eprintln!("Proceeding with installation (checksum: {checksum})");
+        Ok(())
+    } else {
+        Err(anyhow!("Installation cancelled by user"))
+    }
+}
+
+fn ensure_single_checksum_override(
+    checksum_url: Option<&str>,
+    checksum_file: Option<&std::path::Path>,
+    checksum_sha256: Option<&str>,
+) -> Result<()> {
+    let count = checksum_url.is_some() as u8
+        + checksum_file.is_some() as u8
+        + checksum_sha256.is_some() as u8;
+    if count > 1 {
+        return Err(anyhow!(
+            "checksum overrides are mutually exclusive (use only one of --checksum-url, --checksum-file, --checksum-sha256)"
+        ));
+    }
+    Ok(())
+}
+
+fn ort_cache_dir() -> Result<PathBuf> {
+    if cfg!(windows) {
+        if let Some(dir) = dirs::data_local_dir() {
+            return Ok(dir.join("sis").join("ort"));
+        }
+    } else if let Some(home) = dirs::home_dir() {
+        return Ok(home.join(".cache").join("sis").join("ort"));
+    }
+    dirs::cache_dir()
+        .map(|dir| dir.join("sis").join("ort"))
+        .ok_or_else(|| anyhow!("cache directory not available on this platform"))
+}
+
+fn find_ort_library(base_dir: &std::path::Path, target: OrtTarget) -> Result<PathBuf> {
+    for entry in WalkDir::new(base_dir) {
+        let entry = entry?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if is_ort_library(entry.file_name().to_string_lossy().as_ref(), target) {
+            return Ok(entry.path().to_path_buf());
+        }
+    }
+    Err(anyhow!("ORT library not found in extracted archive"))
+}
+
+fn is_ort_library(name: &str, target: OrtTarget) -> bool {
+    if target.os == "windows" {
+        return name.eq_ignore_ascii_case("onnxruntime.dll");
+    }
+    if target.os == "macos" {
+        return name == "libonnxruntime.dylib" || name.starts_with("libonnxruntime.") && name.ends_with(".dylib");
+    }
+    // Match libonnxruntime.so or libonnxruntime.so.X.Y.Z, but NOT libonnxruntime_providers_*.so
+    (name == "libonnxruntime.so" || name.starts_with("libonnxruntime.so."))
+        && !name.contains("_providers_")
+}
+
+fn select_provider_for_download(
+    preferred_provider: Option<&str>,
+    provider_order: &[String],
+    target: &OrtTarget,
+    version: &str,
+) -> Result<String> {
+    if let Some(provider) = preferred_provider {
+        let provider = normalise_provider_name(provider);
+        if ort_archive_name(target, &provider, version).is_some() {
+            return Ok(provider);
+        }
+        return Err(anyhow!(
+            "provider {} is not supported for ORT download on {} {}",
+            provider,
+            target.os,
+            target.arch
+        ));
+    }
+    for provider in provider_order {
+        if ort_archive_name(target, provider, version).is_some() {
+            return Ok(provider.clone());
+        }
+    }
+    Err(anyhow!(
+        "no supported ORT download found for {} {}",
+        target.os,
+        target.arch
+    ))
+}
+
+#[derive(Debug, Clone)]
+struct MlRuntimeUpdate {
+    provider: Option<String>,
+    provider_order: Option<Vec<String>>,
+    ort_dylib: Option<PathBuf>,
+}
+
+fn write_ml_runtime_config(path: &std::path::Path, update: &MlRuntimeUpdate) -> Result<()> {
+    let mut doc = load_or_create_config_document(path)?;
+    ensure_scan_table(&mut doc);
+    if let Some(provider) = update.provider.as_ref() {
+        doc["scan"]["ml_provider"] = value(provider.clone());
+    }
+    if let Some(order) = update.provider_order.as_ref() {
+        doc["scan"]["ml_provider_order"] = Item::Value(Value::Array(toml_array(order)));
+    }
+    if let Some(path) = update.ort_dylib.as_ref() {
+        doc["scan"]["ml_ort_dylib"] = value(path.display().to_string());
+    }
+    write_config_document(path, &doc)?;
+    Ok(())
+}
+
+fn load_or_create_config_document(path: &std::path::Path) -> Result<DocumentMut> {
+    let contents = if path.exists() {
+        fs::read_to_string(path)?
+    } else {
+        default_config_template().to_string()
+    };
+    let doc = contents
+        .parse::<DocumentMut>()
+        .map_err(|err| anyhow!("failed to parse config TOML: {err}"))?;
+    Ok(doc)
+}
+
+fn ensure_scan_table(doc: &mut DocumentMut) {
+    if doc.get("scan").is_none() {
+        doc["scan"] = Item::Table(Table::new());
+    }
+}
+
+fn write_config_document(path: &std::path::Path, doc: &DocumentMut) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, doc.to_string())?;
+    Ok(())
+}
+
+fn toml_array(values: &[String]) -> Array {
+    let mut array = Array::default();
+    for value in values {
+        array.push(value.as_str());
+    }
+    array
 }
 
 fn validate_ml_config(scan: &sis_pdf_core::config::ScanConfig) -> Result<()> {
@@ -3392,7 +4569,7 @@ fn parse_ml_mode(value: &str) -> sis_pdf_core::ml::MlMode {
 }
 #[cfg(test)]
 mod tests {
-    use super::sanitize_embedded_filename;
+    use super::*;
     #[test]
     fn sanitize_embedded_filename_strips_paths() {
         let name = "../evil/../../payload.exe";
@@ -3400,5 +4577,67 @@ mod tests {
         assert!(!safe.contains('/'));
         assert!(!safe.contains('\\'));
         assert!(safe.ends_with("payload.exe"));
+    }
+
+    #[test]
+    fn resolve_provider_order_prefers_override_provider() {
+        let overrides = sis_pdf_core::ml::MlRuntimeConfig {
+            provider: Some("cuda".into()),
+            provider_order: None,
+            ort_dylib_path: None,
+            prefer_quantized: false,
+            max_embedding_batch_size: None,
+            print_provider: false,
+        };
+        let hints = MlConfigHints {
+            provider: Some("cpu".into()),
+            provider_order: None,
+            ort_dylib: None,
+        };
+        let order = resolve_provider_order(&overrides, &hints, "linux");
+        assert_eq!(order, vec!["cuda".to_string(), "cpu".to_string()]);
+    }
+
+    #[test]
+    fn ort_archive_name_maps_linux_cpu() {
+        let target = OrtTarget {
+            os: "linux",
+            arch: "x86_64",
+        };
+        let (name, fmt) = ort_archive_name(&target, "cpu", "1.2.3").expect("archive");
+        assert_eq!(name, "onnxruntime-linux-x64-1.2.3.tgz");
+        assert!(matches!(fmt, ArchiveFormat::TarGz));
+    }
+
+    #[test]
+    fn ort_archive_name_maps_linux_openvino() {
+        let target = OrtTarget {
+            os: "linux",
+            arch: "x86_64",
+        };
+        let (name, fmt) = ort_archive_name(&target, "openvino", "1.2.3").expect("archive");
+        assert_eq!(name, "onnxruntime-linux-x64-openvino-1.2.3.tgz");
+        assert!(matches!(fmt, ArchiveFormat::TarGz));
+    }
+
+    #[test]
+    fn verify_checksum_contents_accepts_match() {
+        let mut file = tempfile::NamedTempFile::new().expect("tempfile");
+        file.write_all(b"hello").expect("write");
+        let hash = sha256_file(file.path()).expect("hash");
+        let contents = format!("{hash}  onnxruntime-linux-x64-1.2.3.tgz\n");
+        verify_checksum_contents(&contents, "onnxruntime-linux-x64-1.2.3.tgz", file.path())
+            .expect("checksum should match");
+    }
+
+    #[test]
+    fn verify_checksum_contents_rejects_mismatch() {
+        let mut file = tempfile::NamedTempFile::new().expect("tempfile");
+        file.write_all(b"hello").expect("write");
+        let contents = "0000000000000000000000000000000000000000000000000000000000000000  onnxruntime-linux-x64-1.2.3.tgz\n";
+        assert!(
+            verify_checksum_contents(contents, "onnxruntime-linux-x64-1.2.3.tgz", file.path())
+                .is_err()
+        );
     }
 }

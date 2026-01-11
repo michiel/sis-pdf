@@ -15,7 +15,7 @@ use sis_pdf_pdf::ir::PdfIrObject;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
 use crate::position;
 use crate::security_log::{SecurityDomain, SecurityEvent};
-use tracing::{debug, info, warn, Level};
+use tracing::{debug, error, info, warn, Level};
 
 const PARALLEL_DETECTOR_THREADS: usize = 4;
 
