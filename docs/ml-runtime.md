@@ -34,6 +34,12 @@ All commands emit logs to STDERR and write machine-readable output to STDOUT whe
 
 **Recommendation:** For production use with ROCm GPUs, **build ONNX Runtime 1.23+ from source with `--use_rocm`**. For testing or CPU-only inference, use the CPU provider.
 
+**Important Note:** Building ONNX Runtime 1.23.2 with ROCm on very new GCC versions (14+) may encounter header include issues (`uint32_t` not defined). If you encounter build failures:
+1. Try using the CPU provider as a fallback: `sis ml ort download --ml-provider cpu --write-config`
+2. Use a containerized build environment with GCC 12 or 13
+3. Wait for ONNX Runtime 1.24+ which may have better compiler compatibility
+4. Use Fedora's `onnxruntime-rocm` package (version 1.20.1) with an older `ort` crate if you downgrade the project dependencies
+
 ## Commands
 
 ### `sis ml health`
@@ -159,7 +165,7 @@ git submodule update --init --recursive
 **Important notes:**
 - Build takes 20-40 minutes depending on your CPU
 - Uses `--rocm_home /usr` for Fedora/RHEL (change to `/opt/rocm` for Ubuntu/Debian)
-- Uses `-Wno-error` to handle compiler warnings with newer GCC versions (13+)
+- Uses `-w` to disable all warnings with newer GCC versions (13+)
 - Use `--use_rocm` NOT `--use_migraphx` (simpler, no MIGraphX dependency)
 
 ```bash
@@ -167,13 +173,14 @@ git submodule update --init --recursive
 rm -rf build/ CMakeCache.txt
 
 # Build with ROCm Execution Provider
+# Note: -w completely disables warnings (needed for newer GCC versions)
 ./build.sh --config Release \
   --build_shared_lib \
   --parallel \
   --use_rocm \
   --rocm_home /usr \
   --skip_tests \
-  --cmake_extra_defines CMAKE_CXX_FLAGS="-Wno-error"
+  --cmake_extra_defines CMAKE_CXX_FLAGS="-w"
 
 # Verify build succeeded - should show library files
 ls -lh build/Linux/Release/libonnxruntime.so*
@@ -236,7 +243,7 @@ echo "This will take 20-40 minutes..."
   --use_rocm \
   --rocm_home /usr \
   --skip_tests \
-  --cmake_extra_defines CMAKE_CXX_FLAGS="-Wno-error"
+  --cmake_extra_defines CMAKE_CXX_FLAGS="-w"
 
 echo "Build complete! Installing to sis cache..."
 mkdir -p ~/.cache/sis/ort/1.23.2/linux-x86_64-rocm
@@ -349,14 +356,16 @@ rm -rf build/ CMakeCache.txt
 
 Newer GCC versions (13+) treat warnings as errors. Solution:
 ```bash
-# Add -Wno-error flag to disable warnings-as-errors
+# Use -w to completely disable all warnings
 ./build.sh --config Release \
   --build_shared_lib \
   --parallel \
   --use_rocm \
   --rocm_home /usr \
   --skip_tests \
-  --cmake_extra_defines CMAKE_CXX_FLAGS="-Wno-error"
+  --cmake_extra_defines CMAKE_CXX_FLAGS="-w"
+
+# Note: -Wno-error doesn't work for all warning types, -w is more reliable
 ```
 
 **Build fails with ROCm not found:**
@@ -408,6 +417,26 @@ rocminfo
 rocm-smi
 ```
 
+**Build fails: "error: 'uint32_t' does not name a type"**
+
+This occurs with very new GCC versions (14+) due to missing header includes in ONNX Runtime 1.23.2. Solutions:
+
+1. **Use CPU provider instead** (recommended for quick start):
+   ```bash
+   sis ml ort download --ml-provider cpu --write-config
+   ```
+
+2. **Use a container with older GCC**:
+   ```bash
+   # Pull container with GCC 13
+   podman run -it -v ~/onnxruntime:/build fedora:39 bash
+   # Then build inside container
+   ```
+
+3. **Wait for ONNX Runtime 1.24+** which may have better compiler compatibility
+
+4. **Patch the source** (advanced): Add `#include <cstdint>` to affected header files
+
 ### Quick reference: Key differences for Fedora vs Ubuntu
 
 | Aspect | Fedora/RHEL | Ubuntu/Debian |
@@ -420,7 +449,7 @@ rocm-smi
 ### Common pitfalls to avoid
 
 1. **Don't use** `--use_migraphx` unless you specifically need MIGraphX and have it installed
-2. **Always use** `--cmake_extra_defines CMAKE_CXX_FLAGS="-Wno-error"` with GCC 13+
+2. **Always use** `--cmake_extra_defines CMAKE_CXX_FLAGS="-w"` with GCC 13+ (disables all warnings)
 3. **Fedora users:** Use `--rocm_home /usr`, not `/opt/rocm`
 4. **Don't forget** to copy ALL `.so*` files, not just `libonnxruntime.so`
 5. **Build takes time:** Allow 20-40 minutes, don't interrupt it
