@@ -194,6 +194,33 @@ pub fn run_scan_with_detectors(
             });
         }
     }
+
+    let font_findings = findings.iter().filter(|f| f.kind.starts_with("font.")).count();
+    let js_findings = findings
+        .iter()
+        .filter(|f| f.surface == crate::model::AttackSurface::JavaScript || f.kind.starts_with("js_"))
+        .count();
+    if font_findings > 0 && js_findings > 0 {
+        let mut meta = HashMap::new();
+        meta.insert("font.finding_count".into(), font_findings.to_string());
+        meta.insert("js.finding_count".into(), js_findings.to_string());
+        findings.push(Finding {
+            id: String::new(),
+            surface: crate::model::AttackSurface::JavaScript,
+            kind: "js_font_exploitation".into(),
+            severity: crate::model::Severity::High,
+            confidence: crate::model::Confidence::Probable,
+            title: "Font exploitation chain suspected".into(),
+            description: "JavaScript findings coincide with suspicious embedded fonts.".into(),
+            objects: vec!["fonts".into(), "javascript".into()],
+            evidence: Vec::new(),
+            remediation: Some("Review JavaScript payloads and embedded font tables together.".into()),
+            meta,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+        });
+    }
     let mut ml_summary_override: Option<MlSummary> = None;
     if let Some(ml_cfg) = &ctx.options.ml_config {
         ml_summary_override = Some(MlSummary {

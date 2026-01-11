@@ -44,3 +44,10 @@ level = "warn"
 # ml_quantized = false
 # ml_batch_size = 32
 # ml_provider_info = false
+
+# Font analysis
+# [scan.font-analysis]
+# enabled = true
+# dynamic_enabled = false
+# dynamic_timeout_ms = 120
+# max_fonts = 256

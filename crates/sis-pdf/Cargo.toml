@@ -34,3 +34,4 @@ sis-pdf-ml-graph = { path = "../sis-pdf-ml-graph", optional = true }
 
 [features]
 ml-graph = ["sis-pdf-core/ml-graph", "sis-pdf-ml-graph"]
+font-dynamic = ["sis-pdf-detectors/font-dynamic"]

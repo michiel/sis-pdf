@@ -12,8 +12,10 @@ sis-pdf-pdf = { path = "../sis-pdf-pdf" }
 base64 = "0.22"
 js-analysis = { path = "../js-analysis", default-features = false }
 tracing = "0.1"
+font-analysis = { path = "../font-analysis", default-features = false }
 
 [features]
 default = ["js-ast", "js-sandbox"]
 js-ast = ["js-analysis/js-ast"]
 js-sandbox = ["js-analysis/js-sandbox"]
+font-dynamic = ["font-analysis/dynamic"]

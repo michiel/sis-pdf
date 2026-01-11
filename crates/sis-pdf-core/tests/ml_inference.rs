@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use sis_pdf_core::ml_inference::{MlInferenceConfig, run_ml_inference};
-use sis_pdf_core::scan::{ScanContext, ScanOptions};
+use sis_pdf_core::scan::{FontAnalysisOptions, ScanContext, ScanOptions};
 
 fn load_context() -> anyhow::Result<ScanContext<'static>> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -37,6 +37,7 @@ fn load_context() -> anyhow::Result<ScanContext<'static>> {
         strict_summary: false,
         ir: false,
         ml_config: None,
+        font_analysis: FontAnalysisOptions::default(),
     };
     Ok(ScanContext::new(bytes, graph, opts))
 }

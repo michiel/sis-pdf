@@ -14,6 +14,8 @@ const MAX_DECODE_BYTES: usize = 512 * 1024 * 1024;
 const MAX_TOTAL_DECODE_BYTES: usize = 2 * 1024 * 1024 * 1024;
 const MAX_RECURSION_DEPTH: usize = 512;
 const MAX_FOCUS_DEPTH: usize = 64;
+const MAX_FONTS: usize = 10_000;
+const MAX_FONT_DYNAMIC_TIMEOUT_MS: u64 = 10_000;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -58,6 +60,16 @@ pub struct ScanConfig {
     pub ml_quantized: Option<bool>,
     pub ml_batch_size: Option<usize>,
     pub ml_provider_info: Option<bool>,
+    #[serde(rename = "font-analysis")]
+    pub font_analysis: Option<FontAnalysisConfig>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct FontAnalysisConfig {
+    pub enabled: Option<bool>,
+    pub dynamic_enabled: Option<bool>,
+    pub dynamic_timeout_ms: Option<u64>,
+    pub max_fonts: Option<usize>,
 }
 
 impl Config {
@@ -321,6 +333,65 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
         }
         if let Some(print) = scan.ml_provider_info {
             cfg.runtime.print_provider = print;
+        }
+    }
+
+    if let Some(font_cfg) = &scan.font_analysis {
+        if let Some(enabled) = font_cfg.enabled {
+            opts.font_analysis.enabled = enabled;
+        }
+        if let Some(enabled) = font_cfg.dynamic_enabled {
+            opts.font_analysis.dynamic_enabled = enabled;
+        }
+        if let Some(timeout) = font_cfg.dynamic_timeout_ms {
+            if timeout == 0 || timeout > MAX_FONT_DYNAMIC_TIMEOUT_MS {
+                SecurityEvent {
+                    level: Level::WARN,
+                    domain: SecurityDomain::Detection,
+                    severity: crate::model::Severity::Low,
+                    kind: "invalid_font_dynamic_timeout",
+                    policy: None,
+                    object_id: None,
+                    object_type: None,
+                    vector: None,
+                    technique: None,
+                    confidence: None,
+                    message: "Invalid font dynamic timeout in config",
+                }
+                .emit();
+                warn!(
+                    value = timeout,
+                    limit = MAX_FONT_DYNAMIC_TIMEOUT_MS,
+                    "Invalid font dynamic timeout in config"
+                );
+            } else {
+                opts.font_analysis.dynamic_timeout_ms = timeout;
+            }
+        }
+        if let Some(max_fonts) = font_cfg.max_fonts {
+            if max_fonts == 0 || max_fonts > MAX_FONTS {
+                SecurityEvent {
+                    level: Level::WARN,
+                    domain: SecurityDomain::Detection,
+                    severity: crate::model::Severity::Low,
+                    kind: "invalid_font_max_fonts",
+                    policy: None,
+                    object_id: None,
+                    object_type: None,
+                    vector: None,
+                    technique: None,
+                    confidence: None,
+                    message: "Invalid max_fonts in config",
+                }
+                .emit();
+                warn!(
+                    value = max_fonts,
+                    limit = MAX_FONTS,
+                    "Invalid max_fonts in config"
+                );
+            } else {
+                opts.font_analysis.max_fonts = max_fonts;
+            }
         }
     }
 }

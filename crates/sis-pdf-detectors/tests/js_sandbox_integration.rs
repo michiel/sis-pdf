@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use sis_pdf_core::scan::ScanOptions;
+use sis_pdf_core::scan::{FontAnalysisOptions, ScanOptions};
 
 #[cfg(feature = "js-sandbox")]
 use sis_pdf_detectors::js_sandbox::JavaScriptSandboxDetector;
@@ -30,6 +30,7 @@ fn sandbox_exec_records_calls() {
         strict_summary: false,
         ir: false,
         ml_config: None,
+        font_analysis: FontAnalysisOptions::default(),
     };
 
     let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =

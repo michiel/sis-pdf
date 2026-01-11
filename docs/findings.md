@@ -363,6 +363,83 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: embedded fonts can trigger vulnerable code paths.
   - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
 
+## font.invalid_structure
+
+- ID: `font.invalid_structure`
+- Label: Invalid font structure
+- Description: Font parsing rejected due to invalid structure or offsets.
+- Tags: font
+- Details:
+  - Relevance: font parsing attack surface.
+  - Meaning: malformed fonts can trigger parser instability or bypass checks.
+  - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
+
+## font.anomalous_table_size
+
+- ID: `font.anomalous_table_size`
+- Label: Anomalous font table sizes
+- Description: Font tables exceed expected size limits or are oversized.
+- Tags: font
+- Details:
+  - Relevance: font parsing attack surface.
+  - Meaning: oversized tables can signal overflow or parser stress attempts.
+  - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
+
+## font.inconsistent_table_layout
+
+- ID: `font.inconsistent_table_layout`
+- Label: Inconsistent font table layout
+- Description: Font table directory contains overlapping or duplicate entries.
+- Tags: font
+- Details:
+  - Relevance: font parsing attack surface.
+  - Meaning: inconsistent layouts can exploit parser assumptions.
+  - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
+
+## font.suspicious_hinting
+
+- ID: `font.suspicious_hinting`
+- Label: Suspicious hinting programs
+- Description: Hinting programs are unusually large or complex.
+- Tags: font
+- Details:
+  - Relevance: font parsing attack surface.
+  - Meaning: hinting bytecode can stress or exploit interpreter paths.
+  - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
+
+## font.dynamic_parse_failure
+
+- ID: `font.dynamic_parse_failure`
+- Label: Font parsing failed
+- Description: Dynamic font parsing failed in the runtime engine.
+- Tags: font, dynamic
+- Details:
+  - Relevance: dynamic validation step.
+  - Meaning: runtime parser errors can signal malformed or hostile fonts.
+  - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
+
+## font.dynamic_timeout
+
+- ID: `font.dynamic_timeout`
+- Label: Font analysis timeout
+- Description: Dynamic font analysis exceeded the configured timeout.
+- Tags: font, dynamic
+- Details:
+  - Relevance: dynamic validation step.
+  - Meaning: long-running font parsing can indicate DoS or complexity abuse.
+  - Chain usage: treated as an evasion or payload stage indicator.
+
+## font.multiple_vuln_signals
+
+- ID: `font.multiple_vuln_signals`
+- Label: Multiple font anomalies
+- Description: Font exhibits multiple anomalous signals.
+- Tags: font
+- Details:
+  - Relevance: combined font exploitation signals.
+  - Meaning: multiple anomalies increase confidence of malicious intent.
+  - Chain usage: raises confidence on payload stages targeting renderer vulnerabilities.
+
 ## fontmatrix_payload_present
 
 - ID: `fontmatrix_payload_present`

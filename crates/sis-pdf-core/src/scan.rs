@@ -31,6 +31,26 @@ pub struct ScanOptions {
     pub strict_summary: bool,
     pub ir: bool,
     pub ml_config: Option<crate::ml::MlConfig>,
+    pub font_analysis: FontAnalysisOptions,
+}
+
+#[derive(Debug, Clone)]
+pub struct FontAnalysisOptions {
+    pub enabled: bool,
+    pub dynamic_enabled: bool,
+    pub dynamic_timeout_ms: u64,
+    pub max_fonts: usize,
+}
+
+impl Default for FontAnalysisOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            dynamic_enabled: false,
+            dynamic_timeout_ms: 120,
+            max_fonts: 256,
+        }
+    }
 }
 
 pub struct ScanContext<'a> {

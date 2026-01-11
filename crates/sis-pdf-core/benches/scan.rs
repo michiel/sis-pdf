@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use sis_pdf_core::scan::ScanOptions;
+use sis_pdf_core::scan::{FontAnalysisOptions, ScanOptions};
 fn bench_scan(c: &mut Criterion) {
     let bytes = include_bytes!("../tests/fixtures/synthetic.pdf");
     let detectors = sis_pdf_detectors::default_detectors();
@@ -21,6 +21,7 @@ fn bench_scan(c: &mut Criterion) {
         focus_depth: 0,
         yara_scope: None,
         ml_config: None,
+        font_analysis: FontAnalysisOptions::default(),
     };
     c.bench_function("sis_pdf_scan_synthetic", |b| {
         b.iter(|| sis_pdf_core::runner::run_scan_with_detectors(bytes, opts, &detectors).unwrap())

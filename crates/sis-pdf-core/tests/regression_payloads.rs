@@ -1,4 +1,4 @@
-use sis_pdf_core::scan::ScanOptions;
+use sis_pdf_core::scan::{FontAnalysisOptions, ScanOptions};
 
 #[test]
 fn external_payload_sets_basic_coverage() {
@@ -22,6 +22,7 @@ fn external_payload_sets_basic_coverage() {
         strict_summary: false,
         ir: false,
         ml_config: None,
+        font_analysis: FontAnalysisOptions::default(),
     };
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts, &detectors)
         .expect("scan should succeed");

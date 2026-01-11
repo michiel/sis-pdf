@@ -2474,6 +2474,7 @@ fn run_scan(
         strict_summary,
         ir,
         ml_config: None,
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
     };
     let runtime_overrides = build_ml_runtime_config(
         ml_provider,
@@ -3077,6 +3078,7 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         focus_depth: 0,
         yara_scope: None,
         ml_config: None,
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
     };
     let detectors = sis_pdf_detectors::default_detectors();
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(true);
@@ -3150,6 +3152,7 @@ fn run_detect(
         focus_depth: 0,
         yara_scope: None,
         ml_config: None,
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
     };
 
     let settings = sis_pdf_detectors::DetectorSettings {
@@ -3278,6 +3281,7 @@ fn run_export_graph(pdf: &str, chains_only: bool, format: &str, outdir: &PathBuf
         focus_depth: 0,
         yara_scope: None,
         ml_config: None,
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
     };
     let detectors = sis_pdf_detectors::default_detectors();
     let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
@@ -3335,6 +3339,7 @@ fn run_export_org(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Res
             strict_summary: false,
             ir: false,
             ml_config: None,
+            font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
         };
         let ctx = sis_pdf_core::scan::ScanContext::new(&mmap, graph, opts.clone());
         let classifications = ctx.classifications();
@@ -3427,6 +3432,7 @@ fn run_export_ir(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Resu
             strict_summary: false,
             ir: false,
             ml_config: None,
+            font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
         };
         let detectors = sis_pdf_detectors::default_detectors_with_settings(
             sis_pdf_detectors::DetectorSettings {
@@ -3534,6 +3540,7 @@ fn run_report(
         strict_summary: false,
         ir,
         ml_config: None,
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
     };
     let mut opts = opts;
     let runtime_overrides = build_ml_runtime_config(
@@ -3671,6 +3678,7 @@ fn run_export_features(
         strict_summary: false,
         ir: false,
         ml_config: None,
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
     };
     let mut paths = Vec::new();
     if let Some(pdf) = pdf {
@@ -4158,6 +4166,7 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
             focus_depth: 0,
             yara_scope: None,
             ml_config: None,
+            font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
         };
         let base_report =
             sis_pdf_core::runner::run_scan_with_detectors(&data, opts.clone(), &detectors)?;

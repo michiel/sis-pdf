@@ -1,4 +1,4 @@
-use sis_pdf_core::scan::ScanOptions;
+use sis_pdf_core::scan::{FontAnalysisOptions, ScanOptions};
 
 fn base_opts() -> ScanOptions {
     ScanOptions {
@@ -19,6 +19,7 @@ fn base_opts() -> ScanOptions {
         strict_summary: false,
         ir: false,
         ml_config: None,
+        font_analysis: FontAnalysisOptions::default(),
     }
 }
 
