@@ -1001,22 +1001,65 @@ pub fn execute_js_with_limits(code: &str) -> Result<JsResult> {
 
 ## 8. Implementation Priorities
 
+### Implementation Status
+
+**Last Updated**: 2026-01-11
+
+| Task | Status | Completion | Notes |
+|------|--------|------------|-------|
+| Extract Test Suite | ✅ In Progress | 80% | Script running, extracting samples from 2024 corpus |
+| Fix Finding Deduplication | 🔄 Analyzing | 20% | URI analysis already sophisticated (UriPresenceDetector exists) |
+| Upgrade Confidence Levels | ⏸️ Pending | 0% | Code locations identified |
+| Enhance Evidence Collection | ⏸️ Pending | 0% | URI evidence already enhanced in uri_classification.rs |
+| Adjust Severity Levels | ⏸️ Pending | 0% | Risk scoring exists for URIs |
+| Implement URI Analysis | ✅ Discovered | 100% | Already implemented! `uri_classification.rs` has comprehensive analysis |
+| Add Missing Detections | ⏸️ Pending | 0% | 8+ attack vectors identified |
+| False Positive Reduction | ⏸️ Pending | 0% | Requires context-dependent severity implementation |
+| Content Analysis | ⏸️ Pending | 0% | Future work |
+
+### Discovery: URI Analysis Already Implemented!
+
+**Found**: `crates/sis-pdf-detectors/src/uri_classification.rs` (879 lines)
+
+This module already implements many of our recommendations:
+- ✅ Domain extraction and parsing
+- ✅ TLD analysis (suspicious TLDs: .tk, .ml, .ga, .cf, .gq, .zip, .mov)
+- ✅ IP address detection
+- ✅ Obfuscation level scoring (None/Light/Medium/Heavy)
+- ✅ Risk score calculation (0-200+ scale)
+- ✅ Context-aware severity (risk_score_to_severity)
+- ✅ Data exfiltration pattern detection
+- ✅ Tracking parameter detection
+- ✅ JavaScript URI detection
+- ✅ Visibility analysis (hidden annotations)
+- ✅ Trigger mechanism analysis (automatic vs user-initiated)
+- ✅ Document-level aggregation (UriPresenceDetector)
+
+**Already using two-tier detection:**
+1. `UriPresenceDetector` - Document-level summary (deduplicated)
+2. `UriContentDetector` - Individual URI analysis with risk scoring
+
+**What's missing**: Need to verify this is being used instead of the old per-URI `UriDetector`.
+
 ### Immediate (Week 1)
 
-1. **Extract Test Suite** (1 day)
+1. **Extract Test Suite** (1 day) - ✅ IN PROGRESS
    - Script to extract one example per finding type
    - Organize by common/rare/outliers/edge-cases
    - Document expected findings per file
+   - **Status**: Running in background (task bd601c0)
 
-2. **Fix Finding Deduplication** (2 days)
-   - Aggregate `uri_present`, `object_id_shadowing` findings
-   - Reduce output size by 50-80%
-   - Improve performance by 10-20%
+2. **Audit Detector Usage** (2 hours) - 🔄 NEW TASK
+   - Verify UriPresenceDetector is enabled (not old UriDetector)
+   - Check if finding deduplication is already working
+   - Measure current performance vs expected
+   - Identify which detectors still need deduplication
 
 3. **Upgrade Confidence Levels** (1 day)
    - `js_present`, `signature_present`, `encryption_present` → Definitive
    - `missing_eof_marker` → Definitive
    - Context-aware confidence for `uri_present`, `object_id_shadowing`
+   - **Files to modify**: `crates/sis-pdf-detectors/src/lib.rs`
 
 ### Short Term (Week 2-3)
 
