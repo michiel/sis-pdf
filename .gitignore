@@ -14,3 +14,6 @@ demo_sample.js
 # Rust build artifacts
 **/*.rs.bk
 *.pdb
+*.txt
+*.jsonl
+*.py
