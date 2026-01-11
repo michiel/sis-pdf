@@ -37,9 +37,9 @@ pip install numpy scikit-learn
 
 ## Stage 1: Feature Extraction
 
-### Extended Feature Vector (333 Features)
+### Extended Feature Vector (341 Features)
 
-sis-pdf exports a 333-feature vector by default, combining:
+sis-pdf exports a 341-feature vector by default, combining:
 - 35 legacy features (structural, behavioral, content)
 - 298 extended features (detector findings, JS/URI signals, attack surfaces)
 
@@ -69,7 +69,7 @@ Each line contains:
 ```
 
 - `file`: Source PDF path
-- `features`: Array of 333 float values
+- `features`: Array of 341 float values
 - `label`: 0 (benign) or 1 (malicious) - add this manually or via pipeline script
 
 ### Basic Features Only (Legacy Mode)
@@ -444,11 +444,11 @@ Found 5000 PDF files
 Extracted 5000 feature vectors
 
 === Computing baseline from benign_features.jsonl ===
-Baseline computed: 333 features
+Baseline computed: 341 features
 
 === Loading features ===
 Total samples: 10000
-Feature dimension: 333
+Feature dimension: 341
 Train: 6000, Val: 2000, Test: 2000
 
 === Training model ===

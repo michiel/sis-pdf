@@ -220,10 +220,23 @@ Finding {
         "uri.is_ip": "false",
         "uri.is_javascript": "false",
         "uri.is_file": "false",
+        "uri.data_uri": "false",
+        "uri.data_is_base64": "false",
+        "uri.data_length": "0",
         "uri.suspicious_tld": "false",
         "uri.data_exfil_pattern": "true",
-        "uri.tracking_params": "utm_source,fbclid",
+        "uri.tracking_params": "true",
+        "uri.tracking_params_list": "utm_source,fbclid",
         "uri.suspicious_patterns": "many_parameters,suspicious_param_names",
+        "uri.phishing_indicators": "true",
+        "uri.phishing_indicators_list": "credential_keyword,non_standard_port",
+        "uri.hidden_annotation": "true",
+        "uri.non_standard_port": "true",
+        "uri.shortener_domain": "false",
+        "uri.suspicious_extension": "false",
+        "uri.suspicious_scheme": "false",
+        "uri.embedded_ip_host": "false",
+        "uri.idn_lookalike": "false",
 
         // Context analysis
         "uri.visibility": "hidden_rect",
@@ -256,6 +269,7 @@ Finding {
         "uri.count_unique_domains": "3",
         "uri.schemes": "https:12, http:2, file:1",
         "uri.domains_sample": "example.com, test.org, suspicious.tk",
+        "uri.mixed_content": "true",
     }
 }
 ```
@@ -308,6 +322,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
 - **UriContentDetector**: Cost::Moderate - URI parsing and analysis per URI
 - **Resource Limits**: Maximum 1000 URIs analyzed per document (DoS prevention)
 - **Complexity**: O(n) where n = number of objects with URIs
+- **Severity Escalation**: `uri_presence_summary` increases to Low/Medium/High for high URI volume or high domain spread
 
 ## Usage Examples
 
@@ -338,6 +353,7 @@ sis-pdf scan --format json document.pdf > results.json
   Total URIs: 8
   Unique domains: 2
   Schemes: https:7, http:1
+  Mixed content: true
 ```
 
 ## Testing
@@ -352,6 +368,12 @@ Test cases validate:
 4. **Obfuscation** - Detection of percent-encoding and base64
 5. **Data exfiltration** - Identification of form data patterns
 6. **Tracking** - Recognition of common tracking parameters (info only)
+7. **Shorteners** - Flagging common URL shortener domains
+8. **Data URIs** - MIME/base64 payload detection and size-aware risk
+9. **IDN lookalikes** - Non-ASCII hostnames with ASCII letters
+10. **Suspicious schemes** - Non-standard schemes with execution risk
+11. **Suspicious extensions** - Executable/script/downloadable payloads
+12. **Embedded IP hosts** - Hostnames embedding IPv4 labels
 
 ### Test Files
 
