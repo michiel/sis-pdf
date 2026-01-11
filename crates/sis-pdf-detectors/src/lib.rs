@@ -30,6 +30,7 @@ pub mod filter_depth;
 pub mod objstm_summary;
 pub mod ir_graph_static;
 pub mod uri_classification;
+pub mod object_cycles;
 #[cfg(feature = "js-sandbox")]
 pub mod js_sandbox;
 
@@ -94,6 +95,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(icc_profiles::ICCProfileDetector),
         Box::new(annotations_advanced::AnnotationAttackDetector),
         Box::new(page_tree_anomalies::PageTreeManipulationDetector),
+        Box::new(object_cycles::ObjectReferenceCycleDetector),
         Box::new(CryptoDetector),
         Box::new(XfaDetector),
         Box::new(AcroFormDetector),
