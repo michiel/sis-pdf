@@ -22,7 +22,7 @@ use zip::ZipArchive;
 const MAX_REPORT_BYTES: u64 = 50 * 1024 * 1024;
 const WARN_PDF_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_PDF_BYTES: u64 = 500 * 1024 * 1024;
-const MAX_BATCH_FILES: usize = 10_000;
+const MAX_BATCH_FILES: usize = 500_000;
 const MAX_BATCH_BYTES: u64 = 50 * 1024 * 1024 * 1024;
 const MAX_JSONL_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_JSONL_LINE_BYTES: usize = 10 * 1024;
