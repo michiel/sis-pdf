@@ -94,7 +94,7 @@ impl Detector for StrictParseDeviationDetector {
                 surface: self.surface(),
                 kind: "missing_eof_marker".into(),
                 severity: Severity::Low,
-                confidence: Confidence::Probable,
+                confidence: Confidence::Strong,  // Upgraded: %%EOF presence is definitive check
                 title: "Missing EOF marker".into(),
                 description: "EOF marker not found near end of file.".into(),
                 objects: vec!["eof".into()],
@@ -151,23 +151,45 @@ impl Detector for StrictParseDeviationDetector {
                         let declared = i.max(0) as u64;
                         let actual = st.data_span.len();
                         if declared != actual {
+                            let tolerance = (declared as i64 - actual as i64).abs() as u64;
+                            let mut meta = std::collections::HashMap::new();
+                            meta.insert("stream.declared_length".into(), declared.to_string());
+                            meta.insert("stream.actual_length".into(), actual.to_string());
+                            meta.insert("stream.tolerance".into(), tolerance.to_string());
+
+                            // ±10 bytes is common due to whitespace differences
+                            let (severity, description) = if tolerance <= 10 {
+                                (
+                                    Severity::Low,
+                                    format!(
+                                        "Stream length mismatch within tolerance: declared {} bytes, actual {} bytes (diff {}).",
+                                        declared, actual, tolerance
+                                    )
+                                )
+                            } else {
+                                (
+                                    Severity::Medium,
+                                    format!(
+                                        "Stream length mismatch: declared {} bytes, actual {} bytes (diff {}).",
+                                        declared, actual, tolerance
+                                    )
+                                )
+                            };
+
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
                                 kind: "stream_length_mismatch".into(),
-                                severity: Severity::Medium,
+                                severity,
                                 confidence: Confidence::Probable,
                                 title: "Stream length mismatch".into(),
-                                description: format!(
-                                    "Stream length mismatch: declared {} bytes, actual {} bytes.",
-                                    declared, actual
-                                ),
+                                description,
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                                 evidence: vec![span_to_evidence(st.data_span, "Stream data span")],
                                 remediation: Some(
                                     "Inspect stream boundaries and filters for tampering.".into(),
                                 ),
-                                meta: Default::default(),
+                                meta,
                                 yara: None,
         position: None,
         positions: Vec::new(),

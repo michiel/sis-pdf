@@ -41,17 +41,39 @@ impl Detector for PageTreeManipulationDetector {
             let declared = declared_page_count(ctx, &root);
             if let Some(declared) = declared {
                 if declared != actual as i64 {
+                    let tolerance = (declared - actual as i64).abs();
                     let mut meta = std::collections::HashMap::new();
                     meta.insert("page_tree.declared".into(), declared.to_string());
                     meta.insert("page_tree.actual".into(), actual.to_string());
+                    meta.insert("page_tree.tolerance".into(), tolerance.to_string());
+
+                    // Off-by-one is common in benign PDFs, reduce severity
+                    let (severity, description) = if tolerance == 1 {
+                        (
+                            Severity::Info,
+                            format!(
+                                "Page tree /Count off by one (declared {}, actual {}). Common in benign PDFs.",
+                                declared, actual
+                            )
+                        )
+                    } else {
+                        (
+                            Severity::Low,
+                            format!(
+                                "Page tree /Count does not match actual leaf pages (declared {}, actual {}, diff {}).",
+                                declared, actual, tolerance
+                            )
+                        )
+                    };
+
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
                         kind: "page_tree_mismatch".into(),
-                        severity: Severity::Low,
-                        confidence: Confidence::Probable,
+                        severity,
+                        confidence: Confidence::Strong,  // Upgraded: count mismatch is definitive check
                         title: "Page tree count mismatch".into(),
-                        description: "Page tree /Count does not match actual leaf pages.".into(),
+                        description,
                         objects: vec!["page_tree".into()],
                         evidence: vec![],
                         remediation: Some("Inspect page tree structure for missing or hidden pages.".into()),
@@ -101,7 +123,7 @@ impl Detector for PageTreeManipulationDetector {
                     surface: self.surface(),
                     kind: "page_tree_mismatch".into(),
                     severity: Severity::Low,
-                    confidence: Confidence::Probable,
+                    confidence: Confidence::Strong,  // Upgraded: orphaned pages are definitively unreachable
                     title: "Orphaned page objects".into(),
                     description: "Some /Page objects are not reachable from the page tree.".into(),
                     objects,
@@ -179,7 +201,7 @@ fn detect_cycles(
                 surface: AttackSurface::FileStructure,
                 kind: "page_tree_cycle".into(),
                 severity: Severity::Medium,
-                confidence: Confidence::Probable,
+                confidence: Confidence::Strong,  // Upgraded: cycle detection is definitive
                 title: "Page tree cycle detected".into(),
                 description: "Page tree contains a cycle, which can confuse traversal.".into(),
                 objects: vec![format!("{} {} obj", node_ref.obj, node_ref.gen)],

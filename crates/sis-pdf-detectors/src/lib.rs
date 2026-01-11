@@ -154,22 +154,51 @@ impl Detector for XrefConflictDetector {
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         if ctx.graph.startxrefs.len() > 1 {
+            // Check if document has signatures (legitimate multi-author scenario)
+            let has_signature = ctx.graph.objects.iter().any(|entry| {
+                if let Some(dict) = entry_dict(entry) {
+                    dict.get_first(b"/ByteRange").is_some() || dict.has_name(b"/Type", b"/Sig")
+                } else {
+                    false
+                }
+            });
+
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("xref.startxref_count".into(), ctx.graph.startxrefs.len().to_string());
+            meta.insert("xref.has_signature".into(), has_signature.to_string());
+
+            // Signed documents with incremental updates are legitimate (multi-author)
+            let (severity, description) = if has_signature {
+                (
+                    Severity::Info,
+                    format!(
+                        "Found {} startxref offsets in signed document. Likely legitimate multi-author scenario.",
+                        ctx.graph.startxrefs.len()
+                    )
+                )
+            } else {
+                (
+                    Severity::Medium,
+                    format!(
+                        "Found {} startxref offsets; PDFs with multiple xref sections can hide updates.",
+                        ctx.graph.startxrefs.len()
+                    )
+                )
+            };
+
             let evidence = keyword_evidence(ctx.bytes, b"startxref", "startxref marker", 5);
             Ok(vec![Finding {
                 id: String::new(),
                 surface: self.surface(),
                 kind: "xref_conflict".into(),
-                severity: Severity::Medium,
+                severity,
                 confidence: Confidence::Probable,
                 title: "Multiple startxref entries".into(),
-                description: format!(
-                    "Found {} startxref offsets; PDFs with multiple xref sections can hide updates.",
-                    ctx.graph.startxrefs.len()
-                ),
+                description,
                 objects: vec!["xref".into()],
                 evidence,
                 remediation: Some("Validate with a strict parser; inspect each revision.".into()),
-                meta: Default::default(),
+                meta,
                 yara: None,
         position: None,
         positions: Vec::new(),
@@ -240,6 +269,21 @@ impl Detector for ObjectIdShadowingDetector {
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+
+        // Count total shadowing instances across document
+        let shadowing_count = ctx.graph.index
+            .iter()
+            .filter(|(_, idxs)| idxs.len() > 1)
+            .count();
+
+        // Determine severity based on count (benign incremental updates have low counts)
+        let base_severity = match shadowing_count {
+            0..=10 => Severity::Info,
+            11..=50 => Severity::Low,
+            51..=100 => Severity::Medium,
+            _ => Severity::High,
+        };
+
         for ((obj, gen), idxs) in &ctx.graph.index {
             if idxs.len() > 1 {
                 let mut objects = Vec::new();
@@ -250,24 +294,29 @@ impl Detector for ObjectIdShadowingDetector {
                         evidence.push(span_to_evidence(entry.full_span, "Object span"));
                     }
                 }
+                let mut meta = std::collections::HashMap::new();
+                meta.insert("shadowing.total_count".into(), shadowing_count.to_string());
+                meta.insert("shadowing.this_object_count".into(), idxs.len().to_string());
+
                 findings.push(Finding {
                     id: String::new(),
                     surface: self.surface(),
                     kind: "object_id_shadowing".into(),
-                    severity: Severity::Medium,
+                    severity: base_severity,
                     confidence: Confidence::Probable,
                     title: "Duplicate object IDs detected".into(),
                     description: format!(
-                        "Object {} {} appears {} times; later revisions may shadow earlier content.",
+                        "Object {} {} appears {} times ({} total shadowed objects); later revisions may shadow earlier content.",
                         obj,
                         gen,
-                        idxs.len()
+                        idxs.len(),
+                        shadowing_count
                     ),
                     objects,
                     evidence,
                     remediation: Some("Compare object bodies across revisions.".into()),
-                meta: Default::default(),
-                yara: None,
+                    meta,
+                    yara: None,
         position: None,
         positions: Vec::new(),
                 });
@@ -1271,7 +1320,7 @@ impl Detector for CryptoDetector {
                 surface: self.surface(),
                 kind: "encryption_present".into(),
                 severity: Severity::Medium,
-                confidence: Confidence::Probable,
+                confidence: Confidence::Strong,  // Upgraded: /Encrypt dict presence is definitive
                 title: "Encryption dictionary present".into(),
                 description: "Trailer indicates encrypted content via /Encrypt.".into(),
                 objects: vec!["trailer".into()],
@@ -1312,7 +1361,7 @@ impl Detector for CryptoDetector {
                 surface: self.surface(),
                 kind: "signature_present".into(),
                 severity: Severity::Low,
-                confidence: Confidence::Probable,
+                confidence: Confidence::Strong,  // Upgraded: /ByteRange presence is definitive
                 title: "Digital signature present".into(),
                 description: "Signature dictionaries or ByteRange entries detected.".into(),
                 objects: vec!["signature".into()],
@@ -1384,7 +1433,7 @@ impl Detector for XfaDetector {
                         surface: self.surface(),
                         kind: "xfa_present".into(),
                         severity: Severity::Medium,
-                        confidence: Confidence::Probable,
+                        confidence: Confidence::Strong,  // Upgraded: /XFA presence is definitive
                         title: "XFA form present".into(),
                         description: "XFA forms can expand attack surface.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -1427,7 +1476,7 @@ impl Detector for AcroFormDetector {
                         surface: self.surface(),
                         kind: "acroform_present".into(),
                         severity: Severity::Medium,
-                        confidence: Confidence::Probable,
+                        confidence: Confidence::Strong,  // Upgraded: /AcroForm presence is definitive
                         title: "AcroForm present".into(),
                         description: "Interactive AcroForm dictionaries detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
