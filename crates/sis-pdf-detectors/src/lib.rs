@@ -31,6 +31,7 @@ pub mod objstm_summary;
 pub mod ir_graph_static;
 pub mod uri_classification;
 pub mod object_cycles;
+pub mod metadata_analysis;
 #[cfg(feature = "js-sandbox")]
 pub mod js_sandbox;
 
@@ -106,6 +107,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(HugeImageDetector),
         Box::new(content_phishing::ContentPhishingDetector),
         Box::new(content_phishing::ContentDeceptionDetector),
+        Box::new(metadata_analysis::MetadataAnalysisDetector),
         Box::new(strict::StrictParseDeviationDetector),
         Box::new(ir_graph_static::IrGraphStaticDetector),
     ];
