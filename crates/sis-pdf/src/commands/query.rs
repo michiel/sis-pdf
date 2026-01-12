@@ -194,6 +194,55 @@ pub fn execute_query(
                 .collect();
             Ok(QueryResult::List(filtered))
         }
+        Query::FindingsByKind(kind) => {
+            let findings = run_detectors(&ctx)?;
+            let filtered: Vec<String> = findings
+                .iter()
+                .filter(|f| f.kind == *kind)
+                .map(|f| format!("{}: {}", f.kind, f.title))
+                .collect();
+            Ok(QueryResult::List(filtered))
+        }
+        Query::Findings => {
+            let findings = run_detectors(&ctx)?;
+            let result: Vec<String> = findings
+                .iter()
+                .map(|f| format!("{}: {}", f.kind, f.title))
+                .collect();
+            Ok(QueryResult::List(result))
+        }
+        Query::JavaScript => {
+            let js_code = extract_javascript(&ctx)?;
+            Ok(QueryResult::List(js_code))
+        }
+        Query::JavaScriptCount => {
+            let js_code = extract_javascript(&ctx)?;
+            Ok(QueryResult::Scalar(ScalarValue::Number(js_code.len() as i64)))
+        }
+        Query::Urls => {
+            let urls = extract_urls(&ctx)?;
+            Ok(QueryResult::List(urls))
+        }
+        Query::UrlsCount => {
+            let urls = extract_urls(&ctx)?;
+            Ok(QueryResult::Scalar(ScalarValue::Number(urls.len() as i64)))
+        }
+        Query::Embedded => {
+            let embedded = extract_embedded_files(&ctx)?;
+            Ok(QueryResult::List(embedded))
+        }
+        Query::EmbeddedCount => {
+            let embedded = extract_embedded_files(&ctx)?;
+            Ok(QueryResult::Scalar(ScalarValue::Number(embedded.len() as i64)))
+        }
+        Query::Created => {
+            let created = get_metadata_field(&ctx, "CreationDate")?;
+            Ok(QueryResult::Scalar(ScalarValue::String(created)))
+        }
+        Query::Modified => {
+            let modified = get_metadata_field(&ctx, "ModDate")?;
+            Ok(QueryResult::Scalar(ScalarValue::String(modified)))
+        }
         _ => Err(anyhow!("Query not yet implemented: {:?}", query)),
     }
 }
@@ -314,7 +363,7 @@ fn get_metadata_field(ctx: &ScanContext, field: &str) -> Result<String> {
                                             sis_pdf_pdf::object::PdfStr::Literal { decoded, .. } => decoded,
                                             sis_pdf_pdf::object::PdfStr::Hex { decoded, .. } => decoded,
                                         };
-                                        return Ok(String::from_utf8_lossy(decoded).to_string());
+                                        return Ok(decode_pdf_text_string(decoded));
                                     }
                                 }
                             }
@@ -325,6 +374,31 @@ fn get_metadata_field(ctx: &ScanContext, field: &str) -> Result<String> {
         }
     }
     Ok(String::new())
+}
+
+/// Decode a PDF text string, handling UTF-16BE with BOM or PDFDocEncoding
+fn decode_pdf_text_string(bytes: &[u8]) -> String {
+    // Check for UTF-16BE BOM (0xFE 0xFF)
+    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+        // UTF-16BE encoding
+        let utf16_bytes = &bytes[2..];
+        if utf16_bytes.len() % 2 != 0 {
+            // Invalid UTF-16 (odd number of bytes after BOM)
+            return String::from_utf8_lossy(bytes).to_string();
+        }
+
+        // Convert byte pairs to u16 values (big-endian)
+        let utf16_chars: Vec<u16> = utf16_bytes
+            .chunks_exact(2)
+            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+            .collect();
+
+        // Decode UTF-16 to String
+        String::from_utf16(&utf16_chars).unwrap_or_else(|_| String::from_utf8_lossy(bytes).to_string())
+    } else {
+        // PDFDocEncoding or plain ASCII/Latin-1
+        String::from_utf8_lossy(bytes).to_string()
+    }
 }
 
 fn get_pdf_version(bytes: &[u8]) -> Result<String> {
@@ -406,4 +480,174 @@ pub fn format_json(query: &str, file: &str, result: &QueryResult) -> Result<Stri
     });
 
     Ok(serde_json::to_string_pretty(&output)?)
+}
+
+/// Extract JavaScript code from PDF
+fn extract_javascript(ctx: &ScanContext) -> Result<Vec<String>> {
+    use sis_pdf_pdf::object::{PdfAtom, PdfStr};
+
+    let mut js_code = Vec::new();
+
+    for entry in &ctx.graph.objects {
+        // Check for /JS entry in dictionary or stream
+        if let Some(dict) = entry_dict(entry) {
+            if let Some((_, obj)) = dict.get_first(b"/JS") {
+                if let Some(code) = extract_obj_text(&ctx.graph, ctx.bytes, obj) {
+                    js_code.push(format!("Object {}_{}: {}", entry.obj, entry.gen, preview_text(&code, 200)));
+                }
+            }
+        }
+    }
+
+    Ok(js_code)
+}
+
+/// Extract URLs from PDF
+fn extract_urls(ctx: &ScanContext) -> Result<Vec<String>> {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    let mut urls = Vec::new();
+
+    for entry in &ctx.graph.objects {
+        if let Some(dict) = entry_dict(entry) {
+            // Check for /URI entry (Action dictionaries)
+            if let Some((_, obj)) = dict.get_first(b"/URI") {
+                if let Some(uri) = extract_obj_text(&ctx.graph, ctx.bytes, obj) {
+                    urls.push(uri);
+                }
+            }
+
+            // Check for /URL entry (some PDFs use this)
+            if let Some((_, obj)) = dict.get_first(b"/URL") {
+                if let Some(url) = extract_obj_text(&ctx.graph, ctx.bytes, obj) {
+                    urls.push(url);
+                }
+            }
+        }
+    }
+
+    // Deduplicate
+    urls.sort();
+    urls.dedup();
+
+    Ok(urls)
+}
+
+/// Extract embedded files information from PDF
+fn extract_embedded_files(ctx: &ScanContext) -> Result<Vec<String>> {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    let mut embedded = Vec::new();
+
+    for entry in &ctx.graph.objects {
+        if let PdfAtom::Stream(st) = &entry.atom {
+            if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
+                let name = embedded_filename(&st.dict)
+                    .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
+
+                // Get file size if possible
+                let size = st.dict.get_first(b"/Length")
+                    .and_then(|(_, obj)| {
+                        if let PdfAtom::Int(n) = &obj.atom {
+                            Some(*n as usize)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(0);
+
+                embedded.push(format!("{} ({}_{}, {} bytes)", name, entry.obj, entry.gen, size));
+            }
+        }
+    }
+
+    Ok(embedded)
+}
+
+// Helper functions
+
+fn entry_dict<'a>(
+    entry: &'a sis_pdf_pdf::graph::ObjEntry<'a>,
+) -> Option<&'a sis_pdf_pdf::object::PdfDict<'a>> {
+    use sis_pdf_pdf::object::PdfAtom;
+    match &entry.atom {
+        PdfAtom::Dict(d) => Some(d),
+        PdfAtom::Stream(st) => Some(&st.dict),
+        _ => None,
+    }
+}
+
+fn extract_obj_text(
+    graph: &sis_pdf_pdf::ObjectGraph<'_>,
+    bytes: &[u8],
+    obj: &sis_pdf_pdf::object::PdfObj<'_>,
+) -> Option<String> {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    match &obj.atom {
+        PdfAtom::Str(s) => {
+            let text_bytes = string_bytes(s);
+            Some(decode_pdf_text_string(&text_bytes))
+        }
+        PdfAtom::Stream(st) => {
+            sis_pdf_pdf::decode::decode_stream(bytes, st, 32 * 1024 * 1024)
+                .ok()
+                .map(|d| String::from_utf8_lossy(&d.data).to_string())
+        }
+        PdfAtom::Ref { .. } => {
+            let entry = graph.resolve_ref(obj)?;
+            match &entry.atom {
+                PdfAtom::Str(s) => {
+                    let text_bytes = string_bytes(s);
+                    Some(decode_pdf_text_string(&text_bytes))
+                }
+                PdfAtom::Stream(st) => {
+                    sis_pdf_pdf::decode::decode_stream(bytes, st, 32 * 1024 * 1024)
+                        .ok()
+                        .map(|d| String::from_utf8_lossy(&d.data).to_string())
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn string_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
+    use sis_pdf_pdf::object::PdfStr;
+    match s {
+        PdfStr::Literal { decoded, .. } => decoded.clone(),
+        PdfStr::Hex { decoded, .. } => decoded.clone(),
+    }
+}
+
+fn embedded_filename(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> Option<String> {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    // Try /F (file name)
+    if let Some((_, obj)) = dict.get_first(b"/F") {
+        if let PdfAtom::Str(s) = &obj.atom {
+            let text_bytes = string_bytes(s);
+            return Some(decode_pdf_text_string(&text_bytes));
+        }
+    }
+
+    // Try /UF (unicode file name)
+    if let Some((_, obj)) = dict.get_first(b"/UF") {
+        if let PdfAtom::Str(s) = &obj.atom {
+            let text_bytes = string_bytes(s);
+            return Some(decode_pdf_text_string(&text_bytes));
+        }
+    }
+
+    None
+}
+
+fn preview_text(text: &str, max_len: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.len() <= max_len {
+        trimmed.to_string()
+    } else {
+        format!("{}...", &trimmed[..max_len])
+    }
 }
