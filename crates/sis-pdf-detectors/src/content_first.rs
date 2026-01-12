@@ -567,6 +567,28 @@ fn blob_origin_label(blob: &Blob<'_>) -> &'static str {
     }
 }
 
+/// Check if a stream has valid image XObject dictionary keys
+fn has_image_dict_keys(stream: &PdfStream<'_>) -> bool {
+    let dict = &stream.dict;
+
+    // Check for essential image XObject keys
+    let has_width = dict.entries.iter().any(|(k, _)| {
+        k.decoded.as_slice() == b"/Width" || k.decoded.as_slice() == b"Width" || k.decoded.as_slice() == b"/W" || k.decoded.as_slice() == b"W"
+    });
+    let has_height = dict.entries.iter().any(|(k, _)| {
+        k.decoded.as_slice() == b"/Height" || k.decoded.as_slice() == b"Height" || k.decoded.as_slice() == b"/H" || k.decoded.as_slice() == b"H"
+    });
+    let has_colorspace = dict.entries.iter().any(|(k, _)| {
+        k.decoded.as_slice() == b"/ColorSpace" || k.decoded.as_slice() == b"ColorSpace" || k.decoded.as_slice() == b"/CS" || k.decoded.as_slice() == b"CS"
+    });
+    let has_bpc = dict.entries.iter().any(|(k, _)| {
+        k.decoded.as_slice() == b"/BitsPerComponent" || k.decoded.as_slice() == b"BitsPerComponent" || k.decoded.as_slice() == b"/BPC" || k.decoded.as_slice() == b"BPC"
+    });
+
+    // An image should have at least width, height, and either colorspace or BPC
+    (has_width && has_height) && (has_colorspace || has_bpc)
+}
+
 fn label_mismatch_finding(
     obj: u32,
     gen: u16,
@@ -588,12 +610,22 @@ fn label_mismatch_finding(
         return None;
     }
 
-    let severity =
-        if kind.is_container_or_executable() || matches!(kind, BlobKind::Pdf | BlobKind::Swf) {
-            Severity::High
-        } else {
-            Severity::Medium
-        };
+    // Check if this is an image with valid dictionary but unknown signature
+    // (common in PDF-native image formats like DeviceRGB raw data)
+    let has_valid_image_dict = is_image_label && has_image_dict_keys(stream);
+    let is_unknown_blob = matches!(kind, BlobKind::Unknown);
+
+    let severity = if kind.is_container_or_executable() || matches!(kind, BlobKind::Pdf | BlobKind::Swf) {
+        // Executable or container masquerading as image - High severity
+        Severity::High
+    } else if is_unknown_blob && has_valid_image_dict {
+        // Image with valid dict keys but unknown signature - likely PDF-native format
+        // Reduce to Info severity to avoid false positives on benign PDFs
+        Severity::Info
+    } else {
+        // Other mismatches - Medium severity
+        Severity::Medium
+    };
 
     let mut meta = HashMap::new();
     if let Some(declared) = declared_type.as_ref() {
@@ -817,13 +849,17 @@ fn carve_payloads(
     label: &str,
 ) -> Vec<Finding> {
     let max_scan_bytes = 512 * 1024;
-    let max_offset = 256 * 1024;
     let max_hits = 3;
     let slice = if data.len() > max_scan_bytes {
         &data[..max_scan_bytes]
     } else {
         data
     };
+
+    // Only flag signatures at stream start (0-100 bytes) to avoid false positives
+    // from random bytes in compressed data (like SWF magic in image streams)
+    let boundary_threshold = 100;
+
     let signatures = [
         ("pdf", b"%PDF-".as_slice()),
         ("zip", b"PK\x03\x04".as_slice()),
@@ -851,7 +887,9 @@ fn carve_payloads(
     let mut findings = Vec::new();
     for (kind, needle) in signatures {
         if let Some(offset) = find_pattern(slice, needle) {
-            if offset == 0 || offset > max_offset {
+            // Only flag signatures at the very beginning of the stream
+            // Skip signatures found deep in compressed data (likely random bytes)
+            if offset > boundary_threshold {
                 continue;
             }
             let mut meta = HashMap::new();
