@@ -89,7 +89,10 @@ impl Detector for ObjectReferenceCycleDetector {
 }
 
 /// Classify a cycle based on its characteristics to assign appropriate severity
-fn classify_cycle(ctx: &sis_pdf_core::scan::ScanContext, cycle_refs: &[ObjRef]) -> (Severity, &'static str) {
+fn classify_cycle(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    cycle_refs: &[ObjRef],
+) -> (Severity, &'static str) {
     let cycle_length = cycle_refs.len();
 
     // Self-reference (A -> A) - High severity, classic DoS pattern
@@ -103,8 +106,14 @@ fn classify_cycle(ctx: &sis_pdf_core::scan::ScanContext, cycle_refs: &[ObjRef]) 
         let obj2 = cycle_refs[1];
 
         if let (Some(entry1), Some(entry2)) = (
-            ctx.graph.objects.iter().find(|e| e.obj == obj1.obj && e.gen == obj1.gen),
-            ctx.graph.objects.iter().find(|e| e.obj == obj2.obj && e.gen == obj2.gen)
+            ctx.graph
+                .objects
+                .iter()
+                .find(|e| e.obj == obj1.obj && e.gen == obj1.gen),
+            ctx.graph
+                .objects
+                .iter()
+                .find(|e| e.obj == obj2.obj && e.gen == obj2.gen),
         ) {
             let type1 = get_dict_type(&entry1.atom);
             let type2 = get_dict_type(&entry2.atom);
@@ -112,7 +121,8 @@ fn classify_cycle(ctx: &sis_pdf_core::scan::ScanContext, cycle_refs: &[ObjRef]) 
             // Check for Page <-> Pages relationship
             if (type1 == Some("/Page") && type2 == Some("/Pages"))
                 || (type1 == Some("/Pages") && type2 == Some("/Page"))
-                || (type1 == Some("/Pages") && type2 == Some("/Pages")) {
+                || (type1 == Some("/Pages") && type2 == Some("/Pages"))
+            {
                 return (Severity::Info, "page_tree_parent_child");
             }
         }
@@ -123,7 +133,12 @@ fn classify_cycle(ctx: &sis_pdf_core::scan::ScanContext, cycle_refs: &[ObjRef]) 
         // Check if all objects are page-related
         let mut all_page_related = true;
         for obj_ref in cycle_refs {
-            if let Some(entry) = ctx.graph.objects.iter().find(|e| e.obj == obj_ref.obj && e.gen == obj_ref.gen) {
+            if let Some(entry) = ctx
+                .graph
+                .objects
+                .iter()
+                .find(|e| e.obj == obj_ref.obj && e.gen == obj_ref.gen)
+            {
                 let obj_type = get_dict_type(&entry.atom);
                 if obj_type != Some("/Page") && obj_type != Some("/Pages") {
                     all_page_related = false;

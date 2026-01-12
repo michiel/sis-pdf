@@ -4,6 +4,7 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
 use globset::Glob;
+use js_analysis::{DynamicOptions, DynamicOutcome};
 use memmap2::Mmap;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -20,7 +21,6 @@ use tempfile::tempdir;
 use toml_edit::{value, Array, DocumentMut, Item, Table, Value};
 use tracing::{debug, error, info, warn, Level};
 use walkdir::WalkDir;
-use js_analysis::{DynamicOptions, DynamicOutcome};
 use zip::ZipArchive;
 const MAX_REPORT_BYTES: u64 = 50 * 1024 * 1024;
 const WARN_PDF_BYTES: u64 = 50 * 1024 * 1024;
@@ -105,7 +105,9 @@ enum Command {
     Query {
         #[arg(help = "PDF file path")]
         pdf: String,
-        #[arg(help = "Query string (e.g., 'pages', 'js', 'findings.high'). Omit for interactive REPL.")]
+        #[arg(
+            help = "Query string (e.g., 'pages', 'js', 'findings.high'). Omit for interactive REPL."
+        )]
         query: Option<String>,
         #[arg(long, help = "Output as JSON")]
         json: bool,
@@ -452,7 +454,10 @@ enum MlOrtCommand {
 
 #[derive(Subcommand)]
 enum StreamCommand {
-    #[command(about = "Analyze a PDF stream in chunks and stop on indicators", alias = "analyze")]
+    #[command(
+        about = "Analyze a PDF stream in chunks and stop on indicators",
+        alias = "analyze"
+    )]
     Analyse {
         pdf: String,
         #[arg(long, default_value_t = 64 * 1024)]
@@ -2480,8 +2485,8 @@ fn run_query_oneshot(
     use commands::query;
 
     // Parse the query
-    let query = query::parse_query(query_str)
-        .map_err(|e| anyhow!("Failed to parse query: {}", e))?;
+    let query =
+        query::parse_query(query_str).map_err(|e| anyhow!("Failed to parse query: {}", e))?;
 
     // Build scan options
     let scan_options = query::ScanOptions {
@@ -2518,7 +2523,7 @@ fn run_query_repl(
 ) -> Result<()> {
     use commands::query;
     use rustyline::error::ReadlineError;
-    use rustyline::{DefaultEditor, Result as RustylineResult};
+    use rustyline::DefaultEditor;
 
     // Load and parse PDF once
     eprintln!("Loading PDF: {}", pdf_path);
@@ -2582,12 +2587,18 @@ fn run_query_repl(
                     }
                     ":json" => {
                         json_mode = !json_mode;
-                        eprintln!("JSON mode: {}", if json_mode { "enabled" } else { "disabled" });
+                        eprintln!(
+                            "JSON mode: {}",
+                            if json_mode { "enabled" } else { "disabled" }
+                        );
                         continue;
                     }
                     ":compact" => {
                         compact_mode = !compact_mode;
-                        eprintln!("Compact mode: {}", if compact_mode { "enabled" } else { "disabled" });
+                        eprintln!(
+                            "Compact mode: {}",
+                            if compact_mode { "enabled" } else { "disabled" }
+                        );
                         continue;
                     }
                     _ => {}
@@ -2668,6 +2679,7 @@ fn print_repl_help() {
     println!("  findings.medium    - Medium severity findings");
     println!("  findings.low       - Low severity findings");
     println!("  findings.info      - Info severity findings");
+    println!("  findings.critical  - Critical severity findings");
     println!("  findings.kind KIND - Findings of specific kind");
     println!();
     println!("Object inspection queries:");
@@ -2677,6 +2689,12 @@ fn print_repl_help() {
     println!("  objects.with TYPE  - Filter objects by type (e.g., Page, Font)");
     println!("  trailer            - Show PDF trailer");
     println!("  catalog            - Show PDF catalog");
+    println!();
+    println!("Advanced queries:");
+    println!("  chains             - Describe action chains (rich JSON output)");
+    println!("  chains.js          - JavaScript action chains with edge details");
+    println!("  cycles             - Document reference cycles");
+    println!("  cycles.page        - Page tree cycles");
     println!();
     println!("REPL commands:");
     println!("  :json              - Toggle JSON output mode");

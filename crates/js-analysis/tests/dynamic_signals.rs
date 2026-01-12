@@ -95,10 +95,7 @@ fn sandbox_handles_event_target_unescape_payload() {
                 .calls
                 .iter()
                 .any(|c| c == "event.target.syncAnnotScan"));
-            assert!(signals
-                .calls
-                .iter()
-                .any(|c| c == "event.target.getAnnots"));
+            assert!(signals.calls.iter().any(|c| c == "event.target.getAnnots"));
             assert!(signals.calls.iter().any(|c| c == "event.target.unescape"));
             assert!(signals.calls.iter().any(|c| c == "event.target.eval"));
             assert!(!signals
@@ -235,10 +232,7 @@ fn sandbox_handles_creator_subject_payloads() {
         DynamicOutcome::Executed(signals) => {
             assert!(signals.calls.iter().any(|c| c == "eval"));
             assert!(signals.calls.iter().any(|c| c == "alert"));
-            assert!(!signals
-                .errors
-                .iter()
-                .any(|e| e.contains("Eval error")));
+            assert!(!signals.errors.iter().any(|e| e.contains("Eval error")));
         }
         _ => panic!("expected executed"),
     }
