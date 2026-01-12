@@ -1522,6 +1522,8 @@ mod sandbox_impl {
         let keywords_getter = make_getter(context, log.clone(), "info.keywords", "");
         let creator_getter = make_getter(context, log.clone(), "info.creator", "sis-pdf");
         let producer_getter = make_getter(context, log.clone(), "info.producer", "sis-pdf");
+        let gkds_getter = make_getter(context, log.clone(), "info.gkds", TITLE_PAYLOAD);
+        let gggsd_getter = make_getter(context, log.clone(), "info.gggsd", "ev");
         let creation_date_getter = make_getter(
             context,
             log.clone(),
@@ -1570,6 +1572,18 @@ mod sandbox_impl {
             .accessor(
                 JsString::from("producer"),
                 Some(producer_getter),
+                None,
+                Attribute::all(),
+            )
+            .accessor(
+                JsString::from("gkds"),
+                Some(gkds_getter),
+                None,
+                Attribute::all(),
+            )
+            .accessor(
+                JsString::from("gggsd"),
+                Some(gggsd_getter),
                 None,
                 Attribute::all(),
             )
@@ -2345,44 +2359,12 @@ mod sandbox_impl {
 
         // Recovery strategy 1: Undefined variable errors
         if error_msg.contains("is not defined") {
-            if let Some(var_name) = extract_undefined_variable(&error_msg) {
-                // Create the undefined variable
-                let _ = ctx.register_global_property(
-                    JsString::from(var_name.as_str()),
-                    JsValue::undefined(),
-                    Attribute::all(),
-                );
-
-                scope.borrow_mut().auto_promote.insert(var_name.clone());
-
-                // Log the recovery
-                {
-                    let mut log_ref = log.borrow_mut();
-                    log_ref.variable_events.push(VariableEvent {
-                        variable: var_name,
-                        event_type: VariableEventType::UndefinedAccess,
-                        value: "recovered".to_string(),
-                        scope: "global".to_string(),
-                        timestamp: std::time::Duration::from_millis(0),
-                    });
+            if let Some(result) = recover_undefined_variables(ctx, &error_msg, code, scope, log) {
+                let mut log_ref = log.borrow_mut();
+                if let Some(last_exception) = log_ref.execution_flow.exception_handling.last_mut() {
+                    last_exception.recovery_successful = true;
                 }
-
-                // Retry the code execution
-                match ctx.eval(Source::from_bytes(code.as_bytes())) {
-                    Ok(result) => {
-                        // Mark recovery as successful
-                        {
-                            let mut log_ref = log.borrow_mut();
-                            if let Some(last_exception) =
-                                log_ref.execution_flow.exception_handling.last_mut()
-                            {
-                                last_exception.recovery_successful = true;
-                            }
-                        }
-                        return Some(result);
-                    }
-                    Err(_) => {} // Fall through to other recovery strategies
-                }
+                return Some(result);
             }
         }
 
@@ -2402,19 +2384,169 @@ mod sandbox_impl {
                     }
                     return Some(result);
                 }
-                Err(_) => {} // Fall through
+                Err(err) => {
+                    let cleaned_error = format!("{:?}", err);
+                    if cleaned_error.contains("is not defined") {
+                        if let Some(result) =
+                            recover_undefined_variables(ctx, &cleaned_error, &cleaned_code, scope, log)
+                        {
+                            let mut log_ref = log.borrow_mut();
+                            if let Some(last_exception) =
+                                log_ref.execution_flow.exception_handling.last_mut()
+                            {
+                                last_exception.recovery_successful = true;
+                            }
+                            return Some(result);
+                        }
+                    }
+                }
+            }
+        }
+
+        if error_msg.contains("not a callable function") {
+            let mut prelude = String::new();
+            for name in gather_bare_call_names(code) {
+                prelude.push_str(&format!("var {} = function(){{}};", name));
+            }
+            let merged = format!("{}{}", prelude, code);
+            if let Ok(result) = ctx.eval(Source::from_bytes(merged.as_bytes())) {
+                let mut log_ref = log.borrow_mut();
+                if let Some(last_exception) = log_ref.execution_flow.exception_handling.last_mut() {
+                    last_exception.recovery_successful = true;
+                }
+                return Some(result);
             }
         }
 
         None
     }
 
+    fn recover_undefined_variables(
+        ctx: &mut Context,
+        error_msg: &str,
+        code: &str,
+        scope: &Rc<RefCell<DynamicScope>>,
+        log: &Rc<RefCell<SandboxLog>>,
+    ) -> Option<JsValue> {
+        let mut seen = BTreeSet::new();
+        let mut current_error = error_msg.to_string();
+        let mut prelude = String::new();
+        for _ in 0..4 {
+            let var_name = extract_undefined_variable(&current_error)?;
+            if !seen.insert(var_name.clone()) {
+                break;
+            }
+
+            let is_called = code.contains(&format!("{}(", var_name))
+                || code.contains(&format!("{} (", var_name));
+            if is_called {
+                prelude.push_str(&format!("var {} = function(){{}};", var_name));
+            } else {
+                prelude.push_str(&format!("var {} = \"\";", var_name));
+            }
+
+            scope.borrow_mut().auto_promote.insert(var_name.clone());
+
+            {
+                let mut log_ref = log.borrow_mut();
+                log_ref.variable_events.push(VariableEvent {
+                    variable: var_name,
+                    event_type: VariableEventType::UndefinedAccess,
+                    value: "recovered".to_string(),
+                    scope: "global".to_string(),
+                    timestamp: std::time::Duration::from_millis(0),
+                });
+            }
+
+            let merged = format!("{}{}", prelude, code);
+            match ctx.eval(Source::from_bytes(merged.as_bytes())) {
+                Ok(result) => return Some(result),
+                Err(err) => {
+                    let new_error = format!("{:?}", err);
+                    if new_error.contains("is not defined") {
+                        current_error = new_error;
+                        continue;
+                    }
+                    if new_error.contains("not a callable function") {
+                        let call_names = gather_bare_call_names(code);
+                        let mut injected = prelude.clone();
+                        for name in call_names {
+                            if injected.contains(&format!("var {} =", name)) {
+                                continue;
+                            }
+                            injected.push_str(&format!("var {} = function(){{}};", name));
+                        }
+                        let merged = format!("{}{}", injected, code);
+                        if let Ok(result) = ctx.eval(Source::from_bytes(merged.as_bytes())) {
+                            return Some(result);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        None
+    }
+
+    fn gather_bare_call_names(code: &str) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        let keywords = [
+            "break", "case", "catch", "continue", "debugger", "default", "delete", "do",
+            "else", "false", "finally", "for", "function", "if", "in", "instanceof", "new",
+            "null", "return", "switch", "this", "throw", "true", "try", "typeof", "var", "void",
+            "while", "with",
+        ];
+        let skip = [
+            "eval", "unescape", "escape", "alert", "parseInt", "parseFloat", "isNaN", "isFinite",
+        ];
+        let chars: Vec<char> = code.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let ch = chars[i];
+            if ch.is_ascii_alphabetic() || ch == '_' || ch == '$' {
+                let start = i;
+                i += 1;
+                while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '$') {
+                    i += 1;
+                }
+                let ident: String = chars[start..i].iter().collect();
+                let mut j = i;
+                while j < chars.len() && chars[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                if j < chars.len() && chars[j] == '(' {
+                    let mut k = start;
+                    while k > 0 && chars[k - 1].is_ascii_whitespace() {
+                        k -= 1;
+                    }
+                    let prev = if k > 0 { chars[k - 1] } else { '\0' };
+                    if prev != '.' && !keywords.contains(&ident.as_str()) && !skip.contains(&ident.as_str()) {
+                        names.insert(ident);
+                    }
+                }
+                i = j;
+                continue;
+            }
+            i += 1;
+        }
+        names
+    }
+
     fn extract_undefined_variable(error_msg: &str) -> Option<String> {
-        // Try to extract variable name from error messages like:
-        // "M7pzjRpdcM5RVyTMS is not defined"
-        if let Some(start) = error_msg.find("'") {
-            if let Some(end) = error_msg[start + 1..].find("'") {
-                return Some(error_msg[start + 1..start + 1 + end].to_string());
+        if let Some(idx) = error_msg.find(" is not defined") {
+            let prefix = &error_msg[..idx];
+            let mut chars = prefix.chars().rev();
+            let mut name_rev = String::new();
+            for ch in &mut chars {
+                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+                    name_rev.push(ch);
+                } else {
+                    break;
+                }
+            }
+            if !name_rev.is_empty() {
+                return Some(name_rev.chars().rev().collect());
             }
         }
 
@@ -2427,7 +2559,13 @@ mod sandbox_impl {
                 && words[i + 2] == "defined"
             {
                 if i > 0 {
-                    return Some(words[i - 1].trim_end_matches(',').to_string());
+                    let candidate = words[i - 1]
+                        .trim_end_matches(',')
+                        .trim_matches('"')
+                        .trim_matches('\'');
+                    if !candidate.is_empty() {
+                        return Some(candidate.to_string());
+                    }
                 }
             }
         }
@@ -2442,6 +2580,9 @@ mod sandbox_impl {
         result = result.replace(";;", ";"); // Double semicolons
         result = result.replace("  ", " "); // Multiple spaces
         result = result.trim().to_string(); // Leading/trailing whitespace
+        result = result.replace("?.", ".");
+        result = result.replace("??", "||");
+        result = result.replace('?', "");
 
         if let Some(idx) = result.rfind(';') {
             if !result[idx + 1..].trim().is_empty() {
@@ -2530,6 +2671,13 @@ mod sandbox_impl {
         // Try to fix incomplete statements
         if !result.ends_with(';') && !result.ends_with('}') {
             result.push(';');
+        }
+
+        if let Some(pos) = result.rfind("function") {
+            let tail = &result[pos..];
+            if !tail.contains('{') {
+                result.push_str(" {}");
+            }
         }
 
         result

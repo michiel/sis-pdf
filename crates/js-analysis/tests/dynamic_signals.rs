@@ -150,6 +150,53 @@ fn sandbox_handles_adbe_reader_payload() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_handles_info_gkds_payload() {
+    let options = DynamicOptions::default();
+    let payload =
+        b"m1=this.info.gkds; m2=m1.replace(/zzzzz/g, ''); m3=this.info.gggsd+'al'; app[m3](m2);";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.calls.iter().any(|c| c == "app.eval"));
+            assert!(!signals
+                .errors
+                .iter()
+                .any(|e| e.contains("cannot convert 'null' or 'undefined' to object")));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_recovers_undefined_string_vars() {
+    let options = DynamicOptions::default();
+    let payload = b"var out = str.replace(/a/g, '');";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.errors.is_empty());
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_recovers_undefined_function_vars() {
+    let options = DynamicOptions::default();
+    let payload = b"var vvv = z(unescape(xxx)); eval(vvv);";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.errors.is_empty());
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_handles_page_word_helpers() {
     let options = DynamicOptions::default();
     let payload = b"var n = getPageNumWords(0); var w = getPageNthWord(0, 0, false);";
