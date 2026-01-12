@@ -84,6 +84,7 @@ def process_file(
     sis_bin: Path,
     pdf_path: Path,
     extract_root: Path,
+    failure_payloads: Path,
     keep_extracted: bool,
 ) -> List[Dict]:
     pdf_hash = hashlib.sha256(str(pdf_path).encode("utf-8")).hexdigest()[:12]
@@ -101,11 +102,21 @@ def process_file(
         ]
     for js_file in js_files:
         report = eval_js(sis_bin, js_file)
+        signature = error_signature(report)
+        failure_payload_path = None
+        if signature != "none":
+            payload_hash = hashlib.sha256(js_file.read_bytes()).hexdigest()[:16]
+            target = failure_payloads / f"{payload_hash}.js"
+            if not target.exists():
+                shutil.copy(js_file, target)
+            failure_payload_path = str(target)
         results.append(
             {
                 "pdf_path": str(pdf_path),
                 "js_path": str(js_file),
                 "report": report,
+                "signature": signature,
+                "failure_payload": failure_payload_path,
             }
         )
     if not keep_extracted:
@@ -133,7 +144,10 @@ def main() -> int:
     files = iter_files(corpus, args.glob)
     if args.max_files:
         files = files[: args.max_files]
+    if not files:
+        raise SystemExit(f"No files matched pattern '{args.glob}' in {corpus}")
 
+    print(f"Found {len(files)} files to process")
     with results_path.open("w", encoding="utf-8") as results_out, failures_path.open(
         "w", encoding="utf-8"
     ) as failures_out:
@@ -144,6 +158,7 @@ def main() -> int:
                     sis_bin,
                     pdf_path,
                     extract_root,
+                    failure_payloads,
                     args.keep_extracted,
                 ): pdf_path
                 for pdf_path in files
@@ -152,23 +167,16 @@ def main() -> int:
                 for entry in future.result():
                     results_out.write(json.dumps(entry) + "\n")
                     report = entry.get("report") or {}
-                    signature = error_signature(report)
+                    signature = entry.get("signature") or error_signature(report)
                     if signature != "none":
                         failure_entry = {
                             "pdf_path": entry.get("pdf_path"),
                             "js_path": entry.get("js_path"),
                             "signature": signature,
+                            "failure_payload": entry.get("failure_payload"),
                             "report": report,
                         }
                         failures_out.write(json.dumps(failure_entry) + "\n")
-                        if entry.get("js_path"):
-                            js_path = Path(entry["js_path"])
-                            payload_hash = hashlib.sha256(
-                                js_path.read_bytes()
-                            ).hexdigest()[:16]
-                            target = failure_payloads / f"{payload_hash}.js"
-                            if not target.exists():
-                                shutil.copy(js_path, target)
 
     return 0
 

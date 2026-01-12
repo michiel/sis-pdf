@@ -2968,6 +2968,7 @@ dependencies = [
  "flate2",
  "globset",
  "hex",
+ "js-analysis",
  "memmap2",
  "rayon",
  "serde",

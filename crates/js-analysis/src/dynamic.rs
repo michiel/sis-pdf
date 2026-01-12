@@ -496,8 +496,8 @@ mod sandbox_impl {
             let scope = Rc::new(RefCell::new(DynamicScope::default()));
             let mut context = Context::default();
             let mut limits = RuntimeLimits::default();
-            limits.set_loop_iteration_limit(100_000);
-            limits.set_recursion_limit(128);
+            limits.set_loop_iteration_limit(10_000);
+            limits.set_recursion_limit(64);
             limits.set_stack_size_limit(512 * 1024);
             context.set_runtime_limits(limits);
             let doc = register_doc_stub(&mut context, log.clone());
@@ -523,16 +523,20 @@ mod sandbox_impl {
             let eval_start = Instant::now();
             let eval_res = context.eval(source);
             let elapsed = eval_start.elapsed().as_millis();
+            let mut eval_error = None;
+            if let Err(err) = eval_res {
+                let code = String::from_utf8_lossy(&normalised).to_string();
+                let recovered =
+                    attempt_error_recovery(&mut context, &err, &code, &scope, &log).is_some();
+                if !recovered {
+                    eval_error = Some(err);
+                }
+            }
             {
                 let mut log_ref = log.borrow_mut();
                 log_ref.elapsed_ms = Some(elapsed);
-                if let Err(err) = eval_res {
-                    let code = String::from_utf8_lossy(&normalised).to_string();
-                    let recovered = attempt_error_recovery(&mut context, &err, &code, &scope, &log)
-                        .is_some();
-                    if !recovered {
-                        log_ref.errors.push(format!("{:?}", err));
-                    }
+                if let Some(err) = eval_error {
+                    log_ref.errors.push(format!("{:?}", err));
                 }
 
                 // Run behavioral pattern analysis
@@ -2040,11 +2044,12 @@ mod sandbox_impl {
                     }
                     Err(e) => {
                         // Log error and attempt recovery
-                        {
+                        let error_text = format!("{:?}", e);
+                        if !error_text.contains("RuntimeLimit") {
                             let mut log_ref = log.borrow_mut();
                             log_ref
                                 .errors
-                                .push(format!("Eval error (recovered): {:?}", e));
+                                .push(format!("Eval error (recovered): {}", error_text));
                         }
 
                         // Attempt error recovery
