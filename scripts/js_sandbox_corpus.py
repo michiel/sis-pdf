@@ -22,6 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sis-bin", default="target/release/sis", help="Path to sis binary")
     parser.add_argument("--workers", type=int, default=8, help="Parallel workers")
     parser.add_argument("--max-files", type=int, default=0, help="Limit files processed")
+    parser.add_argument("--start-index", type=int, default=0, help="Skip the first N files")
     parser.add_argument("--keep-extracted", action="store_true", help="Keep extracted JS files")
     parser.add_argument(
         "--max-bytes",
@@ -150,6 +151,12 @@ def main() -> int:
     failure_payloads.mkdir(parents=True, exist_ok=True)
 
     files = iter_files(corpus, args.glob)
+    if args.start_index:
+        if args.start_index < 0 or args.start_index >= len(files):
+            raise SystemExit(
+                f"start-index {args.start_index} out of range (total files: {len(files)})"
+            )
+        files = files[args.start_index :]
     if args.max_files:
         files = files[: args.max_files]
     if not files:
