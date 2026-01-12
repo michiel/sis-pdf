@@ -405,14 +405,10 @@ pub fn print_human(report: &Report) {
         );
         println!(
             "  Raw: {:.4} calibration: {}",
-            ml.prediction.raw_score,
-            ml.prediction.calibration_method
+            ml.prediction.raw_score, ml.prediction.calibration_method
         );
         if let Some((low, high)) = ml.prediction.confidence_interval {
-            println!(
-                "  Confidence interval (95%): {:.4}-{:.4}",
-                low, high
-            );
+            println!("  Confidence interval (95%): {:.4}-{:.4}", low, high);
         }
         if let Some(explanation) = &ml.explanation {
             println!("  Summary: {}", escape_control(&explanation.summary));
@@ -429,7 +425,10 @@ pub fn print_human(report: &Report) {
         println!("Temporal signals");
         println!("  Revisions: {}", signals.revisions);
         if signals.new_high_severity > 0 {
-            println!("  New high-severity findings: {}", signals.new_high_severity);
+            println!(
+                "  New high-severity findings: {}",
+                signals.new_high_severity
+            );
         }
         if !signals.new_attack_surfaces.is_empty() {
             println!(
@@ -906,11 +905,7 @@ fn select_position_preview(f: &Finding) -> Option<String> {
 }
 
 fn render_aligned_preview_lines(entries: &[(String, String)], preview_len: usize) -> Vec<String> {
-    let width = entries
-        .iter()
-        .map(|(pos, _)| pos.len())
-        .max()
-        .unwrap_or(0);
+    let width = entries.iter().map(|(pos, _)| pos.len()).max().unwrap_or(0);
     entries
         .iter()
         .map(|(pos, preview)| {
@@ -944,7 +939,11 @@ fn render_position_tree(entries: &[(String, String)], preview_len: usize) -> Vec
     }
     let mut lines = Vec::new();
     root.render(0, &mut lines);
-    let width = lines.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
+    let width = lines
+        .iter()
+        .map(|(label, _)| label.len())
+        .max()
+        .unwrap_or(0);
     lines
         .into_iter()
         .map(|(label, preview)| {
@@ -1176,22 +1175,46 @@ fn render_payload_behaviour(f: &Finding) -> Option<String> {
         return None;
     }
     let mut notes = Vec::new();
-    if f.meta.get("js.contains_eval").map(|v| v == "true").unwrap_or(false) {
+    if f.meta
+        .get("js.contains_eval")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         notes.push("Uses eval()".into());
     }
-    if f.meta.get("js.has_base64_like").map(|v| v == "true").unwrap_or(false) {
+    if f.meta
+        .get("js.has_base64_like")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         notes.push("Contains base64-like runs".into());
     }
-    if f.meta.get("js.contains_unescape").map(|v| v == "true").unwrap_or(false) {
+    if f.meta
+        .get("js.contains_unescape")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         notes.push("Uses unescape()".into());
     }
-    if f.meta.get("js.contains_fromcharcode").map(|v| v == "true").unwrap_or(false) {
+    if f.meta
+        .get("js.contains_fromcharcode")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         notes.push("Uses fromCharCode()".into());
     }
-    if f.meta.get("js.suspicious_apis").map(|v| v == "true").unwrap_or(false) {
+    if f.meta
+        .get("js.suspicious_apis")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         notes.push("Calls suspicious Acrobat APIs".into());
     }
-    if f.meta.get("js.obfuscation_suspected").map(|v| v == "true").unwrap_or(false) {
+    if f.meta
+        .get("js.obfuscation_suspected")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         notes.push("Obfuscation suspected".into());
     }
     if let Some(summary) = f.meta.get("js.behaviour_summary") {
@@ -1256,6 +1279,12 @@ fn runtime_effect_for_finding(f: &Finding) -> String {
         | "incremental_update_chain"
         | "object_id_shadowing"
         | "objstm_density_high"
+        | "label_mismatch_stream_type"
+        | "declared_filter_invalid"
+        | "undeclared_compression_present"
+        | "content_validation_failed"
+        | "embedded_payload_carved"
+        | "nested_container_chain"
         | "stream_length_mismatch"
         | "missing_pdf_header"
         | "missing_eof_marker"
@@ -1313,10 +1342,7 @@ fn chain_sandbox_observations(
     let mut timed_out = false;
     if let Some(summary) = sandbox_summary {
         if !summary.enabled {
-            let reason = summary
-                .disabled_reason
-                .as_deref()
-                .unwrap_or("disabled");
+            let reason = summary.disabled_reason.as_deref().unwrap_or("disabled");
             return format!("Not executed: {}.", reason);
         }
     }
@@ -1395,7 +1421,8 @@ fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> Stri
     }
     if let Some(action) = &chain.action {
         if action.contains("JavaScript") {
-            lines.push("JavaScript runs in the viewer context and can access document APIs.".into());
+            lines
+                .push("JavaScript runs in the viewer context and can access document APIs.".into());
         } else if action.contains("URI") {
             lines.push("Viewer may navigate to an external URL or fetch remote content.".into());
         } else if action.contains("Launch") {
@@ -1422,7 +1449,11 @@ fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> Stri
             if let Some(summary) = f.meta.get("js.behaviour_summary") {
                 js_notes.push(summary.clone());
             }
-            if f.meta.get("js.obfuscation_suspected").map(|v| v == "true").unwrap_or(false) {
+            if f.meta
+                .get("js.obfuscation_suspected")
+                .map(|v| v == "true")
+                .unwrap_or(false)
+            {
                 js_notes.push("Obfuscation suspected in script payloads.".into());
             }
             if f.kind == "uri_present" {
@@ -1439,7 +1470,8 @@ fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> Stri
         lines.push(format!("Observed behavior signals: {}.", uniq.join("; ")));
     }
     if lines.is_empty() {
-        "Insufficient context for a detailed narrative; review chain findings and payload details.".into()
+        "Insufficient context for a detailed narrative; review chain findings and payload details."
+            .into()
     } else {
         lines.join(" ")
     }
@@ -1448,10 +1480,7 @@ fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> Stri
 fn sandbox_summary_line(report: &Report) -> Option<String> {
     if let Some(summary) = report.sandbox_summary.as_ref() {
         if !summary.enabled {
-            let reason = summary
-                .disabled_reason
-                .as_deref()
-                .unwrap_or("disabled");
+            let reason = summary.disabled_reason.as_deref().unwrap_or("disabled");
             return Some(format!("Not executed: {}.", reason));
         }
     }
@@ -1560,7 +1589,10 @@ fn runtime_behavior_summary(findings: &[Finding]) -> Vec<String> {
         out.push("Embedded files present; secondary payload delivery possible.".into());
     }
     if decoder {
-        out.push("Decoder-heavy streams may trigger vulnerable code paths or resource exhaustion.".into());
+        out.push(
+            "Decoder-heavy streams may trigger vulnerable code paths or resource exhaustion."
+                .into(),
+        );
     }
     out
 }
@@ -1593,6 +1625,30 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
         }
         "gotor_present" => {
             "GoToR can open remote documents or resources, which may lead to untrusted content."
+                .into()
+        }
+        "label_mismatch_stream_type" => {
+            "Declared stream subtype does not match observed bytes, indicating potential payload disguise."
+                .into()
+        }
+        "declared_filter_invalid" => {
+            "Declared filters fail or do not match stream data, which may indicate obfuscation or corrupted content."
+                .into()
+        }
+        "undeclared_compression_present" => {
+            "Stream appears compressed without declaring filters, suggesting hidden content or evasion."
+                .into()
+        }
+        "content_validation_failed" => {
+            "Lightweight validation failed despite a matching signature, indicating malformed or evasive content."
+                .into()
+        }
+        "embedded_payload_carved" => {
+            "Embedded payload signatures were found within another object, indicating possible polyglot or hidden content."
+                .into()
+        }
+        "nested_container_chain" => {
+            "Archive entries contain nested file signatures, indicating staged or hidden payload delivery."
                 .into()
         }
         "embedded_file_present" | "filespec_present" => {
@@ -1799,7 +1855,13 @@ fn verdict_label(report: &Report) -> (String, String) {
     let ml_signal = report
         .ml_inference
         .as_ref()
-        .map(|ml| (ml.prediction.label, ml.prediction.calibrated_score, ml.prediction.threshold))
+        .map(|ml| {
+            (
+                ml.prediction.label,
+                ml.prediction.calibrated_score,
+                ml.prediction.threshold,
+            )
+        })
         .or_else(|| {
             report.ml_summary.as_ref().and_then(|ml| {
                 ml.graph
@@ -1873,7 +1935,8 @@ fn build_recommendations(report: &Report) -> Vec<String> {
             }
         } else {
             steps.push(
-                "Review extracted JavaScript payloads with static and dynamic analysis.".to_string(),
+                "Review extracted JavaScript payloads with static and dynamic analysis."
+                    .to_string(),
             );
         }
     }
@@ -1889,7 +1952,9 @@ fn build_recommendations(report: &Report) -> Vec<String> {
         steps.push("Re-run with `sis scan --deep` to reconcile object structure.".to_string());
     }
     if polyglot_flag {
-        steps.push("Validate file type integrity and strip trailing data before distribution.".to_string());
+        steps.push(
+            "Validate file type integrity and strip trailing data before distribution.".to_string(),
+        );
     }
     if !report.chains.is_empty() {
         steps.push("Review chain analysis for likely execution paths.".to_string());
@@ -2017,9 +2082,39 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 .map(|f| format!("{} ({})", f.title, display_id(&f.id, &id_map)))
                 .collect::<Vec<String>>()
                 .join("; ");
+            out.push_str(&format!("- Key findings: {}\n", escape_markdown(&summary)));
+        }
+        let mut validation_reasons = Vec::new();
+        for f in &report.findings {
+            if f.kind == "content_validation_failed" {
+                if let Some(reason) = f.meta.get("validation.reason") {
+                    if !validation_reasons.contains(reason) {
+                        validation_reasons.push(reason.clone());
+                    }
+                }
+            }
+        }
+        if !validation_reasons.is_empty() {
             out.push_str(&format!(
-                "- Key findings: {}\n",
-                escape_markdown(&summary)
+                "- Validation issues: {}\n",
+                escape_markdown(&validation_reasons.join("; "))
+            ));
+        }
+        let mut origins = Vec::new();
+        for f in &report.findings {
+            if let Some(origin) = f.meta.get("blob.origin") {
+                let origin_lower = origin.to_ascii_lowercase();
+                let is_embedded = origin_lower.starts_with("embedded")
+                    || origin_lower == "xfa_package";
+                if is_embedded && !origins.contains(origin) {
+                    origins.push(origin.clone());
+                }
+            }
+        }
+        if !origins.is_empty() {
+            out.push_str(&format!(
+                "- Embedded origins: {}\n",
+                escape_markdown(&origins.join(", "))
             ));
         }
         let mut impacts = Vec::new();
@@ -2050,10 +2145,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         ));
     }
     if let Some(path) = input_path {
-        out.push_str(&format!(
-            "- Input: `{}`\n",
-            escape_markdown(path)
-        ));
+        out.push_str(&format!("- Input: `{}`\n", escape_markdown(path)));
     }
     if let Some(line) = sandbox_summary_line(report) {
         out.push_str(&format!(
@@ -2079,13 +2171,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         })
         .collect();
     let sizing_keywords = [
-        "size",
-        "length",
-        "truncat",
-        "overlap",
-        "gap",
-        "boundary",
-        "offset",
+        "size", "length", "truncat", "overlap", "gap", "boundary", "offset",
     ];
     let sizing_findings: Vec<&Finding> = surface_findings
         .iter()
@@ -2097,14 +2183,8 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         .copied()
         .filter(|f| keyword_match(f, &["polyglot"]))
         .collect();
-    let sizing_ids: BTreeSet<String> = sizing_findings
-        .iter()
-        .map(|f| f.id.clone())
-        .collect();
-    let polyglot_ids: BTreeSet<String> = polyglot_findings
-        .iter()
-        .map(|f| f.id.clone())
-        .collect();
+    let sizing_ids: BTreeSet<String> = sizing_findings.iter().map(|f| f.id.clone()).collect();
+    let polyglot_ids: BTreeSet<String> = polyglot_findings.iter().map(|f| f.id.clone()).collect();
     let other_surface: Vec<&Finding> = surface_findings
         .iter()
         .copied()
@@ -2195,7 +2275,9 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     out.push_str("### Content inventory\n\n");
     let mut inventory: BTreeMap<&'static str, usize> = BTreeMap::new();
     for f in &report.findings {
-        *inventory.entry(attack_surface_label(f.surface)).or_insert(0) += 1;
+        *inventory
+            .entry(attack_surface_label(f.surface))
+            .or_insert(0) += 1;
     }
     if inventory.is_empty() {
         out.push_str("- No content inventory findings recorded\n\n");
@@ -2320,10 +2402,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             ));
         }
         if let Some(line) = sandbox_summary_line(report) {
-            out.push_str(&format!(
-                "- Sandbox status: {}\n",
-                escape_markdown(&line)
-            ));
+            out.push_str(&format!("- Sandbox status: {}\n", escape_markdown(&line)));
         }
         out.push('\n');
     }
@@ -2422,10 +2501,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             .take(3)
             .map(|t| t.label.clone())
             .collect::<Vec<_>>();
-        interactions.push(format!(
-            "Predicted threat evolution: {}",
-            labels.join(", ")
-        ));
+        interactions.push(format!("Predicted threat evolution: {}", labels.join(", ")));
     }
     if interactions.is_empty() {
         out.push_str("- No cross-domain interactions recorded\n\n");
@@ -2440,10 +2516,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     out.push_str("## ML summary\n\n");
     if let Some(ml) = &report.ml_summary {
         if let Some(mode) = ml_mode_label(ml) {
-            out.push_str(&format!(
-                "- Mode: `{}`\n",
-                escape_markdown(mode)
-            ));
+            out.push_str(&format!("- Mode: `{}`\n", escape_markdown(mode)));
             if ml_mode_includes_graph(mode) {
                 if let Some(run) = &ml.graph {
                     out.push_str(&format!(
@@ -2506,7 +2579,9 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                         out.push('\n');
                     }
                 } else if has_ml_error(&report.findings) {
-                    out.push_str("**Graph ML**\n\n- Status: error (see ml_model_error findings)\n\n");
+                    out.push_str(
+                        "**Graph ML**\n\n- Status: error (see ml_model_error findings)\n\n",
+                    );
                 }
             }
             if ml_mode_includes_traditional(mode) {
@@ -2532,7 +2607,9 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                         out.push('\n');
                     }
                 } else if has_ml_error(&report.findings) {
-                    out.push_str("**Traditional ML**\n\n- Status: error (see ml_model_error findings)\n\n");
+                    out.push_str(
+                        "**Traditional ML**\n\n- Status: error (see ml_model_error findings)\n\n",
+                    );
                 }
             }
         } else if has_ml_error(&report.findings) {
@@ -2607,7 +2684,10 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             let linked_findings: BTreeSet<String> = link_edges
                 .iter()
                 .filter(|edge| {
-                    chain.findings.iter().any(|fid| fid == &edge.from || fid == &edge.to)
+                    chain
+                        .findings
+                        .iter()
+                        .any(|fid| fid == &edge.from || fid == &edge.to)
                 })
                 .flat_map(|edge| [edge.from.clone(), edge.to.clone()])
                 .collect();
@@ -2651,10 +2731,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 ));
             }
             if let Some(position) = &f.position {
-                out.push_str(&format!(
-                    "- Position: `{}`\n",
-                    escape_markdown(position)
-                ));
+                out.push_str(&format!("- Position: `{}`\n", escape_markdown(position)));
             }
             if f.positions.len() > 1 {
                 out.push_str(&format!(
@@ -2662,8 +2739,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                     escape_markdown(&f.positions.join(", "))
                 ));
             }
-            if f
-                .meta
+            if f.meta
                 .get("page_tree.orphaned_has_payload")
                 .map(|v| v == "true")
                 .unwrap_or(false)
@@ -2691,10 +2767,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             ));
             if let Some(s) = f.meta.get("action.s") {
                 out.push_str("**Action details**\n\n");
-                out.push_str(&format!(
-                    "- Action type: `{}`\n",
-                    escape_markdown(s)
-                ));
+                out.push_str(&format!("- Action type: `{}`\n", escape_markdown(s)));
                 if let Some(t) = f.meta.get("action.target") {
                     out.push_str(&format!("- Target: {}\n", escape_markdown(t)));
                 }
@@ -2733,10 +2806,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             out.push_str(&format!("{}\n\n", escape_markdown(&impact)));
             if let Some(y) = &f.yara {
                 out.push_str("**YARA**\n\n");
-                out.push_str(&format!(
-                    "- Rule: `{}`\n",
-                    escape_markdown(&y.rule_name)
-                ));
+                out.push_str(&format!("- Rule: `{}`\n", escape_markdown(&y.rule_name)));
                 if !y.tags.is_empty() {
                     out.push_str(&format!(
                         "- Tags: {}\n",
@@ -2806,25 +2876,25 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                     }
                     out.push('\n');
                 }
-            if !js_meta.is_empty() {
-                let js_meta: Vec<(&String, &String)> = js_meta
-                    .into_iter()
-                    .filter(|(_, v)| v.trim() != "false")
-                    .collect();
                 if !js_meta.is_empty() {
-                    out.push_str("**JavaScript metadata**\n\n");
-                    out.push_str("| Key | Value |\n");
-                    out.push_str("| --- | ----- |\n");
-                    for (k, v) in js_meta {
-                        out.push_str(&format!(
-                            "| {} | {} |\n",
-                            escape_markdown(k),
-                            escape_markdown(&escape_control(v))
-                        ));
+                    let js_meta: Vec<(&String, &String)> = js_meta
+                        .into_iter()
+                        .filter(|(_, v)| v.trim() != "false")
+                        .collect();
+                    if !js_meta.is_empty() {
+                        out.push_str("**JavaScript metadata**\n\n");
+                        out.push_str("| Key | Value |\n");
+                        out.push_str("| --- | ----- |\n");
+                        for (k, v) in js_meta {
+                            out.push_str(&format!(
+                                "| {} | {} |\n",
+                                escape_markdown(k),
+                                escape_markdown(&escape_control(v))
+                            ));
+                        }
+                        out.push('\n');
                     }
-                    out.push('\n');
                 }
-            }
             }
         }
     }
@@ -2857,10 +2927,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         .collect();
     if !strict_findings.is_empty() {
         out.push_str("## Strict parse deviations\n\n");
-        out.push_str(&format!(
-            "- Count: {}\n\n",
-            strict_findings.len()
-        ));
+        out.push_str(&format!("- Count: {}\n\n", strict_findings.len()));
         for f in &strict_findings {
             out.push_str(&format!(
                 "- {}: {}\n",
@@ -2903,7 +2970,11 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     ));
     out.push_str(&format!(
         "- ML graph feature enabled: {}\n",
-        if cfg!(feature = "ml-graph") { "yes" } else { "no" }
+        if cfg!(feature = "ml-graph") {
+            "yes"
+        } else {
+            "no"
+        }
     ));
     if let Some(summary) = &report.structural_summary {
         out.push_str(&format!(
@@ -2912,19 +2983,13 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         ));
     }
     if let Some(line) = sandbox_summary_line(report) {
-        out.push_str(&format!(
-            "- Sandbox status: {}\n",
-            escape_markdown(&line)
-        ));
+        out.push_str(&format!("- Sandbox status: {}\n", escape_markdown(&line)));
     }
     out.push('\n');
 
     out.push_str("## Metadata and timestamps\n\n");
     if let Some(path) = input_path {
-        out.push_str(&format!(
-            "- Input path: `{}`\n",
-            escape_markdown(path)
-        ));
+        out.push_str(&format!("- Input path: `{}`\n", escape_markdown(path)));
     } else {
         out.push_str("- Input path: not captured\n");
     }
@@ -2932,10 +2997,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    out.push_str(&format!(
-        "- Timestamp (UTC, unix seconds): {}\n",
-        timestamp
-    ));
+    out.push_str(&format!("- Timestamp (UTC, unix seconds): {}\n", timestamp));
     out.push_str("- File metadata: not captured in report output\n");
     out
 }
@@ -2967,18 +3029,12 @@ fn format_ml_explanation_for_report(
     };
 
     report.push_str("#### Summary\n\n");
-    report.push_str(&format!(
-        "{}\n\n",
-        escape_markdown(&explanation.summary)
-    ));
+    report.push_str(&format!("{}\n\n", escape_markdown(&explanation.summary)));
 
     if !explanation.decision_factors.is_empty() {
         report.push_str("#### Decision factors\n\n");
         for factor in explanation.decision_factors.iter().take(10) {
-            report.push_str(&format!(
-                "- {}\n",
-                escape_markdown(factor)
-            ));
+            report.push_str(&format!("- {}\n", escape_markdown(factor)));
         }
         report.push('\n');
     }
@@ -2990,7 +3046,9 @@ fn format_ml_explanation_for_report(
         for attr in explanation.feature_attribution.iter().take(10) {
             report.push_str(&format!(
                 "| {} | {:.2} | {:+.2} | {:.2} |\n",
-                escape_markdown(&crate::explainability::humanize_feature_name(&attr.feature_name)),
+                escape_markdown(&crate::explainability::humanize_feature_name(
+                    &attr.feature_name
+                )),
                 attr.value,
                 attr.contribution,
                 attr.baseline
@@ -3004,7 +3062,9 @@ fn format_ml_explanation_for_report(
         for comp in explanation.comparative_analysis.iter().take(5) {
             report.push_str(&format!(
                 "- **{}**: {:.2} (benign mean {:.2}, z-score {:.1}) — {}\n",
-                escape_markdown(&crate::explainability::humanize_feature_name(&comp.feature_name)),
+                escape_markdown(&crate::explainability::humanize_feature_name(
+                    &comp.feature_name
+                )),
                 comp.value,
                 comp.benign_mean,
                 comp.z_score,
@@ -3019,7 +3079,9 @@ fn format_ml_explanation_for_report(
         for chain in explanation.evidence_chains.iter().take(5) {
             report.push_str(&format!(
                 "- **{}** -> findings [{}] (spans {})\n",
-                escape_markdown(&crate::explainability::humanize_feature_name(&chain.feature_name)),
+                escape_markdown(&crate::explainability::humanize_feature_name(
+                    &chain.feature_name
+                )),
                 escape_markdown(&chain.derived_from_findings.join(", ")),
                 chain.evidence_spans.len()
             ));
@@ -3031,8 +3093,7 @@ fn format_ml_explanation_for_report(
         report.push_str("#### Counterfactual changes\n\n");
         report.push_str(&format!(
             "- Target score: {:.2}\n- Achieved score: {:.2}\n",
-            counterfactual.target_score,
-            counterfactual.achieved_score
+            counterfactual.target_score, counterfactual.achieved_score
         ));
         if counterfactual.changes.is_empty() {
             report.push_str("- No changes suggested\n");
@@ -3040,7 +3101,9 @@ fn format_ml_explanation_for_report(
             for change in counterfactual.changes.iter().take(6) {
                 report.push_str(&format!(
                     "- {}: {:.2} -> {:.2} (delta {:+.2})\n",
-                    escape_markdown(&crate::explainability::humanize_feature_name(&change.feature_name)),
+                    escape_markdown(&crate::explainability::humanize_feature_name(
+                        &change.feature_name
+                    )),
                     change.from_value,
                     change.to_value,
                     change.delta
@@ -3076,10 +3139,7 @@ fn format_ml_explanation_for_report(
         ));
         if !temporal.notable_changes.is_empty() {
             for change in temporal.notable_changes.iter().take(5) {
-                report.push_str(&format!(
-                    "- {}\n",
-                    escape_markdown(change)
-                ));
+                report.push_str(&format!("- {}\n", escape_markdown(change)));
             }
         }
         report.push('\n');

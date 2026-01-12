@@ -1848,6 +1848,72 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
+## label_mismatch_stream_type
+
+- ID: `label_mismatch_stream_type`
+- Label: Stream label mismatch
+- Description: Stream subtype does not match observed content signature.
+- Tags: evasion, stream
+- Details:
+  - Relevance: explicit structure deception and payload hiding.
+  - Meaning: stream bytes contradict declared `/Subtype` or `/Type`.
+  - Chain usage: increases evasion posture and payload suspicion.
+
+## declared_filter_invalid
+
+- ID: `declared_filter_invalid`
+- Label: Declared filter invalid
+- Description: Declared filters failed to decode or do not match stream data.
+- Tags: evasion, decoder
+- Details:
+  - Relevance: filter mismatch indicates obfuscation or corruption.
+  - Meaning: declared compression or encoding is inconsistent with bytes.
+  - Chain usage: supports evasion or hiding additional payloads.
+
+## undeclared_compression_present
+
+- ID: `undeclared_compression_present`
+- Label: Undeclared compression present
+- Description: Stream data looks compressed despite no declared filters.
+- Tags: evasion, decoder
+- Details:
+  - Relevance: suggests hidden compression to evade detection.
+  - Meaning: stream data appears compressed without `/Filter`.
+  - Chain usage: used as evasion context that can hide payloads.
+
+## content_validation_failed
+
+- ID: `content_validation_failed`
+- Label: Content validation failed
+- Description: Stream signature matched, but lightweight validation failed.
+- Tags: decoder, evasion
+- Details:
+  - Relevance: signature-level matches with invalid structure can indicate malformed payloads or evasive content.
+  - Meaning: quick sanity checks failed (for example missing JPEG EOI or ZIP central directory).
+  - Chain usage: raises confidence of deceptive or corrupted payloads.
+
+## embedded_payload_carved
+
+- ID: `embedded_payload_carved`
+- Label: Embedded payload carved
+- Description: Embedded payload signatures detected inside another object.
+- Tags: evasion, stream
+- Details:
+  - Relevance: embedded payloads suggest polyglot or hidden content.
+  - Meaning: byte sequences indicate a secondary file signature within the object data.
+  - Chain usage: increases suspicion of hidden payload delivery.
+
+## nested_container_chain
+
+- ID: `nested_container_chain`
+- Label: Nested container chain detected
+- Description: ZIP entry contains a nested file signature.
+- Tags: evasion, stream
+- Details:
+  - Relevance: nested containers can hide staged payloads.
+  - Meaning: archive entries appear to embed another file type.
+  - Chain usage: indicates multi-stage payload delivery.
+
 ## strict_parse_deviation
 
 - ID: `strict_parse_deviation`
