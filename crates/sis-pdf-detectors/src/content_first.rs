@@ -83,7 +83,9 @@ impl Detector for ContentFirstDetector {
                                     origin,
                                 )
                             }
-                            None => Blob::from_stream(ctx.bytes, entry.obj, entry.gen, stream, limits),
+                            None => {
+                                Blob::from_stream(ctx.bytes, entry.obj, entry.gen, stream, limits)
+                            }
                         },
                     };
                     let blob = match blob {
@@ -500,7 +502,9 @@ fn dict_from_obj<'a>(
     obj: &'a PdfObj<'a>,
 ) -> Option<&'a PdfDict<'a>> {
     match &obj.atom {
-        PdfAtom::Ref { obj, gen } => obj_map.get(&(*obj, *gen)).and_then(|atom| dict_from_atom(atom)),
+        PdfAtom::Ref { obj, gen } => obj_map
+            .get(&(*obj, *gen))
+            .and_then(|atom| dict_from_atom(atom)),
         _ => dict_from_atom(&obj.atom),
     }
 }
@@ -533,7 +537,10 @@ fn collect_xfa_refs<'a>(
         return;
     }
     match &obj.atom {
-        PdfAtom::Ref { obj: ref_obj, gen: ref_gen } => {
+        PdfAtom::Ref {
+            obj: ref_obj,
+            gen: ref_gen,
+        } => {
             out.insert((*ref_obj, *ref_gen), container);
             if let Some(atom) = obj_map.get(&(*ref_obj, *ref_gen)) {
                 let child = PdfObj {
@@ -573,16 +580,28 @@ fn has_image_dict_keys(stream: &PdfStream<'_>) -> bool {
 
     // Check for essential image XObject keys
     let has_width = dict.entries.iter().any(|(k, _)| {
-        k.decoded.as_slice() == b"/Width" || k.decoded.as_slice() == b"Width" || k.decoded.as_slice() == b"/W" || k.decoded.as_slice() == b"W"
+        k.decoded.as_slice() == b"/Width"
+            || k.decoded.as_slice() == b"Width"
+            || k.decoded.as_slice() == b"/W"
+            || k.decoded.as_slice() == b"W"
     });
     let has_height = dict.entries.iter().any(|(k, _)| {
-        k.decoded.as_slice() == b"/Height" || k.decoded.as_slice() == b"Height" || k.decoded.as_slice() == b"/H" || k.decoded.as_slice() == b"H"
+        k.decoded.as_slice() == b"/Height"
+            || k.decoded.as_slice() == b"Height"
+            || k.decoded.as_slice() == b"/H"
+            || k.decoded.as_slice() == b"H"
     });
     let has_colorspace = dict.entries.iter().any(|(k, _)| {
-        k.decoded.as_slice() == b"/ColorSpace" || k.decoded.as_slice() == b"ColorSpace" || k.decoded.as_slice() == b"/CS" || k.decoded.as_slice() == b"CS"
+        k.decoded.as_slice() == b"/ColorSpace"
+            || k.decoded.as_slice() == b"ColorSpace"
+            || k.decoded.as_slice() == b"/CS"
+            || k.decoded.as_slice() == b"CS"
     });
     let has_bpc = dict.entries.iter().any(|(k, _)| {
-        k.decoded.as_slice() == b"/BitsPerComponent" || k.decoded.as_slice() == b"BitsPerComponent" || k.decoded.as_slice() == b"/BPC" || k.decoded.as_slice() == b"BPC"
+        k.decoded.as_slice() == b"/BitsPerComponent"
+            || k.decoded.as_slice() == b"BitsPerComponent"
+            || k.decoded.as_slice() == b"/BPC"
+            || k.decoded.as_slice() == b"BPC"
     });
 
     // An image should have at least width, height, and either colorspace or BPC
@@ -615,17 +634,18 @@ fn label_mismatch_finding(
     let has_valid_image_dict = is_image_label && has_image_dict_keys(stream);
     let is_unknown_blob = matches!(kind, BlobKind::Unknown);
 
-    let severity = if kind.is_container_or_executable() || matches!(kind, BlobKind::Pdf | BlobKind::Swf) {
-        // Executable or container masquerading as image - High severity
-        Severity::High
-    } else if is_unknown_blob && has_valid_image_dict {
-        // Image with valid dict keys but unknown signature - likely PDF-native format
-        // Reduce to Info severity to avoid false positives on benign PDFs
-        Severity::Info
-    } else {
-        // Other mismatches - Medium severity
-        Severity::Medium
-    };
+    let severity =
+        if kind.is_container_or_executable() || matches!(kind, BlobKind::Pdf | BlobKind::Swf) {
+            // Executable or container masquerading as image - High severity
+            Severity::High
+        } else if is_unknown_blob && has_valid_image_dict {
+            // Image with valid dict keys but unknown signature - likely PDF-native format
+            // Reduce to Info severity to avoid false positives on benign PDFs
+            Severity::Info
+        } else {
+            // Other mismatches - Medium severity
+            Severity::Medium
+        };
 
     let mut meta = HashMap::new();
     if let Some(declared) = declared_type.as_ref() {
@@ -903,7 +923,8 @@ fn carve_payloads(
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
                 title: "Embedded payload carved".to_string(),
-                description: "Detected an embedded payload signature inside another object.".to_string(),
+                description: "Detected an embedded payload signature inside another object."
+                    .to_string(),
                 objects: vec![format!("{} {} obj", obj, gen)],
                 evidence: vec![span_to_evidence(span, label)],
                 remediation: Some(
@@ -1015,7 +1036,9 @@ fn script_payload_findings(
 }
 
 fn contains_any_ci(haystack: &[u8], needles: &[&[u8]]) -> bool {
-    needles.iter().any(|needle| find_ci(haystack, needle).is_some())
+    needles
+        .iter()
+        .any(|needle| find_ci(haystack, needle).is_some())
 }
 
 fn find_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -1023,14 +1046,12 @@ fn find_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         return None;
     }
     let needle_lower: Vec<u8> = needle.iter().map(|b| b.to_ascii_lowercase()).collect();
-    haystack
-        .windows(needle_lower.len())
-        .position(|window| {
-            window
-                .iter()
-                .zip(&needle_lower)
-                .all(|(a, b)| a.to_ascii_lowercase() == *b)
-        })
+    haystack.windows(needle_lower.len()).position(|window| {
+        window
+            .iter()
+            .zip(&needle_lower)
+            .all(|(a, b)| a.to_ascii_lowercase() == *b)
+    })
 }
 
 fn looks_like_xml(bytes: &[u8]) -> bool {
@@ -1290,8 +1311,7 @@ fn zip_container_findings(
         }
         let data_end = data_start.saturating_add(comp_size).min(slice.len());
         let entry_end = data_end.min(data_start + max_entry_bytes);
-        let entry_name =
-            &slice[cursor + 30..cursor + 30 + name_len.min(slice.len() - cursor - 30)];
+        let entry_name = &slice[cursor + 30..cursor + 30 + name_len.min(slice.len() - cursor - 30)];
         let entry_name = String::from_utf8_lossy(entry_name).to_string();
         let entry_slice = &slice[data_start..entry_end];
 

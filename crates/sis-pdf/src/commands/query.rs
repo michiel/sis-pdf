@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Result};
 use serde::Serialize;
-use serde_json;
+use serde_json::{self, json};
 use std::fs;
 use std::path::Path;
 
-use sis_pdf_core::scan::ScanContext;
 use sis_pdf_core::model::Severity;
+use sis_pdf_core::scan::ScanContext;
 
 /// Query types supported by the interface
 #[derive(Debug, Clone)]
@@ -48,7 +48,9 @@ pub enum Query {
 
     // Advanced queries
     Chains,
+    ChainsJs,
     Cycles,
+    CyclesPage,
 }
 
 /// Query result that can be serialized to JSON or formatted as text
@@ -110,20 +112,25 @@ pub fn parse_query(input: &str) -> Result<Query> {
 
         // Advanced
         "chains" => Ok(Query::Chains),
+        "chains.js" => Ok(Query::ChainsJs),
         "cycles" => Ok(Query::Cycles),
+        "cycles.page" => Ok(Query::CyclesPage),
 
         _ => {
             // Try to parse object queries
             if let Some(rest) = input.strip_prefix("object ").or(input.strip_prefix("obj ")) {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if parts.len() == 1 {
-                    let obj = parts[0].parse::<u32>()
+                    let obj = parts[0]
+                        .parse::<u32>()
                         .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     return Ok(Query::ShowObject(obj, 0));
                 } else if parts.len() == 2 {
-                    let obj = parts[0].parse::<u32>()
+                    let obj = parts[0]
+                        .parse::<u32>()
                         .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
-                    let gen = parts[1].parse::<u16>()
+                    let gen = parts[1]
+                        .parse::<u16>()
                         .map_err(|_| anyhow!("Invalid generation number: {}", parts[1]))?;
                     return Ok(Query::ShowObject(obj, gen));
                 }
@@ -153,10 +160,7 @@ pub fn build_scan_context_public<'a>(
 }
 
 /// Execute a query using a pre-built context (for REPL mode)
-pub fn execute_query_with_context(
-    query: &Query,
-    ctx: &ScanContext,
-) -> Result<QueryResult> {
+pub fn execute_query_with_context(query: &Query, ctx: &ScanContext) -> Result<QueryResult> {
     match query {
         Query::Pages => {
             let count = count_pages(ctx)?;
@@ -186,12 +190,14 @@ pub fn execute_query_with_context(
             let encrypted = is_encrypted(ctx)?;
             Ok(QueryResult::Scalar(ScalarValue::Boolean(encrypted)))
         }
-        Query::Filesize => {
-            Ok(QueryResult::Scalar(ScalarValue::Number(ctx.bytes.len() as i64)))
-        }
+        Query::Filesize => Ok(QueryResult::Scalar(ScalarValue::Number(
+            ctx.bytes.len() as i64
+        ))),
         Query::FindingsCount => {
             let findings = run_detectors(ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(findings.len() as i64)))
+            Ok(QueryResult::Scalar(ScalarValue::Number(
+                findings.len() as i64
+            )))
         }
         Query::FindingsBySeverity(severity) => {
             let findings = run_detectors(ctx)?;
@@ -225,7 +231,9 @@ pub fn execute_query_with_context(
         }
         Query::JavaScriptCount => {
             let js_code = extract_javascript(ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(js_code.len() as i64)))
+            Ok(QueryResult::Scalar(ScalarValue::Number(
+                js_code.len() as i64
+            )))
         }
         Query::Urls => {
             let urls = extract_urls(ctx)?;
@@ -241,7 +249,9 @@ pub fn execute_query_with_context(
         }
         Query::EmbeddedCount => {
             let embedded = extract_embedded_files(ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(embedded.len() as i64)))
+            Ok(QueryResult::Scalar(ScalarValue::Number(
+                embedded.len() as i64
+            )))
         }
         Query::Created => {
             let created = get_metadata_field(ctx, "CreationDate")?;
@@ -270,6 +280,22 @@ pub fn execute_query_with_context(
         Query::Catalog => {
             let catalog_str = show_catalog(ctx)?;
             Ok(QueryResult::Scalar(ScalarValue::String(catalog_str)))
+        }
+        Query::Chains => {
+            let chains = list_action_chains(ctx)?;
+            Ok(QueryResult::Structure(chains))
+        }
+        Query::ChainsJs => {
+            let chains = list_js_chains(ctx)?;
+            Ok(QueryResult::Structure(chains))
+        }
+        Query::Cycles => {
+            let cycles = list_cycles(ctx)?;
+            Ok(QueryResult::Structure(cycles))
+        }
+        Query::CyclesPage => {
+            let cycles = list_page_cycles(ctx)?;
+            Ok(QueryResult::Structure(cycles))
         }
         _ => Err(anyhow!("Query not yet implemented: {:?}", query)),
     }
@@ -401,11 +427,18 @@ fn get_metadata_field(ctx: &ScanContext, field: &str) -> Result<String> {
 
                             for (k, v) in &dict.entries {
                                 let k_bytes = &k.decoded;
-                                if k_bytes.as_slice() == field_bytes.as_slice() || k_bytes.as_slice() == field_bytes_alt.as_slice() {
+                                if k_bytes.as_slice() == field_bytes.as_slice()
+                                    || k_bytes.as_slice() == field_bytes_alt.as_slice()
+                                {
                                     if let sis_pdf_pdf::object::PdfAtom::Str(s) = &v.atom {
                                         let decoded = match s {
-                                            sis_pdf_pdf::object::PdfStr::Literal { decoded, .. } => decoded,
-                                            sis_pdf_pdf::object::PdfStr::Hex { decoded, .. } => decoded,
+                                            sis_pdf_pdf::object::PdfStr::Literal {
+                                                decoded,
+                                                ..
+                                            } => decoded,
+                                            sis_pdf_pdf::object::PdfStr::Hex {
+                                                decoded, ..
+                                            } => decoded,
                                         };
                                         return Ok(decode_pdf_text_string(decoded));
                                     }
@@ -438,7 +471,8 @@ fn decode_pdf_text_string(bytes: &[u8]) -> String {
             .collect();
 
         // Decode UTF-16 to String
-        String::from_utf16(&utf16_chars).unwrap_or_else(|_| String::from_utf8_lossy(bytes).to_string())
+        String::from_utf16(&utf16_chars)
+            .unwrap_or_else(|_| String::from_utf8_lossy(bytes).to_string())
     } else {
         // PDFDocEncoding or plain ASCII/Latin-1
         String::from_utf8_lossy(bytes).to_string()
@@ -528,8 +562,6 @@ pub fn format_json(query: &str, file: &str, result: &QueryResult) -> Result<Stri
 
 /// Extract JavaScript code from PDF
 fn extract_javascript(ctx: &ScanContext) -> Result<Vec<String>> {
-    use sis_pdf_pdf::object::{PdfAtom, PdfStr};
-
     let mut js_code = Vec::new();
 
     for entry in &ctx.graph.objects {
@@ -537,7 +569,12 @@ fn extract_javascript(ctx: &ScanContext) -> Result<Vec<String>> {
         if let Some(dict) = entry_dict(entry) {
             if let Some((_, obj)) = dict.get_first(b"/JS") {
                 if let Some(code) = extract_obj_text(&ctx.graph, ctx.bytes, obj) {
-                    js_code.push(format!("Object {}_{}: {}", entry.obj, entry.gen, preview_text(&code, 200)));
+                    js_code.push(format!(
+                        "Object {}_{}: {}",
+                        entry.obj,
+                        entry.gen,
+                        preview_text(&code, 200)
+                    ));
                 }
             }
         }
@@ -548,8 +585,6 @@ fn extract_javascript(ctx: &ScanContext) -> Result<Vec<String>> {
 
 /// Extract URLs from PDF
 fn extract_urls(ctx: &ScanContext) -> Result<Vec<String>> {
-    use sis_pdf_pdf::object::PdfAtom;
-
     let mut urls = Vec::new();
 
     for entry in &ctx.graph.objects {
@@ -590,7 +625,9 @@ fn extract_embedded_files(ctx: &ScanContext) -> Result<Vec<String>> {
                     .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
 
                 // Get file size if possible
-                let size = st.dict.get_first(b"/Length")
+                let size = st
+                    .dict
+                    .get_first(b"/Length")
                     .and_then(|(_, obj)| {
                         if let PdfAtom::Int(n) = &obj.atom {
                             Some(*n as usize)
@@ -600,7 +637,10 @@ fn extract_embedded_files(ctx: &ScanContext) -> Result<Vec<String>> {
                     })
                     .unwrap_or(0);
 
-                embedded.push(format!("{} ({}_{}, {} bytes)", name, entry.obj, entry.gen, size));
+                embedded.push(format!(
+                    "{} ({}_{}, {} bytes)",
+                    name, entry.obj, entry.gen, size
+                ));
             }
         }
     }
@@ -633,11 +673,9 @@ fn extract_obj_text(
             let text_bytes = string_bytes(s);
             Some(decode_pdf_text_string(&text_bytes))
         }
-        PdfAtom::Stream(st) => {
-            sis_pdf_pdf::decode::decode_stream(bytes, st, 32 * 1024 * 1024)
-                .ok()
-                .map(|d| String::from_utf8_lossy(&d.data).to_string())
-        }
+        PdfAtom::Stream(st) => sis_pdf_pdf::decode::decode_stream(bytes, st, 32 * 1024 * 1024)
+            .ok()
+            .map(|d| String::from_utf8_lossy(&d.data).to_string()),
         PdfAtom::Ref { .. } => {
             let entry = graph.resolve_ref(obj)?;
             match &entry.atom {
@@ -698,8 +736,6 @@ fn preview_text(text: &str, max_len: usize) -> String {
 
 /// Show a specific PDF object
 fn show_object(ctx: &ScanContext, obj: u32, gen: u16) -> Result<String> {
-    use sis_pdf_pdf::object::PdfAtom;
-
     // Find the object in the graph
     if let Some(entry) = ctx.graph.get_object(obj, gen) {
         let mut output = String::new();
@@ -843,4 +879,430 @@ fn show_catalog(ctx: &ScanContext) -> Result<String> {
     }
 
     Err(anyhow!("Catalog not found"))
+}
+
+/// List all action chains
+fn list_action_chains(ctx: &ScanContext) -> Result<serde_json::Value> {
+    let classifications = ctx.classifications();
+    let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+    let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(&typed_graph);
+
+    let chains = path_finder.find_all_action_chains();
+    Ok(build_chain_query_result(
+        "chains",
+        chains.iter().enumerate(),
+    ))
+}
+
+/// List JavaScript-containing action chains
+fn list_js_chains(ctx: &ScanContext) -> Result<serde_json::Value> {
+    let classifications = ctx.classifications();
+    let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+    let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(&typed_graph);
+
+    let chains = path_finder.find_all_action_chains();
+    let js_chains = chains
+        .iter()
+        .enumerate()
+        .filter(|(_, chain)| chain.involves_js);
+
+    Ok(build_chain_query_result("chains.js", js_chains))
+}
+
+/// List all reference cycles
+fn list_cycles(ctx: &ScanContext) -> Result<serde_json::Value> {
+    use std::collections::HashSet;
+
+    let mut cycles = Vec::new();
+    let mut visited = HashSet::new();
+    let mut path = Vec::new();
+    let mut path_set = HashSet::new();
+
+    for entry in &ctx.graph.objects {
+        if !visited.contains(&(entry.obj, entry.gen)) {
+            find_cycles_dfs(
+                &ctx.graph,
+                entry.obj,
+                entry.gen,
+                &mut visited,
+                &mut path,
+                &mut path_set,
+                &mut cycles,
+            );
+        }
+    }
+
+    Ok(build_cycles_result("cycles", &cycles))
+}
+
+/// List page tree cycles (only /Kids and /Parent edges)
+fn list_page_cycles(ctx: &ScanContext) -> Result<serde_json::Value> {
+    use sis_pdf_pdf::object::PdfAtom;
+    use sis_pdf_pdf::typed_graph::TypedGraph;
+    use std::collections::HashSet;
+
+    let classifications = ctx.classifications();
+    let typed_graph = TypedGraph::build(&ctx.graph, classifications);
+
+    let page_nodes: Vec<(u32, u16)> = ctx
+        .graph
+        .objects
+        .iter()
+        .filter_map(|entry| {
+            if let Some(dict) = entry_dict(entry) {
+                if let Some((_, type_obj)) = dict.get_first(b"/Type") {
+                    if let PdfAtom::Name(name) = &type_obj.atom {
+                        let type_name = String::from_utf8_lossy(&name.decoded);
+                        if type_name == "/Page"
+                            || type_name == "Page"
+                            || type_name == "/Pages"
+                            || type_name == "Pages"
+                        {
+                            return Some((entry.obj, entry.gen));
+                        }
+                    }
+                }
+            }
+            None
+        })
+        .collect();
+
+    let mut cycles = Vec::new();
+    let mut seen = HashSet::new();
+    let mut path = Vec::new();
+    let mut path_set = HashSet::new();
+
+    for node in page_nodes {
+        dfs_page_cycles(
+            node,
+            &typed_graph,
+            &mut path,
+            &mut path_set,
+            &mut cycles,
+            &mut seen,
+        );
+        path.clear();
+        path_set.clear();
+    }
+
+    Ok(build_cycles_result("cycles.page", &cycles))
+}
+
+fn dfs_page_cycles(
+    current: (u32, u16),
+    graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    path: &mut Vec<(u32, u16)>,
+    path_set: &mut std::collections::HashSet<(u32, u16)>,
+    cycles: &mut Vec<Vec<(u32, u16)>>,
+    seen_cycles: &mut std::collections::HashSet<String>,
+) {
+    use sis_pdf_pdf::typed_graph::EdgeType;
+
+    path.push(current);
+    path_set.insert(current);
+
+    for edge in graph.outgoing_edges(current.0, current.1) {
+        if !matches!(edge.edge_type, EdgeType::PagesKids | EdgeType::PageParent) {
+            continue;
+        }
+
+        let next = edge.dst;
+        if let Some(pos) = path.iter().position(|&node| node == next) {
+            record_page_cycle(cycles, seen_cycles, path[pos..].to_vec());
+        } else {
+            dfs_page_cycles(next, graph, path, path_set, cycles, seen_cycles);
+        }
+    }
+
+    path_set.remove(&current);
+    path.pop();
+}
+
+fn record_page_cycle(
+    cycles: &mut Vec<Vec<(u32, u16)>>,
+    seen_cycles: &mut std::collections::HashSet<String>,
+    cycle: Vec<(u32, u16)>,
+) {
+    if cycle.is_empty() {
+        return;
+    }
+
+    let normalized = normalize_cycle(&cycle);
+    let key = cycle_key(&normalized);
+    if seen_cycles.insert(key) {
+        cycles.push(normalized);
+    }
+}
+
+fn normalize_cycle(cycle: &[(u32, u16)]) -> Vec<(u32, u16)> {
+    if cycle.is_empty() {
+        return Vec::new();
+    }
+
+    fn rotation(cycle: &[(u32, u16)], start: usize) -> Vec<(u32, u16)> {
+        let mut rotated = Vec::with_capacity(cycle.len());
+        rotated.extend_from_slice(&cycle[start..]);
+        rotated.extend_from_slice(&cycle[..start]);
+        rotated
+    }
+
+    let mut best = rotation(cycle, 0);
+    for start in 1..cycle.len() {
+        let candidate = rotation(cycle, start);
+        if candidate < best {
+            best = candidate;
+        }
+    }
+
+    let reversed_cycle: Vec<_> = cycle.iter().rev().copied().collect();
+    for start in 0..reversed_cycle.len() {
+        let candidate = rotation(&reversed_cycle, start);
+        if candidate < best {
+            best = candidate;
+        }
+    }
+
+    best
+}
+
+fn cycle_key(cycle: &[(u32, u16)]) -> String {
+    cycle
+        .iter()
+        .map(|(obj, gen)| format!("{obj}:{gen}"))
+        .collect::<Vec<_>>()
+        .join("->")
+}
+
+/// Helper function for DFS cycle detection
+fn find_cycles_dfs(
+    graph: &sis_pdf_pdf::ObjectGraph,
+    obj: u32,
+    gen: u16,
+    visited: &mut std::collections::HashSet<(u32, u16)>,
+    path: &mut Vec<(u32, u16)>,
+    path_set: &mut std::collections::HashSet<(u32, u16)>,
+    cycles: &mut Vec<Vec<(u32, u16)>>,
+) {
+    let current = (obj, gen);
+
+    if path_set.contains(&current) {
+        // Found a cycle - extract it
+        if let Some(cycle_start) = path.iter().position(|&x| x == current) {
+            let cycle = path[cycle_start..].to_vec();
+            cycles.push(cycle);
+        }
+        return;
+    }
+
+    if visited.contains(&current) {
+        return;
+    }
+
+    visited.insert(current);
+    path.push(current);
+    path_set.insert(current);
+
+    // Find references in this object
+    if let Some(entry) = graph.get_object(obj, gen) {
+        collect_refs(&entry.atom, graph, visited, path, path_set, cycles);
+    }
+
+    path.pop();
+    path_set.remove(&current);
+}
+
+/// Collect references from a PDF atom
+fn collect_refs(
+    atom: &sis_pdf_pdf::object::PdfAtom,
+    graph: &sis_pdf_pdf::ObjectGraph,
+    visited: &mut std::collections::HashSet<(u32, u16)>,
+    path: &mut Vec<(u32, u16)>,
+    path_set: &mut std::collections::HashSet<(u32, u16)>,
+    cycles: &mut Vec<Vec<(u32, u16)>>,
+) {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    match atom {
+        PdfAtom::Ref { obj, gen } => {
+            find_cycles_dfs(graph, *obj, *gen, visited, path, path_set, cycles);
+        }
+        PdfAtom::Array(arr) => {
+            for item in arr.iter() {
+                collect_refs(&item.atom, graph, visited, path, path_set, cycles);
+            }
+        }
+        PdfAtom::Dict(dict) => {
+            for (_, value) in &dict.entries {
+                collect_refs(&value.atom, graph, visited, path, path_set, cycles);
+            }
+        }
+        PdfAtom::Stream(stream) => {
+            for (_, value) in &stream.dict.entries {
+                collect_refs(&value.atom, graph, visited, path, path_set, cycles);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn build_chain_query_result<'a, I>(label: &str, chains: I) -> serde_json::Value
+where
+    I: Iterator<Item = (usize, &'a sis_pdf_pdf::path_finder::ActionChain<'a>)>,
+{
+    let chain_values: Vec<_> = chains
+        .map(|(idx, chain)| chain_to_json(idx, chain))
+        .collect();
+
+    json!({
+        "type": label,
+        "count": chain_values.len(),
+        "chains": chain_values,
+    })
+}
+
+fn chain_to_json(
+    idx: usize,
+    chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
+) -> serde_json::Value {
+    let edges: Vec<_> = chain.edges.iter().map(|edge| edge_to_json(*edge)).collect();
+    let payload = chain.payload.map(|(obj, gen)| ref_to_json((obj, gen)));
+
+    json!({
+        "id": idx,
+        "trigger": chain.trigger.as_str(),
+        "length": chain.length(),
+        "automatic": chain.automatic,
+        "involves_js": chain.involves_js,
+        "involves_external": chain.involves_external,
+        "risk_score": chain.risk_score(),
+        "payload": payload,
+        "edges": edges,
+    })
+}
+
+fn edge_to_json(edge: &sis_pdf_pdf::typed_graph::TypedEdge) -> serde_json::Value {
+    json!({
+        "src": ref_to_json(edge.src),
+        "dst": ref_to_json(edge.dst),
+        "type": edge.edge_type.as_str(),
+        "suspicious": edge.suspicious,
+        "weight": edge.weight,
+    })
+}
+
+fn ref_to_json(obj: (u32, u16)) -> serde_json::Value {
+    json!({
+        "obj": obj.0,
+        "gen": obj.1,
+    })
+}
+
+fn build_cycles_result(label: &str, cycles: &[Vec<(u32, u16)>]) -> serde_json::Value {
+    let cycle_values: Vec<_> = cycles
+        .iter()
+        .enumerate()
+        .map(|(idx, cycle)| cycle_to_json(idx, cycle))
+        .collect();
+
+    json!({
+        "type": label,
+        "count": cycle_values.len(),
+        "cycles": cycle_values,
+    })
+}
+
+fn cycle_to_json(idx: usize, cycle: &[(u32, u16)]) -> serde_json::Value {
+    let path: Vec<_> = cycle
+        .iter()
+        .map(|&(obj, gen)| ref_to_json((obj, gen)))
+        .collect();
+    json!({
+        "id": idx,
+        "length": cycle.len(),
+        "path": path,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use sis_pdf_pdf::path_finder::TriggerType;
+    use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge};
+
+    fn with_fixture_context<F>(fixture: &str, test: F)
+    where
+        F: FnOnce(&ScanContext),
+    {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root is two levels above crate manifest");
+        let fixture_path = workspace_root
+            .join("crates/sis-pdf-core/tests/fixtures")
+            .join(fixture);
+        let bytes = std::fs::read(&fixture_path).expect("fixture read");
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+        test(&ctx);
+    }
+
+    #[test]
+    fn advanced_query_json_outputs_are_structured() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let chains = list_action_chains(ctx).expect("chains");
+            assert_eq!(chains["type"], json!("chains"));
+            assert!(chains["chains"].is_array());
+
+            let js_chains = list_js_chains(ctx).expect("js chains");
+            assert_eq!(js_chains["type"], json!("chains.js"));
+
+            let cycles = list_cycles(ctx).expect("cycles");
+            assert_eq!(cycles["type"], json!("cycles"));
+
+            let page_cycles = list_page_cycles(ctx).expect("page cycles");
+            assert_eq!(page_cycles["type"], json!("cycles.page"));
+        });
+    }
+
+    #[test]
+    fn chain_to_json_includes_payload_and_edges() {
+        let edges = vec![
+            TypedEdge::new((1, 0), (2, 0), EdgeType::OpenAction),
+            TypedEdge::new((2, 0), (3, 0), EdgeType::JavaScriptPayload),
+        ];
+
+        let chain = sis_pdf_pdf::path_finder::ActionChain {
+            trigger: TriggerType::OpenAction,
+            edges: vec![&edges[0], &edges[1]],
+            payload: Some((3, 0)),
+            automatic: true,
+            involves_js: true,
+            involves_external: false,
+        };
+
+        let json_value = chain_to_json(5, &chain);
+        assert_eq!(json_value["id"], json!(5));
+        assert_eq!(json_value["trigger"], json!("open_action"));
+        assert!(json_value["payload"].is_object());
+        assert_eq!(json_value["payload"]["obj"], json!(3));
+
+        let edge_array = json_value["edges"].as_array().unwrap();
+        assert_eq!(edge_array.len(), 2);
+        assert_eq!(edge_array[1]["type"], json!("javascript_payload"));
+        assert_eq!(edge_array[1]["suspicious"], json!(true));
+    }
+
+    #[test]
+    fn cycle_to_json_builds_path_details() {
+        let cycle = vec![(1, 0), (2, 0), (3, 0), (1, 0)];
+        let json_value = cycle_to_json(2, &cycle);
+        assert_eq!(json_value["id"], json!(2));
+        assert_eq!(json_value["length"], json!(4));
+
+        let path = json_value["path"].as_array().unwrap();
+        assert_eq!(path.len(), 4);
+        assert_eq!(path[0]["obj"], json!(1));
+    }
 }

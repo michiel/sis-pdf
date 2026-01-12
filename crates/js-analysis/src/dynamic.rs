@@ -19,8 +19,7 @@ mod sandbox_impl {
     use boa_engine::vm::RuntimeLimits;
     use boa_engine::{Context, JsArgs, JsString, JsValue, NativeFunction, Source};
 
-    const CREATOR_PAYLOAD: &str =
-        "z61z70z70z2Ez61z6Cz65z72z74z28z27z68z69z27z29";
+    const CREATOR_PAYLOAD: &str = "z61z70z70z2Ez61z6Cz65z72z74z28z27z68z69z27z29";
     const SUBJECT_PAYLOAD: &str = "Hueputol61Hueputol70Hueputol70Hueputol2EHueputol61Hueputol6CHueputol65Hueputol72Hueputol74Hueputol28Hueputol27Hueputol68Hueputol69Hueputol27Hueputol29";
     const TITLE_PAYLOAD: &str = "%61%6c%65%72%74%28%27%68%69%27%29";
 
@@ -693,7 +692,11 @@ mod sandbox_impl {
 
         let plugins_value = {
             let plugin = ObjectInitializer::new(context)
-                .property(JsString::from("name"), JsString::from("PlugIn"), Attribute::all())
+                .property(
+                    JsString::from("name"),
+                    JsString::from("PlugIn"),
+                    Attribute::all(),
+                )
                 .build();
             let plugins = ObjectInitializer::new(context)
                 .property(JsString::from("0"), plugin.clone(), Attribute::all())
@@ -1511,12 +1514,7 @@ mod sandbox_impl {
 
     fn register_doc_stub(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsValue {
         // Create getters that track property access
-        let title_getter = make_getter(
-            context,
-            log.clone(),
-            "info.title",
-            TITLE_PAYLOAD,
-        );
+        let title_getter = make_getter(context, log.clone(), "info.title", TITLE_PAYLOAD);
         let author_getter = make_getter(context, log.clone(), "info.author", "Unknown");
         let subject_getter = make_getter(context, log.clone(), "info.subject", "PDF");
         let keywords_getter = make_getter(context, log.clone(), "info.keywords", "");
@@ -1659,8 +1657,16 @@ mod sandbox_impl {
                 JsString::from("syncAnnotScan"),
                 0,
             )
-            .function(make_native(log.clone(), "doc.eval"), JsString::from("eval"), 1)
-            .function(make_native(log.clone(), "doc.unescape"), JsString::from("unescape"), 1)
+            .function(
+                make_native(log.clone(), "doc.eval"),
+                JsString::from("eval"),
+                1,
+            )
+            .function(
+                make_native(log.clone(), "doc.unescape"),
+                JsString::from("unescape"),
+                1,
+            )
             .function(
                 make_native(log.clone(), "doc.getPageNumWords"),
                 JsString::from("getPageNumWords"),
@@ -1692,9 +1698,21 @@ mod sandbox_impl {
             Attribute::all(),
         );
         let _ = context.register_global_property(JsString::from("media"), media, Attribute::all());
-        let _ = context.register_global_property(JsString::from("j"), JsValue::from(false), Attribute::all());
-        let _ = context.register_global_property(JsString::from("dada"), JsValue::from(false), Attribute::all());
-        let _ = context.register_global_callable(JsString::from("run"), 0, make_native(log.clone(), "run"));
+        let _ = context.register_global_property(
+            JsString::from("j"),
+            JsValue::from(false),
+            Attribute::all(),
+        );
+        let _ = context.register_global_property(
+            JsString::from("dada"),
+            JsValue::from(false),
+            Attribute::all(),
+        );
+        let _ = context.register_global_callable(
+            JsString::from("run"),
+            0,
+            make_native(log.clone(), "run"),
+        );
         doc_value
     }
 
@@ -1789,11 +1807,8 @@ mod sandbox_impl {
                 Ok(build_annot(ctx, log.clone()))
             })
         };
-        let _ = context.register_global_builtin_callable(
-            JsString::from("getAnnot"),
-            2,
-            get_annot_fn,
-        );
+        let _ =
+            context.register_global_builtin_callable(JsString::from("getAnnot"), 2, get_annot_fn);
         add(context, "getAnnots", 1, log.clone());
         add(context, "addAnnot", 1, log.clone());
         add(context, "removeAnnot", 1, log.clone());
@@ -1840,10 +1855,7 @@ mod sandbox_impl {
                 let input = value.to_std_string_escaped();
                 let chars: Vec<char> = input.chars().collect();
                 let total = chars.len() as i32;
-                let mut start = args
-                    .get_or_undefined(0)
-                    .to_i32(ctx)
-                    .unwrap_or(0);
+                let mut start = args.get_or_undefined(0).to_i32(ctx).unwrap_or(0);
                 if start < 0 {
                     start = (total + start).max(0);
                 }
@@ -1880,12 +1892,7 @@ mod sandbox_impl {
                 );
                 if let Ok(proto_value) = string_obj.get(JsString::from("prototype"), context) {
                     if let Some(proto_obj) = proto_value.as_object() {
-                        let _ = proto_obj.set(
-                            JsString::from("substr"),
-                            substr,
-                            false,
-                            context,
-                        );
+                        let _ = proto_obj.set(JsString::from("substr"), substr, false, context);
                     }
                 }
             }
@@ -2390,9 +2397,13 @@ mod sandbox_impl {
                 Err(err) => {
                     let cleaned_error = format!("{:?}", err);
                     if cleaned_error.contains("is not defined") {
-                        if let Some(result) =
-                            recover_undefined_variables(ctx, &cleaned_error, &cleaned_code, scope, log)
-                        {
+                        if let Some(result) = recover_undefined_variables(
+                            ctx,
+                            &cleaned_error,
+                            &cleaned_code,
+                            scope,
+                            log,
+                        ) {
                             let mut log_ref = log.borrow_mut();
                             if let Some(last_exception) =
                                 log_ref.execution_flow.exception_handling.last_mut()
@@ -2497,13 +2508,45 @@ mod sandbox_impl {
     fn gather_bare_call_names(code: &str) -> BTreeSet<String> {
         let mut names = BTreeSet::new();
         let keywords = [
-            "break", "case", "catch", "continue", "debugger", "default", "delete", "do",
-            "else", "false", "finally", "for", "function", "if", "in", "instanceof", "new",
-            "null", "return", "switch", "this", "throw", "true", "try", "typeof", "var", "void",
-            "while", "with",
+            "break",
+            "case",
+            "catch",
+            "continue",
+            "debugger",
+            "default",
+            "delete",
+            "do",
+            "else",
+            "false",
+            "finally",
+            "for",
+            "function",
+            "if",
+            "in",
+            "instanceof",
+            "new",
+            "null",
+            "return",
+            "switch",
+            "this",
+            "throw",
+            "true",
+            "try",
+            "typeof",
+            "var",
+            "void",
+            "while",
+            "with",
         ];
         let skip = [
-            "eval", "unescape", "escape", "alert", "parseInt", "parseFloat", "isNaN", "isFinite",
+            "eval",
+            "unescape",
+            "escape",
+            "alert",
+            "parseInt",
+            "parseFloat",
+            "isNaN",
+            "isFinite",
         ];
         let chars: Vec<char> = code.chars().collect();
         let mut i = 0;
@@ -2512,7 +2555,9 @@ mod sandbox_impl {
             if ch.is_ascii_alphabetic() || ch == '_' || ch == '$' {
                 let start = i;
                 i += 1;
-                while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '$') {
+                while i < chars.len()
+                    && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '$')
+                {
                     i += 1;
                 }
                 let ident: String = chars[start..i].iter().collect();
@@ -2526,7 +2571,10 @@ mod sandbox_impl {
                         k -= 1;
                     }
                     let prev = if k > 0 { chars[k - 1] } else { '\0' };
-                    if prev != '.' && !keywords.contains(&ident.as_str()) && !skip.contains(&ident.as_str()) {
+                    if prev != '.'
+                        && !keywords.contains(&ident.as_str())
+                        && !skip.contains(&ident.as_str())
+                    {
                         names.insert(ident);
                     }
                 }

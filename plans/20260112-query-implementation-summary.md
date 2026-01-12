@@ -153,17 +153,18 @@ sis> exit
 
 These queries provide high-level security analysis:
 
-- ⏳ `chains` - List action chains [query enum exists]
-- ⏳ `chains.js` - JavaScript chains
-- ⏳ `chains.supply` - Supply chain vectors
-- ⏳ `graph.suspicious` - Suspicious graph paths
-- ⏳ `cycles` - Reference cycles [query enum exists]
-- ⏳ `cycles.page` - Page tree cycles
+- ✅ `chains` - List action chains with JSON structures
+- ✅ `chains.js` - JavaScript chains with detailed edge metadata
+- ⏳ `chains.supply` - Supply chain vectors (future)
+- ⏳ `graph.suspicious` - Suspicious graph paths (future)
+- ✅ `cycles` - Reference cycles (structured JSON)
+- ✅ `cycles.page` - Page tree cycles (page-tree-only traversal)
 
 **Implementation notes**:
 - Reuse existing graph export logic (run_export_graph, run_export_org)
-- Add `--format dot|json` option
-- Consider visualization output
+- Advanced queries now return `QueryResult::Structure`, exposing edge lists, triggers, payload references, and risk scores when exported to JSON.
+- `chains.js` filters the same helper result to JavaScript-heavy chains while keeping the structured output.
+- `cycles.page` now walks only `/Kids` and `/Parent` links so page-tree loops are isolated from general graph cycles.
 
 ### Additional Enhancements ⏳
 
@@ -189,10 +190,8 @@ These queries provide high-level security analysis:
 - **Fix**: Add UTF-16 decoding in `get_metadata_field()` function
 - **Priority**: Medium (affects display but data is correct)
 
-### Missing Structure Queries
-- `trailer` and `catalog` queries are parsed but not implemented
-- **Fix**: Add implementation to `execute_query()` match arm
-- **Priority**: Low (advanced use case)
+### Structure Queries
+- ✅ `trailer` and `catalog` queries render the trailer and catalog dictionaries for low-level inspection.
 
 ### Performance Considerations
 - Each query reparses the PDF (no caching)
@@ -213,12 +212,15 @@ These queries provide high-level security analysis:
 - ✅ Compact output mode
 - ✅ Help text (`sis --help`, `sis query --help`)
 - ✅ Compilation (no errors, only unused function warnings)
+- ✅ Content queries (`js`, `urls`, `embedded`) and their counts
+- ✅ Object inspection queries (`object N`, `objects.list`, `objects.with`, `trailer`, `catalog`)
+- ✅ Advanced query JSON surfaces (`chains`, `chains.js`, `cycles`, `cycles.page`)
 
 ### To Be Tested ⏳
-- ⏳ Content queries (js, urls, embedded) - after implementation
-- ⏳ Object queries (object N, trailer, catalog) - after implementation
-- ⏳ REPL mode - after implementation
-- ⏳ Advanced queries (chains, cycles) - after implementation
+- ⏳ `chains.supply` query + export format
+- ⏳ `graph.suspicious` query (DOT/JSON output)
+- ⏳ Aggregation/batch query workflows (`sis query ... *.pdf`)
+- ⏳ Advanced query edge cases (page cycle detection, repeated action chains)
 - ⏳ Edge cases:
   - Empty PDF
   - Encrypted PDF

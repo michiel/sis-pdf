@@ -228,7 +228,12 @@ fn carve_stream_objects<'a>(
                     obj: entry.obj,
                     gen: entry.gen,
                 };
-                let key = (carved.obj, carved.gen, carved.full_span.start, carved.full_span.end);
+                let key = (
+                    carved.obj,
+                    carved.gen,
+                    carved.full_span.start,
+                    carved.full_span.end,
+                );
                 if seen.insert(key) {
                     out.push(carved);
                     total += 1;

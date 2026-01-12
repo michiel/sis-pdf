@@ -2148,8 +2148,8 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         for f in &report.findings {
             if let Some(origin) = f.meta.get("blob.origin") {
                 let origin_lower = origin.to_ascii_lowercase();
-                let is_embedded = origin_lower.starts_with("embedded")
-                    || origin_lower == "xfa_package";
+                let is_embedded =
+                    origin_lower.starts_with("embedded") || origin_lower == "xfa_package";
                 if is_embedded && !origins.contains(origin) {
                     origins.push(origin.clone());
                 }

@@ -1,0 +1,45 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /S /JavaScript /JS (app.launchURL('https://bad.example', true);) >>
+endobj
+5 0 obj
+<< /Length 0 >>
+stream
+
+endstream
+endobj
+6 0 obj
+<< /Type /Pages /Count 0 >>
+endobj
+7 0 obj
+<< /Type /Dict /Next 8 0 R >>
+endobj
+8 0 obj
+<< /Type /Dict /Next 3 0 R >>
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000082 00000 n 
+0000000139 00000 n 
+0000000202 00000 n 
+0000000288 00000 n 
+0000000337 00000 n 
+0000000380 00000 n 
+0000000425 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+470
+%%EOF
