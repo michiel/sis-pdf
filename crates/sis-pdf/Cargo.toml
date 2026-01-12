@@ -27,6 +27,7 @@ zip = "2.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 walkdir = "2.5"
+rustyline = "14.0"
 sis-pdf-core = { path = "../sis-pdf-core" }
 sis-pdf-detectors = { path = "../sis-pdf-detectors" }
 sis-pdf-pdf = { path = "../sis-pdf-pdf" }

@@ -103,10 +103,10 @@ enum Command {
     },
     #[command(about = "Query PDF structure, content, and findings")]
     Query {
-        #[arg(help = "Query string (e.g., 'pages', 'js', 'findings.high', 'object 12')")]
-        query: String,
         #[arg(help = "PDF file path")]
         pdf: String,
+        #[arg(help = "Query string (e.g., 'pages', 'js', 'findings.high'). Omit for interactive REPL.")]
+        query: Option<String>,
         #[arg(long, help = "Output as JSON")]
         json: bool,
         #[arg(long, short = 'c', help = "Compact output (numbers only)")]
@@ -592,17 +592,32 @@ fn main() -> Result<()> {
             max_total_decoded_bytes,
             no_recover,
             max_objects,
-        } => run_query(
-            &query,
-            &pdf,
-            json,
-            compact,
-            deep,
-            max_decode_bytes,
-            max_total_decoded_bytes,
-            !no_recover,
-            max_objects,
-        ),
+        } => {
+            if let Some(query_str) = query {
+                // One-shot query mode
+                run_query_oneshot(
+                    &query_str,
+                    &pdf,
+                    json,
+                    compact,
+                    deep,
+                    max_decode_bytes,
+                    max_total_decoded_bytes,
+                    !no_recover,
+                    max_objects,
+                )
+            } else {
+                // Interactive REPL mode
+                run_query_repl(
+                    &pdf,
+                    deep,
+                    max_decode_bytes,
+                    max_total_decoded_bytes,
+                    !no_recover,
+                    max_objects,
+                )
+            }
+        }
         Command::Scan {
             pdf,
             path,
@@ -2451,7 +2466,7 @@ fn mmap_file(path: &str) -> Result<Mmap> {
     unsafe { Mmap::map(&f).map_err(|e| anyhow!(e)) }
 }
 
-fn run_query(
+fn run_query_oneshot(
     query_str: &str,
     pdf_path: &str,
     json: bool,
@@ -2491,6 +2506,176 @@ fn run_query(
     }
 
     Ok(())
+}
+
+fn run_query_repl(
+    pdf_path: &str,
+    deep: bool,
+    max_decode_bytes: usize,
+    max_total_decoded_bytes: usize,
+    recover_xref: bool,
+    max_objects: usize,
+) -> Result<()> {
+    use commands::query;
+    use rustyline::error::ReadlineError;
+    use rustyline::{DefaultEditor, Result as RustylineResult};
+
+    // Load and parse PDF once
+    eprintln!("Loading PDF: {}", pdf_path);
+    let bytes = std::fs::read(pdf_path)?;
+
+    let scan_options = query::ScanOptions {
+        deep,
+        max_decode_bytes,
+        max_total_decoded_bytes,
+        no_recover: !recover_xref,
+        max_objects,
+    };
+
+    // Build scan context (this is expensive, so we do it once)
+    let ctx = query::build_scan_context_public(&bytes, &scan_options)?;
+    eprintln!("PDF loaded. Enter queries (or 'help' for help, 'exit' to quit).\n");
+
+    // Initialize REPL editor with history
+    let mut rl = DefaultEditor::new()?;
+    let history_file = dirs::cache_dir()
+        .map(|d| d.join("sis").join("query_history.txt"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".sis_query_history"));
+
+    // Create cache directory if it doesn't exist
+    if let Some(parent) = history_file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    // Load history (ignore errors if file doesn't exist)
+    let _ = rl.load_history(&history_file);
+
+    // REPL state
+    let mut json_mode = false;
+    let mut compact_mode = false;
+
+    loop {
+        let prompt = "sis> ";
+        let readline = rl.readline(prompt);
+
+        match readline {
+            Ok(line) => {
+                let line = line.trim();
+
+                // Skip empty lines
+                if line.is_empty() {
+                    continue;
+                }
+
+                // Add to history
+                let _ = rl.add_history_entry(line);
+
+                // Handle REPL commands
+                match line {
+                    "exit" | "quit" | ":q" => {
+                        eprintln!("Goodbye!");
+                        break;
+                    }
+                    "help" | ":help" | "?" => {
+                        print_repl_help();
+                        continue;
+                    }
+                    ":json" => {
+                        json_mode = !json_mode;
+                        eprintln!("JSON mode: {}", if json_mode { "enabled" } else { "disabled" });
+                        continue;
+                    }
+                    ":compact" => {
+                        compact_mode = !compact_mode;
+                        eprintln!("Compact mode: {}", if compact_mode { "enabled" } else { "disabled" });
+                        continue;
+                    }
+                    _ => {}
+                }
+
+                // Parse and execute query
+                match query::parse_query(line) {
+                    Ok(q) => {
+                        match query::execute_query_with_context(&q, &ctx) {
+                            Ok(result) => {
+                                // Format and print result
+                                if json_mode {
+                                    match query::format_json(line, pdf_path, &result) {
+                                        Ok(output) => println!("{}", output),
+                                        Err(e) => eprintln!("Error formatting result: {}", e),
+                                    }
+                                } else {
+                                    let output = query::format_result(&result, compact_mode);
+                                    println!("{}", output);
+                                }
+                            }
+                            Err(e) => eprintln!("Query failed: {}", e),
+                        }
+                    }
+                    Err(e) => eprintln!("Invalid query: {}", e),
+                }
+            }
+            Err(ReadlineError::Interrupted) => {
+                // Ctrl-C
+                eprintln!("^C");
+                continue;
+            }
+            Err(ReadlineError::Eof) => {
+                // Ctrl-D
+                eprintln!("Goodbye!");
+                break;
+            }
+            Err(err) => {
+                eprintln!("Error: {:?}", err);
+                break;
+            }
+        }
+    }
+
+    // Save history
+    let _ = rl.save_history(&history_file);
+
+    Ok(())
+}
+
+fn print_repl_help() {
+    println!("Query Interface Help:");
+    println!();
+    println!("Metadata queries:");
+    println!("  pages              - Page count");
+    println!("  version            - PDF version");
+    println!("  creator            - Creator metadata");
+    println!("  producer           - Producer metadata");
+    println!("  title              - Document title");
+    println!("  created            - Creation date");
+    println!("  modified           - Modification date");
+    println!("  encrypted          - Encryption status");
+    println!("  filesize           - File size in bytes");
+    println!("  objects            - Object count");
+    println!();
+    println!("Content queries:");
+    println!("  js                 - Extract JavaScript");
+    println!("  js.count           - JavaScript count");
+    println!("  urls               - Extract URLs");
+    println!("  urls.count         - URL count");
+    println!("  embedded           - List embedded files");
+    println!("  embedded.count     - Embedded file count");
+    println!();
+    println!("Finding queries:");
+    println!("  findings           - List all findings");
+    println!("  findings.count     - Finding count");
+    println!("  findings.high      - High severity findings");
+    println!("  findings.medium    - Medium severity findings");
+    println!("  findings.low       - Low severity findings");
+    println!("  findings.info      - Info severity findings");
+    println!("  findings.kind KIND - Findings of specific kind");
+    println!();
+    println!("REPL commands:");
+    println!("  :json              - Toggle JSON output mode");
+    println!("  :compact           - Toggle compact output mode");
+    println!("  help / ?           - Show this help");
+    println!("  exit / quit / :q   - Exit REPL");
+    println!();
 }
 
 fn run_scan(

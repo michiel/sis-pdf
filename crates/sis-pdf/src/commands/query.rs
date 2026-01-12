@@ -136,6 +136,117 @@ pub fn parse_query(input: &str) -> Result<Query> {
     }
 }
 
+/// Build a scan context (public version for REPL caching)
+pub fn build_scan_context_public<'a>(
+    bytes: &'a [u8],
+    options: &ScanOptions,
+) -> Result<sis_pdf_core::scan::ScanContext<'a>> {
+    build_scan_context(bytes, options)
+}
+
+/// Execute a query using a pre-built context (for REPL mode)
+pub fn execute_query_with_context(
+    query: &Query,
+    ctx: &ScanContext,
+) -> Result<QueryResult> {
+    match query {
+        Query::Pages => {
+            let count = count_pages(ctx)?;
+            Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
+        }
+        Query::ObjectsCount => {
+            let count = ctx.graph.objects.len();
+            Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
+        }
+        Query::Creator => {
+            let creator = get_metadata_field(ctx, "Creator")?;
+            Ok(QueryResult::Scalar(ScalarValue::String(creator)))
+        }
+        Query::Producer => {
+            let producer = get_metadata_field(ctx, "Producer")?;
+            Ok(QueryResult::Scalar(ScalarValue::String(producer)))
+        }
+        Query::Title => {
+            let title = get_metadata_field(ctx, "Title")?;
+            Ok(QueryResult::Scalar(ScalarValue::String(title)))
+        }
+        Query::Version => {
+            let version = get_pdf_version(ctx.bytes)?;
+            Ok(QueryResult::Scalar(ScalarValue::String(version)))
+        }
+        Query::Encrypted => {
+            let encrypted = is_encrypted(ctx)?;
+            Ok(QueryResult::Scalar(ScalarValue::Boolean(encrypted)))
+        }
+        Query::Filesize => {
+            Ok(QueryResult::Scalar(ScalarValue::Number(ctx.bytes.len() as i64)))
+        }
+        Query::FindingsCount => {
+            let findings = run_detectors(ctx)?;
+            Ok(QueryResult::Scalar(ScalarValue::Number(findings.len() as i64)))
+        }
+        Query::FindingsBySeverity(severity) => {
+            let findings = run_detectors(ctx)?;
+            let filtered: Vec<String> = findings
+                .iter()
+                .filter(|f| &f.severity == severity)
+                .map(|f| format!("{}: {}", f.kind, f.title))
+                .collect();
+            Ok(QueryResult::List(filtered))
+        }
+        Query::FindingsByKind(kind) => {
+            let findings = run_detectors(ctx)?;
+            let filtered: Vec<String> = findings
+                .iter()
+                .filter(|f| f.kind == *kind)
+                .map(|f| format!("{}: {}", f.kind, f.title))
+                .collect();
+            Ok(QueryResult::List(filtered))
+        }
+        Query::Findings => {
+            let findings = run_detectors(ctx)?;
+            let result: Vec<String> = findings
+                .iter()
+                .map(|f| format!("{}: {}", f.kind, f.title))
+                .collect();
+            Ok(QueryResult::List(result))
+        }
+        Query::JavaScript => {
+            let js_code = extract_javascript(ctx)?;
+            Ok(QueryResult::List(js_code))
+        }
+        Query::JavaScriptCount => {
+            let js_code = extract_javascript(ctx)?;
+            Ok(QueryResult::Scalar(ScalarValue::Number(js_code.len() as i64)))
+        }
+        Query::Urls => {
+            let urls = extract_urls(ctx)?;
+            Ok(QueryResult::List(urls))
+        }
+        Query::UrlsCount => {
+            let urls = extract_urls(ctx)?;
+            Ok(QueryResult::Scalar(ScalarValue::Number(urls.len() as i64)))
+        }
+        Query::Embedded => {
+            let embedded = extract_embedded_files(ctx)?;
+            Ok(QueryResult::List(embedded))
+        }
+        Query::EmbeddedCount => {
+            let embedded = extract_embedded_files(ctx)?;
+            Ok(QueryResult::Scalar(ScalarValue::Number(embedded.len() as i64)))
+        }
+        Query::Created => {
+            let created = get_metadata_field(ctx, "CreationDate")?;
+            Ok(QueryResult::Scalar(ScalarValue::String(created)))
+        }
+        Query::Modified => {
+            let modified = get_metadata_field(ctx, "ModDate")?;
+            Ok(QueryResult::Scalar(ScalarValue::String(modified)))
+        }
+        _ => Err(anyhow!("Query not yet implemented: {:?}", query)),
+    }
+}
+
 /// Execute a query against a PDF file
 pub fn execute_query(
     query: &Query,
@@ -148,103 +259,8 @@ pub fn execute_query(
     // Parse PDF and build context
     let ctx = build_scan_context(&bytes, scan_options)?;
 
-    match query {
-        Query::Pages => {
-            let count = count_pages(&ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
-        }
-        Query::ObjectsCount => {
-            let count = ctx.graph.objects.len();
-            Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
-        }
-        Query::Creator => {
-            let creator = get_metadata_field(&ctx, "Creator")?;
-            Ok(QueryResult::Scalar(ScalarValue::String(creator)))
-        }
-        Query::Producer => {
-            let producer = get_metadata_field(&ctx, "Producer")?;
-            Ok(QueryResult::Scalar(ScalarValue::String(producer)))
-        }
-        Query::Title => {
-            let title = get_metadata_field(&ctx, "Title")?;
-            Ok(QueryResult::Scalar(ScalarValue::String(title)))
-        }
-        Query::Version => {
-            let version = get_pdf_version(&bytes)?;
-            Ok(QueryResult::Scalar(ScalarValue::String(version)))
-        }
-        Query::Encrypted => {
-            let encrypted = is_encrypted(&ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Boolean(encrypted)))
-        }
-        Query::Filesize => {
-            Ok(QueryResult::Scalar(ScalarValue::Number(bytes.len() as i64)))
-        }
-        Query::FindingsCount => {
-            // Run detectors
-            let findings = run_detectors(&ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(findings.len() as i64)))
-        }
-        Query::FindingsBySeverity(severity) => {
-            let findings = run_detectors(&ctx)?;
-            let filtered: Vec<String> = findings
-                .iter()
-                .filter(|f| &f.severity == severity)
-                .map(|f| format!("{}: {}", f.kind, f.title))
-                .collect();
-            Ok(QueryResult::List(filtered))
-        }
-        Query::FindingsByKind(kind) => {
-            let findings = run_detectors(&ctx)?;
-            let filtered: Vec<String> = findings
-                .iter()
-                .filter(|f| f.kind == *kind)
-                .map(|f| format!("{}: {}", f.kind, f.title))
-                .collect();
-            Ok(QueryResult::List(filtered))
-        }
-        Query::Findings => {
-            let findings = run_detectors(&ctx)?;
-            let result: Vec<String> = findings
-                .iter()
-                .map(|f| format!("{}: {}", f.kind, f.title))
-                .collect();
-            Ok(QueryResult::List(result))
-        }
-        Query::JavaScript => {
-            let js_code = extract_javascript(&ctx)?;
-            Ok(QueryResult::List(js_code))
-        }
-        Query::JavaScriptCount => {
-            let js_code = extract_javascript(&ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(js_code.len() as i64)))
-        }
-        Query::Urls => {
-            let urls = extract_urls(&ctx)?;
-            Ok(QueryResult::List(urls))
-        }
-        Query::UrlsCount => {
-            let urls = extract_urls(&ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(urls.len() as i64)))
-        }
-        Query::Embedded => {
-            let embedded = extract_embedded_files(&ctx)?;
-            Ok(QueryResult::List(embedded))
-        }
-        Query::EmbeddedCount => {
-            let embedded = extract_embedded_files(&ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(embedded.len() as i64)))
-        }
-        Query::Created => {
-            let created = get_metadata_field(&ctx, "CreationDate")?;
-            Ok(QueryResult::Scalar(ScalarValue::String(created)))
-        }
-        Query::Modified => {
-            let modified = get_metadata_field(&ctx, "ModDate")?;
-            Ok(QueryResult::Scalar(ScalarValue::String(modified)))
-        }
-        _ => Err(anyhow!("Query not yet implemented: {:?}", query)),
-    }
+    // Delegate to execute_query_with_context
+    execute_query_with_context(query, &ctx)
 }
 
 /// Scan options for query execution
