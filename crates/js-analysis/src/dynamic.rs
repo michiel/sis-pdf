@@ -2091,6 +2091,9 @@ mod sandbox_impl {
                 return decoded;
             }
         }
+        if nul_count > 0 {
+            return bytes.iter().copied().filter(|b| *b != 0).collect();
+        }
 
         bytes.to_vec()
     }
@@ -2404,11 +2407,13 @@ mod sandbox_impl {
         }
 
         if error_msg.contains("not a callable function") {
+            let call_names = gather_bare_call_names(code);
+            let patched = override_callable_assignments(code, &call_names);
             let mut prelude = String::new();
-            for name in gather_bare_call_names(code) {
+            for name in &call_names {
                 prelude.push_str(&format!("var {} = function(){{}};", name));
             }
-            let merged = format!("{}{}", prelude, code);
+            let merged = format!("{}{}", prelude, patched);
             if let Ok(result) = ctx.eval(Source::from_bytes(merged.as_bytes())) {
                 let mut log_ref = log.borrow_mut();
                 if let Some(last_exception) = log_ref.execution_flow.exception_handling.last_mut() {
@@ -2533,6 +2538,57 @@ mod sandbox_impl {
         names
     }
 
+    fn override_callable_assignments(code: &str, call_names: &BTreeSet<String>) -> String {
+        let bytes = code.as_bytes();
+        let mut out = String::with_capacity(code.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if is_ident_start(bytes[i]) {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && is_ident_char(bytes[i]) {
+                    i += 1;
+                }
+                let ident = &code[start..i];
+                let mut k = i;
+                while k < bytes.len() && bytes[k].is_ascii_whitespace() {
+                    k += 1;
+                }
+                let prev = if start > 0 { bytes[start - 1] } else { b'\0' };
+                if prev != b'.'
+                    && call_names.contains(ident)
+                    && k < bytes.len()
+                    && bytes[k] == b'='
+                    && (k + 1 == bytes.len() || bytes[k + 1] != b'=')
+                {
+                    let mut end = k + 1;
+                    while end < bytes.len() && bytes[end] != b';' {
+                        end += 1;
+                    }
+                    if end < bytes.len() {
+                        end += 1;
+                    }
+                    out.push_str(&format!("{} = function(){{}};", ident));
+                    i = end;
+                    continue;
+                }
+                out.push_str(ident);
+                continue;
+            }
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+        out
+    }
+
+    fn is_ident_start(byte: u8) -> bool {
+        byte.is_ascii_alphabetic() || byte == b'_' || byte == b'$'
+    }
+
+    fn is_ident_char(byte: u8) -> bool {
+        byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$'
+    }
+
     fn extract_undefined_variable(error_msg: &str) -> Option<String> {
         if let Some(idx) = error_msg.find(" is not defined") {
             let prefix = &error_msg[..idx];
@@ -2583,6 +2639,7 @@ mod sandbox_impl {
         result = result.replace("?.", ".");
         result = result.replace("??", "||");
         result = result.replace('?', "");
+        result = scrub_invalid_unicode_escapes(&result);
 
         if let Some(idx) = result.rfind(';') {
             if !result[idx + 1..].trim().is_empty() {
@@ -2681,6 +2738,43 @@ mod sandbox_impl {
         }
 
         result
+    }
+
+    fn scrub_invalid_unicode_escapes(input: &str) -> String {
+        let bytes = input.as_bytes();
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                if bytes[i + 1] == b'u' {
+                    if i + 6 <= bytes.len() && bytes[i + 2..i + 6].iter().all(|b| is_hex(*b)) {
+                        out.extend_from_slice(&bytes[i..i + 6]);
+                        i += 6;
+                        continue;
+                    }
+                    out.extend_from_slice(b"\\u0000");
+                    i += 2;
+                    continue;
+                }
+                if bytes[i + 1] == b'x' {
+                    if i + 4 <= bytes.len() && bytes[i + 2..i + 4].iter().all(|b| is_hex(*b)) {
+                        out.extend_from_slice(&bytes[i..i + 4]);
+                        i += 4;
+                        continue;
+                    }
+                    out.extend_from_slice(b"\\x00");
+                    i += 2;
+                    continue;
+                }
+            }
+            out.push(bytes[i]);
+            i += 1;
+        }
+        String::from_utf8_lossy(&out).to_string()
+    }
+
+    fn is_hex(byte: u8) -> bool {
+        matches!(byte, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F')
     }
 
     fn make_native(log: Rc<RefCell<SandboxLog>>, name: &'static str) -> NativeFunction {

@@ -473,6 +473,8 @@ enum SandboxCommand {
         file: PathBuf,
         #[arg(long = "type", default_value = "js", value_parser = ["js"])]
         asset_type: String,
+        #[arg(long)]
+        max_bytes: Option<usize>,
     },
 }
 
@@ -796,7 +798,11 @@ fn main() -> Result<()> {
             max_extract_bytes,
         } => run_extract(&kind, &pdf, &out, max_extract_bytes),
         Command::Sandbox(cmd) => match cmd {
-            SandboxCommand::Eval { file, asset_type } => run_sandbox_eval(&file, &asset_type),
+            SandboxCommand::Eval {
+                file,
+                asset_type,
+                max_bytes,
+            } => run_sandbox_eval(&file, &asset_type, max_bytes),
         },
         Command::Report {
             pdf,
@@ -1029,12 +1035,20 @@ fn default_config_template() -> &'static str {
     include_str!("../../../docs/config.toml")
 }
 
-fn run_sandbox_eval(path: &std::path::Path, asset_type: &str) -> Result<()> {
+fn run_sandbox_eval(
+    path: &std::path::Path,
+    asset_type: &str,
+    max_bytes: Option<usize>,
+) -> Result<()> {
     if asset_type != "js" {
         return Err(anyhow!("unsupported sandbox type: {}", asset_type));
     }
     let bytes = fs::read(path)?;
-    let outcome = js_analysis::run_sandbox(&bytes, &DynamicOptions::default());
+    let mut options = DynamicOptions::default();
+    if let Some(max_bytes) = max_bytes {
+        options.max_bytes = max_bytes;
+    }
+    let outcome = js_analysis::run_sandbox(&bytes, &options);
     let report = match outcome {
         DynamicOutcome::Executed(signals) => SandboxEvalReport {
             path: path.display().to_string(),

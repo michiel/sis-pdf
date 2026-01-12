@@ -197,6 +197,20 @@ fn sandbox_recovers_undefined_function_vars() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_recovers_invalid_unicode_escapes() {
+    let options = DynamicOptions::default();
+    let payload = br#"var s = "\uZZZZ";"#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.errors.is_empty());
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_handles_page_word_helpers() {
     let options = DynamicOptions::default();
     let payload = b"var n = getPageNumWords(0); var w = getPageNthWord(0, 0, false);";

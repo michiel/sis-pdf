@@ -23,6 +23,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workers", type=int, default=8, help="Parallel workers")
     parser.add_argument("--max-files", type=int, default=0, help="Limit files processed")
     parser.add_argument("--keep-extracted", action="store_true", help="Keep extracted JS files")
+    parser.add_argument(
+        "--max-bytes",
+        type=int,
+        default=0,
+        help="Override sandbox max bytes for each JS payload",
+    )
     return parser.parse_args()
 
 
@@ -53,10 +59,11 @@ def extract_js(sis_bin: Path, pdf_path: Path, out_dir: Path) -> List[Path]:
     return sorted(out_dir.glob("*.js"))
 
 
-def eval_js(sis_bin: Path, js_path: Path) -> Dict:
-    code, stdout, stderr = run_cmd(
-        [str(sis_bin), "sandbox", "eval", str(js_path), "--type", "js"]
-    )
+def eval_js(sis_bin: Path, js_path: Path, max_bytes: Optional[int]) -> Dict:
+    args = [str(sis_bin), "sandbox", "eval", str(js_path), "--type", "js"]
+    if max_bytes:
+        args.extend(["--max-bytes", str(max_bytes)])
+    code, stdout, stderr = run_cmd(args)
     if code != 0:
         return {
             "status": "error",
@@ -86,6 +93,7 @@ def process_file(
     extract_root: Path,
     failure_payloads: Path,
     keep_extracted: bool,
+    max_bytes: Optional[int],
 ) -> List[Dict]:
     pdf_hash = hashlib.sha256(str(pdf_path).encode("utf-8")).hexdigest()[:12]
     extract_dir = extract_root / pdf_hash
@@ -101,7 +109,7 @@ def process_file(
             }
         ]
     for js_file in js_files:
-        report = eval_js(sis_bin, js_file)
+        report = eval_js(sis_bin, js_file, max_bytes)
         signature = error_signature(report)
         failure_payload_path = None
         if signature != "none":
@@ -160,6 +168,7 @@ def main() -> int:
                     extract_root,
                     failure_payloads,
                     args.keep_extracted,
+                    args.max_bytes or None,
                 ): pdf_path
                 for pdf_path in files
             }
