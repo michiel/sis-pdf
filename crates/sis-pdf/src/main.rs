@@ -1,3 +1,5 @@
+mod commands;
+
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
@@ -98,6 +100,27 @@ enum Command {
     Update {
         #[arg(long, help = "Include prerelease builds when checking for updates")]
         include_prerelease: bool,
+    },
+    #[command(about = "Query PDF structure, content, and findings")]
+    Query {
+        #[arg(help = "Query string (e.g., 'pages', 'js', 'findings.high', 'object 12')")]
+        query: String,
+        #[arg(help = "PDF file path")]
+        pdf: String,
+        #[arg(long, help = "Output as JSON")]
+        json: bool,
+        #[arg(long, short = 'c', help = "Compact output (numbers only)")]
+        compact: bool,
+        #[arg(long, help = "Deep scan mode")]
+        deep: bool,
+        #[arg(long, default_value_t = 32 * 1024 * 1024)]
+        max_decode_bytes: usize,
+        #[arg(long, default_value_t = 256 * 1024 * 1024)]
+        max_total_decoded_bytes: usize,
+        #[arg(long)]
+        no_recover: bool,
+        #[arg(long, default_value_t = 500_000)]
+        max_objects: usize,
     },
     #[command(about = "Scan PDFs for suspicious indicators and report findings")]
     Scan {
@@ -220,121 +243,8 @@ enum Command {
         #[arg(long)]
         no_js_sandbox: bool,
     },
-    #[command(about = "Explain a specific finding with evidence details")]
-    Explain { pdf: String, finding_id: String },
-    #[command(about = "Detect files that contain specific findings")]
-    Detect {
-        #[arg(long)]
-        path: PathBuf,
-        #[arg(long, default_value = "*.pdf")]
-        glob: String,
-        #[arg(long, value_delimiter = ',', required = true)]
-        findings: Vec<String>,
-        #[arg(long)]
-        deep: bool,
-        #[arg(long, default_value_t = 32 * 1024 * 1024)]
-        max_decode_bytes: usize,
-        #[arg(long, default_value_t = 256 * 1024 * 1024)]
-        max_total_decoded_bytes: usize,
-        #[arg(long)]
-        no_recover: bool,
-        #[arg(long)]
-        strict: bool,
-        #[arg(long, default_value_t = 500_000)]
-        max_objects: usize,
-        #[arg(long, alias = "seq")]
-        sequential: bool,
-        #[arg(long)]
-        no_js_ast: bool,
-        #[arg(long)]
-        no_js_sandbox: bool,
-    },
-    #[command(about = "Extract JavaScript or embedded files from a PDF")]
-    Extract {
-        #[arg(value_parser = ["js", "embedded"])]
-        kind: String,
-        pdf: String,
-        #[arg(short, long)]
-        out: PathBuf,
-        #[arg(long, default_value_t = 128 * 1024 * 1024)]
-        max_extract_bytes: usize,
-    },
     #[command(subcommand, about = "Run sandbox evaluation for dynamic assets")]
     Sandbox(SandboxCommand),
-    #[command(about = "Generate a full Markdown report for a PDF scan")]
-    Report {
-        pdf: String,
-        #[arg(long)]
-        deep: bool,
-        #[arg(long, default_value_t = 32 * 1024 * 1024)]
-        max_decode_bytes: usize,
-        #[arg(long, default_value_t = 256 * 1024 * 1024)]
-        max_total_decoded_bytes: usize,
-        #[arg(long)]
-        no_recover: bool,
-        #[arg(long)]
-        diff_parser: bool,
-        #[arg(long, default_value_t = 500_000)]
-        max_objects: usize,
-        #[arg(long, default_value_t = 64)]
-        max_recursion_depth: usize,
-        #[arg(long)]
-        strict: bool,
-        #[arg(long)]
-        ir: bool,
-        #[arg(short, long)]
-        out: Option<PathBuf>,
-        #[arg(long)]
-        ml: bool,
-        #[arg(long)]
-        ml_model_dir: Option<PathBuf>,
-        #[arg(long, default_value_t = 0.9)]
-        ml_threshold: f32,
-        #[arg(long, default_value = "traditional", value_parser = ["traditional", "graph"])]
-        ml_mode: String,
-        #[arg(
-            long,
-            help = "Use extended 333-feature vector for ML (default with --ml)"
-        )]
-        ml_extended_features: bool,
-        #[arg(long, help = "Generate comprehensive ML explanation")]
-        ml_explain: bool,
-        #[arg(
-            long,
-            help = "Include advanced ML explainability (counterfactuals and interactions)"
-        )]
-        ml_advanced: bool,
-        #[arg(long, help = "Compute ML temporal analysis across incremental updates")]
-        ml_temporal: bool,
-        #[arg(
-            long,
-            help = "Compute non-ML temporal signals across incremental updates"
-        )]
-        temporal_signals: bool,
-        #[arg(long, help = "Path to benign baseline JSON for explanations")]
-        ml_baseline: Option<PathBuf>,
-        #[arg(long, help = "Path to calibration model JSON")]
-        ml_calibration: Option<PathBuf>,
-        #[arg(
-            long,
-            help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)"
-        )]
-        ml_provider: Option<String>,
-        #[arg(long, help = "Comma-separated ML execution provider order override")]
-        ml_provider_order: Option<String>,
-        #[arg(long, help = "Print selected ML execution provider to STDERR")]
-        ml_provider_info: bool,
-        #[arg(long, help = "Path to ONNX Runtime dynamic library")]
-        ml_ort_dylib: Option<PathBuf>,
-        #[arg(long, help = "Prefer quantised ML models when available")]
-        ml_quantized: bool,
-        #[arg(long, help = "Override embedding batch size")]
-        ml_batch_size: Option<usize>,
-        #[arg(long)]
-        no_js_ast: bool,
-        #[arg(long)]
-        no_js_sandbox: bool,
-    },
     #[command(name = "ml-health", about = "Deprecated (use sis ml health)")]
     MlHealth {
         #[arg(long)]
@@ -354,68 +264,6 @@ enum Command {
         ml_quantized: bool,
         #[arg(long, help = "Override embedding batch size")]
         ml_batch_size: Option<usize>,
-    },
-    #[command(about = "Export action chains from a scan as DOT or JSON")]
-    ExportGraph {
-        pdf: String,
-        #[arg(long)]
-        chains_only: bool,
-        #[arg(long, default_value = "dot", value_parser = ["dot", "json"])]
-        format: String,
-        #[arg(short, long)]
-        out: PathBuf,
-    },
-    #[command(about = "Export object reference graph with suspicious paths (DOT or JSON)")]
-    ExportOrg {
-        pdf: String,
-        #[arg(long, default_value = "dot", value_parser = ["dot", "json"])]
-        format: String,
-        #[arg(short, long)]
-        out: PathBuf,
-        #[arg(
-            long,
-            help = "Export basic graph only (no enhancements, paths, or classifications)"
-        )]
-        basic: bool,
-    },
-    #[command(about = "Export enhanced IR with findings and risk scores (text or JSON)")]
-    ExportIr {
-        pdf: String,
-        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
-        format: String,
-        #[arg(short, long)]
-        out: PathBuf,
-        #[arg(long, help = "Export basic IR only (no findings or risk analysis)")]
-        basic: bool,
-    },
-    #[command(about = "Export extended 333-feature vectors for ML pipelines")]
-    ExportFeatures {
-        #[arg(value_name = "PDF", required_unless_present = "path")]
-        pdf: Option<String>,
-        #[arg(long)]
-        path: Option<PathBuf>,
-        #[arg(long, default_value = "*.pdf")]
-        glob: String,
-        #[arg(long)]
-        deep: bool,
-        #[arg(long, default_value_t = 32 * 1024 * 1024)]
-        max_decode_bytes: usize,
-        #[arg(long, default_value_t = 256 * 1024 * 1024)]
-        max_total_decoded_bytes: usize,
-        #[arg(long)]
-        no_recover: bool,
-        #[arg(long)]
-        strict: bool,
-        #[arg(long)]
-        label: Option<String>,
-        #[arg(long, default_value = "jsonl", value_parser = ["jsonl", "csv"])]
-        format: String,
-        #[arg(short, long)]
-        out: Option<PathBuf>,
-        #[arg(long, help = "Export basic 35-feature vector only (legacy format)")]
-        basic: bool,
-        #[arg(long, help = "Include feature names in JSONL output records")]
-        feature_names: bool,
     },
     #[command(about = "Compute benign baseline from feature vectors")]
     ComputeBaseline {
@@ -660,6 +508,27 @@ fn main() -> Result<()> {
             ),
         },
         Command::Update { include_prerelease } => run_update(include_prerelease),
+        Command::Query {
+            query,
+            pdf,
+            json,
+            compact,
+            deep,
+            max_decode_bytes,
+            max_total_decoded_bytes,
+            no_recover,
+            max_objects,
+        } => run_query(
+            &query,
+            &pdf,
+            json,
+            compact,
+            deep,
+            max_decode_bytes,
+            max_total_decoded_bytes,
+            !no_recover,
+            max_objects,
+        ),
         Command::Scan {
             pdf,
             path,
@@ -763,40 +632,6 @@ fn main() -> Result<()> {
             !no_js_ast,
             !no_js_sandbox,
         ),
-        Command::Explain { pdf, finding_id } => run_explain(&pdf, &finding_id),
-        Command::Detect {
-            path,
-            glob,
-            findings,
-            deep,
-            max_decode_bytes,
-            max_total_decoded_bytes,
-            no_recover,
-            strict,
-            max_objects,
-            sequential,
-            no_js_ast,
-            no_js_sandbox,
-        } => run_detect(
-            &path,
-            &glob,
-            &findings,
-            deep,
-            max_decode_bytes,
-            max_total_decoded_bytes,
-            !no_recover,
-            strict,
-            max_objects,
-            sequential,
-            !no_js_ast,
-            !no_js_sandbox,
-        ),
-        Command::Extract {
-            kind,
-            pdf,
-            out,
-            max_extract_bytes,
-        } => run_extract(&kind, &pdf, &out, max_extract_bytes),
         Command::Sandbox(cmd) => match cmd {
             SandboxCommand::Eval {
                 file,
@@ -804,69 +639,6 @@ fn main() -> Result<()> {
                 max_bytes,
             } => run_sandbox_eval(&file, &asset_type, max_bytes),
         },
-        Command::Report {
-            pdf,
-            deep,
-            max_decode_bytes,
-            max_total_decoded_bytes,
-            no_recover,
-            diff_parser,
-            max_objects,
-            max_recursion_depth,
-            strict,
-            ir,
-            out,
-            ml,
-            ml_model_dir,
-            ml_threshold,
-            ml_mode,
-            ml_extended_features,
-            ml_explain,
-            ml_advanced,
-            ml_temporal,
-            temporal_signals,
-            ml_baseline,
-            ml_calibration,
-            ml_provider,
-            ml_provider_order,
-            ml_provider_info,
-            ml_ort_dylib,
-            ml_quantized,
-            ml_batch_size,
-            no_js_ast,
-            no_js_sandbox,
-        } => run_report(
-            &pdf,
-            deep,
-            max_decode_bytes,
-            max_total_decoded_bytes,
-            !no_recover,
-            diff_parser,
-            max_objects,
-            max_recursion_depth,
-            strict,
-            ir,
-            out.as_deref(),
-            ml,
-            ml_model_dir.as_deref(),
-            ml_threshold,
-            &ml_mode,
-            ml_extended_features,
-            ml_explain,
-            ml_advanced,
-            ml_temporal,
-            temporal_signals,
-            ml_baseline.as_deref(),
-            ml_calibration.as_deref(),
-            ml_provider.as_deref(),
-            ml_provider_order.as_deref(),
-            ml_provider_info,
-            ml_ort_dylib.as_deref(),
-            ml_quantized,
-            ml_batch_size,
-            !no_js_ast,
-            !no_js_sandbox,
-        ),
         Command::MlHealth {
             ml_model_dir,
             ml_provider,
@@ -887,53 +659,6 @@ fn main() -> Result<()> {
                 ml_batch_size,
             )
         }
-        Command::ExportGraph {
-            pdf,
-            chains_only,
-            format,
-            out,
-        } => run_export_graph(&pdf, chains_only, &format, &out),
-        Command::ExportOrg {
-            pdf,
-            format,
-            out,
-            basic,
-        } => run_export_org(&pdf, &format, &out, !basic),
-        Command::ExportIr {
-            pdf,
-            format,
-            out,
-            basic,
-        } => run_export_ir(&pdf, &format, &out, !basic),
-        Command::ExportFeatures {
-            pdf,
-            path,
-            glob,
-            deep,
-            max_decode_bytes,
-            max_total_decoded_bytes,
-            no_recover,
-            strict,
-            label,
-            format,
-            out,
-            basic,
-            feature_names,
-        } => run_export_features(
-            pdf.as_deref(),
-            path.as_deref(),
-            &glob,
-            deep,
-            max_decode_bytes,
-            max_total_decoded_bytes,
-            !no_recover,
-            strict,
-            label.as_deref(),
-            &format,
-            out.as_deref(),
-            !basic,
-            feature_names,
-        ),
         Command::ComputeBaseline { input, out } => run_compute_baseline(&input, &out),
         Command::StreamAnalyze {
             pdf,
@@ -2601,6 +2326,49 @@ fn mmap_file(path: &str) -> Result<Mmap> {
     }
     unsafe { Mmap::map(&f).map_err(|e| anyhow!(e)) }
 }
+
+fn run_query(
+    query_str: &str,
+    pdf_path: &str,
+    json: bool,
+    compact: bool,
+    deep: bool,
+    max_decode_bytes: usize,
+    max_total_decoded_bytes: usize,
+    recover_xref: bool,
+    max_objects: usize,
+) -> Result<()> {
+    use commands::query;
+
+    // Parse the query
+    let query = query::parse_query(query_str)
+        .map_err(|e| anyhow!("Failed to parse query: {}", e))?;
+
+    // Build scan options
+    let scan_options = query::ScanOptions {
+        deep,
+        max_decode_bytes,
+        max_total_decoded_bytes,
+        no_recover: !recover_xref,
+        max_objects,
+    };
+
+    // Execute the query
+    let result = query::execute_query(&query, std::path::Path::new(pdf_path), &scan_options)
+        .map_err(|e| anyhow!("Query execution failed: {}", e))?;
+
+    // Format and print the result
+    if json {
+        let output = query::format_json(query_str, pdf_path, &result)?;
+        println!("{}", output);
+    } else {
+        let output = query::format_result(&result, compact);
+        println!("{}", output);
+    }
+
+    Ok(())
+}
+
 fn run_scan(
     pdf: Option<&str>,
     path: Option<&std::path::Path>,
