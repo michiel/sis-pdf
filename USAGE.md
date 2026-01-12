@@ -144,7 +144,139 @@ Verify a config:
 sis config verify
 ```
 
-## 4) Explain a specific finding
+## 4) Query PDF structure and content
+
+The `sis query` command provides a unified interface for inspecting PDF metadata, structure, and content, replacing common external tools like pdfinfo, mutool, pdftk, and qpdf.
+
+### Metadata queries
+
+```
+# Get page count
+sis query pages file.pdf
+
+# Get multiple metadata fields
+sis query "pages,creator,producer,version" file.pdf
+
+# JSON output for automation
+sis query pages file.pdf --json
+```
+
+### Content extraction queries
+
+```
+# Extract JavaScript
+sis query js file.pdf
+
+# Extract URLs
+sis query urls file.pdf
+
+# Get counts
+sis query js.count file.pdf
+sis query urls.count file.pdf
+```
+
+### Structure queries
+
+```
+# Show trailer dictionary
+sis query trailer file.pdf
+
+# Show document catalog
+sis query catalog file.pdf
+
+# Inspect specific object
+sis query "object 45" file.pdf
+sis query "object 45 0" file.pdf
+```
+
+### Finding queries
+
+```
+# List all findings
+sis query findings file.pdf
+
+# Filter by severity
+sis query findings.high file.pdf
+
+# Filter by finding kind
+sis query "findings.kind js_present" file.pdf
+```
+
+### Interactive REPL mode
+
+For exploratory analysis, use REPL mode:
+
+```
+sis query suspicious.pdf
+```
+
+In REPL mode:
+- Type `help` for available queries
+- Type `:json` to toggle JSON output
+- Type `exit` or `quit` to leave
+
+Example session:
+```
+sis> pages
+37
+
+sis> js
+Found 3 JavaScript actions:
+  obj 45:0 - app.alert('test')
+  obj 67:0 - submitForm(...)
+
+sis> findings.high
+66 High severity findings
+
+sis> object 45
+45 0 obj
+<<
+  /Type /Action
+  /S /JavaScript
+  /JS (app.alert('test'))
+>>
+endobj
+
+sis> exit
+```
+
+### Scripting and automation
+
+Compact output for shell scripts:
+
+```bash
+# Get page count for batch processing
+for f in *.pdf; do
+  pages=$(sis query pages "$f" --compact)
+  echo "$f: $pages pages"
+done
+
+# Find PDFs with JavaScript
+sis query "js.count" *.pdf --json | jq 'select(.result > 0)'
+
+# Check for high severity findings
+if [ $(sis query "findings.high" file.pdf --compact) -gt 0 ]; then
+  echo "High severity findings detected!"
+fi
+```
+
+### Replacing external tools
+
+```bash
+# Instead of: pdfinfo file.pdf
+sis query "pages,creator,producer,version" file.pdf
+
+# Instead of: pdfinfo -js file.pdf
+sis query js file.pdf
+
+# Instead of: mutool show file.pdf trailer
+sis query trailer file.pdf
+
+# Instead of: qpdf --show-object=12 file.pdf
+sis query "object 12" file.pdf
+```
+
+## 4b) Explain a specific finding
 
 First, run a scan to get an ID, then:
 
@@ -152,7 +284,7 @@ First, run a scan to get an ID, then:
 sis explain suspicious.pdf sis-<finding-id>
 ```
 
-## 4b) Generate a full Markdown report
+## 4c) Generate a full Markdown report
 
 ```
 sis report suspicious.pdf
@@ -169,7 +301,7 @@ Analysis steps:
 - For file-backed evidence, offsets are absolute in the original PDF.
 - For decoded evidence, consult `origin` spans to map back to raw stream bytes.
 
-## 4c) ML inference and explanations
+## 4d) ML inference and explanations
 
 Run ML inference with a trained model:
 
