@@ -22,6 +22,7 @@ mod sandbox_impl {
     const CREATOR_PAYLOAD: &str =
         "z61z70z70z2Ez61z6Cz65z72z74z28z27z68z69z27z29";
     const SUBJECT_PAYLOAD: &str = "Hueputol61Hueputol70Hueputol70Hueputol2EHueputol61Hueputol6CHueputol65Hueputol72Hueputol74Hueputol28Hueputol27Hueputol68Hueputol69Hueputol27Hueputol29";
+    const TITLE_PAYLOAD: &str = "%61%6c%65%72%74%28%27%68%69%27%29";
 
     #[derive(Default, Clone)]
     struct SandboxLog {
@@ -512,12 +513,13 @@ mod sandbox_impl {
             register_node_like(&mut context, log.clone());
             let _ = doc;
             register_doc_globals(&mut context, log.clone()); // Enable unescape and other globals
-            register_pdf_event_context(&mut context, log.clone()); // Add event object simulation
+            register_pdf_event_context(&mut context, log.clone(), scope.clone()); // Add event object simulation
             register_enhanced_doc_globals(&mut context, log.clone(), scope.clone());
             register_enhanced_eval_v2(&mut context, log.clone(), scope.clone());
             register_enhanced_global_fallback(&mut context, log.clone(), scope.clone());
 
-            let source = Source::from_bytes(&bytes);
+            let normalised = normalise_js_source(&bytes);
+            let source = Source::from_bytes(&normalised);
             let eval_start = Instant::now();
             let eval_res = context.eval(source);
             let elapsed = eval_start.elapsed().as_millis();
@@ -525,7 +527,12 @@ mod sandbox_impl {
                 let mut log_ref = log.borrow_mut();
                 log_ref.elapsed_ms = Some(elapsed);
                 if let Err(err) = eval_res {
-                    log_ref.errors.push(format!("{:?}", err));
+                    let code = String::from_utf8_lossy(&normalised).to_string();
+                    let recovered = attempt_error_recovery(&mut context, &err, &code, &scope, &log)
+                        .is_some();
+                    if !recovered {
+                        log_ref.errors.push(format!("{:?}", err));
+                    }
                 }
 
                 // Run behavioral pattern analysis
@@ -1225,7 +1232,7 @@ mod sandbox_impl {
         );
         let _ = context.register_global_property(
             JsString::from("title"),
-            JsString::from("Document"),
+            JsString::from(TITLE_PAYLOAD),
             Attribute::all(),
         );
         let _ = context.register_global_property(
@@ -1240,7 +1247,11 @@ mod sandbox_impl {
         );
     }
 
-    fn register_pdf_event_context(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+    fn register_pdf_event_context(
+        context: &mut Context,
+        log: Rc<RefCell<SandboxLog>>,
+        scope: Rc<RefCell<DynamicScope>>,
+    ) {
         // Create a mock PDF event object that many malicious scripts expect
         // This simulates PDF events like page open, document open, etc.
 
@@ -1258,13 +1269,28 @@ mod sandbox_impl {
         // Create eval function for target with tracking
         let target_eval_fn = unsafe {
             let log = log.clone();
+            let scope = scope.clone();
             NativeFunction::from_closure(move |_this, args, ctx| {
                 record_call(&log, "event.target.eval", args, ctx);
                 let code_arg = args.get_or_undefined(0);
                 let code = code_arg.to_string(ctx)?;
                 let code_str = code.to_std_string_escaped();
-                let source = boa_engine::Source::from_bytes(code_str.as_bytes());
-                ctx.eval(source)
+                let processed = preprocess_eval_code(&code_str, &scope);
+                match execute_with_variable_promotion(ctx, &processed, &scope, &log) {
+                    Ok(result) => {
+                        post_process_eval_variables(ctx, &code_str, &scope, &log);
+                        Ok(result)
+                    }
+                    Err(err) => {
+                        if let Some(recovered) =
+                            attempt_error_recovery(ctx, &err, &code_str, &scope, &log)
+                        {
+                            Ok(recovered)
+                        } else {
+                            Ok(JsValue::undefined())
+                        }
+                    }
+                }
             })
         };
 
@@ -1277,6 +1303,14 @@ mod sandbox_impl {
                 let input_str = input.to_std_string_escaped();
                 let result = decode_unescape(&input_str);
                 Ok(JsValue::from(JsString::from(result)))
+            })
+        };
+
+        let target_get_annot_fn = unsafe {
+            let log = log.clone();
+            NativeFunction::from_closure(move |_this, args, ctx| {
+                record_call(&log, "event.target.getAnnot", args, ctx);
+                Ok(build_annot(ctx, log.clone()))
             })
         };
 
@@ -1298,6 +1332,7 @@ mod sandbox_impl {
                 JsString::from("syncAnnotScan"),
                 0,
             )
+            .function(target_get_annot_fn, JsString::from("getAnnot"), 2)
             .function(target_get_annots_fn, JsString::from("getAnnots"), 1)
             .function(
                 target_methods("event.target.getField"),
@@ -1391,7 +1426,7 @@ mod sandbox_impl {
             context,
             log.clone(),
             "info.title",
-            "Document title containing vojewnj jdjf dnjfndsj nj n  443423",
+            TITLE_PAYLOAD,
         );
         let author_getter = make_getter(context, log.clone(), "info.author", "Unknown");
         let subject_getter = make_getter(context, log.clone(), "info.subject", "PDF");
@@ -1468,6 +1503,13 @@ mod sandbox_impl {
             Attribute::all(),
         );
         let log_clone = log.clone();
+        let get_annot_fn = unsafe {
+            NativeFunction::from_closure(move |_this, args, ctx| {
+                record_call(&log_clone, "doc.getAnnot", args, ctx);
+                Ok(build_annot(ctx, log_clone.clone()))
+            })
+        };
+        let log_clone = log.clone();
         let get_annots_fn = unsafe {
             NativeFunction::from_closure(move |_this, args, ctx| {
                 record_call(&log_clone, "doc.getAnnots", args, ctx);
@@ -1514,6 +1556,7 @@ mod sandbox_impl {
                 JsString::from("syncAnnotScan"),
                 0,
             )
+            .function(get_annot_fn, JsString::from("getAnnot"), 2)
             .function(get_annots_fn, JsString::from("getAnnots"), 1)
             .build();
         let doc_value = JsValue::from(doc.clone());
@@ -1528,6 +1571,11 @@ mod sandbox_impl {
             JsString::from(SUBJECT_PAYLOAD),
             Attribute::all(),
         );
+        let _ = context.register_global_property(
+            JsString::from("title"),
+            JsString::from(TITLE_PAYLOAD),
+            Attribute::all(),
+        );
         let _ = context.register_global_property(JsString::from("media"), media, Attribute::all());
         let _ = context.register_global_property(JsString::from("j"), JsValue::from(false), Attribute::all());
         let _ = context.register_global_property(JsString::from("dada"), JsValue::from(false), Attribute::all());
@@ -1536,35 +1584,43 @@ mod sandbox_impl {
     }
 
     fn build_annots(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsValue {
-        let subject_primary = make_getter(
+        let annot_primary = build_annot_with_subject(
             context,
             log.clone(),
-            "annot.subject",
             "z61z70z70z2Ez61z6Cz65z72z74z28z27z68z69z27z29",
         );
-        let subject_secondary = make_getter(context, log.clone(), "annot.subject", "z-41-42-43");
-        let annot_primary = ObjectInitializer::new(context)
-            .accessor(
-                JsString::from("subject"),
-                Some(subject_primary),
-                None,
-                Attribute::all(),
-            )
-            .build();
-        let annot_secondary = ObjectInitializer::new(context)
-            .accessor(
-                JsString::from("subject"),
-                Some(subject_secondary),
-                None,
-                Attribute::all(),
-            )
-            .build();
+        let annot_secondary = build_annot_with_subject(context, log.clone(), "z-41-42-43");
         let annots = ObjectInitializer::new(context)
             .property(JsString::from("0"), annot_primary, Attribute::all())
             .property(JsString::from("1"), annot_secondary, Attribute::all())
             .property(JsString::from("length"), 2, Attribute::all())
             .build();
         JsValue::from(annots)
+    }
+
+    fn build_annot(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsValue {
+        build_annot_with_subject(
+            context,
+            log,
+            "z61z70z70z2Ez61z6Cz65z72z74z28z27z68z69z27z29",
+        )
+    }
+
+    fn build_annot_with_subject(
+        context: &mut Context,
+        log: Rc<RefCell<SandboxLog>>,
+        subject_value: &'static str,
+    ) -> JsValue {
+        let subject_getter = make_getter(context, log, "annot.subject", subject_value);
+        let annot = ObjectInitializer::new(context)
+            .accessor(
+                JsString::from("subject"),
+                Some(subject_getter),
+                None,
+                Attribute::all(),
+            )
+            .build();
+        JsValue::from(annot)
     }
 
     fn register_enhanced_doc_globals(
@@ -1609,6 +1665,18 @@ mod sandbox_impl {
         add(context, "addField", 1, log.clone());
         add(context, "removeField", 1, log.clone());
         add(context, "getField", 1, log.clone());
+        let get_annot_fn = unsafe {
+            let log = log.clone();
+            NativeFunction::from_closure(move |_this, args, ctx| {
+                record_call(&log, "getAnnot", args, ctx);
+                Ok(build_annot(ctx, log.clone()))
+            })
+        };
+        let _ = context.register_global_builtin_callable(
+            JsString::from("getAnnot"),
+            2,
+            get_annot_fn,
+        );
         add(context, "getAnnots", 1, log.clone());
         add(context, "addAnnot", 1, log.clone());
         add(context, "removeAnnot", 1, log.clone());
@@ -1641,15 +1709,70 @@ mod sandbox_impl {
             })
         };
 
-        // Register String.fromCharCode
-        let string_constructor = ObjectInitializer::new(context)
-            .function(from_char_code_fn, JsString::from("fromCharCode"), 1)
+        let from_char_code = FunctionObjectBuilder::new(context.realm(), from_char_code_fn)
+            .name(JsString::from("fromCharCode"))
+            .length(1)
+            .constructor(false)
             .build();
-        let _ = context.register_global_property(
-            JsString::from("String"),
-            string_constructor,
-            Attribute::all(),
-        );
+
+        let substr_fn = unsafe {
+            let log = log.clone();
+            NativeFunction::from_closure(move |this, args, ctx| {
+                record_call(&log, "String.substr", args, ctx);
+                let value = this.to_string(ctx)?;
+                let input = value.to_std_string_escaped();
+                let chars: Vec<char> = input.chars().collect();
+                let total = chars.len() as i32;
+                let mut start = args
+                    .get_or_undefined(0)
+                    .to_i32(ctx)
+                    .unwrap_or(0);
+                if start < 0 {
+                    start = (total + start).max(0);
+                }
+                let start = start.min(total) as usize;
+                let mut length = if args.len() > 1 {
+                    args.get_or_undefined(1).to_i32(ctx).unwrap_or(0)
+                } else {
+                    total - start as i32
+                };
+                if length < 0 {
+                    length = 0;
+                }
+                let end = (start as i32 + length).min(total) as usize;
+                let result: String = chars[start..end].iter().collect();
+                Ok(JsValue::from(JsString::from(result)))
+            })
+        };
+        let substr = FunctionObjectBuilder::new(context.realm(), substr_fn)
+            .name(JsString::from("substr"))
+            .length(2)
+            .constructor(false)
+            .build();
+
+        if let Ok(string_value) = context
+            .global_object()
+            .get(JsString::from("String"), context)
+        {
+            if let Some(string_obj) = string_value.as_object() {
+                let _ = string_obj.set(
+                    JsString::from("fromCharCode"),
+                    from_char_code,
+                    false,
+                    context,
+                );
+                if let Ok(proto_value) = string_obj.get(JsString::from("prototype"), context) {
+                    if let Some(proto_obj) = proto_value.as_object() {
+                        let _ = proto_obj.set(
+                            JsString::from("substr"),
+                            substr,
+                            false,
+                            context,
+                        );
+                    }
+                }
+            }
+        }
 
         // escape function
         let log_clone2 = log.clone();
@@ -1833,6 +1956,43 @@ mod sandbox_impl {
         }
 
         result
+    }
+
+    fn normalise_js_source(bytes: &[u8]) -> Vec<u8> {
+        if bytes.len() >= 2 {
+            if bytes[0] == 0xFF && bytes[1] == 0xFE {
+                return decode_utf16(&bytes[2..], true).unwrap_or_else(|| bytes.to_vec());
+            }
+            if bytes[0] == 0xFE && bytes[1] == 0xFF {
+                return decode_utf16(&bytes[2..], false).unwrap_or_else(|| bytes.to_vec());
+            }
+        }
+
+        let nul_count = bytes.iter().filter(|b| **b == 0).count();
+        if nul_count > bytes.len() / 4 {
+            if let Some(decoded) = decode_utf16(bytes, true) {
+                return decoded;
+            }
+        }
+
+        bytes.to_vec()
+    }
+
+    fn decode_utf16(bytes: &[u8], le: bool) -> Option<Vec<u8>> {
+        if bytes.len() < 2 {
+            return None;
+        }
+        let mut units = Vec::with_capacity(bytes.len() / 2);
+        for chunk in bytes.chunks_exact(2) {
+            let value = if le {
+                u16::from_le_bytes([chunk[0], chunk[1]])
+            } else {
+                u16::from_be_bytes([chunk[0], chunk[1]])
+            };
+            units.push(value);
+        }
+        let decoded = String::from_utf16(&units).ok()?;
+        Some(decoded.into_bytes())
     }
 
     fn register_enhanced_eval_v2(
@@ -2172,12 +2332,86 @@ mod sandbox_impl {
     }
 
     fn attempt_syntax_cleanup(code: &str) -> String {
-        let mut result = code.to_string();
+        let mut result = code.replace('\u{0}', "");
 
         // Common syntax fixes for obfuscated code
         result = result.replace(";;", ";"); // Double semicolons
         result = result.replace("  ", " "); // Multiple spaces
         result = result.trim().to_string(); // Leading/trailing whitespace
+
+        if result.trim_end().ends_with('(') {
+            result.push_str("){}");
+        }
+
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut escape = false;
+        let mut brace = 0i32;
+        let mut paren = 0i32;
+        let mut bracket = 0i32;
+
+        for ch in result.chars() {
+            if escape {
+                escape = false;
+                continue;
+            }
+            if in_single {
+                if ch == '\\' {
+                    escape = true;
+                } else if ch == '\'' {
+                    in_single = false;
+                }
+                continue;
+            }
+            if in_double {
+                if ch == '\\' {
+                    escape = true;
+                } else if ch == '"' {
+                    in_double = false;
+                }
+                continue;
+            }
+            if in_backtick {
+                if ch == '\\' {
+                    escape = true;
+                } else if ch == '`' {
+                    in_backtick = false;
+                }
+                continue;
+            }
+            match ch {
+                '\'' => in_single = true,
+                '"' => in_double = true,
+                '`' => in_backtick = true,
+                '{' => brace += 1,
+                '}' => brace = (brace - 1).max(0),
+                '(' => paren += 1,
+                ')' => paren = (paren - 1).max(0),
+                '[' => bracket += 1,
+                ']' => bracket = (bracket - 1).max(0),
+                _ => {}
+            }
+        }
+
+        if in_single {
+            result.push('\'');
+        }
+        if in_double {
+            result.push('"');
+        }
+        if in_backtick {
+            result.push('`');
+        }
+        for _ in 0..bracket {
+            result.push(']');
+        }
+        for _ in 0..paren {
+            result.push(')');
+        }
+        for _ in 0..brace {
+            result.push('}');
+        }
 
         // Try to fix incomplete statements
         if !result.ends_with(';') && !result.ends_with('}') {

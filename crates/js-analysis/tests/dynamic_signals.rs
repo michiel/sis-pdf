@@ -168,6 +168,37 @@ fn sandbox_handles_media_run_guard() {
     }
 }
 
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_supports_string_substr() {
+    let options = DynamicOptions::default();
+    let payload = br#""abc".substr(1);"#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.calls.iter().any(|c| c == "String.substr"));
+            assert!(signals.errors.is_empty());
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_handles_get_annot() {
+    let options = DynamicOptions::default();
+    let payload = b"var a = this.getAnnot(0, '0001-0004'); if (a) { a.subject; }";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.calls.iter().any(|c| c == "getAnnot"));
+            assert!(signals.prop_reads.iter().any(|p| p == "annot.subject"));
+            assert!(signals.errors.is_empty());
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
 #[cfg(not(feature = "js-sandbox"))]
 #[test]
 fn sandbox_reports_unavailable_without_feature() {
