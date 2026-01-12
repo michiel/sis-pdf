@@ -535,7 +535,7 @@ Expected result:
 - `open_action_present`
 - `js_present`
 
-## 11) Operational guidance
+## 12) Operational guidance
 
 - Keep `--deep` scans for targeted cases; triage scans should be fast.
 - Never execute extracted payloads; treat everything as untrusted.
@@ -611,7 +611,7 @@ Report example with strict parsing and differential parsing:
 sis report suspicious.pdf --strict --diff-parser -o report.md
 ```
 
-## 12) ML classification
+## 13) ML classification
 
 Enable the stacking classifier (requires a model JSON file or directory).
 
@@ -655,7 +655,7 @@ Static IR/ORG finding kinds:
 - `shadow_payload_chain`
 - `objstm_action_chain`
 
-## 12c) Export object reference graph (ORG)
+## 13b) Export object reference graph (ORG)
 
 **By default, ORG exports include suspicious paths and classifications (enhanced mode).**
 
@@ -677,7 +677,7 @@ Basic graph only (no enhancements):
 sis export-org suspicious.pdf --basic --format json -o org_basic.json
 ```
 
-## 12d) Export PDFObj IR
+## 13c) Export PDFObj IR
 
 **By default, IR exports include findings and risk scores (enhanced mode).**
 
@@ -699,7 +699,7 @@ Basic IR only (no findings):
 sis export-ir suspicious.pdf --basic --format text -o ir_basic.txt
 ```
 
-## 13) Export features for datasets
+## 14) Export features for datasets
 
 **By default, feature export generates the extended 333-feature vector.**
 
@@ -746,14 +746,14 @@ The extended feature extractor generates **333 features** for ML training pipeli
 
 See `docs/training-pipeline.md` for ML training workflow.
 
-## 13b) ML Training Pipeline
+## 14b) ML Training Pipeline
 
 ### Compute Benign Baseline
 
 After extracting features from benign samples, compute a statistical baseline:
 
 ```
-sis compute-baseline --input benign_features.jsonl --out baseline.json
+sis ml compute-baseline --input benign_features.jsonl --out baseline.json
 ```
 
 The baseline includes feature means, standard deviations, and percentiles for:
@@ -805,7 +805,7 @@ python scripts/apply_calibration.py \
 
 See `docs/training-pipeline.md` for comprehensive ML training documentation.
 
-## 14) Advanced detectors (supply chain, crypto, multi-stage, quantum)
+## 15) Advanced detectors (supply chain, crypto, multi-stage, quantum)
 
 These detectors run automatically during `sis scan` and surface the following finding kinds:
 - `supply_chain_staged_payload`, `supply_chain_update_vector`, `supply_chain_persistence`
@@ -819,13 +819,13 @@ Example triage:
 sis scan suspicious.pdf --json
 ```
 
-## 15) Stream analysis (CLI)
+## 16) Stream analysis (CLI)
 
 ```
-sis stream-analyze suspicious.pdf --chunk-size 65536 --max-buffer 262144
+sis stream analyse suspicious.pdf --chunk-size 65536 --max-buffer 262144
 ```
 
-## 16) Campaign correlation (CLI)
+## 17) Campaign correlation (CLI)
 
 Generate intent JSONL from scans:
 
@@ -841,41 +841,41 @@ cat > intents.jsonl <<'JSONL'
 {"path":"sample_b.pdf","url":"http://example.com/c2"}
 JSONL
 
-sis campaign-correlate --input intents.jsonl -o campaigns.json
+sis correlate campaign --input intents.jsonl -o campaigns.json
 ```
 
-## 17) Response generation (CLI)
+## 18) Response generation (CLI)
 
 ```
-sis response-generate --kind js_present -o response_rules.yar
+sis generate response --kind js_present -o response_rules.yar
 ```
 
 From an existing JSON report:
 
 ```
 sis scan suspicious.pdf --json > report.json
-sis response-generate --from-report report.json -o response_rules.yar
+sis generate response --from-report report.json -o response_rules.yar
 ```
 
-## 18) Mutation testing (CLI)
+## 19) Mutation testing (CLI)
 
 ```
-sis mutate suspicious.pdf -o tmp/mutants
+sis generate mutate suspicious.pdf -o tmp/mutants
 ```
 
 Scan mutants and summarize detection deltas:
 
 ```
-sis mutate suspicious.pdf -o tmp/mutants --scan
+sis generate mutate suspicious.pdf -o tmp/mutants --scan
 ```
 
-## 19) Red-team simulation (CLI)
+## 20) Red-team simulation (CLI)
 
 ```
-sis red-team --target js_present -o tmp/redteam.pdf
+sis generate red-team --target js_present -o tmp/redteam.pdf
 ```
 
-## 20) Stream analysis (library API)
+## 21) Stream analysis (library API)
 
 The stream analyzer is a library helper for gateway-style streaming inspection.
 
@@ -892,7 +892,7 @@ for chunk in pdf_chunks {
 }
 ```
 
-## 21) Campaign correlation (library API)
+## 22) Campaign correlation (library API)
 
 ```rust
 use sis_pdf_core::campaign::{extract_domain, MultiStageCorrelator, NetworkIntent, PDFAnalysis};
@@ -911,7 +911,7 @@ let correlator = MultiStageCorrelator;
 let campaigns = correlator.correlate_campaign(&analyses);
 ```
 
-## 22) Automated response generation (library API)
+## 23) Automated response generation (library API)
 
 ```rust
 use sis_pdf_core::behavior::ThreatPattern;
@@ -928,7 +928,7 @@ let generator = ResponseGenerator;
 let yara_rules = generator.generate_yara_variants(&pattern);
 ```
 
-## 23) Mutation testing and red-team simulation (library API)
+## 24) Mutation testing and red-team simulation (library API)
 
 ```rust
 use sis_pdf_core::mutation::MutationTester;
@@ -941,13 +941,13 @@ let simulator = RedTeamSimulator;
 let evasive = simulator.generate_evasive_pdf(&DetectorProfile { target: "js_present".into() });
 ```
 
-## 24) Troubleshooting
+## 25) Troubleshooting
 
 - If `scan` misses objects, try `--deep` and check for `/ObjStm` usage.
 - If findings have no evidence spans, the detector may not yet attach spans for that rule.
 - If decoding fails, the stream may be malformed or use unsupported filters.
 
-## 25) Notes on evidence spans
+## 26) Notes on evidence spans
 
 - `source=File` offsets are absolute in the original PDF.
 - `source=Decoded` offsets refer to decoded buffers and should include `origin` spans when available.
