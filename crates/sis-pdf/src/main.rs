@@ -92,7 +92,7 @@ struct SandboxBehaviorPattern {
 }
 #[derive(Subcommand)]
 enum Command {
-    #[command(subcommand)]
+    #[command(subcommand, about = "Manage sis configuration")]
     Config(ConfigCommand),
     #[command(subcommand, about = "Manage ML runtime configuration and ONNX Runtime")]
     Ml(MlCommand),
@@ -245,10 +245,60 @@ enum Command {
     },
     #[command(subcommand, about = "Run sandbox evaluation for dynamic assets")]
     Sandbox(SandboxCommand),
-    #[command(name = "ml-health", about = "Deprecated (use sis ml health)")]
-    MlHealth {
+    #[command(about = "Generate a full Markdown report for a PDF scan")]
+    Report {
+        pdf: String,
+        #[arg(long)]
+        deep: bool,
+        #[arg(long, default_value_t = 32 * 1024 * 1024)]
+        max_decode_bytes: usize,
+        #[arg(long, default_value_t = 256 * 1024 * 1024)]
+        max_total_decoded_bytes: usize,
+        #[arg(long)]
+        no_recover: bool,
+        #[arg(long)]
+        diff_parser: bool,
+        #[arg(long, default_value_t = 500_000)]
+        max_objects: usize,
+        #[arg(long, default_value_t = 64)]
+        max_recursion_depth: usize,
+        #[arg(long)]
+        strict: bool,
+        #[arg(long)]
+        ir: bool,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+        #[arg(long)]
+        ml: bool,
         #[arg(long)]
         ml_model_dir: Option<PathBuf>,
+        #[arg(long, default_value_t = 0.9)]
+        ml_threshold: f32,
+        #[arg(long, default_value = "traditional", value_parser = ["traditional", "graph"])]
+        ml_mode: String,
+        #[arg(
+            long,
+            help = "Use extended 333-feature vector for ML (default with --ml)"
+        )]
+        ml_extended_features: bool,
+        #[arg(long, help = "Generate comprehensive ML explanation")]
+        ml_explain: bool,
+        #[arg(
+            long,
+            help = "Include advanced ML explainability (counterfactuals and interactions)"
+        )]
+        ml_advanced: bool,
+        #[arg(long, help = "Compute ML temporal analysis across incremental updates")]
+        ml_temporal: bool,
+        #[arg(
+            long,
+            help = "Compute non-ML temporal signals across incremental updates"
+        )]
+        temporal_signals: bool,
+        #[arg(long, help = "Path to benign baseline JSON for explanations")]
+        ml_baseline: Option<PathBuf>,
+        #[arg(long, help = "Path to calibration model JSON")]
+        ml_calibration: Option<PathBuf>,
         #[arg(
             long,
             help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)"
@@ -264,53 +314,17 @@ enum Command {
         ml_quantized: bool,
         #[arg(long, help = "Override embedding batch size")]
         ml_batch_size: Option<usize>,
-    },
-    #[command(about = "Compute benign baseline from feature vectors")]
-    ComputeBaseline {
-        #[arg(long, help = "Path to JSONL file with benign feature vectors")]
-        input: PathBuf,
-        #[arg(short, long, help = "Output baseline JSON file")]
-        out: PathBuf,
-    },
-    #[command(about = "Analyze a PDF stream in chunks and stop on indicators")]
-    StreamAnalyze {
-        pdf: String,
-        #[arg(long, default_value_t = 64 * 1024)]
-        chunk_size: usize,
-        #[arg(long, default_value_t = 256 * 1024)]
-        max_buffer: usize,
-    },
-    #[command(about = "Correlate network intents across PDFs from JSONL input")]
-    CampaignCorrelate {
         #[arg(long)]
-        input: PathBuf,
-        #[arg(short, long)]
-        out: Option<PathBuf>,
-    },
-    #[command(about = "Generate response YARA rules for a threat kind or report")]
-    ResponseGenerate {
+        no_js_ast: bool,
         #[arg(long)]
-        kind: Option<String>,
-        #[arg(long)]
-        from_report: Option<PathBuf>,
-        #[arg(short, long)]
-        out: Option<PathBuf>,
+        no_js_sandbox: bool,
     },
-    #[command(about = "Generate mutated PDFs for detection testing")]
-    Mutate {
-        pdf: String,
-        #[arg(short, long)]
-        out: PathBuf,
-        #[arg(long)]
-        scan: bool,
-    },
-    #[command(about = "Generate red-team evasive PDF fixtures")]
-    RedTeam {
-        #[arg(long)]
-        target: String,
-        #[arg(short, long)]
-        out: PathBuf,
-    },
+    #[command(subcommand, about = "Streaming analysis of PDF content")]
+    Stream(StreamCommand),
+    #[command(subcommand, about = "Correlate findings across multiple PDFs")]
+    Correlate(CorrelateCommand),
+    #[command(subcommand, about = "Generate test fixtures and response rules")]
+    Generate(GenerateCommand),
 }
 
 #[derive(Subcommand)]
@@ -396,6 +410,13 @@ enum MlCommand {
         #[arg(long, help = "Path to ONNX Runtime dynamic library")]
         ml_ort_dylib: Option<PathBuf>,
     },
+    #[command(about = "Compute benign baseline from feature vectors")]
+    ComputeBaseline {
+        #[arg(long, help = "Path to JSONL file with benign feature vectors")]
+        input: PathBuf,
+        #[arg(short, long, help = "Output baseline JSON file")]
+        out: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -428,6 +449,58 @@ enum MlOrtCommand {
         checksum_sha256: Option<String>,
     },
 }
+
+#[derive(Subcommand)]
+enum StreamCommand {
+    #[command(about = "Analyze a PDF stream in chunks and stop on indicators", alias = "analyze")]
+    Analyse {
+        pdf: String,
+        #[arg(long, default_value_t = 64 * 1024)]
+        chunk_size: usize,
+        #[arg(long, default_value_t = 256 * 1024)]
+        max_buffer: usize,
+    },
+}
+
+#[derive(Subcommand)]
+enum CorrelateCommand {
+    #[command(about = "Correlate network intents across PDFs from JSONL input")]
+    Campaign {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum GenerateCommand {
+    #[command(about = "Generate response YARA rules for a threat kind or report")]
+    Response {
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long)]
+        from_report: Option<PathBuf>,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    #[command(about = "Generate mutated PDFs for detection testing")]
+    Mutate {
+        pdf: String,
+        #[arg(short, long)]
+        out: PathBuf,
+        #[arg(long)]
+        scan: bool,
+    },
+    #[command(about = "Generate red-team evasive PDF fixtures")]
+    RedTeam {
+        #[arg(long)]
+        target: String,
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
     let config_path = resolve_config_path_from_args(&args);
@@ -506,6 +579,7 @@ fn main() -> Result<()> {
                 ml_ort_dylib.as_deref(),
                 dry_run,
             ),
+            MlCommand::ComputeBaseline { input, out } => run_compute_baseline(&input, &out),
         },
         Command::Update { include_prerelease } => run_update(include_prerelease),
         Command::Query {
@@ -639,40 +713,90 @@ fn main() -> Result<()> {
                 max_bytes,
             } => run_sandbox_eval(&file, &asset_type, max_bytes),
         },
-        Command::MlHealth {
+        Command::Report {
+            pdf,
+            deep,
+            max_decode_bytes,
+            max_total_decoded_bytes,
+            no_recover,
+            diff_parser,
+            max_objects,
+            max_recursion_depth,
+            strict,
+            ir,
+            out,
+            ml,
             ml_model_dir,
+            ml_threshold,
+            ml_mode,
+            ml_extended_features,
+            ml_explain,
+            ml_advanced,
+            ml_temporal,
+            temporal_signals,
+            ml_baseline,
+            ml_calibration,
             ml_provider,
             ml_provider_order,
             ml_provider_info,
             ml_ort_dylib,
             ml_quantized,
             ml_batch_size,
-        } => {
-            warn!("ml-health is deprecated; use `sis ml health`");
-            run_ml_health(
-                ml_model_dir.as_deref(),
-                ml_provider.as_deref(),
-                ml_provider_order.as_deref(),
-                ml_provider_info,
-                ml_ort_dylib.as_deref(),
-                ml_quantized,
-                ml_batch_size,
-            )
-        }
-        Command::ComputeBaseline { input, out } => run_compute_baseline(&input, &out),
-        Command::StreamAnalyze {
-            pdf,
-            chunk_size,
-            max_buffer,
-        } => run_stream_analyze(&pdf, chunk_size, max_buffer),
-        Command::CampaignCorrelate { input, out } => run_campaign_correlate(&input, out.as_deref()),
-        Command::ResponseGenerate {
-            kind,
-            from_report,
-            out,
-        } => run_response_generate(kind.as_deref(), from_report.as_deref(), out.as_deref()),
-        Command::Mutate { pdf, out, scan } => run_mutate(&pdf, &out, scan),
-        Command::RedTeam { target, out } => run_redteam(&target, &out),
+            no_js_ast,
+            no_js_sandbox,
+        } => run_report(
+            &pdf,
+            deep,
+            max_decode_bytes,
+            max_total_decoded_bytes,
+            !no_recover,
+            diff_parser,
+            max_objects,
+            max_recursion_depth,
+            strict,
+            ir,
+            out.as_deref(),
+            ml,
+            ml_model_dir.as_deref(),
+            ml_threshold,
+            &ml_mode,
+            ml_extended_features,
+            ml_explain,
+            ml_advanced,
+            ml_temporal,
+            temporal_signals,
+            ml_baseline.as_deref(),
+            ml_calibration.as_deref(),
+            ml_provider.as_deref(),
+            ml_provider_order.as_deref(),
+            ml_provider_info,
+            ml_ort_dylib.as_deref(),
+            ml_quantized,
+            ml_batch_size,
+            !no_js_ast,
+            !no_js_sandbox,
+        ),
+        Command::Stream(cmd) => match cmd {
+            StreamCommand::Analyse {
+                pdf,
+                chunk_size,
+                max_buffer,
+            } => run_stream_analyze(&pdf, chunk_size, max_buffer),
+        },
+        Command::Correlate(cmd) => match cmd {
+            CorrelateCommand::Campaign { input, out } => {
+                run_campaign_correlate(&input, out.as_deref())
+            }
+        },
+        Command::Generate(cmd) => match cmd {
+            GenerateCommand::Response {
+                kind,
+                from_report,
+                out,
+            } => run_response_generate(kind.as_deref(), from_report.as_deref(), out.as_deref()),
+            GenerateCommand::Mutate { pdf, out, scan } => run_mutate(&pdf, &out, scan),
+            GenerateCommand::RedTeam { target, out } => run_redteam(&target, &out),
+        },
     }
 }
 
