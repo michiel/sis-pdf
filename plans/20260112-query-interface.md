@@ -414,6 +414,155 @@ fi
 6. **Temporal queries**: Query across incremental updates
 7. **Aggregation**: Statistics across multiple PDFs
 
+## Command Deprecation and Removal
+
+Once the query interface is fully implemented, several existing clap CLI commands can be deprecated and removed to simplify the CLI surface and reduce maintenance burden.
+
+### Commands to REMOVE (Replaced by Query Interface)
+
+These commands duplicate functionality that will be provided by `sis query`:
+
+1. **`sis explain FINDING_ID FILE`** → **`sis query explain FINDING_ID FILE`**
+   - Current: Explain a specific finding with evidence details
+   - Replacement: Query interface with explain query
+   - Timeline: Remove in Phase 4 (Finding Queries)
+
+2. **`sis extract js FILE`** → **`sis query js FILE [--out FILE]`**
+   - Current: Extract JavaScript from PDF
+   - Replacement: `sis query js FILE` or `sis query js FILE > output.js`
+   - Timeline: Remove in Phase 2 (Content Queries)
+
+3. **`sis extract embedded FILE`** → **`sis query embedded FILE [--out DIR]`**
+   - Current: Extract embedded files from PDF
+   - Replacement: `sis query embedded FILE` or `sis query embedded FILE --extract-to DIR`
+   - Timeline: Remove in Phase 2 (Content Queries)
+
+4. **`sis export-graph FILE`** → **`sis query chains FILE [--format dot|json]`**
+   - Current: Export action chains as DOT or JSON
+   - Replacement: Query interface with chains query
+   - Timeline: Remove in Phase 6 (Advanced Queries)
+
+5. **`sis export-org FILE`** → **`sis query graph FILE [--format dot|json]`**
+   - Current: Export object reference graph with suspicious paths
+   - Replacement: Query interface with graph query
+   - Timeline: Remove in Phase 6 (Advanced Queries)
+
+6. **`sis export-ir FILE`** → **`sis query ir FILE [--format text|json]`**
+   - Current: Export enhanced IR with findings and risk scores
+   - Replacement: Query interface with IR query
+   - Timeline: Remove in Phase 6 (Advanced Queries)
+
+7. **`sis export-features FILE`** → **`sis query features FILE [--extended]`**
+   - Current: Export extended 333-feature vectors for ML pipelines
+   - Replacement: Query interface with features query
+   - Timeline: Remove in Phase 6 (Advanced Queries)
+
+### Commands to DEPRECATE (Redundant with Scan + Query)
+
+These commands have overlapping functionality with `sis scan` and `sis query`:
+
+1. **`sis detect --findings KIND FILE`** → **`sis query "findings.kind KIND" FILE`**
+   - Current: Detect files that contain specific findings
+   - Replacement: Use scan with JSON output + jq, or query interface
+   - Rationale: Specialized command that can be replaced by filtering
+   - Timeline: Deprecate in Phase 4, remove in future major version
+
+2. **`sis report FILE`** → **`sis scan FILE [--json] | sis query ... | formatter`**
+   - Current: Generate a full Markdown report for a PDF scan
+   - Replacement: Combine scan output with query interface and formatting
+   - Rationale: Report generation can be external to core tool
+   - Timeline: Deprecate in Phase 4, remove in future major version
+   - Note: Consider keeping if users heavily rely on Markdown reports
+
+### Commands to KEEP (Core Functionality)
+
+These commands provide specialized functionality not duplicated by query interface:
+
+1. **`sis config`** - Configuration management (init, verify)
+2. **`sis ml`** - ML runtime management (health, detect, configure, download)
+3. **`sis update`** - Self-update functionality
+4. **`sis scan`** - Primary scanning command (core functionality)
+5. **`sis sandbox`** - Dynamic sandbox evaluation (specialized analysis)
+6. **`sis stream-analyze`** - Stream chunking and early termination (specialized)
+7. **`sis campaign-correlate`** - Cross-document correlation (specialized)
+8. **`sis response-generate`** - YARA rule generation (specialized)
+9. **`sis compute-baseline`** - Baseline computation (ML workflow)
+10. **`sis mutate`** - Mutation testing (red-team workflow)
+11. **`sis red-team`** - Evasion testing (red-team workflow)
+
+### Migration Path
+
+**Phase 1: Add Query Interface (v0.x)**
+- Implement `sis query` command with all functionality
+- Keep existing commands for backwards compatibility
+- Add deprecation warnings to commands that will be removed
+
+**Phase 2: Deprecation Period (v1.x)**
+- Mark commands for removal with `#[deprecated]` or runtime warnings
+- Update documentation to recommend query interface
+- Provide migration examples in changelog
+- Keep deprecated commands for at least one minor version
+
+**Phase 3: Removal (v2.0)**
+- Remove deprecated commands in next major version
+- Update all documentation and examples
+- Provide migration guide for users
+
+### Example Deprecation Warnings
+
+```rust
+#[command(about = "Extract JavaScript or embedded files from a PDF")]
+#[deprecated(since = "1.5.0", note = "Use `sis query js` or `sis query embedded` instead")]
+Extract { ... }
+```
+
+Runtime warning:
+```
+Warning: `sis extract` is deprecated and will be removed in v2.0.
+Use `sis query js FILE` or `sis query embedded FILE` instead.
+Run `sis query --help` for more information.
+```
+
+### CLI Structure After Cleanup
+
+```
+sis
+├── config      - Configuration management
+├── ml          - ML runtime management
+├── update      - Self-update
+├── scan        - Scan PDFs for findings
+├── query       - Query PDF structure and content (NEW - replaces 7 commands)
+├── sandbox     - Dynamic sandbox evaluation
+├── stream-analyze      - Stream analysis
+├── campaign-correlate  - Cross-document correlation
+├── response-generate   - YARA generation
+├── compute-baseline    - Baseline computation
+├── mutate      - Mutation testing
+└── red-team    - Evasion testing
+```
+
+**Before: 21 commands**
+**After: 12 commands** (43% reduction in CLI surface)
+
+### Benefits of Consolidation
+
+1. **Simpler CLI**: Users learn one query interface instead of many commands
+2. **Consistent UX**: All queries use same syntax and output format
+3. **Reduced maintenance**: Fewer commands to maintain and test
+4. **Better composability**: Query interface designed for piping and filtering
+5. **Easier documentation**: One comprehensive query guide instead of many command docs
+
+### Risks and Mitigation
+
+**Risk**: Breaking changes for existing users and scripts
+**Mitigation**: Long deprecation period (6-12 months), clear migration guide, runtime warnings
+
+**Risk**: Loss of specialized functionality
+**Mitigation**: Ensure query interface has feature parity before removal
+
+**Risk**: Performance regression from unified interface
+**Mitigation**: Benchmark query interface against existing commands, optimize hot paths
+
 ## Related Plans
 
 - `20260110-graph-query.md` - Graph query console (more advanced, graph-focused)
