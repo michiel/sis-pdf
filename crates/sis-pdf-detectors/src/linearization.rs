@@ -5,7 +5,7 @@ use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::PdfAtom;
 
-use crate::{entry_dict, dict_int};
+use crate::{dict_int, entry_dict};
 
 pub struct LinearizationDetector;
 
@@ -57,8 +57,8 @@ impl Detector for LinearizationDetector {
                 remediation: Some("Validate linearization with a strict parser.".into()),
                 meta: Default::default(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
         }
         if let Some(entry) = linearized.first() {
@@ -97,14 +97,15 @@ impl Detector for LinearizationDetector {
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
                         title: "Linearization values inconsistent".into(),
-                        description: "Linearization dictionary fields do not match file layout.".into(),
+                        description: "Linearization dictionary fields do not match file layout."
+                            .into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(entry.full_span, "Linearization dict")],
                         remediation: Some("Inspect linearized offsets and hint tables.".into()),
                         meta,
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 } else if dict.get_first(b"/H").is_some() {
                     findings.push(Finding {
@@ -120,8 +121,8 @@ impl Detector for LinearizationDetector {
                         remediation: Some("Validate hint table offsets and object access.".into()),
                         meta,
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }

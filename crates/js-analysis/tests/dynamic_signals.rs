@@ -8,7 +8,11 @@ fn sandbox_skips_large_payload() {
     let data = b"this is too large";
     let outcome = js_analysis::run_sandbox(data, &options);
     match outcome {
-        DynamicOutcome::Skipped { reason, limit, actual } => {
+        DynamicOutcome::Skipped {
+            reason,
+            limit,
+            actual,
+        } => {
             assert_eq!(reason, "payload_too_large");
             assert_eq!(limit, 8);
             assert_eq!(actual, data.len());

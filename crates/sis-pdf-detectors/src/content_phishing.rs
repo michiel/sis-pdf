@@ -5,10 +5,7 @@ use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 
-use crate::{
-    extract_strings_with_span, page_has_uri_annot,
-    entry_dict,
-};
+use crate::{entry_dict, extract_strings_with_span, page_has_uri_annot};
 
 pub struct ContentPhishingDetector;
 
@@ -26,7 +23,13 @@ impl Detector for ContentPhishingDetector {
         Cost::Moderate
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let keywords: &[&[u8]] = &[b"invoice", b"secure", b"view document", b"account", b"verify"];
+        let keywords: &[&[u8]] = &[
+            b"invoice",
+            b"secure",
+            b"view document",
+            b"account",
+            b"verify",
+        ];
         let mut has_keyword = false;
         let mut evidence = Vec::new();
         for entry in &ctx.graph.objects {
@@ -64,15 +67,15 @@ impl Detector for ContentPhishingDetector {
                 severity: Severity::Medium,
                 confidence: Confidence::Heuristic,
                 title: "Potential phishing content".into(),
-                description:
-                    "Detected phishing-like keywords alongside external URI actions.".into(),
+                description: "Detected phishing-like keywords alongside external URI actions."
+                    .into(),
                 objects: vec!["content".into()],
                 evidence,
                 remediation: Some("Manually review page content and links.".into()),
                 meta: Default::default(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             }]);
         }
         let mut out = Vec::new();
@@ -84,7 +87,7 @@ impl Detector for ContentPhishingDetector {
 }
 
 fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding> {
-    let patterns: &[&[u8]] = &[b"<script", b"<iframe", b"javascript:"]; 
+    let patterns: &[&[u8]] = &[b"<script", b"<iframe", b"javascript:"];
     for entry in &ctx.graph.objects {
         for (bytes, span) in extract_strings_with_span(entry) {
             let lower = bytes.to_ascii_lowercase();
@@ -105,8 +108,8 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
                     remediation: Some("Review rendered text for embedded scripts or links.".into()),
                     meta: Default::default(),
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }
@@ -135,12 +138,13 @@ impl Detector for ContentDeceptionDetector {
         for page in pages {
             let page_entry = ctx.graph.get_object(page.obj, page.gen);
             let Some(entry) = page_entry else { continue };
-            let Some(dict) = entry_dict(entry) else { continue };
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
             let evidence = vec![span_to_evidence(entry.full_span, "Page object")];
             let has_image = !page.image_points.is_empty();
             let has_text = !page.text_points.is_empty();
-            let coord = first_coord(&page)
-                .map(|(x, y)| format!("x={:.2} y={:.2}", x, y));
+            let coord = first_coord(&page).map(|(x, y)| format!("x={:.2} y={:.2}", x, y));
 
             if has_image && !has_text {
                 let mut meta = std::collections::HashMap::new();
@@ -161,8 +165,8 @@ impl Detector for ContentDeceptionDetector {
                     remediation: Some("Review for deceptive overlays or lures.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
             if page.invisible_text {
@@ -184,8 +188,8 @@ impl Detector for ContentDeceptionDetector {
                     remediation: Some("Inspect for hidden text or overlays.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
             if has_image && page_has_uri_annot(ctx, dict) {
@@ -207,8 +211,8 @@ impl Detector for ContentDeceptionDetector {
                     remediation: Some("Inspect annotation overlays and link targets.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }

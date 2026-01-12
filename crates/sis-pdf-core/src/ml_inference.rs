@@ -1,12 +1,12 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use crate::explainability::{
-    BenignBaseline, FeatureAttribution, EvidenceChain,
-    compute_permutation_importance, generate_explanation_text, build_evidence_chains,
-    compute_comparative_explanation, ComparativeFeature,
+    build_evidence_chains, compute_comparative_explanation, compute_permutation_importance,
+    generate_explanation_text, BenignBaseline, ComparativeFeature, EvidenceChain,
+    FeatureAttribution,
 };
 use crate::features_extended::ExtendedFeatureVector;
 use crate::ml::LinearModel;
@@ -70,8 +70,14 @@ pub struct CalibrationModel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "method")]
 pub enum CalibrationMethod {
-    PlattScaling { coef: Vec<f32>, intercept: Vec<f32> },
-    IsotonicRegression { x_thresholds: Vec<f32>, y_thresholds: Vec<f32> },
+    PlattScaling {
+        coef: Vec<f32>,
+        intercept: Vec<f32>,
+    },
+    IsotonicRegression {
+        x_thresholds: Vec<f32>,
+        y_thresholds: Vec<f32>,
+    },
 }
 
 impl CalibrationModel {
@@ -90,7 +96,10 @@ impl CalibrationModel {
                 let logit = coef[0] * raw_score + intercept[0];
                 1.0 / (1.0 + (-logit).exp())
             }
-            CalibrationMethod::IsotonicRegression { x_thresholds, y_thresholds } => {
+            CalibrationMethod::IsotonicRegression {
+                x_thresholds,
+                y_thresholds,
+            } => {
                 // Piecewise constant interpolation
                 if raw_score <= x_thresholds[0] {
                     return y_thresholds[0];
@@ -103,7 +112,8 @@ impl CalibrationModel {
                 for i in 0..x_thresholds.len() - 1 {
                     if raw_score >= x_thresholds[i] && raw_score < x_thresholds[i + 1] {
                         // Linear interpolation within bin
-                        let ratio = (raw_score - x_thresholds[i]) / (x_thresholds[i + 1] - x_thresholds[i]);
+                        let ratio =
+                            (raw_score - x_thresholds[i]) / (x_thresholds[i + 1] - x_thresholds[i]);
                         return y_thresholds[i] + ratio * (y_thresholds[i + 1] - y_thresholds[i]);
                     }
                 }
@@ -126,11 +136,14 @@ pub fn run_ml_inference(
 
     // 2. Load baseline (only required for explanations)
     let baseline = if config.explain {
-        let baseline_path = config.baseline_path.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("ML explanations require --ml-baseline")
-        })?;
-        Some(BenignBaseline::load_from_file(baseline_path)
-            .map_err(|e| anyhow::anyhow!("Failed to load baseline: {}", e))?)
+        let baseline_path = config
+            .baseline_path
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("ML explanations require --ml-baseline"))?;
+        Some(
+            BenignBaseline::load_from_file(baseline_path)
+                .map_err(|e| anyhow::anyhow!("Failed to load baseline: {}", e))?,
+        )
     } else {
         None
     };
@@ -172,7 +185,11 @@ pub fn run_ml_inference(
             raw_score,
             calibrated_score,
             confidence_interval,
-            calibration_method: format!("{:?}", calibrator.method).split('(').next().unwrap().to_string(),
+            calibration_method: format!("{:?}", calibrator.method)
+                .split('(')
+                .next()
+                .unwrap()
+                .to_string(),
             interpretation,
             label: calibrated_score >= config.threshold,
             threshold: config.threshold,
@@ -194,7 +211,9 @@ pub fn run_ml_inference(
     let explanation = if config.explain {
         Some(generate_comprehensive_explanation(
             &features,
-            baseline.as_ref().expect("baseline required for explanation"),
+            baseline
+                .as_ref()
+                .expect("baseline required for explanation"),
             findings,
             &calibrated,
             &model,
@@ -222,22 +241,18 @@ fn generate_comprehensive_explanation(
     // Feature attribution via permutation importance
     let feature_vec = features.as_f32_vec();
     let feature_names = ExtendedFeatureVector::feature_names();
-    let model_fn = |fv: &[f32]| -> f32 {
-        model.predict_vec(fv)
-    };
-    let attribution = compute_permutation_importance(&model_fn, &feature_vec, &feature_names, baseline);
+    let model_fn = |fv: &[f32]| -> f32 { model.predict_vec(fv) };
+    let attribution =
+        compute_permutation_importance(&model_fn, &feature_vec, &feature_names, baseline);
 
     // Natural language summary
-    let summary = generate_explanation_text(
-        prediction.calibrated_score,
-        &attribution,
-        findings,
-    );
+    let summary = generate_explanation_text(prediction.calibrated_score, &attribution, findings);
 
     // Feature group importance
     let mut group_importance = HashMap::new();
     for attr in &attribution {
-        let group = attr.feature_name
+        let group = attr
+            .feature_name
             .split('.')
             .next()
             .unwrap_or("other")
@@ -257,11 +272,7 @@ fn generate_comprehensive_explanation(
     let evidence_chains = build_evidence_chains(&attribution, findings);
 
     // Decision factors (bullet points)
-    let decision_factors = generate_decision_factors(
-        &attribution,
-        &comparative,
-        findings,
-    );
+    let decision_factors = generate_decision_factors(&attribution, &comparative, findings);
 
     let (counterfactual, feature_interactions, temporal_analysis) = if explain_advanced {
         let counterfactual = crate::explainability::generate_counterfactual_linear(
@@ -272,11 +283,8 @@ fn generate_comprehensive_explanation(
             8,
             Some(baseline),
         );
-        let interactions = crate::explainability::detect_feature_interactions(
-            &feature_map,
-            baseline,
-            5,
-        );
+        let interactions =
+            crate::explainability::detect_feature_interactions(&feature_map, baseline, 5);
         (Some(counterfactual), interactions, None)
     } else {
         (None, Vec::new(), None)
@@ -330,7 +338,10 @@ fn generate_decision_factors(
     let high_count = findings
         .iter()
         .filter(|f| {
-            matches!(f.severity, crate::model::Severity::High | crate::model::Severity::Critical)
+            matches!(
+                f.severity,
+                crate::model::Severity::High | crate::model::Severity::Critical
+            )
         })
         .count();
     if high_count > 0 {
@@ -399,7 +410,8 @@ mod tests {
             calibrated_score: 0.68,
             confidence_interval: Some((0.60, 0.76)),
             calibration_method: "PlattScaling".to_string(),
-            interpretation: "68% probability of being malicious (60%-76% with 95% confidence)".to_string(),
+            interpretation: "68% probability of being malicious (60%-76% with 95% confidence)"
+                .to_string(),
             label: true,
             threshold: 0.5,
         };

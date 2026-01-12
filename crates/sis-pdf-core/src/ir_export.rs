@@ -1,6 +1,6 @@
-use sis_pdf_pdf::ir::PdfIrObject;
-use crate::ir_enhanced::{EnhancedPdfIrObject, EnhancedIrExport, IrLineRef};
+use crate::ir_enhanced::{EnhancedIrExport, EnhancedPdfIrObject, IrLineRef};
 use crate::model::Finding;
+use sis_pdf_pdf::ir::PdfIrObject;
 
 pub fn export_ir_json(ir_objects: &[PdfIrObject]) -> serde_json::Value {
     let objects: Vec<serde_json::Value> = ir_objects
@@ -52,10 +52,7 @@ pub fn export_ir_text(ir_objects: &[PdfIrObject]) -> String {
 }
 
 /// Convert basic PdfIrObject to EnhancedPdfIrObject with findings
-pub fn convert_to_enhanced_ir(
-    basic_ir: &PdfIrObject,
-    findings: &[Finding],
-) -> EnhancedPdfIrObject {
+pub fn convert_to_enhanced_ir(basic_ir: &PdfIrObject, findings: &[Finding]) -> EnhancedPdfIrObject {
     // Convert PdfIrLine to IrLineRef
     let lines: Vec<IrLineRef> = basic_ir
         .lines
@@ -104,11 +101,26 @@ pub fn export_enhanced_ir_text(enhanced_ir: &EnhancedIrExport) -> String {
 
     // Document summary
     out.push_str("=== DOCUMENT SUMMARY ===\n");
-    out.push_str(&format!("Total objects: {}\n", enhanced_ir.document_summary.total_objects));
-    out.push_str(&format!("Objects with findings: {}\n", enhanced_ir.document_summary.objects_with_findings));
-    out.push_str(&format!("Max object risk: {:.2}\n", enhanced_ir.document_summary.max_object_risk));
-    out.push_str(&format!("Attack surface diversity: {}\n", enhanced_ir.document_summary.attack_surface_diversity));
-    out.push_str(&format!("\nExplanation: {}\n", enhanced_ir.document_summary.explanation));
+    out.push_str(&format!(
+        "Total objects: {}\n",
+        enhanced_ir.document_summary.total_objects
+    ));
+    out.push_str(&format!(
+        "Objects with findings: {}\n",
+        enhanced_ir.document_summary.objects_with_findings
+    ));
+    out.push_str(&format!(
+        "Max object risk: {:.2}\n",
+        enhanced_ir.document_summary.max_object_risk
+    ));
+    out.push_str(&format!(
+        "Attack surface diversity: {}\n",
+        enhanced_ir.document_summary.attack_surface_diversity
+    ));
+    out.push_str(&format!(
+        "\nExplanation: {}\n",
+        enhanced_ir.document_summary.explanation
+    ));
 
     // Severity breakdown
     out.push_str("\n--- Severity Breakdown ---\n");
@@ -136,7 +148,10 @@ pub fn export_enhanced_ir_text(enhanced_ir: &EnhancedIrExport) -> String {
             out.push_str(&format!("Max Severity: {}\n", severity));
         }
 
-        out.push_str(&format!("Attack Surfaces: {}\n", obj.attack_surfaces.join(", ")));
+        out.push_str(&format!(
+            "Attack Surfaces: {}\n",
+            obj.attack_surfaces.join(", ")
+        ));
 
         if let Some(explanation) = &obj.explanation {
             out.push_str(&format!("Explanation: {}\n", explanation));
@@ -144,8 +159,10 @@ pub fn export_enhanced_ir_text(enhanced_ir: &EnhancedIrExport) -> String {
 
         out.push_str("\nFindings:\n");
         for finding in &obj.findings {
-            out.push_str(&format!("  - {} [{}] (confidence: {})\n",
-                finding.kind, finding.severity, finding.confidence));
+            out.push_str(&format!(
+                "  - {} [{}] (confidence: {})\n",
+                finding.kind, finding.severity, finding.confidence
+            ));
 
             if !finding.signals.is_empty() {
                 out.push_str("    Signals:\n");
@@ -166,7 +183,7 @@ pub fn export_enhanced_ir_text(enhanced_ir: &EnhancedIrExport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{AttackSurface, Severity, Confidence};
+    use crate::model::{AttackSurface, Confidence, Severity};
     use sis_pdf_pdf::ir::PdfIrLine;
     use std::collections::HashMap;
 
@@ -192,14 +209,12 @@ mod tests {
     fn create_test_ir_object(obj_id: u32) -> PdfIrObject {
         PdfIrObject {
             obj_ref: (obj_id, 0),
-            lines: vec![
-                PdfIrLine {
-                    obj_ref: (obj_id, 0),
-                    path: "$.Type".to_string(),
-                    value_type: "name".to_string(),
-                    value: "/Page".to_string(),
-                },
-            ],
+            lines: vec![PdfIrLine {
+                obj_ref: (obj_id, 0),
+                path: "$.Type".to_string(),
+                value_type: "name".to_string(),
+                value: "/Page".to_string(),
+            }],
             deviations: vec![],
         }
     }
@@ -219,13 +234,8 @@ mod tests {
 
     #[test]
     fn test_generate_enhanced_ir_export() {
-        let basic_ir_objects = vec![
-            create_test_ir_object(1),
-            create_test_ir_object(2),
-        ];
-        let findings = vec![
-            create_test_finding("js_eval", Severity::High, 1),
-        ];
+        let basic_ir_objects = vec![create_test_ir_object(1), create_test_ir_object(2)];
+        let findings = vec![create_test_finding("js_eval", Severity::High, 1)];
 
         let export = generate_enhanced_ir_export(&basic_ir_objects, &findings);
 

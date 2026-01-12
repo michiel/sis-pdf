@@ -1,11 +1,13 @@
+pub mod blob;
+pub mod blob_classify;
 pub mod classification;
-pub mod decode;
 pub mod content;
+pub mod decode;
 pub mod graph;
 pub mod ir;
 pub mod lexer;
-pub mod objstm;
 pub mod object;
+pub mod objstm;
 pub mod parser;
 pub mod path_finder;
 pub mod span;

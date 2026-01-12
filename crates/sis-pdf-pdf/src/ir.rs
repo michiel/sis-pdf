@@ -80,11 +80,7 @@ fn emit_lines_for_atom(
             } else {
                 filters.join(",")
             };
-            let meta = format!(
-                "len={} filters={}",
-                st.data_span.len(),
-                filter_list
-            );
+            let meta = format!("len={} filters={}", st.data_span.len(), filter_list);
             out.push(PdfIrLine {
                 obj_ref: (entry.obj, entry.gen),
                 path: path.to_string(),
@@ -227,11 +223,7 @@ fn summarize_array(items: &[PdfObj<'_>], opts: &IrOptions) -> (String, String) {
     } else {
         "mix_list".into()
     };
-    let summary = format!(
-        "len={} values=[{}]",
-        items.len(),
-        values.join(",")
-    );
+    let summary = format!("len={} values=[{}]", items.len(), values.join(","));
     (value_type, summary)
 }
 

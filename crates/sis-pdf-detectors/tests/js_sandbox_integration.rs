@@ -43,10 +43,7 @@ fn sandbox_exec_records_calls() {
         .iter()
         .find(|f| f.kind == "js_sandbox_exec")
         .expect("sandbox exec finding");
-    let calls = sandbox
-        .meta
-        .get("js.runtime.calls")
-        .expect("runtime calls");
+    let calls = sandbox.meta.get("js.runtime.calls").expect("runtime calls");
     assert!(calls.contains("alert"));
     assert_eq!(
         sandbox.meta.get("js.sandbox_exec").map(String::as_str),

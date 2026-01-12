@@ -13,6 +13,53 @@ pub struct DecodedStream {
     pub input_len: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct DecodeMismatch {
+    pub filter: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum DecodeOutcome {
+    Ok,
+    Truncated,
+    Failed {
+        filter: Option<String>,
+        reason: String,
+    },
+    SuspectMismatch,
+}
+
+#[derive(Debug, Clone)]
+pub struct DecodeMeta {
+    pub filters: Vec<String>,
+    pub mismatches: Vec<DecodeMismatch>,
+    pub outcome: DecodeOutcome,
+    pub input_len: usize,
+    pub output_len: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DecodeLimits {
+    pub max_decoded_bytes: usize,
+    pub max_filter_chain_depth: usize,
+}
+
+impl Default for DecodeLimits {
+    fn default() -> Self {
+        Self {
+            max_decoded_bytes: 8 * 1024 * 1024,
+            max_filter_chain_depth: 8,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DecodeServiceResult {
+    pub data: Option<Vec<u8>>,
+    pub meta: DecodeMeta,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct DecodeParms {
     predictor: u32,
@@ -23,7 +70,11 @@ struct DecodeParms {
 
 const MAX_DECODE_PARMS: u32 = 100_000;
 
-pub fn decode_stream(bytes: &[u8], stream: &PdfStream<'_>, max_out: usize) -> Result<DecodedStream> {
+pub fn decode_stream(
+    bytes: &[u8],
+    stream: &PdfStream<'_>,
+    max_out: usize,
+) -> Result<DecodedStream> {
     let span = stream.data_span;
     let start = span.start as usize;
     let end = span.end as usize;
@@ -57,6 +108,111 @@ pub fn decode_stream(bytes: &[u8], stream: &PdfStream<'_>, max_out: usize) -> Re
         filters,
         input_len: end - start,
     })
+}
+
+pub fn decode_stream_with_meta(
+    bytes: &[u8],
+    stream: &PdfStream<'_>,
+    limits: DecodeLimits,
+) -> DecodeServiceResult {
+    let span = stream.data_span;
+    let start = span.start as usize;
+    let end = span.end as usize;
+    let mut mismatches = Vec::new();
+    let filters = stream_filters(&stream.dict);
+    let mut outcome = DecodeOutcome::Ok;
+    let mut data = None;
+
+    if start >= end || end > bytes.len() {
+        return DecodeServiceResult {
+            data: None,
+            meta: DecodeMeta {
+                filters,
+                mismatches,
+                outcome: DecodeOutcome::Failed {
+                    filter: None,
+                    reason: "invalid stream span".to_string(),
+                },
+                input_len: 0,
+                output_len: 0,
+            },
+        };
+    }
+
+    let raw = &bytes[start..end];
+    let input_len = raw.len();
+
+    if limits.max_filter_chain_depth > 0 && filters.len() > limits.max_filter_chain_depth {
+        return DecodeServiceResult {
+            data: None,
+            meta: DecodeMeta {
+                filters,
+                mismatches,
+                outcome: DecodeOutcome::Failed {
+                    filter: None,
+                    reason: "filter chain depth exceeded".to_string(),
+                },
+                input_len,
+                output_len: 0,
+            },
+        };
+    }
+
+    for filter in &filters {
+        if matches!(filter.as_str(), "/DCTDecode" | "/DCT") && !looks_like_jpeg(raw) {
+            mismatches.push(DecodeMismatch {
+                filter: filter.clone(),
+                reason: "missing JPEG SOI".to_string(),
+            });
+        }
+        if matches!(filter.as_str(), "/FlateDecode" | "/Fl") && !looks_like_zlib(raw) {
+            mismatches.push(DecodeMismatch {
+                filter: filter.clone(),
+                reason: "stream is not zlib-like".to_string(),
+            });
+        }
+    }
+
+    if filters.is_empty() {
+        let mut owned = raw.to_vec();
+        if owned.len() > limits.max_decoded_bytes {
+            owned.truncate(limits.max_decoded_bytes);
+            outcome = DecodeOutcome::Truncated;
+        }
+        data = Some(owned);
+    } else {
+        match decode_stream(bytes, stream, limits.max_decoded_bytes) {
+            Ok(decoded) => {
+                if decoded.truncated {
+                    outcome = DecodeOutcome::Truncated;
+                }
+                data = Some(decoded.data);
+            }
+            Err(err) => {
+                outcome = DecodeOutcome::Failed {
+                    filter: filters.last().cloned(),
+                    reason: err.to_string(),
+                };
+            }
+        }
+    }
+
+    if !mismatches.is_empty() && matches!(outcome, DecodeOutcome::Ok | DecodeOutcome::Truncated) {
+        outcome = DecodeOutcome::SuspectMismatch;
+    }
+
+    let output_len = data.as_ref().map(|d| d.len()).unwrap_or(0);
+
+    DecodeServiceResult {
+        data,
+        meta: DecodeMeta {
+            filters,
+            mismatches,
+            outcome,
+            input_len,
+            output_len,
+        },
+    }
 }
 
 pub fn stream_filters(dict: &PdfDict<'_>) -> Vec<String> {
@@ -352,7 +508,11 @@ pub fn decode_ascii_hex(data: &[u8]) -> Vec<u8> {
     let mut i = 0;
     while i < buf.len() {
         let hi = hex_val(buf[i]);
-        let lo = if i + 1 < buf.len() { hex_val(buf[i + 1]) } else { Some(0) };
+        let lo = if i + 1 < buf.len() {
+            hex_val(buf[i + 1])
+        } else {
+            Some(0)
+        };
         if let (Some(h), Some(l)) = (hi, lo) {
             out.push((h << 4) | l);
         }
@@ -435,6 +595,20 @@ fn decode_run_length(data: &[u8]) -> Vec<u8> {
         }
     }
     out
+}
+
+fn looks_like_jpeg(data: &[u8]) -> bool {
+    data.len() > 2 && data[0] == 0xFF && data[1] == 0xD8
+}
+
+pub fn looks_like_zlib(data: &[u8]) -> bool {
+    if data.len() < 2 {
+        return false;
+    }
+    if data[0] != 0x78 {
+        return false;
+    }
+    matches!(data[1], 0x01 | 0x5E | 0x9C | 0xDA)
 }
 
 fn hex_val(b: u8) -> Option<u8> {

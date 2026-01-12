@@ -1,5 +1,5 @@
-use std::time::{Duration, Instant};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
 use ort::session::Session;
@@ -62,7 +62,10 @@ impl OnnxEmbedder {
     pub fn embed_batch(&self, batch: &TokenizedBatch) -> Result<Vec<Vec<f32>>> {
         let start = Instant::now();
         let inputs = self.build_inputs(batch)?;
-        let mut guard = self.session.lock().map_err(|_| anyhow!("embedding session lock poisoned"))?;
+        let mut guard = self
+            .session
+            .lock()
+            .map_err(|_| anyhow!("embedding session lock poisoned"))?;
         let outputs = guard.run(inputs)?;
         if start.elapsed() > self.timeout {
             return Err(anyhow!("embedding timeout exceeded"));
@@ -129,19 +132,36 @@ impl OnnxEmbedder {
         Ok(out)
     }
 
-    fn build_inputs(&self, batch: &TokenizedBatch) -> Result<Vec<(std::borrow::Cow<'static, str>, ort::session::SessionInputValue<'_>)>> {
+    fn build_inputs(
+        &self,
+        batch: &TokenizedBatch,
+    ) -> Result<
+        Vec<(
+            std::borrow::Cow<'static, str>,
+            ort::session::SessionInputValue<'_>,
+        )>,
+    > {
         let shape = vec![batch.batch, batch.seq_len];
         let mut inputs = Vec::new();
         if let Some(name) = &self.input_names.input_ids {
-            let tensor = Tensor::<i64>::from_array((shape.clone(), batch.input_ids.clone().into_boxed_slice()))?;
+            let tensor = Tensor::<i64>::from_array((
+                shape.clone(),
+                batch.input_ids.clone().into_boxed_slice(),
+            ))?;
             inputs.push((name.clone().into(), tensor.into()));
         }
         if let Some(name) = &self.input_names.attention_mask {
-            let tensor = Tensor::<i64>::from_array((shape.clone(), batch.attention_mask.clone().into_boxed_slice()))?;
+            let tensor = Tensor::<i64>::from_array((
+                shape.clone(),
+                batch.attention_mask.clone().into_boxed_slice(),
+            ))?;
             inputs.push((name.clone().into(), tensor.into()));
         }
         if let Some(name) = &self.input_names.token_type_ids {
-            let tensor = Tensor::<i64>::from_array((shape.clone(), batch.token_type_ids.clone().into_boxed_slice()))?;
+            let tensor = Tensor::<i64>::from_array((
+                shape.clone(),
+                batch.token_type_ids.clone().into_boxed_slice(),
+            ))?;
             inputs.push((name.clone().into(), tensor.into()));
         }
         Ok(inputs)
@@ -179,7 +199,10 @@ impl OnnxGnn {
     ) -> Result<GraphInference> {
         let start = Instant::now();
         let inputs = self.build_inputs(node_features, edge_index)?;
-        let mut guard = self.session.lock().map_err(|_| anyhow!("gnn session lock poisoned"))?;
+        let mut guard = self
+            .session
+            .lock()
+            .map_err(|_| anyhow!("gnn session lock poisoned"))?;
         let outputs = guard.run(inputs)?;
         if start.elapsed() > self.timeout {
             return Err(anyhow!("gnn inference timeout exceeded"));
@@ -197,9 +220,10 @@ impl OnnxGnn {
         };
         let (shape, data) = output.try_extract_tensor::<f32>()?;
         let shape = &shape[..];
-        let score = data.first().copied().ok_or_else(|| {
-            anyhow!("empty gnn output (shape={:?})", shape)
-        })?;
+        let score = data
+            .first()
+            .copied()
+            .ok_or_else(|| anyhow!("empty gnn output (shape={:?})", shape))?;
         let mut out = match self.output_kind {
             OutputKind::Logit => score,
             OutputKind::Probability => score,
@@ -225,7 +249,12 @@ impl OnnxGnn {
         &self,
         node_features: &[Vec<f32>],
         edge_index: &[(usize, usize)],
-    ) -> Result<Vec<(std::borrow::Cow<'static, str>, ort::session::SessionInputValue<'_>)>> {
+    ) -> Result<
+        Vec<(
+            std::borrow::Cow<'static, str>,
+            ort::session::SessionInputValue<'_>,
+        )>,
+    > {
         if node_features.is_empty() {
             return Err(anyhow!("empty graph: no nodes"));
         }
@@ -245,7 +274,8 @@ impl OnnxGnn {
             features_flat.extend_from_slice(n);
         }
         let node_shape = vec![node_features.len(), feat_dim];
-        let node_tensor = Tensor::<f32>::from_array((node_shape, features_flat.into_boxed_slice()))?;
+        let node_tensor =
+            Tensor::<f32>::from_array((node_shape, features_flat.into_boxed_slice()))?;
         let mut edges_flat = Vec::with_capacity(edge_index.len() * 2);
         for (s, t) in edge_index {
             edges_flat.push(*s as i64);
@@ -275,7 +305,9 @@ fn build_session(path: &std::path::Path, runtime: &RuntimeSettings) -> Result<Se
     if !providers.is_empty() {
         builder = builder.with_execution_providers(providers)?;
     }
-    builder.commit_from_file(path).map_err(|e| anyhow!("failed to load {}: {}", path.display(), e))
+    builder
+        .commit_from_file(path)
+        .map_err(|e| anyhow!("failed to load {}: {}", path.display(), e))
 }
 
 fn extract_node_scores(output: &ort::value::DynValue) -> Result<Vec<f32>> {

@@ -31,7 +31,9 @@ impl Detector for AnnotationAttackDetector {
         let annot_parent = build_annotation_parent_map(&ctx.graph);
         let mut findings = Vec::new();
         for entry in &ctx.graph.objects {
-            let Some(dict) = entry_dict(entry) else { continue };
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
             if dict.get_first(b"/Subtype").is_none() {
                 continue;
             }
@@ -60,8 +62,8 @@ impl Detector for AnnotationAttackDetector {
                             remediation: Some("Inspect hidden annotations for actions.".into()),
                             meta: meta.clone(),
                             yara: None,
-        position: None,
-        positions: Vec::new(),
+                            position: None,
+                            positions: Vec::new(),
                         });
                     }
                 }
@@ -80,8 +82,8 @@ impl Detector for AnnotationAttackDetector {
                     remediation: Some("Review annotation actions and appearance streams.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }
@@ -90,7 +92,9 @@ impl Detector for AnnotationAttackDetector {
 }
 
 fn rect_size(obj: &sis_pdf_pdf::object::PdfObj<'_>) -> Option<(f32, f32)> {
-    let PdfAtom::Array(arr) = &obj.atom else { return None };
+    let PdfAtom::Array(arr) = &obj.atom else {
+        return None;
+    };
     if arr.len() < 4 {
         return None;
     }

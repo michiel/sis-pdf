@@ -69,15 +69,18 @@ fn main() {
             if !signals.behavioral_patterns.is_empty() {
                 eprintln!("🔍 Behavioral patterns:");
                 for pattern in &signals.behavioral_patterns {
-                    eprintln!("  - {}: {} (confidence: {:.2})",
-                           pattern.name, pattern.evidence, pattern.confidence);
+                    eprintln!(
+                        "  - {}: {} (confidence: {:.2})",
+                        pattern.name, pattern.evidence, pattern.confidence
+                    );
                 }
                 eprintln!();
             }
 
             if !signals.calls.is_empty() {
                 eprintln!("📞 Top function calls:");
-                let mut call_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+                let mut call_counts: std::collections::HashMap<&str, usize> =
+                    std::collections::HashMap::new();
                 for call in &signals.calls {
                     *call_counts.entry(call).or_insert(0) += 1;
                 }
@@ -106,15 +109,24 @@ fn main() {
         }
         DynamicOutcome::TimedOut { timeout_ms } => {
             eprintln!("⏱️  TIMED OUT after {}ms", timeout_ms);
-            println!("{{\"outcome\":\"timed_out\",\"timeout_ms\":{}}}", timeout_ms);
-            std::process::exit(0);  // Exit 0 so we can collect stats
+            println!(
+                "{{\"outcome\":\"timed_out\",\"timeout_ms\":{}}}",
+                timeout_ms
+            );
+            std::process::exit(0); // Exit 0 so we can collect stats
         }
-        DynamicOutcome::Skipped { reason, limit, actual } => {
+        DynamicOutcome::Skipped {
+            reason,
+            limit,
+            actual,
+        } => {
             eprintln!("⏭️  SKIPPED: {}", reason);
             eprintln!("Limit: {}, Actual: {}", limit, actual);
-            println!("{{\"outcome\":\"skipped\",\"reason\":\"{}\",\"limit\":{},\"actual\":{}}}",
-                     reason, limit, actual);
-            std::process::exit(0);  // Exit 0 so we can collect stats
+            println!(
+                "{{\"outcome\":\"skipped\",\"reason\":\"{}\",\"limit\":{},\"actual\":{}}}",
+                reason, limit, actual
+            );
+            std::process::exit(0); // Exit 0 so we can collect stats
         }
     }
 }

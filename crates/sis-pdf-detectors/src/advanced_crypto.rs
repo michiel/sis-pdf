@@ -48,8 +48,8 @@ impl Detector for AdvancedCryptoDetector {
                     remediation: Some("Upgrade encryption algorithm and key length.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }
@@ -71,19 +71,25 @@ impl Detector for AdvancedCryptoDetector {
                 remediation: Some("Validate certificate chain and signature metadata.".into()),
                 meta,
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
         }
 
         for entry in &ctx.graph.objects {
-            let Some(dict) = entry_dict(entry) else { continue };
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
             if dict.get_first(b"/JS").is_none() && !dict.has_name(b"/S", b"/JavaScript") {
                 continue;
             }
-            let Some((_, obj)) = dict.get_first(b"/JS") else { continue };
+            let Some((_, obj)) = dict.get_first(b"/JS") else {
+                continue;
+            };
             let payload = resolve_payload(ctx, obj);
-            let Some(info) = payload.payload else { continue };
+            let Some(info) = payload.payload else {
+                continue;
+            };
             if let Some(miner) = analyzer.detect_crypto_mining(&info.bytes) {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("crypto.miner_indicator".into(), miner.indicator);
@@ -100,8 +106,8 @@ impl Detector for AdvancedCryptoDetector {
                     remediation: Some("Inspect for cryptomining payloads.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }
@@ -109,9 +115,7 @@ impl Detector for AdvancedCryptoDetector {
     }
 }
 
-fn trailer_encrypt_dict<'a>(
-    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
-) -> Option<PdfDict<'a>> {
+fn trailer_encrypt_dict<'a>(ctx: &'a sis_pdf_core::scan::ScanContext<'a>) -> Option<PdfDict<'a>> {
     if let Some(trailer) = ctx.graph.trailers.last() {
         if let Some((_, enc)) = trailer.get_first(b"/Encrypt") {
             return resolve_dict(&ctx.graph, enc);
@@ -120,9 +124,7 @@ fn trailer_encrypt_dict<'a>(
     fallback_encrypt_dict(ctx)
 }
 
-fn fallback_encrypt_dict<'a>(
-    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
-) -> Option<PdfDict<'a>> {
+fn fallback_encrypt_dict<'a>(ctx: &'a sis_pdf_core::scan::ScanContext<'a>) -> Option<PdfDict<'a>> {
     let entry = ctx.graph.objects.iter().find(|entry| {
         entry_dict(entry)
             .map(|d| {
@@ -144,7 +146,10 @@ fn fallback_encrypt_dict<'a>(
     }
 }
 
-fn resolve_dict<'a>(graph: &'a sis_pdf_pdf::ObjectGraph<'a>, obj: &PdfObj<'a>) -> Option<PdfDict<'a>> {
+fn resolve_dict<'a>(
+    graph: &'a sis_pdf_pdf::ObjectGraph<'a>,
+    obj: &PdfObj<'a>,
+) -> Option<PdfDict<'a>> {
     match &obj.atom {
         PdfAtom::Dict(d) => Some(d.clone()),
         PdfAtom::Stream(st) => Some(st.dict.clone()),
@@ -160,10 +165,14 @@ fn resolve_dict<'a>(graph: &'a sis_pdf_pdf::ObjectGraph<'a>, obj: &PdfObj<'a>) -
 fn extract_signatures(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<SignatureInfo> {
     let mut out = Vec::new();
     for entry in &ctx.graph.objects {
-        let Some(dict) = entry_dict(entry) else { continue };
+        let Some(dict) = entry_dict(entry) else {
+            continue;
+        };
         if dict.has_name(b"/Type", b"/Sig") || dict.get_first(b"/ByteRange").is_some() {
             let filter = dict.get_first(b"/Filter").and_then(|(_, v)| name_string(v));
-            let subfilter = dict.get_first(b"/SubFilter").and_then(|(_, v)| name_string(v));
+            let subfilter = dict
+                .get_first(b"/SubFilter")
+                .and_then(|(_, v)| name_string(v));
             out.push(SignatureInfo { filter, subfilter });
         }
     }

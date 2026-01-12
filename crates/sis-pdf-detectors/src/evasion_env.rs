@@ -28,13 +28,19 @@ impl Detector for EnvProbeDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         for entry in &ctx.graph.objects {
-            let Some(dict) = entry_dict(entry) else { continue };
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
             if !dict.has_name(b"/S", b"/JavaScript") && dict.get_first(b"/JS").is_none() {
                 continue;
             }
-            let Some((_, obj)) = dict.get_first(b"/JS") else { continue };
+            let Some((_, obj)) = dict.get_first(b"/JS") else {
+                continue;
+            };
             let payload = resolve_payload(ctx, obj);
-            let Some(info) = payload.payload else { continue };
+            let Some(info) = payload.payload else {
+                continue;
+            };
             if has_env_probes(&info.bytes) {
                 findings.push(Finding {
                     id: String::new(),
@@ -46,11 +52,13 @@ impl Detector for EnvProbeDetector {
                     description: "JavaScript queries viewer or environment properties.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                     evidence: vec![span_to_evidence(dict.span, "JavaScript dict")],
-                    remediation: Some("Inspect conditional logic based on environment probes.".into()),
+                    remediation: Some(
+                        "Inspect conditional logic based on environment probes.".into(),
+                    ),
                     meta: Default::default(),
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }
@@ -74,5 +82,7 @@ fn has_env_probes(data: &[u8]) -> bool {
 }
 
 fn contains_any(data: &[u8], needles: &[&[u8]]) -> bool {
-    needles.iter().any(|n| data.windows(n.len()).any(|w| w == *n))
+    needles
+        .iter()
+        .any(|n| data.windows(n.len()).any(|w| w == *n))
 }

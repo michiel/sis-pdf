@@ -10,6 +10,7 @@ This project is a security tool focused on analysing PDF files to determine if t
 - Planning and implementation documentation is in ./plans/
 - User facing documentation (e.g. for Github Pages) is in ./docs/
   - User facing documentation always uses 'sis' binary for invocation documentation, not 'cargo run'
+- Ensure implemented features have test coverage
 
 ## Project Structure & Module Organization
 

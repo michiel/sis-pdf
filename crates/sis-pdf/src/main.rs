@@ -1,8 +1,3 @@
-use std::fs;
-use std::io::{Read, Write};
-use std::path::PathBuf;
-use std::process::Command as ProcessCommand;
-use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
@@ -13,8 +8,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sis_pdf_core::model::Severity as SecuritySeverity;
 use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
-use tempfile::tempdir;
+use std::fs;
+use std::io::{Read, Write};
+use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
+use std::sync::{Arc, Mutex};
 use tar::Archive;
+use tempfile::tempdir;
 use toml_edit::{value, Array, DocumentMut, Item, Table, Value};
 use tracing::{debug, error, info, warn, Level};
 use walkdir::WalkDir;
@@ -81,7 +81,10 @@ enum Command {
         export_intents: bool,
         #[arg(long)]
         export_intents_out: Option<PathBuf>,
-        #[arg(long, help = "Include derived intent entries (domains and obfuscated URLs)")]
+        #[arg(
+            long,
+            help = "Include derived intent entries (domains and obfuscated URLs)"
+        )]
         intents_derived: bool,
         #[arg(long)]
         yara: bool,
@@ -99,7 +102,10 @@ enum Command {
         focus_depth: usize,
         #[arg(long)]
         strict: bool,
-        #[arg(long, help = "Summarise strict parser deviations instead of emitting each deviation")]
+        #[arg(
+            long,
+            help = "Summarise strict parser deviations instead of emitting each deviation"
+        )]
         strict_summary: bool,
         #[arg(long)]
         ir: bool,
@@ -123,21 +129,33 @@ enum Command {
         ml_threshold: f32,
         #[arg(long, default_value = "traditional", value_parser = ["traditional", "graph"])]
         ml_mode: String,
-        #[arg(long, help = "Use extended 333-feature vector for ML (default with --ml)")]
+        #[arg(
+            long,
+            help = "Use extended 333-feature vector for ML (default with --ml)"
+        )]
         ml_extended_features: bool,
         #[arg(long, help = "Generate comprehensive ML explanation")]
         ml_explain: bool,
-        #[arg(long, help = "Include advanced ML explainability (counterfactuals and interactions)")]
+        #[arg(
+            long,
+            help = "Include advanced ML explainability (counterfactuals and interactions)"
+        )]
         ml_advanced: bool,
         #[arg(long, help = "Compute ML temporal analysis across incremental updates")]
         ml_temporal: bool,
-        #[arg(long, help = "Compute non-ML temporal signals across incremental updates")]
+        #[arg(
+            long,
+            help = "Compute non-ML temporal signals across incremental updates"
+        )]
         temporal_signals: bool,
         #[arg(long, help = "Path to benign baseline JSON for explanations")]
         ml_baseline: Option<PathBuf>,
         #[arg(long, help = "Path to calibration model JSON")]
         ml_calibration: Option<PathBuf>,
-        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        #[arg(
+            long,
+            help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)"
+        )]
         ml_provider: Option<String>,
         #[arg(long, help = "Comma-separated ML execution provider order override")]
         ml_provider_order: Option<String>,
@@ -155,10 +173,7 @@ enum Command {
         no_js_sandbox: bool,
     },
     #[command(about = "Explain a specific finding with evidence details")]
-    Explain {
-        pdf: String,
-        finding_id: String,
-    },
+    Explain { pdf: String, finding_id: String },
     #[command(about = "Detect files that contain specific findings")]
     Detect {
         #[arg(long)]
@@ -227,21 +242,33 @@ enum Command {
         ml_threshold: f32,
         #[arg(long, default_value = "traditional", value_parser = ["traditional", "graph"])]
         ml_mode: String,
-        #[arg(long, help = "Use extended 333-feature vector for ML (default with --ml)")]
+        #[arg(
+            long,
+            help = "Use extended 333-feature vector for ML (default with --ml)"
+        )]
         ml_extended_features: bool,
         #[arg(long, help = "Generate comprehensive ML explanation")]
         ml_explain: bool,
-        #[arg(long, help = "Include advanced ML explainability (counterfactuals and interactions)")]
+        #[arg(
+            long,
+            help = "Include advanced ML explainability (counterfactuals and interactions)"
+        )]
         ml_advanced: bool,
         #[arg(long, help = "Compute ML temporal analysis across incremental updates")]
         ml_temporal: bool,
-        #[arg(long, help = "Compute non-ML temporal signals across incremental updates")]
+        #[arg(
+            long,
+            help = "Compute non-ML temporal signals across incremental updates"
+        )]
         temporal_signals: bool,
         #[arg(long, help = "Path to benign baseline JSON for explanations")]
         ml_baseline: Option<PathBuf>,
         #[arg(long, help = "Path to calibration model JSON")]
         ml_calibration: Option<PathBuf>,
-        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        #[arg(
+            long,
+            help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)"
+        )]
         ml_provider: Option<String>,
         #[arg(long, help = "Comma-separated ML execution provider order override")]
         ml_provider_order: Option<String>,
@@ -262,7 +289,10 @@ enum Command {
     MlHealth {
         #[arg(long)]
         ml_model_dir: Option<PathBuf>,
-        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        #[arg(
+            long,
+            help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)"
+        )]
         ml_provider: Option<String>,
         #[arg(long, help = "Comma-separated ML execution provider order override")]
         ml_provider_order: Option<String>,
@@ -292,7 +322,10 @@ enum Command {
         format: String,
         #[arg(short, long)]
         out: PathBuf,
-        #[arg(long, help = "Export basic graph only (no enhancements, paths, or classifications)")]
+        #[arg(
+            long,
+            help = "Export basic graph only (no enhancements, paths, or classifications)"
+        )]
         basic: bool,
     },
     #[command(about = "Export enhanced IR with findings and risk scores (text or JSON)")]
@@ -402,7 +435,10 @@ enum MlCommand {
     Health {
         #[arg(long)]
         ml_model_dir: Option<PathBuf>,
-        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        #[arg(
+            long,
+            help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)"
+        )]
         ml_provider: Option<String>,
         #[arg(long, help = "Comma-separated ML execution provider order override")]
         ml_provider_order: Option<String>,
@@ -423,7 +459,10 @@ enum MlCommand {
         format: String,
         #[arg(long, help = "Override config path")]
         config: Option<PathBuf>,
-        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        #[arg(
+            long,
+            help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)"
+        )]
         ml_provider: Option<String>,
         #[arg(long, help = "Comma-separated ML execution provider order override")]
         ml_provider_order: Option<String>,
@@ -436,7 +475,10 @@ enum MlCommand {
         dry_run: bool,
         #[arg(long, help = "Override config path")]
         config: Option<PathBuf>,
-        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        #[arg(
+            long,
+            help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)"
+        )]
         ml_provider: Option<String>,
         #[arg(long, help = "Comma-separated ML execution provider order override")]
         ml_provider_order: Option<String>,
@@ -453,13 +495,19 @@ enum MlOrtCommand {
         write_config: bool,
         #[arg(long, help = "Override config path")]
         config: Option<PathBuf>,
-        #[arg(long, help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)")]
+        #[arg(
+            long,
+            help = "Preferred ML execution provider (auto, cpu, cuda, rocm, migraphx, directml, coreml, onednn, openvino)"
+        )]
         ml_provider: Option<String>,
         #[arg(long, help = "Comma-separated ML execution provider order override")]
         ml_provider_order: Option<String>,
         #[arg(long, help = "Path to ONNX Runtime dynamic library")]
         ml_ort_dylib: Option<PathBuf>,
-        #[arg(long, help = "Override ONNX Runtime version (default via SIS_ORT_VERSION)")]
+        #[arg(
+            long,
+            help = "Override ONNX Runtime version (default via SIS_ORT_VERSION)"
+        )]
         ort_version: Option<String>,
         #[arg(long, help = "Checksum URL override for the ORT archive")]
         checksum_url: Option<String>,
@@ -548,9 +596,7 @@ fn main() -> Result<()> {
                 dry_run,
             ),
         },
-        Command::Update {
-            include_prerelease,
-        } => run_update(include_prerelease),
+        Command::Update { include_prerelease } => run_update(include_prerelease),
         Command::Scan {
             pdf,
             path,
@@ -777,8 +823,18 @@ fn main() -> Result<()> {
             format,
             out,
         } => run_export_graph(&pdf, chains_only, &format, &out),
-        Command::ExportOrg { pdf, format, out, basic } => run_export_org(&pdf, &format, &out, !basic),
-        Command::ExportIr { pdf, format, out, basic } => run_export_ir(&pdf, &format, &out, !basic),
+        Command::ExportOrg {
+            pdf,
+            format,
+            out,
+            basic,
+        } => run_export_org(&pdf, &format, &out, !basic),
+        Command::ExportIr {
+            pdf,
+            format,
+            out,
+            basic,
+        } => run_export_ir(&pdf, &format, &out, !basic),
         Command::ExportFeatures {
             pdf,
             path,
@@ -808,17 +864,13 @@ fn main() -> Result<()> {
             !basic,
             feature_names,
         ),
-        Command::ComputeBaseline { input, out } => {
-            run_compute_baseline(&input, &out)
-        }
+        Command::ComputeBaseline { input, out } => run_compute_baseline(&input, &out),
         Command::StreamAnalyze {
             pdf,
             chunk_size,
             max_buffer,
         } => run_stream_analyze(&pdf, chunk_size, max_buffer),
-        Command::CampaignCorrelate { input, out } => {
-            run_campaign_correlate(&input, out.as_deref())
-        }
+        Command::CampaignCorrelate { input, out } => run_campaign_correlate(&input, out.as_deref()),
         Command::ResponseGenerate {
             kind,
             from_report,
@@ -897,7 +949,10 @@ fn run_config_verify(path: Option<&std::path::Path>) -> Result<()> {
         .or_else(default_config_path)
         .ok_or_else(|| anyhow!("config path not available on this platform"))?;
     let cfg = sis_pdf_core::config::Config::load(&path)?;
-    let log_level = cfg.logging.and_then(|l| l.level).unwrap_or_else(|| "warn".into());
+    let log_level = cfg
+        .logging
+        .and_then(|l| l.level)
+        .unwrap_or_else(|| "warn".into());
     println!("Config ok: {}", path.display());
     println!("Logging level: {}", log_level);
     if let Some(scan) = cfg.scan {
@@ -1324,12 +1379,8 @@ fn run_ml_ort_download(
     {
         provider_order = prefer_gpu_provider_order(&provider_order);
     }
-    let provider = select_provider_for_download(
-        preferred_provider,
-        &provider_order,
-        &target,
-        &version,
-    )?;
+    let provider =
+        select_provider_for_download(preferred_provider, &provider_order, &target, &version)?;
     // ROCm/MIGraphX support was dropped after 1.17.3; force that version if user didn't specify
     let version = if ort_version.is_none() && (provider == "migraphx" || provider == "rocm") {
         eprintln!("NOTE: Microsoft stopped publishing ROCm builds after ORT 1.17.3");
@@ -1345,10 +1396,19 @@ fn run_ml_ort_download(
         version
     };
     let (archive_name, archive_format) = ort_archive_name(&target, &provider, &version)
-        .ok_or_else(|| anyhow!("no ORT archive for {provider} on {} {}", target.os, target.arch))?;
+        .ok_or_else(|| {
+            anyhow!(
+                "no ORT archive for {provider} on {} {}",
+                target.os,
+                target.arch
+            )
+        })?;
     let base = ort_release_base(&version);
     let url = format!("{base}/{archive_name}");
-    eprintln!("Downloading {archive_name} for {provider} ({})", target.arch);
+    eprintln!(
+        "Downloading {archive_name} for {provider} ({})",
+        target.arch
+    );
     let temp_dir = tempdir()?;
     let archive_path = temp_dir.path().join(&archive_name);
     let mut reader = ureq::get(&url)
@@ -1361,13 +1421,7 @@ fn run_ml_ort_download(
     if let Some(checksum) = checksum_sha256 {
         verify_checksum_hash(checksum, &archive_path)?;
     } else {
-        match fetch_checksum_contents(
-            &base,
-            &version,
-            &archive_name,
-            checksum_url,
-            checksum_file,
-        ) {
+        match fetch_checksum_contents(&base, &version, &archive_name, checksum_url, checksum_file) {
             Ok(checksum_contents) => {
                 verify_checksum_contents(&checksum_contents, &archive_name, &archive_path)?;
             }
@@ -1383,14 +1437,15 @@ fn run_ml_ort_download(
         ArchiveFormat::Zip => extract_zip(&archive_path, &extract_dir)?,
     }
     let lib_path = find_ort_library(&extract_dir, target)?;
-    let cache_dir = ort_cache_dir()?.join(&version).join(format!(
-        "{}-{}-{}",
-        target.os, target.arch, provider
-    ));
+    let cache_dir = ort_cache_dir()?
+        .join(&version)
+        .join(format!("{}-{}-{}", target.os, target.arch, provider));
     fs::create_dir_all(&cache_dir)?;
 
     // Copy all ORT libraries (main + providers) from the same directory
-    let lib_dir = lib_path.parent().ok_or_else(|| anyhow!("library path has no parent"))?;
+    let lib_dir = lib_path
+        .parent()
+        .ok_or_else(|| anyhow!("library path has no parent"))?;
     let mut main_dest = None;
     for entry in fs::read_dir(lib_dir)? {
         let entry = entry?;
@@ -1401,10 +1456,17 @@ fn run_ml_ort_download(
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         // Copy all libonnxruntime*.so files (main library + provider libraries)
         if (target.os == "windows" && name.ends_with(".dll"))
-            || (target.os == "macos" && name.starts_with("libonnxruntime") && name.ends_with(".dylib"))
-            || (target.os == "linux" && name.starts_with("libonnxruntime") && (name.ends_with(".so") || name.contains(".so.")))
+            || (target.os == "macos"
+                && name.starts_with("libonnxruntime")
+                && name.ends_with(".dylib"))
+            || (target.os == "linux"
+                && name.starts_with("libonnxruntime")
+                && (name.ends_with(".so") || name.contains(".so.")))
         {
-            let dest = cache_dir.join(path.file_name().ok_or_else(|| anyhow!("missing filename"))?);
+            let dest = cache_dir.join(
+                path.file_name()
+                    .ok_or_else(|| anyhow!("missing filename"))?,
+            );
             fs::copy(&path, &dest)?;
             if is_ort_library(name, target) {
                 main_dest = Some(dest);
@@ -1801,14 +1863,14 @@ fn print_ml_detect_text(output: &MlDetectOutput) {
     if let Some(path) = &output.ort_dylib {
         println!("ORT dylib: {}", path);
     }
-    println!(
-        "Provider order: {}",
-        output.provider_order.join(", ")
-    );
+    println!("Provider order: {}", output.provider_order.join(", "));
     if output.provider_available.is_empty() {
         println!("Available providers: none");
     } else {
-        println!("Available providers: {}", output.provider_available.join(", "));
+        println!(
+            "Available providers: {}",
+            output.provider_available.join(", ")
+        );
     }
     println!(
         "Selected provider: {}",
@@ -1828,7 +1890,11 @@ fn print_ml_detect_text(output: &MlDetectOutput) {
         println!(
             "GPU tool {}: {}{}",
             tool.tool,
-            if tool.available { "available" } else { "unavailable" },
+            if tool.available {
+                "available"
+            } else {
+                "unavailable"
+            },
             tool.detail
                 .as_ref()
                 .map(|d| format!(" ({})", d))
@@ -1841,10 +1907,21 @@ fn current_ort_target() -> Result<OrtTarget> {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
     match (os, arch) {
-        ("linux", "x86_64") => Ok(OrtTarget { os: "linux", arch: "x86_64" }),
-        ("windows", "x86_64") => Ok(OrtTarget { os: "windows", arch: "x86_64" }),
-        ("macos", "aarch64") => Ok(OrtTarget { os: "macos", arch: "aarch64" }),
-        _ => Err(anyhow!("unsupported platform for ORT download ({os} {arch})")),
+        ("linux", "x86_64") => Ok(OrtTarget {
+            os: "linux",
+            arch: "x86_64",
+        }),
+        ("windows", "x86_64") => Ok(OrtTarget {
+            os: "windows",
+            arch: "x86_64",
+        }),
+        ("macos", "aarch64") => Ok(OrtTarget {
+            os: "macos",
+            arch: "aarch64",
+        }),
+        _ => Err(anyhow!(
+            "unsupported platform for ORT download ({os} {arch})"
+        )),
     }
 }
 
@@ -1999,9 +2076,8 @@ fn download_text_optional(url: &str, user_agent: &str) -> Result<Option<String>>
 }
 
 fn fetch_checksum_from_release(version: &str, archive_name: &str) -> Result<String> {
-    let api_url = format!(
-        "https://api.github.com/repos/microsoft/onnxruntime/releases/tags/v{version}"
-    );
+    let api_url =
+        format!("https://api.github.com/repos/microsoft/onnxruntime/releases/tags/v{version}");
     let response = ureq::get(&api_url)
         .set("User-Agent", ORT_USER_AGENT)
         .call()
@@ -2023,9 +2099,7 @@ fn fetch_checksum_from_release(version: &str, archive_name: &str) -> Result<Stri
             return Ok(contents);
         }
     }
-    Err(anyhow!(
-        "checksum metadata not found in ORT release assets"
-    ))
+    Err(anyhow!("checksum metadata not found in ORT release assets"))
 }
 
 fn prefer_gpu_provider_order(order: &[String]) -> Vec<String> {
@@ -2065,10 +2139,7 @@ fn verify_checksum_contents(
     archive_path: &std::path::Path,
 ) -> Result<()> {
     let Some(expected) = parse_checksum(contents, asset_name) else {
-        return Err(anyhow!(
-            "checksum file does not include {}",
-            asset_name
-        ));
+        return Err(anyhow!("checksum file does not include {}", asset_name));
     };
     let actual = sha256_file(archive_path)?;
     if expected != actual {
@@ -2169,7 +2240,8 @@ fn is_ort_library(name: &str, target: OrtTarget) -> bool {
         return name.eq_ignore_ascii_case("onnxruntime.dll");
     }
     if target.os == "macos" {
-        return name == "libonnxruntime.dylib" || name.starts_with("libonnxruntime.") && name.ends_with(".dylib");
+        return name == "libonnxruntime.dylib"
+            || name.starts_with("libonnxruntime.") && name.ends_with(".dylib");
     }
     // Match libonnxruntime.so or libonnxruntime.so.X.Y.Z, but NOT libonnxruntime_providers_*.so
     (name == "libonnxruntime.so" || name.starts_with("libonnxruntime.so."))
@@ -2266,15 +2338,7 @@ fn toml_array(values: &[String]) -> Array {
 fn validate_ml_config(scan: &sis_pdf_core::config::ScanConfig) -> Result<()> {
     const ALLOWED_MODES: &[&str] = &["traditional", "graph"];
     const ALLOWED_PROVIDERS: &[&str] = &[
-        "auto",
-        "cpu",
-        "cuda",
-        "rocm",
-        "migraphx",
-        "directml",
-        "coreml",
-        "onednn",
-        "openvino",
+        "auto", "cpu", "cuda", "rocm", "migraphx", "directml", "coreml", "onednn", "openvino",
     ];
     if let Some(mode) = &scan.ml_mode {
         let mode = mode.trim().to_lowercase();
@@ -2454,7 +2518,11 @@ fn run_scan(
             message: "Enabling diff parser in strict mode",
         }
         .emit();
-        info!(strict = true, diff_parser = true, "Diff parser enabled for strict mode");
+        info!(
+            strict = true,
+            diff_parser = true,
+            "Diff parser enabled for strict mode"
+        );
     }
     let mut opts = sis_pdf_core::scan::ScanOptions {
         deep,
@@ -2511,12 +2579,11 @@ fn run_scan(
         }
     }
     let want_export_intents = export_intents || export_intents_out.is_some();
-    let detectors = sis_pdf_detectors::default_detectors_with_settings(
-        sis_pdf_detectors::DetectorSettings {
+    let detectors =
+        sis_pdf_detectors::default_detectors_with_settings(sis_pdf_detectors::DetectorSettings {
             js_ast,
             js_sandbox,
-        },
-    );
+        });
     let ml_inference_requested = ml_extended_features
         || ml_explain
         || ml_advanced
@@ -2575,24 +2642,22 @@ fn run_scan(
         }
     }
     if temporal_requested {
-        let (temporal_summary, temporal_snapshots, temporal_explanation) =
-            run_temporal_analysis(
-                &mmap,
-                &opts,
-                &detectors,
-                ml_model_dir,
-                ml_threshold,
-                ml_extended_features,
-                ml_explain,
-                ml_baseline,
-                ml_calibration,
-                ml_temporal,
-            )?;
+        let (temporal_summary, temporal_snapshots, temporal_explanation) = run_temporal_analysis(
+            &mmap,
+            &opts,
+            &detectors,
+            ml_model_dir,
+            ml_threshold,
+            ml_extended_features,
+            ml_explain,
+            ml_baseline,
+            ml_calibration,
+            ml_temporal,
+        )?;
         report = report
             .with_temporal_signals(temporal_summary)
             .with_temporal_snapshots(temporal_snapshots);
-        if let (Some(ml), Some(explanation)) =
-            (report.ml_inference.as_mut(), temporal_explanation)
+        if let (Some(ml), Some(explanation)) = (report.ml_inference.as_mut(), temporal_explanation)
         {
             if let Some(expl) = ml.explanation.as_mut() {
                 expl.temporal_analysis = Some(explanation);
@@ -2652,6 +2717,9 @@ fn build_scan_context<'a>(
             max_objstm_bytes: opts.max_decode_bytes,
             max_objects: opts.max_objects,
             max_objstm_total_bytes: opts.max_total_decoded_bytes,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
         },
     )?;
     Ok(sis_pdf_core::scan::ScanContext::new(
@@ -2673,7 +2741,8 @@ fn run_ml_inference_for_scan(
     ml_baseline: Option<&std::path::Path>,
     ml_calibration: Option<&std::path::Path>,
 ) -> Result<sis_pdf_core::ml_inference::MlInferenceResult> {
-    let model_path = ml_model_dir.ok_or_else(|| anyhow!("--ml-model-dir is required for ML inference"))?;
+    let model_path =
+        ml_model_dir.ok_or_else(|| anyhow!("--ml-model-dir is required for ML inference"))?;
     if ml_advanced && !ml_explain {
         return Err(anyhow!("--ml-advanced requires --ml-explain"));
     }
@@ -2712,7 +2781,9 @@ fn run_temporal_analysis(
     let mut opts_temporal = opts.clone();
     opts_temporal.ml_config = None;
     let scans = sis_pdf_core::temporal::build_versioned_scans(mmap, &opts_temporal, detectors)?;
-    let temporal_summary = Some(sis_pdf_core::temporal::build_temporal_signal_summary(&scans));
+    let temporal_summary = Some(sis_pdf_core::temporal::build_temporal_signal_summary(
+        &scans,
+    ));
 
     if !ml_temporal {
         return Ok((temporal_summary, None, None));
@@ -2720,8 +2791,10 @@ fn run_temporal_analysis(
     if !ml_explain {
         return Err(anyhow!("--ml-temporal requires --ml-explain"));
     }
-    let model_path = ml_model_dir.ok_or_else(|| anyhow!("--ml-model-dir is required for ML temporal analysis"))?;
-    let baseline_path = ml_baseline.ok_or_else(|| anyhow!("--ml-temporal requires --ml-baseline"))?;
+    let model_path = ml_model_dir
+        .ok_or_else(|| anyhow!("--ml-model-dir is required for ML temporal analysis"))?;
+    let baseline_path =
+        ml_baseline.ok_or_else(|| anyhow!("--ml-temporal requires --ml-baseline"))?;
 
     let config = sis_pdf_core::ml_inference::MlInferenceConfig {
         model_path: model_path.to_path_buf(),
@@ -2744,7 +2817,12 @@ fn run_temporal_analysis(
             .report
             .findings
             .iter()
-            .filter(|f| matches!(f.severity, sis_pdf_core::model::Severity::High | sis_pdf_core::model::Severity::Critical))
+            .filter(|f| {
+                matches!(
+                    f.severity,
+                    sis_pdf_core::model::Severity::High | sis_pdf_core::model::Severity::Critical
+                )
+            })
             .count();
         snapshots.push(sis_pdf_core::explainability::TemporalSnapshot {
             version_label: scan.label.clone(),
@@ -2754,9 +2832,9 @@ fn run_temporal_analysis(
         });
     }
 
-    let temporal_explanation = Some(
-        sis_pdf_core::explainability::analyse_temporal_risk(&snapshots),
-    );
+    let temporal_explanation = Some(sis_pdf_core::explainability::analyse_temporal_risk(
+        &snapshots,
+    ));
 
     Ok((temporal_summary, Some(snapshots), temporal_explanation))
 }
@@ -2783,10 +2861,7 @@ fn write_intents_jsonl(
             include_obfuscated: true,
             include_scheme_less: true,
         };
-        sis_pdf_core::campaign::extract_network_intents_from_findings(
-            &report.findings,
-            &options,
-        )
+        sis_pdf_core::campaign::extract_network_intents_from_findings(&report.findings, &options)
     } else {
         report.network_intents.clone()
     };
@@ -2883,7 +2958,10 @@ fn run_scan_batch(
                 message: "Batch scan file count exceeded",
             }
             .emit();
-            error!(max_files = MAX_BATCH_FILES, "Batch scan file count exceeded");
+            error!(
+                max_files = MAX_BATCH_FILES,
+                "Batch scan file count exceeded"
+            );
             return Err(anyhow!("batch file count exceeds limit"));
         }
         if let Ok(meta) = entry.metadata() {
@@ -3094,7 +3172,10 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         escape_terminal(&finding.title)
     );
     println!("{}", escape_terminal(&finding.description));
-    println!("Severity: {:?}  Confidence: {:?}", finding.severity, finding.confidence);
+    println!(
+        "Severity: {:?}  Confidence: {:?}",
+        finding.severity, finding.confidence
+    );
     println!();
     for ev in &finding.evidence {
         println!(
@@ -3155,10 +3236,7 @@ fn run_detect(
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
     };
 
-    let settings = sis_pdf_detectors::DetectorSettings {
-        js_ast,
-        js_sandbox,
-    };
+    let settings = sis_pdf_detectors::DetectorSettings { js_ast, js_sandbox };
     let detectors = sis_pdf_detectors::default_detectors_with_settings(settings);
 
     // Set up glob matcher
@@ -3185,16 +3263,12 @@ fn run_detect(
     let matching_files: Vec<String> = if opts.batch_parallel {
         paths
             .par_iter()
-            .filter_map(|path| {
-                scan_and_check_findings(path, &opts, &detectors, findings)
-            })
+            .filter_map(|path| scan_and_check_findings(path, &opts, &detectors, findings))
             .collect()
     } else {
         paths
             .iter()
-            .filter_map(|path| {
-                scan_and_check_findings(path, &opts, &detectors, findings)
-            })
+            .filter_map(|path| scan_and_check_findings(path, &opts, &detectors, findings))
             .collect()
     };
 
@@ -3218,7 +3292,8 @@ fn scan_and_check_findings(
         Err(_) => return None, // Skip files that can't be read
     };
 
-    let report = match sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), detectors) {
+    let report = match sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), detectors)
+    {
         Ok(r) => r,
         Err(_) => return None, // Skip files that fail to scan
     };
@@ -3252,6 +3327,9 @@ fn run_extract(kind: &str, pdf: &str, outdir: &PathBuf, max_extract_bytes: usize
             max_objstm_bytes: 32 * 1024 * 1024,
             max_objects: 500_000,
             max_objstm_total_bytes: 256 * 1024 * 1024,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
         },
     )?;
     match kind {
@@ -3316,6 +3394,9 @@ fn run_export_org(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Res
             max_objstm_bytes: 32 * 1024 * 1024,
             max_objects: 500_000,
             max_objstm_total_bytes: 256 * 1024 * 1024,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
         },
     )?;
 
@@ -3363,7 +3444,8 @@ fn run_export_org(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Res
         // Extract suspicious paths
         let path_finder = typed_graph.path_finder();
         let action_chains = path_finder.find_all_action_chains();
-        let path_explanation = sis_pdf_core::explainability::extract_suspicious_paths(&action_chains, findings, None);
+        let path_explanation =
+            sis_pdf_core::explainability::extract_suspicious_paths(&action_chains, findings, None);
 
         // Create enhanced export with paths
         let export = sis_pdf_core::org_export::OrgExportWithPaths::enhanced(org, path_explanation);
@@ -3407,6 +3489,9 @@ fn run_export_ir(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Resu
             max_objstm_bytes: 32 * 1024 * 1024,
             max_objects: 500_000,
             max_objstm_total_bytes: 256 * 1024 * 1024,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
         },
     )?;
     let ir_opts = sis_pdf_pdf::ir::IrOptions::default();
@@ -3444,7 +3529,8 @@ fn run_export_ir(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Resu
         let findings = &report.findings;
 
         // Generate enhanced IR export
-        let enhanced_export = sis_pdf_core::ir_export::generate_enhanced_ir_export(&ir_objects, findings);
+        let enhanced_export =
+            sis_pdf_core::ir_export::generate_enhanced_ir_export(&ir_objects, findings);
 
         match format {
             "json" => {
@@ -3520,7 +3606,11 @@ fn run_report(
             message: "Enabling diff parser in strict mode",
         }
         .emit();
-        info!(strict = true, diff_parser = true, "Diff parser enabled for strict mode");
+        info!(
+            strict = true,
+            diff_parser = true,
+            "Diff parser enabled for strict mode"
+        );
     }
     let opts = sis_pdf_core::scan::ScanOptions {
         deep,
@@ -3573,14 +3663,14 @@ fn run_report(
             log_ml_provider_info(&cfg.runtime)?;
         }
     }
-    let detectors = sis_pdf_detectors::default_detectors_with_settings(
-        sis_pdf_detectors::DetectorSettings {
+    let detectors =
+        sis_pdf_detectors::default_detectors_with_settings(sis_pdf_detectors::DetectorSettings {
             js_ast,
             js_sandbox,
-        },
-    );
-    let mut report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), &detectors)?
-        .with_input_path(Some(pdf.to_string()));
+        });
+    let mut report =
+        sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), &detectors)?
+            .with_input_path(Some(pdf.to_string()));
     let ml_inference_requested = ml_extended_features
         || ml_explain
         || ml_advanced
@@ -3610,24 +3700,22 @@ fn run_report(
         }
     }
     if temporal_requested {
-        let (temporal_summary, temporal_snapshots, temporal_explanation) =
-            run_temporal_analysis(
-                &mmap,
-                &opts,
-                &detectors,
-                ml_model_dir,
-                ml_threshold,
-                ml_extended_features,
-                ml_explain,
-                ml_baseline,
-                ml_calibration,
-                ml_temporal,
-            )?;
+        let (temporal_summary, temporal_snapshots, temporal_explanation) = run_temporal_analysis(
+            &mmap,
+            &opts,
+            &detectors,
+            ml_model_dir,
+            ml_threshold,
+            ml_extended_features,
+            ml_explain,
+            ml_baseline,
+            ml_calibration,
+            ml_temporal,
+        )?;
         report = report
             .with_temporal_signals(temporal_summary)
             .with_temporal_snapshots(temporal_snapshots);
-        if let (Some(ml), Some(explanation)) =
-            (report.ml_inference.as_mut(), temporal_explanation)
+        if let (Some(ml), Some(explanation)) = (report.ml_inference.as_mut(), temporal_explanation)
         {
             if let Some(expl) = ml.explanation.as_mut() {
                 expl.temporal_analysis = Some(explanation);
@@ -3801,7 +3889,11 @@ fn run_export_features(
             let opts2 = opts_template.clone();
 
             // Run full scan to get findings
-            let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts1, detectors.as_ref().unwrap())?;
+            let report = sis_pdf_core::runner::run_scan_with_detectors(
+                &mmap,
+                opts1,
+                detectors.as_ref().unwrap(),
+            )?;
 
             // Parse PDF again to create ScanContext for feature extraction
             let graph = sis_pdf_pdf::parse_pdf(
@@ -3813,16 +3905,23 @@ fn run_export_features(
                     max_objstm_bytes: opts_template.max_decode_bytes,
                     max_objects: opts_template.max_objects,
                     max_objstm_total_bytes: opts_template.max_total_decoded_bytes,
+                    carve_stream_objects: false,
+                    max_carved_objects: 0,
+                    max_carved_bytes: 0,
                 },
             )?;
             let ctx = sis_pdf_core::scan::ScanContext::new(&mmap, graph, opts2);
 
             // Extract extended features
-            let extended_fv = sis_pdf_core::features_extended::extract_extended_features(&ctx, &report.findings);
+            let extended_fv =
+                sis_pdf_core::features_extended::extract_extended_features(&ctx, &report.findings);
             extended_fv.as_f32_vec()
         } else {
             // Basic feature extraction
-            let fv = sis_pdf_core::features::FeatureExtractor::extract_from_bytes(&mmap, &opts_template)?;
+            let fv = sis_pdf_core::features::FeatureExtractor::extract_from_bytes(
+                &mmap,
+                &opts_template,
+            )?;
             fv.as_f32_vec()
         };
 
@@ -3938,8 +4037,14 @@ fn run_compute_baseline(input: &PathBuf, out: &PathBuf) -> Result<()> {
     fs::write(out, json)?;
 
     info!(path = %out.display(), "Baseline saved");
-    debug!(feature_count = baseline.feature_means.len(), "Baseline feature count");
-    debug!(sample_count = feature_samples.len(), "Baseline sample count");
+    debug!(
+        feature_count = baseline.feature_means.len(),
+        "Baseline feature count"
+    );
+    debug!(
+        sample_count = feature_samples.len(),
+        "Baseline sample count"
+    );
 
     Ok(())
 }
@@ -3955,7 +4060,10 @@ fn run_stream_analyze(pdf: &str, chunk_size: usize, max_buffer: usize) -> Result
         }
         let state = analyzer.analyze_chunk(&buf[..n]);
         if let Some(threat) = analyzer.early_terminate(&state) {
-            println!("early_terminate kind={} reason={}", threat.kind, threat.reason);
+            println!(
+                "early_terminate kind={} reason={}",
+                threat.kind, threat.reason
+            );
             return Ok(());
         }
     }
@@ -4014,7 +4122,10 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                 message: "JSONL entry limit exceeded",
             }
             .emit();
-            error!(max_entries = MAX_JSONL_ENTRIES, "JSONL entry limit exceeded");
+            error!(
+                max_entries = MAX_JSONL_ENTRIES,
+                "JSONL entry limit exceeded"
+            );
             return Err(anyhow!("JSONL entry limit exceeded"));
         }
         let v: serde_json::Value = match serde_json::from_str(line) {
@@ -4073,10 +4184,12 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                 network_intents: Vec::new(),
             }
         });
-        entry.network_intents.push(sis_pdf_core::campaign::NetworkIntent {
-            url: url.to_string(),
-            domain,
-        });
+        entry
+            .network_intents
+            .push(sis_pdf_core::campaign::NetworkIntent {
+                url: url.to_string(),
+                domain,
+            });
     }
     let analyses: Vec<sis_pdf_core::campaign::PDFAnalysis> = by_path.into_values().collect();
     let correlator = sis_pdf_core::campaign::MultiStageCorrelator;
@@ -4141,7 +4254,11 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
     let tester = sis_pdf_core::mutation::MutationTester;
     let mutants = tester.mutate_malware(&data);
     for (idx, mutant) in mutants.iter().enumerate() {
-        let name = format!("mutant_{:02}_{}.pdf", idx + 1, sanitize_filename(&mutant.note));
+        let name = format!(
+            "mutant_{:02}_{}.pdf",
+            idx + 1,
+            sanitize_filename(&mutant.note)
+        );
         let path = out.join(name);
         fs::write(path, &mutant.bytes)?;
     }
@@ -4190,7 +4307,9 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
     }
     Ok(())
 }
-fn count_kinds(findings: &[sis_pdf_core::model::Finding]) -> std::collections::BTreeMap<String, usize> {
+fn count_kinds(
+    findings: &[sis_pdf_core::model::Finding],
+) -> std::collections::BTreeMap<String, usize> {
     let mut out = std::collections::BTreeMap::new();
     for f in findings {
         *out.entry(f.kind.clone()).or_insert(0) += 1;
@@ -4202,8 +4321,7 @@ fn diff_kind_counts(
     current: &std::collections::BTreeMap<String, usize>,
 ) -> Vec<String> {
     let mut out = Vec::new();
-    let keys: std::collections::BTreeSet<&String> =
-        base.keys().chain(current.keys()).collect();
+    let keys: std::collections::BTreeSet<&String> = base.keys().chain(current.keys()).collect();
     for key in keys {
         let b = *base.get(key).unwrap_or(&0) as i64;
         let c = *current.get(key).unwrap_or(&0) as i64;
@@ -4244,18 +4362,24 @@ fn run_ml_health(
         ml_quantized,
         ml_batch_size,
     );
-    let info = sis_pdf_ml_graph::ml_health_check(ml_model_dir, &sis_pdf_ml_graph::RuntimeSettings {
-        provider: runtime.provider.clone(),
-        provider_order: runtime.provider_order.clone(),
-        ort_dylib_path: runtime.ort_dylib_path.clone(),
-        prefer_quantized: runtime.prefer_quantized,
-        max_embedding_batch_size: runtime.max_embedding_batch_size,
-        print_provider: runtime.print_provider,
-    })?;
+    let info = sis_pdf_ml_graph::ml_health_check(
+        ml_model_dir,
+        &sis_pdf_ml_graph::RuntimeSettings {
+            provider: runtime.provider.clone(),
+            provider_order: runtime.provider_order.clone(),
+            ort_dylib_path: runtime.ort_dylib_path.clone(),
+            prefer_quantized: runtime.prefer_quantized,
+            max_embedding_batch_size: runtime.max_embedding_batch_size,
+            print_provider: runtime.print_provider,
+        },
+    )?;
     println!("ML runtime health");
     println!("Requested providers: {}", info.requested.join(", "));
     println!("Available providers: {}", info.available.join(", "));
-    println!("Selected provider: {}", info.selected.unwrap_or_else(|| "none".into()));
+    println!(
+        "Selected provider: {}",
+        info.selected.unwrap_or_else(|| "none".into())
+    );
     if ml_model_dir.is_some() {
         println!("Model load: ok");
     }
@@ -4308,9 +4432,8 @@ fn extract_embedded(
             if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
                 if let Ok(decoded) = sis_pdf_pdf::decode::decode_stream(bytes, st, 32 * 1024 * 1024)
                 {
-                    let name = embedded_filename(&st.dict).unwrap_or_else(|| {
-                        format!("embedded_{}_{}.bin", entry.obj, entry.gen)
-                    });
+                    let name = embedded_filename(&st.dict)
+                        .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
                     let safe_name = sanitize_embedded_filename(&name);
                     let path = outdir.join(&safe_name);
                     if max_extract_bytes > 0
@@ -4368,7 +4491,9 @@ fn sanitize_embedded_filename(name: &str) -> String {
         out
     }
 }
-fn entry_dict<'a>(entry: &'a sis_pdf_pdf::graph::ObjEntry<'a>) -> Option<&'a sis_pdf_pdf::object::PdfDict<'a>> {
+fn entry_dict<'a>(
+    entry: &'a sis_pdf_pdf::graph::ObjEntry<'a>,
+) -> Option<&'a sis_pdf_pdf::object::PdfDict<'a>> {
     match &entry.atom {
         sis_pdf_pdf::object::PdfAtom::Dict(d) => Some(d),
         sis_pdf_pdf::object::PdfAtom::Stream(st) => Some(&st.dict),
@@ -4431,9 +4556,7 @@ fn escape_terminal(input: &str) -> String {
     out
 }
 fn is_printable_ascii(input: &str) -> bool {
-    input
-        .bytes()
-        .all(|b| (0x20..=0x7E).contains(&b))
+    input.bytes().all(|b| (0x20..=0x7E).contains(&b))
 }
 fn sha256_hex(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
@@ -4497,15 +4620,14 @@ fn build_ml_runtime_config(
     prefer_quantized: bool,
     batch_size: Option<usize>,
 ) -> sis_pdf_core::ml::MlRuntimeConfig {
-    let provider = provider
-        .and_then(|p| {
-            let p = p.trim();
-            if p.is_empty() || p.eq_ignore_ascii_case("auto") {
-                None
-            } else {
-                Some(p.to_string())
-            }
-        });
+    let provider = provider.and_then(|p| {
+        let p = p.trim();
+        if p.is_empty() || p.eq_ignore_ascii_case("auto") {
+            None
+        } else {
+            Some(p.to_string())
+        }
+    });
     let provider_order = provider_order.map(|s| {
         s.split(',')
             .map(|p| p.trim())

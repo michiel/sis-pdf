@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 
 use anyhow::Result;
+use flate2::read::ZlibDecoder;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
@@ -148,6 +150,25 @@ impl Detector for ContentFirstDetector {
                         "Stream data",
                     ));
 
+                    findings.extend(script_payload_findings(
+                        entry.obj,
+                        entry.gen,
+                        stream.data_span,
+                        data,
+                        origin_label,
+                        "Stream data",
+                    ));
+
+                    findings.extend(swf_findings(
+                        entry.obj,
+                        entry.gen,
+                        stream.data_span,
+                        data,
+                        kind,
+                        origin_label,
+                        "Stream data",
+                    ));
+
                     findings.extend(zip_container_findings(
                         entry.obj,
                         entry.gen,
@@ -178,6 +199,25 @@ impl Detector for ContentFirstDetector {
                         entry.gen,
                         string_span(s),
                         &bytes,
+                        "string",
+                        "String data",
+                    ));
+
+                    findings.extend(script_payload_findings(
+                        entry.obj,
+                        entry.gen,
+                        string_span(s),
+                        &bytes,
+                        "string",
+                        "String data",
+                    ));
+
+                    findings.extend(swf_findings(
+                        entry.obj,
+                        entry.gen,
+                        string_span(s),
+                        &bytes,
+                        kind,
                         "string",
                         "String data",
                     ));
@@ -214,6 +254,25 @@ impl Detector for ContentFirstDetector {
                             entry.gen,
                             entry.body_span,
                             bytes,
+                            "object",
+                            "Object data",
+                        ));
+
+                        findings.extend(script_payload_findings(
+                            entry.obj,
+                            entry.gen,
+                            entry.body_span,
+                            bytes,
+                            "object",
+                            "Object data",
+                        ));
+
+                        findings.extend(swf_findings(
+                            entry.obj,
+                            entry.gen,
+                            entry.body_span,
+                            bytes,
+                            kind,
                             "object",
                             "Object data",
                         ));
@@ -832,6 +891,307 @@ fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+fn script_payload_findings(
+    obj: u32,
+    gen: u16,
+    span: sis_pdf_pdf::span::Span,
+    data: &[u8],
+    origin: &str,
+    label: &str,
+) -> Vec<Finding> {
+    let max_scan_bytes = 512 * 1024;
+    let slice = if data.len() > max_scan_bytes {
+        &data[..max_scan_bytes]
+    } else {
+        data
+    };
+
+    let mut findings = Vec::new();
+    let mut push = |kind: &str, title: &str, description: &str| {
+        let mut meta = HashMap::new();
+        meta.insert("blob.origin".to_string(), origin.to_string());
+        findings.push(Finding {
+            id: String::new(),
+            surface: AttackSurface::StreamsAndFilters,
+            kind: kind.to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Probable,
+            title: title.to_string(),
+            description: description.to_string(),
+            objects: vec![format!("{} {} obj", obj, gen)],
+            evidence: vec![span_to_evidence(span, label)],
+            remediation: Some("Inspect the script payload and execution context.".to_string()),
+            meta,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+        });
+    };
+
+    if contains_any_ci(slice, &[b"vbscript", b"wscript.shell", b"createscript"]) {
+        push(
+            "vbscript_payload_present",
+            "VBScript payload present",
+            "VBScript indicators detected in content.",
+        );
+    }
+    if contains_any_ci(slice, &[b"powershell", b"invoke-expression", b"iex "]) {
+        push(
+            "powershell_payload_present",
+            "PowerShell payload present",
+            "PowerShell indicators detected in content.",
+        );
+    }
+    if contains_any_ci(slice, &[b"#!/bin/bash", b"/bin/sh", b"bash -c"]) {
+        push(
+            "bash_payload_present",
+            "Shell payload present",
+            "Shell script indicators detected in content.",
+        );
+    }
+    if contains_any_ci(slice, &[b"cmd.exe", b"cmd /c", b" /c "]) {
+        push(
+            "cmd_payload_present",
+            "Command payload present",
+            "Command shell indicators detected in content.",
+        );
+    }
+    if contains_any_ci(slice, &[b"osascript", b"tell application", b"apple script"]) {
+        push(
+            "applescript_payload_present",
+            "AppleScript payload present",
+            "AppleScript indicators detected in content.",
+        );
+    }
+    if contains_any_ci(slice, &[b"<script", b"<xfa", b"<xdp"]) && looks_like_xml(slice) {
+        push(
+            "xfa_script_present",
+            "XFA/XML script present",
+            "Script tags detected inside XFA/XML content.",
+        );
+    }
+
+    findings
+}
+
+fn contains_any_ci(haystack: &[u8], needles: &[&[u8]]) -> bool {
+    needles.iter().any(|needle| find_ci(haystack, needle).is_some())
+}
+
+fn find_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    let needle_lower: Vec<u8> = needle.iter().map(|b| b.to_ascii_lowercase()).collect();
+    haystack
+        .windows(needle_lower.len())
+        .position(|window| {
+            window
+                .iter()
+                .zip(&needle_lower)
+                .all(|(a, b)| a.to_ascii_lowercase() == *b)
+        })
+}
+
+fn looks_like_xml(bytes: &[u8]) -> bool {
+    contains_any_ci(bytes, &[b"<?xml", b"<xdp", b"<xfa", b"<template", b"<form"])
+}
+
+fn swf_findings(
+    obj: u32,
+    gen: u16,
+    span: sis_pdf_pdf::span::Span,
+    data: &[u8],
+    kind: BlobKind,
+    origin: &str,
+    label: &str,
+) -> Vec<Finding> {
+    if kind != BlobKind::Swf {
+        return Vec::new();
+    }
+    let Some(swf_bytes) = swf_expanded_bytes(data) else {
+        return Vec::new();
+    };
+    let scan = parse_swf_tags(&swf_bytes);
+    let mut findings = Vec::new();
+
+    if scan.actionscript_present {
+        let mut meta = HashMap::new();
+        meta.insert("blob.origin".to_string(), origin.to_string());
+        findings.push(Finding {
+            id: String::new(),
+            surface: AttackSurface::StreamsAndFilters,
+            kind: "actionscript_present".to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Probable,
+            title: "ActionScript present".to_string(),
+            description: "SWF tags indicate embedded ActionScript bytecode.".to_string(),
+            objects: vec![format!("{} {} obj", obj, gen)],
+            evidence: vec![span_to_evidence(span, label)],
+            remediation: Some("Inspect SWF bytecode for malicious behaviour.".to_string()),
+            meta,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+        });
+    }
+
+    if !scan.url_iocs.is_empty() {
+        let mut meta = HashMap::new();
+        meta.insert("blob.origin".to_string(), origin.to_string());
+        meta.insert("url.iocs".to_string(), scan.url_iocs.join(", "));
+        meta.insert("url.count".to_string(), scan.url_iocs.len().to_string());
+        findings.push(Finding {
+            id: String::new(),
+            surface: AttackSurface::StreamsAndFilters,
+            kind: "swf_url_iocs".to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Probable,
+            title: "SWF URL indicators".to_string(),
+            description: "Embedded URLs detected in SWF tag payloads.".to_string(),
+            objects: vec![format!("{} {} obj", obj, gen)],
+            evidence: vec![span_to_evidence(span, label)],
+            remediation: Some("Review SWF payloads for external references.".to_string()),
+            meta,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+        });
+    }
+
+    findings
+}
+
+fn swf_expanded_bytes(data: &[u8]) -> Option<Vec<u8>> {
+    if data.len() < 8 {
+        return None;
+    }
+    let signature = &data[..3];
+    if signature == b"FWS" {
+        return Some(data.to_vec());
+    }
+    if signature == b"CWS" {
+        let mut decoder = ZlibDecoder::new(&data[8..]);
+        let mut out = Vec::new();
+        let mut buf = [0u8; 8192];
+        let mut total = 0usize;
+        let max_out = 512 * 1024;
+        loop {
+            let n = decoder.read(&mut buf).ok()?;
+            if n == 0 {
+                break;
+            }
+            total += n;
+            if total > max_out {
+                break;
+            }
+            out.extend_from_slice(&buf[..n]);
+        }
+        let mut rebuilt = Vec::with_capacity(8 + out.len());
+        rebuilt.extend_from_slice(b"FWS");
+        rebuilt.push(data[3]);
+        rebuilt.extend_from_slice(&data[4..8]);
+        rebuilt.extend_from_slice(&out);
+        return Some(rebuilt);
+    }
+    None
+}
+
+struct SwfTagScan {
+    actionscript_present: bool,
+    url_iocs: Vec<String>,
+}
+
+fn parse_swf_tags(data: &[u8]) -> SwfTagScan {
+    let mut scan = SwfTagScan {
+        actionscript_present: false,
+        url_iocs: Vec::new(),
+    };
+    if data.len() < 12 {
+        return scan;
+    }
+    let nbits = data[8] >> 3;
+    let rect_bits = 5u32 + 4u32 * nbits as u32;
+    let rect_bytes = ((rect_bits + 7) / 8) as usize;
+    let mut offset = 8 + rect_bytes + 4;
+    if offset >= data.len() {
+        return scan;
+    }
+
+    let max_tags = 100;
+    let max_urls = 5;
+    let mut tags_seen = 0usize;
+    while offset + 2 <= data.len() && tags_seen < max_tags {
+        let tag_header = u16::from_le_bytes([data[offset], data[offset + 1]]);
+        let tag_code = tag_header >> 6;
+        let mut tag_len = (tag_header & 0x3F) as usize;
+        offset += 2;
+        if tag_len == 0x3F {
+            if offset + 4 > data.len() {
+                break;
+            }
+            tag_len = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]) as usize;
+            offset += 4;
+        }
+        if offset + tag_len > data.len() {
+            break;
+        }
+        let payload = &data[offset..offset + tag_len];
+        if tag_code == 72 || tag_code == 82 {
+            scan.actionscript_present = true;
+        }
+        if scan.url_iocs.len() < max_urls {
+            let strings = extract_ascii_strings(payload, 6);
+            for s in strings {
+                if looks_like_url(&s) {
+                    scan.url_iocs.push(s);
+                    if scan.url_iocs.len() >= max_urls {
+                        break;
+                    }
+                }
+            }
+        }
+        offset += tag_len;
+        tags_seen += 1;
+        if tag_code == 0 {
+            break;
+        }
+    }
+    scan
+}
+
+fn extract_ascii_strings(bytes: &[u8], min_len: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut buf = Vec::new();
+    for &b in bytes {
+        if b.is_ascii_graphic() || b == b' ' {
+            buf.push(b);
+        } else {
+            if buf.len() >= min_len {
+                out.push(String::from_utf8_lossy(&buf).to_string());
+            }
+            buf.clear();
+        }
+    }
+    if buf.len() >= min_len {
+        out.push(String::from_utf8_lossy(&buf).to_string());
+    }
+    out
+}
+
+fn looks_like_url(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("http://")
+        || lower.contains("https://")
+        || lower.contains("ftp://")
+        || lower.contains("mailto:")
 }
 
 fn zip_container_findings(

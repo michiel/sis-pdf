@@ -28,13 +28,19 @@ fn detects_signature_and_encryption() {
 
     let sig_report = sis_pdf_core::runner::run_scan_with_detectors(sig, opts.clone(), &detectors)
         .expect("signature scan should succeed");
-    let sig_kinds: std::collections::HashSet<&str> =
-        sig_report.findings.iter().map(|f| f.kind.as_str()).collect();
+    let sig_kinds: std::collections::HashSet<&str> = sig_report
+        .findings
+        .iter()
+        .map(|f| f.kind.as_str())
+        .collect();
     assert!(sig_kinds.contains("signature_present"));
 
     let enc_report = sis_pdf_core::runner::run_scan_with_detectors(enc, opts, &detectors)
         .expect("encryption scan should succeed");
-    let enc_kinds: std::collections::HashSet<&str> =
-        enc_report.findings.iter().map(|f| f.kind.as_str()).collect();
+    let enc_kinds: std::collections::HashSet<&str> = enc_report
+        .findings
+        .iter()
+        .map(|f| f.kind.as_str())
+        .collect();
     assert!(enc_kinds.contains("encryption_present"));
 }

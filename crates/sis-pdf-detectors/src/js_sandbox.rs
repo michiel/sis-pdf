@@ -35,20 +35,30 @@ impl Detector for JavaScriptSandboxDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         for entry in &ctx.graph.objects {
-            let Some(dict) = entry_dict(entry) else { continue };
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
             if !dict.has_name(b"/S", b"/JavaScript") && dict.get_first(b"/JS").is_none() {
                 continue;
             }
-            let Some((_, obj)) = dict.get_first(b"/JS") else { continue };
+            let Some((_, obj)) = dict.get_first(b"/JS") else {
+                continue;
+            };
             let payload = resolve_payload(ctx, obj);
-            let Some(info) = payload.payload else { continue };
+            let Some(info) = payload.payload else {
+                continue;
+            };
 
             let mut options = DynamicOptions::default();
             options.max_bytes = JS_SANDBOX_MAX_BYTES;
             options.timeout_ms = JS_WALLCLOCK_TIMEOUT.as_millis();
 
             match run_sandbox(&info.bytes, &options) {
-                DynamicOutcome::Skipped { reason, limit, actual } => {
+                DynamicOutcome::Skipped {
+                    reason,
+                    limit,
+                    actual,
+                } => {
                     let mut meta = std::collections::HashMap::new();
                     meta.insert("js.sandbox_exec".into(), "false".into());
                     meta.insert("js.sandbox_skip_reason".into(), reason);
@@ -89,8 +99,8 @@ impl Detector for JavaScriptSandboxDetector {
                         remediation: Some("Inspect the JS payload for long-running loops.".into()),
                         meta,
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
                 DynamicOutcome::Executed(signals) => {
@@ -101,8 +111,14 @@ impl Detector for JavaScriptSandboxDetector {
                             meta.insert("js.sandbox_exec_ms".into(), ms.to_string());
                         }
                         if !signals.prop_reads.is_empty() {
-                            meta.insert("js.runtime.prop_reads".into(), signals.prop_reads.join(", "));
-                            meta.insert("js.runtime.unique_prop_reads".into(), signals.unique_prop_reads.to_string());
+                            meta.insert(
+                                "js.runtime.prop_reads".into(),
+                                signals.prop_reads.join(", "),
+                            );
+                            meta.insert(
+                                "js.runtime.unique_prop_reads".into(),
+                                signals.unique_prop_reads.to_string(),
+                            );
                         }
                         if !signals.errors.is_empty() {
                             meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
@@ -127,18 +143,25 @@ impl Detector for JavaScriptSandboxDetector {
                             remediation: Some("Review JS payload and runtime errors.".into()),
                             meta,
                             yara: None,
-        position: None,
-        positions: Vec::new(),
+                            position: None,
+                            positions: Vec::new(),
                         });
                         continue;
                     }
 
                     let mut base_meta = std::collections::HashMap::new();
                     base_meta.insert("js.runtime.calls".into(), signals.calls.join(","));
-                    base_meta.insert("js.runtime.call_count".into(), signals.call_count.to_string());
-                    base_meta.insert("js.runtime.unique_calls".into(), signals.unique_calls.to_string());
+                    base_meta.insert(
+                        "js.runtime.call_count".into(),
+                        signals.call_count.to_string(),
+                    );
+                    base_meta.insert(
+                        "js.runtime.unique_calls".into(),
+                        signals.unique_calls.to_string(),
+                    );
                     if !signals.call_args.is_empty() {
-                        base_meta.insert("js.runtime.call_args".into(), signals.call_args.join("; "));
+                        base_meta
+                            .insert("js.runtime.call_args".into(), signals.call_args.join("; "));
                     }
                     if !signals.urls.is_empty() {
                         base_meta.insert("js.runtime.urls".into(), signals.urls.join(", "));
@@ -147,8 +170,14 @@ impl Detector for JavaScriptSandboxDetector {
                         base_meta.insert("js.runtime.domains".into(), signals.domains.join(", "));
                     }
                     if !signals.prop_reads.is_empty() {
-                        base_meta.insert("js.runtime.prop_reads".into(), signals.prop_reads.join(", "));
-                        base_meta.insert("js.runtime.unique_prop_reads".into(), signals.unique_prop_reads.to_string());
+                        base_meta.insert(
+                            "js.runtime.prop_reads".into(),
+                            signals.prop_reads.join(", "),
+                        );
+                        base_meta.insert(
+                            "js.runtime.unique_prop_reads".into(),
+                            signals.unique_prop_reads.to_string(),
+                        );
                     }
                     if !signals.errors.is_empty() {
                         base_meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
@@ -157,11 +186,7 @@ impl Detector for JavaScriptSandboxDetector {
                         base_meta.insert("js.sandbox_exec_ms".into(), ms.to_string());
                     }
                     let mut risky_calls = Vec::new();
-                    if signals
-                        .calls
-                        .iter()
-                        .any(|c| c.eq_ignore_ascii_case("eval"))
-                    {
+                    if signals.calls.iter().any(|c| c.eq_ignore_ascii_case("eval")) {
                         risky_calls.push("eval");
                     }
                     if signals

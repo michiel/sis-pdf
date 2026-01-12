@@ -4,8 +4,16 @@ use crate::span::Span;
 
 #[derive(Debug, Clone)]
 pub enum PdfStr<'a> {
-    Literal { span: Span, raw: Cow<'a, [u8]>, decoded: Vec<u8> },
-    Hex { span: Span, raw: Cow<'a, [u8]>, decoded: Vec<u8> },
+    Literal {
+        span: Span,
+        raw: Cow<'a, [u8]>,
+        decoded: Vec<u8>,
+    },
+    Hex {
+        span: Span,
+        raw: Cow<'a, [u8]>,
+        decoded: Vec<u8>,
+    },
 }
 
 #[derive(Debug, Clone)]

@@ -62,7 +62,10 @@ pub fn synthesise_chains(findings: &[Finding]) -> (Vec<ExploitChain>, Vec<ChainT
             }
         }
         if structural_count > 0 {
-            notes.insert("structural.suspicious_count".into(), structural_count.to_string());
+            notes.insert(
+                "structural.suspicious_count".into(),
+                structural_count.to_string(),
+            );
         }
         if taint.flagged {
             notes.insert("taint.flagged".into(), "true".into());
@@ -98,13 +101,15 @@ pub fn synthesise_chains(findings: &[Finding]) -> (Vec<ExploitChain>, Vec<ChainT
             c.action.as_deref().unwrap_or("-"),
             c.payload.as_deref().unwrap_or("-")
         );
-        let entry = templates.entry(key.clone()).or_insert_with(|| ChainTemplate {
-            id: template_id(&key),
-            trigger: c.trigger.clone(),
-            action: c.action.clone(),
-            payload: c.payload.clone(),
-            instances: Vec::new(),
-        });
+        let entry = templates
+            .entry(key.clone())
+            .or_insert_with(|| ChainTemplate {
+                id: template_id(&key),
+                trigger: c.trigger.clone(),
+                action: c.action.clone(),
+                payload: c.payload.clone(),
+                instances: Vec::new(),
+            });
         entry.instances.push(c.id.clone());
     }
 
@@ -160,7 +165,10 @@ fn build_object_chains(
             notes.insert("correlation.action_payload".into(), "true".into());
         }
         if structural_count > 0 {
-            notes.insert("structural.suspicious_count".into(), structural_count.to_string());
+            notes.insert(
+                "structural.suspicious_count".into(),
+                structural_count.to_string(),
+            );
         }
         if taint.flagged {
             notes.insert("taint.flagged".into(), "true".into());

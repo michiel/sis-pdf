@@ -29,7 +29,9 @@ impl Detector for QuantumRiskDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut algos = Vec::new();
         for entry in &ctx.graph.objects {
-            let Some(dict) = entry_dict(entry) else { continue };
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
             if dict.has_name(b"/Type", b"/Sig") || dict.get_first(b"/ByteRange").is_some() {
                 if let Some((_, v)) = dict.get_first(b"/SubFilter") {
                     if let PdfAtom::Name(n) = &v.atom {
@@ -47,7 +49,9 @@ impl Detector for QuantumRiskDetector {
             return Ok(Vec::new());
         }
         let analyzer = QuantumThreatAnalyzer;
-        let usage = CryptoUsage { algorithms: algos.clone() };
+        let usage = CryptoUsage {
+            algorithms: algos.clone(),
+        };
         let risk = analyzer.assess_quantum_vulnerability(&usage);
         if risk.score < 0.5 {
             return Ok(Vec::new());
@@ -72,8 +76,8 @@ impl Detector for QuantumRiskDetector {
             remediation: Some("Plan migration to post-quantum algorithms.".into()),
             meta,
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
         }])
     }
 }

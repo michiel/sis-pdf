@@ -101,7 +101,12 @@ pub fn analyse_static(data: &[u8]) -> StaticAnalysisOutcome {
 
     for i in 0..num_tables as usize {
         let start = SFNT_HEADER_LEN + i * TABLE_RECORD_LEN;
-        let tag = [data[start], data[start + 1], data[start + 2], data[start + 3]];
+        let tag = [
+            data[start],
+            data[start + 1],
+            data[start + 2],
+            data[start + 3],
+        ];
         let offset = u32::from_be_bytes([
             data[start + 8],
             data[start + 9],
@@ -121,29 +126,20 @@ pub fn analyse_static(data: &[u8]) -> StaticAnalysisOutcome {
 
         let end = offset as u64 + length as u64;
         if end as usize > data.len() {
-            invalid_tables.push(format!(
-                "{}:{}-{}",
-                tag_to_string(tag),
-                offset,
-                end
-            ));
+            invalid_tables.push(format!("{}:{}-{}", tag_to_string(tag), offset, end));
         }
         if length as usize > MAX_TABLE_LENGTH {
-            oversized_tables.push(format!(
-                "{}:{}",
-                tag_to_string(tag),
-                length
-            ));
+            oversized_tables.push(format!("{}:{}", tag_to_string(tag), length));
         }
         if is_hinting_table(tag) && length as usize > MAX_HINT_BYTES {
-            hinting_tables.push(format!(
-                "{}:{}",
-                tag_to_string(tag),
-                length
-            ));
+            hinting_tables.push(format!("{}:{}", tag_to_string(tag), length));
         }
 
-        records.push(TableRecord { tag, offset, length });
+        records.push(TableRecord {
+            tag,
+            offset,
+            length,
+        });
     }
 
     if !invalid_tables.is_empty() {
@@ -240,7 +236,13 @@ fn looks_like_sfnt(data: &[u8]) -> bool {
 
 fn tag_to_string(tag: [u8; 4]) -> String {
     tag.iter()
-        .map(|b| if b.is_ascii_graphic() { *b as char } else { '?' })
+        .map(|b| {
+            if b.is_ascii_graphic() {
+                *b as char
+            } else {
+                '?'
+            }
+        })
         .collect()
 }
 

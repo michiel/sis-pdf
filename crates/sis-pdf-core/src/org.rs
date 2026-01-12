@@ -124,7 +124,9 @@ impl OrgGraph {
         }
         let mut edges = Vec::new();
         for (src, targets) in &self.adjacency {
-            let Some(&src_idx) = index_map.get(src) else { continue };
+            let Some(&src_idx) = index_map.get(src) else {
+                continue;
+            };
             for t in targets {
                 if let Some(&t_idx) = index_map.get(t) {
                     edges.push((src_idx, t_idx));

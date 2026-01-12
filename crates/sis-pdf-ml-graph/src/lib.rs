@@ -15,13 +15,13 @@ pub use config::{
 };
 pub use runtime::{ProviderInfo, RuntimeSettings};
 
-use config::ResolvedModelPaths;
 use config::validate_onnx_safety;
+use config::ResolvedModelPaths;
 use onnx::{OnnxEmbedder, OnnxGnn, OutputKind, PoolingStrategy};
 use runtime::{merge_runtime_settings, provider_info};
-use tokenizer::TokenizerWrapper;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+use tokenizer::TokenizerWrapper;
 
 #[derive(Debug, Clone)]
 pub struct GraphPrediction {
@@ -153,12 +153,10 @@ impl GraphModelRunner {
             &self.config.embedding.normalize,
             max_ir_string_len(&self.config),
         );
-        let compressed = compress_texts_for_max_tokens(
-            &normalized,
-            self.tokenizer.max_length(),
-        );
+        let compressed = compress_texts_for_max_tokens(&normalized, self.tokenizer.max_length());
         let batch_size = effective_batch_size(&self.config, &self.runtime);
-        let embeddings = embed_in_batches(&self.tokenizer, &self.embedder, &compressed, batch_size)?;
+        let embeddings =
+            embed_in_batches(&self.tokenizer, &self.embedder, &compressed, batch_size)?;
         let node_count = embeddings.len();
         edges.retain(|(s, t)| *s < node_count && *t < node_count);
         if self.config.edge_index.add_reverse_edges {
@@ -170,11 +168,7 @@ impl GraphModelRunner {
         }
         let edge_count = edges.len();
         let feature_dim = embeddings.get(0).map(|v| v.len()).unwrap_or(0);
-        let max_node = edges
-            .iter()
-            .flat_map(|(s, t)| [*s, *t])
-            .max()
-            .unwrap_or(0);
+        let max_node = edges.iter().flat_map(|(s, t)| [*s, *t]).max().unwrap_or(0);
         let inference = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.gnn.infer(&embeddings, &edges)
         })) {
@@ -242,7 +236,10 @@ pub fn runtime_provider_info(runtime: &RuntimeSettings) -> Result<ProviderInfo> 
     provider_info(runtime)
 }
 
-pub fn ml_health_check(model_dir: Option<&Path>, runtime: &RuntimeSettings) -> Result<ProviderInfo> {
+pub fn ml_health_check(
+    model_dir: Option<&Path>,
+    runtime: &RuntimeSettings,
+) -> Result<ProviderInfo> {
     let info = provider_info(runtime)?;
     if let Some(path) = model_dir {
         let _ = GraphModelRunner::load_with_runtime(path, runtime)?;
@@ -273,12 +270,18 @@ fn resolve_model_paths(
     runtime: &RuntimeSettings,
 ) -> (std::path::PathBuf, std::path::PathBuf) {
     let embedding = if runtime.prefer_quantized {
-        paths.embedding_quantized.clone().unwrap_or_else(|| paths.embedding_model.clone())
+        paths
+            .embedding_quantized
+            .clone()
+            .unwrap_or_else(|| paths.embedding_model.clone())
     } else {
         paths.embedding_model.clone()
     };
     let graph = if runtime.prefer_quantized {
-        paths.graph_quantized.clone().unwrap_or_else(|| paths.graph_model.clone())
+        paths
+            .graph_quantized
+            .clone()
+            .unwrap_or_else(|| paths.graph_model.clone())
     } else {
         paths.graph_model.clone()
     };
@@ -344,7 +347,14 @@ fn compress_text_for_max_tokens(text: &str, max_length: usize) -> String {
         return text.chars().take(max_chars).collect();
     }
     let head: String = text.chars().take(head_len).collect();
-    let tail: String = text.chars().rev().take(tail_len).collect::<Vec<_>>().into_iter().rev().collect();
+    let tail: String = text
+        .chars()
+        .rev()
+        .take(tail_len)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     format!("{}{}{}", head, TAIL_MARKER, tail)
 }
 

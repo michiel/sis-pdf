@@ -62,10 +62,13 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
         "js.contains_unicode_escapes".into(),
         bool_str(contains_unicode_escape(data)),
     );
-    out.insert("js.contains_eval".into(), bool_str(find_token(data, b"eval")));
+    out.insert(
+        "js.contains_eval".into(),
+        bool_str(find_token(data, b"eval")),
+    );
     out.insert(
         "js.dynamic_eval_construction".into(),
-        bool_str(contains_dynamic_eval_construction(data))
+        bool_str(contains_dynamic_eval_construction(data)),
     );
     out.insert(
         "js.contains_unescape".into(),
@@ -77,11 +80,11 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
     );
     out.insert(
         "js.hex_fromcharcode_pattern".into(),
-        bool_str(contains_hex_fromcharcode_pattern(data))
+        bool_str(contains_hex_fromcharcode_pattern(data)),
     );
     out.insert(
         "js.environment_fingerprinting".into(),
-        bool_str(contains_environment_fingerprinting(data))
+        bool_str(contains_environment_fingerprinting(data)),
     );
     out.insert(
         "js.string_concat_density".into(),
@@ -103,333 +106,300 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
     // Shellcode detection
     out.insert(
         "js.shellcode_pattern".into(),
-        bool_str(detect_shellcode_pattern(data))
+        bool_str(detect_shellcode_pattern(data)),
     );
-    out.insert(
-        "js.nop_sled".into(),
-        bool_str(detect_nop_sled(data))
-    );
+    out.insert("js.nop_sled".into(), bool_str(detect_nop_sled(data)));
 
     // Memory corruption primitives
     out.insert(
         "js.type_confusion_risk".into(),
-        bool_str(detect_type_confusion(data))
+        bool_str(detect_type_confusion(data)),
     );
     out.insert(
         "js.integer_overflow_setup".into(),
-        bool_str(detect_integer_overflow(data))
+        bool_str(detect_integer_overflow(data)),
     );
     out.insert(
         "js.array_manipulation_exploit".into(),
-        bool_str(detect_array_manipulation(data))
+        bool_str(detect_array_manipulation(data)),
     );
 
     // Anti-analysis techniques
     out.insert(
         "js.debugger_detection".into(),
-        bool_str(detect_debugger_detection(data))
+        bool_str(detect_debugger_detection(data)),
     );
     out.insert(
         "js.sandbox_evasion".into(),
-        bool_str(detect_sandbox_evasion(data))
+        bool_str(detect_sandbox_evasion(data)),
     );
     out.insert(
         "js.exception_abuse".into(),
-        bool_str(detect_exception_abuse(data))
+        bool_str(detect_exception_abuse(data)),
     );
-    out.insert(
-        "js.time_bomb".into(),
-        bool_str(detect_time_bomb(data))
-    );
+    out.insert("js.time_bomb".into(), bool_str(detect_time_bomb(data)));
 
     // Data exfiltration
     out.insert(
         "js.form_manipulation".into(),
-        bool_str(detect_form_manipulation(data))
+        bool_str(detect_form_manipulation(data)),
     );
     out.insert(
         "js.credential_harvesting".into(),
-        bool_str(detect_credential_harvesting(data))
+        bool_str(detect_credential_harvesting(data)),
     );
     out.insert(
         "js.encoded_transmission".into(),
-        bool_str(detect_encoded_transmission(data))
+        bool_str(detect_encoded_transmission(data)),
     );
 
     // Advanced obfuscation
     out.insert(
         "js.control_flow_flattening".into(),
-        bool_str(detect_control_flow_flattening(data))
+        bool_str(detect_control_flow_flattening(data)),
     );
     out.insert(
         "js.opaque_predicates".into(),
-        bool_str(detect_opaque_predicates(data))
+        bool_str(detect_opaque_predicates(data)),
     );
     out.insert(
         "js.identifier_mangling".into(),
-        bool_str(detect_identifier_mangling(data))
+        bool_str(detect_identifier_mangling(data)),
     );
 
     // PDF exploitation
     out.insert(
         "js.font_exploitation".into(),
-        bool_str(detect_font_exploitation(data))
+        bool_str(detect_font_exploitation(data)),
     );
     out.insert(
         "js.annotation_abuse".into(),
-        bool_str(detect_annotation_abuse(data))
+        bool_str(detect_annotation_abuse(data)),
     );
     out.insert(
         "js.xfa_exploitation".into(),
-        bool_str(detect_xfa_exploitation(data))
+        bool_str(detect_xfa_exploitation(data)),
     );
 
     // C2 patterns
-    out.insert(
-        "js.dga_pattern".into(),
-        bool_str(detect_dga_pattern(data))
-    );
+    out.insert("js.dga_pattern".into(), bool_str(detect_dga_pattern(data)));
     out.insert(
         "js.beaconing_pattern".into(),
-        bool_str(detect_beaconing_pattern(data))
+        bool_str(detect_beaconing_pattern(data)),
     );
 
     // Cryptomining
     out.insert(
         "js.cryptomining_library".into(),
-        bool_str(detect_cryptomining_library(data))
+        bool_str(detect_cryptomining_library(data)),
     );
-    out.insert(
-        "js.wasm_mining".into(),
-        bool_str(detect_wasm_mining(data))
-    );
+    out.insert("js.wasm_mining".into(), bool_str(detect_wasm_mining(data)));
 
     // Unicode abuse
     out.insert(
         "js.unicode_obfuscation".into(),
-        bool_str(detect_unicode_obfuscation(data))
+        bool_str(detect_unicode_obfuscation(data)),
     );
     out.insert(
         "js.rtl_override".into(),
-        bool_str(detect_rtl_override(data))
+        bool_str(detect_rtl_override(data)),
     );
     out.insert(
         "js.homoglyph_attack".into(),
-        bool_str(detect_homoglyph_attack(data))
+        bool_str(detect_homoglyph_attack(data)),
     );
 
     // Custom decoders
     out.insert(
         "js.custom_decoder".into(),
-        bool_str(detect_custom_decoder(data))
+        bool_str(detect_custom_decoder(data)),
     );
 
     // Function introspection
     out.insert(
         "js.function_introspection".into(),
-        bool_str(detect_function_introspection(data))
+        bool_str(detect_function_introspection(data)),
     );
 
     // Excessive string allocation
     out.insert(
         "js.excessive_string_allocation".into(),
-        bool_str(detect_excessive_string_allocation(data))
+        bool_str(detect_excessive_string_allocation(data)),
     );
 
     // Resource exhaustion & DoS
     out.insert(
         "js.infinite_loop_risk".into(),
-        bool_str(detect_infinite_loop_risk(data))
+        bool_str(detect_infinite_loop_risk(data)),
     );
-    out.insert(
-        "js.memory_bomb".into(),
-        bool_str(detect_memory_bomb(data))
-    );
+    out.insert("js.memory_bomb".into(), bool_str(detect_memory_bomb(data)));
     out.insert(
         "js.computational_bomb".into(),
-        bool_str(detect_computational_bomb(data))
+        bool_str(detect_computational_bomb(data)),
     );
     out.insert(
         "js.recursive_bomb".into(),
-        bool_str(detect_recursive_bomb(data))
+        bool_str(detect_recursive_bomb(data)),
     );
     out.insert(
         "js.redos_pattern".into(),
-        bool_str(detect_redos_pattern(data))
+        bool_str(detect_redos_pattern(data)),
     );
 
     // Code injection & DOM manipulation
     out.insert(
         "js.dom_xss_sink".into(),
-        bool_str(detect_dom_xss_sink(data))
+        bool_str(detect_dom_xss_sink(data)),
     );
     out.insert(
         "js.innerHTML_injection".into(),
-        bool_str(detect_innerhtml_injection(data))
+        bool_str(detect_innerhtml_injection(data)),
     );
     out.insert(
         "js.prototype_pollution_gadget".into(),
-        bool_str(detect_prototype_pollution_gadget(data))
+        bool_str(detect_prototype_pollution_gadget(data)),
     );
     out.insert(
         "js.script_injection".into(),
-        bool_str(detect_script_injection(data))
+        bool_str(detect_script_injection(data)),
     );
-    out.insert(
-        "js.eval_sink".into(),
-        bool_str(detect_eval_sink(data))
-    );
+    out.insert("js.eval_sink".into(), bool_str(detect_eval_sink(data)));
 
     // Exploit kit signatures
-    out.insert(
-        "js.angler_ek".into(),
-        bool_str(detect_angler_ek(data))
-    );
+    out.insert("js.angler_ek".into(), bool_str(detect_angler_ek(data)));
     out.insert(
         "js.magnitude_ek".into(),
-        bool_str(detect_magnitude_ek(data))
+        bool_str(detect_magnitude_ek(data)),
     );
-    out.insert(
-        "js.rig_ek".into(),
-        bool_str(detect_rig_ek(data))
-    );
+    out.insert("js.rig_ek".into(), bool_str(detect_rig_ek(data)));
     out.insert(
         "js.exploit_kit_pattern".into(),
-        bool_str(detect_exploit_kit_pattern(data))
+        bool_str(detect_exploit_kit_pattern(data)),
     );
 
     // Ransomware patterns
     out.insert(
         "js.file_enumeration".into(),
-        bool_str(detect_file_enumeration(data))
+        bool_str(detect_file_enumeration(data)),
     );
     out.insert(
         "js.bulk_encryption".into(),
-        bool_str(detect_bulk_encryption(data))
+        bool_str(detect_bulk_encryption(data)),
     );
-    out.insert(
-        "js.ransom_note".into(),
-        bool_str(detect_ransom_note(data))
-    );
+    out.insert("js.ransom_note".into(), bool_str(detect_ransom_note(data)));
     out.insert(
         "js.bitcoin_address".into(),
-        bool_str(detect_bitcoin_address(data))
+        bool_str(detect_bitcoin_address(data)),
     );
 
     // Advanced shellcode techniques
-    out.insert(
-        "js.jit_spray".into(),
-        bool_str(detect_jit_spray(data))
-    );
+    out.insert("js.jit_spray".into(), bool_str(detect_jit_spray(data)));
     out.insert(
         "js.unicode_shellcode".into(),
-        bool_str(detect_unicode_shellcode(data))
+        bool_str(detect_unicode_shellcode(data)),
     );
     out.insert(
         "js.constant_spray".into(),
-        bool_str(detect_constant_spray(data))
+        bool_str(detect_constant_spray(data)),
     );
 
     // Advanced evasion
     out.insert(
         "js.fingerprint_check".into(),
-        bool_str(detect_fingerprint_check(data))
+        bool_str(detect_fingerprint_check(data)),
     );
     out.insert(
         "js.timing_evasion".into(),
-        bool_str(detect_timing_evasion(data))
+        bool_str(detect_timing_evasion(data)),
     );
     out.insert(
         "js.interaction_required".into(),
-        bool_str(detect_interaction_required(data))
+        bool_str(detect_interaction_required(data)),
     );
     out.insert(
         "js.targeted_execution".into(),
-        bool_str(detect_targeted_execution(data))
+        bool_str(detect_targeted_execution(data)),
     );
 
     // Persistence & state manipulation
     out.insert(
         "js.localStorage_write".into(),
-        bool_str(detect_localstorage_write(data))
+        bool_str(detect_localstorage_write(data)),
     );
     out.insert(
         "js.cookie_manipulation".into(),
-        bool_str(detect_cookie_manipulation(data))
+        bool_str(detect_cookie_manipulation(data)),
     );
     out.insert(
         "js.global_pollution".into(),
-        bool_str(detect_global_pollution(data))
+        bool_str(detect_global_pollution(data)),
     );
     out.insert(
         "js.history_manipulation".into(),
-        bool_str(detect_history_manipulation(data))
+        bool_str(detect_history_manipulation(data)),
     );
 
     // Supply chain attacks
     out.insert(
         "js.dynamic_import".into(),
-        bool_str(detect_dynamic_import(data))
+        bool_str(detect_dynamic_import(data)),
     );
     out.insert(
         "js.remote_script_load".into(),
-        bool_str(detect_remote_script_load(data))
+        bool_str(detect_remote_script_load(data)),
     );
     out.insert(
         "js.suspicious_package".into(),
-        bool_str(detect_suspicious_package(data))
+        bool_str(detect_suspicious_package(data)),
     );
 
     // Network abuse
-    out.insert(
-        "js.port_scan".into(),
-        bool_str(detect_port_scan(data))
-    );
+    out.insert("js.port_scan".into(), bool_str(detect_port_scan(data)));
     out.insert(
         "js.internal_probe".into(),
-        bool_str(detect_internal_probe(data))
+        bool_str(detect_internal_probe(data)),
     );
     out.insert(
         "js.dns_rebinding".into(),
-        bool_str(detect_dns_rebinding(data))
+        bool_str(detect_dns_rebinding(data)),
     );
 
     // Steganography
     out.insert(
         "js.comment_payload".into(),
-        bool_str(detect_comment_payload(data))
+        bool_str(detect_comment_payload(data)),
     );
     out.insert(
         "js.zero_width_chars".into(),
-        bool_str(detect_zero_width_chars(data))
+        bool_str(detect_zero_width_chars(data)),
     );
     out.insert(
         "js.canvas_decode".into(),
-        bool_str(detect_canvas_decode(data))
+        bool_str(detect_canvas_decode(data)),
     );
 
     // Polyglot files
     out.insert(
         "js.polyglot_pdf".into(),
-        bool_str(detect_polyglot_pdf(data))
+        bool_str(detect_polyglot_pdf(data)),
     );
     out.insert(
         "js.polyglot_html".into(),
-        bool_str(detect_polyglot_html(data))
+        bool_str(detect_polyglot_html(data)),
     );
 
     // Browser fingerprinting
     out.insert(
         "js.canvas_fingerprint".into(),
-        bool_str(detect_canvas_fingerprint(data))
+        bool_str(detect_canvas_fingerprint(data)),
     );
     out.insert(
         "js.webgl_fingerprint".into(),
-        bool_str(detect_webgl_fingerprint(data))
+        bool_str(detect_webgl_fingerprint(data)),
     );
     out.insert(
         "js.font_enumeration".into(),
-        bool_str(detect_font_enumeration(data))
+        bool_str(detect_font_enumeration(data)),
     );
 
     out.insert("js.ast_parsed".into(), "false".into());
@@ -474,7 +444,10 @@ pub fn decode_layers(data: &[u8], max_layers: usize) -> DecodedLayers {
         }
         break;
     }
-    DecodedLayers { bytes: current, layers }
+    DecodedLayers {
+        bytes: current,
+        layers,
+    }
 }
 
 fn decode_once(data: &[u8]) -> Option<Vec<u8>> {
@@ -502,7 +475,9 @@ fn decode_js_escapes(data: &[u8]) -> Option<Vec<u8>> {
         if data[i] == b'\\' && i + 1 < data.len() {
             match data[i + 1] {
                 b'x' if i + 3 < data.len() => {
-                    if let Ok(v) = u8::from_str_radix(&String::from_utf8_lossy(&data[i + 2..i + 4]), 16) {
+                    if let Ok(v) =
+                        u8::from_str_radix(&String::from_utf8_lossy(&data[i + 2..i + 4]), 16)
+                    {
                         out.push(v);
                         i += 4;
                         changed = true;
@@ -510,7 +485,9 @@ fn decode_js_escapes(data: &[u8]) -> Option<Vec<u8>> {
                     }
                 }
                 b'u' if i + 5 < data.len() => {
-                    if let Ok(v) = u16::from_str_radix(&String::from_utf8_lossy(&data[i + 2..i + 6]), 16) {
+                    if let Ok(v) =
+                        u16::from_str_radix(&String::from_utf8_lossy(&data[i + 2..i + 6]), 16)
+                    {
                         if let Some(s) = std::char::from_u32(v as u32) {
                             out.push(s as u8);
                             i += 6;
@@ -525,7 +502,11 @@ fn decode_js_escapes(data: &[u8]) -> Option<Vec<u8>> {
         out.push(data[i]);
         i += 1;
     }
-    if changed { Some(out) } else { None }
+    if changed {
+        Some(out)
+    } else {
+        None
+    }
 }
 
 fn decode_hex_string(data: &[u8]) -> Option<Vec<u8>> {
@@ -553,8 +534,13 @@ fn decode_hex_string(data: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn is_base64_like(data: &[u8]) -> bool {
-    data.iter()
-        .all(|b| b.is_ascii_alphanumeric() || *b == b'+' || *b == b'/' || *b == b'=' || b.is_ascii_whitespace())
+    data.iter().all(|b| {
+        b.is_ascii_alphanumeric()
+            || *b == b'+'
+            || *b == b'/'
+            || *b == b'='
+            || b.is_ascii_whitespace()
+    })
 }
 
 fn count_base64_like_runs(data: &[u8], min_len: usize) -> usize {
@@ -601,7 +587,7 @@ fn contains_unicode_escape(data: &[u8]) -> bool {
 }
 
 fn contains_regex_packing(data: &[u8]) -> bool {
-    find_token(data, b"/" ) && find_token(data, b".replace")
+    find_token(data, b"/") && find_token(data, b".replace")
 }
 
 fn contains_suspicious_api(data: &[u8]) -> bool {
@@ -614,23 +600,19 @@ fn contains_suspicious_api(data: &[u8]) -> bool {
         b"importDataObject",
         b"exportDataObject",
         b"app.mailMsg",
-        
         // PDF annotation manipulation (high risk)
         b"app.doc.syncAnnotScan",
         b"app.doc.getAnnots",
         b"app.doc.addAnnot",
         b"app.doc.removeAnnot",
         b".subject",
-        
         // Environment fingerprinting
         b"app.plugIns.length",
         b"app.viewerType",
         b"app.platform",
-        
         // Media exploitation
         b"this.media.newPlayer",
         b"app.media.newPlayer",
-        
         // Advanced execution contexts
         b"this.getOCGs",
         b"app.doc.getOCGs",
@@ -639,27 +621,23 @@ fn contains_suspicious_api(data: &[u8]) -> bool {
 }
 
 fn find_token(data: &[u8], token: &[u8]) -> bool {
-    data.windows(token.len()).any(|w| w.eq_ignore_ascii_case(token))
+    data.windows(token.len())
+        .any(|w| w.eq_ignore_ascii_case(token))
 }
 
 fn contains_dynamic_eval_construction(data: &[u8]) -> bool {
     // Detect patterns like: 'ev' + 'a' + 'l' or variable[function_name]()
     let patterns: &[&[u8]] = &[
         // String concatenation to form "eval"
-        b"'ev'",
-        b"\"ev\"", 
-        // Common eval construction fragments
-        b"'a'",
-        b"\"a\"",
-        b"'l'",
-        b"\"l\"",
+        b"'ev'", b"\"ev\"", // Common eval construction fragments
+        b"'a'", b"\"a\"", b"'l'", b"\"l\"",
     ];
-    
+
     // Look for string concatenation operators near eval fragments
     let has_eval_fragments = patterns.iter().any(|pat| find_token(data, pat));
     let has_concat = find_token(data, b"+");
     let has_dynamic_access = find_token(data, b"[") && find_token(data, b"]");
-    
+
     (has_eval_fragments && has_concat) || has_dynamic_access
 }
 
@@ -668,7 +646,7 @@ fn contains_hex_fromcharcode_pattern(data: &[u8]) -> bool {
     let has_fromcharcode = find_token(data, b"fromCharCode");
     let has_hex_prefix = find_token(data, b"0x") || find_token(data, b"\"0x");
     let has_parseint = find_token(data, b"parseInt");
-    
+
     has_fromcharcode && (has_hex_prefix || has_parseint)
 }
 
@@ -682,10 +660,11 @@ fn contains_environment_fingerprinting(data: &[u8]) -> bool {
         b"this.info.title",
         b"this.info.author",
     ];
-    
+
     let has_fingerprinting = fingerprint_props.iter().any(|pat| find_token(data, pat));
-    let has_conditional = find_token(data, b"if") && (find_token(data, b">") || find_token(data, b"==") || find_token(data, b"!="));
-    
+    let has_conditional = find_token(data, b"if")
+        && (find_token(data, b">") || find_token(data, b"==") || find_token(data, b"!="));
+
     has_fingerprinting && has_conditional
 }
 
@@ -718,16 +697,38 @@ fn shannon_entropy(data: &[u8]) -> f64 {
 }
 
 fn bool_str(val: bool) -> String {
-    if val { "true".into() } else { "false".into() }
+    if val {
+        "true".into()
+    } else {
+        "false".into()
+    }
 }
 
 fn is_obfuscationish(meta: &HashMap<String, String>) -> bool {
-    let base64_like = meta.get("js.has_base64_like").map(|v| v == "true").unwrap_or(false);
-    let has_eval = meta.get("js.contains_eval").map(|v| v == "true").unwrap_or(false);
-    let has_fcc = meta.get("js.contains_fromcharcode").map(|v| v == "true").unwrap_or(false);
-    let has_unescape = meta.get("js.contains_unescape").map(|v| v == "true").unwrap_or(false);
-    let has_hex = meta.get("js.contains_hex_escapes").map(|v| v == "true").unwrap_or(false);
-    let has_unicode = meta.get("js.contains_unicode_escapes").map(|v| v == "true").unwrap_or(false);
+    let base64_like = meta
+        .get("js.has_base64_like")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let has_eval = meta
+        .get("js.contains_eval")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let has_fcc = meta
+        .get("js.contains_fromcharcode")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let has_unescape = meta
+        .get("js.contains_unescape")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let has_hex = meta
+        .get("js.contains_hex_escapes")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    let has_unicode = meta
+        .get("js.contains_unicode_escapes")
+        .map(|v| v == "true")
+        .unwrap_or(false);
     base64_like || (has_eval && (has_fcc || has_unescape)) || has_hex || has_unicode
 }
 
@@ -776,10 +777,11 @@ fn ast_behaviour_summary(data: &[u8]) -> Option<AstSummary> {
                 for arg in node.args() {
                     if let boa_ast::expression::Expression::Literal(literal) = arg {
                         if let Some(sym) = literal.as_string() {
-                            let value = self
-                                .interner
-                                .resolve_expect(sym)
-                                .join(|s: &str| s.to_string(), String::from_utf16_lossy, true);
+                            let value = self.interner.resolve_expect(sym).join(
+                                |s: &str| s.to_string(),
+                                String::from_utf16_lossy,
+                                true,
+                            );
                             let summary = summarise_arg_value(&value, 60);
                             self.call_args
                                 .entry(name.clone())
@@ -800,10 +802,11 @@ fn ast_behaviour_summary(data: &[u8]) -> Option<AstSummary> {
 
         fn visit_literal(&mut self, node: &'ast Literal) -> std::ops::ControlFlow<Self::BreakTy> {
             if let Some(sym) = node.as_string() {
-                let value = self
-                    .interner
-                    .resolve_expect(sym)
-                    .join(|s: &str| s.to_string(), String::from_utf16_lossy, true);
+                let value = self.interner.resolve_expect(sym).join(
+                    |s: &str| s.to_string(),
+                    String::from_utf16_lossy,
+                    true,
+                );
                 if looks_like_url(&value) {
                     self.urls.insert(value.clone());
                     if let Some(domain) = domain_from_url(&value) {
@@ -931,7 +934,10 @@ fn reconstruct_payloads(data: &[u8]) -> Option<ReconstructedPayloads> {
     }
 
     impl<'a> ReconstructionVisitor<'a> {
-        fn reconstruct_from_charcode_args(&self, args: &[boa_ast::expression::Expression]) -> Option<String> {
+        fn reconstruct_from_charcode_args(
+            &self,
+            args: &[boa_ast::expression::Expression],
+        ) -> Option<String> {
             let mut result = String::new();
 
             for arg in args {
@@ -1151,7 +1157,7 @@ fn has_shellcode_signature(bytes: &[u8]) -> bool {
         &[0xFF, 0xD0],                   // call eax
         &[0xFF, 0xE0],                   // jmp eax
         &[0x6A, 0x00],                   // push 0
-        &[0x68],                          // push imm32
+        &[0x68],                         // push imm32
     ];
 
     for window in bytes.windows(3) {
@@ -1184,11 +1190,7 @@ fn detect_type_confusion(data: &[u8]) -> bool {
     }
 
     // Suspicious array operations
-    let suspicious_array_ops: &[&[u8]] = &[
-        b".length = 0x",
-        b".length = -",
-        b"arr.length",
-    ];
+    let suspicious_array_ops: &[&[u8]] = &[b".length = 0x", b".length = -", b"arr.length"];
 
     let mut array_length_manipulation = 0;
     for pattern in suspicious_array_ops {
@@ -1214,13 +1216,7 @@ fn detect_integer_overflow(data: &[u8]) -> bool {
     let has_large_constant = patterns.iter().any(|p| find_token(data, p));
 
     // Bitwise operations that might indicate overflow exploitation
-    let bitwise_ops: &[&[u8]] = &[
-        b">>>",
-        b"<< ",
-        b">> ",
-        b"& 0x",
-        b"| 0x",
-    ];
+    let bitwise_ops: &[&[u8]] = &[b">>>", b"<< ", b">> ", b"& 0x", b"| 0x"];
 
     let has_bitwise = bitwise_ops.iter().any(|p| find_token(data, p));
 
@@ -1258,7 +1254,10 @@ fn detect_debugger_detection(data: &[u8]) -> bool {
         b"constructor.name",
     ];
 
-    let count = debugger_patterns.iter().filter(|p| find_token(data, p)).count();
+    let count = debugger_patterns
+        .iter()
+        .filter(|p| find_token(data, p))
+        .count();
     count >= 2
 }
 
@@ -1275,7 +1274,10 @@ fn detect_sandbox_evasion(data: &[u8]) -> bool {
         b"navigator.plugins",
     ];
 
-    let count = sandbox_checks.iter().filter(|p| find_token(data, p)).count();
+    let count = sandbox_checks
+        .iter()
+        .filter(|p| find_token(data, p))
+        .count();
     count >= 3
 }
 
@@ -1289,7 +1291,13 @@ fn detect_exception_abuse(data: &[u8]) -> bool {
 }
 
 fn detect_time_bomb(data: &[u8]) -> bool {
-    let time_apis: &[&[u8]] = &[b"Date()", b"getTime()", b"getHours()", b"getDate()", b"getMonth()"];
+    let time_apis: &[&[u8]] = &[
+        b"Date()",
+        b"getTime()",
+        b"getHours()",
+        b"getDate()",
+        b"getMonth()",
+    ];
     let has_time_api = time_apis.iter().any(|p| find_token(data, p));
 
     let conditionals: &[&[u8]] = &[b"if", b">", b"<", b"==", b"!="];
@@ -1325,7 +1333,10 @@ fn detect_credential_harvesting(data: &[u8]) -> bool {
         b"clipboard",
     ];
 
-    let count = credential_patterns.iter().filter(|p| find_token(data, p)).count();
+    let count = credential_patterns
+        .iter()
+        .filter(|p| find_token(data, p))
+        .count();
     count >= 2
 }
 
@@ -1363,7 +1374,12 @@ fn detect_control_flow_flattening(data: &[u8]) -> bool {
 
 fn detect_opaque_predicates(data: &[u8]) -> bool {
     // Look for complex mathematical expressions in conditionals
-    let math_funcs: &[&[u8]] = &[b"Math.abs(", b"Math.floor(", b"Math.ceil(", b"Math.random()"];
+    let math_funcs: &[&[u8]] = &[
+        b"Math.abs(",
+        b"Math.floor(",
+        b"Math.ceil(",
+        b"Math.random()",
+    ];
     let has_math = math_funcs.iter().filter(|p| find_token(data, p)).count() >= 2;
 
     let if_count = data.windows(2).filter(|w| w == b"if").count();
@@ -1380,7 +1396,8 @@ fn detect_identifier_mangling(data: &[u8]) -> bool {
     let mut total_identifiers = 0;
 
     for word in s.split(|c: char| !c.is_alphanumeric() && c != '_') {
-        if word.len() > 0 && (word.chars().next().unwrap().is_alphabetic() || word.starts_with('_')) {
+        if word.len() > 0 && (word.chars().next().unwrap().is_alphabetic() || word.starts_with('_'))
+        {
             total_identifiers += 1;
 
             // Single letter variables (excluding common ones like i, j, k)
@@ -1388,7 +1405,10 @@ fn detect_identifier_mangling(data: &[u8]) -> bool {
                 obfuscated_count += 1;
             }
             // Hex-like identifiers (e.g., _0x1234, var_a1b2c3)
-            else if word.contains("0x") || (word.len() > 5 && word.chars().filter(|c| c.is_numeric()).count() > word.len() / 2) {
+            else if word.contains("0x")
+                || (word.len() > 5
+                    && word.chars().filter(|c| c.is_numeric()).count() > word.len() / 2)
+            {
                 obfuscated_count += 1;
             }
         }
@@ -1431,7 +1451,10 @@ fn detect_annotation_abuse(data: &[u8]) -> bool {
         b"removeAnnot",
     ];
 
-    let count = annotation_patterns.iter().filter(|p| find_token(data, p)).count();
+    let count = annotation_patterns
+        .iter()
+        .filter(|p| find_token(data, p))
+        .count();
 
     // Two or more annotation operations
     count >= 2
@@ -1456,7 +1479,8 @@ fn detect_xfa_exploitation(data: &[u8]) -> bool {
 fn detect_dga_pattern(data: &[u8]) -> bool {
     let has_random = find_token(data, b"Math.random()");
     let has_time = find_token(data, b"getTime()") || find_token(data, b"getDate()");
-    let has_string_building = find_token(data, b"String.fromCharCode") || find_token(data, b".concat(");
+    let has_string_building =
+        find_token(data, b"String.fromCharCode") || find_token(data, b".concat(");
     let has_url = find_token(data, b"http://") || find_token(data, b"https://");
 
     // Algorithmic domain construction
@@ -1464,12 +1488,7 @@ fn detect_dga_pattern(data: &[u8]) -> bool {
 }
 
 fn detect_beaconing_pattern(data: &[u8]) -> bool {
-    let network_calls: &[&[u8]] = &[
-        b"launchURL",
-        b"submitForm",
-        b"mailMsg",
-        b"getURL",
-    ];
+    let network_calls: &[&[u8]] = &[b"launchURL", b"submitForm", b"mailMsg", b"getURL"];
 
     let network_count = network_calls.iter().filter(|p| find_token(data, p)).count();
 
@@ -1560,16 +1579,19 @@ fn detect_homoglyph_attack(data: &[u8]) -> bool {
 
 fn detect_custom_decoder(data: &[u8]) -> bool {
     // Custom Base64 decoder
-    let has_custom_base64 = find_token(data, b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+    let has_custom_base64 = find_token(
+        data,
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
+    );
 
     // Custom character code decoder
-    let has_custom_decoder = find_token(data, b"function") &&
-                            find_token(data, b"fromCharCode") &&
-                            find_token(data, b"split(");
+    let has_custom_decoder = find_token(data, b"function")
+        && find_token(data, b"fromCharCode")
+        && find_token(data, b"split(");
 
     // Hex decoder patterns
-    let has_hex_decoder = find_token(data, b"parseInt") &&
-                         (find_token(data, b", 16") || find_token(data, b",16"));
+    let has_hex_decoder =
+        find_token(data, b"parseInt") && (find_token(data, b", 16") || find_token(data, b",16"));
 
     has_custom_base64 || has_custom_decoder || has_hex_decoder
 }
@@ -1596,12 +1618,15 @@ fn detect_excessive_string_allocation(data: &[u8]) -> bool {
     ];
 
     let has_loops = find_token(data, b"while(") || find_token(data, b"for(");
-    let has_string_ops = string_patterns.iter().filter(|p| find_token(data, p)).count() >= 3;
+    let has_string_ops = string_patterns
+        .iter()
+        .filter(|p| find_token(data, p))
+        .count()
+        >= 3;
 
     // Large string constants
     let s = String::from_utf8_lossy(data);
-    let has_large_strings = s.contains("\"") &&
-                           s.match_indices('"').count() >= 10;
+    let has_large_strings = s.contains("\"") && s.match_indices('"').count() >= 10;
 
     (has_loops && has_string_ops) || has_large_strings
 }
@@ -1638,13 +1663,12 @@ fn detect_memory_bomb(data: &[u8]) -> bool {
     }
 
     // Array fill in loop
-    let has_array_push_loop = find_token(data, b".push(") &&
-                              (find_token(data, b"while(") || find_token(data, b"for("));
+    let has_array_push_loop =
+        find_token(data, b".push(") && (find_token(data, b"while(") || find_token(data, b"for("));
 
     // Object expansion
-    let has_object_expansion = find_token(data, b"obj[") &&
-                              find_token(data, b"for(") &&
-                              find_token(data, b"new Array(");
+    let has_object_expansion =
+        find_token(data, b"obj[") && find_token(data, b"for(") && find_token(data, b"new Array(");
 
     has_array_push_loop || has_object_expansion
 }
@@ -1695,13 +1719,7 @@ fn detect_recursive_bomb(data: &[u8]) -> bool {
 
 fn detect_redos_pattern(data: &[u8]) -> bool {
     // ReDoS patterns - nested quantifiers
-    let redos_patterns: &[&[u8]] = &[
-        b"(a+)+",
-        b"(a*)*",
-        b"(a|a)*",
-        b"(.*)*",
-        b"(.+)+",
-    ];
+    let redos_patterns: &[&[u8]] = &[b"(a+)+", b"(a*)*", b"(a|a)*", b"(.*)*", b"(.+)+"];
 
     redos_patterns.iter().any(|p| find_token(data, p))
 }
@@ -1722,8 +1740,10 @@ fn detect_dom_xss_sink(data: &[u8]) -> bool {
 }
 
 fn detect_innerhtml_injection(data: &[u8]) -> bool {
-    find_token(data, b".innerHTML") &&
-    (find_token(data, b"<script") || find_token(data, b"<iframe") || find_token(data, b"onerror"))
+    find_token(data, b".innerHTML")
+        && (find_token(data, b"<script")
+            || find_token(data, b"<iframe")
+            || find_token(data, b"onerror"))
 }
 
 fn detect_prototype_pollution_gadget(data: &[u8]) -> bool {
@@ -1756,12 +1776,7 @@ fn detect_script_injection(data: &[u8]) -> bool {
 }
 
 fn detect_eval_sink(data: &[u8]) -> bool {
-    let eval_sinks: &[&[u8]] = &[
-        b"eval(",
-        b"Function(",
-        b"setTimeout(",
-        b"setInterval(",
-    ];
+    let eval_sinks: &[&[u8]] = &[b"eval(", b"Function(", b"setTimeout(", b"setInterval("];
 
     // Check if eval/Function used with variables
     let s = String::from_utf8_lossy(data);
@@ -1794,7 +1809,11 @@ fn detect_angler_ek(data: &[u8]) -> bool {
         b"Flash.ocx",
     ];
 
-    angler_patterns.iter().filter(|p| find_token(data, p)).count() >= 2
+    angler_patterns
+        .iter()
+        .filter(|p| find_token(data, p))
+        .count()
+        >= 2
 }
 
 fn detect_magnitude_ek(data: &[u8]) -> bool {
@@ -1817,16 +1836,14 @@ fn detect_rig_ek(data: &[u8]) -> bool {
 
 fn detect_exploit_kit_pattern(data: &[u8]) -> bool {
     // Generic EK patterns
-    let ek_indicators: &[&[u8]] = &[
-        b"exploit",
-        b"shellcode",
-        b"payload",
-        b"CVE-",
-    ];
+    let ek_indicators: &[&[u8]] = &[b"exploit", b"shellcode", b"payload", b"CVE-"];
 
     let indicator_count = ek_indicators.iter().filter(|p| find_token(data, p)).count();
 
-    indicator_count >= 2 || detect_angler_ek(data) || detect_magnitude_ek(data) || detect_rig_ek(data)
+    indicator_count >= 2
+        || detect_angler_ek(data)
+        || detect_magnitude_ek(data)
+        || detect_rig_ek(data)
 }
 
 // Ransomware Patterns
@@ -1857,7 +1874,8 @@ fn detect_bulk_encryption(data: &[u8]) -> bool {
     ];
 
     let has_crypto = crypto_patterns.iter().any(|p| find_token(data, p));
-    let has_loop = find_token(data, b"forEach") || find_token(data, b"for(") || find_token(data, b"while(");
+    let has_loop =
+        find_token(data, b"forEach") || find_token(data, b"for(") || find_token(data, b"while(");
     let has_files = find_token(data, b"file") || find_token(data, b"File");
 
     has_crypto && has_loop && has_files
@@ -1877,7 +1895,11 @@ fn detect_ransom_note(data: &[u8]) -> bool {
         "restore",
     ];
 
-    ransom_keywords.iter().filter(|&keyword| s.contains(keyword)).count() >= 3
+    ransom_keywords
+        .iter()
+        .filter(|&keyword| s.contains(keyword))
+        .count()
+        >= 3
 }
 
 fn detect_bitcoin_address(data: &[u8]) -> bool {
@@ -1889,7 +1911,9 @@ fn detect_bitcoin_address(data: &[u8]) -> bool {
         if word.len() >= 26 && word.len() <= 90 {
             if word.starts_with('1') || word.starts_with('3') || word.starts_with("bc1") {
                 // Check if alphanumeric (excluding 0, O, I, l)
-                if word.chars().all(|c| c.is_ascii_alphanumeric() && c != '0' && c != 'O' && c != 'I' && c != 'l') {
+                if word.chars().all(|c| {
+                    c.is_ascii_alphanumeric() && c != '0' && c != 'O' && c != 'I' && c != 'l'
+                }) {
                     return true;
                 }
             }
@@ -1921,8 +1945,8 @@ fn detect_jit_spray(data: &[u8]) -> bool {
     }
 
     // Function generation in loops
-    let has_func_gen = (find_token(data, b"eval(") || find_token(data, b"Function(")) &&
-                       find_token(data, b"for(");
+    let has_func_gen =
+        (find_token(data, b"eval(") || find_token(data, b"Function(")) && find_token(data, b"for(");
 
     has_func_gen
 }
@@ -1970,7 +1994,10 @@ fn detect_fingerprint_check(data: &[u8]) -> bool {
         b"navigator.plugins",
     ];
 
-    let fp_count = fingerprint_patterns.iter().filter(|p| find_token(data, p)).count();
+    let fp_count = fingerprint_patterns
+        .iter()
+        .filter(|p| find_token(data, p))
+        .count();
     let has_conditional = find_token(data, b"if(");
 
     fp_count >= 2 && has_conditional
@@ -1985,7 +2012,8 @@ fn detect_timing_evasion(data: &[u8]) -> bool {
     ];
 
     let has_timing = timing_patterns.iter().any(|p| find_token(data, p));
-    let has_comparison = find_token(data, b"if(") && (find_token(data, b" < ") || find_token(data, b" > "));
+    let has_comparison =
+        find_token(data, b"if(") && (find_token(data, b" < ") || find_token(data, b" > "));
 
     has_timing && has_comparison
 }
@@ -2026,11 +2054,7 @@ fn detect_cookie_manipulation(data: &[u8]) -> bool {
 }
 
 fn detect_global_pollution(data: &[u8]) -> bool {
-    let global_patterns: &[&[u8]] = &[
-        b"window.",
-        b"globalThis.",
-        b"global.",
-    ];
+    let global_patterns: &[&[u8]] = &[b"window.", b"globalThis.", b"global."];
 
     let has_global = global_patterns.iter().any(|p| find_token(data, p));
     let has_assignment = find_token(data, b" = ");
@@ -2053,18 +2077,14 @@ fn detect_history_manipulation(data: &[u8]) -> bool {
 // ============================================================================
 
 fn detect_dynamic_import(data: &[u8]) -> bool {
-    let import_patterns: &[&[u8]] = &[
-        b"import(",
-        b"require(",
-        b"importScripts(",
-    ];
+    let import_patterns: &[&[u8]] = &[b"import(", b"require(", b"importScripts("];
 
     import_patterns.iter().any(|p| find_token(data, p))
 }
 
 fn detect_remote_script_load(data: &[u8]) -> bool {
-    let has_script_create = find_token(data, b"createElement('script')") ||
-                           find_token(data, b"createElement(\"script\")");
+    let has_script_create = find_token(data, b"createElement('script')")
+        || find_token(data, b"createElement(\"script\")");
     let has_src = find_token(data, b".src = ");
     let has_http = find_token(data, b"http://") || find_token(data, b"https://");
 
@@ -2092,23 +2112,18 @@ fn detect_suspicious_package(data: &[u8]) -> bool {
 
 fn detect_port_scan(data: &[u8]) -> bool {
     let has_loop = find_token(data, b"for(") || find_token(data, b"while(");
-    let has_network = find_token(data, b"new Image()") ||
-                     find_token(data, b"fetch(") ||
-                     find_token(data, b"XMLHttpRequest") ||
-                     find_token(data, b"WebSocket");
+    let has_network = find_token(data, b"new Image()")
+        || find_token(data, b"fetch(")
+        || find_token(data, b"XMLHttpRequest")
+        || find_token(data, b"WebSocket");
     let has_port = find_token(data, b":8") || find_token(data, b":80") || find_token(data, b"port");
 
     has_loop && has_network && has_port
 }
 
 fn detect_internal_probe(data: &[u8]) -> bool {
-    let internal_patterns: &[&[u8]] = &[
-        b"192.168.",
-        b"10.",
-        b"172.16.",
-        b"localhost",
-        b"127.0.0.1",
-    ];
+    let internal_patterns: &[&[u8]] =
+        &[b"192.168.", b"10.", b"172.16.", b"localhost", b"127.0.0.1"];
 
     internal_patterns.iter().any(|p| find_token(data, p))
 }
@@ -2178,24 +2193,13 @@ fn detect_canvas_decode(data: &[u8]) -> bool {
 // ============================================================================
 
 fn detect_polyglot_pdf(data: &[u8]) -> bool {
-    let pdf_patterns: &[&[u8]] = &[
-        b"%PDF-",
-        b"endobj",
-        b"stream",
-        b"endstream",
-    ];
+    let pdf_patterns: &[&[u8]] = &[b"%PDF-", b"endobj", b"stream", b"endstream"];
 
     pdf_patterns.iter().filter(|p| find_token(data, p)).count() >= 2
 }
 
 fn detect_polyglot_html(data: &[u8]) -> bool {
-    let html_patterns: &[&[u8]] = &[
-        b"<!--",
-        b"-->",
-        b"<script",
-        b"<html",
-        b"<body",
-    ];
+    let html_patterns: &[&[u8]] = &[b"<!--", b"-->", b"<script", b"<html", b"<body"];
 
     html_patterns.iter().filter(|p| find_token(data, p)).count() >= 2
 }
@@ -2204,7 +2208,8 @@ fn detect_polyglot_html(data: &[u8]) -> bool {
 // ============================================================================
 
 fn detect_canvas_fingerprint(data: &[u8]) -> bool {
-    let has_canvas = find_token(data, b"getContext('2d')") || find_token(data, b"getContext(\"2d\")");
+    let has_canvas =
+        find_token(data, b"getContext('2d')") || find_token(data, b"getContext(\"2d\")");
     let has_text = find_token(data, b"fillText(") || find_token(data, b"strokeText(");
     let has_export = find_token(data, b"toDataURL()");
 
@@ -2212,9 +2217,9 @@ fn detect_canvas_fingerprint(data: &[u8]) -> bool {
 }
 
 fn detect_webgl_fingerprint(data: &[u8]) -> bool {
-    let has_webgl = find_token(data, b"getContext('webgl')") ||
-                   find_token(data, b"getContext(\"webgl\")") ||
-                   find_token(data, b"getContext('experimental-webgl')");
+    let has_webgl = find_token(data, b"getContext('webgl')")
+        || find_token(data, b"getContext(\"webgl\")")
+        || find_token(data, b"getContext('experimental-webgl')");
     let has_param = find_token(data, b"getParameter(");
 
     has_webgl && has_param

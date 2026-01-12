@@ -1,7 +1,9 @@
 use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity};
+use sis_pdf_core::model::{
+    AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
+};
 
 pub struct PolyglotDetector;
 
@@ -113,7 +115,10 @@ impl Detector for PolyglotDetector {
             "polyglot.pdf_header_offset".into(),
             pdf_offset.unwrap_or(0).to_string(),
         );
-        meta.insert("polyglot.pdf_header_at_zero".into(), pdf_at_zero.to_string());
+        meta.insert(
+            "polyglot.pdf_header_at_zero".into(),
+            pdf_at_zero.to_string(),
+        );
         meta.insert("polyglot.signatures".into(), sig_list.clone());
 
         Ok(vec![Finding {

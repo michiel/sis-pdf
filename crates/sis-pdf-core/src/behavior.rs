@@ -38,11 +38,7 @@ pub fn correlate_findings(findings: &[Finding]) -> BehaviorSummary {
             severity = max_severity(severity, f.severity);
         }
         let kinds_vec: Vec<String> = kinds.into_iter().collect();
-        let summary = format!(
-            "{} findings share object {}",
-            group.len(),
-            obj
-        );
+        let summary = format!("{} findings share object {}", group.len(), obj);
         patterns.push(ThreatPattern {
             id: format!("object:{}", obj),
             kinds: kinds_vec,

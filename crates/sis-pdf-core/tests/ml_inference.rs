@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
-use sis_pdf_core::ml_inference::{MlInferenceConfig, run_ml_inference};
+use sis_pdf_core::ml_inference::{run_ml_inference, MlInferenceConfig};
 use sis_pdf_core::scan::{FontAnalysisOptions, ScanContext, ScanOptions};
 
 fn load_context() -> anyhow::Result<ScanContext<'static>> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/synthetic.pdf");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/synthetic.pdf");
     let bytes = std::fs::read(path)?;
     let bytes = Box::leak(bytes.into_boxed_slice());
     let graph = sis_pdf_pdf::parse_pdf(
@@ -17,6 +16,9 @@ fn load_context() -> anyhow::Result<ScanContext<'static>> {
             max_objstm_bytes: 32 * 1024 * 1024,
             max_objects: 500_000,
             max_objstm_total_bytes: 256 * 1024 * 1024,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
         },
     )?;
     let opts = ScanOptions {

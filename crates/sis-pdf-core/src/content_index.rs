@@ -1,8 +1,8 @@
-use sis_pdf_pdf::content::{ContentOperand, ContentOp};
+use sis_pdf_pdf::content::{ContentOp, ContentOperand};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStream};
 
-use crate::scan::ScanContext;
 use crate::page_tree::build_page_tree;
+use crate::scan::ScanContext;
 
 #[derive(Debug, Clone)]
 pub struct PageContent {

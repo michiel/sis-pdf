@@ -60,7 +60,10 @@ pub fn render_rules(rules: &[YaraRule]) -> String {
 fn meets_scope(f: &Finding, scope: &str) -> bool {
     match scope {
         "all" => true,
-        "medium" => matches!(f.severity, Severity::Medium | Severity::High | Severity::Critical),
+        "medium" => matches!(
+            f.severity,
+            Severity::Medium | Severity::High | Severity::Critical
+        ),
         "low" => true,
         _ => matches!(f.severity, Severity::High | Severity::Critical),
     }
@@ -116,13 +119,25 @@ fn build_strings(f: &Finding) -> Vec<(String, String)> {
     if let Some(m) = f.meta.get("embedded.magic") {
         vals.push(m.clone());
     }
-    if f.meta.get("js.contains_eval").map(|v| v == "true").unwrap_or(false) {
+    if f.meta
+        .get("js.contains_eval")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         vals.push("eval".into());
     }
-    if f.meta.get("js.contains_fromcharcode").map(|v| v == "true").unwrap_or(false) {
+    if f.meta
+        .get("js.contains_fromcharcode")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         vals.push("fromCharCode".into());
     }
-    if f.meta.get("js.suspicious_apis").map(|v| v == "true").unwrap_or(false) {
+    if f.meta
+        .get("js.suspicious_apis")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         vals.push("app.launchURL".into());
     }
     let mut out = Vec::new();

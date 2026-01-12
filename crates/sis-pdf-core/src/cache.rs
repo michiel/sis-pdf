@@ -5,8 +5,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::{warn, Level};
 
-use crate::report::Report;
 use crate::features::FeatureVector;
+use crate::report::Report;
 use crate::security_log::{SecurityDomain, SecurityEvent};
 
 const CACHE_VERSION: u32 = 1;
@@ -113,8 +113,7 @@ impl ScanCache {
     }
 
     pub fn store(&self, hash: &str, report: &Report) -> Result<()> {
-        let safe_hash = sanitize_hash(hash)
-            .ok_or_else(|| anyhow::anyhow!("invalid cache hash"))?;
+        let safe_hash = sanitize_hash(hash).ok_or_else(|| anyhow::anyhow!("invalid cache hash"))?;
         let path = self.path_for(&safe_hash);
         let entry = CacheEntry {
             version: CACHE_VERSION,
@@ -180,8 +179,7 @@ impl ScanCache {
     }
 
     pub fn store_features(&self, hash: &str, features: &FeatureVector) -> Result<()> {
-        let safe_hash = sanitize_hash(hash)
-            .ok_or_else(|| anyhow::anyhow!("invalid cache hash"))?;
+        let safe_hash = sanitize_hash(hash).ok_or_else(|| anyhow::anyhow!("invalid cache hash"))?;
         let path = self.feature_path_for(&safe_hash);
         let entry = FeatureEntry {
             version: CACHE_VERSION,

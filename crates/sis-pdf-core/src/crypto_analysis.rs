@@ -75,7 +75,10 @@ impl CryptoAnalyzer {
             b"mining".as_slice(),
             b"coinhive".as_slice(),
         ] {
-            if js.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle)) {
+            if js
+                .windows(needle.len())
+                .any(|w| w.eq_ignore_ascii_case(needle))
+            {
                 return Some(CryptoMiner {
                     indicator: String::from_utf8_lossy(needle).to_string(),
                 });
