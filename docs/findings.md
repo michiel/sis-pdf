@@ -1815,6 +1815,28 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: payload-like objects appear in shadowed or alternate revisions.
   - Chain usage: used as a stealth payload indicator in chain synthesis.
 
+## shadow_object_payload_divergence
+
+- ID: `shadow_object_payload_divergence`
+- Label: Shadowed object payload divergence
+- Description: Shadowed object revisions contain differing payload signatures.
+- Tags: evasion, structure
+- Details:
+  - Relevance: divergent revisions suggest hidden payloads or parser targeting.
+  - Meaning: object bodies disagree on detected content type.
+  - Chain usage: signals evasive or staged payload tactics.
+
+## parse_disagreement
+
+- ID: `parse_disagreement`
+- Label: Parser disagreement detected
+- Description: Carved objects disagree with parsed revisions.
+- Tags: evasion, structure
+- Details:
+  - Relevance: parser disagreement can indicate hidden revisions or parsing tricks.
+  - Meaning: carved object definitions differ from the primary parser view.
+  - Chain usage: highlights stealthy payload delivery.
+
 ## signature_present
 
 - ID: `signature_present`
@@ -1847,6 +1869,160 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
+
+## label_mismatch_stream_type
+
+- ID: `label_mismatch_stream_type`
+- Label: Stream label mismatch
+- Description: Stream subtype does not match observed content signature.
+- Tags: evasion, stream
+- Details:
+  - Relevance: explicit structure deception and payload hiding.
+  - Meaning: stream bytes contradict declared `/Subtype` or `/Type`.
+  - Chain usage: increases evasion posture and payload suspicion.
+
+## declared_filter_invalid
+
+- ID: `declared_filter_invalid`
+- Label: Declared filter invalid
+- Description: Declared filters failed to decode or do not match stream data.
+- Tags: evasion, decoder
+- Details:
+  - Relevance: filter mismatch indicates obfuscation or corruption.
+  - Meaning: declared compression or encoding is inconsistent with bytes.
+  - Chain usage: supports evasion or hiding additional payloads.
+
+## undeclared_compression_present
+
+- ID: `undeclared_compression_present`
+- Label: Undeclared compression present
+- Description: Stream data looks compressed despite no declared filters.
+- Tags: evasion, decoder
+- Details:
+  - Relevance: suggests hidden compression to evade detection.
+  - Meaning: stream data appears compressed without `/Filter`.
+  - Chain usage: used as evasion context that can hide payloads.
+
+## content_validation_failed
+
+- ID: `content_validation_failed`
+- Label: Content validation failed
+- Description: Stream signature matched, but lightweight validation failed.
+- Tags: decoder, evasion
+- Details:
+  - Relevance: signature-level matches with invalid structure can indicate malformed payloads or evasive content.
+  - Meaning: quick sanity checks failed (for example missing JPEG EOI or ZIP central directory).
+  - Chain usage: raises confidence of deceptive or corrupted payloads.
+
+## embedded_payload_carved
+
+- ID: `embedded_payload_carved`
+- Label: Embedded payload carved
+- Description: Embedded payload signatures detected inside another object.
+- Tags: evasion, stream
+- Details:
+  - Relevance: embedded payloads suggest polyglot or hidden content.
+  - Meaning: byte sequences indicate a secondary file signature within the object data.
+  - Chain usage: increases suspicion of hidden payload delivery.
+
+## nested_container_chain
+
+- ID: `nested_container_chain`
+- Label: Nested container chain detected
+- Description: ZIP entry contains a nested file signature.
+- Tags: evasion, stream
+- Details:
+  - Relevance: nested containers can hide staged payloads.
+  - Meaning: archive entries appear to embed another file type.
+  - Chain usage: indicates multi-stage payload delivery.
+
+## vbscript_payload_present
+
+- ID: `vbscript_payload_present`
+- Label: VBScript payload present
+- Description: VBScript indicators detected in content.
+- Tags: script, evasion
+- Details:
+  - Relevance: VBScript can run in viewer or embedded contexts.
+  - Meaning: script content suggests execution or exploitation intent.
+  - Chain usage: potential payload execution stage.
+
+## powershell_payload_present
+
+- ID: `powershell_payload_present`
+- Label: PowerShell payload present
+- Description: PowerShell indicators detected in content.
+- Tags: script, evasion
+- Details:
+  - Relevance: PowerShell payloads often deliver secondary stages.
+  - Meaning: script content indicates potential external execution.
+  - Chain usage: payload execution or delivery stage.
+
+## bash_payload_present
+
+- ID: `bash_payload_present`
+- Label: Shell payload present
+- Description: Shell script indicators detected in content.
+- Tags: script, evasion
+- Details:
+  - Relevance: shell scripts can execute arbitrary commands.
+  - Meaning: content suggests command execution instructions.
+  - Chain usage: payload execution stage.
+
+## cmd_payload_present
+
+- ID: `cmd_payload_present`
+- Label: Command payload present
+- Description: Command shell indicators detected in content.
+- Tags: script, evasion
+- Details:
+  - Relevance: command shells provide direct execution capability.
+  - Meaning: content suggests command invocation instructions.
+  - Chain usage: payload execution stage.
+
+## applescript_payload_present
+
+- ID: `applescript_payload_present`
+- Label: AppleScript payload present
+- Description: AppleScript indicators detected in content.
+- Tags: script, evasion
+- Details:
+  - Relevance: AppleScript can automate applications or execute actions.
+  - Meaning: content suggests scripted execution on macOS systems.
+  - Chain usage: payload execution stage.
+
+## xfa_script_present
+
+- ID: `xfa_script_present`
+- Label: XFA/XML script present
+- Description: Script tags detected inside XFA/XML content.
+- Tags: script, xfa
+- Details:
+  - Relevance: scripts inside forms can trigger viewer execution paths.
+  - Meaning: embedded XFA/XML scripts increase attack surface.
+  - Chain usage: triggers or payload staging within form content.
+
+## actionscript_present
+
+- ID: `actionscript_present`
+- Label: ActionScript present
+- Description: SWF tags indicate embedded ActionScript bytecode.
+- Tags: script, swf
+- Details:
+  - Relevance: ActionScript executes in the SWF runtime context.
+  - Meaning: bytecode indicates executable content embedded in the PDF.
+  - Chain usage: payload execution or staging via SWF content.
+
+## swf_url_iocs
+
+- ID: `swf_url_iocs`
+- Label: SWF URL indicators
+- Description: Embedded URLs detected in SWF tag payloads.
+- Tags: swf, external
+- Details:
+  - Relevance: SWF URLs can direct viewers to external resources.
+  - Meaning: embedded URLs suggest external communication or payload fetching.
+  - Chain usage: delivery or command and control stage.
 
 ## strict_parse_deviation
 

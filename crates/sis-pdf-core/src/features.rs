@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::scan::{ScanContext, ScanOptions};
 use crate::page_tree::build_page_tree;
+use crate::scan::{ScanContext, ScanOptions};
 use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::graph::ObjEntry;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr, PdfStream};
@@ -167,13 +167,18 @@ impl FeatureExtractor {
         let objstm_count = graph
             .objects
             .iter()
-            .filter(|e| entry_dict(e).map(|d| d.has_name(b"/Type", b"/ObjStm")).unwrap_or(false))
+            .filter(|e| {
+                entry_dict(e)
+                    .map(|d| d.has_name(b"/Type", b"/ObjStm"))
+                    .unwrap_or(false)
+            })
             .count();
 
-        let linearized_present = graph
-            .objects
-            .iter()
-            .any(|e| entry_dict(e).and_then(|d| d.get_first(b"/Linearized")).is_some());
+        let linearized_present = graph.objects.iter().any(|e| {
+            entry_dict(e)
+                .and_then(|d| d.get_first(b"/Linearized"))
+                .is_some()
+        });
 
         let mut action_count = 0usize;
         let mut js_object_count = 0usize;
@@ -223,8 +228,13 @@ impl FeatureExtractor {
             }
         }
 
-        let (js_entropy_avg, js_eval_count, js_suspicious_api_count, time_api_count, env_probe_count) =
-            summarize_js_payloads(&js_payloads);
+        let (
+            js_entropy_avg,
+            js_eval_count,
+            js_suspicious_api_count,
+            time_api_count,
+            env_probe_count,
+        ) = summarize_js_payloads(&js_payloads);
 
         let page_count = build_page_tree(graph).pages.len();
 
@@ -274,6 +284,9 @@ impl FeatureExtractor {
                 max_objstm_bytes: opts.max_decode_bytes,
                 max_objects: opts.max_objects,
                 max_objstm_total_bytes: opts.max_total_decoded_bytes,
+                carve_stream_objects: false,
+                max_carved_objects: 0,
+                max_carved_bytes: 0,
             },
         )?;
         let ctx = ScanContext::new(bytes, graph, opts.clone());
@@ -282,7 +295,11 @@ impl FeatureExtractor {
 }
 
 fn bool_to_f32(v: bool) -> f32 {
-    if v { 1.0 } else { 0.0 }
+    if v {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 fn entry_dict<'a>(entry: &'a ObjEntry<'a>) -> Option<&'a PdfDict<'a>> {
@@ -300,11 +317,7 @@ fn name_bytes<'a>(obj: &'a PdfObj<'a>) -> Option<&'a [u8]> {
     }
 }
 
-fn resolve_obj_bytes(
-    ctx: &ScanContext,
-    obj: &PdfObj<'_>,
-    max_len: usize,
-) -> Option<Vec<u8>> {
+fn resolve_obj_bytes(ctx: &ScanContext, obj: &PdfObj<'_>, max_len: usize) -> Option<Vec<u8>> {
     match &obj.atom {
         PdfAtom::Str(s) => Some(string_bytes(s)),
         PdfAtom::Stream(st) => decoded_stream_bytes(ctx, st, max_len),
@@ -320,11 +333,7 @@ fn resolve_obj_bytes(
     }
 }
 
-fn decoded_stream_bytes(
-    ctx: &ScanContext,
-    st: &PdfStream<'_>,
-    max_len: usize,
-) -> Option<Vec<u8>> {
+fn decoded_stream_bytes(ctx: &ScanContext, st: &PdfStream<'_>, max_len: usize) -> Option<Vec<u8>> {
     match ctx.decoded.get_or_decode(ctx.bytes, st) {
         Ok(decoded) => Some(decoded.data.into_iter().take(max_len).collect()),
         Err(_) => None,
@@ -353,10 +362,21 @@ fn summarize_js_payloads(payloads: &[Vec<u8>]) -> (f64, usize, usize, usize, usi
         if contains_token(data, b"eval") {
             eval_count += 1;
         }
-        if contains_any(data, &[b"app.launchURL", b"submitForm", b"getURL", b"app.execMenuItem"]) {
+        if contains_any(
+            data,
+            &[
+                b"app.launchURL",
+                b"submitForm",
+                b"getURL",
+                b"app.execMenuItem",
+            ],
+        ) {
             suspicious_api_count += 1;
         }
-        if contains_any(data, &[b"setTimeout", b"setInterval", b"Date(", b"performance.now"]) {
+        if contains_any(
+            data,
+            &[b"setTimeout", b"setInterval", b"Date(", b"performance.now"],
+        ) {
             time_api_count += 1;
         }
         if contains_any(
@@ -513,7 +533,10 @@ fn build_feature_map(fv: &FeatureVector) -> HashMap<String, f64> {
     out.insert("general.file_size".into(), fv.general.file_size as f64);
     out.insert("general.file_entropy".into(), fv.general.file_entropy);
     out.insert("general.binary_ratio".into(), fv.general.binary_ratio);
-    out.insert("general.object_count".into(), fv.general.object_count as f64);
+    out.insert(
+        "general.object_count".into(),
+        fv.general.object_count as f64,
+    );
     out.insert(
         "structural.startxref_count".into(),
         fv.structural.startxref_count as f64,
@@ -522,28 +545,62 @@ fn build_feature_map(fv: &FeatureVector) -> HashMap<String, f64> {
         "structural.trailer_count".into(),
         fv.structural.trailer_count as f64,
     );
-    out.insert("structural.objstm_count".into(), fv.structural.objstm_count as f64);
+    out.insert(
+        "structural.objstm_count".into(),
+        fv.structural.objstm_count as f64,
+    );
     out.insert(
         "structural.linearized_present".into(),
-        if fv.structural.linearized_present { 1.0 } else { 0.0 },
+        if fv.structural.linearized_present {
+            1.0
+        } else {
+            0.0
+        },
     );
-    out.insert("structural.max_object_id".into(), fv.structural.max_object_id as f64);
-    out.insert("behavior.action_count".into(), fv.behavioral.action_count as f64);
-    out.insert("behavior.js_object_count".into(), fv.behavioral.js_object_count as f64);
-    out.insert("behavior.js_entropy_avg".into(), fv.behavioral.js_entropy_avg);
-    out.insert("behavior.js_eval_count".into(), fv.behavioral.js_eval_count as f64);
+    out.insert(
+        "structural.max_object_id".into(),
+        fv.structural.max_object_id as f64,
+    );
+    out.insert(
+        "behavior.action_count".into(),
+        fv.behavioral.action_count as f64,
+    );
+    out.insert(
+        "behavior.js_object_count".into(),
+        fv.behavioral.js_object_count as f64,
+    );
+    out.insert(
+        "behavior.js_entropy_avg".into(),
+        fv.behavioral.js_entropy_avg,
+    );
+    out.insert(
+        "behavior.js_eval_count".into(),
+        fv.behavioral.js_eval_count as f64,
+    );
     out.insert(
         "behavior.js_suspicious_api_count".into(),
         fv.behavioral.js_suspicious_api_count as f64,
     );
-    out.insert("behavior.time_api_count".into(), fv.behavioral.time_api_count as f64);
-    out.insert("behavior.env_probe_count".into(), fv.behavioral.env_probe_count as f64);
+    out.insert(
+        "behavior.time_api_count".into(),
+        fv.behavioral.time_api_count as f64,
+    );
+    out.insert(
+        "behavior.env_probe_count".into(),
+        fv.behavioral.env_probe_count as f64,
+    );
     out.insert(
         "content.embedded_file_count".into(),
         fv.content.embedded_file_count as f64,
     );
-    out.insert("content.rich_media_count".into(), fv.content.rich_media_count as f64);
-    out.insert("content.annotation_count".into(), fv.content.annotation_count as f64);
+    out.insert(
+        "content.rich_media_count".into(),
+        fv.content.rich_media_count as f64,
+    );
+    out.insert(
+        "content.annotation_count".into(),
+        fv.content.annotation_count as f64,
+    );
     out.insert("content.page_count".into(), fv.content.page_count as f64);
     out
 }

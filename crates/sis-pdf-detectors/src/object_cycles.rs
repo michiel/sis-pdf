@@ -154,15 +154,8 @@ fn detect_cycles_from(
 
         // Recursively check all references
         for child_ref in refs {
-            let child_depth = detect_cycles_from(
-                ctx,
-                &child_ref,
-                visited,
-                stack,
-                depths,
-                findings,
-                depth + 1,
-            );
+            let child_depth =
+                detect_cycles_from(ctx, &child_ref, visited, stack, depths, findings, depth + 1);
             if child_depth > max_child_depth {
                 max_child_depth = child_depth;
             }

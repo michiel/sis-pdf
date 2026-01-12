@@ -31,13 +31,16 @@ impl Detector for MultiStageDetector {
 
         // Check for JavaScript edges
         let has_js = typed_graph.edges.iter().any(|e| {
-            matches!(e.edge_type, EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames)
+            matches!(
+                e.edge_type,
+                EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames
+            )
         });
 
         // Check for embedded files via classifications
-        let has_embedded = classifications.iter().any(|(_, classified)| {
-            classified.has_role(ObjectRole::EmbeddedFile)
-        });
+        let has_embedded = classifications
+            .iter()
+            .any(|(_, classified)| classified.has_role(ObjectRole::EmbeddedFile));
 
         // Check for external action edges
         let has_external_action = typed_graph.edges.iter().any(|e| {
@@ -55,14 +58,20 @@ impl Detector for MultiStageDetector {
             let mut meta = std::collections::HashMap::new();
             meta.insert("multi_stage.js".into(), has_js.to_string());
             meta.insert("multi_stage.embedded".into(), has_embedded.to_string());
-            meta.insert("multi_stage.external_action".into(), has_external_action.to_string());
+            meta.insert(
+                "multi_stage.external_action".into(),
+                has_external_action.to_string(),
+            );
 
             // Count each component for better visibility
             let js_count = typed_graph
                 .edges
                 .iter()
                 .filter(|e| {
-                    matches!(e.edge_type, EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames)
+                    matches!(
+                        e.edge_type,
+                        EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames
+                    )
                 })
                 .count();
             let embedded_count = classifications
@@ -84,7 +93,10 @@ impl Detector for MultiStageDetector {
                 .count();
 
             meta.insert("multi_stage.js_count".into(), js_count.to_string());
-            meta.insert("multi_stage.embedded_count".into(), embedded_count.to_string());
+            meta.insert(
+                "multi_stage.embedded_count".into(),
+                embedded_count.to_string(),
+            );
             meta.insert("multi_stage.action_count".into(), action_count.to_string());
 
             return Ok(vec![Finding {
@@ -94,14 +106,15 @@ impl Detector for MultiStageDetector {
                 severity: Severity::High,
                 confidence: Confidence::Probable,
                 title: "Multi-stage attack chain indicators".into(),
-                description: "Detected JavaScript, embedded content, and outbound action indicators.".into(),
+                description:
+                    "Detected JavaScript, embedded content, and outbound action indicators.".into(),
                 objects: vec!["multi_stage".into()],
                 evidence: Vec::new(),
                 remediation: Some("Review staging flow and embedded payloads.".into()),
                 meta,
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             }]);
         }
 

@@ -2,7 +2,6 @@
 ///
 /// This module provides utilities for finding paths, detecting action chains,
 /// and propagating risk scores through the PDF object graph.
-
 use crate::typed_graph::{EdgeType, TypedEdge, TypedGraph};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -26,7 +25,10 @@ pub enum TriggerType {
 impl TriggerType {
     /// Returns true if this trigger is automatic (no user action required)
     pub fn is_automatic(&self) -> bool {
-        matches!(self, TriggerType::OpenAction | TriggerType::PageOpen | TriggerType::PageClose)
+        matches!(
+            self,
+            TriggerType::OpenAction | TriggerType::PageOpen | TriggerType::PageClose
+        )
     }
 
     /// Returns string representation
@@ -124,7 +126,14 @@ impl<'a> PathFinder<'a> {
         let mut current_path = Vec::new();
         let mut visited = HashSet::new();
 
-        self.dfs_paths(from, to, max_depth, &mut current_path, &mut visited, &mut paths);
+        self.dfs_paths(
+            from,
+            to,
+            max_depth,
+            &mut current_path,
+            &mut visited,
+            &mut paths,
+        );
 
         paths
     }
@@ -207,7 +216,10 @@ impl<'a> PathFinder<'a> {
 
         // Find all edges that lead to JavaScript
         for edge in &self.graph.edges {
-            if matches!(edge.edge_type, EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames) {
+            if matches!(
+                edge.edge_type,
+                EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames
+            ) {
                 sources.push(edge.src);
             }
         }
@@ -284,9 +296,14 @@ impl<'a> PathFinder<'a> {
 
             // Find next action edge
             let next_edge = outgoing.iter().find(|e| {
-                !visited.contains(&e.dst) &&
-                (e.edge_type.is_executable() ||
-                 matches!(e.edge_type, EdgeType::JavaScriptPayload | EdgeType::UriTarget | EdgeType::LaunchTarget))
+                !visited.contains(&e.dst)
+                    && (e.edge_type.is_executable()
+                        || matches!(
+                            e.edge_type,
+                            EdgeType::JavaScriptPayload
+                                | EdgeType::UriTarget
+                                | EdgeType::LaunchTarget
+                        ))
             });
 
             if let Some(edge) = next_edge {
@@ -301,12 +318,18 @@ impl<'a> PathFinder<'a> {
         // Analyze chain characteristics
         let automatic = trigger_type.is_automatic();
         let involves_js = edges.iter().any(|e| {
-            matches!(e.edge_type, EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames)
+            matches!(
+                e.edge_type,
+                EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames
+            )
         });
         let involves_external = edges.iter().any(|e| {
             matches!(
                 e.edge_type,
-                EdgeType::UriTarget | EdgeType::LaunchTarget | EdgeType::SubmitFormTarget | EdgeType::GoToRTarget
+                EdgeType::UriTarget
+                    | EdgeType::LaunchTarget
+                    | EdgeType::SubmitFormTarget
+                    | EdgeType::GoToRTarget
             )
         });
 

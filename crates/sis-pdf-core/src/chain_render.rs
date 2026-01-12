@@ -36,5 +36,8 @@ pub fn render_path(chain: &ExploitChain) -> String {
     if let Some(len) = chain.notes.get("payload.decoded_len") {
         payload = format!("{} [len: {}]", payload, len);
     }
-    format!("Trigger:{} -> Action:{} -> Payload:{}", trigger, action, payload)
+    format!(
+        "Trigger:{} -> Action:{} -> Payload:{}",
+        trigger, action, payload
+    )
 }

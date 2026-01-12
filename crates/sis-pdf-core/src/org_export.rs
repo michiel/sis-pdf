@@ -1,10 +1,9 @@
-use crate::org::OrgGraph;
 use crate::explainability::GraphPathExplanation;
+use crate::org::OrgGraph;
 
 pub fn export_org_json(org: &OrgGraph) -> serde_json::Value {
     // If enhanced data is available, export it
-    if let (Some(enhanced_nodes), Some(enhanced_edges)) =
-        (&org.enhanced_nodes, &org.enhanced_edges)
+    if let (Some(enhanced_nodes), Some(enhanced_edges)) = (&org.enhanced_nodes, &org.enhanced_edges)
     {
         let nodes: Vec<serde_json::Value> = enhanced_nodes
             .iter()
@@ -65,8 +64,7 @@ pub fn export_org_dot(org: &OrgGraph) -> String {
     out.push_str("digraph pdf_org {\n");
 
     // If enhanced data is available, use it
-    if let (Some(enhanced_nodes), Some(enhanced_edges)) =
-        (&org.enhanced_nodes, &org.enhanced_edges)
+    if let (Some(enhanced_nodes), Some(enhanced_edges)) = (&org.enhanced_nodes, &org.enhanced_edges)
     {
         // Export nodes with type information
         for node in enhanced_nodes {
@@ -77,7 +75,10 @@ pub fn export_org_dot(org: &OrgGraph) -> String {
             if !node.roles.is_empty() {
                 label.push_str(&format!("\\n[{}]", node.roles.join(", ")));
             }
-            out.push_str(&format!("  \"{} {}\" [label=\"{}\"];\n", node.obj_ref.obj, node.obj_ref.gen, label));
+            out.push_str(&format!(
+                "  \"{} {}\" [label=\"{}\"];\n",
+                node.obj_ref.obj, node.obj_ref.gen, label
+            ));
         }
 
         // Export edges with type information
@@ -128,10 +129,7 @@ pub struct OrgExportWithPaths {
 impl OrgExportWithPaths {
     /// Create a basic export without path analysis
     pub fn basic(org: OrgGraph) -> Self {
-        Self {
-            org,
-            paths: None,
-        }
+        Self { org, paths: None }
     }
 
     /// Create an enhanced export with path analysis
@@ -171,7 +169,7 @@ pub fn export_org_with_paths_json_pretty(export: &OrgExportWithPaths) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::explainability::{SuspiciousPath, PathNode};
+    use crate::explainability::{PathNode, SuspiciousPath};
 
     fn create_empty_org() -> OrgGraph {
         OrgGraph {
@@ -194,21 +192,17 @@ mod tests {
     fn test_org_export_with_paths_enhanced() {
         let org = create_empty_org();
         let paths = GraphPathExplanation {
-            suspicious_paths: vec![
-                SuspiciousPath {
-                    path: vec![
-                        PathNode {
-                            obj_ref: (1, 0),
-                            node_type: "Catalog".to_string(),
-                            edge_to_next: None,
-                            findings: vec![],
-                        },
-                    ],
-                    risk_score: 0.5,
-                    explanation: "Test path".to_string(),
-                    attack_pattern: None,
-                },
-            ],
+            suspicious_paths: vec![SuspiciousPath {
+                path: vec![PathNode {
+                    obj_ref: (1, 0),
+                    node_type: "Catalog".to_string(),
+                    edge_to_next: None,
+                    findings: vec![],
+                }],
+                risk_score: 0.5,
+                explanation: "Test path".to_string(),
+                attack_pattern: None,
+            }],
             max_path_risk: 0.5,
             avg_path_risk: 0.5,
         };

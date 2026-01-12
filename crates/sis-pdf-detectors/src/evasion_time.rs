@@ -28,13 +28,19 @@ impl Detector for TimingEvasionDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         for entry in &ctx.graph.objects {
-            let Some(dict) = entry_dict(entry) else { continue };
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
             if !dict.has_name(b"/S", b"/JavaScript") && dict.get_first(b"/JS").is_none() {
                 continue;
             }
-            let Some((_, obj)) = dict.get_first(b"/JS") else { continue };
+            let Some((_, obj)) = dict.get_first(b"/JS") else {
+                continue;
+            };
             let payload = resolve_payload(ctx, obj);
-            let Some(info) = payload.payload else { continue };
+            let Some(info) = payload.payload else {
+                continue;
+            };
             if has_time_evasion(&info.bytes) {
                 findings.push(Finding {
                     id: String::new(),
@@ -43,14 +49,15 @@ impl Detector for TimingEvasionDetector {
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
                     title: "Time-based evasion in JavaScript".into(),
-                    description: "JavaScript references timing APIs that can delay execution.".into(),
+                    description: "JavaScript references timing APIs that can delay execution."
+                        .into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                     evidence: vec![span_to_evidence(dict.span, "JavaScript dict")],
                     remediation: Some("Inspect for delayed or staged execution logic.".into()),
                     meta: Default::default(),
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }
@@ -72,5 +79,7 @@ fn has_time_evasion(data: &[u8]) -> bool {
 }
 
 fn contains_any(data: &[u8], needles: &[&[u8]]) -> bool {
-    needles.iter().any(|n| data.windows(n.len()).any(|w| w == *n))
+    needles
+        .iter()
+        .any(|n| data.windows(n.len()).any(|w| w == *n))
 }

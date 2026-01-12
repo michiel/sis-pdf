@@ -11,6 +11,9 @@ fuzz_target!(|data: &[u8]| {
             max_objstm_bytes: 1_000_000,
             max_objects: 20_000,
             max_objstm_total_bytes: 5_000_000,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
         },
     );
 });

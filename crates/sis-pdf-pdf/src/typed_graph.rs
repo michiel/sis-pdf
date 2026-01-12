@@ -2,7 +2,6 @@
 ///
 /// This module builds a semantic graph of PDF object relationships with typed edges
 /// that capture the meaning of references (OpenAction, JavaScript, URI, etc.).
-
 use crate::classification::{ClassificationMap, PdfObjectType};
 use crate::graph::{ObjEntry, ObjectGraph};
 use crate::object::{PdfAtom, PdfDict, PdfObj};
@@ -365,11 +364,7 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
     fn extract_edges_from_array(&mut self, src: (u32, u16), items: &[PdfObj<'a>]) {
         for (index, item) in items.iter().enumerate() {
             if let PdfAtom::Ref { obj, gen } = item.atom {
-                let edge = TypedEdge::new(
-                    src,
-                    (obj, gen),
-                    EdgeType::ArrayElement { index },
-                );
+                let edge = TypedEdge::new(src, (obj, gen), EdgeType::ArrayElement { index });
                 self.edges.push(edge);
             }
         }
@@ -398,11 +393,13 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
             let names_dict_opt = match &names_obj.atom {
                 PdfAtom::Dict(d) => Some(d),
                 PdfAtom::Ref { obj, gen } => {
-                    self.graph.get_object(*obj, *gen).and_then(|entry| match &entry.atom {
-                        PdfAtom::Dict(d) => Some(d),
-                        PdfAtom::Stream(st) => Some(&st.dict),
-                        _ => None,
-                    })
+                    self.graph
+                        .get_object(*obj, *gen)
+                        .and_then(|entry| match &entry.atom {
+                            PdfAtom::Dict(d) => Some(d),
+                            PdfAtom::Stream(st) => Some(&st.dict),
+                            _ => None,
+                        })
                 }
                 _ => None,
             };
@@ -501,7 +498,8 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
                     b"/Launch" => {
                         if let Some((_, obj)) = dict.get_first(b"/F") {
                             if let Some(dst) = self.resolve_ref(obj) {
-                                let edge = TypedEdge::new_suspicious(src, dst, EdgeType::LaunchTarget);
+                                let edge =
+                                    TypedEdge::new_suspicious(src, dst, EdgeType::LaunchTarget);
                                 self.edges.push(edge);
                             }
                         }
@@ -509,7 +507,8 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
                     b"/SubmitForm" => {
                         if let Some((_, obj)) = dict.get_first(b"/F") {
                             if let Some(dst) = self.resolve_ref(obj) {
-                                let edge = TypedEdge::new_suspicious(src, dst, EdgeType::SubmitFormTarget);
+                                let edge =
+                                    TypedEdge::new_suspicious(src, dst, EdgeType::SubmitFormTarget);
                                 self.edges.push(edge);
                             }
                         }
@@ -565,11 +564,13 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
             let aa_dict_opt = match &aa_obj.atom {
                 PdfAtom::Dict(d) => Some(d),
                 PdfAtom::Ref { obj, gen } => {
-                    self.graph.get_object(*obj, *gen).and_then(|entry| match &entry.atom {
-                        PdfAtom::Dict(d) => Some(d),
-                        PdfAtom::Stream(st) => Some(&st.dict),
-                        _ => None,
-                    })
+                    self.graph
+                        .get_object(*obj, *gen)
+                        .and_then(|entry| match &entry.atom {
+                            PdfAtom::Dict(d) => Some(d),
+                            PdfAtom::Stream(st) => Some(&st.dict),
+                            _ => None,
+                        })
                 }
                 _ => None,
             };

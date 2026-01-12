@@ -49,23 +49,37 @@ fn main() {
         if value == "true" {
             if key.contains("shellcode") || key.contains("nop_sled") {
                 shellcode.push(key.as_str());
-            } else if key.contains("type_confusion") || key.contains("integer_overflow")
-                || key.contains("array_manipulation") || key.contains("use_after_free")
-                || key.contains("rop_chain") {
+            } else if key.contains("type_confusion")
+                || key.contains("integer_overflow")
+                || key.contains("array_manipulation")
+                || key.contains("use_after_free")
+                || key.contains("rop_chain")
+            {
                 memory_corruption.push(key.as_str());
-            } else if key.contains("debugger") || key.contains("sandbox_evasion")
-                || key.contains("exception_abuse") || key.contains("time_bomb")
-                || key.contains("geofencing") {
+            } else if key.contains("debugger")
+                || key.contains("sandbox_evasion")
+                || key.contains("exception_abuse")
+                || key.contains("time_bomb")
+                || key.contains("geofencing")
+            {
                 anti_analysis.push(key.as_str());
-            } else if key.contains("form_manipulation") || key.contains("credential")
-                || key.contains("encoded_transmission") {
+            } else if key.contains("form_manipulation")
+                || key.contains("credential")
+                || key.contains("encoded_transmission")
+            {
                 exfiltration.push(key.as_str());
-            } else if key.contains("control_flow") || key.contains("opaque_predicate")
-                || key.contains("identifier_mangling") || key.contains("unicode_obfuscation")
-                || key.contains("custom_decoder") || key.contains("function_introspection") {
+            } else if key.contains("control_flow")
+                || key.contains("opaque_predicate")
+                || key.contains("identifier_mangling")
+                || key.contains("unicode_obfuscation")
+                || key.contains("custom_decoder")
+                || key.contains("function_introspection")
+            {
                 obfuscation.push(key.as_str());
-            } else if key.contains("font_exploitation") || key.contains("annotation_abuse")
-                || key.contains("xfa_exploitation") {
+            } else if key.contains("font_exploitation")
+                || key.contains("annotation_abuse")
+                || key.contains("xfa_exploitation")
+            {
                 pdf_exploit.push(key.as_str());
             } else if key.contains("dga") || key.contains("beaconing") {
                 c2.push(key.as_str());

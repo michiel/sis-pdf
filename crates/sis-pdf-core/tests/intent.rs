@@ -27,7 +27,12 @@ fn bucket_names(report: &sis_pdf_core::report::Report) -> Vec<String> {
     report
         .intent_summary
         .as_ref()
-        .map(|s| s.buckets.iter().map(|b| format!("{:?}", b.bucket)).collect())
+        .map(|s| {
+            s.buckets
+                .iter()
+                .map(|b| format!("{:?}", b.bucket))
+                .collect()
+        })
         .unwrap_or_default()
 }
 

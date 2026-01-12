@@ -1,6 +1,4 @@
-use sis_pdf_pdf::classification::{
-    ClassificationStats, ObjectRole, PdfObjectType,
-};
+use sis_pdf_pdf::classification::{ClassificationStats, ObjectRole, PdfObjectType};
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
 
 #[test]
@@ -35,6 +33,9 @@ startxref
         max_objstm_bytes: 1024 * 1024,
         max_objects: 10000,
         max_objstm_total_bytes: 10 * 1024 * 1024,
+        carve_stream_objects: false,
+        max_carved_objects: 0,
+        max_carved_bytes: 0,
     };
 
     let graph = parse_pdf(pdf_bytes, options).expect("Failed to parse PDF");
@@ -95,6 +96,9 @@ startxref
         max_objstm_bytes: 1024 * 1024,
         max_objects: 10000,
         max_objstm_total_bytes: 10 * 1024 * 1024,
+        carve_stream_objects: false,
+        max_carved_objects: 0,
+        max_carved_bytes: 0,
     };
 
     let graph = parse_pdf(pdf_bytes, options).expect("Failed to parse PDF");
@@ -145,6 +149,9 @@ startxref
         max_objstm_bytes: 1024 * 1024,
         max_objects: 10000,
         max_objstm_total_bytes: 10 * 1024 * 1024,
+        carve_stream_objects: false,
+        max_carved_objects: 0,
+        max_carved_bytes: 0,
     };
 
     let graph = parse_pdf(pdf_bytes, options).expect("Failed to parse PDF");
@@ -204,6 +211,9 @@ startxref
         max_objstm_bytes: 1024 * 1024,
         max_objects: 10000,
         max_objstm_total_bytes: 10 * 1024 * 1024,
+        carve_stream_objects: false,
+        max_carved_objects: 0,
+        max_carved_bytes: 0,
     };
 
     let graph = parse_pdf(pdf_bytes, options).expect("Failed to parse PDF");
@@ -266,6 +276,9 @@ startxref
         max_objstm_bytes: 1024 * 1024,
         max_objects: 10000,
         max_objstm_total_bytes: 10 * 1024 * 1024,
+        carve_stream_objects: false,
+        max_carved_objects: 0,
+        max_carved_bytes: 0,
     };
 
     let graph = parse_pdf(pdf_bytes, options).expect("Failed to parse PDF");
@@ -276,6 +289,8 @@ startxref
     assert!(filespec.has_role(ObjectRole::EmbeddedFile));
 
     // Object 6 should be Stream
-    let embedded = classifications.get(&(6, 0)).expect("Embedded file not found");
+    let embedded = classifications
+        .get(&(6, 0))
+        .expect("Embedded file not found");
     assert_eq!(embedded.obj_type, PdfObjectType::Stream);
 }

@@ -31,7 +31,10 @@ impl MultiStageCorrelator {
             let pid = pdf.path.clone().unwrap_or_else(|| pdf.id.clone());
             for intent in &pdf.network_intents {
                 if let Some(domain) = &intent.domain {
-                    by_domain.entry(domain.clone()).or_default().insert(pid.clone());
+                    by_domain
+                        .entry(domain.clone())
+                        .or_default()
+                        .insert(pid.clone());
                 }
             }
         }
@@ -81,7 +84,10 @@ impl Default for IntentExtractionOptions {
 
 pub fn extract_domain(url: &str) -> Option<String> {
     let url = url.trim();
-    let url = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://")).unwrap_or(url);
+    let url = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .unwrap_or(url);
     let mut end = url.len();
     for (idx, ch) in url.char_indices() {
         if ch == '/' || ch == ':' {
@@ -126,7 +132,10 @@ pub fn extract_network_intents_from_findings(
     out
 }
 
-fn extract_intents_from_value(input: &str, options: &IntentExtractionOptions) -> Vec<NetworkIntent> {
+fn extract_intents_from_value(
+    input: &str,
+    options: &IntentExtractionOptions,
+) -> Vec<NetworkIntent> {
     let mut out = Vec::new();
     for raw in input
         .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
@@ -147,10 +156,7 @@ fn extract_intents_from_value(input: &str, options: &IntentExtractionOptions) ->
             out.push(NetworkIntent { url: token, domain });
         } else if options.include_scheme_less && looks_like_domain(&token) {
             let domain = extract_domain_loose(&token);
-            out.push(NetworkIntent {
-                url: token,
-                domain,
-            });
+            out.push(NetworkIntent { url: token, domain });
         }
     }
     out

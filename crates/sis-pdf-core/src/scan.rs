@@ -3,7 +3,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use sis_pdf_pdf::classification::ClassificationMap;
-use sis_pdf_pdf::decode::{decode_stream, DecodedStream};
+use sis_pdf_pdf::decode::{
+    decode_stream, decode_stream_with_meta, DecodeLimits, DecodeServiceResult, DecodedStream,
+};
 use sis_pdf_pdf::object::PdfStream;
 use sis_pdf_pdf::span::Span;
 use sis_pdf_pdf::typed_graph::TypedGraph;
@@ -65,11 +67,7 @@ pub struct ScanContext<'a> {
 
 impl<'a> ScanContext<'a> {
     /// Creates a new ScanContext
-    pub fn new(
-        bytes: &'a [u8],
-        graph: ObjectGraph<'a>,
-        options: ScanOptions,
-    ) -> Self {
+    pub fn new(bytes: &'a [u8], graph: ObjectGraph<'a>, options: ScanOptions) -> Self {
         Self {
             bytes,
             graph,
@@ -96,9 +94,16 @@ impl<'a> ScanContext<'a> {
     /// }
     /// ```
     pub fn classifications(&self) -> &ClassificationMap {
-        self.classifications.get_or_init(|| {
-            self.graph.classify_objects()
-        })
+        self.classifications
+            .get_or_init(|| self.graph.classify_objects())
+    }
+
+    pub fn decode_stream_with_meta(&self, stream: &PdfStream<'_>) -> DecodeServiceResult {
+        let limits = DecodeLimits {
+            max_decoded_bytes: self.options.max_decode_bytes,
+            ..DecodeLimits::default()
+        };
+        decode_stream_with_meta(self.bytes, stream, limits)
     }
 
     /// Builds a typed graph
@@ -170,7 +175,11 @@ impl DecodedCache {
         }
         let reservation = self.reserve_budget(self.max_decode_bytes)?;
         let decoded = decode_stream(bytes, stream, self.max_decode_bytes)?;
-        reservation.commit(decoded.data.len(), self.max_total_decoded_bytes, &self.total_decoded)?;
+        reservation.commit(
+            decoded.data.len(),
+            self.max_total_decoded_bytes,
+            &self.total_decoded,
+        )?;
         if let Ok(mut c) = self.cache.lock() {
             c.insert(key, decoded.clone());
         }
@@ -237,12 +246,7 @@ struct BudgetReservation<'a> {
 }
 
 impl<'a> BudgetReservation<'a> {
-    fn commit(
-        mut self,
-        actual: usize,
-        limit: usize,
-        total: &AtomicUsize,
-    ) -> anyhow::Result<()> {
+    fn commit(mut self, actual: usize, limit: usize, total: &AtomicUsize) -> anyhow::Result<()> {
         if self.reserved > 0 {
             total.fetch_sub(self.reserved, Ordering::SeqCst);
         }

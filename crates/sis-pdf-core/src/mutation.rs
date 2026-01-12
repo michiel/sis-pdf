@@ -32,7 +32,11 @@ impl MutationTester {
         out
     }
 
-    pub fn test_detection_coverage(&self, original: &[u8], mutants: &[MutatedPDF]) -> (usize, usize) {
+    pub fn test_detection_coverage(
+        &self,
+        original: &[u8],
+        mutants: &[MutatedPDF],
+    ) -> (usize, usize) {
         let total = mutants.len();
         let unchanged = mutants
             .iter()

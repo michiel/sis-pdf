@@ -101,7 +101,10 @@ pub fn reachable_paths(
 
 fn collect_refs_from_atom(atom: &PdfAtom<'_>, out: &mut Vec<ObjRef>) {
     match atom {
-        PdfAtom::Ref { obj, gen } => out.push(ObjRef { obj: *obj, gen: *gen }),
+        PdfAtom::Ref { obj, gen } => out.push(ObjRef {
+            obj: *obj,
+            gen: *gen,
+        }),
         PdfAtom::Array(arr) => {
             for o in arr {
                 collect_refs_from_obj(o, out);
@@ -132,7 +135,10 @@ fn collect_labeled_refs_from_atom(
 ) {
     match atom {
         PdfAtom::Ref { obj, gen } => out.push(LabeledEdge {
-            to: ObjRef { obj: *obj, gen: *gen },
+            to: ObjRef {
+                obj: *obj,
+                gen: *gen,
+            },
             label: label.unwrap_or_else(|| "ref".into()),
         }),
         PdfAtom::Array(arr) => {

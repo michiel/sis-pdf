@@ -31,13 +31,19 @@ impl Detector for JsPolymorphicDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         for entry in &ctx.graph.objects {
-            let Some(dict) = entry_dict(entry) else { continue };
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
             if !dict.has_name(b"/S", b"/JavaScript") && dict.get_first(b"/JS").is_none() {
                 continue;
             }
-            let Some((_, obj)) = dict.get_first(b"/JS") else { continue };
+            let Some((_, obj)) = dict.get_first(b"/JS") else {
+                continue;
+            };
             let payload = resolve_payload(ctx, obj);
-            let Some(info) = payload.payload else { continue };
+            let Some(info) = payload.payload else {
+                continue;
+            };
             let decoded = decode_layers(&info.bytes, 4);
             let sig = extract_js_signals_with_ast(&info.bytes, self.enable_ast);
             let mut meta = sig;
@@ -72,11 +78,13 @@ impl Detector for JsPolymorphicDetector {
                     description: "JavaScript shows traits of polymorphic or staged code.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                     evidence: vec![span_to_evidence(dict.span, "JavaScript dict")],
-                    remediation: Some("Deobfuscate JavaScript and inspect dynamic behavior.".into()),
+                    remediation: Some(
+                        "Deobfuscate JavaScript and inspect dynamic behavior.".into(),
+                    ),
                     meta: meta.clone(),
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
             if multi_stage {
@@ -98,8 +106,8 @@ impl Detector for JsPolymorphicDetector {
                     remediation: Some("Inspect the deobfuscated payload.".into()),
                     meta: meta2,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
             if decoded.layers > 0 && decoded.bytes != info.bytes {
@@ -121,8 +129,8 @@ impl Detector for JsPolymorphicDetector {
                     remediation: Some("Review decoded layers for hidden behavior.".into()),
                     meta: meta3,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }

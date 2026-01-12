@@ -70,7 +70,8 @@ fn classify_nodes(
             if line.value_type == "name" && value == "/JavaScript" {
                 flags.has_js = true;
             }
-            if value == "/URI" || value == "/GoToR" || value == "/Launch" || value == "/SubmitForm" {
+            if value == "/URI" || value == "/GoToR" || value == "/Launch" || value == "/SubmitForm"
+            {
                 flags.has_external = true;
             }
             if line.value_type == "stream" || line.value_type == "str" {
@@ -142,8 +143,8 @@ fn find_action_payload_paths(
                 remediation: Some("Inspect referenced payload chain for malicious intent.".into()),
                 meta,
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
         }
     }
@@ -185,8 +186,8 @@ fn find_orphan_payloads(
                 remediation: Some("Inspect for hidden or shadowed revisions.".into()),
                 meta,
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
         }
     }
@@ -202,7 +203,10 @@ fn find_shadow_payloads(
         if idxs.len() <= 1 {
             continue;
         }
-        let key = ObjRef { obj: *obj, gen: *gen };
+        let key = ObjRef {
+            obj: *obj,
+            gen: *gen,
+        };
         if flags.get(&key).map(|f| f.has_payload).unwrap_or(false) {
             let mut evidence = Vec::new();
             for idx in idxs {
@@ -228,8 +232,8 @@ fn find_shadow_payloads(
                 remediation: Some("Review incremental updates for hidden payloads.".into()),
                 meta,
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
         }
     }
@@ -277,8 +281,8 @@ fn find_objstm_payloads(
                     remediation: Some("Use deep scan to inspect embedded objects.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }

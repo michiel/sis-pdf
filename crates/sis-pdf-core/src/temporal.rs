@@ -28,6 +28,9 @@ pub fn build_versioned_scans<'a>(
             max_objstm_bytes: opts.max_decode_bytes,
             max_objects: opts.max_objects,
             max_objstm_total_bytes: opts.max_total_decoded_bytes,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
         },
     )?;
     let mut startxrefs = graph.startxrefs.clone();
@@ -50,6 +53,9 @@ pub fn build_versioned_scans<'a>(
                     max_objstm_bytes: opts.max_decode_bytes,
                     max_objects: opts.max_objects,
                     max_objstm_total_bytes: opts.max_total_decoded_bytes,
+                    carve_stream_objects: false,
+                    max_carved_objects: 0,
+                    max_carved_bytes: 0,
                 },
             )?,
             opts.clone(),
@@ -82,8 +88,7 @@ pub fn build_temporal_signal_summary(reports: &[VersionedScan<'_>]) -> TemporalS
         let label = &scan.label;
         let findings = &scan.report.findings;
         let current_kinds: HashSet<String> = findings.iter().map(|f| f.kind.clone()).collect();
-        let current_surfaces: HashSet<AttackSurface> =
-            findings.iter().map(|f| f.surface).collect();
+        let current_surfaces: HashSet<AttackSurface> = findings.iter().map(|f| f.surface).collect();
 
         if let Some(prev) = prev_kinds.as_ref() {
             for kind in prev.difference(&current_kinds) {
@@ -162,12 +167,7 @@ fn is_high_severity(finding: &Finding) -> bool {
     matches!(finding.severity, Severity::High | Severity::Critical)
 }
 
-fn add_structural_deltas(
-    label: &str,
-    prev: &Report,
-    current: &Report,
-    deltas: &mut Vec<String>,
-) {
+fn add_structural_deltas(label: &str, prev: &Report, current: &Report, deltas: &mut Vec<String>) {
     let Some(prev_struct) = &prev.structural_summary else {
         return;
     };
@@ -251,22 +251,34 @@ mod tests {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/synthetic.pdf");
         let bytes = std::fs::read(path)?;
-        let graph1 = parse_pdf(&bytes, ParseOptions {
-            recover_xref: true,
-            deep: false,
-            strict: false,
-            max_objstm_bytes: 32 * 1024 * 1024,
-            max_objects: 500_000,
-            max_objstm_total_bytes: 256 * 1024 * 1024,
-        })?;
-        let graph2 = parse_pdf(&bytes, ParseOptions {
-            recover_xref: true,
-            deep: false,
-            strict: false,
-            max_objstm_bytes: 32 * 1024 * 1024,
-            max_objects: 500_000,
-            max_objstm_total_bytes: 256 * 1024 * 1024,
-        })?;
+        let graph1 = parse_pdf(
+            &bytes,
+            ParseOptions {
+                recover_xref: true,
+                deep: false,
+                strict: false,
+                max_objstm_bytes: 32 * 1024 * 1024,
+                max_objects: 500_000,
+                max_objstm_total_bytes: 256 * 1024 * 1024,
+                carve_stream_objects: false,
+                max_carved_objects: 0,
+                max_carved_bytes: 0,
+            },
+        )?;
+        let graph2 = parse_pdf(
+            &bytes,
+            ParseOptions {
+                recover_xref: true,
+                deep: false,
+                strict: false,
+                max_objstm_bytes: 32 * 1024 * 1024,
+                max_objects: 500_000,
+                max_objstm_total_bytes: 256 * 1024 * 1024,
+                carve_stream_objects: false,
+                max_carved_objects: 0,
+                max_carved_bytes: 0,
+            },
+        )?;
         let ctx1 = ScanContext::new(&bytes, graph1, test_opts());
         let ctx2 = ScanContext::new(&bytes, graph2, test_opts());
 
@@ -283,8 +295,8 @@ mod tests {
             remediation: None,
             meta: Default::default(),
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
         }]);
 
         let report2 = empty_report(vec![Finding {
@@ -300,8 +312,8 @@ mod tests {
             remediation: None,
             meta: Default::default(),
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
         }]);
 
         let scans = vec![
@@ -322,8 +334,14 @@ mod tests {
         let summary = build_temporal_signal_summary(&scans);
         assert_eq!(summary.revisions, 2);
         assert_eq!(summary.new_high_severity, 1);
-        assert!(summary.new_findings.iter().any(|v| v.contains("high_signal")));
-        assert!(summary.new_attack_surfaces.iter().any(|v| v.contains("Actions")));
+        assert!(summary
+            .new_findings
+            .iter()
+            .any(|v| v.contains("high_signal")));
+        assert!(summary
+            .new_attack_surfaces
+            .iter()
+            .any(|v| v.contains("Actions")));
         Ok(())
     }
 }

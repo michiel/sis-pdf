@@ -66,7 +66,10 @@ impl Detector for ExternalActionContextDetector {
         }
 
         let mut meta = std::collections::HashMap::new();
-        meta.insert("external.action_count".into(), action_objects.len().to_string());
+        meta.insert(
+            "external.action_count".into(),
+            action_objects.len().to_string(),
+        );
         meta.insert("external.action_types".into(), action_types.join(", "));
         if hex_name_count > 0 {
             meta.insert(

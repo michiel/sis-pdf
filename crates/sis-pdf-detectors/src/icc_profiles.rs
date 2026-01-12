@@ -29,7 +29,9 @@ impl Detector for ICCProfileDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         for entry in &ctx.graph.objects {
-            let Some(dict) = entry_dict(entry) else { continue };
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
             for (_, obj) in &dict.entries {
                 if let Some(stream) = icc_stream(ctx, obj) {
                     let raw_len = stream.data_span.len() as usize;
@@ -50,8 +52,8 @@ impl Detector for ICCProfileDetector {
                             remediation: Some("Inspect ICC profile contents for anomalies.".into()),
                             meta: meta.clone(),
                             yara: None,
-        position: None,
-        positions: Vec::new(),
+                            position: None,
+                            positions: Vec::new(),
                         });
                     }
                     if let Some(issue) = icc_header_issue(ctx.bytes, &stream) {
@@ -66,11 +68,13 @@ impl Detector for ICCProfileDetector {
                             description: issue,
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                             evidence,
-                            remediation: Some("Validate ICC profile header and declared size.".into()),
+                            remediation: Some(
+                                "Validate ICC profile header and declared size.".into(),
+                            ),
                             meta,
                             yara: None,
-        position: None,
-        positions: Vec::new(),
+                            position: None,
+                            positions: Vec::new(),
                         });
                     }
                 }

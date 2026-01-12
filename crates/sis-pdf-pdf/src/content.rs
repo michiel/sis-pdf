@@ -53,8 +53,20 @@ pub fn parse_content_ops(bytes: &[u8]) -> Vec<ContentOp> {
 fn is_operator(tok: &[u8]) -> bool {
     matches!(
         tok,
-        b"q" | b"Q" | b"cm" | b"Do" | b"BT" | b"ET" | b"Tf" | b"Tj" | b"TJ" | b"Td" | b"Tm"
-            | b"Tr" | b"re" | b"W" | b"W*"
+        b"q" | b"Q"
+            | b"cm"
+            | b"Do"
+            | b"BT"
+            | b"ET"
+            | b"Tf"
+            | b"Tj"
+            | b"TJ"
+            | b"Td"
+            | b"Tm"
+            | b"Tr"
+            | b"re"
+            | b"W"
+            | b"W*"
     )
 }
 

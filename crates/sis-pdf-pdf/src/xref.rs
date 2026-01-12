@@ -83,7 +83,10 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
     XrefChain { sections }
 }
 
-fn parse_xref_table<'a>(bytes: &'a [u8], offset: usize) -> Result<(Option<PdfDict<'a>>, Option<u64>)> {
+fn parse_xref_table<'a>(
+    bytes: &'a [u8],
+    offset: usize,
+) -> Result<(Option<PdfDict<'a>>, Option<u64>)> {
     let mut p = Parser::new(bytes, offset, false);
     p.consume_keyword(b"xref");
     // Skip subsection headers and entries, then find "trailer".

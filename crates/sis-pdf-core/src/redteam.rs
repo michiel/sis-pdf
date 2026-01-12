@@ -18,10 +18,8 @@ pub struct RedTeamSimulator;
 
 impl RedTeamSimulator {
     pub fn generate_evasive_pdf(&self, target: &DetectorProfile) -> EvasivePDF {
-        let bytes = format!(
-            "%PDF-1.4\n% redteam\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n"
-        )
-        .into_bytes();
+        let bytes = format!("%PDF-1.4\n% redteam\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n")
+            .into_bytes();
         EvasivePDF {
             bytes,
             note: format!("minimal_pdf_for:{}", target.target),

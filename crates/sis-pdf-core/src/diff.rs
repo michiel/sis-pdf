@@ -1,6 +1,6 @@
 use crate::model::{AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity};
-use std::io::Cursor;
 use sis_pdf_pdf::ObjectGraph;
+use std::io::Cursor;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffSummary {
@@ -19,21 +19,14 @@ pub struct DiffResult {
     pub error: Option<String>,
 }
 
-pub fn diff_summary(
-    bytes: &[u8],
-    primary: &ObjectGraph<'_>,
-) -> Result<DiffSummary, lopdf::Error> {
+pub fn diff_summary(bytes: &[u8], primary: &ObjectGraph<'_>) -> Result<DiffSummary, lopdf::Error> {
     let doc = lopdf::Document::load_from(Cursor::new(bytes))?;
     let primary_ids: std::collections::HashSet<(u32, u16)> =
         primary.index.keys().cloned().collect();
     let secondary_ids: std::collections::HashSet<(u32, u16)> =
         doc.objects.keys().cloned().collect();
-    let missing_in_secondary = primary_ids
-        .difference(&secondary_ids)
-        .count();
-    let missing_in_primary = secondary_ids
-        .difference(&primary_ids)
-        .count();
+    let missing_in_secondary = primary_ids.difference(&secondary_ids).count();
+    let missing_in_primary = secondary_ids.difference(&primary_ids).count();
     Ok(DiffSummary {
         primary_objects: primary.objects.len(),
         secondary_objects: doc.objects.len(),
@@ -60,11 +53,13 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
                 description: format!("lopdf failed to parse the document: {}", err),
                 objects: vec!["parser".into()],
                 evidence,
-                remediation: Some("Compare with a stricter parser or inspect file integrity.".into()),
+                remediation: Some(
+                    "Compare with a stricter parser or inspect file integrity.".into(),
+                ),
                 meta: Default::default(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
             return DiffResult {
                 findings,
@@ -83,16 +78,15 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             title: "Parser object count mismatch".into(),
             description: format!(
                 "Primary parser saw {} objects; lopdf saw {} objects.",
-                summary.primary_objects,
-                summary.secondary_objects
+                summary.primary_objects, summary.secondary_objects
             ),
             objects: vec!["object_graph".into()],
             evidence: evidence.clone(),
             remediation: Some("Investigate parser differential artifacts.".into()),
             meta: Default::default(),
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
         });
     }
     if summary.primary_trailers != summary.secondary_trailers {
@@ -105,16 +99,15 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             title: "Parser trailer count mismatch".into(),
             description: format!(
                 "Primary parser saw {} trailers; lopdf saw {} trailer entries.",
-                summary.primary_trailers,
-                summary.secondary_trailers
+                summary.primary_trailers, summary.secondary_trailers
             ),
             objects: vec!["xref".into()],
             evidence: evidence.clone(),
             remediation: Some("Inspect xref and trailer sections.".into()),
             meta: Default::default(),
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
         });
     }
     if summary.missing_in_secondary > 0 || summary.missing_in_primary > 0 {
@@ -143,8 +136,8 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             remediation: Some("Inspect missing objects and xref consistency.".into()),
             meta,
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
         });
         let mut meta = std::collections::HashMap::new();
         meta.insert(

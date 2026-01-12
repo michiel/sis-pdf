@@ -1,39 +1,41 @@
 use anyhow::Result;
 use std::collections::HashSet;
 
+use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
 use sis_pdf_pdf::decode::stream_filters;
-use sis_pdf_pdf::graph::ObjEntry;
+use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict};
-use sha2::{Digest, Sha256};
 
-pub mod content_phishing;
-pub mod strict;
-pub mod linearization;
-pub mod font_exploits;
-pub mod icc_profiles;
-pub mod annotations_advanced;
-pub mod page_tree_anomalies;
-pub mod js_polymorphic;
-pub mod evasion_time;
-pub mod evasion_env;
-pub mod supply_chain;
 pub mod advanced_crypto;
-pub mod multi_stage;
-pub mod quantum_risk;
-pub mod polyglot;
+pub mod annotations_advanced;
+pub mod content_first;
+pub mod content_phishing;
+pub mod evasion_env;
+pub mod evasion_time;
 pub mod external_context;
 pub mod filter_depth;
-pub mod objstm_summary;
+pub mod font_exploits;
+pub mod icc_profiles;
 pub mod ir_graph_static;
-pub mod uri_classification;
-pub mod object_cycles;
-pub mod metadata_analysis;
+pub mod js_polymorphic;
 #[cfg(feature = "js-sandbox")]
 pub mod js_sandbox;
+pub mod linearization;
+pub mod metadata_analysis;
+pub mod multi_stage;
+pub mod object_cycles;
+pub mod objstm_summary;
+pub mod page_tree_anomalies;
+pub mod polyglot;
+pub mod quantum_risk;
+pub mod strict;
+pub mod supply_chain;
+pub mod uri_classification;
 
 #[derive(Clone, Copy)]
 pub struct DetectorSettings {
@@ -61,6 +63,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(XrefConflictDetector),
         Box::new(IncrementalUpdateDetector),
         Box::new(ObjectIdShadowingDetector),
+        Box::new(ShadowObjectDivergenceDetector),
         Box::new(linearization::LinearizationDetector),
         Box::new(ObjStmDensityDetector),
         Box::new(objstm_summary::ObjStmSummaryDetector),
@@ -78,6 +81,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(supply_chain::SupplyChainDetector),
         Box::new(advanced_crypto::AdvancedCryptoDetector),
         Box::new(multi_stage::MultiStageDetector),
+        Box::new(content_first::ContentFirstDetector),
         Box::new(quantum_risk::QuantumRiskDetector),
         Box::new(LaunchActionDetector),
         Box::new(GoToRDetector),
@@ -168,7 +172,10 @@ impl Detector for XrefConflictDetector {
             });
 
             let mut meta = std::collections::HashMap::new();
-            meta.insert("xref.startxref_count".into(), ctx.graph.startxrefs.len().to_string());
+            meta.insert(
+                "xref.startxref_count".into(),
+                ctx.graph.startxrefs.len().to_string(),
+            );
             meta.insert("xref.has_signature".into(), has_signature.to_string());
 
             // Signed documents with incremental updates are legitimate (multi-author)
@@ -204,8 +211,8 @@ impl Detector for XrefConflictDetector {
                 remediation: Some("Validate with a strict parser; inspect each revision.".into()),
                 meta,
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             }])
         } else {
             Ok(Vec::new())
@@ -247,8 +254,8 @@ impl Detector for IncrementalUpdateDetector {
                 remediation: Some("Review changes between revisions for hidden content.".into()),
                 meta: Default::default(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             }])
         } else {
             Ok(Vec::new())
@@ -275,7 +282,9 @@ impl Detector for ObjectIdShadowingDetector {
         let mut findings = Vec::new();
 
         // Count total shadowing instances across document
-        let shadowing_count = ctx.graph.index
+        let shadowing_count = ctx
+            .graph
+            .index
             .iter()
             .filter(|(_, idxs)| idxs.len() > 1)
             .count();
@@ -323,6 +332,114 @@ impl Detector for ObjectIdShadowingDetector {
                     yara: None,
         position: None,
         positions: Vec::new(),
+                });
+            }
+        }
+        Ok(findings)
+    }
+}
+
+struct ShadowObjectDivergenceDetector;
+
+impl Detector for ShadowObjectDivergenceDetector {
+    fn id(&self) -> &'static str {
+        "shadow_object_payload_divergence"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::FileStructure
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Moderate
+    }
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        for ((obj, gen), idxs) in &ctx.graph.index {
+            if idxs.len() <= 1 {
+                continue;
+            }
+            let mut evidence = Vec::new();
+            let mut kinds = HashSet::new();
+            let mut hashes = HashSet::new();
+            let mut provenance = Vec::new();
+            let mut carved = 0usize;
+            let mut non_carved = 0usize;
+
+            for idx in idxs {
+                let Some(entry) = ctx.graph.objects.get(*idx) else {
+                    continue;
+                };
+                evidence.push(span_to_evidence(entry.full_span, "Shadowed object span"));
+                provenance.push(provenance_label(entry.provenance));
+                if matches!(entry.provenance, ObjProvenance::CarvedStream { .. }) {
+                    carved += 1;
+                } else {
+                    non_carved += 1;
+                }
+                if let Some(payload) = entry_payload_bytes(ctx.bytes, entry) {
+                    let kind = classify_blob(payload);
+                    if kind != BlobKind::Unknown {
+                        kinds.insert(kind.as_str().to_string());
+                    }
+                    hashes.insert(hash_bytes(payload));
+                }
+            }
+
+            if kinds.len() > 1 {
+                let mut meta = std::collections::HashMap::new();
+                meta.insert("shadow.kinds".into(), join_list_sorted(&kinds));
+                meta.insert("shadow.version_count".into(), idxs.len().to_string());
+                meta.insert("shadow.provenance".into(), provenance.join(", "));
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: self.surface(),
+                    kind: "shadow_object_payload_divergence".into(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::Probable,
+                    title: "Shadowed object payload divergence".into(),
+                    description: format!(
+                        "Object {} {} has multiple revisions with differing payload signatures.",
+                        obj, gen
+                    ),
+                    objects: vec![format!("{} {} obj", obj, gen)],
+                    evidence: evidence.clone(),
+                    remediation: Some(
+                        "Compare shadowed object revisions for concealed payloads.".into(),
+                    ),
+                    meta,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+            }
+
+            if carved > 0 && non_carved > 0 && hashes.len() > 1 {
+                let mut meta = std::collections::HashMap::new();
+                meta.insert("parse.carved_count".into(), carved.to_string());
+                meta.insert("parse.official_count".into(), non_carved.to_string());
+                meta.insert("shadow.version_count".into(), idxs.len().to_string());
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: self.surface(),
+                    kind: "parse_disagreement".into(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::Probable,
+                    title: "Parser disagreement detected".into(),
+                    description: format!(
+                        "Carved objects disagree with parsed revisions for {} {}.",
+                        obj, gen
+                    ),
+                    objects: vec![format!("{} {} obj", obj, gen)],
+                    evidence,
+                    remediation: Some(
+                        "Investigate carved objects for hidden or conflicting revisions.".into(),
+                    ),
+                    meta,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }
@@ -386,8 +503,8 @@ impl Detector for ObjStmDensityDetector {
                     remediation: Some("Inspect object streams in deep scan.".into()),
                     meta: Default::default(),
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 }]);
             }
         }
@@ -433,11 +550,13 @@ impl Detector for OpenActionDetector {
                         description: "OpenAction triggers when the PDF opens.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence,
-                        remediation: Some("Validate the action target and disable auto-run.".into()),
+                        remediation: Some(
+                            "Validate the action target and disable auto-run.".into(),
+                        ),
                         meta,
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -482,8 +601,8 @@ impl Detector for AAPresentDetector {
                         remediation: Some("Review event actions for unsafe behavior.".into()),
                         meta: Default::default(),
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -520,10 +639,12 @@ impl Detector for AAEventDetector {
                                 "aa.event_key".into(),
                                 String::from_utf8_lossy(&k.decoded).to_string(),
                             );
-                            if let Some(page) = annot_parents.get(&sis_pdf_core::graph_walk::ObjRef {
-                                obj: entry.obj,
-                                gen: entry.gen,
-                            }) {
+                            if let Some(page) =
+                                annot_parents.get(&sis_pdf_core::graph_walk::ObjRef {
+                                    obj: entry.obj,
+                                    gen: entry.gen,
+                                })
+                            {
                                 meta.insert("page.number".into(), page.number.to_string());
                                 meta.insert(
                                     "page.object".into(),
@@ -557,8 +678,8 @@ impl Detector for AAEventDetector {
                                 remediation: Some("Inspect event-specific actions.".into()),
                                 meta,
                                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                                position: None,
+                                positions: Vec::new(),
                             });
                         }
                     }
@@ -569,7 +690,10 @@ impl Detector for AAEventDetector {
     }
 }
 
-fn aa_event_value(ctx: &sis_pdf_core::scan::ScanContext, obj: &sis_pdf_pdf::object::PdfObj<'_>) -> Option<String> {
+fn aa_event_value(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    obj: &sis_pdf_pdf::object::PdfObj<'_>,
+) -> Option<String> {
     if let Some(details) = resolve_action_details(ctx, obj) {
         if let Some(s) = details.meta.get("action.s") {
             if let Some(t) = details.meta.get("action.target") {
@@ -597,16 +721,26 @@ fn is_javascript_key(name: &sis_pdf_pdf::object::PdfName<'_>) -> bool {
 
     matches!(
         name_str,
-        b"JS" | b"js" | b"Js" | b"jS" |
-        b"JavaScript" | b"javascript" | b"JAVASCRIPT" |
-        b"JScript" | b"jscript" | b"JSCRIPT"
+        b"JS"
+            | b"js"
+            | b"Js"
+            | b"jS"
+            | b"JavaScript"
+            | b"javascript"
+            | b"JAVASCRIPT"
+            | b"JScript"
+            | b"jscript"
+            | b"JSCRIPT"
     )
 }
 
 /// Find all JavaScript key-value pairs in a dictionary
 fn find_javascript_entries<'a>(
     dict: &'a sis_pdf_pdf::object::PdfDict<'a>,
-) -> Vec<(&'a sis_pdf_pdf::object::PdfName<'a>, &'a sis_pdf_pdf::object::PdfObj<'a>)> {
+) -> Vec<(
+    &'a sis_pdf_pdf::object::PdfName<'a>,
+    &'a sis_pdf_pdf::object::PdfObj<'a>,
+)> {
     dict.entries
         .iter()
         .filter(|(k, _)| is_javascript_key(k))
@@ -645,14 +779,23 @@ impl Detector for JavaScriptDetector {
                     // Detect multiple JavaScript keys (evasion technique)
                     if js_entries.len() > 1 {
                         meta.insert("js.multiple_keys".into(), "true".into());
-                        meta.insert("js.multiple_keys_count".into(), js_entries.len().to_string());
+                        meta.insert(
+                            "js.multiple_keys_count".into(),
+                            js_entries.len().to_string(),
+                        );
                     }
 
                     // Process all JavaScript entries
                     let mut all_payloads = Vec::new();
                     for (idx, (k, v)) in js_entries.iter().enumerate() {
-                        evidence.push(span_to_evidence(k.span, &format!("JavaScript key #{}", idx + 1)));
-                        evidence.push(span_to_evidence(v.span, &format!("JavaScript payload #{}", idx + 1)));
+                        evidence.push(span_to_evidence(
+                            k.span,
+                            &format!("JavaScript key #{}", idx + 1),
+                        ));
+                        evidence.push(span_to_evidence(
+                            v.span,
+                            &format!("JavaScript payload #{}", idx + 1),
+                        ));
 
                         let key_name = String::from_utf8_lossy(&k.decoded).to_string();
                         if idx == 0 {
@@ -712,14 +855,9 @@ impl Detector for JavaScriptDetector {
                             for (k, v) in sig {
                                 meta.insert(k, v);
                             }
-                            let decoded = js_analysis::static_analysis::decode_layers(
-                                &payload.bytes,
-                                3,
-                            );
-                            meta.insert(
-                                "payload.decode_layers".into(),
-                                decoded.layers.to_string(),
-                            );
+                            let decoded =
+                                js_analysis::static_analysis::decode_layers(&payload.bytes, 3);
+                            meta.insert("payload.decode_layers".into(), decoded.layers.to_string());
                             if decoded.layers > 0 && decoded.bytes != payload.bytes {
                                 meta.insert(
                                     "payload.deobfuscated_len".into(),
@@ -750,8 +888,8 @@ impl Detector for JavaScriptDetector {
                         remediation: Some("Extract and review the JavaScript payload.".into()),
                         meta,
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -802,7 +940,13 @@ impl Detector for UriDetector {
         Cost::Cheap
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let mut findings = action_by_s(ctx, b"/URI", &[b"/URI"], "uri_present", "URI action present")?;
+        let mut findings = action_by_s(
+            ctx,
+            b"/URI",
+            &[b"/URI"],
+            "uri_present",
+            "URI action present",
+        )?;
         for entry in &ctx.graph.objects {
             if let Some(dict) = entry_dict(entry) {
                 if let Some((k, v)) = dict.get_first(b"/URI") {
@@ -828,8 +972,8 @@ impl Detector for UriDetector {
                         remediation: Some("Verify destination URLs.".into()),
                         meta,
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -851,14 +995,17 @@ fn uri_findings_from_annots(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<Findin
             continue;
         }
         if let Some((_, a)) = dict.get_first(b"/A") {
-            if let Some(f) = uri_finding_from_action(ctx, entry, a, "Annotation /A", &annot_parents) {
+            if let Some(f) = uri_finding_from_action(ctx, entry, a, "Annotation /A", &annot_parents)
+            {
                 out.push(f);
             }
         }
         if let Some((_, aa)) = dict.get_first(b"/AA") {
             if let PdfAtom::Dict(aad) = &aa.atom {
                 for (_, v) in &aad.entries {
-                    if let Some(f) = uri_finding_from_action(ctx, entry, v, "Annotation /AA", &annot_parents) {
+                    if let Some(f) =
+                        uri_finding_from_action(ctx, entry, v, "Annotation /AA", &annot_parents)
+                    {
                         out.push(f);
                     }
                 }
@@ -873,7 +1020,10 @@ fn uri_finding_from_action(
     entry: &ObjEntry<'_>,
     obj: &sis_pdf_pdf::object::PdfObj<'_>,
     note: &str,
-    annot_parents: &std::collections::HashMap<sis_pdf_core::graph_walk::ObjRef, sis_pdf_core::page_tree::PageRefInfo>,
+    annot_parents: &std::collections::HashMap<
+        sis_pdf_core::graph_walk::ObjRef,
+        sis_pdf_core::page_tree::PageRefInfo,
+    >,
 ) -> Option<Finding> {
     let action_obj = match &obj.atom {
         PdfAtom::Dict(_) => obj.clone(),
@@ -952,7 +1102,10 @@ impl Detector for FontMatrixDetector {
             };
             if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
                 if let PdfAtom::Array(arr) = &obj.atom {
-                    if arr.iter().any(|o| !matches!(o.atom, PdfAtom::Int(_) | PdfAtom::Real(_))) {
+                    if arr
+                        .iter()
+                        .any(|o| !matches!(o.atom, PdfAtom::Int(_) | PdfAtom::Real(_)))
+                    {
                         let mut meta = std::collections::HashMap::new();
                         meta.insert("fontmatrix.non_numeric".into(), "true".into());
                         findings.push(Finding {
@@ -1021,7 +1174,13 @@ impl Detector for GoToRDetector {
         Cost::Cheap
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        action_by_s(ctx, b"/GoToR", &[b"/F"], "gotor_present", "GoToR action present")
+        action_by_s(
+            ctx,
+            b"/GoToR",
+            &[b"/F"],
+            "gotor_present",
+            "GoToR action present",
+        )
     }
 }
 
@@ -1060,18 +1219,14 @@ impl Detector for EmbeddedFileDetector {
                         let hash = sha256_hex(&decoded.data);
                         let magic = magic_type(&decoded.data);
                         meta.insert("embedded.sha256".into(), hash);
-                        meta.insert(
-                            "embedded.size".into(),
-                            decoded.data.len().to_string(),
-                        );
+                        meta.insert("embedded.size".into(), decoded.data.len().to_string());
                         let is_zip = magic == "zip";
                         meta.insert("embedded.magic".into(), magic);
                         if is_zip && zip_encrypted(&decoded.data) {
                             meta.insert("embedded.encrypted_container".into(), "true".into());
                         }
                         if decoded.input_len > 0 {
-                            let ratio =
-                                decoded.data.len() as f64 / decoded.input_len as f64;
+                            let ratio = decoded.data.len() as f64 / decoded.input_len as f64;
                             meta.insert("embedded.decode_ratio".into(), format!("{:.2}", ratio));
                         }
                         evidence.push(decoded_evidence_span(
@@ -1097,8 +1252,8 @@ impl Detector for EmbeddedFileDetector {
                         remediation: Some("Extract and scan the embedded file.".into()),
                         meta,
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -1126,8 +1281,7 @@ impl Detector for RichMediaDetector {
         let mut findings = Vec::new();
         for entry in &ctx.graph.objects {
             if let Some(dict) = entry_dict(entry) {
-                if dict.get_first(b"/RichMedia").is_some()
-                    || dict.has_name(b"/Type", b"/RichMedia")
+                if dict.get_first(b"/RichMedia").is_some() || dict.has_name(b"/Type", b"/RichMedia")
                 {
                     findings.push(Finding {
                         id: String::new(),
@@ -1142,8 +1296,8 @@ impl Detector for RichMediaDetector {
                         remediation: Some("Inspect 3D or media assets.".into()),
                         meta: Default::default(),
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -1189,8 +1343,8 @@ impl Detector for ThreeDDetector {
                         remediation: Some("Inspect embedded 3D assets.".into()),
                         meta: Default::default(),
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -1235,8 +1389,8 @@ impl Detector for SoundMovieDetector {
                         remediation: Some("Inspect embedded media objects.".into()),
                         meta: Default::default(),
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -1281,8 +1435,8 @@ impl Detector for FileSpecDetector {
                         remediation: Some("Inspect file specification targets.".into()),
                         meta: Default::default(),
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -1324,7 +1478,7 @@ impl Detector for CryptoDetector {
                 surface: self.surface(),
                 kind: "encryption_present".into(),
                 severity: Severity::Medium,
-                confidence: Confidence::Strong,  // Upgraded: /Encrypt dict presence is definitive
+                confidence: Confidence::Strong, // Upgraded: /Encrypt dict presence is definitive
                 title: "Encryption dictionary present".into(),
                 description: "Trailer indicates encrypted content via /Encrypt.".into(),
                 objects: vec!["trailer".into()],
@@ -1332,8 +1486,8 @@ impl Detector for CryptoDetector {
                 remediation: Some("Decrypt with trusted tooling to inspect all objects.".into()),
                 meta: Default::default(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
         }
 
@@ -1365,7 +1519,7 @@ impl Detector for CryptoDetector {
                 surface: self.surface(),
                 kind: "signature_present".into(),
                 severity: Severity::Low,
-                confidence: Confidence::Strong,  // Upgraded: /ByteRange presence is definitive
+                confidence: Confidence::Strong, // Upgraded: /ByteRange presence is definitive
                 title: "Digital signature present".into(),
                 description: "Signature dictionaries or ByteRange entries detected.".into(),
                 objects: vec!["signature".into()],
@@ -1373,8 +1527,8 @@ impl Detector for CryptoDetector {
                 remediation: Some("Validate signature chain and inspect signed content.".into()),
                 meta: sig_meta,
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
         }
 
@@ -1403,8 +1557,8 @@ impl Detector for CryptoDetector {
                 remediation: Some("Inspect DSS for embedded validation material.".into()),
                 meta: Default::default(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
         }
 
@@ -1437,7 +1591,7 @@ impl Detector for XfaDetector {
                         surface: self.surface(),
                         kind: "xfa_present".into(),
                         severity: Severity::Medium,
-                        confidence: Confidence::Strong,  // Upgraded: /XFA presence is definitive
+                        confidence: Confidence::Strong, // Upgraded: /XFA presence is definitive
                         title: "XFA form present".into(),
                         description: "XFA forms can expand attack surface.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -1445,8 +1599,8 @@ impl Detector for XfaDetector {
                         remediation: Some("Inspect XFA form data and scripts.".into()),
                         meta: Default::default(),
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -1480,7 +1634,7 @@ impl Detector for AcroFormDetector {
                         surface: self.surface(),
                         kind: "acroform_present".into(),
                         severity: Severity::Medium,
-                        confidence: Confidence::Strong,  // Upgraded: /AcroForm presence is definitive
+                        confidence: Confidence::Strong, // Upgraded: /AcroForm presence is definitive
                         title: "AcroForm present".into(),
                         description: "Interactive AcroForm dictionaries detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -1488,8 +1642,8 @@ impl Detector for AcroFormDetector {
                         remediation: Some("Inspect form fields and calculation scripts.".into()),
                         meta: Default::default(),
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -1517,8 +1671,7 @@ impl Detector for OCGDetector {
         let mut findings = Vec::new();
         for entry in &ctx.graph.objects {
             if let Some(dict) = entry_dict(entry) {
-                if dict.get_first(b"/OCG").is_some() || dict.get_first(b"/OCProperties").is_some()
-                {
+                if dict.get_first(b"/OCG").is_some() || dict.get_first(b"/OCProperties").is_some() {
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -1526,14 +1679,15 @@ impl Detector for OCGDetector {
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
                         title: "Optional content group present".into(),
-                        description: "OCG/OCProperties detected; may influence viewer behaviour.".into(),
+                        description: "OCG/OCProperties detected; may influence viewer behaviour."
+                            .into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(entry.full_span, "OCG object")],
                         remediation: Some("Inspect optional content group settings.".into()),
                         meta: Default::default(),
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -1562,7 +1716,10 @@ impl Detector for DecoderRiskDetector {
         for entry in &ctx.graph.objects {
             if let PdfAtom::Stream(st) = &entry.atom {
                 let filters = stream_filters(&st.dict);
-                if filters.iter().any(|f| f == "/JBIG2Decode" || f == "/JPXDecode") {
+                if filters
+                    .iter()
+                    .any(|f| f == "/JBIG2Decode" || f == "/JPXDecode")
+                {
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -1574,10 +1731,10 @@ impl Detector for DecoderRiskDetector {
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(st.dict.span, "Stream dict")],
                         remediation: Some("Treat JBIG2/JPX decoding as high risk.".into()),
-                meta: Default::default(),
-                yara: None,
-        position: None,
-        positions: Vec::new(),
+                        meta: Default::default(),
+                        yara: None,
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -1639,8 +1796,8 @@ impl Detector for DecompressionRatioDetector {
                                 remediation: Some("Inspect stream for decompression bombs.".into()),
                                 meta,
                                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                                position: None,
+                                positions: Vec::new(),
                             });
                         }
                     }
@@ -1685,11 +1842,13 @@ impl Detector for HugeImageDetector {
                                 description: format!("Image dimensions {}x{}.", w, h),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                                 evidence: vec![span_to_evidence(st.dict.span, "Image dict")],
-                                remediation: Some("Inspect image payload for resource abuse.".into()),
-                meta: Default::default(),
-                yara: None,
-        position: None,
-        positions: Vec::new(),
+                                remediation: Some(
+                                    "Inspect image payload for resource abuse.".into(),
+                                ),
+                                meta: Default::default(),
+                                yara: None,
+                                position: None,
+                                positions: Vec::new(),
                             });
                         }
                     }
@@ -1706,6 +1865,42 @@ pub(crate) fn entry_dict<'a>(entry: &'a ObjEntry<'a>) -> Option<&'a PdfDict<'a>>
         PdfAtom::Stream(st) => Some(&st.dict),
         _ => None,
     }
+}
+
+fn entry_payload_bytes<'a>(bytes: &'a [u8], entry: &ObjEntry<'a>) -> Option<&'a [u8]> {
+    match &entry.atom {
+        PdfAtom::Stream(st) => span_bytes(bytes, st.data_span),
+        _ => span_bytes(bytes, entry.body_span),
+    }
+}
+
+fn span_bytes<'a>(bytes: &'a [u8], span: sis_pdf_pdf::span::Span) -> Option<&'a [u8]> {
+    let start = span.start as usize;
+    let end = span.end as usize;
+    if start >= end || end > bytes.len() {
+        return None;
+    }
+    Some(&bytes[start..end])
+}
+
+fn provenance_label(provenance: ObjProvenance) -> String {
+    match provenance {
+        ObjProvenance::Indirect => "indirect".to_string(),
+        ObjProvenance::ObjStm { obj, gen } => format!("objstm:{} {}", obj, gen),
+        ObjProvenance::CarvedStream { obj, gen } => format!("carved_stream:{} {}", obj, gen),
+    }
+}
+
+fn hash_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    hex::encode(hasher.finalize())
+}
+
+fn join_list_sorted(values: &HashSet<String>) -> String {
+    let mut list: Vec<String> = values.iter().cloned().collect();
+    list.sort();
+    list.join(",")
 }
 
 fn action_by_s(
@@ -1733,14 +1928,17 @@ fn action_by_s(
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
                     title: title.into(),
-                    description: format!("Action dictionary with /S {}.", String::from_utf8_lossy(action)),
+                    description: format!(
+                        "Action dictionary with /S {}.",
+                        String::from_utf8_lossy(action)
+                    ),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                     evidence,
                     remediation: Some("Review the action target.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }
@@ -1823,7 +2021,10 @@ fn resolve_payload_recursive(
     if depth > MAX_RESOLVE_DEPTH {
         return PayloadResult {
             payload: None,
-            error: Some(format!("max resolution depth {} exceeded", MAX_RESOLVE_DEPTH)),
+            error: Some(format!(
+                "max resolution depth {} exceeded",
+                MAX_RESOLVE_DEPTH
+            )),
         };
     }
 
@@ -1918,13 +2119,8 @@ fn resolve_payload_recursive(
             let mut first_origin = None;
 
             for (idx, elem) in arr.iter().enumerate() {
-                let result = resolve_payload_recursive(
-                    ctx,
-                    elem,
-                    depth + 1,
-                    visited,
-                    ref_chain.clone(),
-                );
+                let result =
+                    resolve_payload_recursive(ctx, elem, depth + 1, visited, ref_chain.clone());
 
                 match result.payload {
                     Some(p) => {
@@ -2015,18 +2211,27 @@ pub(crate) fn resolve_action_details(
             evidence.push(span_to_evidence(k.span, "Action key /S"));
             evidence.push(span_to_evidence(v.span, "Action value"));
             if let PdfAtom::Name(n) = &v.atom {
-                meta.insert("action.s".into(), String::from_utf8_lossy(&n.decoded).to_string());
+                meta.insert(
+                    "action.s".into(),
+                    String::from_utf8_lossy(&n.decoded).to_string(),
+                );
             }
         }
         if let Some((k, v)) = d.get_first(b"/URI") {
             evidence.push(span_to_evidence(k.span, "Action key /URI"));
             evidence.push(span_to_evidence(v.span, "Action URI value"));
-            meta.insert("action.target".into(), preview_ascii(&payload_string(v), 120));
+            meta.insert(
+                "action.target".into(),
+                preview_ascii(&payload_string(v), 120),
+            );
         }
         if let Some((k, v)) = d.get_first(b"/F") {
             evidence.push(span_to_evidence(k.span, "Action key /F"));
             evidence.push(span_to_evidence(v.span, "Action file/target"));
-            meta.insert("action.target".into(), preview_ascii(&payload_string(v), 120));
+            meta.insert(
+                "action.target".into(),
+                preview_ascii(&payload_string(v), 120),
+            );
         }
         if let Some(s) = meta.get("action.s") {
             let impact = match s.as_str() {
@@ -2064,7 +2269,10 @@ fn payload_from_dict(
                 span_to_evidence(v.span, note),
             ];
             let mut meta = std::collections::HashMap::new();
-            meta.insert("payload.key".into(), String::from_utf8_lossy(key).to_string());
+            meta.insert(
+                "payload.key".into(),
+                String::from_utf8_lossy(key).to_string(),
+            );
             let res = resolve_payload(ctx, v);
             if let Some(err) = res.error {
                 meta.insert("payload.error".into(), err);
@@ -2082,7 +2290,11 @@ fn payload_from_dict(
                     preview_ascii(&payload.bytes, 120),
                 );
                 if let Some(origin) = payload.origin {
-                    evidence.push(decoded_evidence_span(origin, &payload.bytes, "Decoded payload"));
+                    evidence.push(decoded_evidence_span(
+                        origin,
+                        &payload.bytes,
+                        "Decoded payload",
+                    ));
                 }
             }
             return Some(PayloadEnrichment { evidence, meta });
@@ -2115,7 +2327,11 @@ fn payload_from_obj(
             preview_ascii(&payload.bytes, 120),
         );
         if let Some(origin) = payload.origin {
-            evidence.push(decoded_evidence_span(origin, &payload.bytes, "Decoded payload"));
+            evidence.push(decoded_evidence_span(
+                origin,
+                &payload.bytes,
+                "Decoded payload",
+            ));
         }
     }
     Some(PayloadEnrichment { evidence, meta })
@@ -2224,7 +2440,12 @@ fn magic_type(data: &[u8]) -> String {
     }
 }
 
-fn keyword_evidence(bytes: &[u8], keyword: &[u8], note: &str, limit: usize) -> Vec<sis_pdf_core::model::EvidenceSpan> {
+fn keyword_evidence(
+    bytes: &[u8],
+    keyword: &[u8],
+    note: &str,
+    limit: usize,
+) -> Vec<sis_pdf_core::model::EvidenceSpan> {
     let mut out = Vec::new();
     let mut i = 0usize;
     while i + keyword.len() <= bytes.len() {

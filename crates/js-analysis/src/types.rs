@@ -36,8 +36,14 @@ pub struct ExecutionStats {
 #[derive(Debug, Clone)]
 pub enum DynamicOutcome {
     Executed(DynamicSignals),
-    TimedOut { timeout_ms: u128 },
-    Skipped { reason: String, limit: usize, actual: usize },
+    TimedOut {
+        timeout_ms: u128,
+    },
+    Skipped {
+        reason: String,
+        limit: usize,
+        actual: usize,
+    },
 }
 
 #[derive(Debug, Clone)]

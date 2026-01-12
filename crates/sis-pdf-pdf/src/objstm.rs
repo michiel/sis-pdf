@@ -191,6 +191,10 @@ pub fn expand_objstm<'a>(
                 header_span: span,
                 body_span: span,
                 full_span: span,
+                provenance: crate::graph::ObjProvenance::ObjStm {
+                    obj: entry.obj,
+                    gen: entry.gen,
+                },
             });
             let _ = obj_end;
         }

@@ -40,15 +40,12 @@ pub fn build_page_tree(graph: &ObjectGraph<'_>) -> PageTree {
         .and_then(|d| d.get_first(b"/Pages"))
         .map(|(_, v)| v.clone());
     if let Some(pages_obj) = pages_ref {
-        walk_pages(
-            graph,
-            &pages_obj,
-            None,
-            &mut pages,
-            &mut annot_parent,
-        );
+        walk_pages(graph, &pages_obj, None, &mut pages, &mut annot_parent);
     }
-    PageTree { pages, annot_parent }
+    PageTree {
+        pages,
+        annot_parent,
+    }
 }
 
 pub fn build_annotation_parent_map(graph: &ObjectGraph<'_>) -> HashMap<ObjRef, PageRefInfo> {

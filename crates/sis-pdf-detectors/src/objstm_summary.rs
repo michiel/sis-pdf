@@ -31,8 +31,12 @@ impl Detector for ObjStmSummaryDetector {
             if !st.dict.has_name(b"/Type", b"/ObjStm") {
                 continue;
             }
-            let Some(n) = dict_int(&st.dict, b"/N") else { continue };
-            let Some(first) = dict_int(&st.dict, b"/First") else { continue };
+            let Some(n) = dict_int(&st.dict, b"/N") else {
+                continue;
+            };
+            let Some(first) = dict_int(&st.dict, b"/First") else {
+                continue;
+            };
             let mut meta = std::collections::HashMap::new();
             meta.insert("objstm.n".into(), n.to_string());
             meta.insert("objstm.first".into(), first.to_string());
@@ -77,8 +81,9 @@ impl Detector for ObjStmSummaryDetector {
             } else {
                 severity = Severity::Low;
                 confidence = Confidence::Heuristic;
-                description = "ObjStm stream could not be decoded; filters unsupported or budget exceeded."
-                    .into();
+                description =
+                    "ObjStm stream could not be decoded; filters unsupported or budget exceeded."
+                        .into();
                 meta.insert("objstm.decode_failed".into(), "true".into());
             }
 
@@ -95,8 +100,8 @@ impl Detector for ObjStmSummaryDetector {
                 remediation: Some("Inspect embedded objects in deep scans.".into()),
                 meta,
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
         }
         Ok(findings)

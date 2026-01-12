@@ -124,7 +124,10 @@ fn analyze_info_dict(
     }
 
     if !suspicious_keys.is_empty() {
-        meta.insert("info.suspicious_keys_count".into(), suspicious_keys.len().to_string());
+        meta.insert(
+            "info.suspicious_keys_count".into(),
+            suspicious_keys.len().to_string(),
+        );
         meta.insert("info.suspicious_keys".into(), suspicious_keys.join("; "));
 
         findings.push(Finding {
@@ -149,10 +152,7 @@ fn analyze_info_dict(
     }
 }
 
-fn analyze_xmp_metadata(
-    ctx: &sis_pdf_core::scan::ScanContext,
-    findings: &mut Vec<Finding>,
-) {
+fn analyze_xmp_metadata(ctx: &sis_pdf_core::scan::ScanContext, findings: &mut Vec<Finding>) {
     // Find Metadata stream in catalog
     let catalog = ctx
         .graph
@@ -201,7 +201,7 @@ fn analyze_xmp_metadata(
 
 fn is_suspicious_producer(s: &str) -> bool {
     let suspicious_patterns = [
-        "microsoft word",  // Often faked in malware
+        "microsoft word", // Often faked in malware
         "windows",
         "user",
         "admin",
@@ -209,7 +209,7 @@ fn is_suspicious_producer(s: &str) -> bool {
         "unknown",
         "null",
         "script",
-        "pdf.js",  // Browser-based generation (uncommon in enterprise)
+        "pdf.js", // Browser-based generation (uncommon in enterprise)
     ];
 
     let lower = s.to_lowercase();

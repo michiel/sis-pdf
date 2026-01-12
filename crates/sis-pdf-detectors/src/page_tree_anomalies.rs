@@ -71,16 +71,18 @@ impl Detector for PageTreeManipulationDetector {
                         surface: self.surface(),
                         kind: "page_tree_mismatch".into(),
                         severity,
-                        confidence: Confidence::Strong,  // Upgraded: count mismatch is definitive check
+                        confidence: Confidence::Strong, // Upgraded: count mismatch is definitive check
                         title: "Page tree count mismatch".into(),
                         description,
                         objects: vec!["page_tree".into()],
                         evidence: vec![],
-                        remediation: Some("Inspect page tree structure for missing or hidden pages.".into()),
+                        remediation: Some(
+                            "Inspect page tree structure for missing or hidden pages.".into(),
+                        ),
                         meta,
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -88,7 +90,10 @@ impl Detector for PageTreeManipulationDetector {
             let tree_pages: HashSet<ObjRef> = page_tree
                 .pages
                 .iter()
-                .map(|p| ObjRef { obj: p.obj, gen: p.gen })
+                .map(|p| ObjRef {
+                    obj: p.obj,
+                    gen: p.gen,
+                })
                 .collect();
             let all_pages: HashSet<ObjRef> = ctx
                 .graph
@@ -97,16 +102,16 @@ impl Detector for PageTreeManipulationDetector {
                 .filter_map(|e| {
                     let dict = entry_dict(e)?;
                     if dict.has_name(b"/Type", b"/Page") {
-                        Some(ObjRef { obj: e.obj, gen: e.gen })
+                        Some(ObjRef {
+                            obj: e.obj,
+                            gen: e.gen,
+                        })
                     } else {
                         None
                     }
                 })
                 .collect();
-            let orphaned_pages: Vec<ObjRef> = all_pages
-                .difference(&tree_pages)
-                .copied()
-                .collect();
+            let orphaned_pages: Vec<ObjRef> = all_pages.difference(&tree_pages).copied().collect();
             if !orphaned_pages.is_empty() {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert(
@@ -123,7 +128,7 @@ impl Detector for PageTreeManipulationDetector {
                     surface: self.surface(),
                     kind: "page_tree_mismatch".into(),
                     severity: Severity::Low,
-                    confidence: Confidence::Strong,  // Upgraded: orphaned pages are definitively unreachable
+                    confidence: Confidence::Strong, // Upgraded: orphaned pages are definitively unreachable
                     title: "Orphaned page objects".into(),
                     description: "Some /Page objects are not reachable from the page tree.".into(),
                     objects,
@@ -131,8 +136,8 @@ impl Detector for PageTreeManipulationDetector {
                     remediation: Some("Inspect page tree references and catalog root.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }
@@ -189,7 +194,9 @@ fn detect_cycles(
     stack: &mut Vec<ObjRef>,
     findings: &mut Vec<Finding>,
 ) {
-    let Some(dict) = resolve_dict(&ctx.graph, obj) else { return };
+    let Some(dict) = resolve_dict(&ctx.graph, obj) else {
+        return;
+    };
     if !dict.has_name(b"/Type", b"/Pages") {
         return;
     }
@@ -201,7 +208,7 @@ fn detect_cycles(
                 surface: AttackSurface::FileStructure,
                 kind: "page_tree_cycle".into(),
                 severity: Severity::Medium,
-                confidence: Confidence::Strong,  // Upgraded: cycle detection is definitive
+                confidence: Confidence::Strong, // Upgraded: cycle detection is definitive
                 title: "Page tree cycle detected".into(),
                 description: "Page tree contains a cycle, which can confuse traversal.".into(),
                 objects: vec![format!("{} {} obj", node_ref.obj, node_ref.gen)],
@@ -209,8 +216,8 @@ fn detect_cycles(
                 remediation: Some("Inspect /Kids references for cycles.".into()),
                 meta: Default::default(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             });
             return;
         }
@@ -234,8 +241,14 @@ fn detect_cycles(
     }
 }
 
-fn count_pages(ctx: &sis_pdf_core::scan::ScanContext, obj: &PdfObj<'_>, seen: &mut HashSet<ObjRef>) -> usize {
-    let Some(dict) = resolve_dict(&ctx.graph, obj) else { return 0 };
+fn count_pages(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    obj: &PdfObj<'_>,
+    seen: &mut HashSet<ObjRef>,
+) -> usize {
+    let Some(dict) = resolve_dict(&ctx.graph, obj) else {
+        return 0;
+    };
     if dict.has_name(b"/Type", b"/Page") {
         return 1;
     }
@@ -265,7 +278,10 @@ fn declared_page_count(ctx: &sis_pdf_core::scan::ScanContext, obj: &PdfObj<'_>) 
     }
 }
 
-fn resolve_dict<'a>(graph: &'a sis_pdf_pdf::ObjectGraph<'a>, obj: &PdfObj<'a>) -> Option<PdfDict<'a>> {
+fn resolve_dict<'a>(
+    graph: &'a sis_pdf_pdf::ObjectGraph<'a>,
+    obj: &PdfObj<'a>,
+) -> Option<PdfDict<'a>> {
     match &obj.atom {
         PdfAtom::Dict(d) => Some(d.clone()),
         PdfAtom::Stream(st) => Some(st.dict.clone()),
@@ -287,7 +303,10 @@ fn object_ref(graph: &sis_pdf_pdf::ObjectGraph<'_>, obj: &PdfObj<'_>) -> Option<
                 .objects
                 .iter()
                 .find(|e| e.body_span.start == span_start)
-                .map(|e| ObjRef { obj: e.obj, gen: e.gen })
+                .map(|e| ObjRef {
+                    obj: e.obj,
+                    gen: e.gen,
+                })
         }
         _ => None,
     }

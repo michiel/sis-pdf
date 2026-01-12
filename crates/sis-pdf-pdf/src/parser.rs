@@ -1,9 +1,9 @@
 use anyhow::{anyhow, Result};
 
+use crate::graph::{Deviation, ObjEntry};
 use crate::lexer::{is_delim, is_whitespace, Cursor};
 use crate::object::{PdfAtom, PdfDict, PdfName, PdfObj, PdfStr, PdfStream};
 use crate::span::Span;
-use crate::graph::{Deviation, ObjEntry};
 use tracing::{trace, warn};
 
 pub struct Parser<'a> {
@@ -113,9 +113,7 @@ impl<'a> Parser<'a> {
                     return Err(anyhow!("unexpected token"));
                 }
             }
-            b'+' | b'-' | b'.' | b'0'..=b'9' => {
-                self.parse_number_or_ref()?
-            }
+            b'+' | b'-' | b'.' | b'0'..=b'9' => self.parse_number_or_ref()?,
             _ => {
                 self.record_deviation(
                     "unexpected_token",
@@ -143,11 +141,7 @@ impl<'a> Parser<'a> {
         let num1 = match parse_number(&num1_str) {
             Ok(v) => v,
             Err(e) => {
-                self.record_deviation(
-                    "invalid_number",
-                    num1_span,
-                    Some(num1_str.clone()),
-                );
+                self.record_deviation("invalid_number", num1_span, Some(num1_str.clone()));
                 return Err(e);
             }
         };
@@ -158,8 +152,7 @@ impl<'a> Parser<'a> {
         if let Ok((num2_span, num2_str)) = self.read_number_token() {
             self.cur.skip_ws_and_comments();
             if self.cur.consume_keyword(b"R") {
-                if let (Some(obj), Some(gen)) = (num1.as_i64(), parse_number(&num2_str)?.as_i64())
-                {
+                if let (Some(obj), Some(gen)) = (num1.as_i64(), parse_number(&num2_str)?.as_i64()) {
                     if obj >= 0 && gen >= 0 {
                         return Ok(PdfAtom::Ref {
                             obj: obj as u32,
@@ -169,11 +162,7 @@ impl<'a> Parser<'a> {
                 }
             }
             if self.strict && parse_number(&num2_str).is_err() {
-                self.record_deviation(
-                    "invalid_number",
-                    num2_span,
-                    Some(num2_str.clone()),
-                );
+                self.record_deviation("invalid_number", num2_span, Some(num2_str.clone()));
             }
         }
         self.cur.restore(second_mark);
@@ -388,9 +377,7 @@ impl<'a> Parser<'a> {
                                         }
                                     }
                                 }
-                                let val = oct
-                                    .iter()
-                                    .fold(0u8, |acc, d| acc * 8 + (d - b'0'));
+                                let val = oct.iter().fold(0u8, |acc, d| acc * 8 + (d - b'0'));
                                 out.push(val);
                             }
                             other => {
@@ -727,63 +714,64 @@ pub fn parse_indirect_object_at<'a>(
 ) -> (Result<(ObjEntry<'a>, usize)>, Vec<Deviation>) {
     let mut p = Parser::new(bytes, offset, strict);
     let res = (|| -> Result<(ObjEntry<'a>, usize)> {
-    p.cur.skip_ws_and_comments();
-    let header_start = p.cur.pos;
-    let (_, obj_str) = p.read_number_token()?;
-    p.cur.skip_ws_and_comments();
-    let (_, gen_str) = p.read_number_token()?;
-    p.cur.skip_ws_and_comments();
-    if !p.cur.consume_keyword(b"obj") {
-        p.record_deviation(
-            "missing_obj_keyword",
-            Span {
-                start: header_start as u64,
-                end: p.cur.pos as u64,
-            },
-            None,
-        );
-        return Err(anyhow!("missing obj keyword"));
-    }
-    let header_end = p.cur.pos;
-    let obj_num = obj_str.parse::<u32>()?;
-    let gen_num = gen_str.parse::<u16>()?;
-    p.cur.skip_ws_and_comments();
-    let body_start = p.cur.pos;
-    let obj = p.parse_object()?;
-    let body_end = p.cur.pos;
-    p.cur.skip_ws_and_comments();
-    if !p.cur.consume_keyword(b"endobj") {
-        p.record_deviation(
-            "missing_endobj",
-            Span {
-                start: p.cur.pos as u64,
-                end: p.cur.pos as u64,
-            },
-            None,
-        );
-        if let Some(pos) = memchr::memmem::find(&bytes[p.cur.pos..], b"endobj") {
-            p.cur.pos += pos + "endobj".len();
+        p.cur.skip_ws_and_comments();
+        let header_start = p.cur.pos;
+        let (_, obj_str) = p.read_number_token()?;
+        p.cur.skip_ws_and_comments();
+        let (_, gen_str) = p.read_number_token()?;
+        p.cur.skip_ws_and_comments();
+        if !p.cur.consume_keyword(b"obj") {
+            p.record_deviation(
+                "missing_obj_keyword",
+                Span {
+                    start: header_start as u64,
+                    end: p.cur.pos as u64,
+                },
+                None,
+            );
+            return Err(anyhow!("missing obj keyword"));
         }
-    }
-    let full_end = p.cur.pos;
-    let entry = ObjEntry {
-        obj: obj_num,
-        gen: gen_num,
-        atom: obj.atom,
-        header_span: Span {
-            start: header_start as u64,
-            end: header_end as u64,
-        },
-        body_span: Span {
-            start: body_start as u64,
-            end: body_end as u64,
-        },
-        full_span: Span {
-            start: header_start as u64,
-            end: full_end as u64,
-        },
-    };
-    Ok((entry, full_end))
+        let header_end = p.cur.pos;
+        let obj_num = obj_str.parse::<u32>()?;
+        let gen_num = gen_str.parse::<u16>()?;
+        p.cur.skip_ws_and_comments();
+        let body_start = p.cur.pos;
+        let obj = p.parse_object()?;
+        let body_end = p.cur.pos;
+        p.cur.skip_ws_and_comments();
+        if !p.cur.consume_keyword(b"endobj") {
+            p.record_deviation(
+                "missing_endobj",
+                Span {
+                    start: p.cur.pos as u64,
+                    end: p.cur.pos as u64,
+                },
+                None,
+            );
+            if let Some(pos) = memchr::memmem::find(&bytes[p.cur.pos..], b"endobj") {
+                p.cur.pos += pos + "endobj".len();
+            }
+        }
+        let full_end = p.cur.pos;
+        let entry = ObjEntry {
+            obj: obj_num,
+            gen: gen_num,
+            atom: obj.atom,
+            header_span: Span {
+                start: header_start as u64,
+                end: header_end as u64,
+            },
+            body_span: Span {
+                start: body_start as u64,
+                end: body_end as u64,
+            },
+            full_span: Span {
+                start: header_start as u64,
+                end: full_end as u64,
+            },
+            provenance: crate::graph::ObjProvenance::Indirect,
+        };
+        Ok((entry, full_end))
     })();
     let devs = p.take_deviations();
     (res, devs)

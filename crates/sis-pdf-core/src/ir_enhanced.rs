@@ -6,7 +6,7 @@
 //! - Risk scores computed from findings
 //! - Natural language explanations for objects and documents
 
-use crate::model::{Finding, Severity, Confidence};
+use crate::model::{Confidence, Finding, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -187,10 +187,7 @@ impl DocumentSummary {
     pub fn from_objects(objects: &[EnhancedPdfIrObject]) -> Self {
         let total_objects = objects.len();
         let objects_with_findings = objects.iter().filter(|o| !o.findings.is_empty()).count();
-        let max_object_risk = objects
-            .iter()
-            .map(|o| o.risk_score)
-            .fold(0.0f32, f32::max);
+        let max_object_risk = objects.iter().map(|o| o.risk_score).fold(0.0f32, f32::max);
 
         // Count distinct attack surfaces
         let all_surfaces: HashSet<_> = objects
@@ -293,12 +290,24 @@ fn generate_object_explanation(findings: &[&Finding]) -> String {
         return String::new();
     }
 
-    let critical_count = findings.iter().filter(|f| f.severity == Severity::Critical).count();
-    let high_count = findings.iter().filter(|f| f.severity == Severity::High).count();
-    let medium_count = findings.iter().filter(|f| f.severity == Severity::Medium).count();
+    let critical_count = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Critical)
+        .count();
+    let high_count = findings
+        .iter()
+        .filter(|f| f.severity == Severity::High)
+        .count();
+    let medium_count = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Medium)
+        .count();
 
     // Collect unique surfaces
-    let surfaces: HashSet<_> = findings.iter().map(|f| format!("{:?}", f.surface)).collect();
+    let surfaces: HashSet<_> = findings
+        .iter()
+        .map(|f| format!("{:?}", f.surface))
+        .collect();
     let surface_list = if surfaces.len() <= 3 {
         surfaces.into_iter().collect::<Vec<_>>().join(", ")
     } else {
@@ -309,13 +318,25 @@ fn generate_object_explanation(findings: &[&Finding]) -> String {
     let mut parts = vec![];
 
     if critical_count > 0 {
-        parts.push(format!("{} critical issue{}", critical_count, if critical_count > 1 { "s" } else { "" }));
+        parts.push(format!(
+            "{} critical issue{}",
+            critical_count,
+            if critical_count > 1 { "s" } else { "" }
+        ));
     }
     if high_count > 0 {
-        parts.push(format!("{} high severity issue{}", high_count, if high_count > 1 { "s" } else { "" }));
+        parts.push(format!(
+            "{} high severity issue{}",
+            high_count,
+            if high_count > 1 { "s" } else { "" }
+        ));
     }
     if medium_count > 0 && critical_count == 0 && high_count == 0 {
-        parts.push(format!("{} medium severity issue{}", medium_count, if medium_count > 1 { "s" } else { "" }));
+        parts.push(format!(
+            "{} medium severity issue{}",
+            medium_count,
+            if medium_count > 1 { "s" } else { "" }
+        ));
     }
 
     let severity_desc = if parts.is_empty() {
@@ -324,7 +345,10 @@ fn generate_object_explanation(findings: &[&Finding]) -> String {
         parts.join(", ")
     };
 
-    format!("Object contains {}. Attack surfaces: {}", severity_desc, surface_list)
+    format!(
+        "Object contains {}. Attack surfaces: {}",
+        severity_desc, surface_list
+    )
 }
 
 /// Generate natural language explanation for the entire document
@@ -429,16 +453,23 @@ mod tests {
     #[test]
     fn test_enhanced_ir_object_creation() {
         let findings = vec![
-            create_test_finding("js_eval", Severity::High, Confidence::Strong, AttackSurface::JavaScript, 1),
-            create_test_finding("xref_conflict", Severity::Medium, Confidence::Probable, AttackSurface::FileStructure, 1),
+            create_test_finding(
+                "js_eval",
+                Severity::High,
+                Confidence::Strong,
+                AttackSurface::JavaScript,
+                1,
+            ),
+            create_test_finding(
+                "xref_conflict",
+                Severity::Medium,
+                Confidence::Probable,
+                AttackSurface::FileStructure,
+                1,
+            ),
         ];
 
-        let enhanced = EnhancedPdfIrObject::from_basic_ir(
-            (1, 0),
-            vec![],
-            vec![],
-            &findings,
-        );
+        let enhanced = EnhancedPdfIrObject::from_basic_ir((1, 0), vec![], vec![], &findings);
 
         assert_eq!(enhanced.obj_ref, (1, 0));
         assert_eq!(enhanced.findings.len(), 2);
@@ -456,15 +487,33 @@ mod tests {
 
     #[test]
     fn test_object_risk_score_critical() {
-        let finding = create_test_finding("test", Severity::Critical, Confidence::Strong, AttackSurface::JavaScript, 1);
+        let finding = create_test_finding(
+            "test",
+            Severity::Critical,
+            Confidence::Strong,
+            AttackSurface::JavaScript,
+            1,
+        );
         let score = compute_object_risk_score(&[&finding]);
         assert!(score > 0.9); // Critical + Strong should be near 1.0
     }
 
     #[test]
     fn test_object_risk_score_weighted() {
-        let f1 = create_test_finding("test1", Severity::High, Confidence::Strong, AttackSurface::JavaScript, 1);
-        let f2 = create_test_finding("test2", Severity::Low, Confidence::Heuristic, AttackSurface::FileStructure, 1);
+        let f1 = create_test_finding(
+            "test1",
+            Severity::High,
+            Confidence::Strong,
+            AttackSurface::JavaScript,
+            1,
+        );
+        let f2 = create_test_finding(
+            "test2",
+            Severity::Low,
+            Confidence::Heuristic,
+            AttackSurface::FileStructure,
+            1,
+        );
         let score = compute_object_risk_score(&[&f1, &f2]);
 
         // severity_weight = 0.8 + 0.2 = 1.0
@@ -476,8 +525,20 @@ mod tests {
     #[test]
     fn test_object_explanation_generation() {
         let findings = vec![
-            create_test_finding("js_eval", Severity::Critical, Confidence::Strong, AttackSurface::JavaScript, 1),
-            create_test_finding("aa_launch", Severity::High, Confidence::Strong, AttackSurface::Actions, 1),
+            create_test_finding(
+                "js_eval",
+                Severity::Critical,
+                Confidence::Strong,
+                AttackSurface::JavaScript,
+                1,
+            ),
+            create_test_finding(
+                "aa_launch",
+                Severity::High,
+                Confidence::Strong,
+                AttackSurface::Actions,
+                1,
+            ),
         ];
         let refs: Vec<_> = findings.iter().collect();
 
@@ -501,9 +562,13 @@ mod tests {
 
     #[test]
     fn test_document_summary_with_findings() {
-        let findings = vec![
-            create_test_finding("js_eval", Severity::Critical, Confidence::Strong, AttackSurface::JavaScript, 1),
-        ];
+        let findings = vec![create_test_finding(
+            "js_eval",
+            Severity::Critical,
+            Confidence::Strong,
+            AttackSurface::JavaScript,
+            1,
+        )];
 
         let obj1 = EnhancedPdfIrObject::from_basic_ir((1, 0), vec![], vec![], &findings);
         let obj2 = EnhancedPdfIrObject::from_basic_ir((2, 0), vec![], vec![], &[]);
@@ -514,7 +579,10 @@ mod tests {
         assert_eq!(summary.objects_with_findings, 1);
         assert!(summary.max_object_risk > 0.0);
         assert_eq!(summary.severity_counts.get("Critical"), Some(&1));
-        assert!(summary.explanation.contains("very high risk") || summary.explanation.contains("high risk"));
+        assert!(
+            summary.explanation.contains("very high risk")
+                || summary.explanation.contains("high risk")
+        );
     }
 
     #[test]
@@ -534,9 +602,13 @@ mod tests {
 
     #[test]
     fn test_enhanced_ir_export_creation() {
-        let findings = vec![
-            create_test_finding("js_eval", Severity::High, Confidence::Strong, AttackSurface::JavaScript, 1),
-        ];
+        let findings = vec![create_test_finding(
+            "js_eval",
+            Severity::High,
+            Confidence::Strong,
+            AttackSurface::JavaScript,
+            1,
+        )];
 
         let obj1 = EnhancedPdfIrObject::from_basic_ir((1, 0), vec![], vec![], &findings);
         let export = EnhancedIrExport::new(vec![obj1]);

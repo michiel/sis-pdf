@@ -30,7 +30,10 @@ pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysis
             Ok(()) => {}
             Err(DynamicError::Timeout) => {
                 let mut meta = HashMap::new();
-                meta.insert("font.dynamic_timeout_ms".into(), config.dynamic_timeout_ms.to_string());
+                meta.insert(
+                    "font.dynamic_timeout_ms".into(),
+                    config.dynamic_timeout_ms.to_string(),
+                );
                 findings.push(FontFinding {
                     kind: "font.dynamic_timeout".into(),
                     severity: Severity::Medium,

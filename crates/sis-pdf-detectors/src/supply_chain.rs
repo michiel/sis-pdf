@@ -70,12 +70,20 @@ impl Detector for SupplyChainDetector {
 
         // Analyze each JavaScript object
         for (obj, gen) in js_objects {
-            let Some(entry) = ctx.graph.get_object(obj, gen) else { continue };
-            let Some(dict) = entry_dict(entry) else { continue };
-            let Some((_, js_obj)) = dict.get_first(b"/JS") else { continue };
+            let Some(entry) = ctx.graph.get_object(obj, gen) else {
+                continue;
+            };
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            let Some((_, js_obj)) = dict.get_first(b"/JS") else {
+                continue;
+            };
 
             let payload = resolve_payload(ctx, js_obj);
-            let Some(info) = payload.payload else { continue };
+            let Some(info) = payload.payload else {
+                continue;
+            };
 
             // Collect action targets reachable from this JS object
             let mut local_action_targets = Vec::new();
@@ -98,10 +106,16 @@ impl Detector for SupplyChainDetector {
                     meta.insert("supply_chain.embedded_present".into(), "true".into());
                 }
                 if !embedded_names.is_empty() {
-                    meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
+                    meta.insert(
+                        "supply_chain.embedded_names".into(),
+                        embedded_names.join(","),
+                    );
                 }
                 if !local_action_targets.is_empty() {
-                    meta.insert("supply_chain.action_targets".into(), local_action_targets.join(","));
+                    meta.insert(
+                        "supply_chain.action_targets".into(),
+                        local_action_targets.join(","),
+                    );
                 }
                 findings.push(Finding {
                     id: String::new(),
@@ -110,14 +124,15 @@ impl Detector for SupplyChainDetector {
                     severity: Severity::High,
                     confidence: Confidence::Probable,
                     title: "Staged payload delivery".into(),
-                    description: "JavaScript indicates download or staged payload execution.".into(),
+                    description: "JavaScript indicates download or staged payload execution."
+                        .into(),
                     objects: vec![format!("{} {} obj", obj, gen)],
                     evidence: vec![span_to_evidence(entry.full_span, "JavaScript dict")],
                     remediation: Some("Inspect outbound URLs and staged payloads.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
 
@@ -131,10 +146,16 @@ impl Detector for SupplyChainDetector {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("supply_chain.update_indicators".into(), indicators);
                 if !embedded_names.is_empty() {
-                    meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
+                    meta.insert(
+                        "supply_chain.embedded_names".into(),
+                        embedded_names.join(","),
+                    );
                 }
                 if !local_action_targets.is_empty() {
-                    meta.insert("supply_chain.action_targets".into(), local_action_targets.join(","));
+                    meta.insert(
+                        "supply_chain.action_targets".into(),
+                        local_action_targets.join(","),
+                    );
                 }
                 findings.push(Finding {
                     id: String::new(),
@@ -149,8 +170,8 @@ impl Detector for SupplyChainDetector {
                     remediation: Some("Verify update channels and signing policies.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
 
@@ -164,10 +185,16 @@ impl Detector for SupplyChainDetector {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("supply_chain.persistence_indicators".into(), indicators);
                 if !embedded_names.is_empty() {
-                    meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
+                    meta.insert(
+                        "supply_chain.embedded_names".into(),
+                        embedded_names.join(","),
+                    );
                 }
                 if !local_action_targets.is_empty() {
-                    meta.insert("supply_chain.action_targets".into(), local_action_targets.join(","));
+                    meta.insert(
+                        "supply_chain.action_targets".into(),
+                        local_action_targets.join(","),
+                    );
                 }
                 findings.push(Finding {
                     id: String::new(),
@@ -182,8 +209,8 @@ impl Detector for SupplyChainDetector {
                     remediation: Some("Review persistence-related APIs and triggers.".into()),
                     meta,
                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                    position: None,
+                    positions: Vec::new(),
                 });
             }
         }
@@ -192,12 +219,12 @@ impl Detector for SupplyChainDetector {
         if findings.is_empty() && !action_targets_global.is_empty() {
             let targets_vec: Vec<String> = action_targets_global.into_iter().collect();
             let mut meta = std::collections::HashMap::new();
-            meta.insert(
-                "supply_chain.action_targets".into(),
-                targets_vec.join(","),
-            );
+            meta.insert("supply_chain.action_targets".into(), targets_vec.join(","));
             if !embedded_names.is_empty() {
-                meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
+                meta.insert(
+                    "supply_chain.embedded_names".into(),
+                    embedded_names.join(","),
+                );
             }
             findings.push(Finding {
                 id: String::new(),

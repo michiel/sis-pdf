@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
-use serde::Deserialize;
 use prost::Message;
+use serde::Deserialize;
 use tract_onnx::pb;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -159,7 +159,10 @@ impl GraphModelConfig {
             ));
         }
         if self.embedding.backend != "onnx" {
-            return Err(anyhow!("unsupported embedding backend {}", self.embedding.backend));
+            return Err(anyhow!(
+                "unsupported embedding backend {}",
+                self.embedding.backend
+            ));
         }
         if self.graph.backend != "onnx" {
             return Err(anyhow!("unsupported graph backend {}", self.graph.backend));
@@ -185,7 +188,8 @@ fn resolve_model_path(base_dir: &Path, relative: &str) -> Result<PathBuf> {
         return Err(anyhow!("invalid model path: {}", relative));
     }
     let path = base_dir.join(relative);
-    let canonical = path.canonicalize()
+    let canonical = path
+        .canonicalize()
         .map_err(|e| anyhow!("cannot resolve model path {}: {}", relative, e))?;
     let canonical_base = base_dir
         .canonicalize()
@@ -222,23 +226,29 @@ pub fn inference_timeout_ms(cfg: &GraphModelConfig) -> u64 {
 }
 
 pub fn embedding_input_names(cfg: &GraphModelConfig) -> EmbeddingInputNames {
-    cfg.embedding.input_names.clone().unwrap_or_else(|| EmbeddingInputNames {
-        input_ids: Some("input_ids".into()),
-        attention_mask: Some("attention_mask".into()),
-        token_type_ids: Some("token_type_ids".into()),
-    })
+    cfg.embedding
+        .input_names
+        .clone()
+        .unwrap_or_else(|| EmbeddingInputNames {
+            input_ids: Some("input_ids".into()),
+            attention_mask: Some("attention_mask".into()),
+            token_type_ids: Some("token_type_ids".into()),
+        })
 }
 
 pub fn graph_input_names(cfg: &GraphModelConfig) -> GraphInputNames {
-    cfg.graph.input_names.clone().unwrap_or_else(|| GraphInputNames {
-        node_features: Some("node_features".into()),
-        edge_index: Some("edge_index".into()),
-    })
+    cfg.graph
+        .input_names
+        .clone()
+        .unwrap_or_else(|| GraphInputNames {
+            node_features: Some("node_features".into()),
+            edge_index: Some("edge_index".into()),
+        })
 }
 
 pub fn validate_onnx_safety(path: &Path) -> Result<()> {
-    let bytes = std::fs::read(path)
-        .map_err(|e| anyhow!("failed to read {}: {}", path.display(), e))?;
+    let bytes =
+        std::fs::read(path).map_err(|e| anyhow!("failed to read {}: {}", path.display(), e))?;
     let model = pb::ModelProto::decode(bytes.as_slice())
         .map_err(|e| anyhow!("invalid ONNX model {}: {}", path.display(), e))?;
     for opset in &model.opset_import {

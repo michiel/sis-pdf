@@ -63,10 +63,7 @@ pub fn summarize_ir_graph(ir: &IrGraphArtifacts) -> IrGraphSummary {
             {
                 has_action = true;
             }
-            if line.value_type == "stream"
-                || line.value_type == "str"
-                || line.value_type == "ref"
-            {
+            if line.value_type == "stream" || line.value_type == "str" || line.value_type == "ref" {
                 has_payload = true;
             }
             if line.value_type == "name"
@@ -86,12 +83,7 @@ pub fn summarize_ir_graph(ir: &IrGraphArtifacts) -> IrGraphSummary {
             payload_object_count += 1;
         }
     }
-    let edge_count = ir
-        .org
-        .adjacency
-        .values()
-        .map(|v| v.len())
-        .sum::<usize>();
+    let edge_count = ir.org.adjacency.values().map(|v| v.len()).sum::<usize>();
     IrGraphSummary {
         object_count: ir.ir_objects.len(),
         line_count,

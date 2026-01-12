@@ -6,19 +6,19 @@
 // - Evidence chain linking (features → findings → byte offsets)
 // - Comparative analysis against benign baselines
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use crate::model::{Finding, Severity, AttackSurface, EvidenceSpan};
 use crate::ml::LinearModel;
+use crate::model::{AttackSurface, EvidenceSpan, Finding, Severity};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Feature attribution showing how much a feature contributed to the prediction
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureAttribution {
     pub feature_name: String,
     pub value: f32,
-    pub contribution: f32,      // How much this feature contributed to the prediction
-    pub baseline: f32,          // Expected value for benign files
-    pub percentile: f32,        // Percentile in benign distribution (0-100)
+    pub contribution: f32, // How much this feature contributed to the prediction
+    pub baseline: f32,     // Expected value for benign files
+    pub percentile: f32,   // Percentile in benign distribution (0-100)
 }
 
 /// Comprehensive ML explanation combining multiple explanation methods
@@ -26,10 +26,10 @@ pub struct FeatureAttribution {
 pub struct MlExplanation {
     pub prediction: f32,
     pub baseline_score: f32,
-    pub top_positive_features: Vec<FeatureAttribution>,  // Top 10 features increasing risk
-    pub top_negative_features: Vec<FeatureAttribution>,  // Top 10 features decreasing risk
-    pub feature_group_importance: HashMap<String, f32>,  // Importance per feature category
-    pub summary: String,                                 // Natural language explanation
+    pub top_positive_features: Vec<FeatureAttribution>, // Top 10 features increasing risk
+    pub top_negative_features: Vec<FeatureAttribution>, // Top 10 features decreasing risk
+    pub feature_group_importance: HashMap<String, f32>, // Importance per feature category
+    pub summary: String,                                // Natural language explanation
 }
 
 /// Benign baseline statistics for comparative analysis
@@ -37,7 +37,7 @@ pub struct MlExplanation {
 pub struct BenignBaseline {
     pub feature_means: HashMap<String, f32>,
     pub feature_stddevs: HashMap<String, f32>,
-    pub feature_percentiles: HashMap<String, Vec<f32>>,  // [P10, P25, P50, P75, P90, P95, P99]
+    pub feature_percentiles: HashMap<String, Vec<f32>>, // [P10, P25, P50, P75, P90, P95, P99]
 }
 
 impl Default for BenignBaseline {
@@ -72,7 +72,7 @@ pub struct EvidenceChain {
     pub feature_name: String,
     pub feature_value: f32,
     pub contribution: f32,
-    pub derived_from_findings: Vec<String>,  // Finding kinds
+    pub derived_from_findings: Vec<String>, // Finding kinds
     pub evidence_spans: Vec<EvidenceSpan>,
 }
 
@@ -348,22 +348,26 @@ impl Default for CryptoRiskProfile {
 /// Compute percentile from percentile array [P10, P25, P50, P75, P90, P95, P99]
 pub fn compute_percentile(value: f32, percentiles: &[f32]) -> f32 {
     if percentiles.len() != 7 {
-        return 50.0;  // Default to median if invalid
+        return 50.0; // Default to median if invalid
     }
 
-    if value <= percentiles[0] { return 10.0; }
-    if value >= percentiles[6] { return 99.0; }
+    if value <= percentiles[0] {
+        return 10.0;
+    }
+    if value >= percentiles[6] {
+        return 99.0;
+    }
 
     // Linear interpolation
     let pct_values = [10.0, 25.0, 50.0, 75.0, 90.0, 95.0, 99.0];
-    for i in 0..percentiles.len()-1 {
-        if value >= percentiles[i] && value <= percentiles[i+1] {
-            let ratio = (value - percentiles[i]) / (percentiles[i+1] - percentiles[i]);
-            return pct_values[i] + ratio * (pct_values[i+1] - pct_values[i]);
+    for i in 0..percentiles.len() - 1 {
+        if value >= percentiles[i] && value <= percentiles[i + 1] {
+            let ratio = (value - percentiles[i]) / (percentiles[i + 1] - percentiles[i]);
+            return pct_values[i] + ratio * (pct_values[i + 1] - pct_values[i]);
         }
     }
 
-    50.0  // Fallback
+    50.0 // Fallback
 }
 
 /// Build evidence chains from feature attribution and findings
@@ -373,7 +377,8 @@ pub fn build_evidence_chains(
 ) -> Vec<EvidenceChain> {
     let mut chains = Vec::new();
 
-    for attr in attribution.iter().take(20) {  // Top 20 features
+    for attr in attribution.iter().take(20) {
+        // Top 20 features
         let relevant_findings = find_contributing_findings(&attr.feature_name, findings);
         let evidence_spans: Vec<_> = relevant_findings
             .iter()
@@ -385,9 +390,7 @@ pub fn build_evidence_chains(
                 feature_name: attr.feature_name.clone(),
                 feature_value: attr.value,
                 contribution: attr.contribution,
-                derived_from_findings: relevant_findings.iter()
-                    .map(|f| f.kind.clone())
-                    .collect(),
+                derived_from_findings: relevant_findings.iter().map(|f| f.kind.clone()).collect(),
                 evidence_spans,
             });
         }
@@ -398,26 +401,41 @@ pub fn build_evidence_chains(
 
 /// Find findings that contributed to a specific feature
 fn find_contributing_findings<'a>(feature_name: &str, findings: &'a [Finding]) -> Vec<&'a Finding> {
-
     // Map feature names to finding types
     if feature_name.starts_with("js_signals.") {
-        findings.iter().filter(|f| f.surface == AttackSurface::JavaScript).collect()
+        findings
+            .iter()
+            .filter(|f| f.surface == AttackSurface::JavaScript)
+            .collect()
     } else if feature_name.starts_with("uri_signals.") {
         findings.iter().filter(|f| f.kind.contains("uri")).collect()
     } else if feature_name.starts_with("finding.") {
         let base = feature_name.strip_prefix("finding.").unwrap();
-        let kind = base.strip_suffix("_count")
+        let kind = base
+            .strip_suffix("_count")
             .or_else(|| base.strip_suffix("_present"))
             .unwrap_or(base);
         findings.iter().filter(|f| f.kind == kind).collect()
     } else if feature_name.starts_with("supply_chain") {
-        findings.iter().filter(|f| f.kind.starts_with("supply_chain")).collect()
+        findings
+            .iter()
+            .filter(|f| f.kind.starts_with("supply_chain"))
+            .collect()
     } else if feature_name.starts_with("crypto_signals.") {
-        findings.iter().filter(|f| f.kind.starts_with("crypto_")).collect()
+        findings
+            .iter()
+            .filter(|f| f.kind.starts_with("crypto_"))
+            .collect()
     } else if feature_name.starts_with("embedded_content.") {
-        findings.iter().filter(|f| f.surface == AttackSurface::EmbeddedFiles).collect()
+        findings
+            .iter()
+            .filter(|f| f.surface == AttackSurface::EmbeddedFiles)
+            .collect()
     } else if feature_name.starts_with("action_chains.") {
-        findings.iter().filter(|f| f.surface == AttackSurface::Actions).collect()
+        findings
+            .iter()
+            .filter(|f| f.surface == AttackSurface::Actions)
+            .collect()
     } else {
         Vec::new()
     }
@@ -429,7 +447,6 @@ pub fn generate_explanation_text(
     top_features: &[FeatureAttribution],
     findings: &[Finding],
 ) -> String {
-
     let severity_level = match prediction {
         p if p > 0.8 => "highly",
         p if p > 0.6 => "moderately",
@@ -465,7 +482,9 @@ pub fn generate_explanation_text(
         ));
 
         for (i, f) in high_findings.iter().take(3).enumerate() {
-            if i > 0 { summary.push_str(", "); }
+            if i > 0 {
+                summary.push_str(", ");
+            }
             summary.push_str(&humanize_finding_kind(&f.kind));
         }
 
@@ -507,7 +526,7 @@ pub fn humanize_feature_name(name: &str) -> String {
         "uri_signals.hidden_annotation_count" => "hidden URI annotations".to_string(),
         "embedded_content.file_count" => "embedded files".to_string(),
         // Fallback: convert underscores to spaces
-        _ => name.replace("_", " ").replace(".", ": ")
+        _ => name.replace("_", " ").replace(".", ": "),
     }
 }
 
@@ -520,18 +539,23 @@ fn humanize_finding_kind(kind: &str) -> String {
         "uri_content_analysis" => "suspicious URI with obfuscation".to_string(),
         "multi_stage_attack_chain" => "multi-stage attack chain".to_string(),
         "supply_chain_persistence" => "supply chain persistence mechanism".to_string(),
-        _ => kind.replace("_", " ")
+        _ => kind.replace("_", " "),
     }
 }
 
 /// Recognize attack patterns from findings
 fn recognize_attack_pattern(findings: &[Finding]) -> Option<String> {
-
-    let has_js = findings.iter().any(|f| f.surface == AttackSurface::JavaScript);
+    let has_js = findings
+        .iter()
+        .any(|f| f.surface == AttackSurface::JavaScript);
     let has_obf = findings.iter().any(|f| f.kind.contains("obfuscation"));
     let has_auto = findings.iter().any(|f| f.kind.contains("open_action"));
-    let has_uri = findings.iter().any(|f| f.surface == AttackSurface::Actions && f.kind.contains("uri"));
-    let has_embed = findings.iter().any(|f| f.surface == AttackSurface::EmbeddedFiles);
+    let has_uri = findings
+        .iter()
+        .any(|f| f.surface == AttackSurface::Actions && f.kind.contains("uri"));
+    let has_embed = findings
+        .iter()
+        .any(|f| f.surface == AttackSurface::EmbeddedFiles);
     let has_multi = findings.iter().any(|f| f.kind.contains("multi_stage"));
 
     if has_js && has_obf && has_auto && has_uri {
@@ -629,10 +653,7 @@ impl CalibrationModel {
 }
 
 /// Calibrate a prediction and generate comprehensive metadata
-pub fn calibrate_prediction(
-    raw_score: f32,
-    calibrator: &CalibrationModel,
-) -> CalibratedPrediction {
+pub fn calibrate_prediction(raw_score: f32, calibrator: &CalibrationModel) -> CalibratedPrediction {
     let calibrated_score = calibrator.calibrate(raw_score);
 
     // Estimate confidence interval (simplified - real implementation would use bootstrap)
@@ -712,7 +733,8 @@ pub fn compute_comparative_explanation(
             0.0
         };
 
-        if z_score.abs() > 1.5 {  // More than 1.5 standard deviations
+        if z_score.abs() > 1.5 {
+            // More than 1.5 standard deviations
             let percentile = if let Some(pcts) = baseline.feature_percentiles.get(name) {
                 compute_percentile(value, pcts)
             } else {
@@ -721,14 +743,23 @@ pub fn compute_comparative_explanation(
 
             let interpretation = if z_score > 0.0 {
                 if z_score > 3.0 {
-                    format!("Extremely high ({:.1}σ above benign average) - highly unusual", z_score)
+                    format!(
+                        "Extremely high ({:.1}σ above benign average) - highly unusual",
+                        z_score
+                    )
                 } else if z_score > 2.0 {
-                    format!("Very high ({:.1}σ above benign average) - suspicious", z_score)
+                    format!(
+                        "Very high ({:.1}σ above benign average) - suspicious",
+                        z_score
+                    )
                 } else {
                     format!("Higher than typical ({:.1}σ above benign average)", z_score)
                 }
             } else {
-                format!("Lower than typical ({:.1}σ below benign average)", z_score.abs())
+                format!(
+                    "Lower than typical ({:.1}σ below benign average)",
+                    z_score.abs()
+                )
             };
 
             comparisons.push(ComparativeFeature {
@@ -800,7 +831,12 @@ pub fn compute_permutation_importance(
     }
 
     // Sort by absolute contribution (most impactful features first)
-    attributions.sort_by(|a, b| b.contribution.abs().partial_cmp(&a.contribution.abs()).unwrap());
+    attributions.sort_by(|a, b| {
+        b.contribution
+            .abs()
+            .partial_cmp(&a.contribution.abs())
+            .unwrap()
+    });
     attributions
 }
 
@@ -923,9 +959,7 @@ pub fn compute_baseline_from_samples(
         feature_means.insert(feature_name.clone(), mean);
 
         // Compute stddev
-        let variance = values.iter()
-            .map(|v| (v - mean).powi(2))
-            .sum::<f32>() / values.len() as f32;
+        let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / values.len() as f32;
         let stddev = variance.sqrt();
         feature_stddevs.insert(feature_name.clone(), stddev);
 
@@ -974,10 +1008,22 @@ pub fn generate_document_risk_profile(
     evidence_chains: Vec<EvidenceChain>,
 ) -> DocumentRiskProfile {
     // Count findings by severity
-    let critical_count = findings.iter().filter(|f| f.severity == Severity::Critical).count();
-    let high_severity_count = findings.iter().filter(|f| f.severity == Severity::High).count();
-    let medium_severity_count = findings.iter().filter(|f| f.severity == Severity::Medium).count();
-    let low_severity_count = findings.iter().filter(|f| f.severity == Severity::Low).count();
+    let critical_count = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Critical)
+        .count();
+    let high_severity_count = findings
+        .iter()
+        .filter(|f| f.severity == Severity::High)
+        .count();
+    let medium_severity_count = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Medium)
+        .count();
+    let low_severity_count = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Low)
+        .count();
 
     // Attack surface diversity
     let surfaces: std::collections::HashSet<_> = findings.iter().map(|f| f.surface).collect();
@@ -1242,7 +1288,11 @@ pub fn detect_feature_interactions(
         }
     }
 
-    interactions.sort_by(|a, b| b.interaction_score.partial_cmp(&a.interaction_score).unwrap());
+    interactions.sort_by(|a, b| {
+        b.interaction_score
+            .partial_cmp(&a.interaction_score)
+            .unwrap()
+    });
     interactions.truncate(max_pairs);
     interactions
 }
@@ -1390,13 +1440,15 @@ fn extract_uri_risk_profile(findings: &[Finding]) -> UriRiskProfile {
 fn extract_structural_risk_profile(findings: &[Finding]) -> StructuralRiskProfile {
     let structural_findings: Vec<_> = findings
         .iter()
-        .filter(|f| matches!(
-            f.surface,
-            AttackSurface::FileStructure
-                | AttackSurface::XRefTrailer
-                | AttackSurface::ObjectStreams
-                | AttackSurface::StreamsAndFilters
-        ))
+        .filter(|f| {
+            matches!(
+                f.surface,
+                AttackSurface::FileStructure
+                    | AttackSurface::XRefTrailer
+                    | AttackSurface::ObjectStreams
+                    | AttackSurface::StreamsAndFilters
+            )
+        })
         .collect();
 
     let spec_violations = structural_findings
@@ -1422,7 +1474,7 @@ fn extract_structural_risk_profile(findings: &[Finding]) -> StructuralRiskProfil
         + (xref_issues as f32 * 0.3)
         + (object_stream_anomalies as f32 * 0.2)
         + if encryption_present { 0.1 } else { 0.0 })
-        .min(1.0);
+    .min(1.0);
 
     StructuralRiskProfile {
         spec_violations,
@@ -1438,7 +1490,9 @@ fn extract_structural_risk_profile(findings: &[Finding]) -> StructuralRiskProfil
 fn extract_supply_chain_risk_profile(findings: &[Finding]) -> SupplyChainRiskProfile {
     let supply_chain_findings: Vec<_> = findings
         .iter()
-        .filter(|f| f.kind.contains("producer") || f.kind.contains("creator") || f.kind.contains("metadata"))
+        .filter(|f| {
+            f.kind.contains("producer") || f.kind.contains("creator") || f.kind.contains("metadata")
+        })
         .collect();
 
     let mut profile = SupplyChainRiskProfile::default();
@@ -1481,7 +1535,11 @@ fn extract_supply_chain_risk_profile(findings: &[Finding]) -> SupplyChainRiskPro
 fn extract_content_risk_profile(findings: &[Finding]) -> ContentRiskProfile {
     let content_findings: Vec<_> = findings
         .iter()
-        .filter(|f| f.surface == AttackSurface::ContentPhishing || f.kind.contains("content") || f.kind.contains("text"))
+        .filter(|f| {
+            f.surface == AttackSurface::ContentPhishing
+                || f.kind.contains("content")
+                || f.kind.contains("text")
+        })
         .collect();
 
     let text_anomalies = content_findings
@@ -1500,7 +1558,9 @@ fn extract_content_risk_profile(findings: &[Finding]) -> ContentRiskProfile {
         .count();
 
     let hidden_content = content_findings.iter().any(|f| f.kind.contains("hidden"));
-    let overlapping_objects = content_findings.iter().any(|f| f.kind.contains("overlapping"));
+    let overlapping_objects = content_findings
+        .iter()
+        .any(|f| f.kind.contains("overlapping"));
 
     let phishing_keywords: Vec<String> = content_findings
         .iter()
@@ -1513,7 +1573,7 @@ fn extract_content_risk_profile(findings: &[Finding]) -> ContentRiskProfile {
         + (phishing_keywords.len() as f32 * 0.3)
         + if hidden_content { 0.2 } else { 0.0 }
         + if overlapping_objects { 0.1 } else { 0.0 })
-        .min(1.0);
+    .min(1.0);
 
     ContentRiskProfile {
         text_anomalies,
@@ -1530,7 +1590,11 @@ fn extract_content_risk_profile(findings: &[Finding]) -> ContentRiskProfile {
 fn extract_crypto_risk_profile(findings: &[Finding]) -> CryptoRiskProfile {
     let crypto_findings: Vec<_> = findings
         .iter()
-        .filter(|f| f.surface == AttackSurface::CryptoSignatures || f.kind.contains("crypto") || f.kind.contains("encryption"))
+        .filter(|f| {
+            f.surface == AttackSurface::CryptoSignatures
+                || f.kind.contains("crypto")
+                || f.kind.contains("encryption")
+        })
         .collect();
 
     let mut profile = CryptoRiskProfile::default();
@@ -1571,7 +1635,7 @@ fn extract_crypto_risk_profile(findings: &[Finding]) -> CryptoRiskProfile {
 pub fn extract_suspicious_paths(
     action_chains: &[sis_pdf_pdf::path_finder::ActionChain<'_>],
     findings: &[Finding],
-    _node_scores: Option<&[f32]>,  // Reserved for future GNN integration
+    _node_scores: Option<&[f32]>, // Reserved for future GNN integration
 ) -> GraphPathExplanation {
     let mut scored_paths = Vec::new();
 
@@ -1601,7 +1665,11 @@ pub fn extract_suspicious_paths(
     }
 
     // Sort by risk score (highest first)
-    scored_paths.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap_or(std::cmp::Ordering::Equal));
+    scored_paths.sort_by(|a, b| {
+        b.risk_score
+            .partial_cmp(&a.risk_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let max_path_risk = scored_paths.first().map(|p| p.risk_score).unwrap_or(0.0);
     let avg_path_risk = if !scored_paths.is_empty() {
@@ -1611,7 +1679,7 @@ pub fn extract_suspicious_paths(
     };
 
     GraphPathExplanation {
-        suspicious_paths: scored_paths.into_iter().take(10).collect(),  // Top 10
+        suspicious_paths: scored_paths.into_iter().take(10).collect(), // Top 10
         max_path_risk,
         avg_path_risk,
     }
@@ -1655,7 +1723,7 @@ fn build_path_nodes_from_chain(
     for (i, edge) in chain.edges.iter().enumerate() {
         let dst = edge.dst;
         if !visited_objs.insert(dst) {
-            continue;  // Skip cycles
+            continue; // Skip cycles
         }
 
         let obj_str = format!("{} {} obj", dst.0, dst.1);
@@ -1682,7 +1750,8 @@ fn build_path_nodes_from_chain(
             EdgeType::LaunchTarget => "Launch",
             EdgeType::SubmitFormTarget => "SubmitForm",
             _ => "Action",
-        }.to_string();
+        }
+        .to_string();
 
         nodes.push(PathNode {
             obj_ref: dst,
@@ -1704,7 +1773,8 @@ fn classify_node_type(edge: &sis_pdf_pdf::typed_graph::TypedEdge) -> String {
         EdgeType::PageAction { .. } => "Page",
         EdgeType::AnnotationAction => "Annotation",
         _ => "Object",
-    }.to_string()
+    }
+    .to_string()
 }
 
 /// Extract key information from EdgeType
@@ -1791,7 +1861,8 @@ fn classify_path_pattern(
     chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
 ) -> Option<String> {
     let has_openaction = path.iter().any(|n| {
-        n.edge_to_next.as_ref()
+        n.edge_to_next
+            .as_ref()
             .map(|e| e.key == "/OpenAction")
             .unwrap_or(false)
     });
@@ -1852,7 +1923,9 @@ fn generate_path_explanation(
 /// Convert pattern ID to human-readable description
 fn humanize_pattern(pattern: &str) -> String {
     match pattern {
-        "automatic_js_with_external_action" => "Automatic JavaScript execution with external action".to_string(),
+        "automatic_js_with_external_action" => {
+            "Automatic JavaScript execution with external action".to_string()
+        }
         "automatic_js_trigger" => "Automatic JavaScript execution via OpenAction".to_string(),
         "js_to_external_resource" => "JavaScript triggers external resource".to_string(),
         "automatic_external_action" => "Automatic external action".to_string(),
@@ -1872,7 +1945,7 @@ mod tests {
     fn test_percentile_computation() {
         let percentiles = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0];
 
-        assert_eq!(compute_percentile(5.0, &percentiles), 10.0);  // Below P10
+        assert_eq!(compute_percentile(5.0, &percentiles), 10.0); // Below P10
         assert_eq!(compute_percentile(75.0, &percentiles), 99.0); // Above P99
         assert_eq!(compute_percentile(30.0, &percentiles), 50.0); // Exact P50
     }
@@ -1885,25 +1958,23 @@ mod tests {
         );
         assert_eq!(
             humanize_feature_name("unknown_feature"),
-            "unknown feature"  // Underscores replaced with spaces
+            "unknown feature" // Underscores replaced with spaces
         );
         assert_eq!(
             humanize_feature_name("group.feature_name"),
-            "group: feature name"  // Both dots and underscores replaced
+            "group: feature name" // Both dots and underscores replaced
         );
     }
 
     #[test]
     fn test_explanation_text_generation() {
-        let features = vec![
-            FeatureAttribution {
-                feature_name: "js_signals.max_obfuscation_score".to_string(),
-                value: 0.95,
-                contribution: 0.18,
-                baseline: 0.0,
-                percentile: 99.5,
-            }
-        ];
+        let features = vec![FeatureAttribution {
+            feature_name: "js_signals.max_obfuscation_score".to_string(),
+            value: 0.95,
+            contribution: 0.18,
+            baseline: 0.0,
+            percentile: 99.5,
+        }];
 
         let findings = vec![];
         let summary = generate_explanation_text(0.87, &features, &findings);
@@ -1916,9 +1987,8 @@ mod tests {
     #[test]
     fn test_compute_permutation_importance() {
         // Mock model that returns sum of features
-        let model = |features: &[f32]| -> f32 {
-            features.iter().sum::<f32>() / features.len() as f32
-        };
+        let model =
+            |features: &[f32]| -> f32 { features.iter().sum::<f32>() / features.len() as f32 };
 
         let feature_values = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         let feature_names = vec![
@@ -1936,26 +2006,27 @@ mod tests {
         baseline.feature_means.insert("feature_d".to_string(), 2.0);
         baseline.feature_means.insert("feature_e".to_string(), 2.5);
 
-        let attributions = compute_permutation_importance(
-            &model,
-            &feature_values,
-            &feature_names,
-            &baseline,
-        );
+        let attributions =
+            compute_permutation_importance(&model, &feature_values, &feature_names, &baseline);
 
         assert_eq!(attributions.len(), 5);
 
         // All contributions should be positive since we're replacing with smaller values
         for attr in &attributions {
-            assert!(attr.contribution >= 0.0,
+            assert!(
+                attr.contribution >= 0.0,
                 "Feature {} contribution should be positive: {}",
-                attr.feature_name, attr.contribution);
+                attr.feature_name,
+                attr.contribution
+            );
         }
 
         // Should be sorted by absolute contribution
-        for i in 0..attributions.len()-1 {
-            assert!(attributions[i].contribution.abs() >= attributions[i+1].contribution.abs(),
-                "Attributions should be sorted by absolute contribution");
+        for i in 0..attributions.len() - 1 {
+            assert!(
+                attributions[i].contribution.abs() >= attributions[i + 1].contribution.abs(),
+                "Attributions should be sorted by absolute contribution"
+            );
         }
     }
 
@@ -2035,26 +2106,29 @@ mod tests {
 
         let findings = vec![];
 
-        let explanation = create_ml_explanation(
-            0.85,
-            attributions,
-            &baseline,
-            &findings,
-        );
+        let explanation = create_ml_explanation(0.85, attributions, &baseline, &findings);
 
         assert_eq!(explanation.prediction, 0.85);
         assert_eq!(explanation.top_positive_features.len(), 2);
         assert_eq!(explanation.top_negative_features.len(), 1);
 
         // Check positive features are sorted correctly
-        assert_eq!(explanation.top_positive_features[0].feature_name,
-            "js_signals.max_obfuscation_score");
-        assert_eq!(explanation.top_positive_features[1].feature_name,
-            "uri_signals.ip_address_count");
+        assert_eq!(
+            explanation.top_positive_features[0].feature_name,
+            "js_signals.max_obfuscation_score"
+        );
+        assert_eq!(
+            explanation.top_positive_features[1].feature_name,
+            "uri_signals.ip_address_count"
+        );
 
         // Check group importance
-        assert!(explanation.feature_group_importance.contains_key("js_signals"));
-        assert!(explanation.feature_group_importance.contains_key("uri_signals"));
+        assert!(explanation
+            .feature_group_importance
+            .contains_key("js_signals"));
+        assert!(explanation
+            .feature_group_importance
+            .contains_key("uri_signals"));
 
         // Check summary is generated
         assert!(!explanation.summary.is_empty());
@@ -2093,20 +2167,23 @@ mod tests {
 
         // Check percentiles
         assert!(baseline.feature_percentiles.contains_key("feature_a"));
-        assert_eq!(baseline.feature_percentiles.get("feature_a").unwrap().len(), 7);
+        assert_eq!(
+            baseline.feature_percentiles.get("feature_a").unwrap().len(),
+            7
+        );
     }
 
     #[test]
     fn test_compute_nth_percentile() {
         let values = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
 
-        assert_eq!(compute_nth_percentile(&values, 0.0), 1.0);   // Min (index 0)
-        assert_eq!(compute_nth_percentile(&values, 50.0), 6.0);  // Median (index 5 after rounding 4.5)
+        assert_eq!(compute_nth_percentile(&values, 0.0), 1.0); // Min (index 0)
+        assert_eq!(compute_nth_percentile(&values, 50.0), 6.0); // Median (index 5 after rounding 4.5)
         assert_eq!(compute_nth_percentile(&values, 100.0), 10.0); // Max (index 9)
 
         // Test with smaller array
         let small = vec![1.0, 5.0, 10.0];
-        assert_eq!(compute_nth_percentile(&small, 50.0), 5.0);  // Index 1
+        assert_eq!(compute_nth_percentile(&small, 50.0), 5.0); // Index 1
         assert_eq!(compute_nth_percentile(&small, 0.0), 1.0);
         assert_eq!(compute_nth_percentile(&small, 100.0), 10.0);
     }
@@ -2125,8 +2202,12 @@ mod tests {
         let file_path = dir.path().join("baseline.json");
 
         let mut baseline = BenignBaseline::default();
-        baseline.feature_means.insert("test_feature".to_string(), 1.5);
-        baseline.feature_stddevs.insert("test_feature".to_string(), 0.5);
+        baseline
+            .feature_means
+            .insert("test_feature".to_string(), 1.5);
+        baseline
+            .feature_stddevs
+            .insert("test_feature".to_string(), 0.5);
         baseline.feature_percentiles.insert(
             "test_feature".to_string(),
             vec![0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
@@ -2140,7 +2221,14 @@ mod tests {
 
         assert_eq!(loaded.feature_means.get("test_feature").unwrap(), &1.5);
         assert_eq!(loaded.feature_stddevs.get("test_feature").unwrap(), &0.5);
-        assert_eq!(loaded.feature_percentiles.get("test_feature").unwrap().len(), 7);
+        assert_eq!(
+            loaded
+                .feature_percentiles
+                .get("test_feature")
+                .unwrap()
+                .len(),
+            7
+        );
     }
 
     #[test]
@@ -2193,29 +2281,24 @@ mod tests {
         use sis_pdf_pdf::typed_graph::EdgeType;
 
         assert_eq!(
-            extract_edge_key(&EdgeType::DictReference { key: "/Type".to_string() }),
+            extract_edge_key(&EdgeType::DictReference {
+                key: "/Type".to_string()
+            }),
             "/Type"
         );
         assert_eq!(
             extract_edge_key(&EdgeType::ArrayElement { index: 5 }),
             "[5]"
         );
+        assert_eq!(extract_edge_key(&EdgeType::OpenAction), "/OpenAction");
         assert_eq!(
-            extract_edge_key(&EdgeType::OpenAction),
-            "/OpenAction"
-        );
-        assert_eq!(
-            extract_edge_key(&EdgeType::PageAction { event: "/O".to_string() }),
+            extract_edge_key(&EdgeType::PageAction {
+                event: "/O".to_string()
+            }),
             "/O"
         );
-        assert_eq!(
-            extract_edge_key(&EdgeType::JavaScriptPayload),
-            "/JS"
-        );
-        assert_eq!(
-            extract_edge_key(&EdgeType::UriTarget),
-            "/URI"
-        );
+        assert_eq!(extract_edge_key(&EdgeType::JavaScriptPayload), "/JS");
+        assert_eq!(extract_edge_key(&EdgeType::UriTarget), "/URI");
     }
 
     #[test]
@@ -2415,8 +2498,8 @@ mod tests {
             remediation: None,
             meta,
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
         });
 
         let profile = extract_js_risk_profile(&findings);
@@ -2450,8 +2533,8 @@ mod tests {
             remediation: None,
             meta,
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
         });
 
         let profile = extract_uri_risk_profile(&findings);
@@ -2479,8 +2562,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             },
             Finding {
                 id: "struct-1".to_string(),
@@ -2495,8 +2578,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             },
         ];
 
@@ -2523,8 +2606,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             },
             Finding {
                 id: "xref-1".to_string(),
@@ -2539,8 +2622,8 @@ mod tests {
                 remediation: None,
                 meta: HashMap::new(),
                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                position: None,
+                positions: Vec::new(),
             },
         ];
 
@@ -2597,7 +2680,10 @@ mod tests {
         assert!(pred_low.interpretation.contains("Very low risk"));
 
         let pred_medium = calibrate_prediction(0.5, &calibrator);
-        assert!(pred_medium.interpretation.contains("Possibly") || pred_medium.interpretation.contains("Likely"));
+        assert!(
+            pred_medium.interpretation.contains("Possibly")
+                || pred_medium.interpretation.contains("Likely")
+        );
     }
 
     #[test]
@@ -2662,9 +2748,13 @@ mod tests {
     fn test_detect_feature_interactions() {
         let mut baseline = BenignBaseline::default();
         baseline.feature_means.insert("feature_a".to_string(), 0.0);
-        baseline.feature_stddevs.insert("feature_a".to_string(), 1.0);
+        baseline
+            .feature_stddevs
+            .insert("feature_a".to_string(), 1.0);
         baseline.feature_means.insert("feature_b".to_string(), 0.0);
-        baseline.feature_stddevs.insert("feature_b".to_string(), 1.0);
+        baseline
+            .feature_stddevs
+            .insert("feature_b".to_string(), 1.0);
 
         let mut feature_map = HashMap::new();
         feature_map.insert("feature_a".to_string(), 3.0);

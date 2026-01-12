@@ -2,7 +2,6 @@
 ///
 /// This module provides type classification and role identification for PDF objects,
 /// enabling rich semantic analysis throughout the codebase.
-
 use crate::graph::ObjEntry;
 use crate::object::{PdfAtom, PdfDict};
 use std::collections::{HashMap, HashSet};

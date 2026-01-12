@@ -1,23 +1,24 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
+use crate::evidence::preview_ascii;
+use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
 use crate::model::Finding;
-use crate::report::{MlRunSummary, MlSummary, Report, SecondaryParserSummary, StructuralSummary};
+use crate::position;
 #[cfg(feature = "ml-graph")]
 use crate::report::MlNodeAttribution;
+use crate::report::{MlRunSummary, MlSummary, Report, SecondaryParserSummary, StructuralSummary};
 use crate::scan::{ScanContext, ScanOptions};
-use crate::evidence::preview_ascii;
-use sis_pdf_pdf::{parse_pdf, ObjectGraph, ParseOptions};
+use crate::security_log::{SecurityDomain, SecurityEvent};
 use sis_pdf_pdf::decode::stream_filters;
-use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 #[cfg(feature = "ml-graph")]
 use sis_pdf_pdf::ir::PdfIrObject;
-use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
-use crate::position;
-use crate::security_log::{SecurityDomain, SecurityEvent};
+use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
+use sis_pdf_pdf::{parse_pdf, ObjectGraph, ParseOptions};
 use tracing::{debug, error, info, warn, Level};
 
 const PARALLEL_DETECTOR_THREADS: usize = 4;
+const CARVED_OBJECT_LIMIT_DEFAULT: usize = 2000;
 
 pub fn run_scan_with_detectors(
     bytes: &[u8],
@@ -43,6 +44,9 @@ pub fn run_scan_with_detectors(
             max_objstm_bytes: options.max_decode_bytes,
             max_objects: options.max_objects,
             max_objstm_total_bytes: options.max_total_decoded_bytes,
+            carve_stream_objects: options.deep,
+            max_carved_objects: carved_object_limit(options.max_objects),
+            max_carved_bytes: options.max_decode_bytes,
         },
     )?;
     let mut focus_filtered = false;
@@ -71,22 +75,23 @@ pub fn run_scan_with_detectors(
             .num_threads(PARALLEL_DETECTOR_THREADS)
             .build();
         match pool {
-            Ok(pool) => pool.install(|| {
-                detectors
-                    .par_iter()
-                    .filter(|d| {
-                        if ctx.options.fast {
-                            d.cost() == crate::detect::Cost::Cheap
-                        } else {
-                            ctx.options.deep || d.cost() != crate::detect::Cost::Expensive
-                        }
-                    })
-                    .map(|d| d.run(&ctx))
-                    .collect::<Result<Vec<_>, _>>()
-            })?
-            .into_iter()
-            .flatten()
-            .collect(),
+            Ok(pool) => pool
+                .install(|| {
+                    detectors
+                        .par_iter()
+                        .filter(|d| {
+                            if ctx.options.fast {
+                                d.cost() == crate::detect::Cost::Cheap
+                            } else {
+                                ctx.options.deep || d.cost() != crate::detect::Cost::Expensive
+                            }
+                        })
+                        .map(|d| d.run(&ctx))
+                        .collect::<Result<Vec<_>, _>>()
+                })?
+                .into_iter()
+                .flatten()
+                .collect(),
             Err(err) => {
                 SecurityEvent {
                     level: Level::WARN,
@@ -108,7 +113,10 @@ pub fn run_scan_with_detectors(
                     if ctx.options.fast && d.cost() != crate::detect::Cost::Cheap {
                         continue;
                     }
-                    if !ctx.options.fast && !ctx.options.deep && d.cost() == crate::detect::Cost::Expensive {
+                    if !ctx.options.fast
+                        && !ctx.options.deep
+                        && d.cost() == crate::detect::Cost::Expensive
+                    {
                         continue;
                     }
                     out.extend(d.run(&ctx)?);
@@ -122,7 +130,8 @@ pub fn run_scan_with_detectors(
             if ctx.options.fast && d.cost() != crate::detect::Cost::Cheap {
                 continue;
             }
-            if !ctx.options.fast && !ctx.options.deep && d.cost() == crate::detect::Cost::Expensive {
+            if !ctx.options.fast && !ctx.options.deep && d.cost() == crate::detect::Cost::Expensive
+            {
                 continue;
             }
             out.extend(d.run(&ctx)?);
@@ -154,7 +163,12 @@ pub fn run_scan_with_detectors(
             .graph
             .objects
             .last()
-            .map(|e| vec![crate::scan::span_to_evidence(e.full_span, "Last object span")])
+            .map(|e| {
+                vec![crate::scan::span_to_evidence(
+                    e.full_span,
+                    "Last object span",
+                )]
+            })
             .unwrap_or_else(Vec::new);
         findings.push(Finding {
             id: String::new(),
@@ -173,8 +187,8 @@ pub fn run_scan_with_detectors(
             remediation: Some("Reduce scan scope or raise max_objects.".into()),
             meta: Default::default(),
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
         });
     }
 
@@ -195,10 +209,15 @@ pub fn run_scan_with_detectors(
         }
     }
 
-    let font_findings = findings.iter().filter(|f| f.kind.starts_with("font.")).count();
+    let font_findings = findings
+        .iter()
+        .filter(|f| f.kind.starts_with("font."))
+        .count();
     let js_findings = findings
         .iter()
-        .filter(|f| f.surface == crate::model::AttackSurface::JavaScript || f.kind.starts_with("js_"))
+        .filter(|f| {
+            f.surface == crate::model::AttackSurface::JavaScript || f.kind.starts_with("js_")
+        })
         .count();
     if font_findings > 0 && js_findings > 0 {
         let mut meta = HashMap::new();
@@ -214,7 +233,9 @@ pub fn run_scan_with_detectors(
             description: "JavaScript findings coincide with suspicious embedded fonts.".into(),
             objects: vec!["fonts".into(), "javascript".into()],
             evidence: Vec::new(),
-            remediation: Some("Review JavaScript payloads and embedded font tables together.".into()),
+            remediation: Some(
+                "Review JavaScript payloads and embedded font tables together.".into(),
+            ),
             meta,
             yara: None,
             position: None,
@@ -224,10 +245,13 @@ pub fn run_scan_with_detectors(
     let mut ml_summary_override: Option<MlSummary> = None;
     if let Some(ml_cfg) = &ctx.options.ml_config {
         ml_summary_override = Some(MlSummary {
-            mode: Some(match ml_cfg.mode {
-                crate::ml::MlMode::Traditional => "traditional",
-                crate::ml::MlMode::Graph => "graph",
-            }.to_string()),
+            mode: Some(
+                match ml_cfg.mode {
+                    crate::ml::MlMode::Traditional => "traditional",
+                    crate::ml::MlMode::Graph => "graph",
+                }
+                .to_string(),
+            ),
             graph: None,
             traditional: None,
         });
@@ -250,7 +274,10 @@ pub fn run_scan_with_detectors(
                         if prediction.label {
                             let mut meta = std::collections::HashMap::new();
                             meta.insert("ml.score".into(), format!("{:.4}", prediction.score));
-                            meta.insert("ml.threshold".into(), format!("{:.4}", prediction.threshold));
+                            meta.insert(
+                                "ml.threshold".into(),
+                                format!("{:.4}", prediction.threshold),
+                            );
                             meta.insert(
                                 "ml.base_scores".into(),
                                 prediction
@@ -278,11 +305,13 @@ pub fn run_scan_with_detectors(
                                 ),
                                 objects: vec!["ml".into()],
                                 evidence: Vec::new(),
-                                remediation: Some("Review ML features and validate with manual analysis.".into()),
+                                remediation: Some(
+                                    "Review ML features and validate with manual analysis.".into(),
+                                ),
                                 meta,
                                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                                position: None,
+                                positions: Vec::new(),
                             });
                         }
                     }
@@ -301,14 +330,17 @@ pub fn run_scan_with_detectors(
                             remediation: Some("Check ML model path and format.".into()),
                             meta: Default::default(),
                             yara: None,
-        position: None,
-        positions: Vec::new(),
+                            position: None,
+                            positions: Vec::new(),
                         });
                     }
                 }
                 if let Some(attempt) = defense.detect_adversarial(&feature_vec) {
                     let mut meta = std::collections::HashMap::new();
-                    meta.insert("ml.adversarial_score".into(), format!("{:.2}", attempt.score));
+                    meta.insert(
+                        "ml.adversarial_score".into(),
+                        format!("{:.2}", attempt.score),
+                    );
                     meta.insert("ml.adversarial_reason".into(), attempt.reason);
                     findings.push(Finding {
                         id: String::new(),
@@ -317,14 +349,15 @@ pub fn run_scan_with_detectors(
                         severity: crate::model::Severity::Low,
                         confidence: crate::model::Confidence::Heuristic,
                         title: "Potential adversarial ML sample".into(),
-                        description: "Feature profile suggests adversarial manipulation attempts.".into(),
+                        description: "Feature profile suggests adversarial manipulation attempts."
+                            .into(),
                         objects: vec!["ml".into()],
                         evidence: Vec::new(),
                         remediation: Some("Validate findings against alternate detectors.".into()),
                         meta,
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -366,7 +399,10 @@ pub fn run_scan_with_detectors(
                             }
                             if prediction.label {
                                 let mut meta = std::collections::HashMap::new();
-                                meta.insert("ml.graph.score".into(), format!("{:.4}", prediction.score));
+                                meta.insert(
+                                    "ml.graph.score".into(),
+                                    format!("{:.4}", prediction.score),
+                                );
                                 meta.insert(
                                     "ml.graph.threshold".into(),
                                     format!("{:.4}", prediction.threshold),
@@ -385,12 +421,13 @@ pub fn run_scan_with_detectors(
                                     objects: vec!["ml".into()],
                                     evidence: Vec::new(),
                                     remediation: Some(
-                                        "Review graph ML output and corroborate with findings.".into(),
+                                        "Review graph ML output and corroborate with findings."
+                                            .into(),
                                     ),
                                     meta,
                                     yara: None,
-        position: None,
-        positions: Vec::new(),
+                                    position: None,
+                                    positions: Vec::new(),
                                 });
                             }
                         }
@@ -409,17 +446,15 @@ pub fn run_scan_with_detectors(
                                 remediation: Some("Check graph model files and format.".into()),
                                 meta: Default::default(),
                                 yara: None,
-        position: None,
-        positions: Vec::new(),
+                                position: None,
+                                positions: Vec::new(),
                             });
                         }
                     }
                 }
                 #[cfg(not(feature = "ml-graph"))]
                 {
-                    error!(
-                        "Graph ML mode requested but not compiled (enable feature ml-graph)"
-                    );
+                    error!("Graph ML mode requested but not compiled (enable feature ml-graph)");
                     findings.push(Finding {
                         id: String::new(),
                         surface: crate::model::AttackSurface::Metadata,
@@ -435,8 +470,8 @@ pub fn run_scan_with_detectors(
                         remediation: Some("Rebuild with --features ml-graph.".into()),
                         meta: Default::default(),
                         yara: None,
-        position: None,
-        positions: Vec::new(),
+                        position: None,
+                        positions: Vec::new(),
                     });
                 }
             }
@@ -450,8 +485,11 @@ pub fn run_scan_with_detectors(
     annotate_positions(&ctx, &mut findings);
     annotate_orphaned_page_context(&mut findings);
     let intent_summary = Some(crate::intent::apply_intent(&mut findings));
-    let yara_rules = crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());
-    findings.sort_by(|a, b| (a.surface as u32, &a.kind, &a.id).cmp(&(b.surface as u32, &b.kind, &b.id)));
+    let yara_rules =
+        crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());
+    findings.sort_by(|a, b| {
+        (a.surface as u32, &a.kind, &a.id).cmp(&(b.surface as u32, &b.kind, &b.id))
+    });
     let (chains, templates) = crate::chain_synth::synthesise_chains(&findings);
     let behavior_summary = Some(crate::behavior::correlate_findings(&findings));
     let future_threats = behavior_summary
@@ -521,9 +559,7 @@ fn annotate_positions(ctx: &ScanContext, findings: &mut [Finding]) {
             let Some((obj_id, gen_id)) = position::parse_obj_ref(obj) else {
                 continue;
             };
-            let path_hint = path_map
-                .get(&(obj_id, gen_id))
-                .map(|path| path.as_str());
+            let path_hint = path_map.get(&(obj_id, gen_id)).map(|path| path.as_str());
             let pos = position::canonical_position_for_obj(
                 &ctx.graph,
                 classifications,
@@ -620,12 +656,7 @@ fn is_suspicious_orphan_payload(finding: &Finding) -> bool {
         || finding.kind.contains("launch")
 }
 
-fn raw_node_preview(
-    graph: &ObjectGraph<'_>,
-    obj: u32,
-    gen: u16,
-    max_len: usize,
-) -> Option<String> {
+fn raw_node_preview(graph: &ObjectGraph<'_>, obj: u32, gen: u16, max_len: usize) -> Option<String> {
     let entry = graph.get_object(obj, gen)?;
     let preview = match &entry.atom {
         PdfAtom::Dict(dict) => dict_preview(dict),
@@ -644,7 +675,10 @@ fn raw_node_preview(
 
 fn dict_preview(dict: &PdfDict<'_>) -> String {
     let mut parts = vec!["dict".to_string()];
-    if let Some(type_name) = dict.get_first(b"/Type").and_then(|(_, v)| name_value(&v.atom)) {
+    if let Some(type_name) = dict
+        .get_first(b"/Type")
+        .and_then(|(_, v)| name_value(&v.atom))
+    {
         parts.push(format!("Type={}", type_name.trim_start_matches('/')));
     }
     if let Some(subtype) = dict
@@ -787,7 +821,8 @@ fn top_node_attributions(
     node_scores: &[f32],
     ir_graph: &crate::ir_pipeline::IrGraphArtifacts,
 ) -> Vec<MlNodeAttribution> {
-    let mut ir_map: std::collections::HashMap<ObjRef, &PdfIrObject> = std::collections::HashMap::new();
+    let mut ir_map: std::collections::HashMap<ObjRef, &PdfIrObject> =
+        std::collections::HashMap::new();
     for obj in &ir_graph.ir_objects {
         let key = ObjRef {
             obj: obj.obj_ref.0,
@@ -812,7 +847,11 @@ fn top_node_attributions(
             score: *score,
         });
     }
-    entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    entries.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     entries.truncate(5);
     entries
 }
@@ -888,19 +927,18 @@ fn build_structural_summary(
     };
     let header_offset = find_first(ctx.bytes, b"%PDF-").map(|v| v as u64);
     let eof_offset = find_last(ctx.bytes, b"%%EOF").map(|v| v as u64);
-    let eof_distance_to_end = eof_offset.map(|off| {
-        ctx.bytes
-            .len()
-            .saturating_sub(off as usize + 5) as u64
-    });
+    let eof_distance_to_end =
+        eof_offset.map(|off| ctx.bytes.len().saturating_sub(off as usize + 5) as u64);
     let (polyglot_risk, polyglot_signatures) = polyglot_meta(findings);
-    let secondary_parser = diff.and_then(|d| d.summary.as_ref()).map(|s| SecondaryParserSummary {
-        parser: "lopdf".into(),
-        object_count: s.secondary_objects,
-        trailer_count: s.secondary_trailers,
-        missing_in_secondary: s.missing_in_secondary,
-        missing_in_primary: s.missing_in_primary,
-    });
+    let secondary_parser = diff
+        .and_then(|d| d.summary.as_ref())
+        .map(|s| SecondaryParserSummary {
+            parser: "lopdf".into(),
+            object_count: s.secondary_objects,
+            trailer_count: s.secondary_trailers,
+            missing_in_secondary: s.missing_in_secondary,
+            missing_in_primary: s.missing_in_primary,
+        });
     let secondary_parser_error = diff.and_then(|d| d.error.clone());
     let ir_summary = if ctx.options.ir {
         let ir_opts = sis_pdf_pdf::ir::IrOptions::default();
@@ -992,14 +1030,16 @@ fn collect_refs_from_obj(obj: &PdfObj<'_>, out: &mut Vec<ObjRef>) {
     }
 }
 
-fn filter_graph_by_refs<'a>(
-    graph: &ObjectGraph<'a>,
-    keep: &HashSet<ObjRef>,
-) -> ObjectGraph<'a> {
+fn filter_graph_by_refs<'a>(graph: &ObjectGraph<'a>, keep: &HashSet<ObjRef>) -> ObjectGraph<'a> {
     let objects: Vec<_> = graph
         .objects
         .iter()
-        .filter(|e| keep.contains(&ObjRef { obj: e.obj, gen: e.gen }))
+        .filter(|e| {
+            keep.contains(&ObjRef {
+                obj: e.obj,
+                gen: e.gen,
+            })
+        })
         .cloned()
         .collect();
     let mut index: HashMap<(u32, u16), Vec<usize>> = HashMap::new();
@@ -1014,4 +1054,11 @@ fn filter_graph_by_refs<'a>(
         startxrefs: graph.startxrefs.clone(),
         deviations: graph.deviations.clone(),
     }
+}
+
+fn carved_object_limit(max_objects: usize) -> usize {
+    if max_objects == 0 {
+        return CARVED_OBJECT_LIMIT_DEFAULT;
+    }
+    max_objects.min(CARVED_OBJECT_LIMIT_DEFAULT)
 }
