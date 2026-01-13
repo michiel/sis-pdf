@@ -194,6 +194,10 @@ enum Command {
         cache_dir: Option<PathBuf>,
         #[arg(long, alias = "seq")]
         sequential: bool,
+        #[arg(long, help = "Enable runtime profiling to measure detector performance")]
+        runtime_profile: bool,
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        runtime_profile_format: String,
         #[arg(long)]
         ml: bool,
         #[arg(long)]
@@ -660,6 +664,8 @@ fn main() -> Result<()> {
             profile,
             cache_dir,
             sequential,
+            runtime_profile,
+            runtime_profile_format,
             ml,
             ml_model_dir,
             ml_threshold,
@@ -711,6 +717,8 @@ fn main() -> Result<()> {
             profile.as_deref(),
             cache_dir.as_deref(),
             sequential,
+            runtime_profile,
+            &runtime_profile_format,
             ml,
             ml_model_dir.as_deref(),
             ml_threshold,
@@ -2749,6 +2757,8 @@ fn run_scan(
     profile: Option<&str>,
     cache_dir: Option<&std::path::Path>,
     sequential: bool,
+    runtime_profile: bool,
+    runtime_profile_format: &str,
     ml: bool,
     ml_model_dir: Option<&std::path::Path>,
     ml_threshold: f32,
@@ -2816,6 +2826,11 @@ fn run_scan(
         ir,
         ml_config: None,
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        profile: runtime_profile,
+        profile_format: match runtime_profile_format {
+            "json" => sis_pdf_core::scan::ProfileFormat::Json,
+            _ => sis_pdf_core::scan::ProfileFormat::Text,
+        },
     };
     let runtime_overrides = build_ml_runtime_config(
         ml_provider,
@@ -3430,6 +3445,8 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         yara_scope: None,
         ml_config: None,
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
     };
     let detectors = sis_pdf_detectors::default_detectors();
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(true);
@@ -3507,6 +3524,8 @@ fn run_detect(
         yara_scope: None,
         ml_config: None,
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
     };
 
     let settings = sis_pdf_detectors::DetectorSettings { js_ast, js_sandbox };
@@ -3633,6 +3652,8 @@ fn run_export_graph(pdf: &str, chains_only: bool, format: &str, outdir: &PathBuf
         yara_scope: None,
         ml_config: None,
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
     };
     let detectors = sis_pdf_detectors::default_detectors();
     let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
@@ -3689,12 +3710,14 @@ fn run_export_org(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Res
             focus_trigger: None,
             yara_scope: None,
             focus_depth: 5,
-            strict: false,
-            strict_summary: false,
-            ir: false,
-            ml_config: None,
-            font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
-        };
+        strict: false,
+        strict_summary: false,
+        ir: false,
+        ml_config: None,
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
+    };
         let ctx = sis_pdf_core::scan::ScanContext::new(&mmap, graph, opts.clone());
         let classifications = ctx.classifications();
         let typed_graph = ctx.build_typed_graph();
@@ -3788,10 +3811,12 @@ fn run_export_ir(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Resu
             focus_depth: 5,
             strict: false,
             strict_summary: false,
-            ir: false,
-            ml_config: None,
-            font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
-        };
+        ir: false,
+        ml_config: None,
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
+    };
         let detectors = sis_pdf_detectors::default_detectors_with_settings(
             sis_pdf_detectors::DetectorSettings {
                 js_ast: true,
@@ -3904,6 +3929,8 @@ fn run_report(
         ir,
         ml_config: None,
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
     };
     let mut opts = opts;
     let runtime_overrides = build_ml_runtime_config(
@@ -4040,6 +4067,8 @@ fn run_export_features(
         ir: false,
         ml_config: None,
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
     };
     let mut paths = Vec::new();
     if let Some(pdf) = pdf {
@@ -4551,13 +4580,15 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
             diff_parser: false,
             max_objects: 500_000,
             max_recursion_depth: 64,
-            fast: false,
-            focus_trigger: None,
-            focus_depth: 0,
-            yara_scope: None,
-            ml_config: None,
-            font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
-        };
+        fast: false,
+        focus_trigger: None,
+        focus_depth: 0,
+        yara_scope: None,
+        ml_config: None,
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
+    };
         let base_report =
             sis_pdf_core::runner::run_scan_with_detectors(&data, opts.clone(), &detectors)?;
         let base_counts = count_kinds(&base_report.findings);

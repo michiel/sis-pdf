@@ -14,6 +14,18 @@ use tracing::{debug, trace, warn, Level};
 
 use crate::security_log::{SecurityDomain, SecurityEvent};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileFormat {
+    Text,
+    Json,
+}
+
+impl Default for ProfileFormat {
+    fn default() -> Self {
+        Self::Text
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ScanOptions {
     pub deep: bool,
@@ -34,6 +46,8 @@ pub struct ScanOptions {
     pub ir: bool,
     pub ml_config: Option<crate::ml::MlConfig>,
     pub font_analysis: FontAnalysisOptions,
+    pub profile: bool,
+    pub profile_format: ProfileFormat,
 }
 
 #[derive(Debug, Clone)]

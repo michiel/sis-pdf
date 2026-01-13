@@ -31,6 +31,7 @@ pub mod org_export;
 pub mod page_tree;
 pub mod position;
 pub mod predictor;
+pub mod profiler;
 pub mod quantum;
 pub mod redteam;
 pub mod report;
