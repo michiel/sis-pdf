@@ -18,3 +18,4 @@ demo_sample.js
 *.jsonl
 *.py
 out/
+.env.local

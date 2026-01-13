@@ -8788,6 +8788,7 @@ It also adds a clean way to export the graph in multiple formats.
 
 ## 11.1.1 New file: `crates/sis-pdf-core/src/graph_model.rs`
 
+{% raw %}
 ```rust
 use std::collections::HashMap;
 
@@ -9072,6 +9073,7 @@ fn escape_json(s: &str) -> String {
         .replace('\t', "\\t")
 }
 ```
+{% endraw %}
 
 ## 11.1.3 Export modules
 
