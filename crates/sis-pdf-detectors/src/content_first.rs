@@ -28,7 +28,7 @@ impl Detector for ContentFirstDetector {
     }
 
     fn cost(&self) -> Cost {
-        Cost::Moderate
+        Cost::Expensive
     }
 
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {

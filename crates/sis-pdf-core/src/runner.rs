@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use crate::evidence::preview_ascii;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
@@ -134,7 +135,18 @@ pub fn run_scan_with_detectors(
             {
                 continue;
             }
-            out.extend(d.run(&ctx)?);
+            let start = Instant::now();
+            let findings = d.run(&ctx)?;
+            let elapsed = start.elapsed();
+            if elapsed.as_millis() > 100 {
+                debug!(
+                    detector = d.id(),
+                    elapsed_ms = elapsed.as_millis(),
+                    findings = findings.len(),
+                    "Detector execution time"
+                );
+            }
+            out.extend(findings);
         }
         out
     };
