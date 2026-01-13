@@ -218,7 +218,7 @@ pub fn execute_query_with_context(query: &Query, ctx: &ScanContext) -> Result<Qu
             let filtered: Vec<String> = findings
                 .iter()
                 .filter(|f| &f.severity == severity)
-                .map(|f| format!("{}: {}", f.kind, f.title))
+                .map(|f| format!("{} {:?} {} {:?} {}: {}", f.id, f.severity, impact_from_severity(&f.severity), f.confidence, f.kind, f.title))
                 .collect();
             Ok(QueryResult::List(filtered))
         }
@@ -227,7 +227,7 @@ pub fn execute_query_with_context(query: &Query, ctx: &ScanContext) -> Result<Qu
             let filtered: Vec<String> = findings
                 .iter()
                 .filter(|f| f.kind == *kind)
-                .map(|f| format!("{}: {}", f.kind, f.title))
+                .map(|f| format!("{} {:?} {} {:?} {}: {}", f.id, f.severity, impact_from_severity(&f.severity), f.confidence, f.kind, f.title))
                 .collect();
             Ok(QueryResult::List(filtered))
         }
@@ -235,7 +235,7 @@ pub fn execute_query_with_context(query: &Query, ctx: &ScanContext) -> Result<Qu
             let findings = run_detectors(ctx)?;
             let result: Vec<String> = findings
                 .iter()
-                .map(|f| format!("{}: {}", f.kind, f.title))
+                .map(|f| format!("{} {:?} {} {:?} {}: {}", f.id, f.severity, impact_from_severity(&f.severity), f.confidence, f.kind, f.title))
                 .collect();
             Ok(QueryResult::List(result))
         }
@@ -557,6 +557,16 @@ fn run_detectors(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>>
     }
 
     Ok(findings)
+}
+
+fn impact_from_severity(severity: &Severity) -> &'static str {
+    match severity {
+        Severity::Info => "None",
+        Severity::Low => "Low",
+        Severity::Medium => "Medium",
+        Severity::High => "High",
+        Severity::Critical => "Critical",
+    }
 }
 
 /// Format query result as human-readable text
