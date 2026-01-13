@@ -321,6 +321,11 @@ enum Command {
         #[arg(long)]
         no_js_sandbox: bool,
     },
+    #[command(about = "Explain a specific finding with evidence details")]
+    Explain {
+        pdf: String,
+        finding_id: String,
+    },
     #[command(subcommand, about = "Streaming analysis of PDF content")]
     Stream(StreamCommand),
     #[command(subcommand, about = "Correlate findings across multiple PDFs")]
@@ -796,6 +801,7 @@ fn main() -> Result<()> {
             !no_js_ast,
             !no_js_sandbox,
         ),
+        Command::Explain { pdf, finding_id } => run_explain(&pdf, &finding_id),
         Command::Stream(cmd) => match cmd {
             StreamCommand::Analyse {
                 pdf,
