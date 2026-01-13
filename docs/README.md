@@ -6,6 +6,7 @@ This directory contains the documentation for **Smiley Is Suspicious (sis-pdf)**
 
 - **GitHub Pages**: https://michiel.github.io/sis-pdf/
 - **Index**: [index.md](index.md)
+- **Setup Guide**: [GITHUB_PAGES_SETUP.md](GITHUB_PAGES_SETUP.md)
 
 ## Documentation Contents
 
