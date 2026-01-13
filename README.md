@@ -99,6 +99,7 @@ sis query "pages,creator,producer,version" file.pdf --json
 # Extract content via queries
 sis query js file.pdf
 sis query urls file.pdf
+sis query events file.pdf
 
 # Interactive query mode (REPL)
 sis query file.pdf

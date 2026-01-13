@@ -2682,6 +2682,13 @@ fn print_repl_help() {
     println!("  findings.critical  - Critical severity findings");
     println!("  findings.kind KIND - Findings of specific kind");
     println!();
+    println!("Event trigger queries:");
+    println!("  events             - List all event triggers");
+    println!("  events.count       - Event trigger count");
+    println!("  events.document    - Document-level events (OpenAction, Doc/WillPrint, etc.)");
+    println!("  events.page        - Page-level events (Page/Open, Page/Close)");
+    println!("  events.field       - Field-level events (MouseDown, Validate, Keystroke, etc.)");
+    println!();
     println!("Object inspection queries:");
     println!("  object N           - Show object N (generation 0)");
     println!("  object N G         - Show object N generation G");
