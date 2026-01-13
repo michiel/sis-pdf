@@ -41,6 +41,13 @@ pub enum Query {
     FindingsBySeverity(Severity),
     FindingsByKind(String),
 
+    // Event trigger queries
+    Events,
+    EventsCount,
+    EventsDocument,
+    EventsPage,
+    EventsField,
+
     // Object queries
     ShowObject(u32, u16),
     ObjectsList,
@@ -109,6 +116,13 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "findings.low" => Ok(Query::FindingsBySeverity(Severity::Low)),
         "findings.info" => Ok(Query::FindingsBySeverity(Severity::Info)),
         "findings.critical" => Ok(Query::FindingsBySeverity(Severity::Critical)),
+
+        // Events
+        "events" => Ok(Query::Events),
+        "events.count" => Ok(Query::EventsCount),
+        "events.document" => Ok(Query::EventsDocument),
+        "events.page" => Ok(Query::EventsPage),
+        "events.field" => Ok(Query::EventsField),
 
         // Advanced
         "chains" => Ok(Query::Chains),
@@ -296,6 +310,27 @@ pub fn execute_query_with_context(query: &Query, ctx: &ScanContext) -> Result<Qu
         Query::CyclesPage => {
             let cycles = list_page_cycles(ctx)?;
             Ok(QueryResult::Structure(cycles))
+        }
+        Query::Events => {
+            let events = extract_event_triggers(ctx, None)?;
+            Ok(QueryResult::Structure(events))
+        }
+        Query::EventsCount => {
+            let events_json = extract_event_triggers(ctx, None)?;
+            let count = events_json.as_array().map(|arr| arr.len()).unwrap_or(0);
+            Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
+        }
+        Query::EventsDocument => {
+            let events = extract_event_triggers(ctx, Some("document"))?;
+            Ok(QueryResult::Structure(events))
+        }
+        Query::EventsPage => {
+            let events = extract_event_triggers(ctx, Some("page"))?;
+            Ok(QueryResult::Structure(events))
+        }
+        Query::EventsField => {
+            let events = extract_event_triggers(ctx, Some("field"))?;
+            Ok(QueryResult::Structure(events))
         }
         _ => Err(anyhow!("Query not yet implemented: {:?}", query)),
     }
@@ -646,6 +681,232 @@ fn extract_embedded_files(ctx: &ScanContext) -> Result<Vec<String>> {
     }
 
     Ok(embedded)
+}
+
+/// Extract event triggers from PDF
+fn extract_event_triggers(ctx: &ScanContext, filter_level: Option<&str>) -> Result<serde_json::Value> {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    let mut events = Vec::new();
+
+    // 1. Document-level events (from Catalog and document actions)
+    // Find catalog from trailer /Root entry
+    if let Some(trailer) = ctx.graph.trailers.first() {
+        for (key, value) in &trailer.entries {
+            let key_bytes = &key.decoded;
+            if key_bytes == b"/Root" {
+                if let PdfAtom::Ref { obj, gen } = &value.atom {
+                    if let Some(catalog_entry) = ctx.graph.get_object(*obj, *gen) {
+                        if let Some(dict) = entry_dict(catalog_entry) {
+                            // OpenAction (automatic execution on document open)
+                            if let Some((_, action_obj)) = dict.get_first(b"/OpenAction") {
+                                if filter_level.is_none() || filter_level == Some("document") {
+                                    let action_details = extract_action_details(&ctx.graph, ctx.bytes, action_obj);
+                                    events.push(json!({
+                                        "level": "document",
+                                        "event_type": "OpenAction",
+                                        "location": format!("obj {}:{} (Catalog)", obj, gen),
+                                        "trigger_config": "Triggered on document open",
+                                        "action_details": action_details
+                                    }));
+                                }
+                            }
+
+                            // Additional actions (AA dictionary)
+                            if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
+                                if filter_level.is_none() || filter_level == Some("document") {
+                                    extract_aa_events(&ctx.graph, ctx.bytes, aa_obj, "document", &format!("obj {}:{} (Catalog)", obj, gen), &mut events);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Page-level events
+    for entry in &ctx.graph.objects {
+        if let Some(dict) = entry_dict(entry) {
+            // Check if this is a Page object
+            if dict.has_name(b"/Type", b"/Page") {
+                if filter_level.is_none() || filter_level == Some("page") {
+                    // Check for Page AA (Additional Actions)
+                    if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
+                        extract_aa_events(&ctx.graph, ctx.bytes, aa_obj, "page", &format!("obj {}:{}", entry.obj, entry.gen), &mut events);
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Field-level events (form fields / annotations)
+    for entry in &ctx.graph.objects {
+        if let Some(dict) = entry_dict(entry) {
+            // Check for widget annotations (form fields)
+            if dict.has_name(b"/Subtype", b"/Widget") || dict.get_first(b"/FT").is_some() {
+                if filter_level.is_none() || filter_level == Some("field") {
+                    let field_name = dict.get_first(b"/T")
+                        .and_then(|(_, obj)| extract_obj_text(&ctx.graph, ctx.bytes, obj))
+                        .unwrap_or_else(|| "unnamed".to_string());
+
+                    // Check for field actions
+                    if let Some((_, action_obj)) = dict.get_first(b"/A") {
+                        let action_details = extract_action_details(&ctx.graph, ctx.bytes, action_obj);
+                        events.push(json!({
+                            "level": "field",
+                            "event_type": "Action",
+                            "location": format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
+                            "trigger_config": "Triggered on field activation",
+                            "action_details": action_details
+                        }));
+                    }
+
+                    // Check for Additional Actions (AA)
+                    if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
+                        extract_aa_events(&ctx.graph, ctx.bytes, aa_obj, "field", &format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name), &mut events);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(json!(events))
+}
+
+/// Extract additional actions from an AA dictionary
+fn extract_aa_events(
+    graph: &sis_pdf_pdf::ObjectGraph<'_>,
+    bytes: &[u8],
+    aa_obj: &sis_pdf_pdf::object::PdfObj<'_>,
+    level: &str,
+    location: &str,
+    events: &mut Vec<serde_json::Value>,
+) {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    if let PdfAtom::Dict(ref aa_dict) = aa_obj.atom {
+        let event_types = vec![
+            (b"/O" as &[u8], if level == "page" { "Page/Open" } else { "OnFocus" }),
+            (b"/C", if level == "page" { "Page/Close" } else { "OnBlur" }),
+            (b"/WC", "Doc/WillClose"),
+            (b"/WS", "Doc/WillSave"),
+            (b"/DS", "Doc/DidSave"),
+            (b"/WP", "Doc/WillPrint"),
+            (b"/DP", "Doc/DidPrint"),
+            (b"/K", "Keystroke"),
+            (b"/F", "Format"),
+            (b"/V", "Validate"),
+            (b"/C", "Calculate"),
+            (b"/D", "MouseDown"),
+            (b"/U", "MouseUp"),
+            (b"/E", "MouseEnter"),
+            (b"/X", "MouseExit"),
+            (b"/Fo", "OnFocus"),
+            (b"/Bl", "OnBlur"),
+        ];
+
+        for (key, event_name) in event_types {
+            if let Some((_, action_obj)) = aa_dict.get_first(key) {
+                let action_details = extract_action_details(graph, bytes, action_obj);
+                let trigger_desc = match event_name {
+                    "Page/Open" => "Triggered when page is opened/viewed",
+                    "Page/Close" => "Triggered when page is closed",
+                    "Doc/WillClose" => "Triggered before document close",
+                    "Doc/WillSave" => "Triggered before document save",
+                    "Doc/DidSave" => "Triggered after document save",
+                    "Doc/WillPrint" => "Triggered before printing",
+                    "Doc/DidPrint" => "Triggered after printing",
+                    "Keystroke" => "Triggered on each keystroke in field",
+                    "Format" => "Triggered when field is formatted",
+                    "Validate" => "Triggered on field validation",
+                    "Calculate" => "Triggered when field value is calculated",
+                    "MouseDown" => "Triggered on mouse button press",
+                    "MouseUp" => "Triggered on mouse button release",
+                    "MouseEnter" => "Triggered when mouse enters field",
+                    "MouseExit" => "Triggered when mouse exits field",
+                    "OnFocus" => "Triggered when field receives focus",
+                    "OnBlur" => "Triggered when field loses focus",
+                    _ => "Triggered by event",
+                };
+
+                events.push(json!({
+                    "level": level,
+                    "event_type": event_name,
+                    "location": location,
+                    "trigger_config": trigger_desc,
+                    "action_details": action_details
+                }));
+            }
+        }
+    }
+}
+
+/// Extract action details from an action object
+fn extract_action_details(
+    graph: &sis_pdf_pdf::ObjectGraph<'_>,
+    bytes: &[u8],
+    action_obj: &sis_pdf_pdf::object::PdfObj<'_>,
+) -> String {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    if let Some(dict) = match &action_obj.atom {
+        PdfAtom::Dict(d) => Some(d),
+        PdfAtom::Stream(st) => Some(&st.dict),
+        _ => None,
+    } {
+        // Check action type
+        if let Some((_, s_obj)) = dict.get_first(b"/S") {
+            if let Some(action_type) = extract_obj_text(graph, bytes, s_obj) {
+                match action_type.as_str() {
+                    "/JavaScript" => {
+                        if let Some((_, js_obj)) = dict.get_first(b"/JS") {
+                            if let Some(js_code) = extract_obj_text(graph, bytes, js_obj) {
+                                return format!("JavaScript: {}", preview_text(&js_code, 100));
+                            }
+                        }
+                        return "JavaScript: <code unavailable>".to_string();
+                    }
+                    "/URI" => {
+                        if let Some((_, uri_obj)) = dict.get_first(b"/URI") {
+                            if let Some(uri) = extract_obj_text(graph, bytes, uri_obj) {
+                                return format!("URI: {}", uri);
+                            }
+                        }
+                        return "URI: <unavailable>".to_string();
+                    }
+                    "/SubmitForm" => {
+                        if let Some((_, f_obj)) = dict.get_first(b"/F") {
+                            if let Some(url) = extract_obj_text(graph, bytes, f_obj) {
+                                return format!("Submit form to: {}", url);
+                            }
+                        }
+                        return "Submit form".to_string();
+                    }
+                    "/Launch" => {
+                        return "Launch external application".to_string();
+                    }
+                    "/GoTo" => {
+                        return "Navigate to destination".to_string();
+                    }
+                    "/GoToR" => {
+                        return "Navigate to remote destination".to_string();
+                    }
+                    "/Named" => {
+                        if let Some((_, n_obj)) = dict.get_first(b"/N") {
+                            if let Some(name) = extract_obj_text(graph, bytes, n_obj) {
+                                return format!("Named action: {}", name);
+                            }
+                        }
+                        return "Named action".to_string();
+                    }
+                    _ => return format!("Action type: {}", action_type),
+                }
+            }
+        }
+    }
+
+    "Action details unavailable".to_string()
 }
 
 // Helper functions

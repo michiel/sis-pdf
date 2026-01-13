@@ -202,6 +202,36 @@ sis query findings.high file.pdf
 sis query "findings.kind js_present" file.pdf
 ```
 
+### Event trigger queries
+
+```
+# List all event triggers
+sis query events file.pdf
+
+# Count event triggers
+sis query events.count file.pdf
+
+# Filter by trigger level
+sis query events.document file.pdf
+sis query events.page file.pdf
+sis query events.field file.pdf
+
+# JSON output for analysis
+sis query events file.pdf --json
+```
+
+Event triggers include:
+- **Document-level**: OpenAction, Doc/WillClose, Doc/WillSave, Doc/DidSave, Doc/WillPrint, Doc/DidPrint
+- **Page-level**: Page/Open, Page/Close
+- **Field-level**: MouseDown, MouseUp, MouseEnter, MouseExit, OnFocus, OnBlur, Calculate, Validate, Keystroke, Format
+
+Each event trigger shows:
+- Level (document/page/field)
+- Event type (e.g., OpenAction, MouseDown, Validate)
+- Location (object ID)
+- Trigger configuration (what activates it)
+- Action details (what it does - JavaScript, URI, submit form, etc.)
+
 ### Interactive REPL mode
 
 For exploratory analysis, use REPL mode:
@@ -227,6 +257,11 @@ Found 3 JavaScript actions:
 
 sis> findings.high
 66 High severity findings
+
+sis> events.document
+Found 2 document-level event triggers:
+  OpenAction (obj 12:0) → JavaScript: app.alert('Document opened')
+  Doc/WillPrint (obj 34:0) → JavaScript: this.print({bUI:false})
 
 sis> object 45
 45 0 obj
@@ -300,6 +335,29 @@ Analysis steps:
 - Use evidence source to decide if you need to inspect raw bytes or decoded output.
 - For file-backed evidence, offsets are absolute in the original PDF.
 - For decoded evidence, consult `origin` spans to map back to raw stream bytes.
+
+### Event Triggers in Reports
+
+The Markdown report includes an appendix section listing all event triggers found in the PDF:
+
+**Event Triggers Table**
+
+| Level | Event Type | Location | Trigger Configuration | Action Details |
+|-------|-----------|----------|----------------------|----------------|
+| Document | OpenAction | obj 12:0 | Triggered on document open | JavaScript: `app.alert('Document opened')` |
+| Document | Doc/WillPrint | obj 34:0 | Triggered before printing | JavaScript: `this.print({bUI:false})` |
+| Page | Page/Open | obj 56:0 | Triggered when page 5 is viewed | JavaScript: `console.println('Page viewed')` |
+| Field | MouseDown | obj 78:0 | Triggered on mouse click in field "button1" | Submit form to `http://example.com/submit` |
+| Field | Validate | obj 89:0 | Triggered on field "email" validation | JavaScript: AFSimple_Validate("email") |
+| Field | Keystroke | obj 91:0 | Triggered on each keystroke in field "phone" | JavaScript: AFNumber_Keystroke(0,0) |
+
+Event trigger analysis helps identify:
+- **Automatic execution vectors** (OpenAction, Page/Open)
+- **User interaction triggers** (MouseDown, MouseEnter, OnFocus)
+- **Form validation and calculation** (Validate, Calculate, Format)
+- **Suspicious print/save hooks** (Doc/WillPrint, Doc/WillSave)
+
+Use `sis query events file.pdf` to extract event triggers for further analysis.
 
 ## 4d) ML inference and explanations
 
