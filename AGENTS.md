@@ -12,6 +12,29 @@ This project is a security tool focused on analysing PDF files to determine if t
   - User facing documentation always uses 'sis' binary for invocation documentation, not 'cargo run'
 - Ensure implemented features have test coverage
 
+### Finding Metadata Guidance
+
+Findings in this project include metadata fields for `severity`, `impact`, and `confidence`. These fields are crucial for prioritising and understanding the significance of detected issues.
+
+*   **Severity**: This indicates the potential harm or risk associated with a finding.
+    *   `Critical`: Immediate and severe threat, likely to lead to system compromise or data exfiltration. Requires urgent attention.
+    *   `High`: Significant threat, potential for serious harm, but may require specific conditions or user interaction. Requires prompt attention.
+    *   `Medium`: Moderate threat, potential for some harm or information disclosure. Requires attention.
+    *   `Low`: Minor threat, limited potential for harm, often informational or best practice violations. May be addressed in routine maintenance.
+    *   `Info`: Purely informational, no direct threat, but provides useful context.
+*   **Impact**: This describes the potential consequences if the finding is exploited or realised. It helps to contextualise the severity.
+    *   `Critical`: Direct system compromise, arbitrary code execution, data loss/exfiltration.
+    *   `High`: Significant data exposure, denial of service, privilege escalation.
+    *   `Medium`: Minor data exposure, system instability, bypass of security controls.
+    *   `Low`: Information leakage, minor functionality disruption.
+    *   `None`: No direct negative consequence.
+*   **Confidence**: This reflects the certainty that the finding is accurate and not a false positive.
+    *   `Certain`: Highly reliable, almost no chance of false positive.
+    *   `Strong`: Very likely to be accurate, low chance of false positive.
+    *   `Probable`: Good chance of accuracy, some possibility of false positive.
+    *   `Tentative`: Possible, but with a higher chance of false positive, requires further investigation.
+    *   `Weak`: Low certainty, likely a false positive or requires significant additional context.
+
 ## Project Structure & Module Organization
 
 - `crates/` contains the Rust workspace members:

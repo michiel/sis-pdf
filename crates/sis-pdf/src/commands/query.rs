@@ -215,29 +215,23 @@ pub fn execute_query_with_context(query: &Query, ctx: &ScanContext) -> Result<Qu
         }
         Query::FindingsBySeverity(severity) => {
             let findings = run_detectors(ctx)?;
-            let filtered: Vec<String> = findings
-                .iter()
+            let filtered: Vec<sis_pdf_core::model::Finding> = findings
+                .into_iter()
                 .filter(|f| &f.severity == severity)
-                .map(|f| format!("{}: {}", f.kind, f.title))
                 .collect();
-            Ok(QueryResult::List(filtered))
+            Ok(QueryResult::Structure(json!(filtered)))
         }
         Query::FindingsByKind(kind) => {
             let findings = run_detectors(ctx)?;
-            let filtered: Vec<String> = findings
-                .iter()
+            let filtered: Vec<sis_pdf_core::model::Finding> = findings
+                .into_iter()
                 .filter(|f| f.kind == *kind)
-                .map(|f| format!("{}: {}", f.kind, f.title))
                 .collect();
-            Ok(QueryResult::List(filtered))
+            Ok(QueryResult::Structure(json!(filtered)))
         }
         Query::Findings => {
             let findings = run_detectors(ctx)?;
-            let result: Vec<String> = findings
-                .iter()
-                .map(|f| format!("{}: {}", f.kind, f.title))
-                .collect();
-            Ok(QueryResult::List(result))
+            Ok(QueryResult::Structure(json!(findings)))
         }
         Query::JavaScript => {
             let js_code = extract_javascript(ctx)?;
@@ -557,6 +551,16 @@ fn run_detectors(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>>
     }
 
     Ok(findings)
+}
+
+fn impact_from_severity(severity: &Severity) -> &'static str {
+    match severity {
+        Severity::Info => "None",
+        Severity::Low => "Low",
+        Severity::Medium => "Medium",
+        Severity::High => "High",
+        Severity::Critical => "Critical",
+    }
 }
 
 /// Format query result as human-readable text
