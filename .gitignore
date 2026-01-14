@@ -1,5 +1,5 @@
 target/
-*log
+*.log
 tmp/
 extracted_js/
 
@@ -17,5 +17,6 @@ demo_sample.js
 *.txt
 *.jsonl
 *.py
+!scripts/evaluate-mwb-corpus.py
 out/
 .env.local
