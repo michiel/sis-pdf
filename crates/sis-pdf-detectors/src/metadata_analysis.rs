@@ -201,15 +201,12 @@ fn analyze_xmp_metadata(ctx: &sis_pdf_core::scan::ScanContext, findings: &mut Ve
 
 fn is_suspicious_producer(s: &str) -> bool {
     let suspicious_patterns = [
-        "microsoft word", // Often faked in malware
-        "windows",
         "user",
         "admin",
         "test",
         "unknown",
         "null",
         "script",
-        "pdf.js", // Browser-based generation (uncommon in enterprise)
     ];
 
     let lower = s.to_lowercase();

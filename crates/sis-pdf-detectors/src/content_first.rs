@@ -157,6 +157,7 @@ impl Detector for ContentFirstDetector {
                         entry.gen,
                         stream.data_span,
                         data,
+                        kind,
                         origin_label,
                         "Stream data",
                     ));
@@ -210,6 +211,7 @@ impl Detector for ContentFirstDetector {
                         entry.gen,
                         string_span(s),
                         &bytes,
+                        kind,
                         "string",
                         "String data",
                     ));
@@ -265,6 +267,7 @@ impl Detector for ContentFirstDetector {
                             entry.gen,
                             entry.body_span,
                             bytes,
+                            kind,
                             "object",
                             "Object data",
                         ));
@@ -957,6 +960,7 @@ fn script_payload_findings(
     gen: u16,
     span: sis_pdf_pdf::span::Span,
     data: &[u8],
+    kind: BlobKind,
     origin: &str,
     label: &str,
 ) -> Vec<Finding> {
@@ -968,14 +972,22 @@ fn script_payload_findings(
     };
 
     let mut findings = Vec::new();
-    let mut push = |kind: &str, title: &str, description: &str, severity: Severity| {
+    let mut push = |kind_str: &str, title: &str, description: &str, default_severity: Severity| {
+        let actual_severity = if kind.is_image() || matches!(kind, BlobKind::Xml | BlobKind::Html | BlobKind::Unknown) {
+            // If the blob is an image, XML, HTML, or unknown, and we found a script indicator,
+            // it's likely a false positive or benign data. Lower severity.
+            Severity::Low
+        } else {
+            // Otherwise, use the default severity (which is High for most script payloads)
+            default_severity
+        };
         let mut meta = HashMap::new();
         meta.insert("blob.origin".to_string(), origin.to_string());
         findings.push(Finding {
             id: String::new(),
             surface: AttackSurface::StreamsAndFilters,
-            kind: kind.to_string(),
-            severity,
+            kind: kind_str.to_string(),
+            severity: actual_severity,
             confidence: Confidence::Probable,
             title: title.to_string(),
             description: description.to_string(),

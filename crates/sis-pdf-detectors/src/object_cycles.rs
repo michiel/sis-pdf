@@ -155,6 +155,9 @@ fn classify_cycle(
     }
 
     // Large cycles (>6 objects) - Tag structure bombs, resource exhaustion
+    if cycle_length > 100 {
+        return (Severity::Critical, "extremely_large_cycle");
+    }
     (Severity::High, "large_cycle")
 }
 
