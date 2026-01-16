@@ -66,9 +66,11 @@ This plan implements comprehensive font security analysis for `sis-pdf` using Ru
 
 **Tests:**
 - Unit tests with benign Type 1 fonts from Adobe Core 14
-- Synthetic BLEND exploit sample triggering heuristics
+- **Exploit fixture:** Synthetic BLEND exploit (2015) sample in `tests/fixtures/exploits/blend_2015.pfb`
+- **CVE fixtures:** Type 1 fonts with known vulnerabilities in `tests/fixtures/cve/`
 - Edge cases: minimal font, maximum operators, deeply nested calls
 - Integration test: PDF with embedded Type 1 font producing expected findings
+- Regression tests ensure no false positives on Adobe Source fonts
 
 **Implementation Tasks:**
 
@@ -106,7 +108,17 @@ This plan implements comprehensive font security analysis for `sis-pdf` using Ru
   - `font.type1_excessive_stack` → MEDIUM
   - `font.type1_large_charstring` → LOW
 
-### 1.5 Integration
+### 1.5 Test Fixture Creation
+- **Directory:** `crates/font-analysis/tests/fixtures/`
+- Create or acquire test fixtures:
+  - **BLEND exploit:** Synthesize Type 1 font with multiple `callothersubr`/`return` sequences
+  - **Adobe Core 14:** Extract benign Type 1 fonts (Times-Roman, Helvetica, etc.)
+  - **Stack overflow:** Create Type 1 font with >100 stack depth
+  - **Large charstring:** Generate font with >10,000 operator charstring
+- Document fixture sources and CVE/exploit references in `tests/fixtures/README.md`
+- Add LICENSE.txt for redistributed fonts
+
+### 1.6 Integration
 - **File:** `crates/font-analysis/src/lib.rs`
 - Modify `analyse_font()` to dispatch to `type1::analyze_type1()` when Type 1 detected
 - Merge Type 1 findings with existing static/dynamic findings
@@ -130,11 +142,13 @@ This plan implements comprehensive font security analysis for `sis-pdf` using Ru
 
 **Tests:**
 - Fonts with parse errors trigger `font.dynamic_parse_failure`
-- CVE-2025-27163 test case (hmtx/hhea mismatch) detected
-- CVE-2025-27164 test case (CFF2/maxp mismatch) detected
-- CVE-2023-26369 test case (EBSC OOB) detected
-- Signature matching correctly identifies known vulnerable fonts
+- **CVE-2025-27163 fixture:** `tests/fixtures/cve/cve-2025-27163-hmtx-hhea-mismatch.ttf` (hmtx/hhea mismatch)
+- **CVE-2025-27164 fixture:** `tests/fixtures/cve/cve-2025-27164-cff2-maxp-mismatch.otf` (CFF2/maxp mismatch)
+- **CVE-2023-26369 fixture:** `tests/fixtures/cve/cve-2023-26369-ebsc-oob.ttf` (EBSC out-of-bounds)
+- **Additional CVE fixtures:** All known font CVEs from 2020-present in `tests/fixtures/cve/`
+- Signature matching correctly identifies vulnerable fonts from fixture suite
 - Malformed font files trigger appropriate error handling
+- Benign variable fonts pass all validation checks
 
 **Implementation Tasks:**
 
@@ -192,6 +206,17 @@ This plan implements comprehensive font security analysis for `sis-pdf` using Ru
 - Output YAML signatures to `crates/font-analysis/signatures/`
 - Run as GitHub Action on weekly schedule
 
+### 2.6 CVE Test Fixture Creation
+- **Directory:** `crates/font-analysis/tests/fixtures/cve/`
+- Synthesize or acquire fonts triggering specific CVEs:
+  - **CVE-2025-27163:** TrueType with `hmtx` length < `4 * hhea.numberOfHMetrics`
+  - **CVE-2025-27164:** OpenType/CFF2 with `maxp.num_glyphs` > `charstrings.len()`
+  - **CVE-2023-26369:** TrueType with EBSC offsets exceeding table bounds
+  - **Additional CVEs:** Create fixtures for all CVEs from 2020-present
+- Use font generation tools (fonttools, fontforge) to create malformed fonts
+- Document each CVE with references to NVD/advisories in fixture README
+- Ensure fixtures trigger exactly one CVE (no multiple issues per file)
+
 **Status:** Not Started
 
 ---
@@ -209,11 +234,12 @@ This plan implements comprehensive font security analysis for `sis-pdf` using Ru
 - [ ] Findings include: `font.anomalous_variation_table`, `font.color_table_inconsistent`, `font.external_reference`, `pdf.font_js_correlation`
 
 **Tests:**
-- Variable font with valid/invalid avar data
-- Color font with palette index OOB
-- WOFF2 compressed font decompresses correctly
-- PDF with `/URI` font reference flagged
-- PDF with Type 1 dangerous ops + JavaScript heap spray triggers correlation
+- **Variable font fixtures:** `tests/fixtures/variable/valid-avar.ttf`, `tests/fixtures/variable/invalid-gvar-size.ttf`
+- **Color font fixtures:** `tests/fixtures/color/valid-colr-cpal.ttf`, `tests/fixtures/color/oob-palette-index.ttf`
+- **WOFF/WOFF2 fixtures:** `tests/fixtures/woff/compressed.woff2`, `tests/fixtures/woff/malformed-header.woff`
+- WOFF2 decompression produces valid SFNT for analysis
+- PDF with `/URI` font reference in `tests/fixtures/pdf/external-font-ref.pdf` flagged
+- Correlation fixture: `tests/fixtures/pdf/type1-exploit-with-js-heapspray.pdf` triggers composite finding
 
 **Implementation Tasks:**
 
@@ -461,16 +487,54 @@ This plan implements comprehensive font security analysis for `sis-pdf` using Ru
 
 ## Testing Strategy
 
+### Test Fixture Suite
+
+All test fixtures organized in `crates/font-analysis/tests/fixtures/`:
+
+**Exploits:**
+- `exploits/blend_2015.pfb` - BLEND exploit (PostScript Type 1, 2015)
+- `exploits/type1_stack_overflow.pfb` - Excessive stack depth Type 1 font
+- `exploits/ttf_hinting_loop.ttf` - TrueType infinite loop hinting program
+
+**CVE Test Cases (2020-Present):**
+- `cve/cve-2023-26369-ebsc-oob.ttf` - EBSC table out-of-bounds write
+- `cve/cve-2025-27163-hmtx-hhea-mismatch.ttf` - hmtx/hhea length mismatch
+- `cve/cve-2025-27164-cff2-maxp-mismatch.otf` - CFF2/maxp glyph count mismatch
+- `cve/cve-YYYY-NNNNN-*.{ttf,otf,pfb}` - Additional CVEs as discovered
+
+**Format Coverage:**
+- `type1/adobe-core14/*.pfb` - Benign Type 1 fonts from Adobe Core 14
+- `variable/valid-*.ttf` - Valid variable fonts with avar, gvar, HVAR, MVAR
+- `variable/invalid-*.ttf` - Malformed variable fonts (size, offset, index errors)
+- `color/valid-*.ttf` - Valid COLR/CPAL color fonts
+- `color/invalid-*.ttf` - Malformed color fonts (OOB palette, invalid layers)
+- `woff/*.woff` - WOFF compressed fonts
+- `woff/*.woff2` - WOFF2 compressed fonts (valid and malformed)
+- `truetype/benign-*.ttf` - Standard TrueType fonts
+- `opentype/benign-*.otf` - Standard CFF OpenType fonts
+
+**PDF Integration:**
+- `pdf/type1-embedded.pdf` - PDF with embedded Type 1 font
+- `pdf/external-font-ref.pdf` - PDF with `/URI` remote font reference
+- `pdf/type1-exploit-with-js-heapspray.pdf` - Correlation test case
+- `pdf/variable-font-embedded.pdf` - PDF with variable font
+
+**Benign Regression Suite:**
+- `benign/google-fonts-sample/*.ttf` - Sample from Google Fonts (no false positives)
+- `benign/adobe-source/*.otf` - Adobe Source fonts (no false positives)
+
 ### Unit Tests
 - Each module has `#[cfg(test)] mod tests` with 80%+ coverage
-- Test benign, malicious, and edge-case fonts
+- Test benign, malicious, and edge-case fonts from fixture suite
 - Property-based testing using `proptest` for charstring parsing
+- All fixtures have corresponding test assertions
 
 ### Integration Tests
-- `tests/font_analysis_integration.rs` with real PDF samples
-- CVE test suite with known vulnerable fonts
-- Regression tests for false positives
-- Malformed font tests for error handling
+- `tests/font_analysis_integration.rs` - End-to-end tests with fixtures
+- `tests/cve_detection.rs` - All CVE fixtures trigger correct findings
+- `tests/exploit_detection.rs` - All exploit fixtures detected
+- `tests/benign_regression.rs` - No false positives on benign suite
+- `tests/format_coverage.rs` - All format types parsed correctly
 
 ### Performance Benchmarks
 - `benches/font_analysis.rs` using Criterion
