@@ -205,7 +205,7 @@ mod tests {
     use super::*;
     use crate::model::Confidence;
     use crate::report::Report;
-    use crate::scan::FontAnalysisOptions;
+    use crate::scan::{FontAnalysisOptions, ProfileFormat};
 
     fn test_opts() -> ScanOptions {
         ScanOptions {
@@ -226,8 +226,10 @@ mod tests {
             strict_summary: false,
             ir: false,
             ml_config: None,
-            font_analysis: FontAnalysisOptions::default(),
-        }
+        font_analysis: FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: ProfileFormat::Text,
+    }
     }
 
     fn empty_report(findings: Vec<Finding>) -> Report {

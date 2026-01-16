@@ -13,6 +13,7 @@ This directory contains the documentation for **Smiley Is Suspicious (sis-pdf)**
 ### Getting Started
 - [Main README](../README.md) - Installation and quick start
 - [Usage Guide](../USAGE.md) - Comprehensive command reference
+- [Configuration Guide](configuration.md) - Configuration files and profiles
 - [Glossary](glossary.md) - Terminology and concepts
 
 ### Core Documentation

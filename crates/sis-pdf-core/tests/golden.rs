@@ -1,4 +1,4 @@
-use sis_pdf_core::scan::{FontAnalysisOptions, ScanOptions};
+use sis_pdf_core::scan::{FontAnalysisOptions, ProfileFormat, ScanOptions};
 
 #[test]
 fn golden_synthetic_findings() {
@@ -23,6 +23,8 @@ fn golden_synthetic_findings() {
         ir: false,
         ml_config: None,
         font_analysis: FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: ProfileFormat::Text,
     };
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts, &detectors)
         .expect("scan should succeed");

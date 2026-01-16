@@ -21,6 +21,7 @@ _"Smiley is suspicious, Percy"_
 
 - [Main README](../README.md) - Installation, quick start, and basic usage
 - [Complete Usage Guide](../USAGE.md) - Comprehensive command-line reference
+- [Configuration Guide](configuration.md) - Configuration files and profiles
 - [Glossary](glossary.md) - Terminology and concepts
 
 ## Core Documentation

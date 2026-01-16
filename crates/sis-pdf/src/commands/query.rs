@@ -392,6 +392,8 @@ fn build_scan_context<'a>(
         batch_parallel: false,
         ml_config: None,
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        profile: false,
+        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
     };
 
     // Parse PDF

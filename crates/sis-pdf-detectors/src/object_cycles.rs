@@ -197,6 +197,11 @@ fn detect_cycles_from(
     findings: &mut Vec<Finding>,
     depth: usize,
 ) -> usize {
+    // Already fully explored - return cached depth
+    if visited.contains(obj_ref) {
+        return depths.get(obj_ref).copied().unwrap_or(0);
+    }
+
     // Check if we've found a cycle
     if stack.contains(obj_ref) {
         let cycle_start = stack.iter().position(|r| r == obj_ref).unwrap();
@@ -270,14 +275,15 @@ fn detect_cycles_from(
             position: None,
             positions: Vec::new(),
         });
+
+        // CRITICAL FIX: Mark this node as visited even when it's part of a cycle
+        // This prevents exponential re-traversal of cyclic subgraphs
+        visited.insert(*obj_ref);
+
         return depth;
     }
 
-    // Already fully explored
-    if visited.contains(obj_ref) {
-        return depths.get(obj_ref).copied().unwrap_or(0);
-    }
-
+    // Mark as visited before recursing
     visited.insert(*obj_ref);
     stack.push(*obj_ref);
 
