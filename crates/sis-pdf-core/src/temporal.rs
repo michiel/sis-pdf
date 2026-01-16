@@ -205,7 +205,7 @@ mod tests {
     use super::*;
     use crate::model::Confidence;
     use crate::report::Report;
-    use crate::scan::FontAnalysisOptions;
+    use crate::scan::{FontAnalysisOptions, ProfileFormat};
 
     fn test_opts() -> ScanOptions {
         ScanOptions {

@@ -165,15 +165,23 @@ impl Profiler {
         }
     }
 
-    /// Set document information
+    /// Record a completed detector execution with explicit duration
+    /// This is useful for parallel execution where timing is captured separately
     #[inline(always)]
-    pub fn set_document_info(&self, info: DocumentInfo) {
+    pub fn record_detector(&self, id: &str, cost: &str, duration: Duration, findings_count: usize) {
         if !self.is_enabled() {
             return;
         }
 
-        // Store in ProfileReport during finalize
-        // For now, we'll pass this through finalize
+        if let Ok(mut data) = self.data.lock() {
+            data.detectors.push(DetectorRecord {
+                id: id.to_string(),
+                cost: cost.to_string(),
+                start: Instant::now(), // Not used when duration is explicitly set
+                duration: Some(duration),
+                findings_count,
+            });
+        }
     }
 
     /// Finalize and generate the profile report

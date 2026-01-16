@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::evidence::preview_ascii;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
@@ -88,23 +88,57 @@ pub fn run_scan_with_detectors(
             .num_threads(PARALLEL_DETECTOR_THREADS)
             .build();
         match pool {
-            Ok(pool) => pool
-                .install(|| {
-                    detectors
-                        .par_iter()
-                        .filter(|d| {
-                            if ctx.options.fast {
-                                d.cost() == crate::detect::Cost::Cheap
-                            } else {
-                                ctx.options.deep || d.cost() != crate::detect::Cost::Expensive
-                            }
-                        })
-                        .map(|d| d.run(&ctx))
-                        .collect::<Result<Vec<_>, _>>()
-                })?
-                .into_iter()
-                .flatten()
-                .collect(),
+            Ok(pool) => {
+                // For parallel execution, we need to track timing separately
+                // since detectors run concurrently
+                let results: Vec<(String, String, Duration, Vec<Finding>)> = pool
+                    .install(|| {
+                        detectors
+                            .par_iter()
+                            .filter(|d| {
+                                if ctx.options.fast {
+                                    d.cost() == crate::detect::Cost::Cheap
+                                } else {
+                                    ctx.options.deep || d.cost() != crate::detect::Cost::Expensive
+                                }
+                            })
+                            .filter_map(|d| {
+                                let start = Instant::now();
+                                let cost_str = match d.cost() {
+                                    crate::detect::Cost::Cheap => "Cheap",
+                                    crate::detect::Cost::Moderate => "Moderate",
+                                    crate::detect::Cost::Expensive => "Expensive",
+                                };
+                                match d.run(&ctx) {
+                                    Ok(findings) => {
+                                        let elapsed = start.elapsed();
+                                        Some((d.id().to_string(), cost_str.to_string(), elapsed, findings))
+                                    }
+                                    Err(e) => {
+                                        error!(detector = d.id(), error = %e, "Detector failed in parallel execution");
+                                        None
+                                    }
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    });
+
+                // Record all detector timings to profiler
+                for (id, cost, elapsed, ref findings) in &results {
+                    profiler.record_detector(id, cost, *elapsed, findings.len());
+                    if elapsed.as_millis() > 100 {
+                        debug!(
+                            detector = id,
+                            elapsed_ms = elapsed.as_millis(),
+                            findings = findings.len(),
+                            "Detector execution time"
+                        );
+                    }
+                }
+
+                // Flatten findings
+                results.into_iter().flat_map(|(_, _, _, findings)| findings).collect()
+            }
             Err(err) => {
                 SecurityEvent {
                     level: Level::WARN,
@@ -132,7 +166,25 @@ pub fn run_scan_with_detectors(
                     {
                         continue;
                     }
-                    out.extend(d.run(&ctx)?);
+                    let start = Instant::now();
+                    let cost_str = match d.cost() {
+                        crate::detect::Cost::Cheap => "Cheap",
+                        crate::detect::Cost::Moderate => "Moderate",
+                        crate::detect::Cost::Expensive => "Expensive",
+                    };
+                    profiler.begin_detector(d.id(), cost_str);
+                    let findings = d.run(&ctx)?;
+                    let elapsed = start.elapsed();
+                    profiler.end_detector(findings.len());
+                    if elapsed.as_millis() > 100 {
+                        debug!(
+                            detector = d.id(),
+                            elapsed_ms = elapsed.as_millis(),
+                            findings = findings.len(),
+                            "Detector execution time"
+                        );
+                    }
+                    out.extend(findings);
                 }
                 out
             }
