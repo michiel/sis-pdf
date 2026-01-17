@@ -106,6 +106,55 @@ sis query events file.pdf
 sis query file.pdf
 ```
 
+## Font Security Analysis
+
+`sis-pdf` includes comprehensive font security analysis to detect exploits targeting PDF font renderers. This feature analyzes embedded fonts for known vulnerabilities, suspicious patterns, and exploit techniques.
+
+### Supported Font Formats
+
+- **Type 1 (PostScript)**: BLEND exploit detection, dangerous operator analysis, stack depth tracking
+- **TrueType**: Hinting program analysis, table validation, VM instruction budgets
+- **OpenType/CFF**: Variable font validation, CFF2 table checks
+- **Variable Fonts**: gvar/avar/HVAR/MVAR table anomaly detection
+
+### CVE Detection
+
+The analyzer includes signatures for known font vulnerabilities:
+
+- **CVE-2025-27163**: hmtx/hhea table length mismatch
+- **CVE-2025-27164**: CFF2/maxp glyph count mismatch
+- **CVE-2023-26369**: EBSC table out-of-bounds
+- **BLEND Exploit (2015)**: PostScript Type 1 stack manipulation
+
+CVE signatures are automatically updated weekly via GitHub Actions.
+
+### Configuration
+
+Font analysis is enabled by default. Configure via `config.toml`:
+
+```toml
+[scan.font_analysis]
+enabled = true
+dynamic_enabled = true
+dynamic_timeout_ms = 5000
+max_fonts = 100
+```
+
+### Example Usage
+
+```bash
+# Scan PDF with font analysis
+sis scan suspicious.pdf
+
+# View font findings
+sis scan suspicious.pdf | grep "^font\."
+
+# Detailed font analysis example
+cargo run --example font_analysis suspicious.pdf
+```
+
+For all font finding definitions, see [`docs/findings.md`](docs/findings.md).
+
 ## Configuration
 
 Config defaults to the platform user config directory, or pass `--config=PATH`.
