@@ -563,6 +563,71 @@ impl Default for SignatureRegistry {
     }
 }
 
+/// Load embedded signatures from the signatures directory
+#[cfg(feature = "dynamic")]
+pub fn load_embedded_signatures() -> Result<Vec<Signature>, String> {
+    // This will load signatures embedded in the binary at compile time
+    // For now, we'll scan the signatures directory at runtime
+    const SIGNATURES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/signatures");
+    load_signatures_from_directory(SIGNATURES_DIR)
+}
+
+#[cfg(not(feature = "dynamic"))]
+pub fn load_embedded_signatures() -> Result<Vec<Signature>, String> {
+    Err("Signature loading requires 'dynamic' feature".to_string())
+}
+
+/// Load signatures from a directory
+#[cfg(feature = "dynamic")]
+pub fn load_signatures_from_directory(directory: &str) -> Result<Vec<Signature>, String> {
+    use std::fs;
+    use std::path::Path;
+
+    let path = Path::new(directory);
+    if !path.exists() {
+        return Err(format!("Signature directory not found: {}", directory));
+    }
+
+    if !path.is_dir() {
+        return Err(format!("Not a directory: {}", directory));
+    }
+
+    let mut signatures = Vec::new();
+    let entries = fs::read_dir(path)
+        .map_err(|e| format!("Failed to read directory {}: {}", directory, e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
+
+        // Only process .yaml and .yml files
+        if let Some(ext) = path.extension() {
+            if ext == "yaml" || ext == "yml" {
+                let content = fs::read_to_string(&path)
+                    .map_err(|e| format!("Failed to read file {:?}: {}", path, e))?;
+
+                let file_signatures: Vec<Signature> = serde_yaml::from_str(&content)
+                    .map_err(|e| format!("Failed to parse {:?}: {}", path, e))?;
+
+                // Validate each signature
+                for sig in &file_signatures {
+                    sig.validate()
+                        .map_err(|e| format!("Invalid signature in {:?}: {}", path, e))?;
+                }
+
+                signatures.extend(file_signatures);
+            }
+        }
+    }
+
+    Ok(signatures)
+}
+
+#[cfg(not(feature = "dynamic"))]
+pub fn load_signatures_from_directory(_directory: &str) -> Result<Vec<Signature>, String> {
+    Err("Signature loading requires 'dynamic' feature".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
