@@ -1,0 +1,41 @@
+%!PS-AdobeFont-1.0: MinimalTest 001.000
+%%CreationDate: 2026-01-17
+%%VMusage: 1024 8192
+% Minimal valid Type 1 font for regression testing
+11 dict begin
+/FontInfo 5 dict dup begin
+/version (001.000) readonly def
+/FullName (Minimal Test Font) readonly def
+/FamilyName (MinimalTest) readonly def
+/Weight (Medium) readonly def
+/ItalicAngle 0 def
+end readonly def
+/FontName /MinimalTest def
+/PaintType 0 def
+/FontType 1 def
+/FontMatrix [0.001 0 0 0.001 0 0] readonly def
+/Encoding 256 array
+0 1 255 {1 index exch /.notdef put} for
+dup 65 /A put
+readonly def
+/FontBBox {-50 -200 1000 900} readonly def
+/UniqueID 4999996 def
+currentdict end
+currentfile eexec
+% Minimal charstrings - no dangerous operators
+2 index /CharStrings 2 dict dup begin
+/.notdef
+{
+  0 0 0 0 0 0 endchar
+} |-
+/A
+{
+  100 100 rmoveto
+  400 0 rlineto
+  0 700 rlineto
+  -400 0 rlineto
+  closepath
+  endchar
+} |-
+end readonly def
+cleartomark

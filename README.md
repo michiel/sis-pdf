@@ -46,6 +46,7 @@ Key goals:
 - Stable, deterministic finding IDs with reproducible evidence pointers.
 - Action chain detection across PDF actions, JavaScript, embedded files, and rich media.
 - JavaScript malware detection with 72+ finding IDs (see `docs/findings.md`).
+- Font security analysis with Type 1, TrueType, OpenType, and variable font support (8+ finding IDs, see `docs/findings.md`).
 - Human-readable reports plus JSON, JSONL, and SARIF outputs.
 - Optional ML scoring and graph inference with ONNX Runtime.
 

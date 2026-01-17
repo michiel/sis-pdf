@@ -61,6 +61,8 @@ pub fn analyze_with_findings(data: &[u8]) -> Vec<FontFinding> {
     // Check for CVE-specific issues
     variable_fonts::check_cve_2025_27163(&context, &mut findings);
     variable_fonts::check_cve_2025_27164(&context, &mut findings);
+    variable_fonts::check_ebsc_oob(&context, &mut findings);
+    variable_fonts::check_gvar_anomalies(&context, &mut findings);
 
     findings
 }

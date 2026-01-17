@@ -33,12 +33,12 @@ pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysis
     let mut findings = outcome.findings;
     findings.extend(static_outcome.findings);
 
-    let should_run_dynamic =
-        config.dynamic_enabled && static_outcome.risk_score >= DYNAMIC_RISK_THRESHOLD;
-
-    if should_run_dynamic && dynamic::available() {
+    // Run dynamic analysis if enabled
+    if config.dynamic_enabled && dynamic::available() {
         match run_dynamic_with_timeout(data, config.dynamic_timeout_ms) {
-            Ok(()) => {}
+            Ok(dynamic_findings) => {
+                findings.extend(dynamic_findings);
+            }
             Err(DynamicError::Timeout) => {
                 let mut meta = HashMap::new();
                 meta.insert(
@@ -91,17 +91,16 @@ enum DynamicError {
     Failure(String),
 }
 
-fn run_dynamic_with_timeout(data: &[u8], timeout_ms: u64) -> Result<(), DynamicError> {
+fn run_dynamic_with_timeout(data: &[u8], timeout_ms: u64) -> Result<Vec<FontFinding>, DynamicError> {
     let (tx, rx) = mpsc::channel();
     let payload = data.to_vec();
     std::thread::spawn(move || {
-        let result = dynamic::analyse(&payload);
-        let _ = tx.send(result);
+        let findings = dynamic::analyze_with_findings(&payload);
+        let _ = tx.send(findings);
     });
 
     match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-        Ok(Ok(())) => Ok(()),
-        Ok(Err(err)) => Err(DynamicError::Failure(err)),
+        Ok(findings) => Ok(findings),
         Err(mpsc::RecvTimeoutError::Timeout) => Err(DynamicError::Timeout),
         Err(_) => Err(DynamicError::Failure("dynamic worker error".into())),
     }

@@ -440,6 +440,114 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: multiple anomalies increase confidence of malicious intent.
   - Chain usage: raises confidence on payload stages targeting renderer vulnerabilities.
 
+## font.type1_dangerous_operator
+
+- ID: `font.type1_dangerous_operator`
+- Label: Type 1 font with dangerous operators
+- Description: PostScript Type 1 font contains dangerous operators (callothersubr, blend, pop, return, put, store).
+- Tags: font, type1, exploit
+- Details:
+  - Relevance: PostScript Type 1 exploitation surface.
+  - Meaning: dangerous operators can trigger stack manipulation or arbitrary code execution in font renderers.
+  - Chain usage: treated as a payload stage targeting Type 1 font parser vulnerabilities.
+  - Severity: HIGH
+  - Introduced: Font analysis enhancement (2026-01-17)
+
+## font.type1_excessive_stack
+
+- ID: `font.type1_excessive_stack`
+- Label: Type 1 font with excessive stack usage
+- Description: Type 1 charstrings use excessive stack depth (>100 entries).
+- Tags: font, type1, resource
+- Details:
+  - Relevance: stack overflow or parser stress attempts.
+  - Meaning: excessive stack usage may trigger buffer overflows or denial of service.
+  - Chain usage: treated as a payload delivery or exploitation preparation stage.
+  - Severity: MEDIUM
+  - Introduced: Font analysis enhancement (2026-01-17)
+
+## font.type1_large_charstring
+
+- ID: `font.type1_large_charstring`
+- Label: Type 1 font with large charstring program
+- Description: Type 1 font contains unusually large charstring programs (>10,000 operators).
+- Tags: font, type1, resource
+- Details:
+  - Relevance: complexity or resource exhaustion.
+  - Meaning: large charstring programs can stress parsers or hide malicious code.
+  - Chain usage: used as a parser stress or obfuscation technique.
+  - Severity: LOW
+  - Introduced: Font analysis enhancement (2026-01-17)
+
+## font.type1_blend_exploit
+
+- ID: `font.type1_blend_exploit`
+- Label: Type 1 BLEND exploit pattern detected
+- Description: Font contains the signature pattern of the 2015 BLEND exploit (multiple callothersubr/return sequences).
+- Tags: font, type1, exploit, cve
+- Details:
+  - Relevance: known PostScript Type 1 exploit pattern.
+  - Meaning: BLEND exploit manipulates PostScript interpreter stack to execute arbitrary code.
+  - Chain usage: treated as a high-confidence exploitation attempt.
+  - Severity: HIGH
+  - CVE: CVE-2015-XXXX (BLEND exploit family)
+  - Introduced: Font analysis enhancement (2026-01-17)
+
+## font.cve_2025_27163
+
+- ID: `font.cve_2025_27163`
+- Label: CVE-2025-27163: hmtx/hhea table mismatch
+- Description: TrueType/OpenType hmtx table length is smaller than required based on hhea.numberOfHMetrics.
+- Tags: font, truetype, cve, vulnerability
+- Details:
+  - Relevance: known TrueType table parsing vulnerability.
+  - Meaning: table length mismatch leads to out-of-bounds reads when accessing horizontal metrics.
+  - Chain usage: treated as a known vulnerability exploitation attempt.
+  - Severity: HIGH
+  - CVE: CVE-2025-27163
+  - Introduced: Font analysis enhancement (2026-01-17)
+
+## font.cve_2025_27164
+
+- ID: `font.cve_2025_27164`
+- Label: CVE-2025-27164: CFF2/maxp glyph count mismatch
+- Description: OpenType/CFF2 maxp.num_glyphs exceeds CFF2 charstring count.
+- Tags: font, opentype, cff, cve, vulnerability
+- Details:
+  - Relevance: known OpenType/CFF2 parsing vulnerability.
+  - Meaning: glyph count mismatch leads to buffer overflow when accessing glyph data beyond charstring array bounds.
+  - Chain usage: treated as a known vulnerability exploitation attempt.
+  - Severity: HIGH
+  - CVE: CVE-2025-27164
+  - Introduced: Font analysis enhancement (2026-01-17)
+
+## font.cve_2023_26369
+
+- ID: `font.cve_2023_26369`
+- Label: CVE-2023-26369: EBSC table out-of-bounds
+- Description: TrueType EBSC (Embedded Bitmap Scaling Control) table is too small or contains invalid offsets.
+- Tags: font, truetype, cve, vulnerability
+- Details:
+  - Relevance: known TrueType EBSC table vulnerability.
+  - Meaning: malformed EBSC table causes out-of-bounds reads when processing embedded bitmap scaling data.
+  - Chain usage: treated as a known vulnerability exploitation attempt.
+  - Severity: HIGH
+  - CVE: CVE-2023-26369
+  - Introduced: Font analysis enhancement (2026-01-17)
+
+## font.anomalous_variation_table
+
+- ID: `font.anomalous_variation_table`
+- Label: Anomalous gvar table size
+- Description: Variable font gvar (Glyph Variation) table exceeds expected size limits (>10MB).
+- Tags: font, variable, resource
+- Details:
+  - Relevance: variable font parsing stress or exploitation.
+  - Meaning: excessively large gvar tables may trigger buffer overflows, memory exhaustion, or parser vulnerabilities.
+  - Chain usage: used as a payload delivery or parser stress technique.
+  - Severity: MEDIUM
+  - Introduced: Font analysis enhancement (2026-01-17)
+
 ## fontmatrix_payload_present
 
 - ID: `fontmatrix_payload_present`
