@@ -29,13 +29,22 @@ For each CVE signature, you must:
 
 2. **Choose Appropriate Pattern Type**
 
-   Available pattern types (see `../src/signatures.rs`):
+   Available pattern types (see `../SIGNATURE_GUIDE.md` for complete documentation):
 
    - `table_length_mismatch` - Compare lengths between two tables
    - `glyph_count_mismatch` - Compare glyph counts from different sources
-   - `table_size_exceeds` - Check if table exceeds size limit
    - `offset_out_of_bounds` - Verify offsets are within bounds
+   - `table_size_exceeds` - Check if table exceeds size limit
    - `operator_sequence` - Match charstring operator sequences
+   - `integer_overflow` - Detect arithmetic overflow conditions
+   - `invalid_magic` - Validate magic numbers in table headers
+   - `recursion_depth_exceeds` - Check for excessive nesting
+   - `circular_reference` - Detect circular reference chains
+   - `buffer_overflow` - Detect offset+size exceeding bounds
+   - `invalid_table_reference` - Validate cross-table references
+   - `invalid_instruction_sequence` - Detect dangerous TrueType bytecode
+
+   See [SIGNATURE_GUIDE.md](../SIGNATURE_GUIDE.md) for detailed pattern documentation and examples.
 
 3. **Add Signature Rationale**
 
@@ -82,23 +91,14 @@ See `../signatures/cve-2018-9410.yaml` for an example of a completed signature w
 - Detailed `signature_rationale` field
 - Clear detection logic
 
-## Pattern Type Gaps
+## Pattern Type Coverage
 
-The current pattern types may not cover all vulnerability types. If you encounter a CVE that doesn't fit any existing pattern, consider:
+The signature system includes 12 comprehensive pattern types covering most font vulnerability classes. If you encounter a CVE that doesn't fit any existing pattern, consider:
 
-1. **Extending existing patterns** - Add parameters to existing types
-2. **Creating new pattern types** - Update `signatures.rs` with new variants
-3. **Documenting the gap** - Note which CVEs need new pattern types
-
-### Potentially Missing Pattern Types
-
-- Integer overflow/underflow conditions
-- Invalid magic numbers or enum values
-- Recursive depth limits (composite glyphs, subroutines)
-- Circular reference detection
-- Buffer overflow in string/name tables
-- Invalid cross-table references
-- Malformed instruction sequences
+1. **Combining patterns** - Use `match_logic: all` for multi-condition vulnerabilities
+2. **Extending existing patterns** - Add parameters to existing types
+3. **Creating new pattern types** - Update `signatures.rs` with new variants
+4. **Documenting the gap** - Note which CVEs need new pattern types
 
 ## Tools
 
