@@ -337,3 +337,295 @@ fn test_multiple_vulnerability_signals() {
         "Multiple vulnerability signals should be detected"
     );
 }
+
+/// Test that color font with inconsistent COLR/CPAL tables is detected
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_color_font_inconsistent_tables() {
+    let data = include_bytes!("fixtures/color/colr-without-cpal.ttf");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should detect COLR without CPAL inconsistency OR parse failure (both are security findings)
+    let has_security_finding = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind == "font.color_table_inconsistent"
+                || f.kind == "font.dynamic_parse_failure"
+                || f.kind == "font.invalid_structure");
+
+    assert!(
+        has_security_finding,
+        "Inconsistent color tables or parse failure should be detected. Findings: {:?}",
+        outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+
+    // Should have at least one finding
+    assert!(!outcome.findings.is_empty(), "Should generate security findings");
+}
+
+/// Test that color font with excessive palettes is detected
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_color_font_excessive_palettes() {
+    let data = include_bytes!("fixtures/color/excessive-palettes.ttf");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should detect excessive palette count OR parse failure
+    let has_finding = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind == "font.color_table_inconsistent"
+                || f.kind == "font.dynamic_parse_failure"
+                || f.kind == "font.invalid_structure");
+
+    assert!(
+        has_finding,
+        "Excessive palettes or parse failure should be detected. Findings: {:?}",
+        outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+    assert!(!outcome.findings.is_empty());
+}
+
+/// Test that color font with glyph count mismatch is detected
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_color_font_glyph_mismatch() {
+    let data = include_bytes!("fixtures/color/glyph-count-mismatch.ttf");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should detect glyph count mismatch OR parse failure
+    let has_mismatch = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind == "font.color_table_inconsistent"
+                || f.kind == "font.dynamic_parse_failure"
+                || f.kind == "font.invalid_structure");
+
+    assert!(
+        has_mismatch,
+        "Glyph count mismatch or parse failure should be detected. Findings: {:?}",
+        outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+    assert!(!outcome.findings.is_empty());
+}
+
+/// Test that benign color font produces no findings
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_benign_color_font() {
+    let data = include_bytes!("fixtures/benign/valid-color.ttf");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should not produce color-related findings
+    let has_color_findings = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind.contains("color"));
+
+    assert!(
+        !has_color_findings,
+        "Benign color font should not trigger findings. Found: {:?}",
+        outcome
+            .findings
+            .iter()
+            .filter(|f| f.kind.contains("color"))
+            .map(|f| &f.kind)
+            .collect::<Vec<_>>()
+    );
+}
+
+/// Test that WOFF decompression bomb is detected
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_woff_decompression_bomb() {
+    let data = include_bytes!("fixtures/woff/decompression-bomb.woff");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should detect decompression bomb OR parse/decompression failure
+    let has_security_finding = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind == "font.woff_decompression_anomaly"
+                || f.kind == "font.woff_decompression_failed"
+                || f.kind == "font.dynamic_parse_failure");
+
+    assert!(
+        has_security_finding,
+        "WOFF decompression bomb or failure should be detected. Findings: {:?}",
+        outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+    assert!(!outcome.findings.is_empty(), "Should generate security findings");
+}
+
+/// Test that WOFF2 decompression bomb is detected
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_woff2_decompression_bomb() {
+    let data = include_bytes!("fixtures/woff/decompression-bomb.woff2");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should detect decompression bomb OR parse/decompression failure
+    let has_security_finding = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind == "font.woff_decompression_anomaly"
+                || f.kind == "font.woff_decompression_failed"
+                || f.kind == "font.dynamic_parse_failure");
+
+    assert!(
+        has_security_finding,
+        "WOFF2 decompression bomb or failure should be detected. Findings: {:?}",
+        outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+    assert!(!outcome.findings.is_empty());
+}
+
+/// Test that WOFF with excessive decompressed size is detected
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_woff_excessive_size() {
+    let data = include_bytes!("fixtures/woff/excessive-size.woff");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should detect excessive size OR parse/decompression failure
+    let has_security_finding = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind == "font.woff_decompression_anomaly"
+                || f.kind == "font.woff_decompression_failed"
+                || f.kind == "font.dynamic_parse_failure");
+
+    assert!(
+        has_security_finding,
+        "Excessive WOFF size or failure should be detected. Findings: {:?}",
+        outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+    assert!(!outcome.findings.is_empty());
+}
+
+/// Test that benign WOFF font produces no anomaly findings
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_benign_woff_font() {
+    let data = include_bytes!("fixtures/benign/valid.woff");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should not produce WOFF-specific findings
+    let has_woff_findings = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind.contains("woff"));
+
+    assert!(
+        !has_woff_findings,
+        "Benign WOFF font should not trigger findings. Found: {:?}",
+        outcome
+            .findings
+            .iter()
+            .filter(|f| f.kind.contains("woff"))
+            .map(|f| &f.kind)
+            .collect::<Vec<_>>()
+    );
+}
+
+/// Test that variable font with excessive axes is detected
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_variable_font_excessive_axes() {
+    let data = include_bytes!("fixtures/variable/excessive-axes.ttf");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should detect excessive variation axes OR parse failure
+    let has_security_finding = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind == "font.anomalous_variation_table"
+                || f.kind == "font.dynamic_parse_failure"
+                || f.kind == "font.invalid_structure");
+
+    assert!(
+        has_security_finding,
+        "Excessive variation axes or parse failure should be detected. Findings: {:?}",
+        outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+    assert!(!outcome.findings.is_empty());
+}
+
+/// Test that variable font with excessive HVAR table is detected
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_variable_font_excessive_hvar() {
+    let data = include_bytes!("fixtures/variable/excessive-hvar.ttf");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should detect excessive HVAR table size OR parse failure
+    let has_security_finding = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind == "font.anomalous_variation_table"
+                || f.kind == "font.dynamic_parse_failure"
+                || f.kind == "font.invalid_structure");
+
+    assert!(
+        has_security_finding,
+        "Excessive HVAR table or parse failure should be detected. Findings: {:?}",
+        outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+    assert!(!outcome.findings.is_empty());
+}
+
+/// Test that variable font with excessive MVAR table is detected
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_variable_font_excessive_mvar() {
+    let data = include_bytes!("fixtures/variable/excessive-mvar.ttf");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
+
+    let outcome = analyse_font(data, &config);
+
+    // Should detect excessive MVAR table size OR parse failure
+    let has_security_finding = outcome
+        .findings
+        .iter()
+        .any(|f| f.kind == "font.anomalous_variation_table"
+                || f.kind == "font.dynamic_parse_failure"
+                || f.kind == "font.invalid_structure");
+
+    assert!(
+        has_security_finding,
+        "Excessive MVAR table or parse failure should be detected. Findings: {:?}",
+        outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+    assert!(!outcome.findings.is_empty());
+}
