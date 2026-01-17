@@ -3,6 +3,8 @@ target/
 tmp/
 extracted_js/
 
+**/__pycache__
+
 # Test artifacts
 test_direct
 test_sandbox
