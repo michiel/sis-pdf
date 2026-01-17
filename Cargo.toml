@@ -7,6 +7,7 @@ members = [
   "crates/sis-pdf-detectors",
   "crates/sis-pdf-ml-graph",
   "crates/sis-pdf",
+  "tools/cve-update",
 ]
 exclude = [
   "fuzz",
