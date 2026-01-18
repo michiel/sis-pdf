@@ -123,6 +123,18 @@ enum Command {
         no_recover: bool,
         #[arg(long, default_value_t = 500_000)]
         max_objects: usize,
+        #[arg(long, help = "Extract JavaScript and embedded files to directory")]
+        extract_to: Option<PathBuf>,
+        #[arg(long, help = "Scan directory instead of single file")]
+        path: Option<PathBuf>,
+        #[arg(long, default_value = "*.pdf", help = "Glob pattern for batch mode")]
+        glob: String,
+        #[arg(
+            long,
+            help = "Maximum bytes to extract per file",
+            default_value_t = 128 * 1024 * 1024
+        )]
+        max_extract_bytes: usize,
     },
     #[command(about = "Scan PDFs for suspicious indicators and report findings")]
     Scan {
@@ -616,7 +628,16 @@ fn main() -> Result<()> {
             max_total_decoded_bytes,
             no_recover,
             max_objects,
+            extract_to,
+            path,
+            glob,
+            max_extract_bytes,
         } => {
+            // Validate that path and pdf are mutually exclusive
+            if path.is_some() && !pdf.is_empty() {
+                return Err(anyhow!("cannot specify both --path and PDF file argument"));
+            }
+
             if let Some(query_str) = query {
                 // One-shot query mode
                 run_query_oneshot(
@@ -629,6 +650,10 @@ fn main() -> Result<()> {
                     max_total_decoded_bytes,
                     !no_recover,
                     max_objects,
+                    extract_to.as_deref(),
+                    path.as_deref(),
+                    &glob,
+                    max_extract_bytes,
                 )
             } else {
                 // Interactive REPL mode
@@ -639,6 +664,8 @@ fn main() -> Result<()> {
                     max_total_decoded_bytes,
                     !no_recover,
                     max_objects,
+                    extract_to.as_deref(),
+                    max_extract_bytes,
                 )
             }
         }
@@ -2509,8 +2536,22 @@ fn run_query_oneshot(
     max_total_decoded_bytes: usize,
     recover_xref: bool,
     max_objects: usize,
+    extract_to: Option<&std::path::Path>,
+    path: Option<&std::path::Path>,
+    glob: &str,
+    max_extract_bytes: usize,
 ) -> Result<()> {
     use commands::query;
+
+    // Phase 3: Stub for batch mode (will be implemented in Phase 3)
+    if path.is_some() {
+        return Err(anyhow!(
+            "Batch mode (--path) not yet implemented. Coming in Phase 3."
+        ));
+    }
+
+    // Suppress unused parameter warnings for Phase 1
+    let _ = glob;
 
     // Parse the query
     let query =
@@ -2525,9 +2566,15 @@ fn run_query_oneshot(
         max_objects,
     };
 
-    // Execute the query
-    let result = query::execute_query(&query, std::path::Path::new(pdf_path), &scan_options)
-        .map_err(|e| anyhow!("Query execution failed: {}", e))?;
+    // Execute the query (Phase 2: extraction now supported)
+    let result = query::execute_query(
+        &query,
+        std::path::Path::new(pdf_path),
+        &scan_options,
+        extract_to,
+        max_extract_bytes,
+    )
+    .map_err(|e| anyhow!("Query execution failed: {}", e))?;
 
     // Format and print the result
     if json {
@@ -2548,11 +2595,14 @@ fn run_query_repl(
     max_total_decoded_bytes: usize,
     recover_xref: bool,
     max_objects: usize,
+    extract_to: Option<&std::path::Path>,
+    max_extract_bytes: usize,
 ) -> Result<()> {
     use commands::query;
     use rustyline::error::ReadlineError;
     use rustyline::DefaultEditor;
 
+    // Phase 2: Extraction now supported in REPL mode
     // Load and parse PDF once
     eprintln!("Loading PDF: {}", pdf_path);
     let bytes = std::fs::read(pdf_path)?;
@@ -2635,7 +2685,7 @@ fn run_query_repl(
                 // Parse and execute query
                 match query::parse_query(line) {
                     Ok(q) => {
-                        match query::execute_query_with_context(&q, &ctx) {
+                        match query::execute_query_with_context(&q, &ctx, extract_to, max_extract_bytes) {
                             Ok(result) => {
                                 // Format and print result
                                 if json_mode {
@@ -3510,374 +3560,6 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn run_detect(
-    path: &std::path::Path,
-    glob: &str,
-    findings: &[String],
-    deep: bool,
-    max_decode_bytes: usize,
-    max_total_decoded_bytes: usize,
-    recover_xref: bool,
-    strict: bool,
-    max_objects: usize,
-    sequential: bool,
-    js_ast: bool,
-    js_sandbox: bool,
-) -> Result<()> {
-    if findings.is_empty() {
-        return Err(anyhow!("--findings must specify at least one finding ID"));
-    }
-
-    let opts = sis_pdf_core::scan::ScanOptions {
-        deep,
-        max_decode_bytes,
-        max_total_decoded_bytes,
-        recover_xref,
-        parallel: false,
-        batch_parallel: !sequential,
-        diff_parser: strict,
-        max_objects,
-        max_recursion_depth: 64,
-        strict,
-        strict_summary: false,
-        ir: false,
-        fast: false,
-        focus_trigger: None,
-        focus_depth: 0,
-        yara_scope: None,
-        ml_config: None,
-        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
-        profile: false,
-        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
-    };
-
-    let settings = sis_pdf_detectors::DetectorSettings { js_ast, js_sandbox };
-    let detectors = sis_pdf_detectors::default_detectors_with_settings(settings);
-
-    // Set up glob matcher
-    let matcher = Glob::new(glob)?.compile_matcher();
-
-    // Walk directory and collect matching files
-    let iter = WalkDir::new(path)
-        .follow_links(false)
-        .max_depth(MAX_WALK_DEPTH);
-
-    let mut paths = Vec::new();
-    for entry in iter.into_iter().filter_map(Result::ok) {
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let path = entry.path();
-        if !matcher.is_match(path) {
-            continue;
-        }
-        paths.push(path.to_path_buf());
-    }
-
-    // Scan files and filter by findings
-    let matching_files: Vec<String> = if opts.batch_parallel {
-        paths
-            .par_iter()
-            .filter_map(|path| scan_and_check_findings(path, &opts, &detectors, findings))
-            .collect()
-    } else {
-        paths
-            .iter()
-            .filter_map(|path| scan_and_check_findings(path, &opts, &detectors, findings))
-            .collect()
-    };
-
-    // Output only the filenames, one per line
-    for file in matching_files {
-        println!("{}", file);
-    }
-
-    Ok(())
-}
-
-fn scan_and_check_findings(
-    path: &std::path::Path,
-    opts: &sis_pdf_core::scan::ScanOptions,
-    detectors: &[Box<dyn sis_pdf_core::detect::Detector>],
-    required_findings: &[String],
-) -> Option<String> {
-    // Attempt to scan the file
-    let mmap = match mmap_file(path.to_str()?) {
-        Ok(m) => m,
-        Err(_) => return None, // Skip files that can't be read
-    };
-
-    let report = match sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), detectors)
-    {
-        Ok(r) => r,
-        Err(_) => return None, // Skip files that fail to scan
-    };
-
-    // Check if ALL required findings are present
-    let mut found_findings = std::collections::HashSet::new();
-    for finding in &report.findings {
-        found_findings.insert(finding.kind.as_str());
-    }
-
-    let has_all_findings = required_findings
-        .iter()
-        .all(|required| found_findings.contains(required.as_str()));
-
-    if has_all_findings {
-        Some(path.to_string_lossy().to_string())
-    } else {
-        None
-    }
-}
-
-fn run_extract(kind: &str, pdf: &str, outdir: &PathBuf, max_extract_bytes: usize) -> Result<()> {
-    let mmap = mmap_file(pdf)?;
-    fs::create_dir_all(outdir)?;
-    let graph = sis_pdf_pdf::parse_pdf(
-        &mmap,
-        sis_pdf_pdf::ParseOptions {
-            recover_xref: true,
-            deep: false,
-            strict: false,
-            max_objstm_bytes: 32 * 1024 * 1024,
-            max_objects: 500_000,
-            max_objstm_total_bytes: 256 * 1024 * 1024,
-            carve_stream_objects: false,
-            max_carved_objects: 0,
-            max_carved_bytes: 0,
-        },
-    )?;
-    match kind {
-        "js" => extract_js(&graph, &mmap, outdir),
-        "embedded" => extract_embedded(&graph, &mmap, outdir, max_extract_bytes),
-        _ => Err(anyhow!("unknown extract kind")),
-    }
-}
-fn run_export_graph(pdf: &str, chains_only: bool, format: &str, outdir: &PathBuf) -> Result<()> {
-    let mmap = mmap_file(pdf)?;
-    fs::create_dir_all(outdir)?;
-    let opts = sis_pdf_core::scan::ScanOptions {
-        strict: false,
-        strict_summary: false,
-        ir: false,
-        deep: true,
-        max_decode_bytes: 32 * 1024 * 1024,
-        max_total_decoded_bytes: 256 * 1024 * 1024,
-        recover_xref: true,
-        parallel: false,
-        batch_parallel: false,
-        diff_parser: false,
-        max_objects: 500_000,
-        max_recursion_depth: 64,
-        fast: false,
-        focus_trigger: None,
-        focus_depth: 0,
-        yara_scope: None,
-        ml_config: None,
-        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
-        profile: false,
-        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
-    };
-    let detectors = sis_pdf_detectors::default_detectors();
-    let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
-        .with_input_path(Some(pdf.to_string()));
-    let ext = if format == "json" { "json" } else { "dot" };
-    for chain in &report.chains {
-        let path = outdir.join(format!("chain_{}.{}", chain.id, ext));
-        match format {
-            "json" => {
-                let v = sis_pdf_core::graph_export::export_chain_json(chain);
-                fs::write(path, serde_json::to_vec_pretty(&v)?)?;
-            }
-            _ => {
-                let dot = sis_pdf_core::graph_export::export_chain_dot(chain);
-                fs::write(path, dot)?;
-            }
-        }
-    }
-    if chains_only {
-        return Ok(());
-    }
-    Ok(())
-}
-fn run_export_org(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Result<()> {
-    let mmap = mmap_file(pdf)?;
-    let graph = sis_pdf_pdf::parse_pdf(
-        &mmap,
-        sis_pdf_pdf::ParseOptions {
-            recover_xref: true,
-            deep: false,
-            strict: false,
-            max_objstm_bytes: 32 * 1024 * 1024,
-            max_objects: 500_000,
-            max_objstm_total_bytes: 256 * 1024 * 1024,
-            carve_stream_objects: false,
-            max_carved_objects: 0,
-            max_carved_bytes: 0,
-        },
-    )?;
-
-    if enhanced {
-        // Build enhanced ORG with classifications, typed edges, and suspicious paths
-        let opts = sis_pdf_core::scan::ScanOptions {
-            deep: false,
-            max_decode_bytes: 32 * 1024 * 1024,
-            max_total_decoded_bytes: 256 * 1024 * 1024,
-            recover_xref: true,
-            parallel: false,
-            batch_parallel: false,
-            diff_parser: false,
-            max_objects: 500_000,
-            max_recursion_depth: 50,
-            fast: false,
-            focus_trigger: None,
-            yara_scope: None,
-            focus_depth: 5,
-        strict: false,
-        strict_summary: false,
-        ir: false,
-        ml_config: None,
-        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
-        profile: false,
-        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
-    };
-        let ctx = sis_pdf_core::scan::ScanContext::new(&mmap, graph, opts.clone());
-        let classifications = ctx.classifications();
-        let typed_graph = ctx.build_typed_graph();
-        let org = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
-            &ctx.graph,
-            classifications,
-            &typed_graph,
-        );
-
-        // Run detectors to get findings for path analysis
-        let detectors = sis_pdf_detectors::default_detectors_with_settings(
-            sis_pdf_detectors::DetectorSettings {
-                js_ast: true,
-                js_sandbox: false,
-            },
-        );
-        let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?;
-        let findings = &report.findings;
-
-        // Extract suspicious paths
-        let path_finder = typed_graph.path_finder();
-        let action_chains = path_finder.find_all_action_chains();
-        let path_explanation =
-            sis_pdf_core::explainability::extract_suspicious_paths(&action_chains, findings, None);
-
-        // Create enhanced export with paths
-        let export = sis_pdf_core::org_export::OrgExportWithPaths::enhanced(org, path_explanation);
-
-        match format {
-            "json" => {
-                let v = sis_pdf_core::org_export::export_org_with_paths_json(&export);
-                fs::write(out, serde_json::to_vec_pretty(&v)?)?;
-            }
-            _ => {
-                // For DOT format, just export the ORG without paths (paths don't render well in DOT)
-                let dot = sis_pdf_core::org_export::export_org_dot(&export.org);
-                fs::write(out, dot)?;
-            }
-        }
-    } else {
-        // Basic ORG export (no enhancements)
-        let org = sis_pdf_core::org::OrgGraph::from_object_graph(&graph);
-        match format {
-            "json" => {
-                let v = sis_pdf_core::org_export::export_org_json(&org);
-                fs::write(out, serde_json::to_vec_pretty(&v)?)?;
-            }
-            _ => {
-                let dot = sis_pdf_core::org_export::export_org_dot(&org);
-                fs::write(out, dot)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn run_export_ir(pdf: &str, format: &str, out: &PathBuf, enhanced: bool) -> Result<()> {
-    let mmap = mmap_file(pdf)?;
-    let graph = sis_pdf_pdf::parse_pdf(
-        &mmap,
-        sis_pdf_pdf::ParseOptions {
-            recover_xref: true,
-            deep: false,
-            strict: false,
-            max_objstm_bytes: 32 * 1024 * 1024,
-            max_objects: 500_000,
-            max_objstm_total_bytes: 256 * 1024 * 1024,
-            carve_stream_objects: false,
-            max_carved_objects: 0,
-            max_carved_bytes: 0,
-        },
-    )?;
-    let ir_opts = sis_pdf_pdf::ir::IrOptions::default();
-    let ir_objects = sis_pdf_pdf::ir::ir_for_graph(&graph.objects, &ir_opts);
-
-    if enhanced {
-        // Run detectors to get findings
-        let opts = sis_pdf_core::scan::ScanOptions {
-            deep: false,
-            max_decode_bytes: 32 * 1024 * 1024,
-            max_total_decoded_bytes: 256 * 1024 * 1024,
-            recover_xref: true,
-            parallel: false,
-            batch_parallel: false,
-            diff_parser: false,
-            max_objects: 500_000,
-            max_recursion_depth: 50,
-            fast: false,
-            focus_trigger: None,
-            yara_scope: None,
-            focus_depth: 5,
-            strict: false,
-            strict_summary: false,
-        ir: false,
-        ml_config: None,
-        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
-        profile: false,
-        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
-    };
-        let detectors = sis_pdf_detectors::default_detectors_with_settings(
-            sis_pdf_detectors::DetectorSettings {
-                js_ast: true,
-                js_sandbox: false,
-            },
-        );
-        let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?;
-        let findings = &report.findings;
-
-        // Generate enhanced IR export
-        let enhanced_export =
-            sis_pdf_core::ir_export::generate_enhanced_ir_export(&ir_objects, findings);
-
-        match format {
-            "json" => {
-                let v = sis_pdf_core::ir_export::export_enhanced_ir_json(&enhanced_export);
-                fs::write(out, serde_json::to_vec_pretty(&v)?)?;
-            }
-            _ => {
-                let text = sis_pdf_core::ir_export::export_enhanced_ir_text(&enhanced_export);
-                fs::write(out, text)?;
-            }
-        }
-    } else {
-        // Basic IR export (no findings)
-        match format {
-            "json" => {
-                let v = sis_pdf_core::ir_export::export_ir_json(&ir_objects);
-                fs::write(out, serde_json::to_vec_pretty(&v)?)?;
-            }
-            _ => {
-                let text = sis_pdf_core::ir_export::export_ir_text(&ir_objects);
-                fs::write(out, text)?;
-            }
-        }
-    }
-    Ok(())
-}
 fn run_report(
     pdf: &str,
     deep: bool,
@@ -4050,239 +3732,6 @@ fn run_report(
         fs::write(path, md)?;
     } else {
         println!("{}", md);
-    }
-    Ok(())
-}
-fn run_export_features(
-    pdf: Option<&str>,
-    path: Option<&std::path::Path>,
-    glob: &str,
-    deep: bool,
-    max_decode_bytes: usize,
-    max_total_decoded_bytes: usize,
-    recover_xref: bool,
-    strict: bool,
-    label: Option<&str>,
-    format: &str,
-    out: Option<&std::path::Path>,
-    extended: bool,
-    feature_names: bool,
-) -> Result<()> {
-    if path.is_some() && pdf.is_some() {
-        return Err(anyhow!("provide either a PDF path or --path, not both"));
-    }
-    let opts_template = sis_pdf_core::scan::ScanOptions {
-        deep,
-        max_decode_bytes,
-        max_total_decoded_bytes,
-        recover_xref,
-        parallel: false,
-        batch_parallel: false,
-        diff_parser: false,
-        max_objects: 500_000,
-        max_recursion_depth: 64,
-        fast: false,
-        focus_trigger: None,
-        yara_scope: None,
-        focus_depth: 0,
-        strict,
-        strict_summary: false,
-        ir: false,
-        ml_config: None,
-        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
-        profile: false,
-        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
-    };
-    let mut paths = Vec::new();
-    if let Some(pdf) = pdf {
-        paths.push(std::path::PathBuf::from(pdf));
-    } else if let Some(dir) = path {
-        let matcher = Glob::new(glob)?.compile_matcher();
-        let iter = if dir.is_file() {
-            WalkDir::new(dir.parent().unwrap_or(dir))
-                .follow_links(false)
-                .max_depth(MAX_WALK_DEPTH)
-        } else {
-            WalkDir::new(dir)
-                .follow_links(false)
-                .max_depth(MAX_WALK_DEPTH)
-        };
-        let mut total_bytes = 0u64;
-        let mut file_count = 0usize;
-        for entry in iter.into_iter().filter_map(Result::ok) {
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            let path = entry.path();
-            if matcher.is_match(path) {
-                file_count += 1;
-                if file_count > MAX_BATCH_FILES {
-                    SecurityEvent {
-                        level: Level::ERROR,
-                        domain: SecurityDomain::Detection,
-                        severity: SecuritySeverity::Medium,
-                        kind: "export_file_limit_exceeded",
-                        policy: None,
-                        object_id: None,
-                        object_type: None,
-                        vector: None,
-                        technique: None,
-                        confidence: None,
-                        message: "Export file count exceeded",
-                    }
-                    .emit();
-                    error!(max_files = MAX_BATCH_FILES, "Export file count exceeded");
-                    return Err(anyhow!("export file count exceeds limit"));
-                }
-                if let Ok(meta) = entry.metadata() {
-                    total_bytes = total_bytes.saturating_add(meta.len());
-                    if total_bytes > MAX_BATCH_BYTES {
-                        SecurityEvent {
-                            level: Level::ERROR,
-                            domain: SecurityDomain::Detection,
-                            severity: SecuritySeverity::Medium,
-                            kind: "export_size_limit_exceeded",
-                            policy: None,
-                            object_id: None,
-                            object_type: None,
-                            vector: None,
-                            technique: None,
-                            confidence: None,
-                            message: "Export byte limit exceeded",
-                        }
-                        .emit();
-                        error!(
-                            total_bytes = total_bytes,
-                            max_bytes = MAX_BATCH_BYTES,
-                            "Export byte limit exceeded"
-                        );
-                        return Err(anyhow!("export size exceeds limit"));
-                    }
-                }
-                paths.push(path.to_path_buf());
-            }
-        }
-    }
-    if paths.is_empty() {
-        return Err(anyhow!("no files matched {} in export", glob));
-    }
-    let mut writer: Box<dyn Write> = if let Some(path) = out {
-        Box::new(fs::File::create(path)?)
-    } else {
-        Box::new(std::io::stdout())
-    };
-
-    // Get feature names based on extended flag
-    let names = if extended {
-        sis_pdf_core::features_extended::extended_feature_names()
-    } else {
-        sis_pdf_core::features::feature_names()
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>()
-    };
-
-    if format == "csv" {
-        let mut header = String::from("path,label");
-        for name in &names {
-            header.push(',');
-            header.push_str(name);
-        }
-        header.push('\n');
-        writer.write_all(header.as_bytes())?;
-    }
-
-    // For extended features, we need detectors
-    let detectors = if extended {
-        Some(sis_pdf_detectors::default_detectors_with_settings(
-            sis_pdf_detectors::DetectorSettings {
-                js_ast: true,
-                js_sandbox: false,
-            },
-        ))
-    } else {
-        None
-    };
-
-    for path in paths {
-        let path_str = path.display().to_string();
-        let mmap = mmap_file(&path_str)?;
-
-        let feature_vec = if extended {
-            // Clone opts for this iteration to avoid move issues
-            let opts1 = opts_template.clone();
-            let opts2 = opts_template.clone();
-
-            // Run full scan to get findings
-            let report = sis_pdf_core::runner::run_scan_with_detectors(
-                &mmap,
-                opts1,
-                detectors.as_ref().unwrap(),
-            )?;
-
-            // Parse PDF again to create ScanContext for feature extraction
-            let graph = sis_pdf_pdf::parse_pdf(
-                &mmap,
-                sis_pdf_pdf::ParseOptions {
-                    recover_xref: opts_template.recover_xref,
-                    deep: opts_template.deep,
-                    strict: opts_template.strict,
-                    max_objstm_bytes: opts_template.max_decode_bytes,
-                    max_objects: opts_template.max_objects,
-                    max_objstm_total_bytes: opts_template.max_total_decoded_bytes,
-                    carve_stream_objects: false,
-                    max_carved_objects: 0,
-                    max_carved_bytes: 0,
-                },
-            )?;
-            let ctx = sis_pdf_core::scan::ScanContext::new(&mmap, graph, opts2);
-
-            // Extract extended features
-            let extended_fv =
-                sis_pdf_core::features_extended::extract_extended_features(&ctx, &report.findings);
-            extended_fv.as_f32_vec()
-        } else {
-            // Basic feature extraction
-            let fv = sis_pdf_core::features::FeatureExtractor::extract_from_bytes(
-                &mmap,
-                &opts_template,
-            )?;
-            fv.as_f32_vec()
-        };
-
-        match format {
-            "jsonl" => {
-                let record = if feature_names {
-                    serde_json::json!({
-                        "path": path_str,
-                        "label": label,
-                        "features": feature_vec,
-                        "feature_names": &names,
-                    })
-                } else {
-                    serde_json::json!({
-                        "path": path_str,
-                        "label": label,
-                        "features": feature_vec,
-                    })
-                };
-                writer.write_all(serde_json::to_string(&record)?.as_bytes())?;
-                writer.write_all(b"\n")?;
-            }
-            "csv" => {
-                let mut row = String::new();
-                row.push_str(&path_str);
-                row.push(',');
-                row.push_str(label.unwrap_or(""));
-                for v in feature_vec {
-                    row.push(',');
-                    row.push_str(&format!("{:.6}", v));
-                }
-                row.push('\n');
-                writer.write_all(row.as_bytes())?;
-            }
-            _ => return Err(anyhow!("unsupported format: {}", format)),
-        }
     }
     Ok(())
 }
@@ -4730,136 +4179,6 @@ fn sanitize_filename(s: &str) -> String {
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
         .collect()
 }
-fn extract_js(graph: &sis_pdf_pdf::ObjectGraph<'_>, bytes: &[u8], outdir: &PathBuf) -> Result<()> {
-    let mut count = 0usize;
-    for entry in &graph.objects {
-        if let Some(dict) = entry_dict(entry) {
-            if let Some((_, obj)) = dict.get_first(b"/JS") {
-                if let Some(data) = extract_obj_bytes(graph, bytes, obj) {
-                    let path = outdir.join(format!("js_{}_{}.js", entry.obj, entry.gen));
-                    fs::write(path, data)?;
-                    count += 1;
-                }
-            }
-        }
-    }
-    println!("Extracted {} JavaScript payloads", count);
-    Ok(())
-}
-fn extract_embedded(
-    graph: &sis_pdf_pdf::ObjectGraph<'_>,
-    bytes: &[u8],
-    outdir: &PathBuf,
-    max_extract_bytes: usize,
-) -> Result<()> {
-    let mut count = 0usize;
-    let mut total_written = 0usize;
-    for entry in &graph.objects {
-        if let sis_pdf_pdf::object::PdfAtom::Stream(st) = &entry.atom {
-            if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
-                if let Ok(decoded) = sis_pdf_pdf::decode::decode_stream(bytes, st, 32 * 1024 * 1024)
-                {
-                    let name = embedded_filename(&st.dict)
-                        .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
-                    let safe_name = sanitize_embedded_filename(&name);
-                    let path = outdir.join(&safe_name);
-                    if max_extract_bytes > 0
-                        && total_written.saturating_add(decoded.data.len()) > max_extract_bytes
-                    {
-                        println!(
-                            "Embedded extraction budget exceeded ({} bytes), stopping",
-                            max_extract_bytes
-                        );
-                        break;
-                    }
-                    let hash = sha256_hex(&decoded.data);
-                    let magic = magic_type(&decoded.data);
-                    let data_len = decoded.data.len();
-                    fs::write(path, decoded.data)?;
-                    println!("Embedded file: sha256={} magic={}", hash, magic);
-                    total_written = total_written.saturating_add(data_len);
-                    count += 1;
-                }
-            }
-        }
-    }
-    println!("Extracted {} embedded files", count);
-    Ok(())
-}
-fn embedded_filename(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> Option<String> {
-    if let Some((_, obj)) = dict.get_first(b"/F") {
-        if let sis_pdf_pdf::object::PdfAtom::Str(s) = &obj.atom {
-            return Some(String::from_utf8_lossy(&string_bytes(s)).to_string());
-        }
-    }
-    if let Some((_, obj)) = dict.get_first(b"/UF") {
-        if let sis_pdf_pdf::object::PdfAtom::Str(s) = &obj.atom {
-            return Some(String::from_utf8_lossy(&string_bytes(s)).to_string());
-        }
-    }
-    None
-}
-fn sanitize_embedded_filename(name: &str) -> String {
-    let leaf = std::path::Path::new(name)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("embedded.bin");
-    let mut out = String::new();
-    for ch in leaf.chars() {
-        if ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-' {
-            out.push(ch);
-        } else {
-            out.push('_');
-        }
-    }
-    if out.is_empty() {
-        "embedded.bin".into()
-    } else {
-        out
-    }
-}
-fn entry_dict<'a>(
-    entry: &'a sis_pdf_pdf::graph::ObjEntry<'a>,
-) -> Option<&'a sis_pdf_pdf::object::PdfDict<'a>> {
-    match &entry.atom {
-        sis_pdf_pdf::object::PdfAtom::Dict(d) => Some(d),
-        sis_pdf_pdf::object::PdfAtom::Stream(st) => Some(&st.dict),
-        _ => None,
-    }
-}
-fn extract_obj_bytes(
-    graph: &sis_pdf_pdf::ObjectGraph<'_>,
-    bytes: &[u8],
-    obj: &sis_pdf_pdf::object::PdfObj<'_>,
-) -> Option<Vec<u8>> {
-    match &obj.atom {
-        sis_pdf_pdf::object::PdfAtom::Str(s) => Some(string_bytes(s)),
-        sis_pdf_pdf::object::PdfAtom::Stream(st) => {
-            sis_pdf_pdf::decode::decode_stream(bytes, st, 32 * 1024 * 1024)
-                .ok()
-                .map(|d| d.data)
-        }
-        sis_pdf_pdf::object::PdfAtom::Ref { .. } => {
-            let entry = graph.resolve_ref(obj)?;
-            match &entry.atom {
-                sis_pdf_pdf::object::PdfAtom::Str(s) => Some(string_bytes(s)),
-                sis_pdf_pdf::object::PdfAtom::Stream(st) => {
-                    sis_pdf_pdf::decode::decode_stream(bytes, st, 32 * 1024 * 1024)
-                        .ok()
-                        .map(|d| d.data)
-                }
-                _ => None,
-            }
-        }
-        _ => None,
-    }
-}
-fn string_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
-    match s {
-        sis_pdf_pdf::object::PdfStr::Literal { decoded, .. } => decoded.clone(),
-        sis_pdf_pdf::object::PdfStr::Hex { decoded, .. } => decoded.clone(),
-    }
-}
 fn preview_bytes(bytes: &[u8]) -> String {
     let mut s = String::new();
     for &b in bytes.iter().take(256) {
@@ -4922,21 +4241,6 @@ fn read_text_with_limit(path: &std::path::Path, max_bytes: u64) -> Result<String
         }
     }
     Ok(fs::read_to_string(path)?)
-}
-fn magic_type(data: &[u8]) -> String {
-    if data.starts_with(b"MZ") {
-        "pe".into()
-    } else if data.starts_with(b"%PDF") {
-        "pdf".into()
-    } else if data.starts_with(b"PK\x03\x04") {
-        "zip".into()
-    } else if data.starts_with(b"\x7fELF") {
-        "elf".into()
-    } else if data.starts_with(b"#!") {
-        "script".into()
-    } else {
-        "unknown".into()
-    }
 }
 
 fn build_ml_runtime_config(
@@ -5028,14 +4332,6 @@ fn parse_ml_mode(value: &str) -> sis_pdf_core::ml::MlMode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn sanitize_embedded_filename_strips_paths() {
-        let name = "../evil/../../payload.exe";
-        let safe = sanitize_embedded_filename(name);
-        assert!(!safe.contains('/'));
-        assert!(!safe.contains('\\'));
-        assert!(safe.ends_with("payload.exe"));
-    }
 
     #[test]
     fn resolve_provider_order_prefers_override_provider() {

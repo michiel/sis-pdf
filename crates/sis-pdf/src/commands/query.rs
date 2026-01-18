@@ -174,7 +174,12 @@ pub fn build_scan_context_public<'a>(
 }
 
 /// Execute a query using a pre-built context (for REPL mode)
-pub fn execute_query_with_context(query: &Query, ctx: &ScanContext) -> Result<QueryResult> {
+pub fn execute_query_with_context(
+    query: &Query,
+    ctx: &ScanContext,
+    extract_to: Option<&Path>,
+    max_extract_bytes: usize,
+) -> Result<QueryResult> {
     match query {
         Query::Pages => {
             let count = count_pages(ctx)?;
@@ -234,8 +239,15 @@ pub fn execute_query_with_context(query: &Query, ctx: &ScanContext) -> Result<Qu
             Ok(QueryResult::Structure(json!(findings)))
         }
         Query::JavaScript => {
-            let js_code = extract_javascript(ctx)?;
-            Ok(QueryResult::List(js_code))
+            if let Some(extract_path) = extract_to {
+                // Extract to disk
+                let written = write_js_files(ctx, extract_path, max_extract_bytes)?;
+                Ok(QueryResult::List(written))
+            } else {
+                // Return preview list
+                let js_code = extract_javascript(ctx)?;
+                Ok(QueryResult::List(js_code))
+            }
         }
         Query::JavaScriptCount => {
             let js_code = extract_javascript(ctx)?;
@@ -252,8 +264,15 @@ pub fn execute_query_with_context(query: &Query, ctx: &ScanContext) -> Result<Qu
             Ok(QueryResult::Scalar(ScalarValue::Number(urls.len() as i64)))
         }
         Query::Embedded => {
-            let embedded = extract_embedded_files(ctx)?;
-            Ok(QueryResult::List(embedded))
+            if let Some(extract_path) = extract_to {
+                // Extract to disk
+                let written = write_embedded_files(ctx, extract_path, max_extract_bytes)?;
+                Ok(QueryResult::List(written))
+            } else {
+                // Return preview list
+                let embedded = extract_embedded_files(ctx)?;
+                Ok(QueryResult::List(embedded))
+            }
         }
         Query::EmbeddedCount => {
             let embedded = extract_embedded_files(ctx)?;
@@ -335,6 +354,8 @@ pub fn execute_query(
     query: &Query,
     pdf_path: &Path,
     scan_options: &ScanOptions,
+    extract_to: Option<&Path>,
+    max_extract_bytes: usize,
 ) -> Result<QueryResult> {
     // Read PDF file
     let bytes = fs::read(pdf_path)?;
@@ -343,7 +364,7 @@ pub fn execute_query(
     let ctx = build_scan_context(&bytes, scan_options)?;
 
     // Delegate to execute_query_with_context
-    execute_query_with_context(query, &ctx)
+    execute_query_with_context(query, &ctx, extract_to, max_extract_bytes)
 }
 
 /// Scan options for query execution
@@ -990,6 +1011,207 @@ fn embedded_filename(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> Option<String> 
     }
 
     None
+}
+
+/// Extract raw bytes from a PDF object (for file extraction)
+fn extract_obj_bytes(
+    graph: &sis_pdf_pdf::ObjectGraph<'_>,
+    bytes: &[u8],
+    obj: &sis_pdf_pdf::object::PdfObj<'_>,
+    max_bytes: usize,
+) -> Option<Vec<u8>> {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    match &obj.atom {
+        PdfAtom::Str(s) => Some(string_bytes(s)),
+        PdfAtom::Stream(st) => sis_pdf_pdf::decode::decode_stream(bytes, st, max_bytes)
+            .ok()
+            .map(|d| d.data),
+        PdfAtom::Ref { .. } => {
+            let entry = graph.resolve_ref(obj)?;
+            match &entry.atom {
+                PdfAtom::Str(s) => Some(string_bytes(s)),
+                PdfAtom::Stream(st) => sis_pdf_pdf::decode::decode_stream(bytes, st, max_bytes)
+                    .ok()
+                    .map(|d| d.data),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Sanitize filename to prevent path traversal attacks
+fn sanitize_embedded_filename(name: &str) -> String {
+    use std::path::Path;
+
+    // Extract just the filename, removing any path components
+    let leaf = Path::new(name)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("embedded.bin");
+
+    // Filter to safe characters only
+    let mut out = String::new();
+    for ch in leaf.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' || ch == '-' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+
+    if out.is_empty() {
+        "embedded.bin".into()
+    } else {
+        out
+    }
+}
+
+/// Detect file type from magic bytes
+fn magic_type(data: &[u8]) -> &'static str {
+    if data.starts_with(b"MZ") {
+        "pe"
+    } else if data.starts_with(b"%PDF") {
+        "pdf"
+    } else if data.starts_with(b"PK\x03\x04") {
+        "zip"
+    } else if data.starts_with(b"\x7fELF") {
+        "elf"
+    } else if data.starts_with(b"#!") {
+        "script"
+    } else if data.starts_with(b"\x89PNG") {
+        "png"
+    } else if data.starts_with(b"\xff\xd8\xff") {
+        "jpeg"
+    } else if data.starts_with(b"GIF8") {
+        "gif"
+    } else {
+        "unknown"
+    }
+}
+
+/// Calculate SHA256 hash as hex string
+fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let digest = hasher.finalize();
+    hex::encode(digest)
+}
+
+/// Write JavaScript files to disk and return list of written files
+fn write_js_files(ctx: &ScanContext, extract_to: &Path, max_bytes: usize) -> Result<Vec<String>> {
+    use std::fs;
+
+    // Create output directory
+    fs::create_dir_all(extract_to)?;
+
+    let mut written_files = Vec::new();
+    let mut count = 0usize;
+
+    for entry in &ctx.graph.objects {
+        if let Some(dict) = entry_dict(entry) {
+            if let Some((_, obj)) = dict.get_first(b"/JS") {
+                if let Some(data) = extract_obj_bytes(&ctx.graph, ctx.bytes, obj, max_bytes) {
+                    let filename = format!("js_{}_{}.js", entry.obj, entry.gen);
+                    let filepath = extract_to.join(&filename);
+                    let hash = sha256_hex(&data);
+
+                    fs::write(&filepath, &data)?;
+
+                    let info = format!(
+                        "{}: {} bytes, sha256={}, object={}_{}",
+                        filename,
+                        data.len(),
+                        hash,
+                        entry.obj,
+                        entry.gen
+                    );
+                    written_files.push(info);
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    eprintln!("Extracted {} JavaScript file(s) to {}", count, extract_to.display());
+    Ok(written_files)
+}
+
+/// Write embedded files to disk and return list of written files
+fn write_embedded_files(
+    ctx: &ScanContext,
+    extract_to: &Path,
+    max_bytes: usize,
+) -> Result<Vec<String>> {
+    use sis_pdf_pdf::object::PdfAtom;
+    use std::fs;
+
+    // Create output directory
+    fs::create_dir_all(extract_to)?;
+
+    let mut written_files = Vec::new();
+    let mut count = 0usize;
+    let mut total_bytes = 0usize;
+
+    for entry in &ctx.graph.objects {
+        if let PdfAtom::Stream(st) = &entry.atom {
+            // Check if this is an embedded file
+            if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
+                if let Ok(decoded) =
+                    sis_pdf_pdf::decode::decode_stream(ctx.bytes, st, max_bytes)
+                {
+                    // Check size limit
+                    if max_bytes > 0 && total_bytes.saturating_add(decoded.data.len()) > max_bytes
+                    {
+                        eprintln!(
+                            "Embedded extraction budget exceeded ({} bytes), stopping",
+                            max_bytes
+                        );
+                        break;
+                    }
+
+                    // Get filename
+                    let name = embedded_filename(&st.dict).unwrap_or_else(|| {
+                        format!("embedded_{}_{}.bin", entry.obj, entry.gen)
+                    });
+                    let safe_name = sanitize_embedded_filename(&name);
+                    let filepath = extract_to.join(&safe_name);
+
+                    // Detect file type and calculate hash
+                    let hash = sha256_hex(&decoded.data);
+                    let file_type = magic_type(&decoded.data);
+                    let data_len = decoded.data.len();
+
+                    // Write file
+                    fs::write(&filepath, decoded.data)?;
+
+                    let info = format!(
+                        "{}: {} bytes, type={}, sha256={}, object={}_{}",
+                        safe_name,
+                        data_len,
+                        file_type,
+                        hash,
+                        entry.obj,
+                        entry.gen
+                    );
+                    written_files.push(info);
+
+                    total_bytes = total_bytes.saturating_add(data_len);
+                    count += 1;
+                }
+            }
+        }
+    }
+
+    eprintln!(
+        "Extracted {} embedded file(s) ({} bytes total) to {}",
+        count,
+        total_bytes,
+        extract_to.display()
+    );
+    Ok(written_files)
 }
 
 fn preview_text(text: &str, max_len: usize) -> String {
