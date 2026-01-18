@@ -78,6 +78,7 @@ pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysis
     findings.extend(color_fonts::analyze_color_font(&font_data));
 
     // Run dynamic analysis if enabled
+    #[cfg(feature = "dynamic")]
     if config.dynamic_enabled && dynamic::available() {
         match run_dynamic_with_timeout(&font_data, config.dynamic_timeout_ms, config) {
             Ok(dynamic_findings) => {
@@ -129,12 +130,14 @@ pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysis
     outcome
 }
 
+#[cfg(feature = "dynamic")]
 #[derive(Debug)]
 enum DynamicError {
     Timeout,
     Failure(String),
 }
 
+#[cfg(feature = "dynamic")]
 fn run_dynamic_with_timeout(
     data: &[u8],
     timeout_ms: u64,
