@@ -2,7 +2,7 @@ mod parser;
 mod variable_fonts;
 mod ttf_vm;
 
-pub use parser::{parse_font, FontContext};
+pub use parser::{parse_font, FontContext, InvalidMagic, InstructionIssue, TableInfo};
 
 use crate::model::{Confidence, FontFinding, Severity};
 use std::collections::HashMap;
@@ -39,6 +39,15 @@ pub fn available() -> bool {
 /// Perform comprehensive dynamic analysis and return findings
 #[cfg(feature = "dynamic")]
 pub fn analyze_with_findings(data: &[u8]) -> Vec<FontFinding> {
+    analyze_with_findings_and_config(data, &crate::model::FontAnalysisConfig::default())
+}
+
+/// Perform comprehensive dynamic analysis with configuration
+#[cfg(feature = "dynamic")]
+pub fn analyze_with_findings_and_config(
+    data: &[u8],
+    config: &crate::model::FontAnalysisConfig,
+) -> Vec<FontFinding> {
     let mut findings = Vec::new();
 
     // Parse font and extract context
@@ -59,7 +68,7 @@ pub fn analyze_with_findings(data: &[u8]) -> Vec<FontFinding> {
         }
     };
 
-    // Check for CVE-specific issues
+    // Check for CVE-specific issues (legacy hardcoded checks)
     variable_fonts::check_cve_2025_27163(&context, &mut findings);
     variable_fonts::check_cve_2025_27164(&context, &mut findings);
     variable_fonts::check_ebsc_oob(&context, &mut findings);
@@ -67,6 +76,36 @@ pub fn analyze_with_findings(data: &[u8]) -> Vec<FontFinding> {
 
     // Analyze TrueType hinting programs (fpgm, prep, cvt)
     analyze_hinting_tables(data, &mut findings);
+
+    // Run signature-based CVE matching if enabled
+    if config.signature_matching_enabled {
+        match config.load_signatures() {
+            Ok(signatures) => {
+                if !signatures.is_empty() {
+                    let mut registry = crate::signatures::SignatureRegistry::new();
+                    for sig in signatures {
+                        // Registry expects owned signatures
+                        registry.add(sig);
+                    }
+                    let signature_findings = registry.match_signatures(&context);
+                    findings.extend(signature_findings);
+                }
+            }
+            Err(err) => {
+                // Log error but don't fail the entire analysis
+                let mut meta = HashMap::new();
+                meta.insert("signature_error".to_string(), err);
+                findings.push(FontFinding {
+                    kind: "font.signature_load_failed".to_string(),
+                    severity: Severity::Info,
+                    confidence: Confidence::Probable,
+                    title: "Signature loading failed".to_string(),
+                    description: "Failed to load CVE signatures for matching".to_string(),
+                    meta,
+                });
+            }
+        }
+    }
 
     findings
 }

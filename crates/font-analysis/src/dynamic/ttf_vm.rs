@@ -5,6 +5,7 @@
 /// detects suspicious patterns.
 
 use std::collections::HashMap;
+use tracing::{debug, instrument, warn};
 
 use crate::model::{Confidence, FontFinding, Severity};
 
@@ -61,16 +62,24 @@ impl VMState {
 
 /// Analyze TrueType hinting program
 #[cfg(feature = "dynamic")]
+#[instrument(skip(program), fields(program_len = program.len()))]
 pub fn analyze_hinting_program(program: &[u8]) -> Vec<FontFinding> {
     let mut findings = Vec::new();
 
     if program.is_empty() {
+        debug!("Empty hinting program, skipping analysis");
         return findings;
     }
 
     // Parse and execute the program
     let mut state = VMState::new();
     if let Err(err) = execute_program(&mut state, program) {
+        warn!(
+            error = %err,
+            instruction_count = state.instruction_count,
+            max_stack_depth = state.max_stack_depth,
+            "Hinting program execution failed"
+        );
         // Execution error indicates potential security issue
         let mut meta = HashMap::new();
         meta.insert("error".to_string(), err.clone());
@@ -124,8 +133,11 @@ pub fn analyze_hinting_program(_program: &[u8]) -> Vec<FontFinding> {
 }
 
 /// Execute TrueType bytecode program
+#[instrument(skip_all, fields(program_len = program.len()))]
 fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), String> {
     let mut pc = 0; // Program counter
+
+    debug!("Starting TrueType VM execution");
 
     while pc < program.len() {
         state.check_budget()?;

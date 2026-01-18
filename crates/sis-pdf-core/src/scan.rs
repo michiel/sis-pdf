@@ -56,6 +56,8 @@ pub struct FontAnalysisOptions {
     pub dynamic_enabled: bool,
     pub dynamic_timeout_ms: u64,
     pub max_fonts: usize,
+    pub signature_matching_enabled: bool,
+    pub signature_directory: Option<String>,
 }
 
 impl Default for FontAnalysisOptions {
@@ -65,6 +67,8 @@ impl Default for FontAnalysisOptions {
             dynamic_enabled: false,
             dynamic_timeout_ms: 120,
             max_fonts: 256,
+            signature_matching_enabled: true,
+            signature_directory: None,
         }
     }
 }

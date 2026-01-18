@@ -1,5 +1,7 @@
 /// Type 1 charstring analysis for detecting dangerous operators and exploit patterns
 
+use tracing::{debug, instrument, warn};
+
 /// Analysis results from charstring parsing
 #[derive(Debug, Clone)]
 pub struct CharstringAnalysis {
@@ -30,6 +32,7 @@ const DANGEROUS_OPERATORS: &[&str] = &[
 ];
 
 /// Analyze Type 1 charstrings for dangerous patterns
+#[instrument(skip(data), fields(data_len = data.len()))]
 pub fn analyze_charstring(data: &[u8]) -> CharstringAnalysis {
     let mut analysis = CharstringAnalysis {
         max_stack_depth: 0,
@@ -40,6 +43,7 @@ pub fn analyze_charstring(data: &[u8]) -> CharstringAnalysis {
 
     // Try to parse charstrings from the data
     let charstrings = extract_charstrings(data);
+    debug!(charstring_count = charstrings.len(), "Extracted charstrings");
 
     for (name, cs_data) in charstrings {
         analyze_single_charstring(&mut analysis, &name, cs_data);
@@ -47,6 +51,10 @@ pub fn analyze_charstring(data: &[u8]) -> CharstringAnalysis {
 
     // Detect BLEND exploit pattern: multiple callothersubr/return sequences
     analysis.has_blend_pattern = detect_blend_pattern(&analysis.dangerous_ops);
+
+    if analysis.has_blend_pattern {
+        warn!("BLEND exploit pattern detected in charstrings");
+    }
 
     analysis
 }
@@ -90,6 +98,7 @@ fn extract_charstrings(data: &[u8]) -> Vec<(String, Vec<u8>)> {
 }
 
 /// Analyze a single charstring
+#[instrument(skip(analysis, data), fields(glyph = name, data_len = data.len()))]
 fn analyze_single_charstring(
     analysis: &mut CharstringAnalysis,
     name: &str,
@@ -106,6 +115,7 @@ fn analyze_single_charstring(
 
         // Check if it's a dangerous operator
         if DANGEROUS_OPERATORS.contains(token) {
+            debug!(operator = token, position = pos, "Dangerous operator found");
             analysis.dangerous_ops.push(DangerousOperator {
                 position: pos,
                 operator: token.to_string(),

@@ -20,6 +20,7 @@ pub mod evasion_time;
 pub mod external_context;
 pub mod filter_depth;
 pub mod font_exploits;
+pub mod font_external_ref;
 pub mod icc_profiles;
 pub mod ir_graph_static;
 pub mod js_polymorphic;
@@ -92,6 +93,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(external_context::ExternalActionContextDetector),
         Box::new(FontMatrixDetector),
         Box::new(font_exploits::FontExploitDetector),
+        Box::new(font_external_ref::FontExternalReferenceDetector),
         Box::new(EmbeddedFileDetector),
         Box::new(RichMediaDetector),
         Box::new(ThreeDDetector),

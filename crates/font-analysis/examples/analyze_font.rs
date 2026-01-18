@@ -54,6 +54,8 @@ fn main() {
         max_stack_depth: 256,
         max_fonts: 100,
         network_access: false,
+        signature_matching_enabled: true,
+        signature_directory: None,
     };
 
     // Perform analysis

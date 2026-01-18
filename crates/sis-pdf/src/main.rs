@@ -248,6 +248,16 @@ enum Command {
         no_js_ast: bool,
         #[arg(long)]
         no_js_sandbox: bool,
+        #[arg(
+            long,
+            help = "Disable font CVE signature matching (enabled by default)"
+        )]
+        no_font_signatures: bool,
+        #[arg(
+            long,
+            help = "Custom directory containing font CVE signature YAML files"
+        )]
+        font_signature_dir: Option<PathBuf>,
     },
     #[command(subcommand, about = "Run sandbox evaluation for dynamic assets")]
     Sandbox(SandboxCommand),
@@ -685,6 +695,8 @@ fn main() -> Result<()> {
             ml_batch_size,
             no_js_ast,
             no_js_sandbox,
+            no_font_signatures,
+            font_signature_dir,
         } => run_scan(
             pdf.as_deref(),
             path.as_deref(),
@@ -738,6 +750,8 @@ fn main() -> Result<()> {
             ml_batch_size,
             !no_js_ast,
             !no_js_sandbox,
+            !no_font_signatures,
+            font_signature_dir.as_deref(),
         ),
         Command::Sandbox(cmd) => match cmd {
             SandboxCommand::Eval {
@@ -2778,6 +2792,8 @@ fn run_scan(
     ml_batch_size: Option<usize>,
     js_ast: bool,
     js_sandbox: bool,
+    font_signatures_enabled: bool,
+    font_signature_dir: Option<&std::path::Path>,
 ) -> Result<()> {
     if path.is_some() && pdf.is_some() {
         return Err(anyhow!("provide either a PDF path or --path, not both"));
@@ -2825,7 +2841,14 @@ fn run_scan(
         strict_summary,
         ir,
         ml_config: None,
-        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions {
+            enabled: true,
+            dynamic_enabled: false,
+            dynamic_timeout_ms: 120,
+            max_fonts: 256,
+            signature_matching_enabled: font_signatures_enabled,
+            signature_directory: font_signature_dir.map(|p| p.to_string_lossy().to_string()),
+        },
         profile: runtime_profile,
         profile_format: match runtime_profile_format {
             "json" => sis_pdf_core::scan::ProfileFormat::Json,

@@ -568,6 +568,7 @@ pub fn run_scan_with_detectors(
     }
     annotate_positions(&ctx, &mut findings);
     annotate_orphaned_page_context(&mut findings);
+    correlate_font_js(&mut findings);
     let intent_summary = Some(crate::intent::apply_intent(&mut findings));
     let yara_rules =
         crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());
@@ -751,6 +752,94 @@ fn annotate_orphaned_page_context(findings: &mut [Finding]) {
             finding
                 .meta
                 .insert("page_tree.orphaned_payload_findings".into(), list);
+        }
+    }
+}
+
+/// Correlate font and JavaScript findings to detect combined exploitation attempts
+fn correlate_font_js(findings: &mut Vec<Finding>) {
+    // Check if we have both font and JavaScript findings
+    let has_high_font = findings.iter().any(|f| {
+        f.kind.starts_with("font.")
+            && matches!(f.severity, crate::model::Severity::High | crate::model::Severity::Critical)
+    });
+
+    let has_js_obfuscation = findings.iter().any(|f| {
+        f.kind.contains("js_") && (f.kind.contains("obfusc") || f.kind.contains("polymorphic"))
+    });
+
+    let has_js_exploit = findings.iter().any(|f| {
+        f.kind.contains("js_")
+            && matches!(f.severity, crate::model::Severity::High | crate::model::Severity::Critical)
+    });
+
+    // High severity font + JavaScript exploit = combined attack pattern
+    if has_high_font && has_js_exploit {
+        let font_ids: Vec<String> = findings
+            .iter()
+            .filter(|f| {
+                f.kind.starts_with("font.")
+                    && matches!(
+                        f.severity,
+                        crate::model::Severity::High | crate::model::Severity::Critical
+                    )
+            })
+            .map(|f| f.id.clone())
+            .take(5)
+            .collect();
+
+        let js_ids: Vec<String> = findings
+            .iter()
+            .filter(|f| {
+                f.kind.contains("js_")
+                    && matches!(
+                        f.severity,
+                        crate::model::Severity::High | crate::model::Severity::Critical
+                    )
+            })
+            .map(|f| f.id.clone())
+            .take(5)
+            .collect();
+
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("font_finding_count".into(), font_ids.len().to_string());
+        meta.insert("js_finding_count".into(), js_ids.len().to_string());
+        meta.insert("font_findings".into(), font_ids.join(", "));
+        meta.insert("js_findings".into(), js_ids.join(", "));
+
+        findings.push(Finding {
+            id: String::new(), // Will be filled by stable_id
+            surface: crate::model::AttackSurface::StreamsAndFilters,
+            kind: "pdf.font_js_combined_exploit".into(),
+            severity: crate::model::Severity::Critical,
+            confidence: crate::model::Confidence::Probable,
+            title: "Font and JavaScript combined exploitation pattern".into(),
+            description: "Document contains both high-severity font vulnerabilities and JavaScript exploits, suggesting a multi-vector attack.".into(),
+            objects: Vec::new(),
+            evidence: Vec::new(),
+            remediation: Some("This document shows signs of a sophisticated multi-vector attack. Block or quarantine immediately.".into()),
+            meta,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+        });
+    }
+
+    // Medium font + JavaScript obfuscation = escalate font severity
+    if has_js_obfuscation {
+        for finding in findings.iter_mut() {
+            if finding.kind.starts_with("font.")
+                && finding.severity == crate::model::Severity::Medium
+            {
+                finding.severity = crate::model::Severity::High;
+                finding
+                    .meta
+                    .insert("severity_escalated".into(), "js_obfuscation_present".into());
+                finding.description = format!(
+                    "{} Severity escalated due to presence of obfuscated JavaScript.",
+                    finding.description
+                );
+            }
         }
     }
 }
@@ -1177,4 +1266,149 @@ fn carved_object_limit(max_objects: usize) -> usize {
         return CARVED_OBJECT_LIMIT_DEFAULT;
     }
     max_objects.min(CARVED_OBJECT_LIMIT_DEFAULT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_font_js_correlation_critical() {
+        let mut findings = vec![
+            Finding {
+                id: "font1".into(),
+                surface: crate::model::AttackSurface::StreamsAndFilters,
+                kind: "font.type1_blend_exploit".into(),
+                severity: crate::model::Severity::High,
+                confidence: crate::model::Confidence::Probable,
+                title: "Font exploit".into(),
+                description: "Test font finding".into(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: std::collections::HashMap::new(),
+                yara: None,
+                position: None,
+                positions: vec![],
+            },
+            Finding {
+                id: "js1".into(),
+                surface: crate::model::AttackSurface::JavaScript,
+                kind: "js_malicious_pattern".into(),
+                severity: crate::model::Severity::High,
+                confidence: crate::model::Confidence::Probable,
+                title: "JS exploit".into(),
+                description: "Test JS finding".into(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: std::collections::HashMap::new(),
+                yara: None,
+                position: None,
+                positions: vec![],
+            },
+        ];
+
+        correlate_font_js(&mut findings);
+
+        // Should have created a combined exploit finding
+        let has_combined = findings
+            .iter()
+            .any(|f| f.kind == "pdf.font_js_combined_exploit");
+        assert!(
+            has_combined,
+            "Should create combined exploit finding. Findings: {:?}",
+            findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+        );
+
+        // Combined finding should be CRITICAL
+        let combined = findings
+            .iter()
+            .find(|f| f.kind == "pdf.font_js_combined_exploit")
+            .unwrap();
+        assert_eq!(combined.severity, crate::model::Severity::Critical);
+    }
+
+    #[test]
+    fn test_font_js_correlation_escalation() {
+        let mut findings = vec![
+            Finding {
+                id: "font1".into(),
+                surface: crate::model::AttackSurface::StreamsAndFilters,
+                kind: "font.type1_large_charstring".into(),
+                severity: crate::model::Severity::Medium,
+                confidence: crate::model::Confidence::Probable,
+                title: "Font anomaly".into(),
+                description: "Test font finding".into(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: std::collections::HashMap::new(),
+                yara: None,
+                position: None,
+                positions: vec![],
+            },
+            Finding {
+                id: "js1".into(),
+                surface: crate::model::AttackSurface::JavaScript,
+                kind: "js_obfuscation_detected".into(),
+                severity: crate::model::Severity::Medium,
+                confidence: crate::model::Confidence::Probable,
+                title: "JS obfuscation".into(),
+                description: "Test JS obfuscation".into(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: std::collections::HashMap::new(),
+                yara: None,
+                position: None,
+                positions: vec![],
+            },
+        ];
+
+        correlate_font_js(&mut findings);
+
+        // Font finding should be escalated from MEDIUM to HIGH
+        let font_finding = findings
+            .iter()
+            .find(|f| f.kind == "font.type1_large_charstring")
+            .unwrap();
+        assert_eq!(font_finding.severity, crate::model::Severity::High);
+
+        // Should have escalation metadata
+        assert!(font_finding.meta.contains_key("severity_escalated"));
+    }
+
+    #[test]
+    fn test_font_js_correlation_no_action() {
+        let mut findings = vec![
+            Finding {
+                id: "font1".into(),
+                surface: crate::model::AttackSurface::StreamsAndFilters,
+                kind: "font.type1_excessive_stack".into(),
+                severity: crate::model::Severity::Low,
+                confidence: crate::model::Confidence::Probable,
+                title: "Font anomaly".into(),
+                description: "Test font finding".into(),
+                objects: vec![],
+                evidence: vec![],
+                remediation: None,
+                meta: std::collections::HashMap::new(),
+                yara: None,
+                position: None,
+                positions: vec![],
+            },
+        ];
+
+        let original_count = findings.len();
+        correlate_font_js(&mut findings);
+
+        // Should not create new findings or escalate severity
+        assert_eq!(
+            findings.len(),
+            original_count,
+            "Should not create new findings"
+        );
+        assert_eq!(findings[0].severity, crate::model::Severity::Low);
+    }
 }

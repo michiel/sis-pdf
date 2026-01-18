@@ -132,67 +132,11 @@ pub fn check_ebsc_oob(context: &FontContext, findings: &mut Vec<FontFinding>) {
     }
 }
 
+// NOTE: Tests for hardcoded CVE checks have been removed.
+// CVE detection is now handled by the signature system in signatures.rs.
+// See crates/font-analysis/tests/integration_tests.rs for signature-based CVE detection tests.
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_cve_2025_27163_detection() {
-        let context = FontContext {
-            glyph_count_maxp: Some(100),
-            glyph_count_cff: None,
-            num_h_metrics: Some(100),
-            hmtx_length: Some(200), // Should be at least 400 (100 * 4)
-            has_gvar: false,
-            has_cff2: false,
-            has_ebsc: false,
-            tables: Vec::new(),
-        };
-
-        let mut findings = Vec::new();
-        check_cve_2025_27163(&context, &mut findings);
-
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].kind, "font.cve_2025_27163");
-        assert_eq!(findings[0].severity, Severity::High);
-    }
-
-    #[test]
-    fn test_cve_2025_27163_valid() {
-        let context = FontContext {
-            glyph_count_maxp: Some(100),
-            glyph_count_cff: None,
-            num_h_metrics: Some(100),
-            hmtx_length: Some(500), // Valid: >= 400
-            has_gvar: false,
-            has_cff2: false,
-            has_ebsc: false,
-            tables: Vec::new(),
-        };
-
-        let mut findings = Vec::new();
-        check_cve_2025_27163(&context, &mut findings);
-
-        assert!(findings.is_empty());
-    }
-
-    #[test]
-    fn test_cve_2025_27164_detection() {
-        let context = FontContext {
-            glyph_count_maxp: Some(150),
-            glyph_count_cff: Some(100), // maxp exceeds CFF2 count
-            num_h_metrics: None,
-            hmtx_length: None,
-            has_gvar: false,
-            has_cff2: true,
-            has_ebsc: false,
-            tables: Vec::new(),
-        };
-
-        let mut findings = Vec::new();
-        check_cve_2025_27164(&context, &mut findings);
-
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].kind, "font.cve_2025_27164");
-    }
+    // Tests will be added here as needed for variable font-specific functionality
 }
