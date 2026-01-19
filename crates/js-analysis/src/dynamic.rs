@@ -13,7 +13,7 @@ mod sandbox_impl {
     use std::time::{Duration, Instant};
 
     use boa_engine::object::builtins::JsFunction;
-    use boa_engine::object::{FunctionObjectBuilder, ObjectInitializer};
+    use boa_engine::object::{FunctionObjectBuilder, JsObject, ObjectInitializer};
     use boa_engine::property::Attribute;
     use boa_engine::value::JsVariant;
     use boa_engine::vm::RuntimeLimits;
@@ -684,6 +684,55 @@ mod sandbox_impl {
         )
     }
 
+    fn build_callable_value(
+        context: &mut Context,
+        log: Rc<RefCell<SandboxLog>>,
+        name: &'static str,
+        value: JsValue,
+    ) -> JsObject {
+        let value_for_call = value.clone();
+        let log_call = log.clone();
+        let call_fn = unsafe {
+            NativeFunction::from_closure(move |_this, args, ctx| {
+                record_call(&log_call, name, args, ctx);
+                Ok(value_for_call.clone())
+            })
+        };
+        let func = FunctionObjectBuilder::new(context.realm(), call_fn)
+            .name(JsString::from(name))
+            .length(0)
+            .constructor(false)
+            .build();
+        let func: JsObject = func.into();
+
+        let value_for_valueof = value.clone();
+        let value_of_fn = unsafe {
+            NativeFunction::from_closure(move |_this, _args, _ctx| Ok(value_for_valueof.clone()))
+        };
+        let value_of = FunctionObjectBuilder::new(context.realm(), value_of_fn)
+            .name(JsString::from("valueOf"))
+            .length(0)
+            .constructor(false)
+            .build();
+        let _ = func.set(JsString::from("valueOf"), value_of, false, context);
+
+        let value_for_string = value.clone();
+        let to_string_fn = unsafe {
+            NativeFunction::from_closure(move |_this, _args, ctx| {
+                let as_string = value_for_string.to_string(ctx)?;
+                Ok(JsValue::from(as_string))
+            })
+        };
+        let to_string = FunctionObjectBuilder::new(context.realm(), to_string_fn)
+            .name(JsString::from("toString"))
+            .length(0)
+            .constructor(false)
+            .build();
+        let _ = func.set(JsString::from("toString"), to_string, false, context);
+
+        func
+    }
+
     fn register_app(context: &mut Context, log: Rc<RefCell<SandboxLog>>, doc: Option<JsValue>) {
         let make_fn = |name: &'static str| {
             let log = log.clone();
@@ -723,6 +772,13 @@ mod sandbox_impl {
                 .constructor(false)
                 .build()
         };
+
+        let viewer_version_value = JsValue::from(9);
+        let viewer_version_callable =
+            build_callable_value(context, log.clone(), "app.viewerVersion", viewer_version_value);
+        let viewer_type_value = JsValue::from(JsString::from("Reader"));
+        let viewer_type_callable =
+            build_callable_value(context, log.clone(), "app.viewerType", viewer_type_value);
 
         let doc_accessor = doc.map(|doc_value| {
             let log_clone = log.clone();
@@ -786,12 +842,12 @@ mod sandbox_impl {
         app.function(make_fn("mailDoc"), JsString::from("mailDoc"), 0);
         app.property(
             JsString::from("viewerVersion"),
-            JsValue::from(9),
+            JsValue::from(viewer_version_callable),
             Attribute::all(),
         );
         app.property(
             JsString::from("viewerType"),
-            JsString::from("Reader"),
+            JsValue::from(viewer_type_callable),
             Attribute::all(),
         );
         app.property(
