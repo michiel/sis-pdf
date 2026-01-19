@@ -1686,25 +1686,23 @@ fn run_ml_detect(
         .clone()
         .or(hints.ort_dylib.clone());
     let provider_order = resolve_provider_order(&runtime_overrides, &hints, target.os);
-    let mut provider_available = Vec::new();
-    let mut provider_selected = None;
-    let mut provider_detection_note = None;
-    #[cfg(feature = "ml-graph")]
-    {
-        match detect_provider_info(&runtime_overrides, &provider_order) {
-            Ok(info) => {
-                provider_available = info.available;
-                provider_selected = info.selected;
-            }
-            Err(err) => {
-                provider_detection_note = Some(format!("provider detection failed: {err}"));
+    let (provider_available, provider_selected, provider_detection_note) = {
+        #[cfg(feature = "ml-graph")]
+        {
+            match detect_provider_info(&runtime_overrides, &provider_order) {
+                Ok(info) => (info.available, info.selected, None),
+                Err(err) => (Vec::new(), None, Some(format!("provider detection failed: {err}"))),
             }
         }
-    }
-    #[cfg(not(feature = "ml-graph"))]
-    {
-        provider_detection_note = Some("provider detection requires the ml-graph feature".into());
-    }
+        #[cfg(not(feature = "ml-graph"))]
+        {
+            (
+                Vec::new(),
+                None,
+                Some("provider detection requires the ml-graph feature".into()),
+            )
+        }
+    };
     let provider_suggestions = suggest_providers(&provider_order, &provider_available);
     let output = MlDetectOutput {
         os: target.os.to_string(),
@@ -1944,6 +1942,7 @@ fn detect_provider_info(
     }
 }
 
+#[cfg(feature = "ml-graph")]
 fn resolve_ort_dylib_hint(overrides: &sis_pdf_core::ml::MlRuntimeConfig) -> Option<PathBuf> {
     if let Some(path) = overrides.ort_dylib_path.as_ref() {
         return Some(path.clone());

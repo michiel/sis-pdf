@@ -7,15 +7,42 @@
 use std::collections::HashMap;
 use tracing::{debug, instrument, warn};
 
-use crate::model::{Confidence, FontFinding, Severity};
+use crate::model::{Confidence, FontAnalysisConfig, FontFinding, Severity};
 
-/// TrueType VM execution limits (for future full VM execution)
-#[allow(dead_code)]
-const MAX_INSTRUCTIONS_PER_GLYPH: usize = 50_000;
-#[allow(dead_code)]
-const MAX_STACK_DEPTH: usize = 256;
-#[allow(dead_code)]
-const MAX_LOOP_ITERATIONS: usize = 10_000;
+/// TrueType VM execution limits (for security analysis)
+const DEFAULT_MAX_INSTRUCTIONS_PER_GLYPH: usize = 50_000;
+const DEFAULT_MAX_STACK_DEPTH: usize = 256;
+const DEFAULT_MAX_LOOP_DEPTH: usize = 10;
+
+#[derive(Debug, Clone, Copy)]
+pub struct VmLimits {
+    max_instructions_per_glyph: usize,
+    max_stack_depth: usize,
+    max_loop_depth: usize,
+}
+
+impl VmLimits {
+    pub fn from_config(config: &FontAnalysisConfig) -> Self {
+        let max_instructions = usize::try_from(config.max_charstring_ops)
+            .unwrap_or(DEFAULT_MAX_INSTRUCTIONS_PER_GLYPH);
+        let max_stack_depth = config.max_stack_depth.max(1);
+        Self {
+            max_instructions_per_glyph: max_instructions,
+            max_stack_depth,
+            max_loop_depth: DEFAULT_MAX_LOOP_DEPTH,
+        }
+    }
+}
+
+impl Default for VmLimits {
+    fn default() -> Self {
+        Self {
+            max_instructions_per_glyph: DEFAULT_MAX_INSTRUCTIONS_PER_GLYPH,
+            max_stack_depth: DEFAULT_MAX_STACK_DEPTH,
+            max_loop_depth: DEFAULT_MAX_LOOP_DEPTH,
+        }
+    }
+}
 
 /// VM execution state (for future full VM execution)
 #[allow(dead_code)]
@@ -26,21 +53,23 @@ struct VMState {
     max_stack_depth: usize,
     loop_depth: usize,
     suspicious_patterns: Vec<String>,
+    limits: VmLimits,
 }
 
 impl VMState {
-    fn new() -> Self {
+    fn new(limits: VmLimits) -> Self {
         Self {
-            stack: Vec::with_capacity(MAX_STACK_DEPTH),
+            stack: Vec::with_capacity(limits.max_stack_depth),
             instruction_count: 0,
             max_stack_depth: 0,
             loop_depth: 0,
             suspicious_patterns: Vec::new(),
+            limits,
         }
     }
 
     fn push(&mut self, value: i32) -> Result<(), String> {
-        if self.stack.len() >= MAX_STACK_DEPTH {
+        if self.stack.len() >= self.limits.max_stack_depth {
             return Err(format!("Stack overflow: depth {}", self.stack.len()));
         }
         self.stack.push(value);
@@ -54,7 +83,7 @@ impl VMState {
 
     fn check_budget(&mut self) -> Result<(), String> {
         self.instruction_count += 1;
-        if self.instruction_count > MAX_INSTRUCTIONS_PER_GLYPH {
+        if self.instruction_count > self.limits.max_instructions_per_glyph {
             return Err(format!(
                 "Instruction budget exceeded: {} instructions",
                 self.instruction_count
@@ -67,7 +96,7 @@ impl VMState {
 /// Analyze TrueType hinting program
 #[cfg(feature = "dynamic")]
 #[instrument(skip(program), fields(program_len = program.len()))]
-pub fn analyze_hinting_program(program: &[u8]) -> Vec<FontFinding> {
+pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFinding> {
     let mut findings = Vec::new();
 
     if program.is_empty() {
@@ -76,7 +105,7 @@ pub fn analyze_hinting_program(program: &[u8]) -> Vec<FontFinding> {
     }
 
     // Parse and execute the program
-    let mut state = VMState::new();
+    let mut state = VMState::new(*limits);
     if let Err(err) = execute_program(&mut state, program) {
         warn!(
             error = %err,
@@ -132,7 +161,7 @@ pub fn analyze_hinting_program(program: &[u8]) -> Vec<FontFinding> {
 }
 
 #[cfg(not(feature = "dynamic"))]
-pub fn analyze_hinting_program(_program: &[u8]) -> Vec<FontFinding> {
+pub fn analyze_hinting_program(_program: &[u8], _limits: &VmLimits) -> Vec<FontFinding> {
     Vec::new()
 }
 
@@ -303,7 +332,7 @@ fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), String> {
             0x2A => {
                 // LOOPCALL: Loop and call function
                 state.loop_depth += 1;
-                if state.loop_depth > 10 {
+                if state.loop_depth > state.limits.max_loop_depth {
                     state
                         .suspicious_patterns
                         .push("Deep loop nesting".to_string());
@@ -423,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_vm_push_pop() {
-        let mut state = VMState::new();
+        let mut state = VMState::new(VmLimits::default());
         state.push(42).unwrap();
         state.push(100).unwrap();
         assert_eq!(state.pop().unwrap(), 100);
@@ -432,8 +461,9 @@ mod tests {
 
     #[test]
     fn test_vm_stack_overflow() {
-        let mut state = VMState::new();
-        for i in 0..MAX_STACK_DEPTH {
+        let limits = VmLimits::default();
+        let mut state = VMState::new(limits);
+        for i in 0..limits.max_stack_depth {
             state.push(i as i32).unwrap();
         }
         assert!(state.push(1000).is_err());
@@ -441,14 +471,14 @@ mod tests {
 
     #[test]
     fn test_vm_stack_underflow() {
-        let mut state = VMState::new();
+        let mut state = VMState::new(VmLimits::default());
         assert!(state.pop().is_err());
     }
 
     #[test]
     fn test_vm_budget() {
-        let mut state = VMState::new();
-        state.instruction_count = MAX_INSTRUCTIONS_PER_GLYPH;
+        let mut state = VMState::new(VmLimits::default());
+        state.instruction_count = state.limits.max_instructions_per_glyph;
         assert!(state.check_budget().is_err());
     }
 
@@ -457,7 +487,7 @@ mod tests {
     fn test_simple_program() {
         // PUSHB[0] 42, PUSHB[0] 100, ADD
         let program = vec![0xB0, 42, 0xB0, 100, 0x60];
-        let mut state = VMState::new();
+        let mut state = VMState::new(VmLimits::default());
         execute_program(&mut state, &program).unwrap();
         assert_eq!(state.pop().unwrap(), 142);
     }
@@ -467,7 +497,7 @@ mod tests {
     fn test_division_by_zero() {
         // PUSHB[0] 100, PUSHB[0] 0, DIV
         let program = vec![0xB0, 100, 0xB0, 0, 0x62];
-        let mut state = VMState::new();
+        let mut state = VMState::new(VmLimits::default());
         assert!(execute_program(&mut state, &program).is_err());
     }
 
@@ -480,7 +510,7 @@ mod tests {
             program.push(0xB0); // PUSHB[0]
             program.push(1);
         }
-        let findings = analyze_hinting_program(&program);
+        let findings = analyze_hinting_program(&program, &VmLimits::default());
         assert!(!findings.is_empty());
         assert!(findings
             .iter()

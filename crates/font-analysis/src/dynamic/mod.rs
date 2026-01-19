@@ -1,10 +1,15 @@
 mod parser;
+#[cfg(feature = "dynamic")]
 mod variable_fonts;
+#[cfg(feature = "dynamic")]
 mod ttf_vm;
 
 pub use parser::{parse_font, FontContext, InvalidMagic, InstructionIssue, TableInfo};
 
-use crate::model::{Confidence, FontFinding, Severity};
+use crate::model::FontFinding;
+#[cfg(feature = "dynamic")]
+use crate::model::{Confidence, Severity};
+#[cfg(feature = "dynamic")]
 use std::collections::HashMap;
 
 #[cfg(feature = "dynamic")]
@@ -75,7 +80,7 @@ pub fn analyze_with_findings_and_config(
     variable_fonts::check_gvar_anomalies(&context, &mut findings);
 
     // Analyze TrueType hinting programs (fpgm, prep, cvt)
-    analyze_hinting_tables(data, &mut findings);
+    analyze_hinting_tables(data, config, &mut findings);
 
     // Run signature-based CVE matching if enabled
     if config.signature_matching_enabled {
@@ -112,14 +117,19 @@ pub fn analyze_with_findings_and_config(
 
 /// Analyze TrueType hinting tables for suspicious patterns
 #[cfg(feature = "dynamic")]
-fn analyze_hinting_tables(data: &[u8], findings: &mut Vec<FontFinding>) {
+fn analyze_hinting_tables(
+    data: &[u8],
+    config: &crate::model::FontAnalysisConfig,
+    findings: &mut Vec<FontFinding>,
+) {
+    let limits = ttf_vm::VmLimits::from_config(config);
     // Extract hinting tables (fpgm, prep)
     if let Some(fpgm) = extract_table(data, b"fpgm") {
-        findings.extend(ttf_vm::analyze_hinting_program(&fpgm));
+        findings.extend(ttf_vm::analyze_hinting_program(&fpgm, &limits));
     }
 
     if let Some(prep) = extract_table(data, b"prep") {
-        findings.extend(ttf_vm::analyze_hinting_program(&prep));
+        findings.extend(ttf_vm::analyze_hinting_program(&prep, &limits));
     }
 }
 

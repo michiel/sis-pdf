@@ -175,27 +175,56 @@ fn is_font_descriptor(dict: &PdfDict) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sis_pdf_pdf::object::PdfName;
+    use sis_pdf_pdf::object::{PdfName, PdfObj};
+    use sis_pdf_pdf::span::Span;
+    use std::borrow::Cow;
+
+    fn span() -> Span {
+        Span { start: 0, end: 0 }
+    }
+
+    fn name(value: &'static str) -> PdfName<'static> {
+        let bytes = value.as_bytes();
+        PdfName {
+            span: span(),
+            raw: Cow::Borrowed(bytes),
+            decoded: bytes.to_vec(),
+        }
+    }
 
     #[test]
     fn test_is_font_dict() {
-        let mut dict = PdfDict::new();
+        let mut dict = PdfDict {
+            span: span(),
+            entries: Vec::new(),
+        };
         assert!(!is_font_dict(&dict));
 
         dict.entries.push((
-            PdfName::from("/Type"),
-            PdfAtom::Name(PdfName::from("/Font")),
+            name("/Type"),
+            PdfObj {
+                span: span(),
+                atom: PdfAtom::Name(name("/Font")),
+            },
         ));
         assert!(is_font_dict(&dict));
     }
 
     #[test]
     fn test_is_font_descriptor() {
-        let mut dict = PdfDict::new();
+        let mut dict = PdfDict {
+            span: span(),
+            entries: Vec::new(),
+        };
         assert!(!is_font_descriptor(&dict));
 
-        dict.entries
-            .push((PdfName::from("/FontFile"), PdfAtom::Null));
+        dict.entries.push((
+            name("/FontFile"),
+            PdfObj {
+                span: span(),
+                atom: PdfAtom::Null,
+            },
+        ));
         assert!(is_font_descriptor(&dict));
     }
 }

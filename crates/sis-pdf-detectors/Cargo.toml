@@ -13,7 +13,7 @@ base64 = "0.22"
 flate2 = "1.0"
 js-analysis = { path = "../js-analysis", default-features = false }
 tracing = "0.1"
-font-analysis = { path = "../font-analysis", default-features = false }
+font-analysis = { path = "../font-analysis" }
 
 [features]
 default = ["js-ast", "js-sandbox"]

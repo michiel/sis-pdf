@@ -3,10 +3,14 @@
 /// This module handles WOFF and WOFF2 compressed fonts, decompressing them
 /// and converting to standard SFNT format for analysis.
 
+#[cfg(feature = "dynamic")]
 use std::collections::HashMap;
+#[cfg(feature = "dynamic")]
 use tracing::{debug, instrument, warn};
 
-use crate::model::{Confidence, FontFinding, Severity};
+use crate::model::FontFinding;
+#[cfg(feature = "dynamic")]
+use crate::model::{Confidence, Severity};
 
 /// Detect if data is a WOFF font
 pub fn is_woff(data: &[u8]) -> bool {
@@ -42,51 +46,49 @@ pub fn decompress_woff(_data: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(feature = "dynamic")]
 fn decompress_woff1(data: &[u8]) -> Result<Vec<u8>, String> {
     use allsorts::binary::read::ReadScope;
-    use allsorts::font_data::FontData;
+    use allsorts::subset::whole_font;
+    use allsorts::tag;
+    use allsorts::woff::WoffFont;
 
     let scope = ReadScope::new(data);
-    let _font_data = scope.read::<FontData<'_>>()
+    let woff = scope
+        .read::<WoffFont<'_>>()
         .map_err(|e| format!("Failed to parse WOFF file: {:?}", e))?;
 
-    // TODO: Proper WOFF to SFNT conversion
-    // For now, return the original data as allsorts handles WOFF transparently
-    debug!(
-        original_size = data.len(),
-        "WOFF font parsed successfully"
-    );
+    let tags: Vec<u32> = woff.table_directory.iter().map(|entry| entry.tag).collect();
+    if !tags.contains(&tag::HEAD) || !tags.contains(&tag::MAXP) {
+        debug!("WOFF font missing required tables; skipping SFNT conversion");
+        return Ok(data.to_vec());
+    }
 
-    Ok(data.to_vec())
+    whole_font(&woff, &tags).map_err(|e| format!("Failed to build SFNT from WOFF: {:?}", e))
 }
 
-#[cfg(not(feature = "dynamic"))]
-fn decompress_woff1(_data: &[u8]) -> Result<Vec<u8>, String> {
-    Err("WOFF support requires dynamic feature".to_string())
-}
 
 /// Decompress WOFF2 to SFNT
 #[cfg(feature = "dynamic")]
 fn decompress_woff2(data: &[u8]) -> Result<Vec<u8>, String> {
     use allsorts::binary::read::ReadScope;
-    use allsorts::font_data::FontData;
+    use allsorts::subset::whole_font;
+    use allsorts::tag;
+    use allsorts::woff2::Woff2Font;
 
     let scope = ReadScope::new(data);
-    let _font_data = scope.read::<FontData<'_>>()
+    let woff = scope
+        .read::<Woff2Font<'_>>()
         .map_err(|e| format!("Failed to parse WOFF2 file: {:?}", e))?;
-
-    // TODO: Proper WOFF2 to SFNT conversion
-    // For now, return the original data as allsorts handles WOFF2 transparently
-    debug!(
-        original_size = data.len(),
-        "WOFF2 font parsed successfully"
-    );
-
-    Ok(data.to_vec())
+    let tags: Vec<u32> = woff.table_directory.iter().map(|entry| entry.tag).collect();
+    if !tags.contains(&tag::HEAD) || !tags.contains(&tag::MAXP) {
+        debug!("WOFF2 font missing required tables; skipping SFNT conversion");
+        return Ok(data.to_vec());
+    }
+    let provider = woff
+        .table_provider(0)
+        .map_err(|e| format!("Failed to load WOFF2 tables: {:?}", e))?;
+    whole_font(&provider, &tags)
+        .map_err(|e| format!("Failed to build SFNT from WOFF2: {:?}", e))
 }
 
-#[cfg(not(feature = "dynamic"))]
-fn decompress_woff2(_data: &[u8]) -> Result<Vec<u8>, String> {
-    Err("WOFF2 support requires dynamic feature".to_string())
-}
 
 /// Validate WOFF decompression for security issues
 #[cfg(feature = "dynamic")]

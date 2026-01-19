@@ -44,6 +44,7 @@ Findings in this project include metadata fields for `severity`, `impact`, and `
   - `crates/sis-pdf-detectors/` detection rules and heuristics.
   - `crates/sis-pdf-ml-graph/` ML graph utilities.
   - `crates/js-analysis/` JavaScript static and dynamic analysis with sandboxing (feature: `js-sandbox`).
+  - `crates/font-analysis/` Font static and dynamic analysis
 - `plans/` holds development planning and implementation documentation
 - `docs/` holds user facing documentation
   - `docs/findings.md` documents all 72+ JavaScript finding IDs.

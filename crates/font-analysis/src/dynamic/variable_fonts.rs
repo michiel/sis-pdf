@@ -1,7 +1,10 @@
 /// Variable font validation and CVE checks
 
-use crate::model::{Confidence, FontFinding, Severity};
+use crate::model::FontFinding;
+#[cfg(feature = "dynamic")]
+use crate::model::{Confidence, Severity};
 use super::parser::FontContext;
+#[cfg(feature = "dynamic")]
 use std::collections::HashMap;
 
 /// Check for CVE-2025-27163: hmtx/hhea mismatch

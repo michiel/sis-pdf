@@ -3,18 +3,25 @@
 /// This module analyzes variable font tables (gvar, avar, HVAR, MVAR) for
 /// suspicious patterns that could indicate exploits or malformed fonts.
 
+#[cfg(feature = "dynamic")]
 use std::collections::HashMap;
+#[cfg(feature = "dynamic")]
 use tracing::{debug, instrument, warn};
 
-use crate::model::{Confidence, FontFinding, Severity};
+use crate::model::FontFinding;
+#[cfg(feature = "dynamic")]
+use crate::model::{Confidence, Severity};
 
 /// Maximum safe size for gvar table (10MB)
+#[cfg(feature = "dynamic")]
 const MAX_GVAR_SIZE: usize = 10 * 1024 * 1024;
 
 /// Maximum safe size for HVAR table (5MB)
+#[cfg(feature = "dynamic")]
 const MAX_HVAR_SIZE: usize = 5 * 1024 * 1024;
 
 /// Maximum safe size for MVAR table (1MB)
+#[cfg(feature = "dynamic")]
 const MAX_MVAR_SIZE: usize = 1024 * 1024;
 
 /// Analyze variable font tables for anomalies
@@ -156,6 +163,7 @@ pub fn analyze_variable_font(_font_data: &[u8]) -> Vec<FontFinding> {
 }
 
 /// Get the size of a TrueType table
+#[cfg(any(test, feature = "dynamic"))]
 fn get_table_size(font_data: &[u8], tag: &[u8; 4]) -> Option<usize> {
     // Parse table directory
     if font_data.len() < 12 {
@@ -212,7 +220,7 @@ mod tests {
     #[test]
     fn test_get_table_size() {
         // Create minimal font with gvar table
-        let mut font_data = vec![
+        let font_data = vec![
             0x00, 0x01, 0x00, 0x00, // version
             0x00, 0x01, // num tables = 1
             0x00, 0x00, // search range

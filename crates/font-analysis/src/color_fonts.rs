@@ -296,7 +296,7 @@ fn find_table(font_data: &[u8], tag: &[u8; 4]) -> Option<(usize, usize)> {
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "dynamic"))]
 mod tests {
     use super::*;
 

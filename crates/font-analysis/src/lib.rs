@@ -13,7 +13,9 @@ pub use model::FontAnalysisConfig;
 pub use signatures::{Signature, SignatureRegistry};
 
 use std::collections::HashMap;
+#[cfg(feature = "dynamic")]
 use std::sync::mpsc;
+#[cfg(feature = "dynamic")]
 use std::time::Duration;
 
 use model::{Confidence, DynamicAnalysisOutcome, FontFinding, Severity};

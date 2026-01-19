@@ -14,5 +14,5 @@ toml = "0.8"
 tracing = "0.1"
 
 [features]
-default = []
+default = ["dynamic"]
 dynamic = ["skrifa", "ttf-parser", "allsorts"]

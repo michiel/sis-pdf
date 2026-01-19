@@ -21,9 +21,13 @@
 /// 3. **Lazy Evaluation**: Patterns evaluated only when needed
 /// 4. **Zero-Copy**: Uses references to avoid cloning FontContext
 
-use crate::model::{Confidence, FontFinding, Severity};
+use crate::model::Severity;
+#[cfg(feature = "dynamic")]
+use crate::model::{Confidence, FontFinding};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "dynamic")]
 use std::collections::{HashMap, HashSet};
+#[cfg(feature = "dynamic")]
 use std::sync::OnceLock;
 
 /// CVE signature loaded from YAML/JSON
