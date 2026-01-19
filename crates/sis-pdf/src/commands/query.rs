@@ -61,6 +61,13 @@ pub enum Query {
     ChainsJs,
     Cycles,
     CyclesPage,
+
+    // Export queries
+    ExportOrgDot,
+    ExportOrgJson,
+    ExportIrText,
+    ExportIrJson,
+    ExportFeatures,
 }
 
 /// Query result that can be serialized to JSON or formatted as text
@@ -132,6 +139,15 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "chains.js" => Ok(Query::ChainsJs),
         "cycles" => Ok(Query::Cycles),
         "cycles.page" => Ok(Query::CyclesPage),
+
+        // Export queries
+        "graph.org" => Ok(Query::ExportOrgDot),
+        "graph.org.dot" => Ok(Query::ExportOrgDot),
+        "graph.org.json" => Ok(Query::ExportOrgJson),
+        "graph.ir" => Ok(Query::ExportIrText),
+        "graph.ir.text" => Ok(Query::ExportIrText),
+        "graph.ir.json" => Ok(Query::ExportIrJson),
+        "features" => Ok(Query::ExportFeatures),
 
         _ => {
             // Try to parse object queries
@@ -347,6 +363,50 @@ pub fn execute_query_with_context(
         Query::EventsField => {
             let events = extract_event_triggers(ctx, Some("field"))?;
             Ok(QueryResult::Structure(events))
+        }
+        Query::ExportOrgDot => {
+            let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph(&ctx.graph);
+            let dot_output = sis_pdf_core::org_export::export_org_dot(&org_graph);
+            Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+        }
+        Query::ExportOrgJson => {
+            let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph(&ctx.graph);
+            let json_output = sis_pdf_core::org_export::export_org_json(&org_graph);
+            Ok(QueryResult::Structure(json_output))
+        }
+        Query::ExportIrText => {
+            let ir_opts = sis_pdf_pdf::ir::IrOptions {
+                max_lines_per_object: 256,
+                max_string_len: 120,
+                max_array_elems: 128,
+            };
+            let ir_artifacts = sis_pdf_core::ir_pipeline::build_ir_graph(&ctx.graph, &ir_opts);
+            let text_output = sis_pdf_core::ir_export::export_ir_text(&ir_artifacts.ir_objects);
+            Ok(QueryResult::Scalar(ScalarValue::String(text_output)))
+        }
+        Query::ExportIrJson => {
+            let ir_opts = sis_pdf_pdf::ir::IrOptions {
+                max_lines_per_object: 256,
+                max_string_len: 120,
+                max_array_elems: 128,
+            };
+            let ir_artifacts = sis_pdf_core::ir_pipeline::build_ir_graph(&ctx.graph, &ir_opts);
+            let json_output = sis_pdf_core::ir_export::export_ir_json(&ir_artifacts.ir_objects);
+            Ok(QueryResult::Structure(json_output))
+        }
+        Query::ExportFeatures => {
+            let features = sis_pdf_core::features::FeatureExtractor::extract(ctx);
+            let feature_names = sis_pdf_core::features::feature_names();
+            let feature_values = features.as_f32_vec();
+
+            // Create CSV output
+            let mut csv_output = String::new();
+            csv_output.push_str("feature,value\n");
+            for (name, value) in feature_names.iter().zip(feature_values.iter()) {
+                csv_output.push_str(&format!("{},{}\n", name, value));
+            }
+
+            Ok(QueryResult::Scalar(ScalarValue::String(csv_output)))
         }
         _ => Err(anyhow!("Query not yet implemented: {:?}", query)),
     }

@@ -1,15 +1,50 @@
 # Query Interface Extension: Reinstate Removed Features
 
-**Status:** 🚧 In Progress (Phase 3 Complete, Phase 4 In Progress)
+**Status:** In Progress (Phase 4 complete, Phases 5-9 planned)
 **Started:** 2026-01-18
-**Target Completion:** Phase 5 Complete
+**Current Phase:** Phase 5 (Format Flags & NDJSON)
+**Roadmap Source:** plans/20260119-query-uplift.md
 
 ## Overview
 
-This implementation reinstates 7 removed CLI commands (detect, extract, export-*) through the unified query interface by extending it with:
-1. **File Extraction** (`--extract-to DIR`) - Save JavaScript/embedded files to disk
-2. **Batch Mode** (`--path DIR --glob PATTERN`) - Directory scanning with query filtering
-3. **Export Queries** (graph.org, graph.ir, features) - Structured exports with `--format` flag
+This implementation elevates the query interface from a structural viewer to a forensic-grade analysis tool through:
+
+### Core Features (Phases 1-4 Complete)
+1. **File Extraction** (`--extract-to DIR`) - Save JavaScript/embedded files to disk with security
+2. **Batch Mode** (`--path DIR --glob PATTERN`) - Parallel directory scanning with filtering
+3. **Export Queries** (graph.org, graph.ir, features) - Structured exports for analysis pipelines
+
+### Forensic Enhancements (Phases 5-9 Planned)
+4. **Format Control** (`--format jsonl`) - Streaming JSON for infinite pipelines (Phase 5)
+5. **Stream Decode Control** (`--raw`, `--decode`, `--hexdump`) - Explicit extraction modes (Phase 6)
+6. **Inverse XRef** (`ref <obj>`) - Reverse reference lookup for threat hunting (Phase 7)
+7. **Boolean Queries** (`--where "length > 1024"`) - Property filtering and logic (Phase 8)
+8. **Structured Errors** - JSON error responses for automation robustness (Phase 9)
+
+## Executive Summary
+
+### What's Complete (Phases 1-4)
+The query interface now supports:
+- **Safe file extraction** with path traversal protection and size limits
+- **Parallel batch processing** for analysing entire PDF corpora
+- **5 export formats** (DOT, JSON, text, CSV) for graphs, IR, and features
+- **100% backward compatibility** with existing queries
+
+### What's Next (Phases 5-9)
+Building on this foundation, we'll add forensic-grade capabilities:
+- **Phase 5 (Next):** JSONL format flags for streaming pipelines and crash resistance
+- **Phase 6:** Explicit decode control (`--raw` vs `--decode` vs `--hexdump`)
+- **Phase 7:** Reverse reference lookup to find what triggers malicious objects
+- **Phase 8:** Boolean predicates to filter without external scripting
+- **Phase 9:** Structured error reporting for robust automation
+
+### Design Goals
+1. **Composability** - Integrates seamlessly with Unix tools (`jq`, `grep`, pipes)
+2. **Predictability** - Explicit format control, no surprises in output
+3. **Safety** - Handles malicious PDFs securely (sanitisation, limits)
+4. **Forensics-First** - Designed for malware analysis, not just PDF viewing
+
+---
 
 **Migration Path:**
 ```bash
@@ -33,71 +68,73 @@ sis export-org file.pdf -o graph.dot → sis query file.pdf graph.org > graph.do
 
 ## Implementation Progress
 
-### ✅ Phase 1: CLI Infrastructure (100% Complete)
+### Phase 1: CLI Infrastructure (100% Complete)
 
 **Objective:** Add new flags to Query command without breaking existing functionality
 
 **Files Modified:**
 - `crates/sis-pdf/src/main.rs` (lines 104-138, 621-671, 2529-2591, 2593-2720)
-  - ✅ Added CLI flags: `--extract-to`, `--path`, `--glob`, `--max-extract-bytes`
-  - ✅ Added validation: `path` and `pdf` are mutually exclusive
-  - ✅ Updated `run_query_oneshot()` signature (4 new parameters)
-  - ✅ Updated `run_query_repl()` signature (2 new parameters)
+  - Added CLI flags: `--extract-to`, `--path`, `--glob`, `--max-extract-bytes`
+  - Added validation: `path` and `pdf` are mutually exclusive
+  - Updated `run_query_oneshot()` signature (4 new parameters)
+  - Updated `run_query_repl()` signature (2 new parameters)
 
-**Success Criteria:** ✅ All Met
-- ✅ Compiles without errors
-- ✅ Existing queries work unchanged
-- ✅ New flags parse correctly
-- ✅ `sis query --help` shows new options
+**Success Criteria:** All met
+- Compiles without errors
+- Existing queries work unchanged
+- New flags parse correctly
+- `sis query --help` shows new options
 
-**Testing:**
-- ✅ Cargo check passes (no errors in main.rs or query.rs)
-- ✅ Backward compatibility maintained
+**Testing (Completed):**
+- Cargo check passes (no errors in main.rs or query.rs)
+- Backward compatibility maintained
 
 ---
 
-### ✅ Phase 2: File Extraction (100% Complete)
+### Phase 2: File Extraction (100% Complete)
 
 **Objective:** Enable `--extract-to DIR` to save JS/embedded files to disk
 
 **Files Modified:**
 - `crates/sis-pdf/src/commands/query.rs` (lines 995-1194)
-  - ✅ Added `extract_obj_bytes()` - Extract raw bytes from PDF objects (String/Stream/Ref)
-  - ✅ Added `sanitize_embedded_filename()` - Prevent path traversal attacks
-  - ✅ Added `magic_type()` - Detect file types (PE, PDF, ZIP, ELF, PNG, JPEG, GIF, etc.)
-  - ✅ Added `sha256_hex()` - Calculate SHA256 hashes
-  - ✅ Added `write_js_files()` - Write JavaScript to disk with metadata
-  - ✅ Added `write_embedded_files()` - Write embedded files with type detection
+  - Added `extract_obj_bytes()` - Extract raw bytes from PDF objects (String/Stream/Ref)
+  - Added `sanitize_embedded_filename()` - Prevent path traversal attacks
+  - Added `magic_type()` - Detect file types (PE, PDF, ZIP, ELF, PNG, JPEG, GIF, etc.)
+  - Added `sha256_hex()` - Calculate SHA256 hashes
+  - Added `write_js_files()` - Write JavaScript to disk with metadata
+  - Added `write_embedded_files()` - Write embedded files with type detection
 
 - `crates/sis-pdf/src/commands/query.rs` (lines 177-182, 241-251, 266-276, 353-368)
-  - ✅ Updated `execute_query_with_context()` signature (2 new parameters)
-  - ✅ Updated `execute_query()` signature (2 new parameters)
-  - ✅ Modified `Query::JavaScript` handler to support extraction
-  - ✅ Modified `Query::Embedded` handler to support extraction
+  - Updated `execute_query_with_context()` signature (2 new parameters)
+  - Updated `execute_query()` signature (2 new parameters)
+  - Modified `Query::JavaScript` handler to support extraction
+  - Modified `Query::Embedded` handler to support extraction
 
 - `crates/sis-pdf/src/main.rs` (lines 2546-2577, 2605-2688)
-  - ✅ Removed Phase 2 stub in `run_query_oneshot()`
-  - ✅ Removed Phase 2 stub in `run_query_repl()`
-  - ✅ Pass extraction parameters to query functions
+  - Removed Phase 2 stub in `run_query_oneshot()`
+  - Removed Phase 2 stub in `run_query_repl()`
+  - Pass extraction parameters to query functions
 
 **Implementation Details:**
 - **JavaScript extraction:** Extract from `/JS` entries → `{extract_to}/js_{obj}_{gen}.js`
-- **Embedded extraction:** Extract from `/EmbeddedFile` streams → `{extract_to}/{sanitized_filename}`
+- **Embedded extraction:** Extract from `/EmbeddedFile` streams → `{extract_to}/{sanitised_filename}`
 - Uses `sis_pdf_pdf::decode::decode_stream()` for decompression
-- Filenames sanitized to prevent path traversal (removes `..`, `/`, `\`)
+- Filenames sanitised to prevent path traversal (removes `..`, `/`, `\`)
 - File types detected with magic bytes
 - SHA256 hashes included in output
 
-**Success Criteria:** ✅ All Met
-- ✅ Helper functions implemented and working
-- ✅ Extraction logic integrated into query handlers
-- ✅ Security: filenames sanitized (no path traversal)
-- ✅ Metadata: SHA256 hashes in output
-- ✅ Respects `--max-extract-bytes` limit
+**Success Criteria:** All met
+- Helper functions implemented and working
+- Extraction logic integrated into query handlers
+- Security: filenames sanitised (no path traversal)
+- Metadata: SHA256 hashes in output
+- Respects `--max-extract-bytes` limit
 
-**Testing:**
-- ✅ Cargo check passes (no compilation errors)
-- ⏳ Manual testing pending (Phase 2 test task)
+**Testing (Completed):**
+- Cargo check passes (no compilation errors)
+
+**Testing (Pending):**
+- Manual testing with real PDF fixtures
 
 **Usage Examples (Ready to Test):**
 ```bash
@@ -115,19 +152,19 @@ sis> embedded
 
 ---
 
-### ✅ Phase 3: Batch Mode (100% Complete)
+### Phase 3: Batch Mode (100% Complete)
 
 **Objective:** Enable `--path DIR --glob PATTERN` for directory scanning
 
 **Files Modified:**
 - `crates/sis-pdf/src/commands/query.rs` (lines 1-10, 1718-1947)
-  - ✅ Added imports: `Glob`, `rayon::prelude::*`, `WalkDir`, `PathBuf`
-  - ✅ Added `run_query_batch()` function (230 lines)
+  - Added imports: `Glob`, `rayon::prelude::*`, `WalkDir`, `PathBuf`
+  - Added `run_query_batch()` function (230 lines)
 - `crates/sis-pdf/src/main.rs` (lines 107, 637-691, 2540, 2568-2582, 2585)
-  - ✅ Changed `pdf: String` to `pdf: Option<String>` for optional PDF argument
-  - ✅ Added validation logic to handle `--path` vs single file mode
-  - ✅ Updated routing to call `run_query_batch()` when `--path` is provided
-  - ✅ Fixed positional argument handling (query string can be first arg with --path)
+  - Changed `pdf: String` to `pdf: Option<String>` for optional PDF argument
+  - Added validation logic to handle `--path` vs single file mode
+  - Updated routing to call `run_query_batch()` when `--path` is provided
+  - Fixed positional argument handling (query string can be first arg with --path)
 
 **Implementation Approach:**
 - Use `walkdir::WalkDir` for directory traversal (max depth from constants)
@@ -135,27 +172,26 @@ sis> embedded
 - Safety limits: `MAX_BATCH_FILES` (500k), `MAX_BATCH_BYTES` (50GB)
 - For each matching PDF: build context → execute query → collect results
 - Filter results: include if count > 0, findings exist, or list non-empty
-- Output formats: Text, JSON, JSONL
+- Output formats: text, JSON (JSONL planned in Phase 5)
 - Use rayon for parallel processing (like Scan command)
 
-**Success Criteria:** ✅ All Met
-- ✅ `sis query --path corpus --glob "*.pdf" js.count` lists PDFs with JS
-- ✅ Empty results filtered out (only shows PDFs with count > 0)
-- ✅ Respects file and size limits (MAX_BATCH_FILES, MAX_BATCH_BYTES)
-- ✅ Works with `--extract-to` flag
-- ✅ Supports `--json` output
-- ✅ Parallel processing with rayon when multiple files
-- ✅ Security events emitted for limit violations
+**Success Criteria:** All met
+- `sis query --path corpus --glob "*.pdf" js.count` lists PDFs with JS
+- Empty results filtered out (only shows PDFs with count > 0)
+- Respects file and size limits (MAX_BATCH_FILES, MAX_BATCH_BYTES)
+- Works with `--extract-to` flag
+- Supports `--json` output
+- Parallel processing with rayon when multiple files
+- Security events emitted for limit violations
 
-**Testing:**
-- ✅ Compilation successful
-- ✅ Tested with 7 PDFs in fixtures directory
-- ✅ Tested batch JS count query (all PDFs with JS shown)
-- ✅ Tested JSON output format
-- ✅ Tested batch extraction with `--extract-to`
-- ✅ Verified glob pattern matching works
-- ✅ Verified empty results are filtered out
-- ✅ Verified parallel processing with rayon
+**Testing (Completed):**
+- Compilation successful
+- Tested with 7 PDFs in fixtures directory
+- Tested batch JS count query (all PDFs with JS shown)
+- Tested JSON output format
+- Tested batch extraction with `--extract-to`
+- Verified glob pattern matching works
+- Verified empty results are filtered out
 
 **Usage Examples (Tested):**
 ```bash
@@ -178,60 +214,299 @@ sis query --path corpus --glob "invoice_*.pdf" js.count
 
 ---
 
-### 📋 Phase 4: Export Query Types (0% Complete - Pending)
+### Phase 4: Export Query Types (100% Complete)
 
 **Objective:** Add new Query enum variants for graph.org, graph.ir, and features
 
-**Files to Modify:**
-- `crates/sis-pdf/src/commands/query.rs` - Add Query enum variants, format enums, export handlers
-- `crates/sis-pdf/src/commands/query.rs` - Extend `parse_query()` for export strings
+**Files Modified:**
+- `crates/sis-pdf/src/commands/query.rs` (lines 65-70, 143-150, 367-408)
+  - Added Query enum variants: `ExportOrgDot`, `ExportOrgJson`, `ExportIrText`, `ExportIrJson`, `ExportFeatures`
+  - Extended `parse_query()` to recognise: `graph.org`, `graph.org.dot`, `graph.org.json`, `graph.ir`, `graph.ir.text`, `graph.ir.json`, `features`
+  - Implemented export handlers in `execute_query_with_context()`
 
-**Query Types to Add:**
-- `graph.org` / `graph.org.json` → ExportOrg
-- `graph.ir` / `graph.ir.json` → ExportIr
-- `features` / `features.extended` → ExportFeatures
+**Query Types Added:**
+- `graph.org` / `graph.org.dot` → `ExportOrgDot` (outputs DOT format)
+- `graph.org.json` → `ExportOrgJson` (outputs JSON format)
+- `graph.ir` / `graph.ir.text` → `ExportIrText` (outputs text format)
+- `graph.ir.json` → `ExportIrJson` (outputs JSON format)
+- `features` → `ExportFeatures` (outputs CSV format)
 
 **Export Implementations:**
-- `export_org()` - Use `sis_pdf_core::org_export::{export_org_dot, export_org_json}`
-- `export_ir()` - Use `sis_pdf_core::ir_export::{export_ir_text, export_ir_json}`
-- `export_features()` - Use `sis_pdf_core::features::{extract_features, feature_names}`
+- `ExportOrgDot` - Uses `OrgGraph::from_object_graph()` + `export_org_dot()`
+- `ExportOrgJson` - Uses `OrgGraph::from_object_graph()` + `export_org_json()`
+- `ExportIrText` - Uses `build_ir_graph()` + `export_ir_text()`
+- `ExportIrJson` - Uses `build_ir_graph()` + `export_ir_json()`
+- `ExportFeatures` - Uses `FeatureExtractor::extract()` + CSV formatting
 
-**Success Criteria:**
-- [ ] `sis query test.pdf graph.org` outputs DOT
-- [ ] `sis query test.pdf graph.org.json` outputs JSON
-- [ ] `sis query test.pdf graph.ir` outputs text IR
-- [ ] `sis query test.pdf features` outputs CSV
-- [ ] Enhanced modes run detectors
-- [ ] Basic modes skip detectors for speed
+**Success Criteria:** All met
+- `sis query test.pdf graph.org` outputs DOT
+- `sis query test.pdf graph.org.json` outputs JSON
+- `sis query test.pdf graph.ir` outputs text IR
+- `sis query test.pdf graph.ir.json` outputs IR JSON
+- `sis query test.pdf features` outputs CSV
+- Works in batch mode with `--path` and `--glob`
+- Works with `--json` output flag
 
-**Usage Examples (Planned):**
+**Testing (Completed):**
+- Compilation successful (no errors)
+- Tested all 5 export query types with sample PDFs
+- Tested batch mode with export queries
+- Verified DOT, JSON, text, and CSV outputs
+- Confirmed backward compatibility maintained
+
+**Usage Examples (Tested):**
 ```bash
-# Export queries
-sis query sample.pdf graph.org --format dot > graph.dot
-sis query sample.pdf graph.org --format json > graph.json
-sis query sample.pdf graph.ir --format text > ir.txt
-sis query sample.pdf features --format csv > features.csv
-sis query sample.pdf features --extended --format jsonl > features.jsonl
+# Export object relationship graph (DOT format)
+sis query sample.pdf graph.org > graph.dot
+
+# Export object relationship graph (JSON format)
+sis query sample.pdf graph.org.json > graph.json
+
+# Export intermediate representation (text format)
+sis query sample.pdf graph.ir > ir.txt
+
+# Export intermediate representation (JSON format)
+sis query sample.pdf graph.ir.json > ir.json
+
+# Export features (CSV format)
+sis query sample.pdf features > features.csv
+
+# Batch mode with exports
+sis query --path corpus --glob "*.pdf" features > all_features.csv
 ```
 
 ---
 
-### 📋 Phase 5: Format Flag and Polish (0% Complete - Pending)
+### Phase 5: Format Flags & JSONL Support (0% Complete - Pending)
 
-**Objective:** Add `--format` flag for export queries and finalize integration
+**Objective:** Add format control and streaming JSON output for forensic pipelines
+
+**Priority:** High (Quick wins for usability and interoperability)
 
 **Files to Modify:**
-- `crates/sis-pdf/src/main.rs` - Add `--format`, `--basic`, `--extended` flags
-- `crates/sis-pdf/src/commands/query.rs` - Implement `parse_query_with_format()`
+- `crates/sis-pdf/src/main.rs` - Add `--format` CLI flag
+- `crates/sis-pdf/src/main.rs` - Treat `--json` as shorthand for `--format json`
+- `crates/sis-pdf/src/commands/query.rs` - Implement format enum and JSONL output
 - `crates/sis-pdf/src/commands/query.rs` - Add module documentation
 - `crates/sis-pdf/src/main.rs` - Update help text
 
+**Format Support:**
+- `text` - Human-readable output (default for most queries)
+- `json` - Standard JSON array format (`--json` shorthand)
+- `jsonl` - JSON Lines (one object per line) for streaming (NEW)
+- `csv` - Comma-separated values (for features, counts)
+- `dot` - GraphViz DOT format (for graphs)
+
+**Implementation Details:**
+- JSONL benefits: O(1) memory, infinite piping, crash-resistant
+- Format detection: explicit `--format` overrides query suffix (e.g., `graph.org.json`)
+- CLI behaviour: `--json` is shorthand for `--format json`; if both are present and conflict, exit with a clear error message
+- Batch mode: JSONL ideal for large corpus processing
+- Consistency: Uses same JSONL format as `--jsonl-findings` flag in scan command
+
 **Success Criteria:**
-- [ ] All features work together
-- [ ] `--format` flag overrides query format
-- [ ] `--basic` and `--extended` flags work
-- [ ] Documentation complete
-- [ ] Help text comprehensive
+- [ ] `--format jsonl` outputs one JSON object per line
+- [ ] JSONL works with batch mode (`--path`)
+- [ ] Format flag overrides query suffix when specified
+- [ ] All existing formats (text, json) continue working
+- [ ] `--json` conflicts with `--format` when not `json` and exits with a clear error message
+- [ ] Help text updated with format examples
+
+**Usage Examples (Planned):**
+```bash
+# JSONL for streaming pipelines
+sis query --path corpus --glob "*.pdf" js.count --format jsonl | jq -c 'select(.result > 0)'
+
+# Explicit format override
+sis query file.pdf graph.org --format json  # Forces JSON instead of DOT
+
+# Standard JSON (existing)
+sis query file.pdf features --json
+```
+
+---
+
+### Phase 6: Stream Export Enhancement (0% Complete - Future)
+
+**Objective:** Add explicit decode control for stream extraction
+
+**Priority:** Critical (Forensic predictability and safety)
+
+**Files to Modify:**
+- `crates/sis-pdf/src/main.rs` - Add `--raw`, `--decode`, `--hexdump` flags
+- `crates/sis-pdf/src/commands/query.rs` - Update extraction logic to support decode modes
+- `crates/sis-pdf/src/commands/query.rs` - Add hexdump formatter
+
+**Decode Modes:**
+- `--decode` (default) - Apply filters (decompress) and output canonical bytes
+- `--raw` - Output exact file bytes (for hashing/integrity checks)
+- `--hexdump` - Hexadecimal + ASCII visual inspection
+
+**Implementation Details:**
+- Current behaviour: Phase 2 implementation always decodes streams
+- Enhancement: Make decode behaviour explicit and controllable
+- Safety: `--raw` enables steganalysis and integrity verification
+
+**Success Criteria:**
+- [ ] `--extract-to` with `--raw` outputs compressed bytes
+- [ ] `--extract-to` with `--decode` outputs decompressed payload (default)
+- [ ] `--extract-to` with `--hexdump` outputs hex+ASCII format
+- [ ] Works with both JavaScript and embedded file extraction
+- [ ] Documented decode semantics in help text
+
+**Usage Examples (Planned):**
+```bash
+# Default: Decode streams (existing behaviour)
+sis query malware.pdf js --extract-to /tmp/analysis
+
+# Raw bytes (for hashing or external decompression)
+sis query malware.pdf js --extract-to /tmp/raw --raw
+
+# Hexdump for visual inspection
+sis query malware.pdf js --extract-to /tmp/hex --hexdump | less
+```
+
+---
+
+### Phase 7: Inverse XRef Querying (0% Complete - Future)
+
+**Objective:** Find what references a given object (reverse lookup)
+
+**Priority:** High (Critical for forensic analysis)
+
+**Files to Modify:**
+- `crates/sis-pdf/src/commands/query.rs` - Add `Query::References(u32, u16)` variant
+- `crates/sis-pdf/src/commands/query.rs` - Implement reverse reference lookup
+- `crates/sis-pdf/src/commands/query.rs` - Add formatting for reference results
+
+**Query Syntax:**
+- `ref <obj> <gen>` or `references <obj> <gen>` - Find what points to this object
+
+**Implementation Details:**
+- Build reverse index from object graph adjacency map
+- Show source object, relationship type, and key/path
+- Essential for determining if malicious objects are actually triggered
+
+**Success Criteria:**
+- [ ] `sis query file.pdf ref 52 0` shows all objects pointing to 52 0
+- [ ] Output includes relationship type (/OpenAction, /Annot, /Kids, etc.)
+- [ ] Works with `--json` and `--format jsonl`
+- [ ] Performance optimised with cached reverse index
+
+**Usage Examples (Planned):**
+```bash
+# Who references this object?
+sis query malware.pdf ref 52 0
+
+# Output:
+# Source Object | Relationship | Key/Path
+# --------------|--------------|----------
+# 1 0           | /OpenAction  | /OpenAction
+# 14 0          | /Annot       | /A
+
+# JSON format for pipelines
+sis query malware.pdf ref 52 0 --json
+```
+
+---
+
+### Phase 8: Boolean Logic & Predicates (0% Complete - Future)
+
+**Objective:** Add filtering and boolean logic for complex queries
+
+**Priority:** Critical (Eliminates need for external scripting)
+
+**Files to Modify:**
+- `crates/sis-pdf/src/commands/query.rs` - Add `--where` clause parser
+- `crates/sis-pdf/src/commands/query.rs` - Implement predicate evaluator
+- `crates/sis-pdf/src/commands/query.rs` - Support `OR` logic for multi-object queries
+
+**Query Syntax:**
+```bash
+# Property predicates
+sis query file.pdf js --where "length > 1024"
+sis query file.pdf embedded --where "filter == 'FlateDecode' AND length > 10000"
+
+# Boolean OR for multiple objects
+sis query file.pdf "obj 52 0 OR obj 53 0"
+```
+
+**Predicate Properties:**
+- `length` - Stream/string byte length
+- `filter` - Compression filter name
+- `type` - Object type (Stream, Dict, Array, etc.)
+- `subtype` - Object subtype (/JavaScript, /Image, etc.)
+- `entropy` - Shannon entropy (for obfuscation detection)
+
+**Success Criteria:**
+- [ ] `--where` clause supports comparison operators: `>`, `<`, `==`, `!=`, `>=`, `<=`
+- [ ] Boolean operators: `AND`, `OR`, `NOT`
+- [ ] Property access with dotted notation
+- [ ] Works with all query types (js, embedded, objects, etc.)
+- [ ] Performance: predicate evaluation after initial filtering
+
+**Usage Examples (Planned):**
+```bash
+# Find large JavaScript objects
+sis query corpus.pdf js --where "length > 1024 AND entropy > 5.0"
+
+# Find specific embedded files
+sis query doc.pdf embedded --where "filter == 'FlateDecode'"
+
+# Multiple objects
+sis query file.pdf "obj 52 0 OR obj 53 0 OR obj 54 0"
+```
+
+---
+
+### Phase 9: Structured Error Reporting (0% Complete - Future)
+
+**Objective:** Return errors as structured data for automated processing
+
+**Priority:** Medium (Robustness for automation)
+
+**Files to Modify:**
+- `crates/sis-pdf/src/commands/query.rs` - Wrap errors in QueryResult::Error variant
+- `crates/sis-pdf/src/commands/query.rs` - Add error codes and structured messages
+- `crates/sis-pdf/src/main.rs` - Format errors as JSON when `--json` is used
+
+**Error Format:**
+```json
+{
+  "id": "9999 0",
+  "status": "error",
+  "error_code": "OBJ_NOT_FOUND",
+  "message": "Object 9999 0 does not exist in the xref table.",
+  "context": {
+    "max_object": 150,
+    "requested": "9999 0"
+  }
+}
+```
+
+**Error Codes:**
+- `OBJ_NOT_FOUND` - Object doesn't exist
+- `PARSE_ERROR` - Malformed PDF structure
+- `DECODE_ERROR` - Stream decompression failed
+- `QUERY_SYNTAX_ERROR` - Invalid query string
+- `PERMISSION_ERROR` - Encrypted/protected content
+
+**Success Criteria:**
+- [ ] Errors return valid JSON when `--json` is used
+- [ ] Error codes are consistent and documented
+- [ ] Context includes actionable information
+- [ ] Non-JSON mode still shows human-readable errors
+- [ ] Batch mode continues processing after errors (doesn't crash)
+
+**Usage Examples (Planned):**
+```bash
+# Error as JSON
+sis query file.pdf obj 9999 0 --json
+# {"status": "error", "error_code": "OBJ_NOT_FOUND", ...}
+
+# Batch mode error handling
+sis query --path corpus --glob "*.pdf" js.count --format jsonl | jq 'select(.status != "error")'
+```
 
 ---
 
@@ -248,8 +523,8 @@ sis query sample.pdf features --extended --format jsonl > features.jsonl
 - [ ] Export queries with real PDFs
 - [ ] All format combinations
 
-### Manual Tests (Current Phase)
-- [ ] Test Phase 2: File extraction with `--extract-to`
+### Manual Tests (Pending)
+- [ ] Test Phase 2: File extraction with `--extract-to` on real fixtures
 - [ ] Test REPL mode with new features
 - [ ] Verify help output clarity
 - [ ] Test error messages
@@ -259,55 +534,62 @@ sis query sample.pdf features --extended --format jsonl > features.jsonl
 
 ## Backward Compatibility
 
-✅ **All existing queries continue to work unchanged:**
+All existing queries continue to work unchanged:
 - `sis query file.pdf pages` - unchanged
 - `sis query file.pdf js` - unchanged (shows preview unless --extract-to)
 - `sis query file.pdf` - REPL mode unchanged
-- `--json` flag - unchanged behavior
+- `--json` flag - unchanged behaviour
 
-✅ **New functionality is additive via new flags and query types**
+New functionality is additive via new flags and query types
 
 ---
 
 ## Performance Considerations
 
-- **Batch mode:** ✅ Uses rayon for parallel processing (like Scan command)
+- **Batch mode:** Uses rayon for parallel processing (like Scan command)
   - Automatically detects available CPU threads
   - Falls back to sequential processing if rayon pool creation fails
-  - Preserves file order in output
-- **Extraction:** ✅ Streams decode to avoid loading entire streams in memory
-- **Export queries:** Will cache detector results when running multiple exports (Phase 4)
-- **REPL mode:** ✅ Existing context caching continues to work
+  - Output order is not guaranteed with parallel execution
+- **Extraction:** Streams decode to avoid loading entire streams in memory
+- **Export queries:** Caching detector results is a potential follow-up (not yet implemented)
+- **REPL mode:** Existing context caching continues to work
 
 ---
 
 ## Security
 
-✅ **Implemented:**
-- ✅ Filenames sanitized to prevent path traversal
-- ✅ `max_extract_bytes` enforced per file
-- ✅ File type detection with magic bytes
-- ✅ `MAX_BATCH_FILES` (500k) limit enforcement
-- ✅ `MAX_BATCH_BYTES` (50GB) limit enforcement
-- ✅ Security events emitted for limit violations
+Implemented (Phases 1-4):
+- Filenames sanitised to prevent path traversal (Phase 2)
+  - Strips `..`, `/`, `\` from embedded filenames
+  - Prevents directory traversal attacks per uplift recommendation #5
+- `max_extract_bytes` enforced per file (Phase 2)
+- File type detection with magic bytes (Phase 2)
+- `MAX_BATCH_FILES` (500k) limit enforcement (Phase 3)
+- `MAX_BATCH_BYTES` (50GB) limit enforcement (Phase 3)
+- Security events emitted for limit violations (Phase 3)
 
-🚧 **Pending:**
-- [ ] Format compatibility validation (Phase 4)
+Planned (Phases 6-9):
+- [ ] Explicit decode control for stream extraction (Phase 6)
+- [ ] Structured error handling for malformed PDFs (Phase 9)
 
 ---
 
 ## Code Statistics
 
-**Lines Added:** ~540 lines (Phase 1-3 Complete)
+**Lines Added:** ~590 lines (Phases 1-4 Complete)
 - Phase 1 (Main.rs): ~50 lines (CLI flags, validation)
 - Phase 2 (Query.rs): ~250 lines (extraction helpers, file writers, handler updates)
 - Phase 3 (Query.rs + Main.rs): ~240 lines (batch mode function, routing, validation)
+- Phase 4 (Query.rs): ~50 lines (export query types, handlers)
 
-**Lines to Add:** ~300 lines (Phase 4-5 estimated)
-- Export queries: ~250 lines
-- Format flags & polish: ~50 lines
+**Lines to Add:** ~600 lines (Phases 5-9 Estimated)
+- Phase 5 (Format/JSONL): ~100 lines (format enum, JSONL output)
+- Phase 6 (Stream Export): ~150 lines (decode modes, hexdump formatter)
+- Phase 7 (Inverse XRef): ~100 lines (reverse index, reference lookup)
+- Phase 8 (Predicates): ~200 lines (parser, evaluator, property access)
+- Phase 9 (Errors): ~50 lines (error codes, structured responses)
 
-**Total Impact (projected):** ~840 lines added, 754 lines removed (net: +86 lines)
+**Total Impact (projected):** ~1,190 lines added, 754 lines removed (net: +436 lines)
 
 **Actual commits:**
 - Phase 1-2: commit 81e9b1e (3 files changed, 561 insertions(+), 1287 deletions(-))
@@ -319,65 +601,110 @@ sis query sample.pdf features --extended --format jsonl > features.jsonl
 ## Dependencies
 
 **Already Available:**
-- `walkdir` - Directory traversal ✅ (Phase 3 batch mode)
-- `globset` - Glob pattern matching ✅ (Phase 3 batch mode)
-- `sha2` - SHA256 hashing ✅ (Phase 2 extraction)
-- `hex` - Hex encoding ✅ (Phase 2 extraction)
-- `rayon` - Parallel processing ✅ (Phase 3 batch mode)
-- `memmap2` - Memory-mapped file I/O ✅ (Phase 3 batch mode)
+- `walkdir` - Directory traversal (Phase 3 batch mode)
+- `globset` - Glob pattern matching (Phase 3 batch mode)
+- `sha2` - SHA256 hashing (Phase 2 extraction)
+- `hex` - Hex encoding (Phase 2 extraction)
+- `rayon` - Parallel processing (Phase 3 batch mode)
+- `memmap2` - Memory-mapped file I/O (Phase 3 batch mode)
 
 **Core Libraries to Use:**
 - `sis_pdf_core::org_export` - ORG graph exports (Phase 4)
 - `sis_pdf_core::ir_export` - IR exports (Phase 4)
 - `sis_pdf_core::features` - Feature extraction (Phase 4)
-- `sis_pdf_pdf::decode` - Stream decoding ✅ (Phase 2)
+- `sis_pdf_pdf::decode` - Stream decoding (Phase 2)
 
 ---
 
 ## Next Steps
 
-### ✅ Completed (Phases 1-3)
-1. ✅ Phase 1: CLI flags implemented
-2. ✅ Phase 2: File extraction implemented and tested
-3. ✅ Phase 2: Security validated (path traversal protection)
-4. ✅ Phase 2: Output quality verified (SHA256, file types)
-5. ✅ Phase 3: `run_query_batch()` function implemented
-6. ✅ Phase 3: main.rs routing updated
-7. ✅ Phase 3: Tested with multiple PDF directories
-8. ✅ Phase 3: Parallel processing verified
-9. ✅ Phase 3: Batch extraction with `--extract-to` tested
+### Completed (Phases 1-3)
+1. Phase 1: CLI flags implemented
+2. Phase 2: File extraction implemented
+3. Phase 2: Security validated (path traversal protection)
+4. Phase 2: Output quality verified (SHA256, file types)
+5. Phase 3: `run_query_batch()` function implemented
+6. Phase 3: `main.rs` routing updated
+7. Phase 3: Tested with multiple PDF directories
+8. Phase 3: Batch extraction with `--extract-to` tested
 
-### 🚧 Phase 4 (Export Queries - Next)
-1. Add Query enum variants and format enums
-2. Implement export handler functions (export_org, export_ir, export_features)
-3. Extend parse_query() for export strings
-4. Test all export formats
+### Completed (Phase 4)
+1. Added Query enum variants for export queries
+2. Extended `parse_query()` for export strings
+3. Implemented export handler functions
+4. Tested all export formats (DOT, JSON, text, CSV)
+5. Verified batch mode compatibility
 
-### 📋 Phase 5 (Polish - Final)
-1. Add --format, --basic, --extended flags
-2. Implement parse_query_with_format()
-3. Update documentation and help text
-4. Final integration testing
+### Phase 5 (Format Flags & JSONL - Next)
+1. Add `--format` CLI flag (text, json, jsonl, csv, dot)
+2. Implement JSONL output for streaming (reuse existing scan JSONL logic)
+3. Add format override logic (CLI flag > query suffix)
+4. Update help text with format examples
+5. Test JSONL with batch mode and large corpora
+
+### Future Phases (6-9)
+- **Phase 6:** Stream export enhancement (`--raw`, `--decode`, `--hexdump`)
+- **Phase 7:** Inverse XRef querying (`ref <obj> <gen>`)
+- **Phase 8:** Boolean logic and predicates (`--where` clauses)
+- **Phase 9:** Structured error reporting (JSON error responses)
 
 ---
 
 ## Success Metrics
 
-- ✅ Phase 1: Compiles without errors, flags parse correctly
-- ✅ Phase 2: File extraction works, security validated
-- ✅ Phase 3: Batch mode processes multiple PDFs with parallel processing
-- [ ] Phase 4: All export formats produce valid output
-- [ ] Phase 5: Documentation complete, all examples work
-- ✅ Overall: 100% backward compatibility maintained (verified with existing tests)
-- ✅ Overall: No performance regression on existing queries (new features are opt-in)
+- Phase 1: Compiles without errors, flags parse correctly
+- Phase 2: File extraction works, security validated
+- Phase 3: Batch mode processes multiple PDFs with parallel processing
+- Phase 4: All export formats produce valid output
+- [ ] Phase 5: JSONL format for streaming pipelines
+- [ ] Phase 6: Explicit decode control for stream extraction
+- [ ] Phase 7: Inverse XRef lookup for forensic analysis
+- [ ] Phase 8: Boolean predicates for complex filtering
+- [ ] Phase 9: Structured error reporting for automation
+- Overall: 100% backward compatibility maintained (verified with existing tests)
+- Overall: No performance regression on existing queries (new features are opt-in)
+
+---
+
+## Forensic Uplift Roadmap
+
+This implementation plan incorporates recommendations from the forensic audit (plans/20260119-query-uplift.md) to elevate the query interface to forensic-grade standards.
+
+### Uplift Recommendation Mapping
+
+| Uplift Rec | Priority | Implementation Phase | Status |
+|------------|----------|---------------------|--------|
+| #1: Boolean Logic & Predicates | Critical | Phase 8 | Planned |
+| #2: Inverse XRef Querying | High | Phase 7 | Planned |
+| #3: Smart Stream Export | Critical | Phase 6 | Planned |
+| #4: JSONL for Streaming | High | Phase 5 | Next |
+| #5: Defensive Sanitisation | Medium | Phase 2 | Complete |
+| #6: Structured Errors | Medium | Phase 9 | Planned |
+
+### Design Principles (from Uplift)
+
+1. **Composability** - Commands can be chained with standard Unix tools (`jq`, `grep`, pipes)
+2. **Predictability** - Output formats are explicit and consistent
+3. **Forensic Safety** - Handles malicious inputs securely (sanitisation, size limits)
+4. **Interoperability** - Aligns with industry tools (`pdf-parser.py`, ELK stack)
+5. **Robustness** - Errors don't crash pipelines; they're structured data
+
+### Key Enhancements
+
+- **Phase 5 (JSONL):** O(1) memory streaming, crash-resistant pipelines
+- **Phase 6 (Decode Control):** Predictable stream extraction (`--raw` vs `--decode`)
+- **Phase 7 (Inverse XRef):** Essential for threat hunting (who triggers this object?)
+- **Phase 8 (Predicates):** Eliminates need for external scripting (`--where` clauses)
+- **Phase 9 (Errors-as-Data):** Batch processing continues through failures
 
 ---
 
 ## References
 
-- Original plan: `/home/michiel/.claude/plans/cozy-mapping-dawn.md`
-- Query interface: `crates/sis-pdf/src/commands/query.rs`
-- Main CLI: `crates/sis-pdf/src/main.rs`
-- ORG export: `crates/sis-pdf-core/src/org_export.rs`
-- IR export: `crates/sis-pdf-core/src/ir_export.rs`
-- Features: `crates/sis-pdf-core/src/features.rs`
+- **Forensic Audit:** `plans/20260119-query-uplift.md`
+- **Original Plan:** `/home/michiel/.claude/plans/cozy-mapping-dawn.md`
+- **Query Interface:** `crates/sis-pdf/src/commands/query.rs`
+- **Main CLI:** `crates/sis-pdf/src/main.rs`
+- **ORG Export:** `crates/sis-pdf-core/src/org_export.rs`
+- **IR Export:** `crates/sis-pdf-core/src/ir_export.rs`
+- **Features:** `crates/sis-pdf-core/src/features.rs`
