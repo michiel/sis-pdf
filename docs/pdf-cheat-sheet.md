@@ -4,6 +4,22 @@ This guide assumes you are exploring the raw code of a PDF file through the `sis
 
 ---
 
+## Quick query tips
+
+```bash
+# Stream results for pipelines
+sis query js.count file.pdf --format jsonl
+
+# Extract raw or hexdump payloads
+sis query js file.pdf --extract-to /tmp/out --raw
+sis query embedded file.pdf --extract-to /tmp/out --hexdump
+
+# Find what references a specific object
+sis query file.pdf ref 52 0
+```
+
+---
+
 ## 1. High-Level File Structure
 
 A PDF file is read from the **bottom up**. It consists of four main sections.
@@ -276,4 +292,3 @@ Zooms into a specific rectangle on the page.
 | **/Kids** | Children | Used in Page Trees |
 | **/Parent** | Parent | Used in Pages to point up the tree |
 | **/Contents** | Content Stream | Points to the raw drawing commands |
-

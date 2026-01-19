@@ -93,6 +93,16 @@ sis query js file.pdf
 sis query urls file.pdf
 sis query events file.pdf
 
+# Reference lookup
+sis query file.pdf ref 52 0
+
+# Streaming output
+sis query js.count file.pdf --format jsonl
+
+# Extraction decode controls
+sis query js file.pdf --extract-to /tmp/out --raw
+sis query js file.pdf --extract-to /tmp/out --hexdump
+
 # Interactive REPL mode
 sis query file.pdf
 ```

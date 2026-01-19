@@ -100,6 +100,9 @@ pub enum Query {
     ExportIrJson,
     ExportFeatures,
     ExportFeaturesJson,
+
+    // Reference queries
+    References(u32, u16),
 }
 
 /// Query result that can be serialized to JSON or formatted as text
@@ -184,6 +187,26 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "features.json" => Ok(Query::ExportFeaturesJson),
 
         _ => {
+            // Try to parse ref/references query
+            if let Some(rest) = input.strip_prefix("ref ").or(input.strip_prefix("references ")) {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if parts.len() == 1 {
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    return Ok(Query::References(obj, 0));
+                } else if parts.len() == 2 {
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let gen = parts[1]
+                        .parse::<u16>()
+                        .map_err(|_| anyhow!("Invalid generation number: {}", parts[1]))?;
+                    return Ok(Query::References(obj, gen));
+                }
+                return Err(anyhow!("Invalid ref query format"));
+            }
+
             // Try to parse object queries
             if let Some(rest) = input.strip_prefix("object ").or(input.strip_prefix("obj ")) {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
@@ -413,6 +436,10 @@ pub fn execute_query_with_context(
         Query::CyclesPage => {
             let cycles = list_page_cycles(ctx)?;
             Ok(QueryResult::Structure(cycles))
+        }
+        Query::References(obj, gen) => {
+            let references = list_references(ctx, *obj, *gen)?;
+            Ok(QueryResult::Structure(references))
         }
         Query::Events => {
             let events = extract_event_triggers(ctx, None)?;
@@ -1745,6 +1772,53 @@ fn list_page_cycles(ctx: &ScanContext) -> Result<serde_json::Value> {
     Ok(build_cycles_result("cycles.page", &cycles))
 }
 
+fn list_references(ctx: &ScanContext, obj: u32, gen: u16) -> Result<serde_json::Value> {
+    use sis_pdf_pdf::typed_graph::TypedGraph;
+
+    if ctx.graph.get_object(obj, gen).is_none() {
+        return Err(anyhow!("Object {} {} not found", obj, gen));
+    }
+
+    let classifications = ctx.classifications();
+    let typed_graph = TypedGraph::build(&ctx.graph, classifications);
+    let incoming = typed_graph.incoming_edges(obj, gen);
+
+    let references: Vec<_> = incoming
+        .iter()
+        .map(|edge| {
+            let detail = edge_detail(&edge.edge_type)
+                .map(|value| json!(value))
+                .unwrap_or(serde_json::Value::Null);
+            json!({
+                "src": { "obj": edge.src.0, "gen": edge.src.1 },
+                "relationship": edge.edge_type.as_str(),
+                "detail": detail,
+                "suspicious": edge.suspicious,
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "type": "references",
+        "target": { "obj": obj, "gen": gen },
+        "count": references.len(),
+        "references": references,
+    }))
+}
+
+fn edge_detail(edge_type: &sis_pdf_pdf::typed_graph::EdgeType) -> Option<String> {
+    use sis_pdf_pdf::typed_graph::EdgeType;
+
+    match edge_type {
+        EdgeType::DictReference { key } => Some(key.clone()),
+        EdgeType::ArrayElement { index } => Some(format!("[{}]", index)),
+        EdgeType::PageAction { event } => Some(event.clone()),
+        EdgeType::AdditionalAction { event } => Some(event.clone()),
+        EdgeType::FormFieldAction { event } => Some(event.clone()),
+        _ => None,
+    }
+}
+
 fn dfs_page_cycles(
     current: (u32, u16),
     graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
@@ -2349,5 +2423,19 @@ mod tests {
         assert!(output.starts_with("00000000"));
         assert!(output.contains("41 42 43"));
         assert!(output.contains("|ABC|"));
+    }
+
+    #[test]
+    fn list_references_reports_target_and_count() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let entry = ctx.graph.objects.first().expect("object entry");
+            let refs = list_references(ctx, entry.obj, entry.gen).expect("references");
+            assert_eq!(refs["type"], json!("references"));
+            assert_eq!(refs["target"]["obj"], json!(entry.obj));
+            assert_eq!(refs["target"]["gen"], json!(entry.gen));
+            let count = refs["count"].as_u64().expect("count");
+            let list = refs["references"].as_array().expect("references list");
+            assert_eq!(count as usize, list.len());
+        });
     }
 }

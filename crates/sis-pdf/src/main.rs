@@ -2920,6 +2920,7 @@ fn print_repl_help() {
     println!("  chains.js          - JavaScript action chains with edge details");
     println!("  cycles             - Document reference cycles");
     println!("  cycles.page        - Page tree cycles");
+    println!("  ref OBJ GEN        - Incoming references for an object (generation optional)");
     println!();
     println!("REPL commands:");
     println!("  :json              - Toggle JSON output mode");

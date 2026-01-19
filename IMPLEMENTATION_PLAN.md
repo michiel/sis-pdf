@@ -1,8 +1,8 @@
 # Query Interface Extension: Reinstate Removed Features
 
-**Status:** In Progress (Phase 6 complete, Phases 7-9 planned)
+**Status:** In Progress (Phase 7 complete, Phases 8-9 planned)
 **Started:** 2026-01-18
-**Current Phase:** Phase 7 (Inverse XRef Querying)
+**Current Phase:** Phase 8 (Boolean Logic and Predicates)
 **Roadmap Source:** plans/20260119-query-uplift.md
 
 ## Overview
@@ -14,16 +14,16 @@ This implementation elevates the query interface from a structural viewer to a f
 2. **Batch Mode** (`--path DIR --glob PATTERN`) - Parallel directory scanning with filtering
 3. **Export Queries** (graph.org, graph.ir, features) - Structured exports for analysis pipelines
 
-### Forensic Enhancements (Phases 5-6 Complete, Phases 7-9 Planned)
+### Forensic Enhancements (Phases 5-7 Complete, Phases 8-9 Planned)
 4. **Format Control** (`--format jsonl`) - Streaming JSON for infinite pipelines (Phase 5 complete)
 5. **Stream Decode Control** (`--raw`, `--decode`, `--hexdump`) - Explicit extraction modes (Phase 6 complete)
-6. **Inverse XRef** (`ref <obj>`) - Reverse reference lookup for threat hunting (Phase 7)
+6. **Inverse XRef** (`ref <obj>`) - Reverse reference lookup for threat hunting (Phase 7 complete)
 7. **Boolean Queries** (`--where "length > 1024"`) - Property filtering and logic (Phase 8)
 8. **Structured Errors** - JSON error responses for automation robustness (Phase 9)
 
 ## Executive Summary
 
-### What's Complete (Phases 1-6)
+### What's Complete (Phases 1-7)
 The query interface now supports:
 - **Safe file extraction** with path traversal protection and size limits
 - **Parallel batch processing** for analysing entire PDF corpora
@@ -31,10 +31,10 @@ The query interface now supports:
 - **100% backward compatibility** with existing queries
 - **Format flags** (`--format` with JSONL support and `--json` shorthand)
 - **Explicit stream decode control** for extraction (`--raw`, `--decode`, `--hexdump`)
+- **Inverse reference lookup** for object triggers (`ref <obj> <gen>`)
 
-### What's Next (Phases 7-9)
+### What's Next (Phases 8-9)
 Building on this foundation, we'll add forensic-grade capabilities:
-- **Phase 7:** Reverse reference lookup to find what triggers malicious objects
 - **Phase 8:** Boolean predicates to filter without external scripting
 - **Phase 9:** Structured error reporting for robust automation
 
@@ -377,41 +377,36 @@ less /tmp/hex/js_*.hex
 
 ---
 
-### Phase 7: Inverse XRef Querying (0% Complete - Future)
+### Phase 7: Inverse XRef Querying (100% Complete)
 
 **Objective:** Find what references a given object (reverse lookup)
 
 **Priority:** High (Critical for forensic analysis)
 
-**Files to Modify:**
-- `crates/sis-pdf/src/commands/query.rs` - Add `Query::References(u32, u16)` variant
-- `crates/sis-pdf/src/commands/query.rs` - Implement reverse reference lookup
-- `crates/sis-pdf/src/commands/query.rs` - Add formatting for reference results
+**Files Modified:**
+- `crates/sis-pdf/src/commands/query.rs` - Added `Query::References(u32, u16)` variant
+- `crates/sis-pdf/src/commands/query.rs` - Implemented reverse reference lookup
+- `crates/sis-pdf/src/commands/query.rs` - Added structured output for reference results
+- `crates/sis-pdf/src/main.rs` - Added REPL help entry for `ref` queries
 
 **Query Syntax:**
 - `ref <obj> <gen>` or `references <obj> <gen>` - Find what points to this object
 
 **Implementation Details:**
-- Build reverse index from object graph adjacency map
-- Show source object, relationship type, and key/path
+- Used typed graph reverse indices to find incoming references
+- Output includes source object, relationship type, detail (key/index/event), and suspicious flag
 - Essential for determining if malicious objects are actually triggered
 
-**Success Criteria:**
-- [ ] `sis query file.pdf ref 52 0` shows all objects pointing to 52 0
-- [ ] Output includes relationship type (/OpenAction, /Annot, /Kids, etc.)
-- [ ] Works with `--json` and `--format jsonl`
-- [ ] Performance optimised with cached reverse index
+**Success Criteria:** All met
+- `sis query file.pdf ref 52 0` shows all objects pointing to 52 0
+- Output includes relationship type and detail fields (key/index/event where available)
+- Works with `--json` and `--format jsonl`
+- Performance optimised with cached reverse index
 
-**Usage Examples (Planned):**
+**Usage Examples:**
 ```bash
 # Who references this object?
 sis query malware.pdf ref 52 0
-
-# Output:
-# Source Object | Relationship | Key/Path
-# --------------|--------------|----------
-# 1 0           | /OpenAction  | /OpenAction
-# 14 0          | /Annot       | /A
 
 # JSON format for pipelines
 sis query malware.pdf ref 52 0 --json
@@ -525,6 +520,7 @@ sis query --path corpus --glob "*.pdf" js.count --format jsonl | jq 'select(.sta
 - Output format parsing and override behaviour
 - JSONL output formatting for query results
 - Hexdump formatting for extraction output
+- Reference query output structure
 
 ### Unit Tests (Pending)
 - [ ] `sanitize_embedded_filename()` for path traversal protection
@@ -661,11 +657,15 @@ Planned (Phases 6-9):
 2. Implemented decode mode handling in extraction helpers
 3. Added hexdump output support for extracted payloads
 
-### Next Phase (7)
-- **Phase 7:** Inverse XRef querying (`ref <obj> <gen>`)
+### Completed (Phase 7)
+1. Added `ref` query parsing and handling
+2. Implemented reverse reference lookup using typed graph indices
+3. Added structured output for incoming reference details
 
-### Future Phases (7-9)
+### Next Phase (8)
 - **Phase 8:** Boolean logic and predicates (`--where` clauses)
+
+### Future Phases (9)
 - **Phase 9:** Structured error reporting (JSON error responses)
 
 ---
@@ -678,7 +678,7 @@ Planned (Phases 6-9):
 - Phase 4: All export formats produce valid output
 - Phase 5: JSONL format for streaming pipelines
 - Phase 6: Explicit decode control for stream extraction
-- [ ] Phase 7: Inverse XRef lookup for forensic analysis
+- Phase 7: Inverse XRef lookup for forensic analysis
 - [ ] Phase 8: Boolean predicates for complex filtering
 - [ ] Phase 9: Structured error reporting for automation
 - Overall: 100% backward compatibility maintained (verified with existing tests)
@@ -695,7 +695,7 @@ This implementation plan incorporates recommendations from the forensic audit (p
 | Uplift Rec | Priority | Implementation Phase | Status |
 |------------|----------|---------------------|--------|
 | #1: Boolean Logic & Predicates | Critical | Phase 8 | Planned |
-| #2: Inverse XRef Querying | High | Phase 7 | Planned |
+| #2: Inverse XRef Querying | High | Phase 7 | Complete |
 | #3: Smart Stream Export | Critical | Phase 6 | Complete |
 | #4: JSONL for Streaming | High | Phase 5 | Complete |
 | #5: Defensive Sanitisation | Medium | Phase 2 | Complete |
