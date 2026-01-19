@@ -51,6 +51,7 @@ pub struct ScanConfig {
     pub yara_scope: Option<String>,
     pub strict: Option<bool>,
     pub ir: Option<bool>,
+    pub group_chains: Option<bool>,
     pub ml_model: Option<String>,
     pub ml_threshold: Option<f32>,
     pub ml_mode: Option<String>,
@@ -268,6 +269,9 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
     }
     if let Some(v) = scan.ir {
         opts.ir = v;
+    }
+    if let Some(v) = scan.group_chains {
+        opts.group_chains = v;
     }
     if let Some(model) = &scan.ml_model {
         let threshold = scan.ml_threshold.unwrap_or(0.9);

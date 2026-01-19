@@ -24,6 +24,7 @@ fn bench_scan(c: &mut Criterion) {
         font_analysis: FontAnalysisOptions::default(),
         profile: false,
         profile_format: ProfileFormat::Text,
+        group_chains: true,
     };
     c.bench_function("sis_pdf_scan_synthetic", |b| {
         b.iter(|| sis_pdf_core::runner::run_scan_with_detectors(bytes, opts, &detectors).unwrap())

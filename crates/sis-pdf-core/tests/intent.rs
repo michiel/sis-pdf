@@ -22,6 +22,7 @@ fn base_opts() -> ScanOptions {
         font_analysis: FontAnalysisOptions::default(),
         profile: false,
         profile_format: ProfileFormat::Text,
+        group_chains: true,
     }
 }
 

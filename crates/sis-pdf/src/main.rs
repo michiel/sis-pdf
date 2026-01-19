@@ -150,6 +150,8 @@ enum Command {
         decode: bool,
         #[arg(long, help = "Write hex + ASCII dump output for extracted streams")]
         hexdump: bool,
+        #[arg(long, help = "Disable chain grouping in chain output")]
+        ungroup_chains: bool,
     },
     #[command(about = "Scan PDFs for suspicious indicators and report findings")]
     Scan {
@@ -167,6 +169,8 @@ enum Command {
         max_total_decoded_bytes: usize,
         #[arg(long)]
         no_recover: bool,
+        #[arg(long, help = "Disable chain grouping in scan output")]
+        ungroup_chains: bool,
         #[arg(long)]
         json: bool,
         #[arg(long)]
@@ -299,6 +303,8 @@ enum Command {
         max_total_decoded_bytes: usize,
         #[arg(long)]
         no_recover: bool,
+        #[arg(long, help = "Disable chain grouping in report output")]
+        ungroup_chains: bool,
         #[arg(long)]
         diff_parser: bool,
         #[arg(long, default_value_t = 500_000)]
@@ -652,6 +658,7 @@ fn main() -> Result<()> {
             raw,
             decode,
             hexdump,
+            ungroup_chains,
         } => {
             let mut output_format = commands::query::OutputFormat::parse(&format)?;
             if json {
@@ -720,6 +727,7 @@ fn main() -> Result<()> {
                     max_total_decoded_bytes,
                     !no_recover,
                     max_objects,
+                    !ungroup_chains,
                     extract_to.as_deref(),
                     path.as_deref(),
                     &glob,
@@ -747,6 +755,7 @@ fn main() -> Result<()> {
                     max_total_decoded_bytes,
                     !no_recover,
                     max_objects,
+                    !ungroup_chains,
                     extract_to.as_deref(),
                     max_extract_bytes,
                     output_format,
@@ -763,6 +772,7 @@ fn main() -> Result<()> {
             max_decode_bytes,
             max_total_decoded_bytes,
             no_recover,
+            ungroup_chains,
             json,
             jsonl,
             jsonl_findings,
@@ -818,6 +828,7 @@ fn main() -> Result<()> {
             max_decode_bytes,
             max_total_decoded_bytes,
             !no_recover,
+            !ungroup_chains,
             json,
             jsonl,
             jsonl_findings,
@@ -879,6 +890,7 @@ fn main() -> Result<()> {
             max_decode_bytes,
             max_total_decoded_bytes,
             no_recover,
+            ungroup_chains,
             diff_parser,
             max_objects,
             max_recursion_depth,
@@ -910,6 +922,7 @@ fn main() -> Result<()> {
             max_decode_bytes,
             max_total_decoded_bytes,
             !no_recover,
+            !ungroup_chains,
             diff_parser,
             max_objects,
             max_recursion_depth,
@@ -2621,6 +2634,7 @@ fn run_query_oneshot(
     max_total_decoded_bytes: usize,
     recover_xref: bool,
     max_objects: usize,
+    group_chains: bool,
     extract_to: Option<&std::path::Path>,
     path: Option<&std::path::Path>,
     glob: &str,
@@ -2660,6 +2674,7 @@ fn run_query_oneshot(
         max_total_decoded_bytes,
         no_recover: !recover_xref,
         max_objects,
+        group_chains,
     };
 
     // Phase 3: Batch mode - execute query across directory
@@ -2719,6 +2734,7 @@ fn run_query_repl(
     max_total_decoded_bytes: usize,
     recover_xref: bool,
     max_objects: usize,
+    group_chains: bool,
     extract_to: Option<&std::path::Path>,
     max_extract_bytes: usize,
     output_format: commands::query::OutputFormat,
@@ -2740,6 +2756,7 @@ fn run_query_repl(
         max_total_decoded_bytes,
         no_recover: !recover_xref,
         max_objects,
+        group_chains,
     };
 
     // Build scan context (this is expensive, so we do it once)
@@ -3004,6 +3021,7 @@ fn run_scan(
     max_decode_bytes: usize,
     max_total_decoded_bytes: usize,
     recover_xref: bool,
+    group_chains: bool,
     json: bool,
     jsonl: bool,
     jsonl_findings: bool,
@@ -3111,6 +3129,7 @@ fn run_scan(
             "json" => sis_pdf_core::scan::ProfileFormat::Json,
             _ => sis_pdf_core::scan::ProfileFormat::Text,
         },
+        group_chains,
     };
     let runtime_overrides = build_ml_runtime_config(
         ml_provider,
@@ -3727,6 +3746,7 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
         profile: false,
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
+        group_chains: true,
     };
     let detectors = sis_pdf_detectors::default_detectors();
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(true);
@@ -3773,6 +3793,7 @@ fn run_report(
     max_decode_bytes: usize,
     max_total_decoded_bytes: usize,
     recover_xref: bool,
+    group_chains: bool,
     diff_parser: bool,
     max_objects: usize,
     max_recursion_depth: usize,
@@ -3843,6 +3864,7 @@ fn run_report(
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
         profile: false,
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
+        group_chains,
     };
     let mut opts = opts;
     let runtime_overrides = build_ml_runtime_config(
@@ -4259,15 +4281,16 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
             diff_parser: false,
             max_objects: 500_000,
             max_recursion_depth: 64,
-        fast: false,
-        focus_trigger: None,
-        focus_depth: 0,
-        yara_scope: None,
-        ml_config: None,
-        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
-        profile: false,
-        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
-    };
+            fast: false,
+            focus_trigger: None,
+            focus_depth: 0,
+            yara_scope: None,
+            ml_config: None,
+            font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+            profile: false,
+            profile_format: sis_pdf_core::scan::ProfileFormat::Text,
+            group_chains: true,
+        };
         let base_report =
             sis_pdf_core::runner::run_scan_with_detectors(&data, opts.clone(), &detectors)?;
         let base_counts = count_kinds(&base_report.findings);

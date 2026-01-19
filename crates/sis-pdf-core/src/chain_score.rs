@@ -4,15 +4,25 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
     let mut score: f64 = 0.2;
     let mut reasons = Vec::new();
 
-    if let Some(trigger) = &chain.trigger {
+    let trigger_key = chain
+        .notes
+        .get("trigger.key")
+        .map(String::as_str)
+        .or(chain.trigger.as_deref());
+    if let Some(trigger) = trigger_key {
         if trigger == "open_action_present" || trigger == "aa_event_present" {
             score = score.max(0.7);
             reasons.push("Auto-trigger: document or event action".into());
         }
     }
 
-    if let Some(action) = &chain.action {
-        match action.as_str() {
+    let action_key = chain
+        .notes
+        .get("action.key")
+        .map(String::as_str)
+        .or(chain.action.as_deref());
+    if let Some(action) = action_key {
+        match action {
             "launch_action_present" => {
                 score = score.max(0.85);
                 reasons.push("Action severity: High (Launch)".into());
@@ -33,7 +43,12 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
         }
     }
 
-    if let Some(payload) = &chain.payload {
+    let payload_key = chain
+        .notes
+        .get("payload.key")
+        .map(String::as_str)
+        .or(chain.payload.as_deref());
+    if let Some(payload) = payload_key {
         if payload.contains("stream") {
             score = score.max(0.65);
             reasons.push("Payload: stream-based data".into());

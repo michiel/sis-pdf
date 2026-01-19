@@ -226,10 +226,11 @@ mod tests {
             strict_summary: false,
             ir: false,
             ml_config: None,
-        font_analysis: FontAnalysisOptions::default(),
-        profile: false,
-        profile_format: ProfileFormat::Text,
-    }
+            font_analysis: FontAnalysisOptions::default(),
+            profile: false,
+            profile_format: ProfileFormat::Text,
+            group_chains: true,
+        }
     }
 
     fn empty_report(findings: Vec<Finding>) -> Report {

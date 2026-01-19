@@ -26,6 +26,7 @@ fn detects_signature_and_encryption() {
         font_analysis: FontAnalysisOptions::default(),
         profile: false,
         profile_format: ProfileFormat::Text,
+        group_chains: true,
     };
 
     let sig_report = sis_pdf_core::runner::run_scan_with_detectors(sig, opts.clone(), &detectors)

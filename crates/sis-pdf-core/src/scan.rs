@@ -48,6 +48,7 @@ pub struct ScanOptions {
     pub font_analysis: FontAnalysisOptions,
     pub profile: bool,
     pub profile_format: ProfileFormat,
+    pub group_chains: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -1072,6 +1072,7 @@ pub struct ScanOptions {
     pub max_total_decoded_bytes: usize,
     pub no_recover: bool,
     pub max_objects: usize,
+    pub group_chains: bool,
 }
 
 impl Default for ScanOptions {
@@ -1082,6 +1083,7 @@ impl Default for ScanOptions {
             max_total_decoded_bytes: 256 * 1024 * 1024,
             no_recover: false,
             max_objects: 500_000,
+            group_chains: true,
         }
     }
 }
@@ -1124,6 +1126,7 @@ fn build_scan_context<'a>(
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
         profile: false,
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
+        group_chains: options.group_chains,
     };
 
     // Parse PDF
@@ -2667,6 +2670,7 @@ fn list_action_chains(ctx: &ScanContext) -> Result<serde_json::Value> {
     Ok(build_chain_query_result(
         "chains",
         chains.iter().enumerate(),
+        ctx.options.group_chains,
     ))
 }
 
@@ -2682,7 +2686,11 @@ fn list_js_chains(ctx: &ScanContext) -> Result<serde_json::Value> {
         .enumerate()
         .filter(|(_, chain)| chain.involves_js);
 
-    Ok(build_chain_query_result("chains.js", js_chains))
+    Ok(build_chain_query_result(
+        "chains.js",
+        js_chains,
+        ctx.options.group_chains,
+    ))
 }
 
 /// List all reference cycles
@@ -2968,17 +2976,40 @@ fn collect_refs(
     }
 }
 
-fn build_chain_query_result<'a, I>(label: &str, chains: I) -> serde_json::Value
+fn build_chain_query_result<'a, I>(label: &str, chains: I, group_chains: bool) -> serde_json::Value
 where
     I: Iterator<Item = (usize, &'a sis_pdf_pdf::path_finder::ActionChain<'a>)>,
 {
-    let chain_values: Vec<_> = chains
-        .map(|(idx, chain)| chain_to_json(idx, chain))
-        .collect();
+    let items: Vec<(usize, &'a sis_pdf_pdf::path_finder::ActionChain<'a>)> =
+        chains.collect();
+    let (chain_values, total_chains) = if group_chains {
+        let groups = group_query_chains(&items);
+        let mut values = Vec::new();
+        for group in groups {
+            let meta = QueryChainGroupMeta {
+                group_id: group.group_id.clone(),
+                group_count: group.group_count,
+                group_members: group.group_members.clone(),
+            };
+            values.push(chain_to_json(
+                group.representative.0,
+                group.representative.1,
+                Some(&meta),
+            ));
+        }
+        (values, items.len())
+    } else {
+        let values: Vec<_> = items
+            .iter()
+            .map(|(idx, chain)| chain_to_json(*idx, *chain, None))
+            .collect();
+        (values, items.len())
+    };
 
     json!({
         "type": label,
         "count": chain_values.len(),
+        "total_chains": total_chains,
         "chains": chain_values,
     })
 }
@@ -2986,12 +3017,25 @@ where
 fn chain_to_json(
     idx: usize,
     chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
+    group_meta: Option<&QueryChainGroupMeta>,
 ) -> serde_json::Value {
     let edges: Vec<_> = chain.edges.iter().map(|edge| edge_to_json(*edge)).collect();
     let payload = chain.payload.map(|(obj, gen)| ref_to_json((obj, gen)));
+    let (group_id, group_count, group_members) = if let Some(meta) = group_meta {
+        (
+            Some(meta.group_id.clone()),
+            meta.group_count,
+            meta.group_members.clone(),
+        )
+    } else {
+        (Some(format!("chain-{}", idx)), 1, vec![idx])
+    };
 
     json!({
         "id": idx,
+        "group_id": group_id,
+        "group_count": group_count,
+        "group_members": group_members,
         "trigger": chain.trigger.as_str(),
         "length": chain.length(),
         "automatic": chain.automatic,
@@ -3001,6 +3045,120 @@ fn chain_to_json(
         "payload": payload,
         "edges": edges,
     })
+}
+
+struct QueryChainGroup<'a> {
+    group_id: String,
+    group_count: usize,
+    group_members: Vec<usize>,
+    representative: (usize, &'a sis_pdf_pdf::path_finder::ActionChain<'a>),
+}
+
+struct QueryChainGroupMeta {
+    group_id: String,
+    group_count: usize,
+    group_members: Vec<usize>,
+}
+
+#[derive(Hash, Eq, PartialEq)]
+struct ChainSignature {
+    trigger: String,
+    payload: Option<(u32, u16)>,
+    edges: Vec<EdgeSignature>,
+    automatic: bool,
+    involves_js: bool,
+    involves_external: bool,
+}
+
+#[derive(Hash, Eq, PartialEq)]
+struct EdgeSignature {
+    edge_type: String,
+    src: (u32, u16),
+    dst: (u32, u16),
+}
+
+fn group_query_chains<'a>(
+    chains: &[(usize, &'a sis_pdf_pdf::path_finder::ActionChain<'a>)],
+) -> Vec<QueryChainGroup<'a>> {
+    use std::collections::HashMap;
+
+    let mut groups: HashMap<ChainSignature, Vec<(usize, &'a sis_pdf_pdf::path_finder::ActionChain<'a>)>> =
+        HashMap::new();
+    for (idx, chain) in chains {
+        let signature = chain_signature(chain);
+        groups.entry(signature).or_default().push((*idx, *chain));
+    }
+
+    let mut output = Vec::new();
+    for (signature, mut members) in groups {
+        members.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
+            rhs.risk_score()
+                .partial_cmp(&lhs.risk_score())
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| lhs_idx.cmp(rhs_idx))
+        });
+        let representative = members[0];
+        let group_members = members.iter().map(|(idx, _)| *idx).collect::<Vec<_>>();
+        let group_id = group_id_from_signature(&signature);
+        output.push(QueryChainGroup {
+            group_id,
+            group_count: members.len(),
+            group_members,
+            representative: representative,
+        });
+    }
+
+    output.sort_by(|lhs, rhs| {
+        rhs.representative
+            .1
+            .risk_score()
+            .partial_cmp(&lhs.representative.1.risk_score())
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| lhs.group_id.cmp(&rhs.group_id))
+    });
+    output
+}
+
+fn chain_signature(chain: &sis_pdf_pdf::path_finder::ActionChain<'_>) -> ChainSignature {
+    let trigger = chain.trigger.as_str().to_string();
+    let payload = chain.payload;
+    let edges = chain
+        .edges
+        .iter()
+        .map(|edge| EdgeSignature {
+            edge_type: edge.edge_type.as_str().to_string(),
+            src: edge.src,
+            dst: edge.dst,
+        })
+        .collect::<Vec<_>>();
+    ChainSignature {
+        trigger,
+        payload,
+        edges,
+        automatic: chain.automatic,
+        involves_js: chain.involves_js,
+        involves_external: chain.involves_external,
+    }
+}
+
+fn group_id_from_signature(signature: &ChainSignature) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(signature.trigger.as_bytes());
+    if let Some((obj, gen)) = signature.payload {
+        hasher.update(&obj.to_le_bytes());
+        hasher.update(&gen.to_le_bytes());
+    }
+    for edge in &signature.edges {
+        hasher.update(edge.edge_type.as_bytes());
+        hasher.update(&edge.src.0.to_le_bytes());
+        hasher.update(&edge.src.1.to_le_bytes());
+        hasher.update(&edge.dst.0.to_le_bytes());
+        hasher.update(&edge.dst.1.to_le_bytes());
+    }
+    hasher.update(&[signature.automatic as u8]);
+    hasher.update(&[signature.involves_js as u8]);
+    hasher.update(&[signature.involves_external as u8]);
+    format!("chain-group-{}", hasher.finalize().to_hex())
 }
 
 fn edge_to_json(edge: &sis_pdf_pdf::typed_graph::TypedEdge) -> serde_json::Value {

@@ -134,6 +134,7 @@ All `scan` configuration options correspond to command-line flags.
 | `batch_parallel` | boolean | Parallel batch processing | Default: false |
 | `recover_xref` | boolean | Attempt xref recovery | `--recover-xref` |
 | `diff_parser` | boolean | Compare with secondary parser | `--diff-parser` |
+| `group_chains` | boolean | Group similar chains in output | `--ungroup-chains` to disable |
 
 ### Resource Limits
 

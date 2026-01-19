@@ -575,7 +575,8 @@ pub fn run_scan_with_detectors(
     findings.sort_by(|a, b| {
         (a.surface as u32, &a.kind, &a.id).cmp(&(b.surface as u32, &b.kind, &b.id))
     });
-    let (chains, templates) = crate::chain_synth::synthesise_chains(&findings);
+    let (chains, templates) =
+        crate::chain_synth::synthesise_chains(&findings, ctx.options.group_chains);
     let behavior_summary = Some(crate::behavior::correlate_findings(&findings));
     let future_threats = behavior_summary
         .as_ref()

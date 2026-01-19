@@ -75,6 +75,10 @@ pub struct BatchReport {
     pub timing: BatchTiming,
 }
 
+fn chain_note<'a>(chain: &'a ExploitChain, key: &str) -> Option<&'a str> {
+    chain.notes.get(key).map(String::as_str)
+}
+
 impl Report {
     pub fn from_findings(
         findings: Vec<Finding>,
@@ -1309,29 +1313,39 @@ fn runtime_effect_for_finding(f: &Finding) -> String {
 
 fn chain_effect_summary(chain: &ExploitChain) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(trigger) = &chain.trigger {
-        if trigger.contains("OpenAction") {
+    let trigger_key = chain_note(chain, "trigger.key").or(chain.trigger.as_deref());
+    let action_key = chain_note(chain, "action.key").or(chain.action.as_deref());
+    let action_type = chain_note(chain, "action.type");
+    let payload_key = chain_note(chain, "payload.key").or(chain.payload.as_deref());
+    let payload_type = chain_note(chain, "payload.type");
+    if let Some(trigger) = trigger_key {
+        if matches!(trigger, "open_action_present") {
             parts.push("Document open triggers execution".into());
-        } else if trigger.contains("AA") {
+        } else if matches!(trigger, "aa_present" | "aa_event_present") {
             parts.push("Viewer event triggers execution".into());
         }
     }
-    if let Some(action) = &chain.action {
-        if action.contains("JavaScript") {
+    if let Some(action) = action_type.or(action_key) {
+        if action.contains("JavaScript") || matches!(action, "js_present") {
             parts.push("JavaScript executes in viewer context".into());
-        } else if action.contains("URI") {
+        } else if action.contains("URI") || matches!(action, "uri_present") {
             parts.push("External navigation or fetch occurs".into());
-        } else if action.contains("Launch") {
+        } else if action.contains("Launch") || matches!(action, "launch_action_present") {
             parts.push("External application launch possible".into());
+        } else if action.contains("SubmitForm") || matches!(action, "submitform_present") {
+            parts.push("Form submission can transmit data.".into());
         }
     }
-    if let Some(payload) = &chain.payload {
-        if payload.contains("JS") || payload.contains("JavaScript") {
+    if let Some(payload) = payload_type.or(payload_key) {
+        let payload_lower = payload.to_ascii_lowercase();
+        if payload_lower.contains("javascript") || payload_lower.contains("js") {
             parts.push("Script payload involved".into());
-        } else if payload.contains("URI") {
+        } else if payload_lower.contains("uri") {
             parts.push("External URL payload involved".into());
-        } else if payload.contains("Embedded") {
+        } else if payload_lower.contains("embedded") {
             parts.push("Embedded payload involved".into());
+        } else if payload_lower.contains("stream") {
+            parts.push("Stream payload involved".into());
         }
     }
     if parts.is_empty() {
@@ -1424,32 +1438,40 @@ fn chain_sandbox_observations(
 
 fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> String {
     let mut lines: Vec<String> = Vec::new();
-    if let Some(trigger) = &chain.trigger {
-        if trigger.contains("OpenAction") {
+    let trigger_key = chain_note(chain, "trigger.key").or(chain.trigger.as_deref());
+    let action_key = chain_note(chain, "action.key").or(chain.action.as_deref());
+    let action_type = chain_note(chain, "action.type");
+    let payload_key = chain_note(chain, "payload.key").or(chain.payload.as_deref());
+    let payload_type = chain_note(chain, "payload.type");
+    if let Some(trigger) = trigger_key {
+        if matches!(trigger, "open_action_present") {
             lines.push("Execution starts automatically when the document opens.".into());
-        } else if trigger.contains("AA") {
+        } else if matches!(trigger, "aa_present" | "aa_event_present") {
             lines.push("Execution is tied to viewer events (Additional Actions).".into());
         }
     }
-    if let Some(action) = &chain.action {
-        if action.contains("JavaScript") {
+    if let Some(action) = action_type.or(action_key) {
+        if action.contains("JavaScript") || matches!(action, "js_present") {
             lines
                 .push("JavaScript runs in the viewer context and can access document APIs.".into());
-        } else if action.contains("URI") {
+        } else if action.contains("URI") || matches!(action, "uri_present") {
             lines.push("Viewer may navigate to an external URL or fetch remote content.".into());
-        } else if action.contains("Launch") {
+        } else if action.contains("Launch") || matches!(action, "launch_action_present") {
             lines.push("Viewer may launch an external application or file.".into());
-        } else if action.contains("SubmitForm") {
+        } else if action.contains("SubmitForm") || matches!(action, "submitform_present") {
             lines.push("Form data can be transmitted to external endpoints.".into());
         }
     }
-    if let Some(payload) = &chain.payload {
-        if payload.contains("JS") || payload.contains("JavaScript") {
+    if let Some(payload) = payload_type.or(payload_key) {
+        let payload_lower = payload.to_ascii_lowercase();
+        if payload_lower.contains("javascript") || payload_lower.contains("js") {
             lines.push("Chain contains a script payload that can alter viewer behavior.".into());
-        } else if payload.contains("URI") {
+        } else if payload_lower.contains("uri") {
             lines.push("Chain references external URL payloads.".into());
-        } else if payload.contains("Embedded") {
+        } else if payload_lower.contains("embedded") {
             lines.push("Chain involves embedded file payloads.".into());
+        } else if payload_lower.contains("stream") {
+            lines.push("Chain involves stream payloads.".into());
         }
     }
     if let Some(target) = chain.notes.get("action.target") {
@@ -2503,12 +2525,16 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     }
     if !report.chains.is_empty() {
         for chain in report.chains.iter().take(5) {
-            interactions.push(format!(
+            let mut line = format!(
                 "Chain {} links {} findings with path {}",
                 display_id(&chain.id, &id_map),
                 chain.findings.len(),
                 replace_ids(&chain.path, &id_map)
-            ));
+            );
+            if chain.group_count > 1 {
+                line.push_str(&format!(" (instances {})", chain.group_count));
+            }
+            interactions.push(line);
         }
     }
     if !report.network_intents.is_empty() {
@@ -2685,18 +2711,41 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 "- Path: {}\n",
                 escape_markdown(&replace_ids(&chain.path, &id_map))
             ));
+            if chain.group_count > 1 {
+                out.push_str(&format!("- Instances: {}\n", chain.group_count));
+            }
             out.push_str(&format!(
                 "- Effect: {}\n",
                 escape_markdown(&chain_effect_summary(chain))
             ));
-            if let Some(trigger) = &chain.trigger {
+            if let Some(trigger) = chain_note(chain, "trigger.label")
+                .or(chain.trigger.as_deref())
+            {
                 out.push_str(&format!("- Trigger: `{}`\n", escape_markdown(trigger)));
             }
-            if let Some(action) = &chain.action {
+            if let Some(action) = chain_note(chain, "action.label")
+                .or(chain_note(chain, "action.type"))
+                .or(chain.action.as_deref())
+            {
                 out.push_str(&format!("- Action: `{}`\n", escape_markdown(action)));
             }
-            if let Some(payload) = &chain.payload {
+            if let Some(payload) = chain_note(chain, "payload.label")
+                .or(chain_note(chain, "payload.type"))
+                .or(chain.payload.as_deref())
+            {
                 out.push_str(&format!("- Payload: `{}`\n", escape_markdown(payload)));
+            }
+            if let Some(summary) = chain_note(chain, "payload.summary") {
+                out.push_str(&format!(
+                    "- Payload summary: `{}`\n",
+                    escape_markdown(summary)
+                ));
+            }
+            if let Some(preview) = chain_note(chain, "payload.preview") {
+                out.push_str(&format!(
+                    "- Payload preview: `{}`\n",
+                    escape_markdown(preview)
+                ));
             }
             out.push_str(&format!(
                 "- Narrative: {}\n",

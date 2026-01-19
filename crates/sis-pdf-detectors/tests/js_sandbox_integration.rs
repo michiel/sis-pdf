@@ -33,6 +33,7 @@ fn sandbox_exec_records_calls() {
         font_analysis: FontAnalysisOptions::default(),
         profile: false,
         profile_format: ProfileFormat::Text,
+        group_chains: true,
     };
 
     let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =

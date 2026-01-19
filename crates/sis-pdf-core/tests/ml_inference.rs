@@ -42,6 +42,7 @@ fn load_context() -> anyhow::Result<ScanContext<'static>> {
         font_analysis: FontAnalysisOptions::default(),
         profile: false,
         profile_format: ProfileFormat::Text,
+        group_chains: true,
     };
     Ok(ScanContext::new(bytes, graph, opts))
 }

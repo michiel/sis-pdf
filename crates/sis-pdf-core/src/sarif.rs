@@ -78,6 +78,7 @@ pub fn to_sarif(report: &crate::report::Report, input_path: Option<&str>) -> ser
             "roles": ["analysisTarget"]
         }])
     });
+    let chain_metadata = chain_group_metadata(report);
     serde_json::json!({
         "version": "2.1.0",
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
@@ -95,8 +96,54 @@ pub fn to_sarif(report: &crate::report::Report, input_path: Option<&str>) -> ser
                     "input_path": input_path
                 }
             }],
+            "properties": {
+                "chains": chain_metadata
+            },
             "results": results
         }]
+    })
+}
+
+fn chain_group_metadata(report: &crate::report::Report) -> serde_json::Value {
+    let chains: Vec<_> = report
+        .chains
+        .iter()
+        .map(|chain| {
+            let trigger = chain
+                .notes
+                .get("trigger.label")
+                .cloned()
+                .or_else(|| chain.trigger.clone());
+            let action = chain
+                .notes
+                .get("action.label")
+                .cloned()
+                .or_else(|| chain.notes.get("action.type").cloned())
+                .or_else(|| chain.action.clone());
+            let payload = chain
+                .notes
+                .get("payload.label")
+                .cloned()
+                .or_else(|| chain.notes.get("payload.type").cloned())
+                .or_else(|| chain.payload.clone());
+            serde_json::json!({
+                "id": chain.id,
+                "group_id": chain.group_id,
+                "group_count": chain.group_count,
+                "group_members": chain.group_members,
+                "score": chain.score,
+                "path": chain.path,
+                "trigger": trigger,
+                "action": action,
+                "payload": payload,
+                "payload_summary": chain.notes.get("payload.summary"),
+                "payload_preview": chain.notes.get("payload.preview"),
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "count": chains.len(),
+        "chains": chains
     })
 }
 

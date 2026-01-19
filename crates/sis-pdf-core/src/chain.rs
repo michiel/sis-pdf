@@ -3,6 +3,12 @@ use std::collections::HashMap;
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ExploitChain {
     pub id: String,
+    #[serde(default)]
+    pub group_id: Option<String>,
+    #[serde(default)]
+    pub group_count: usize,
+    #[serde(default)]
+    pub group_members: Vec<String>,
     pub trigger: Option<String>,
     pub action: Option<String>,
     pub payload: Option<String>,
