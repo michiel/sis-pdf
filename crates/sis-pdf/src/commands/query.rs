@@ -1092,6 +1092,17 @@ fn build_scan_context<'a>(
     bytes: &'a [u8],
     options: &ScanOptions,
 ) -> Result<sis_pdf_core::scan::ScanContext<'a>> {
+    if bytes.is_empty() {
+        return Err(anyhow!("empty PDF input"));
+    }
+    let first_non_ws = bytes
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .ok_or_else(|| anyhow!("empty PDF input"))?;
+    if !bytes[first_non_ws..].starts_with(b"%PDF-") {
+        return Err(anyhow!("missing PDF header"));
+    }
+
     let scan_options = sis_pdf_core::scan::ScanOptions {
         recover_xref: !options.no_recover,
         deep: options.deep,
@@ -3295,6 +3306,7 @@ mod tests {
     use serde_json::json;
     use sis_pdf_pdf::path_finder::TriggerType;
     use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge};
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     fn with_fixture_context<F>(fixture: &str, test: F)
@@ -3518,6 +3530,64 @@ mod tests {
         assert_eq!(err.error_code, "FILE_READ_ERROR");
         let context = err.context.expect("context");
         assert_eq!(context["path"], json!(missing_path.display().to_string()));
+    }
+
+    #[test]
+    fn execute_query_reports_parse_error_for_empty_fixture() {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root is two levels above crate manifest");
+        let fixture_path: PathBuf = workspace_root
+            .join("crates/sis-pdf-core/tests/fixtures/invalid_empty.pdf");
+        let options = ScanOptions::default();
+        let result = execute_query(
+            &Query::Pages,
+            &fixture_path,
+            &options,
+            None,
+            1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("query result");
+        let err = match result {
+            QueryResult::Error(err) => err,
+            other => panic!("expected error result, got {:?}", other),
+        };
+        assert_eq!(err.error_code, "PARSE_ERROR");
+        let context = err.context.expect("context");
+        assert_eq!(context["path"], json!(fixture_path.display().to_string()));
+    }
+
+    #[test]
+    fn execute_query_reports_parse_error_for_missing_header() {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root is two levels above crate manifest");
+        let fixture_path: PathBuf = workspace_root
+            .join("crates/sis-pdf-core/tests/fixtures/invalid_header.pdf");
+        let options = ScanOptions::default();
+        let result = execute_query(
+            &Query::Pages,
+            &fixture_path,
+            &options,
+            None,
+            1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("query result");
+        let err = match result {
+            QueryResult::Error(err) => err,
+            other => panic!("expected error result, got {:?}", other),
+        };
+        assert_eq!(err.error_code, "PARSE_ERROR");
+        let context = err.context.expect("context");
+        assert_eq!(context["path"], json!(fixture_path.display().to_string()));
     }
 
     #[test]
