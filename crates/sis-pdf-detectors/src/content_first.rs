@@ -132,6 +132,11 @@ impl Detector for ContentFirstDetector {
                     ) {
                         findings.push(finding);
                     }
+                    if let Some(finding) =
+                        decode_recovered_finding(entry.obj, entry.gen, stream, &blob, origin_label)
+                    {
+                        findings.push(finding);
+                    }
 
                     if let Some(finding) = undeclared_compression_finding(
                         ctx.bytes,
@@ -801,6 +806,44 @@ fn declared_filter_invalid_finding(
         objects: vec![format!("{} {} obj", obj, gen)],
         evidence: vec![span_to_evidence(stream.data_span, "Stream data")],
         remediation: Some("Inspect stream data and reconcile declared filters.".to_string()),
+        meta: finding_meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    })
+}
+
+fn decode_recovered_finding(
+    obj: u32,
+    gen: u16,
+    stream: &PdfStream<'_>,
+    blob: &Blob<'_>,
+    origin: &str,
+) -> Option<Finding> {
+    let meta = blob.decode_meta.as_ref()?;
+    if meta.recovered_filters.is_empty() {
+        return None;
+    }
+
+    let mut finding_meta = HashMap::new();
+    finding_meta.insert("stream.filters".to_string(), meta.filters.join(","));
+    finding_meta.insert(
+        "decode.recovered_filters".to_string(),
+        meta.recovered_filters.join(","),
+    );
+    finding_meta.insert("blob.origin".to_string(), origin.to_string());
+
+    Some(Finding {
+        id: String::new(),
+        surface: AttackSurface::StreamsAndFilters,
+        kind: "decode_recovery_used".to_string(),
+        severity: Severity::Info,
+        confidence: Confidence::Strong,
+        title: "Decode recovery used".to_string(),
+        description: "Recovered stream payload using fallback decoding.".to_string(),
+        objects: vec![format!("{} {} obj", obj, gen)],
+        evidence: vec![span_to_evidence(stream.data_span, "Stream data")],
+        remediation: Some("Treat stream data as suspect and verify filter declarations.".to_string()),
         meta: finding_meta,
         yara: None,
         position: None,

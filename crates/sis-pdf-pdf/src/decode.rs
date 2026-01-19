@@ -11,6 +11,7 @@ pub struct DecodedStream {
     pub truncated: bool,
     pub filters: Vec<String>,
     pub input_len: usize,
+    pub recovered_filters: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,7 @@ pub struct DecodeMeta {
     pub outcome: DecodeOutcome,
     pub input_len: usize,
     pub output_len: usize,
+    pub recovered_filters: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -85,6 +87,7 @@ pub fn decode_stream(
     let mut truncated = false;
     let filters = stream_filters(&stream.dict);
     let parms = stream_decode_parms(&stream.dict, &filters);
+    let mut recovered_filters = Vec::new();
     for (idx, filter) in filters.iter().enumerate() {
         let decoded = decode_filter(&data, filter, max_out)?;
         data = decoded.0;
@@ -97,6 +100,9 @@ pub fn decode_stream(
             truncated = true;
             break;
         }
+        if decoded.2 && !recovered_filters.contains(filter) {
+            recovered_filters.push(filter.clone());
+        }
     }
     if data.len() > max_out {
         data.truncate(max_out);
@@ -107,6 +113,7 @@ pub fn decode_stream(
         truncated,
         filters,
         input_len: end - start,
+        recovered_filters,
     })
 }
 
@@ -135,6 +142,7 @@ pub fn decode_stream_with_meta(
                 },
                 input_len: 0,
                 output_len: 0,
+                recovered_filters: Vec::new(),
             },
         };
     }
@@ -154,10 +162,12 @@ pub fn decode_stream_with_meta(
                 },
                 input_len,
                 output_len: 0,
+                recovered_filters: Vec::new(),
             },
         };
     }
 
+    let mut recovered_filters = Vec::new();
     for filter in &filters {
         if matches!(filter.as_str(), "/DCTDecode" | "/DCT") && !looks_like_jpeg(raw) {
             mismatches.push(DecodeMismatch {
@@ -186,6 +196,7 @@ pub fn decode_stream_with_meta(
                 if decoded.truncated {
                     outcome = DecodeOutcome::Truncated;
                 }
+                recovered_filters = decoded.recovered_filters.clone();
                 data = Some(decoded.data);
             }
             Err(err) => {
@@ -211,6 +222,7 @@ pub fn decode_stream_with_meta(
             outcome,
             input_len,
             output_len,
+            recovered_filters,
         },
     }
 }
@@ -433,19 +445,50 @@ fn checked_row_len(parms: DecodeParms, bpp: usize) -> Result<usize> {
     usize::try_from(row_len).map_err(|_| anyhow!("decode parms overflow"))
 }
 
-fn decode_filter(data: &[u8], filter: &str, max_out: usize) -> Result<(Vec<u8>, bool)> {
+fn decode_filter(data: &[u8], filter: &str, max_out: usize) -> Result<(Vec<u8>, bool, bool)> {
     match filter {
         "/FlateDecode" | "/Fl" => decode_flate(data, max_out),
-        "/ASCIIHexDecode" | "/AHx" => Ok((decode_ascii_hex(data), false)),
-        "/ASCII85Decode" | "/A85" => decode_ascii85(data),
-        "/RunLengthDecode" | "/RL" => Ok((decode_run_length(data), false)),
-        "/LZWDecode" | "/LZW" => decode_lzw(data, max_out),
+        "/ASCIIHexDecode" | "/AHx" => Ok((decode_ascii_hex(data), false, false)),
+        "/ASCII85Decode" | "/A85" => decode_ascii85(data).map(|(data, truncated)| {
+            (data, truncated, false)
+        }),
+        "/RunLengthDecode" | "/RL" => Ok((decode_run_length(data), false, false)),
+        "/LZWDecode" | "/LZW" => decode_lzw(data, max_out).map(|(data, truncated)| {
+            (data, truncated, false)
+        }),
         other => Err(anyhow!("unsupported filter {}", other)),
     }
 }
 
-fn decode_flate(data: &[u8], max_out: usize) -> Result<(Vec<u8>, bool)> {
-    let mut decoder = flate2::read::ZlibDecoder::new(data);
+fn decode_flate(data: &[u8], max_out: usize) -> Result<(Vec<u8>, bool, bool)> {
+    let primary = decode_flate_with(flate2::read::ZlibDecoder::new(data), max_out);
+    if primary.is_ok() {
+        return primary.map(|(data, truncated)| (data, truncated, false));
+    }
+    let fallback = decode_flate_with(flate2::read::DeflateDecoder::new(data), max_out);
+    if let Ok((out, truncated)) = fallback {
+        warn!(
+            security = true,
+            domain = "pdf.decode",
+            kind = "flate_recovery",
+            "Recovered Flate stream using raw deflate fallback"
+        );
+        return Ok((out, truncated, true));
+    }
+    Err(anyhow!(
+        "flate decode failed: zlib={}, deflate={}",
+        primary
+            .err()
+            .map(|err| err.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        fallback
+            .err()
+            .map(|err| err.to_string())
+            .unwrap_or_else(|| "unknown".to_string())
+    ))
+}
+
+fn decode_flate_with<R: Read>(mut decoder: R, max_out: usize) -> Result<(Vec<u8>, bool)> {
     let mut out = Vec::new();
     let mut buf = [0u8; 8192];
     let mut truncated = false;
@@ -491,6 +534,40 @@ fn decode_lzw(data: &[u8], max_out: usize) -> Result<(Vec<u8>, bool)> {
         truncated = true;
     }
     Ok((out, truncated))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_flate;
+    use flate2::write::{DeflateEncoder, ZlibEncoder};
+    use flate2::Compression;
+    use std::io::Write;
+
+    #[test]
+    fn decode_flate_recovers_raw_deflate() {
+        let input = b"alert(1);";
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(input).expect("deflate write");
+        let encoded = encoder.finish().expect("deflate finish");
+
+        let (decoded, truncated, recovered) = decode_flate(&encoded, 1024).expect("decode deflate");
+        assert!(!truncated);
+        assert!(recovered);
+        assert_eq!(decoded, input);
+    }
+
+    #[test]
+    fn decode_flate_accepts_zlib_streams() {
+        let input = b"console.log('ok');";
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(input).expect("zlib write");
+        let encoded = encoder.finish().expect("zlib finish");
+
+        let (decoded, truncated, recovered) = decode_flate(&encoded, 1024).expect("decode zlib");
+        assert!(!truncated);
+        assert!(!recovered);
+        assert_eq!(decoded, input);
+    }
 }
 
 pub fn decode_ascii_hex(data: &[u8]) -> Vec<u8> {
