@@ -158,6 +158,7 @@ pub enum QueryResult {
     Scalar(ScalarValue),
     List(Vec<String>),
     Structure(serde_json::Value),
+    Error(QueryError),
 }
 
 #[derive(Debug, Serialize)]
@@ -166,6 +167,15 @@ pub enum ScalarValue {
     String(String),
     Number(i64),
     Boolean(bool),
+}
+
+#[derive(Debug, Serialize)]
+pub struct QueryError {
+    pub status: &'static str,
+    pub error_code: &'static str,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<serde_json::Value>,
 }
 
 /// Parse a query string into a Query enum
@@ -700,274 +710,292 @@ pub fn execute_query_with_context(
     decode_mode: DecodeMode,
     predicate: Option<&PredicateExpr>,
 ) -> Result<QueryResult> {
-    if predicate.is_some()
-        && !matches!(
-            query,
-            Query::JavaScript
-                | Query::JavaScriptCount
-                | Query::Embedded
-                | Query::EmbeddedCount
-        )
-    {
-        ensure_predicate_supported(query)?;
-    }
+    let result = (|| {
+        if predicate.is_some()
+            && !matches!(
+                query,
+                Query::JavaScript
+                    | Query::JavaScriptCount
+                    | Query::Embedded
+                    | Query::EmbeddedCount
+                    | Query::Urls
+                    | Query::UrlsCount
+                    | Query::Events
+                    | Query::EventsCount
+                    | Query::EventsDocument
+                    | Query::EventsPage
+                    | Query::EventsField
+                    | Query::Findings
+                    | Query::FindingsCount
+                    | Query::FindingsBySeverity(_)
+                    | Query::FindingsByKind(_)
+                    | Query::ObjectsCount
+                    | Query::ObjectsList
+                    | Query::ObjectsWithType(_)
+            )
+        {
+            ensure_predicate_supported(query)?;
+        }
 
-    match query {
-        Query::Pages => {
-            let count = count_pages(ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
-        }
-        Query::ObjectsCount => {
-            let count = count_objects(ctx, decode_mode, max_extract_bytes, predicate)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
-        }
-        Query::Creator => {
-            let creator = get_metadata_field(ctx, "Creator")?;
-            Ok(QueryResult::Scalar(ScalarValue::String(creator)))
-        }
-        Query::Producer => {
-            let producer = get_metadata_field(ctx, "Producer")?;
-            Ok(QueryResult::Scalar(ScalarValue::String(producer)))
-        }
-        Query::Title => {
-            let title = get_metadata_field(ctx, "Title")?;
-            Ok(QueryResult::Scalar(ScalarValue::String(title)))
-        }
-        Query::Version => {
-            let version = get_pdf_version(ctx.bytes)?;
-            Ok(QueryResult::Scalar(ScalarValue::String(version)))
-        }
-        Query::Encrypted => {
-            let encrypted = is_encrypted(ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::Boolean(encrypted)))
-        }
-        Query::Filesize => Ok(QueryResult::Scalar(ScalarValue::Number(
-            ctx.bytes.len() as i64
-        ))),
-        Query::FindingsCount => {
-            let findings = run_detectors(ctx)?;
-            let filtered = filter_findings(findings, predicate);
-            Ok(QueryResult::Scalar(ScalarValue::Number(
-                filtered.len() as i64
-            )))
-        }
-        Query::FindingsBySeverity(severity) => {
-            let findings = run_detectors(ctx)?;
-            let filtered: Vec<sis_pdf_core::model::Finding> = findings
-                .into_iter()
-                .filter(|f| &f.severity == severity)
-                .collect();
-            let filtered = filter_findings(filtered, predicate);
-            Ok(QueryResult::Structure(json!(filtered)))
-        }
-        Query::FindingsByKind(kind) => {
-            let findings = run_detectors(ctx)?;
-            let filtered: Vec<sis_pdf_core::model::Finding> = findings
-                .into_iter()
-                .filter(|f| f.kind == *kind)
-                .collect();
-            let filtered = filter_findings(filtered, predicate);
-            Ok(QueryResult::Structure(json!(filtered)))
-        }
-        Query::Findings => {
-            let findings = run_detectors(ctx)?;
-            let filtered = filter_findings(findings, predicate);
-            Ok(QueryResult::Structure(json!(filtered)))
-        }
-        Query::JavaScript => {
-            if predicate.is_some() {
-                ensure_predicate_supported(query)?;
+        match query {
+            Query::Pages => {
+                let count = count_pages(ctx)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
             }
-            if let Some(extract_path) = extract_to {
-                // Extract to disk
-                let written = write_js_files(
-                    ctx,
-                    extract_path,
-                    max_extract_bytes,
-                    decode_mode,
-                    predicate,
-                )?;
-                Ok(QueryResult::List(written))
-            } else {
-                // Return preview list
+            Query::ObjectsCount => {
+                let count = count_objects(ctx, decode_mode, max_extract_bytes, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
+            }
+            Query::Creator => {
+                let creator = get_metadata_field(ctx, "Creator")?;
+                Ok(QueryResult::Scalar(ScalarValue::String(creator)))
+            }
+            Query::Producer => {
+                let producer = get_metadata_field(ctx, "Producer")?;
+                Ok(QueryResult::Scalar(ScalarValue::String(producer)))
+            }
+            Query::Title => {
+                let title = get_metadata_field(ctx, "Title")?;
+                Ok(QueryResult::Scalar(ScalarValue::String(title)))
+            }
+            Query::Version => {
+                let version = get_pdf_version(ctx.bytes)?;
+                Ok(QueryResult::Scalar(ScalarValue::String(version)))
+            }
+            Query::Encrypted => {
+                let encrypted = is_encrypted(ctx)?;
+                Ok(QueryResult::Scalar(ScalarValue::Boolean(encrypted)))
+            }
+            Query::Filesize => Ok(QueryResult::Scalar(ScalarValue::Number(
+                ctx.bytes.len() as i64
+            ))),
+            Query::FindingsCount => {
+                let findings = run_detectors(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    filtered.len() as i64
+                )))
+            }
+            Query::FindingsBySeverity(severity) => {
+                let findings = run_detectors(ctx)?;
+                let filtered: Vec<sis_pdf_core::model::Finding> = findings
+                    .into_iter()
+                    .filter(|f| &f.severity == severity)
+                    .collect();
+                let filtered = filter_findings(filtered, predicate);
+                Ok(QueryResult::Structure(json!(filtered)))
+            }
+            Query::FindingsByKind(kind) => {
+                let findings = run_detectors(ctx)?;
+                let filtered: Vec<sis_pdf_core::model::Finding> = findings
+                    .into_iter()
+                    .filter(|f| f.kind == *kind)
+                    .collect();
+                let filtered = filter_findings(filtered, predicate);
+                Ok(QueryResult::Structure(json!(filtered)))
+            }
+            Query::Findings => {
+                let findings = run_detectors(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                Ok(QueryResult::Structure(json!(filtered)))
+            }
+            Query::JavaScript => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                if let Some(extract_path) = extract_to {
+                    // Extract to disk
+                    let written = write_js_files(
+                        ctx,
+                        extract_path,
+                        max_extract_bytes,
+                        decode_mode,
+                        predicate,
+                    )?;
+                    Ok(QueryResult::List(written))
+                } else {
+                    // Return preview list
+                    let js_code = extract_javascript(ctx, decode_mode, predicate)?;
+                    Ok(QueryResult::List(js_code))
+                }
+            }
+            Query::JavaScriptCount => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
                 let js_code = extract_javascript(ctx, decode_mode, predicate)?;
-                Ok(QueryResult::List(js_code))
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    js_code.len() as i64
+                )))
             }
-        }
-        Query::JavaScriptCount => {
-            if predicate.is_some() {
-                ensure_predicate_supported(query)?;
+            Query::Urls => {
+                let urls = extract_urls(ctx, predicate)?;
+                Ok(QueryResult::List(urls))
             }
-            let js_code = extract_javascript(ctx, decode_mode, predicate)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(
-                js_code.len() as i64
-            )))
-        }
-        Query::Urls => {
-            let urls = extract_urls(ctx, predicate)?;
-            Ok(QueryResult::List(urls))
-        }
-        Query::UrlsCount => {
-            let urls = extract_urls(ctx, predicate)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(urls.len() as i64)))
-        }
-        Query::Embedded => {
-            if predicate.is_some() {
-                ensure_predicate_supported(query)?;
+            Query::UrlsCount => {
+                let urls = extract_urls(ctx, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(urls.len() as i64)))
             }
-            if let Some(extract_path) = extract_to {
-                // Extract to disk
-                let written = write_embedded_files(
-                    ctx,
-                    extract_path,
-                    max_extract_bytes,
-                    decode_mode,
-                    predicate,
-                )?;
-                Ok(QueryResult::List(written))
-            } else {
-                // Return preview list
+            Query::Embedded => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                if let Some(extract_path) = extract_to {
+                    // Extract to disk
+                    let written = write_embedded_files(
+                        ctx,
+                        extract_path,
+                        max_extract_bytes,
+                        decode_mode,
+                        predicate,
+                    )?;
+                    Ok(QueryResult::List(written))
+                } else {
+                    // Return preview list
+                    let embedded = extract_embedded_files(ctx, decode_mode, predicate)?;
+                    Ok(QueryResult::List(embedded))
+                }
+            }
+            Query::EmbeddedCount => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
                 let embedded = extract_embedded_files(ctx, decode_mode, predicate)?;
-                Ok(QueryResult::List(embedded))
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    embedded.len() as i64
+                )))
             }
-        }
-        Query::EmbeddedCount => {
-            if predicate.is_some() {
-                ensure_predicate_supported(query)?;
+            Query::Created => {
+                let created = get_metadata_field(ctx, "CreationDate")?;
+                Ok(QueryResult::Scalar(ScalarValue::String(created)))
             }
-            let embedded = extract_embedded_files(ctx, decode_mode, predicate)?;
-            Ok(QueryResult::Scalar(ScalarValue::Number(
-                embedded.len() as i64
-            )))
-        }
-        Query::Created => {
-            let created = get_metadata_field(ctx, "CreationDate")?;
-            Ok(QueryResult::Scalar(ScalarValue::String(created)))
-        }
-        Query::Modified => {
-            let modified = get_metadata_field(ctx, "ModDate")?;
-            Ok(QueryResult::Scalar(ScalarValue::String(modified)))
-        }
-        Query::ShowObject(obj, gen) => {
-            let obj_str = show_object(ctx, *obj, *gen)?;
-            Ok(QueryResult::Scalar(ScalarValue::String(obj_str)))
-        }
-        Query::ObjectsList => {
-            let objects = list_objects(ctx, decode_mode, max_extract_bytes, predicate)?;
-            Ok(QueryResult::List(objects))
-        }
-        Query::ObjectsWithType(obj_type) => {
-            let objects =
-                list_objects_with_type(ctx, obj_type, decode_mode, max_extract_bytes, predicate)?;
-            Ok(QueryResult::List(objects))
-        }
-        Query::Trailer => {
-            let trailer_str = show_trailer(ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::String(trailer_str)))
-        }
-        Query::Catalog => {
-            let catalog_str = show_catalog(ctx)?;
-            Ok(QueryResult::Scalar(ScalarValue::String(catalog_str)))
-        }
-        Query::Chains => {
-            let chains = list_action_chains(ctx)?;
-            Ok(QueryResult::Structure(chains))
-        }
-        Query::ChainsJs => {
-            let chains = list_js_chains(ctx)?;
-            Ok(QueryResult::Structure(chains))
-        }
-        Query::Cycles => {
-            let cycles = list_cycles(ctx)?;
-            Ok(QueryResult::Structure(cycles))
-        }
-        Query::CyclesPage => {
-            let cycles = list_page_cycles(ctx)?;
-            Ok(QueryResult::Structure(cycles))
-        }
-        Query::References(obj, gen) => {
-            let references = list_references(ctx, *obj, *gen)?;
-            Ok(QueryResult::Structure(references))
-        }
-        Query::Events => {
-            let events = extract_event_triggers(ctx, None, predicate)?;
-            Ok(QueryResult::Structure(events))
-        }
-        Query::EventsCount => {
-            let events_json = extract_event_triggers(ctx, None, predicate)?;
-            let count = events_json.as_array().map(|arr| arr.len()).unwrap_or(0);
-            Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
-        }
-        Query::EventsDocument => {
-            let events = extract_event_triggers(ctx, Some("document"), predicate)?;
-            Ok(QueryResult::Structure(events))
-        }
-        Query::EventsPage => {
-            let events = extract_event_triggers(ctx, Some("page"), predicate)?;
-            Ok(QueryResult::Structure(events))
-        }
-        Query::EventsField => {
-            let events = extract_event_triggers(ctx, Some("field"), predicate)?;
-            Ok(QueryResult::Structure(events))
-        }
-        Query::ExportOrgDot => {
-            let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph(&ctx.graph);
-            let dot_output = sis_pdf_core::org_export::export_org_dot(&org_graph);
-            Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
-        }
-        Query::ExportOrgJson => {
-            let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph(&ctx.graph);
-            let json_output = sis_pdf_core::org_export::export_org_json(&org_graph);
-            Ok(QueryResult::Structure(json_output))
-        }
-        Query::ExportIrText => {
-            let ir_opts = sis_pdf_pdf::ir::IrOptions {
-                max_lines_per_object: 256,
-                max_string_len: 120,
-                max_array_elems: 128,
-            };
-            let ir_artifacts = sis_pdf_core::ir_pipeline::build_ir_graph(&ctx.graph, &ir_opts);
-            let text_output = sis_pdf_core::ir_export::export_ir_text(&ir_artifacts.ir_objects);
-            Ok(QueryResult::Scalar(ScalarValue::String(text_output)))
-        }
-        Query::ExportIrJson => {
-            let ir_opts = sis_pdf_pdf::ir::IrOptions {
-                max_lines_per_object: 256,
-                max_string_len: 120,
-                max_array_elems: 128,
-            };
-            let ir_artifacts = sis_pdf_core::ir_pipeline::build_ir_graph(&ctx.graph, &ir_opts);
-            let json_output = sis_pdf_core::ir_export::export_ir_json(&ir_artifacts.ir_objects);
-            Ok(QueryResult::Structure(json_output))
-        }
-        Query::ExportFeatures => {
-            let features = sis_pdf_core::features::FeatureExtractor::extract(ctx);
-            let feature_names = sis_pdf_core::features::feature_names();
-            let feature_values = features.as_f32_vec();
-
-            // Create CSV output
-            let mut csv_output = String::new();
-            csv_output.push_str("feature,value\n");
-            for (name, value) in feature_names.iter().zip(feature_values.iter()) {
-                csv_output.push_str(&format!("{},{}\n", name, value));
+            Query::Modified => {
+                let modified = get_metadata_field(ctx, "ModDate")?;
+                Ok(QueryResult::Scalar(ScalarValue::String(modified)))
             }
-
-            Ok(QueryResult::Scalar(ScalarValue::String(csv_output)))
-        }
-        Query::ExportFeaturesJson => {
-            let features = sis_pdf_core::features::FeatureExtractor::extract(ctx);
-            let feature_names = sis_pdf_core::features::feature_names();
-            let feature_values = features.as_f32_vec();
-            let mut values = serde_json::Map::new();
-
-            for (name, value) in feature_names.iter().zip(feature_values.iter()) {
-                values.insert(name.to_string(), json!(value));
+            Query::ShowObject(obj, gen) => {
+                let obj_str = show_object(ctx, *obj, *gen)?;
+                Ok(QueryResult::Scalar(ScalarValue::String(obj_str)))
             }
+            Query::ObjectsList => {
+                let objects = list_objects(ctx, decode_mode, max_extract_bytes, predicate)?;
+                Ok(QueryResult::List(objects))
+            }
+            Query::ObjectsWithType(obj_type) => {
+                let objects =
+                    list_objects_with_type(ctx, obj_type, decode_mode, max_extract_bytes, predicate)?;
+                Ok(QueryResult::List(objects))
+            }
+            Query::Trailer => {
+                let trailer_str = show_trailer(ctx)?;
+                Ok(QueryResult::Scalar(ScalarValue::String(trailer_str)))
+            }
+            Query::Catalog => {
+                let catalog_str = show_catalog(ctx)?;
+                Ok(QueryResult::Scalar(ScalarValue::String(catalog_str)))
+            }
+            Query::Chains => {
+                let chains = list_action_chains(ctx)?;
+                Ok(QueryResult::Structure(chains))
+            }
+            Query::ChainsJs => {
+                let chains = list_js_chains(ctx)?;
+                Ok(QueryResult::Structure(chains))
+            }
+            Query::Cycles => {
+                let cycles = list_cycles(ctx)?;
+                Ok(QueryResult::Structure(cycles))
+            }
+            Query::CyclesPage => {
+                let cycles = list_page_cycles(ctx)?;
+                Ok(QueryResult::Structure(cycles))
+            }
+            Query::References(obj, gen) => {
+                let references = list_references(ctx, *obj, *gen)?;
+                Ok(QueryResult::Structure(references))
+            }
+            Query::Events => {
+                let events = extract_event_triggers(ctx, None, predicate)?;
+                Ok(QueryResult::Structure(events))
+            }
+            Query::EventsCount => {
+                let events_json = extract_event_triggers(ctx, None, predicate)?;
+                let count = events_json.as_array().map(|arr| arr.len()).unwrap_or(0);
+                Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
+            }
+            Query::EventsDocument => {
+                let events = extract_event_triggers(ctx, Some("document"), predicate)?;
+                Ok(QueryResult::Structure(events))
+            }
+            Query::EventsPage => {
+                let events = extract_event_triggers(ctx, Some("page"), predicate)?;
+                Ok(QueryResult::Structure(events))
+            }
+            Query::EventsField => {
+                let events = extract_event_triggers(ctx, Some("field"), predicate)?;
+                Ok(QueryResult::Structure(events))
+            }
+            Query::ExportOrgDot => {
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph(&ctx.graph);
+                let dot_output = sis_pdf_core::org_export::export_org_dot(&org_graph);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportOrgJson => {
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph(&ctx.graph);
+                let json_output = sis_pdf_core::org_export::export_org_json(&org_graph);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportIrText => {
+                let ir_opts = sis_pdf_pdf::ir::IrOptions {
+                    max_lines_per_object: 256,
+                    max_string_len: 120,
+                    max_array_elems: 128,
+                };
+                let ir_artifacts = sis_pdf_core::ir_pipeline::build_ir_graph(&ctx.graph, &ir_opts);
+                let text_output = sis_pdf_core::ir_export::export_ir_text(&ir_artifacts.ir_objects);
+                Ok(QueryResult::Scalar(ScalarValue::String(text_output)))
+            }
+            Query::ExportIrJson => {
+                let ir_opts = sis_pdf_pdf::ir::IrOptions {
+                    max_lines_per_object: 256,
+                    max_string_len: 120,
+                    max_array_elems: 128,
+                };
+                let ir_artifacts = sis_pdf_core::ir_pipeline::build_ir_graph(&ctx.graph, &ir_opts);
+                let json_output = sis_pdf_core::ir_export::export_ir_json(&ir_artifacts.ir_objects);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportFeatures => {
+                let features = sis_pdf_core::features::FeatureExtractor::extract(ctx);
+                let feature_names = sis_pdf_core::features::feature_names();
+                let feature_values = features.as_f32_vec();
 
-            Ok(QueryResult::Structure(serde_json::Value::Object(values)))
+                // Create CSV output
+                let mut csv_output = String::new();
+                csv_output.push_str("feature,value\n");
+                for (name, value) in feature_names.iter().zip(feature_values.iter()) {
+                    csv_output.push_str(&format!("{},{}\n", name, value));
+                }
+
+                Ok(QueryResult::Scalar(ScalarValue::String(csv_output)))
+            }
+            Query::ExportFeaturesJson => {
+                let features = sis_pdf_core::features::FeatureExtractor::extract(ctx);
+                let feature_names = sis_pdf_core::features::feature_names();
+                let feature_values = features.as_f32_vec();
+                let mut values = serde_json::Map::new();
+
+                for (name, value) in feature_names.iter().zip(feature_values.iter()) {
+                    values.insert(name.to_string(), json!(value));
+                }
+
+                Ok(QueryResult::Structure(serde_json::Value::Object(values)))
+            }
+            _ => Err(anyhow!("Query not yet implemented: {:?}", query)),
         }
-        _ => Err(anyhow!("Query not yet implemented: {:?}", query)),
-    }
+    })();
+
+    result.or_else(|err| Ok(QueryResult::Error(build_query_error(err))))
 }
 
 /// Execute a query against a PDF file
@@ -1238,6 +1266,7 @@ pub fn format_result(result: &QueryResult, compact: bool) -> String {
         QueryResult::Structure(v) => {
             serde_json::to_string_pretty(v).unwrap_or_else(|_| "{}".to_string())
         }
+        QueryResult::Error(err) => err.message.clone(),
     }
 }
 
@@ -1893,6 +1922,15 @@ fn severity_to_string(severity: &sis_pdf_core::model::Severity) -> String {
         sis_pdf_core::model::Severity::Critical => "critical",
     }
     .to_string()
+}
+
+fn build_query_error(err: anyhow::Error) -> QueryError {
+    QueryError {
+        status: "error",
+        error_code: "QUERY_ERROR",
+        message: err.to_string(),
+        context: None,
+    }
 }
 
 fn filter_findings(
@@ -3074,8 +3112,9 @@ pub fn run_query_batch(
             QueryResult::Scalar(ScalarValue::String(s)) => s.is_empty(),
             QueryResult::Scalar(ScalarValue::Boolean(_)) => false,
             QueryResult::List(l) => l.is_empty(),
-            QueryResult::Structure(_) => false,  // Always include structure results
-        };
+        QueryResult::Structure(_) => false,  // Always include structure results
+        QueryResult::Error(_) => false,
+    };
 
         if is_empty {
             Ok(None)
@@ -3153,12 +3192,15 @@ pub fn run_query_batch(
                             println!("{}: {}", batch_result.path, item);
                         }
                     }
-                    QueryResult::Structure(j) => {
-                        println!("{}: {}", batch_result.path, serde_json::to_string_pretty(&j)?);
-                    }
+                QueryResult::Structure(j) => {
+                    println!("{}: {}", batch_result.path, serde_json::to_string_pretty(&j)?);
+                }
+                QueryResult::Error(err) => {
+                    println!("{}: {}", batch_result.path, err.message);
                 }
             }
         }
+    }
     }
 
     Ok(())

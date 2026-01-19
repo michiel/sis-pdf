@@ -113,7 +113,7 @@ sis query js file.pdf --extract-to /tmp/out --hexdump
 sis query file.pdf
 ```
 
-For predicate field mappings, see `docs/query-predicates.md`.
+Predicate filtering is available on the most common query types (js, embedded, objects, urls, events, findings). For field mappings and examples, see `docs/query-predicates.md`.
 
 ### Finding Explanation
 

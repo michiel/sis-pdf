@@ -1,6 +1,6 @@
 # Query Interface Extension: Reinstate Removed Features
 
-**Status:** In Progress (Phase 8 complete, Phase 9 planned)
+**Status:** In Progress (Phase 8 complete, Phase 9 in progress)
 **Started:** 2026-01-18
 **Current Phase:** Phase 9 (Structured Error Reporting)
 **Roadmap Source:** plans/20260119-query-uplift.md
@@ -14,7 +14,7 @@ This implementation elevates the query interface from a structural viewer to a f
 2. **Batch Mode** (`--path DIR --glob PATTERN`) - Parallel directory scanning with filtering
 3. **Export Queries** (graph.org, graph.ir, features) - Structured exports for analysis pipelines
 
-### Forensic Enhancements (Phases 5-8 Complete, Phase 9 Planned)
+### Forensic Enhancements (Phases 5-8 Complete, Phase 9 In Progress)
 4. **Format Control** (`--format jsonl`) - Streaming JSON for infinite pipelines (Phase 5 complete)
 5. **Stream Decode Control** (`--raw`, `--decode`, `--hexdump`) - Explicit extraction modes (Phase 6 complete)
 6. **Inverse XRef** (`ref <obj>`) - Reverse reference lookup for threat hunting (Phase 7 complete)
@@ -471,7 +471,7 @@ sis query file.pdf "obj 52 0 OR obj 53 0 OR obj 54 0"
 
 ---
 
-### Phase 9: Structured Error Reporting (0% Complete - Future)
+### Phase 9: Structured Error Reporting (In Progress)
 
 **Objective:** Return errors as structured data for automated processing
 
@@ -509,6 +509,10 @@ sis query file.pdf "obj 52 0 OR obj 53 0 OR obj 54 0"
 - [ ] Context includes actionable information
 - [ ] Non-JSON mode still shows human-readable errors
 - [ ] Batch mode continues processing after errors (doesn't crash)
+
+**Progress:**
+- Added `QueryResult::Error` variant with structured fields
+- Query execution wraps errors into structured results
 
 **Usage Examples (Planned):**
 ```bash
