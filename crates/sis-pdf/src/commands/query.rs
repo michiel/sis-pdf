@@ -746,8 +746,9 @@ pub fn execute_query_with_context(
         ))),
         Query::FindingsCount => {
             let findings = run_detectors(ctx)?;
+            let filtered = filter_findings(findings, predicate);
             Ok(QueryResult::Scalar(ScalarValue::Number(
-                findings.len() as i64
+                filtered.len() as i64
             )))
         }
         Query::FindingsBySeverity(severity) => {
@@ -756,6 +757,7 @@ pub fn execute_query_with_context(
                 .into_iter()
                 .filter(|f| &f.severity == severity)
                 .collect();
+            let filtered = filter_findings(filtered, predicate);
             Ok(QueryResult::Structure(json!(filtered)))
         }
         Query::FindingsByKind(kind) => {
@@ -764,11 +766,13 @@ pub fn execute_query_with_context(
                 .into_iter()
                 .filter(|f| f.kind == *kind)
                 .collect();
+            let filtered = filter_findings(filtered, predicate);
             Ok(QueryResult::Structure(json!(filtered)))
         }
         Query::Findings => {
             let findings = run_detectors(ctx)?;
-            Ok(QueryResult::Structure(json!(findings)))
+            let filtered = filter_findings(findings, predicate);
+            Ok(QueryResult::Structure(json!(filtered)))
         }
         Query::JavaScript => {
             if predicate.is_some() {
@@ -800,11 +804,11 @@ pub fn execute_query_with_context(
             )))
         }
         Query::Urls => {
-            let urls = extract_urls(ctx)?;
+            let urls = extract_urls(ctx, predicate)?;
             Ok(QueryResult::List(urls))
         }
         Query::UrlsCount => {
-            let urls = extract_urls(ctx)?;
+            let urls = extract_urls(ctx, predicate)?;
             Ok(QueryResult::Scalar(ScalarValue::Number(urls.len() as i64)))
         }
         Query::Embedded => {
@@ -886,24 +890,24 @@ pub fn execute_query_with_context(
             Ok(QueryResult::Structure(references))
         }
         Query::Events => {
-            let events = extract_event_triggers(ctx, None)?;
+            let events = extract_event_triggers(ctx, None, predicate)?;
             Ok(QueryResult::Structure(events))
         }
         Query::EventsCount => {
-            let events_json = extract_event_triggers(ctx, None)?;
+            let events_json = extract_event_triggers(ctx, None, predicate)?;
             let count = events_json.as_array().map(|arr| arr.len()).unwrap_or(0);
             Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
         }
         Query::EventsDocument => {
-            let events = extract_event_triggers(ctx, Some("document"))?;
+            let events = extract_event_triggers(ctx, Some("document"), predicate)?;
             Ok(QueryResult::Structure(events))
         }
         Query::EventsPage => {
-            let events = extract_event_triggers(ctx, Some("page"))?;
+            let events = extract_event_triggers(ctx, Some("page"), predicate)?;
             Ok(QueryResult::Structure(events))
         }
         Query::EventsField => {
-            let events = extract_event_triggers(ctx, Some("field"))?;
+            let events = extract_event_triggers(ctx, Some("field"), predicate)?;
             Ok(QueryResult::Structure(events))
         }
         Query::ExportOrgDot => {
@@ -1304,7 +1308,7 @@ fn extract_javascript(
 }
 
 /// Extract URLs from PDF
-fn extract_urls(ctx: &ScanContext) -> Result<Vec<String>> {
+fn extract_urls(ctx: &ScanContext, predicate: Option<&PredicateExpr>) -> Result<Vec<String>> {
     let mut urls = Vec::new();
 
     for entry in &ctx.graph.objects {
@@ -1329,7 +1333,15 @@ fn extract_urls(ctx: &ScanContext) -> Result<Vec<String>> {
     urls.sort();
     urls.dedup();
 
-    Ok(urls)
+    if let Some(pred) = predicate {
+        let filtered = urls
+            .into_iter()
+            .filter(|url| pred.evaluate(&predicate_context_for_url(url)))
+            .collect();
+        Ok(filtered)
+    } else {
+        Ok(urls)
+    }
 }
 
 /// Extract embedded files information from PDF
@@ -1377,17 +1389,32 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::JavaScriptCount
         | Query::Embedded
         | Query::EmbeddedCount
+        | Query::Urls
+        | Query::UrlsCount
+        | Query::Events
+        | Query::EventsCount
+        | Query::EventsDocument
+        | Query::EventsPage
+        | Query::EventsField
+        | Query::Findings
+        | Query::FindingsCount
+        | Query::FindingsBySeverity(_)
+        | Query::FindingsByKind(_)
         | Query::ObjectsCount
         | Query::ObjectsList
         | Query::ObjectsWithType(_) => Ok(()),
         _ => Err(anyhow!(
-            "Predicate filtering is only supported for js, embedded, and objects queries"
+            "Predicate filtering is only supported for js, embedded, urls, events, findings, and objects queries"
         )),
     }
 }
 
 /// Extract event triggers from PDF
-fn extract_event_triggers(ctx: &ScanContext, filter_level: Option<&str>) -> Result<serde_json::Value> {
+fn extract_event_triggers(
+    ctx: &ScanContext,
+    filter_level: Option<&str>,
+    predicate: Option<&PredicateExpr>,
+) -> Result<serde_json::Value> {
     use sis_pdf_pdf::object::PdfAtom;
 
     let mut events = Vec::new();
@@ -1474,7 +1501,15 @@ fn extract_event_triggers(ctx: &ScanContext, filter_level: Option<&str>) -> Resu
         }
     }
 
-    Ok(json!(events))
+    if let Some(pred) = predicate {
+        let filtered: Vec<_> = events
+            .into_iter()
+            .filter(|event| predicate_context_for_event(event).map_or(false, |ctx| pred.evaluate(&ctx)))
+            .collect();
+        Ok(json!(filtered))
+    } else {
+        Ok(json!(events))
+    }
 }
 
 /// Extract additional actions from an AA dictionary
@@ -1807,6 +1842,70 @@ fn predicate_context_for_entry(
             subtype: None,
             entropy: 0.0,
         },
+    }
+}
+
+fn predicate_context_for_url(url: &str) -> PredicateContext {
+    let bytes = url.as_bytes();
+    PredicateContext {
+        length: bytes.len(),
+        filter: None,
+        type_name: "Url".to_string(),
+        subtype: None,
+        entropy: entropy_score(bytes),
+    }
+}
+
+fn predicate_context_for_event(event: &serde_json::Value) -> Option<PredicateContext> {
+    let level = event.get("level")?.as_str()?;
+    let event_type = event.get("event_type")?.as_str()?;
+    let details = event
+        .get("action_details")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let bytes = details.as_bytes();
+    Some(PredicateContext {
+        length: bytes.len(),
+        filter: Some(level.to_string()),
+        type_name: "Event".to_string(),
+        subtype: Some(event_type.to_string()),
+        entropy: entropy_score(bytes),
+    })
+}
+
+fn predicate_context_for_finding(finding: &sis_pdf_core::model::Finding) -> PredicateContext {
+    let bytes = finding.description.as_bytes();
+    PredicateContext {
+        length: bytes.len(),
+        filter: Some(severity_to_string(&finding.severity)),
+        type_name: "Finding".to_string(),
+        subtype: Some(finding.kind.clone()),
+        entropy: entropy_score(bytes),
+    }
+}
+
+fn severity_to_string(severity: &sis_pdf_core::model::Severity) -> String {
+    match severity {
+        sis_pdf_core::model::Severity::Info => "info",
+        sis_pdf_core::model::Severity::Low => "low",
+        sis_pdf_core::model::Severity::Medium => "medium",
+        sis_pdf_core::model::Severity::High => "high",
+        sis_pdf_core::model::Severity::Critical => "critical",
+    }
+    .to_string()
+}
+
+fn filter_findings(
+    findings: Vec<sis_pdf_core::model::Finding>,
+    predicate: Option<&PredicateExpr>,
+) -> Vec<sis_pdf_core::model::Finding> {
+    if let Some(pred) = predicate {
+        findings
+            .into_iter()
+            .filter(|finding| pred.evaluate(&predicate_context_for_finding(finding)))
+            .collect()
+    } else {
+        findings
     }
 }
 
@@ -3249,5 +3348,25 @@ mod tests {
             assert!(filtered.is_empty());
             assert!(all.len() >= filtered.len());
         });
+    }
+
+    #[test]
+    fn predicate_context_for_url_tracks_length() {
+        let predicate = parse_predicate("length == 4 AND type == 'Url'").expect("predicate");
+        let ctx = predicate_context_for_url("http");
+        assert!(predicate.evaluate(&ctx));
+    }
+
+    #[test]
+    fn predicate_context_for_event_maps_level_and_type() {
+        let event = json!({
+            "level": "document",
+            "event_type": "OpenAction",
+            "action_details": "JavaScript: app.alert(1)"
+        });
+        let predicate = parse_predicate("filter == 'document' AND subtype == 'OpenAction'")
+            .expect("predicate");
+        let ctx = predicate_context_for_event(&event).expect("context");
+        assert!(predicate.evaluate(&ctx));
     }
 }

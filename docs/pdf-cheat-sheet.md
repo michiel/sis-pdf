@@ -19,6 +19,8 @@ sis query file.pdf ref 52 0
 
 # Filter extracted objects by predicate
 sis query js file.pdf --where "length > 1024"
+sis query urls file.pdf --where "length > 25"
+sis query events file.pdf --where "filter == 'page'"
 ```
 
 ---

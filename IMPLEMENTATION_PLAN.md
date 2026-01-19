@@ -445,7 +445,7 @@ sis query file.pdf "obj 52 0 OR obj 53 0"
 
 **Progress:**
 - Implemented predicate parser and evaluator with boolean operators
-- Wired `--where` into query execution for js, embedded, and objects queries (current scope)
+- Wired `--where` into query execution for js, embedded, urls, events, findings, and objects queries (current scope)
 - Added tests for predicate parsing and evaluation
 - Added REPL `:where` command for interactive predicate filtering
 

@@ -98,6 +98,9 @@ sis query file.pdf ref 52 0
 
 # Predicate filtering
 sis query js file.pdf --where "length > 1024 AND entropy > 5.0"
+sis query urls file.pdf --where "length > 25"
+sis query events file.pdf --where "filter == 'document'"
+sis query findings file.pdf --where "filter == 'high'"
 
 # Streaming output
 sis query js.count file.pdf --format jsonl
