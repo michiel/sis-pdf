@@ -11,7 +11,7 @@ use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
 use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance};
-use sis_pdf_pdf::object::{PdfAtom, PdfDict};
+use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 
 pub mod advanced_crypto;
@@ -1347,13 +1347,102 @@ impl Detector for LaunchActionDetector {
         Cost::Cheap
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        action_by_s(
-            ctx,
-            b"/Launch",
-            &[b"/F", b"/Win"],
-            "launch_action_present",
-            "Launch action present",
-        )
+        let mut findings = Vec::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            if !dict.has_name(b"/S", b"/Launch") {
+                continue;
+            }
+
+            let mut evidence = vec![span_to_evidence(dict.span, "Action dict")];
+            let mut meta = std::collections::HashMap::new();
+            if let Some(enriched) = payload_from_dict(ctx, dict, &[b"/F", b"/Win"], "Action payload")
+            {
+                evidence.extend(enriched.evidence);
+                meta.extend(enriched.meta);
+            }
+
+            let objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Actions,
+                kind: "launch_action_present".into(),
+                severity: Severity::Medium,
+                confidence: Confidence::Probable,
+                title: "Launch action present".into(),
+                description: "Action dictionary with /S /Launch.".into(),
+                objects: objects.clone(),
+                evidence: evidence.clone(),
+                remediation: Some("Review the action target.".into()),
+                meta: meta.clone(),
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+
+            let mut launch_external = false;
+            let mut launch_embedded = false;
+            if let Some((_, value)) = dict.get_first(b"/F") {
+                update_launch_targets(ctx, value, &mut launch_external, &mut launch_embedded);
+            }
+            if let Some((_, value)) = dict.get_first(b"/Win") {
+                if let PdfAtom::Dict(win_dict) = &value.atom {
+                    if let Some((_, win_value)) = win_dict.get_first(b"/F") {
+                        update_launch_targets(
+                            ctx,
+                            win_value,
+                            &mut launch_external,
+                            &mut launch_embedded,
+                        );
+                    }
+                }
+            }
+
+            if launch_external {
+                let mut extra_meta = meta.clone();
+                extra_meta.insert("launch.target_type".into(), "external".into());
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: AttackSurface::Actions,
+                    kind: "launch_external_program".into(),
+                    severity: Severity::High,
+                    confidence: Confidence::Probable,
+                    title: "Launch action targets external program".into(),
+                    description: "Launch action targets an external program or file path.".into(),
+                    objects: objects.clone(),
+                    evidence: evidence.clone(),
+                    remediation: Some("Review the launch target for unsafe execution.".into()),
+                    meta: extra_meta,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+            }
+
+            if launch_embedded {
+                let mut extra_meta = meta.clone();
+                extra_meta.insert("launch.target_type".into(), "embedded".into());
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: AttackSurface::Actions,
+                    kind: "launch_embedded_file".into(),
+                    severity: Severity::High,
+                    confidence: Confidence::Probable,
+                    title: "Launch action targets embedded file".into(),
+                    description: "Launch action targets an embedded file specification.".into(),
+                    objects,
+                    evidence,
+                    remediation: Some("Extract and inspect the embedded target.".into()),
+                    meta: extra_meta,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+            }
+        }
+        Ok(findings)
     }
 }
 
@@ -1642,21 +1731,27 @@ impl Detector for EmbeddedFileDetector {
                         span_to_evidence(st.data_span, "EmbeddedFile stream"),
                     ];
                     let mut meta = std::collections::HashMap::new();
+                    let mut magic = None;
+                    let mut encrypted_container = false;
+                    let mut has_double = false;
                     if let Some(name) = embedded_filename(&st.dict) {
                         meta.insert("embedded.filename".into(), name.clone());
-                        if has_double_extension(&name) {
+                        has_double = has_double_extension(&name);
+                        if has_double {
                             meta.insert("embedded.double_extension".into(), "true".into());
                         }
                     }
                     if let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, st) {
                         let hash = sha256_hex(&decoded.data);
-                        let magic = magic_type(&decoded.data);
+                        let magic_value = magic_type(&decoded.data);
                         meta.insert("embedded.sha256".into(), hash);
                         meta.insert("embedded.size".into(), decoded.data.len().to_string());
-                        let is_zip = magic == "zip";
-                        meta.insert("embedded.magic".into(), magic);
+                        let is_zip = magic_value == "zip";
+                        meta.insert("embedded.magic".into(), magic_value.clone());
+                        magic = Some(magic_value);
                         if is_zip && zip_encrypted(&decoded.data) {
                             meta.insert("embedded.encrypted_container".into(), "true".into());
+                            encrypted_container = true;
                         }
                         if decoded.input_len > 0 {
                             let ratio = decoded.data.len() as f64 / decoded.input_len as f64;
@@ -1681,13 +1776,89 @@ impl Detector for EmbeddedFileDetector {
                         title: "Embedded file stream present".into(),
                         description: "Embedded file detected inside PDF.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                        evidence,
+                        evidence: evidence.clone(),
                         remediation: Some("Extract and scan the embedded file.".into()),
-                        meta,
+                        meta: meta.clone(),
                         yara: None,
                         position: None,
                         positions: Vec::new(),
                     });
+
+                    let objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
+                    if let Some(magic) = magic.as_deref() {
+                        if magic == "pe" {
+                            findings.push(Finding {
+                                id: String::new(),
+                                surface: self.surface(),
+                                kind: "embedded_executable_present".into(),
+                                severity: Severity::High,
+                                confidence: Confidence::Probable,
+                                title: "Embedded executable present".into(),
+                                description: "Embedded file appears to be an executable.".into(),
+                                objects: objects.clone(),
+                                evidence: evidence.clone(),
+                                remediation: Some("Extract and scan the executable.".into()),
+                                meta: meta.clone(),
+                                yara: None,
+                                position: None,
+                                positions: Vec::new(),
+                            });
+                        }
+                        if magic == "script" {
+                            findings.push(Finding {
+                                id: String::new(),
+                                surface: self.surface(),
+                                kind: "embedded_script_present".into(),
+                                severity: Severity::Medium,
+                                confidence: Confidence::Probable,
+                                title: "Embedded script present".into(),
+                                description: "Embedded file appears to be a script.".into(),
+                                objects: objects.clone(),
+                                evidence: evidence.clone(),
+                                remediation: Some("Review the script content.".into()),
+                                meta: meta.clone(),
+                                yara: None,
+                                position: None,
+                                positions: Vec::new(),
+                            });
+                        }
+                    }
+                    if encrypted_container {
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "embedded_archive_encrypted".into(),
+                            severity: Severity::Medium,
+                            confidence: Confidence::Probable,
+                            title: "Embedded archive appears encrypted".into(),
+                            description: "Embedded archive indicates encryption flags.".into(),
+                            objects: objects.clone(),
+                            evidence: evidence.clone(),
+                            remediation: Some("Extract and attempt to inspect archive contents.".into()),
+                            meta: meta.clone(),
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
+                    }
+                    if has_double {
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "embedded_double_extension".into(),
+                            severity: Severity::Low,
+                            confidence: Confidence::Probable,
+                            title: "Embedded file uses double extension".into(),
+                            description: "Embedded filename uses multiple extensions.".into(),
+                            objects,
+                            evidence,
+                            remediation: Some("Treat the file as suspicious and inspect carefully.".into()),
+                            meta: meta.clone(),
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
+                    }
                 }
             }
         }
@@ -2843,6 +3014,53 @@ fn embedded_filename(dict: &PdfDict<'_>) -> Option<String> {
         }
     }
     None
+}
+
+fn is_embedded_file_dict(dict: &PdfDict<'_>) -> bool {
+    dict.has_name(b"/Type", b"/EmbeddedFile")
+        || dict.has_name(b"/Type", b"/Filespec")
+        || dict.get_first(b"/EF").is_some()
+}
+
+fn update_launch_targets(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    value: &PdfObj<'_>,
+    launch_external: &mut bool,
+    launch_embedded: &mut bool,
+) {
+    match &value.atom {
+        PdfAtom::Str(_) => {
+            *launch_external = true;
+        }
+        PdfAtom::Stream(st) => {
+            if is_embedded_file_dict(&st.dict) {
+                *launch_embedded = true;
+            }
+        }
+        PdfAtom::Dict(dict) => {
+            if is_embedded_file_dict(dict) {
+                *launch_embedded = true;
+            }
+        }
+        PdfAtom::Ref { obj, gen } => {
+            if let Some(entry) = ctx.graph.get_object(*obj, *gen) {
+                match &entry.atom {
+                    PdfAtom::Stream(st) => {
+                        if is_embedded_file_dict(&st.dict) {
+                            *launch_embedded = true;
+                        }
+                    }
+                    PdfAtom::Dict(dict) => {
+                        if is_embedded_file_dict(dict) {
+                            *launch_embedded = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn has_double_extension(name: &str) -> bool {

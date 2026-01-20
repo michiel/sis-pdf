@@ -286,6 +286,50 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: feature increases parsing or interaction complexity.
   - Chain usage: used as supporting context for delivery or exploitation stages.
 
+## embedded_executable_present
+
+- ID: `embedded_executable_present`
+- Label: Embedded executable present
+- Description: Embedded file appears to be an executable.
+- Tags: payload, embedded
+- Details:
+  - Relevance: executable payloads can run arbitrary code.
+  - Meaning: embedded executable increases compromise risk.
+  - Chain usage: payload delivery stage.
+
+## embedded_script_present
+
+- ID: `embedded_script_present`
+- Label: Embedded script present
+- Description: Embedded file appears to be a script.
+- Tags: script, embedded
+- Details:
+  - Relevance: scripts can execute commands or fetch payloads.
+  - Meaning: embedded scripts increase execution risk.
+  - Chain usage: payload execution or staging stage.
+
+## embedded_archive_encrypted
+
+- ID: `embedded_archive_encrypted`
+- Label: Embedded archive encrypted
+- Description: Embedded archive indicates encryption flags.
+- Tags: evasion, embedded
+- Details:
+  - Relevance: encrypted containers can hide payloads.
+  - Meaning: embedded archive may require passwords or manual analysis.
+  - Chain usage: used as evasion context that can hide payloads.
+
+## embedded_double_extension
+
+- ID: `embedded_double_extension`
+- Label: Embedded file uses double extension
+- Description: Embedded filename uses multiple extensions.
+- Tags: evasion, embedded
+- Details:
+  - Relevance: double extensions can disguise executable payloads.
+  - Meaning: embedded filename attempts to appear benign.
+  - Chain usage: used as evasion context for payload delivery.
+
 ## encryption_present
 
 - ID: `encryption_present`
@@ -1757,6 +1801,28 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: executable action surface.
   - Meaning: viewer can perform external or privileged actions.
   - Chain usage: treated as an action node that can be linked to triggers and payloads.
+
+## launch_external_program
+
+- ID: `launch_external_program`
+- Label: Launch action targets external program
+- Description: Launch action targets an external program or file path.
+- Tags: action, external
+- Details:
+  - Relevance: executable action surface.
+  - Meaning: viewer may run external programs or open local files.
+  - Chain usage: treated as an action node with elevated execution risk.
+
+## launch_embedded_file
+
+- ID: `launch_embedded_file`
+- Label: Launch action targets embedded file
+- Description: Launch action targets an embedded file specification.
+- Tags: action, external
+- Details:
+  - Relevance: executable action surface.
+  - Meaning: viewer may open or execute embedded payloads.
+  - Chain usage: treated as an action node that links to embedded payload delivery.
 
 ## linearization_hint_anomaly
 

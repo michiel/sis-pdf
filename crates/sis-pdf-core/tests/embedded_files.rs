@@ -59,6 +59,21 @@ fn embedded_exe_reports_magic_and_double_extension() {
         finding.meta.get("embedded.sha256").map(String::len),
         Some(64)
     );
+
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.kind == "embedded_executable_present"),
+        "expected embedded_executable_present finding"
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.kind == "embedded_double_extension"),
+        "expected embedded_double_extension finding"
+    );
 }
 
 #[test]
@@ -84,6 +99,40 @@ fn embedded_zip_reports_encrypted_container() {
             .get("embedded.encrypted_container")
             .map(String::as_str),
         Some("true")
+    );
+
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.kind == "embedded_archive_encrypted"),
+        "expected embedded_archive_encrypted finding"
+    );
+}
+
+#[test]
+fn embedded_script_reports_magic() {
+    let bytes = include_bytes!("fixtures/embedded_script.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "embedded_file_present")
+        .expect("embedded file finding");
+
+    assert_eq!(
+        finding.meta.get("embedded.magic").map(String::as_str),
+        Some("script")
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.kind == "embedded_script_present"),
+        "expected embedded_script_present finding"
     );
 }
 
@@ -111,5 +160,12 @@ fn launch_action_reports_payload_target() {
             .map(|v| v.contains("calc.exe"))
             .unwrap_or(false),
         "expected payload preview to include launch target"
+    );
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| f.kind == "launch_external_program"),
+        "expected launch_external_program finding"
     );
 }
