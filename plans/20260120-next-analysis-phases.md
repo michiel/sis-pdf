@@ -1562,7 +1562,7 @@ Update all documentation to reflect new findings, ensure JSON schema alignment, 
 - [ ] Deferred: verify all new findings can be emitted.
 - [ ] Deferred: test query interface with all new query types (30+ queries).
 - [ ] Deferred: test extraction workflows (embedded files, XFA scripts, SWF).
-- [ ] Deferred: test predicate filtering on all new fields.
+- [ ] Deferred: test predicate filtering on all new fields (findings metadata fields covered).
 - [ ] Deferred: test batch mode with new findings.
 - [ ] Deferred: test REPL mode with new queries.
 
@@ -1647,8 +1647,8 @@ filters.repeated
 
 ### Deferred Query Work
 
-- Additional query variants (counts, allowlist-driven summaries).
-- Predicate fields for embedded files, launch targets, XFA, and SWF.
+- Additional query variants (allowlist-driven summaries).
+- Predicate fields for embedded files, launch targets, XFA, and SWF (findings metadata fields shipped).
 - Extraction helpers for XFA scripts and SWF content.
 - Batch/REPL coverage and query reference documentation.
 - [ ] `test_query_filters()` - Query unusual filters.
@@ -1657,12 +1657,12 @@ filters.repeated
 
 ### Acceptance Criteria
 
-- ✅ All 36 query types implemented and working.
-- ✅ Predicate filtering works for all new fields.
-- ✅ Extraction works for embedded files, XFA scripts, SWF.
-- ✅ Batch mode supports all new queries.
-- ✅ REPL mode supports all new queries.
-- ✅ Documentation complete with examples.
+- [x] All 36 query types implemented and working (including count variants).
+- [ ] Predicate filtering works for all new fields (findings metadata fields done).
+- [ ] Extraction works for embedded files, XFA scripts, SWF.
+- [ ] Batch mode supports all new queries.
+- [ ] REPL mode supports all new queries.
+- [ ] Documentation complete with examples.
 - ✅ Tests pass with 100% coverage.
 
 ---
