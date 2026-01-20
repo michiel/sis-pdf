@@ -3065,6 +3065,20 @@ fn print_filter_allowlist() -> Result<()> {
     Ok(())
 }
 
+fn apply_filter_allowlist_options(
+    opts: &mut sis_pdf_core::scan::ScanOptions,
+    filter_allowlist: Option<&std::path::Path>,
+    filter_allowlist_strict: bool,
+) -> Result<()> {
+    if filter_allowlist_strict {
+        opts.filter_allowlist_strict = true;
+    }
+    if let Some(path) = filter_allowlist {
+        opts.filter_allowlist = Some(load_filter_allowlist(path)?);
+    }
+    Ok(())
+}
+
 fn run_scan(
     pdf: Option<&str>,
     path: Option<&std::path::Path>,
@@ -3206,12 +3220,7 @@ fn run_scan(
         let cfg = sis_pdf_core::config::Config::load(path)?;
         cfg.apply(&mut opts, profile);
     }
-    if filter_allowlist_strict {
-        opts.filter_allowlist_strict = true;
-    }
-    if let Some(path) = filter_allowlist {
-        opts.filter_allowlist = Some(load_filter_allowlist(path)?);
-    }
+    apply_filter_allowlist_options(&mut opts, filter_allowlist, filter_allowlist_strict)?;
     if ml {
         let model_dir = ml_model_dir.ok_or_else(|| anyhow!("--ml requires --ml-model-dir"))?;
         opts.ml_config = Some(sis_pdf_core::ml::MlConfig {
@@ -4646,6 +4655,36 @@ fn parse_ml_mode(value: &str) -> sis_pdf_core::ml::MlMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    fn scan_opts() -> sis_pdf_core::scan::ScanOptions {
+        sis_pdf_core::scan::ScanOptions {
+            deep: false,
+            max_decode_bytes: 32 * 1024 * 1024,
+            max_total_decoded_bytes: 256 * 1024 * 1024,
+            recover_xref: true,
+            parallel: false,
+            batch_parallel: false,
+            diff_parser: false,
+            max_objects: 500_000,
+            max_recursion_depth: 64,
+            fast: false,
+            focus_trigger: None,
+            focus_depth: 0,
+            yara_scope: None,
+            strict: false,
+            strict_summary: false,
+            ir: false,
+            ml_config: None,
+            font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+            image_analysis: sis_pdf_core::scan::ImageAnalysisOptions::default(),
+            filter_allowlist: None,
+            filter_allowlist_strict: false,
+            profile: false,
+            profile_format: sis_pdf_core::scan::ProfileFormat::Text,
+            group_chains: true,
+        }
+    }
 
     #[test]
     fn resolve_provider_order_prefers_override_provider() {
@@ -4707,5 +4746,21 @@ mod tests {
             verify_checksum_contents(contents, "onnxruntime-linux-x64-1.2.3.tgz", file.path())
                 .is_err()
         );
+    }
+
+    #[test]
+    fn filter_allowlist_flags_apply_and_print() {
+        let config_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root")
+            .join("config/filter-chains-allowlist.toml");
+        let mut opts = scan_opts();
+        apply_filter_allowlist_options(&mut opts, Some(&config_path), true)
+            .expect("apply allowlist");
+        assert!(opts.filter_allowlist_strict);
+        assert!(opts.filter_allowlist.as_ref().map(|v| !v.is_empty()).unwrap_or(false));
+
+        print_filter_allowlist().expect("print allowlist");
     }
 }

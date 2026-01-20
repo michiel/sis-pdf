@@ -457,6 +457,13 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Label: Unusual filter chain
 - Description: Filter chain uses uncommon or unexpected combinations.
 - Tags: decoder, evasion
+- Metadata:
+  - `filters`: Filter list encoded as JSON array string.
+  - `filter_count`: Number of filters in the chain.
+  - `allowlist_match`: Whether the chain matched the allowlist.
+  - `violation_type`: `allowlist_miss`, `unknown_filter`, or `strict_mode`.
+  - `stream.filter_chain`: Human-readable filter chain.
+  - `stream.filter_depth`: Filter chain length.
 - Details:
   - Relevance: unusual filters can hide payloads.
   - Meaning: stream decoding is non-standard.
@@ -468,6 +475,13 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Label: Invalid filter order
 - Description: ASCII filters appear after binary filters.
 - Tags: decoder, evasion
+- Metadata:
+  - `filters`: Filter list encoded as JSON array string.
+  - `filter_count`: Number of filters in the chain.
+  - `allowlist_match`: Whether the chain matched the allowlist.
+  - `violation_type`: `ascii_after_binary` or `crypt_not_outermost`.
+  - `stream.filter_chain`: Human-readable filter chain.
+  - `stream.filter_depth`: Filter chain length.
 - Details:
   - Relevance: invalid order can indicate obfuscation.
   - Meaning: stream decoding order is inconsistent.
@@ -479,6 +493,13 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Label: Repeated filters in chain
 - Description: Filter chain repeats the same filter multiple times.
 - Tags: decoder, evasion
+- Metadata:
+  - `filters`: Filter list encoded as JSON array string.
+  - `filter_count`: Number of filters in the chain.
+  - `allowlist_match`: Whether the chain matched the allowlist.
+  - `violation_type`: `duplicate_filters`.
+  - `stream.filter_chain`: Human-readable filter chain.
+  - `stream.filter_depth`: Filter chain length.
 - Details:
   - Relevance: redundant filters can hide payloads.
   - Meaning: stream decoding is likely obfuscated.

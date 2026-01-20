@@ -1427,6 +1427,7 @@ Implement PDF spec filter order rules:
 - [x] Register detector in `crates/sis-pdf-detectors/lib.rs`.
 - [x] Add to scan pipeline (Phase C).
 - [x] Load allowlist from config file or use default.
+ - [x] Store default allowlist in `config/filter-chains-allowlist.toml`.
 
 #### Implementation Notes
 
