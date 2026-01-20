@@ -1436,6 +1436,7 @@ Implement PDF spec filter order rules:
 - Filter findings documentation now lists metadata keys and violation type values; query guide includes filter examples.
 - Query predicate guide includes filter metadata examples and `violation_type` filters.
 - Filter findings include example chains in documentation.
+- Filter findings include aligned `filters` and `stream.filter_chain` metadata examples.
 
 ### Tests
 
