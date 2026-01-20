@@ -58,16 +58,16 @@ Establish shared infrastructure, fixtures, CVE mappings, and baseline tests befo
 
 #### Shared Infrastructure
 
-- [ ] Create `crates/sis-pdf-core/src/stream_analysis.rs` with unified stream analysis service:
-  - [ ] `analyze_stream()` function: single-pass hash, entropy, magic detection, filter parsing.
-  - [ ] `StreamAnalysisResult` struct with magic_type, entropy, sha256, filters, decompressed_ratio.
-  - [ ] `StreamLimits` struct for timeout, memory, decompression ratio enforcement.
-- [ ] Create `crates/sis-pdf-core/src/evidence.rs` with `EvidenceBuilder`:
-  - [ ] Methods: `file_offset()`, `object_ref()`, `decoded_payload()`, `hash()`.
+- [x] Create `crates/sis-pdf-core/src/stream_analysis.rs` with unified stream analysis service:
+  - [x] `analyse_stream()` function: single-pass hash, entropy, magic detection (filters pending).
+  - [x] `StreamAnalysisResult` struct with `magic_type`, `entropy`, `blake3`, `size_bytes`.
+  - [x] `StreamLimits` struct for max-bytes analysis bounds (timeout/ratio pending).
+- [x] Create `crates/sis-pdf-core/src/evidence.rs` with `EvidenceBuilder`:
+  - [x] Methods: `file_offset()`, `object_ref()`, `decoded_payload()`, `hash()`.
   - [ ] Consistent formatting matching existing evidence output (see TODO.md:42-47).
-- [ ] Create `crates/sis-pdf-core/src/timeout.rs` with `TimeoutChecker` (cooperative timeout pattern from image analysis plan):
-  - [ ] `TimeoutChecker::new(budget: Duration)` constructor.
-  - [ ] `check()` method returning `Result<(), TimeoutError>`.
+- [x] Create `crates/sis-pdf-core/src/timeout.rs` with `TimeoutChecker` (cooperative timeout pattern from image analysis plan):
+  - [x] `TimeoutChecker::new(budget: Duration)` constructor.
+  - [x] `check()` method returning `Result<(), TimeoutError>`.
   - [ ] Integration examples for detectors.
 
 #### Test Fixtures
