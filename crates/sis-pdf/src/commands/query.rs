@@ -70,6 +70,8 @@ pub enum PredicateField {
     Kind,
     Objects,
     Evidence,
+    Name,
+    Magic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +107,8 @@ struct PredicateContext {
     kind: Option<String>,
     object_count: usize,
     evidence_count: usize,
+    name: Option<String>,
+    magic: Option<String>,
 }
 
 /// Query types supported by the interface
@@ -782,6 +786,10 @@ fn parse_predicate_field(name: &str) -> Result<PredicateField> {
         || lower == "evidence_count"
     {
         PredicateField::Evidence
+    } else if lower.ends_with(".name") || lower == "name" || lower.ends_with(".filename") || lower == "filename" {
+        PredicateField::Name
+    } else if lower.ends_with(".magic") || lower == "magic" {
+        PredicateField::Magic
     } else {
         return Err(anyhow!("Unknown predicate field: {}", name));
     };
@@ -810,6 +818,8 @@ impl PredicateExpr {
                 PredicateField::Kind => compare_string(ctx.kind.as_deref(), *op, value),
                 PredicateField::Objects => compare_number(ctx.object_count as f64, *op, value),
                 PredicateField::Evidence => compare_number(ctx.evidence_count as f64, *op, value),
+                PredicateField::Name => compare_string(ctx.name.as_deref(), *op, value),
+                PredicateField::Magic => compare_string(ctx.magic.as_deref(), *op, value),
             },
         }
     }
@@ -1847,6 +1857,12 @@ fn extract_embedded_files(
         if let PdfAtom::Stream(st) = &entry.atom {
             if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
                 let data = stream_bytes_for_mode(ctx.bytes, st, 32 * 1024 * 1024, decode_mode)?;
+                let name = embedded_filename(&st.dict)
+                    .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
+                let analysis = sis_pdf_core::stream_analysis::analyse_stream(
+                    &data,
+                    &sis_pdf_core::stream_analysis::StreamLimits::default(),
+                );
                 let meta = PredicateContext {
                     length: data.len(),
                     filter: filter_name(&st.dict),
@@ -1863,10 +1879,10 @@ fn extract_embedded_files(
                     kind: None,
                     object_count: 0,
                     evidence_count: 0,
+                    name: Some(name.clone()),
+                    magic: Some(analysis.magic_type),
                 };
                 if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
-                    let name = embedded_filename(&st.dict)
-                        .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
                     embedded.push(format!(
                         "{} ({}_{}, {} bytes)",
                         name,
@@ -1925,6 +1941,7 @@ fn extract_xfa_scripts(
     let mut scripts = Vec::new();
     let payloads = collect_xfa_script_payloads(ctx);
     for (idx, payload) in payloads.iter().enumerate() {
+        let filename = format!("xfa_script_{:03}.js", idx + 1);
         let meta = PredicateContext {
             length: payload.bytes.len(),
             filter: Some("xfa".to_string()),
@@ -1941,12 +1958,14 @@ fn extract_xfa_scripts(
             kind: None,
             object_count: 0,
             evidence_count: 0,
+            name: Some(filename.clone()),
+            magic: None,
         };
         if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
             let preview = String::from_utf8_lossy(&payload.bytes);
             scripts.push(format!(
-                "XFA script {} (source {}, {} bytes): {}",
-                idx + 1,
+                "{} (source {}, {} bytes): {}",
+                filename,
                 payload.source,
                 payload.bytes.len(),
                 preview_text(&preview, 200)
@@ -1966,7 +1985,9 @@ fn write_xfa_scripts(
     fs::create_dir_all(extract_to)?;
     let payloads = collect_xfa_script_payloads(ctx);
     let mut written = Vec::new();
+    let mut manifest = Vec::new();
     for (idx, payload) in payloads.iter().enumerate() {
+        let filename = format!("xfa_script_{:03}.js", idx + 1);
         let meta = PredicateContext {
             length: payload.bytes.len(),
             filter: Some("xfa".to_string()),
@@ -1983,9 +2004,10 @@ fn write_xfa_scripts(
             kind: None,
             object_count: 0,
             evidence_count: 0,
+            name: Some(filename.clone()),
+            magic: None,
         };
         if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
-            let filename = format!("xfa_script_{:03}.js", idx + 1);
             let filepath = extract_to.join(&filename);
             fs::write(&filepath, &payload.bytes)?;
             let hash = sha256_hex(&payload.bytes);
@@ -1996,7 +2018,18 @@ fn write_xfa_scripts(
                 hash,
                 payload.source
             ));
+            manifest.push(serde_json::json!({
+                "filename": filename,
+                "sha256": hash,
+                "length": payload.bytes.len(),
+                "source": payload.source,
+            }));
         }
+    }
+    if !manifest.is_empty() {
+        let manifest_path = extract_to.join("manifest.json");
+        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
+        written.push(format!("manifest.json: {} entries", manifest.len()));
     }
     Ok(written)
 }
@@ -2041,6 +2074,7 @@ fn collect_swf_streams(
         let Some(magic) = swf_magic_label(&data) else {
             continue;
         };
+        let name = format!("swf_{}_{}.swf", entry.obj, entry.gen);
         let meta = PredicateContext {
             length: data.len(),
             filter: filter_name(&stream.dict),
@@ -2057,6 +2091,8 @@ fn collect_swf_streams(
             kind: None,
             object_count: 0,
             evidence_count: 0,
+            name: Some(name),
+            magic: Some(magic.to_string()),
         };
         if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
             streams.push(SwfStreamInfo {
@@ -2247,6 +2283,8 @@ fn collect_images(
             kind: None,
             object_count: 0,
             evidence_count: 0,
+            name: None,
+            magic: None,
         };
         if predicate.map(|pred| pred.evaluate(&ctx_meta)).unwrap_or(true) {
             images.push(ImageInfo {
@@ -3042,6 +3080,8 @@ fn predicate_context_for_entry(
                 kind: None,
                 object_count: 0,
                 evidence_count: 0,
+                name: None,
+                magic: None,
             }
         }
         PdfAtom::Stream(stream) => {
@@ -3079,6 +3119,8 @@ fn predicate_context_for_entry(
                 kind: None,
                 object_count: 0,
                 evidence_count: 0,
+                name: None,
+                magic: None,
             }
         }
         PdfAtom::Dict(dict) => PredicateContext {
@@ -3097,6 +3139,8 @@ fn predicate_context_for_entry(
             kind: None,
             object_count: 0,
             evidence_count: 0,
+            name: None,
+            magic: None,
         },
         PdfAtom::Array(_) => PredicateContext {
             length: 0,
@@ -3114,6 +3158,8 @@ fn predicate_context_for_entry(
             kind: None,
             object_count: 0,
             evidence_count: 0,
+            name: None,
+            magic: None,
         },
         atom => PredicateContext {
             length: 0,
@@ -3131,6 +3177,8 @@ fn predicate_context_for_entry(
             kind: None,
             object_count: 0,
             evidence_count: 0,
+            name: None,
+            magic: None,
         },
     }
 }
@@ -3153,6 +3201,8 @@ fn predicate_context_for_url(url: &str) -> PredicateContext {
         kind: None,
         object_count: 0,
         evidence_count: 0,
+        name: None,
+        magic: None,
     }
 }
 
@@ -3180,6 +3230,8 @@ fn predicate_context_for_event(event: &serde_json::Value) -> Option<PredicateCon
         kind: None,
         object_count: 0,
         evidence_count: 0,
+        name: None,
+        magic: None,
     })
 }
 
@@ -3201,6 +3253,8 @@ fn predicate_context_for_finding(finding: &sis_pdf_core::model::Finding) -> Pred
         kind: Some(finding.kind.clone()),
         object_count: finding.objects.len(),
         evidence_count: finding.evidence.len(),
+        name: None,
+        magic: None,
     }
 }
 
@@ -3362,6 +3416,8 @@ fn extract_obj_with_metadata(
                 kind: None,
                 object_count: 0,
                 evidence_count: 0,
+                name: None,
+                magic: None,
             };
             Some((data, ctx))
         }
@@ -3383,6 +3439,8 @@ fn extract_obj_with_metadata(
                 kind: None,
                 object_count: 0,
                 evidence_count: 0,
+                name: None,
+                magic: None,
             };
             Some((data, ctx))
         }
@@ -3410,6 +3468,8 @@ fn extract_obj_with_metadata(
                         kind: None,
                         object_count: 0,
                         evidence_count: 0,
+                        name: None,
+                        magic: None,
                     };
                     Some((data, ctx))
                 }
@@ -3432,6 +3492,8 @@ fn extract_obj_with_metadata(
                         kind: None,
                         object_count: 0,
                         evidence_count: 0,
+                        name: None,
+                        magic: None,
                     };
                     Some((data, ctx))
                 }
@@ -3636,6 +3698,13 @@ fn write_embedded_files(
                         break;
                     }
 
+                    let name = embedded_filename(&st.dict).unwrap_or_else(|| {
+                        format!("embedded_{}_{}.bin", entry.obj, entry.gen)
+                    });
+                    let analysis = sis_pdf_core::stream_analysis::analyse_stream(
+                        &data,
+                        &sis_pdf_core::stream_analysis::StreamLimits::default(),
+                    );
                     let meta = PredicateContext {
                         length: data.len(),
                         filter: filter_name(&st.dict),
@@ -3652,12 +3721,11 @@ fn write_embedded_files(
                         kind: None,
                         object_count: 0,
                         evidence_count: 0,
+                        name: Some(name.clone()),
+                        magic: Some(analysis.magic_type),
                     };
                     if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
                     // Get filename
-                    let name = embedded_filename(&st.dict).unwrap_or_else(|| {
-                        format!("embedded_{}_{}.bin", entry.obj, entry.gen)
-                    });
                     let safe_name = sanitize_embedded_filename(&name);
                     let (filename, output_bytes, mode_label) = match decode_mode {
                         DecodeMode::Decode => (safe_name, data.clone(), "decode"),
@@ -4941,6 +5009,8 @@ mod tests {
             kind: None,
             object_count: 0,
             evidence_count: 0,
+            name: None,
+            magic: None,
         };
         assert!(expr.evaluate(&ctx));
     }
@@ -4964,6 +5034,8 @@ mod tests {
             kind: None,
             object_count: 0,
             evidence_count: 0,
+            name: None,
+            magic: None,
         };
         assert!(!expr.evaluate(&ctx));
     }
@@ -4990,6 +5062,8 @@ mod tests {
             kind: Some("launch_external_program".to_string()),
             object_count: 2,
             evidence_count: 1,
+            name: None,
+            magic: None,
         };
         assert!(expr.evaluate(&ctx));
     }
@@ -5100,6 +5174,44 @@ mod tests {
     }
 
     #[test]
+    fn execute_query_supports_embedded_extraction() {
+        with_fixture_context("embedded/embedded_exe_cve_2018_4990.pdf", |ctx| {
+            let temp = tempdir().expect("tempdir");
+            let query = parse_query("embedded").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                Some(temp.path()),
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::List(list) => {
+                    assert!(!list.is_empty());
+                    let count = std::fs::read_dir(temp.path())
+                        .expect("read dir")
+                        .count();
+                    assert!(count > 0);
+                }
+                _ => panic!("unexpected embedded extraction result"),
+            }
+        });
+    }
+
+    #[test]
+    fn embedded_predicate_supports_name_and_magic() {
+        with_fixture_context("embedded/embedded_exe_cve_2018_4990.pdf", |ctx| {
+            let predicate = parse_predicate("magic == 'pe' AND name == 'payload.exe'")
+                .expect("predicate");
+            let embedded = extract_embedded_files(ctx, DecodeMode::Decode, Some(&predicate))
+                .expect("embedded");
+            assert!(!embedded.is_empty());
+        });
+    }
+
+    #[test]
     fn execute_query_supports_xfa_script_extraction() {
         with_fixture_context("xfa/xfa_submit_sensitive.pdf", |ctx| {
             let temp = tempdir().expect("tempdir");
@@ -5120,6 +5232,8 @@ mod tests {
                         .expect("read dir")
                         .count();
                     assert!(count > 0);
+                    let manifest = temp.path().join("manifest.json");
+                    assert!(manifest.exists());
                 }
                 _ => panic!("unexpected xfa scripts result"),
             }
@@ -5149,6 +5263,103 @@ mod tests {
                     assert!(count > 0);
                 }
                 _ => panic!("unexpected swf extraction result"),
+            }
+        });
+    }
+
+    #[test]
+    fn batch_query_supports_xfa_and_swf_extract_counts() {
+        let temp = tempdir().expect("tempdir");
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root")
+            .join("crates/sis-pdf-core/tests/fixtures");
+        std::fs::copy(
+            root.join("xfa/xfa_submit_sensitive.pdf"),
+            temp.path().join("sample-xfa.pdf"),
+        )
+        .expect("copy xfa");
+        std::fs::copy(
+            root.join("media/swf_cve_2011_0611.pdf"),
+            temp.path().join("sample-swf.pdf"),
+        )
+        .expect("copy swf");
+
+        let scan_options = ScanOptions::default();
+        let query = parse_query("xfa.scripts.count").expect("query");
+        run_query_batch(
+            &query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+            OutputFormat::Json,
+            10,
+            10 * 1024 * 1024,
+            3,
+        )
+        .expect("batch query xfa");
+
+        let query = parse_query("swf.extract.count").expect("query");
+        run_query_batch(
+            &query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+            OutputFormat::Json,
+            10,
+            10 * 1024 * 1024,
+            3,
+        )
+        .expect("batch query swf");
+    }
+
+    #[test]
+    fn export_features_outputs_expected_counts() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let csv_query = parse_query("features").expect("query");
+            let csv_result = execute_query_with_context(
+                &csv_query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            let feature_names = sis_pdf_core::features::feature_names();
+            match csv_result {
+                QueryResult::Scalar(ScalarValue::String(csv)) => {
+                    let line_count = csv.lines().count();
+                    assert_eq!(line_count, feature_names.len() + 1);
+                }
+                _ => panic!("unexpected features csv result"),
+            }
+
+            let json_query = parse_query("features.json").expect("query");
+            let json_result = execute_query_with_context(
+                &json_query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match json_result {
+                QueryResult::Structure(value) => {
+                    let obj = value.as_object().expect("features object");
+                    assert_eq!(obj.len(), feature_names.len());
+                }
+                _ => panic!("unexpected features json result"),
             }
         });
     }

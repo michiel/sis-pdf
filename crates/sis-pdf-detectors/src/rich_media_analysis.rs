@@ -53,6 +53,10 @@ impl Detector for RichMediaContentDetector {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("swf.magic".into(), String::from_utf8_lossy(&decoded.data[..3]).into());
                 meta.insert("swf.size".into(), decoded.data.len().to_string());
+                if let Some((version, declared_len)) = swf_header_meta(&decoded.data) {
+                    meta.insert("swf.version".into(), version.to_string());
+                    meta.insert("swf.declared_length".into(), declared_len.to_string());
+                }
                 let evidence = EvidenceBuilder::new()
                     .file_offset(
                         stream.dict.span.start,
@@ -89,4 +93,13 @@ impl Detector for RichMediaContentDetector {
 
 fn swf_magic(data: &[u8]) -> bool {
     matches!(data.get(0..3), Some(b"FWS") | Some(b"CWS") | Some(b"ZWS"))
+}
+
+fn swf_header_meta(data: &[u8]) -> Option<(u8, u32)> {
+    if data.len() < 8 || !swf_magic(data) {
+        return None;
+    }
+    let version = data[3];
+    let declared = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
+    Some((version, declared))
 }

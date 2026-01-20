@@ -11,7 +11,7 @@ This plan delivers six new forensic analysis modules through 10 staged increment
 - **CVE regression coverage**: Synthetic fixtures for 6+ CVE patterns with regression tests
 - **Forensic workflow support**: Extraction, SAST integration, visualization exports
 
-**Total estimated features**: ~75-80 features (35 base + 16 images + 25 new)
+**Total estimated features**: 76 features (35 base + 16 images + 25 new)
 
 ## Goals
 
@@ -1560,10 +1560,10 @@ Update all documentation to reflect new findings, ensure JSON schema alignment, 
 - [x] Run full test suite: `cargo test --all`.
 - [x] Run targeted scans on all CVE fixtures (6 fixtures).
 - [ ] Deferred: verify all new findings can be emitted.
-- [ ] Deferred: test query interface with all new query types (30+ queries; shortcuts and XFA/SWF extract covered).
-- [ ] Deferred: test extraction workflows (embedded files pending; XFA/SWF covered via query tests).
-- [ ] Deferred: test predicate filtering on all new fields (findings metadata fields covered).
-- [ ] Deferred: test batch mode with new findings (count shortcut covered).
+- [ ] Deferred: test query interface with all new query types (30+ queries; shortcuts + XFA/SWF extract + embedded extract covered).
+- [ ] Deferred: test extraction workflows (embedded/XFA/SWF covered via query tests).
+- [ ] Deferred: test predicate filtering on all new fields (findings metadata + embedded name/magic covered).
+- [ ] Deferred: test batch mode with new findings (count shortcuts covered).
 - [ ] Deferred: test REPL mode with new queries.
 
 #### Performance Profiling
@@ -1580,8 +1580,8 @@ Update all documentation to reflect new findings, ensure JSON schema alignment, 
 - [x] JSON structure validation completed (schema validation test).
 - [x] Full test suite passes (`cargo test --all`).
 - [x] All CVE fixtures trigger expected findings.
-- [ ] Query shortcuts and predicate filtering validated (shortcut counts, findings metadata, batch count covered).
-- [ ] Extraction workflows tested end-to-end (XFA/SWF covered; embedded pending).
+- [ ] Query shortcuts and predicate filtering validated (shortcut counts, findings metadata, embedded name/magic covered).
+- [ ] Extraction workflows tested end-to-end (embedded/XFA/SWF covered via query tests).
 - [ ] Performance profiling shows compliance with SLOs.
 
 ---
@@ -1648,8 +1648,8 @@ filters.repeated
 ### Deferred Query Work
 
 - Additional query variants (allowlist-driven summaries).
-- Predicate fields for embedded files, launch targets, XFA, and SWF (findings metadata fields shipped).
-- Extraction helpers for embedded files (XFA/SWF shipped).
+- Predicate fields for launch targets, XFA, and SWF (findings metadata + embedded name/magic shipped).
+- Extraction helpers for embedded files shipped; batch/REPL coverage remains.
 - Batch/REPL coverage and query reference documentation.
 - [ ] `test_query_filters()` - Query unusual filters.
 - [ ] `test_batch_mode_new_queries()` - All new queries in batch.
@@ -1658,9 +1658,9 @@ filters.repeated
 ### Acceptance Criteria
 
 - [x] All 36 query types implemented and working (including count variants).
-- [ ] Predicate filtering works for all new fields (findings metadata fields done).
-- [ ] Extraction works for embedded files, XFA scripts, SWF (XFA/SWF done).
-- [ ] Batch mode supports all new queries (shortcut count done).
+- [ ] Predicate filtering works for all new fields (findings metadata + embedded name/magic done).
+- [x] Extraction works for embedded files, XFA scripts, SWF (query tests).
+- [ ] Batch mode supports all new queries (count shortcuts done).
 - [ ] REPL mode supports all new queries.
 - [ ] Documentation complete with examples.
 - [ ] Tests pass with 100% coverage.
@@ -1675,7 +1675,7 @@ Integrate all new features from Stages 1-6 into the feature extraction pipeline,
 
 ### Feature Count Summary
 
-**Total features: ~80 features**
+**Total features: 76 features**
 
 - General: 4 features (existing)
 - Structural: 5 features (existing)
@@ -1735,10 +1735,10 @@ Integrate all new features from Stages 1-6 into the feature extraction pipeline,
 
 #### Export Validation
 
-- [ ] Test CSV export: `sis query features --format csv > features.csv`.
-- [ ] Verify CSV header includes all 76 feature names.
-- [ ] Test JSON export: `sis query features --format json > features.json`.
-- [ ] Verify JSON includes all feature structs.
+- [x] Test CSV export: `sis query features --format csv > features.csv` (validated via query test).
+- [x] Verify CSV header includes all 76 feature names (validated via query test).
+- [x] Test JSON export: `sis query features --format json > features.json` (validated via query test).
+- [x] Verify JSON includes all feature structs (validated via query test).
 - [ ] Test JSONL export for streaming: `sis query features --format jsonl --batch *.pdf`.
 
 ### Tests
@@ -1753,8 +1753,8 @@ Integrate all new features from Stages 1-6 into the feature extraction pipeline,
 
 #### Integration Tests
 
-- [ ] `test_features_csv_export()` - Full CSV export with all features.
-- [ ] `test_features_json_export()` - Full JSON export.
+- [x] `test_features_csv_export()` - Full CSV export with all features (covered via query test).
+- [x] `test_features_json_export()` - Full JSON export (covered via query test).
 - [ ] `test_features_count()` - Verify exactly 76 features (or documented count).
 - [ ] `test_features_backward_compatibility()` - Verify order preserves compatibility.
 
@@ -1788,8 +1788,8 @@ Integrate all new features from Stages 1-6 into the feature extraction pipeline,
 
 - ✅ All new feature structs implemented and integrated.
 - ✅ `FeatureVector` includes all 9 feature categories.
-- ✅ `as_f32_vec()` outputs exactly 80 features in documented order.
-- ✅ `feature_names()` includes all 80 labels matching order.
+- ✅ `as_f32_vec()` outputs exactly 76 features in documented order.
+- ✅ `feature_names()` includes all 76 labels matching order.
 - ✅ CSV export works with correct headers.
 - ✅ JSON/JSONL export works correctly.
 - ✅ Unit tests pass with 100% coverage.

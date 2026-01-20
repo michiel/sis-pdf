@@ -24,6 +24,8 @@ Predicates can use these fields:
 - `filter`: query-specific category (see mappings below)
 - `type`: high-level category name for the record
 - `subtype`: query-specific subtype (see mappings below)
+- `name`: record name or filename when available
+- `magic`: magic classifier label when available (for example `pe`, `zip`, `FWS`)
 - `severity`: finding severity (findings queries only, alias for `filter`)
 - `confidence`: finding confidence level (findings queries only)
 - `surface`: finding attack surface (findings queries only)
@@ -51,6 +53,8 @@ Predicates can use these fields:
 - `type`: `Stream`
 - `filter`: stream `/Filter` name (if present)
 - `subtype`: stream `/Subtype` name (if present)
+- `name`: embedded filename
+- `magic`: magic classifier for payload bytes (for example `pe`, `zip`, `script`)
 
 ### XFA scripts (`xfa.scripts`, `xfa.scripts.count`)
 - `length`: extracted script bytes
@@ -58,6 +62,7 @@ Predicates can use these fields:
 - `type`: `XfaScript`
 - `filter`: `xfa`
 - `subtype`: `script`
+- `name`: generated script filename
 
 ### SWF extraction (`swf.extract`, `swf.extract.count`)
 - `length`: extracted SWF bytes (decoded or raw depending on flags)
@@ -65,6 +70,8 @@ Predicates can use these fields:
 - `type`: `SwfStream`
 - `filter`: stream `/Filter` name (if present)
 - `subtype`: `swf`
+- `name`: generated SWF filename
+- `magic`: SWF header tag (`FWS`, `CWS`, `ZWS`)
 
 ### Images (`images*`)
 - `length`: image stream bytes (decoded or raw depending on flags)
