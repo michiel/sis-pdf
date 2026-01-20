@@ -1,0 +1,165 @@
+use anyhow::Result;
+use std::collections::HashMap;
+
+use sis_pdf_core::detect::{Cost, Detector, Needs};
+use sis_pdf_core::evidence::EvidenceBuilder;
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::timeout::TimeoutChecker;
+use sis_pdf_pdf::decode::stream_filters;
+use sis_pdf_pdf::object::PdfAtom;
+
+pub struct FilterChainAnomalyDetector;
+
+impl Detector for FilterChainAnomalyDetector {
+    fn id(&self) -> &'static str {
+        "filter_chain_anomaly"
+    }
+
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::StreamsAndFilters
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+
+    fn cost(&self) -> Cost {
+        Cost::Cheap
+    }
+
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        let timeout = TimeoutChecker::new(std::time::Duration::from_millis(100));
+        for entry in &ctx.graph.objects {
+            if timeout.check().is_err() {
+                break;
+            }
+            let PdfAtom::Stream(stream) = &entry.atom else {
+                continue;
+            };
+            let filters = stream_filters(&stream.dict);
+            if filters.is_empty() {
+                continue;
+            }
+            let normalised: Vec<String> = filters.iter().map(|f| normalise_filter(f)).collect();
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("stream.filter_chain".into(), normalised.join(" -> "));
+            meta.insert("stream.filter_depth".into(), normalised.len().to_string());
+            let evidence = EvidenceBuilder::new()
+                .file_offset(
+                    stream.dict.span.start,
+                    stream.dict.span.len() as u32,
+                    "Stream dict",
+                )
+                .build();
+
+            if is_unusual_chain(&normalised) {
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: self.surface(),
+                    kind: "filter_chain_unusual".into(),
+                    severity: Severity::Low,
+                    confidence: Confidence::Probable,
+                    title: "Unusual filter chain".into(),
+                    description: "Filter chain uses uncommon or unexpected combinations.".into(),
+                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                    evidence: evidence.clone(),
+                    remediation: Some("Inspect stream decoding for obfuscation.".into()),
+                    meta: meta.clone(),
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+            }
+
+            if has_invalid_order(&normalised) {
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: self.surface(),
+                    kind: "filter_order_invalid".into(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::Probable,
+                    title: "Invalid filter order".into(),
+                    description: "ASCII filters appear after binary filters.".into(),
+                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                    evidence: evidence.clone(),
+                    remediation: Some("Review filter order for obfuscation.".into()),
+                    meta: meta.clone(),
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+            }
+
+            if has_duplicate_filters(&normalised) {
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: self.surface(),
+                    kind: "filter_combination_unusual".into(),
+                    severity: Severity::Low,
+                    confidence: Confidence::Probable,
+                    title: "Repeated filters in chain".into(),
+                    description: "Filter chain repeats the same filter multiple times.".into(),
+                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                    evidence,
+                    remediation: Some("Inspect for redundant or obfuscated decoding.".into()),
+                    meta,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+            }
+        }
+        Ok(findings)
+    }
+}
+
+fn is_unusual_chain(filters: &[String]) -> bool {
+    if filters.len() >= 3 {
+        return true;
+    }
+    let mut out = false;
+    for f in filters {
+        if !KNOWN_FILTERS.contains(&f.as_str()) {
+            out = true;
+        }
+    }
+    out
+}
+
+fn has_invalid_order(filters: &[String]) -> bool {
+    for (idx, f) in filters.iter().enumerate() {
+        if is_ascii_filter(f) && idx != 0 {
+            return true;
+        }
+    }
+    false
+}
+
+fn has_duplicate_filters(filters: &[String]) -> bool {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for f in filters {
+        *counts.entry(f.as_str()).or_insert(0) += 1;
+    }
+    counts.values().any(|v| *v > 1)
+}
+
+fn is_ascii_filter(filter: &str) -> bool {
+    matches!(filter, "ASCIIHexDecode" | "ASCII85Decode")
+}
+
+fn normalise_filter(filter: &str) -> String {
+    filter.trim_start_matches('/').to_string()
+}
+
+const KNOWN_FILTERS: &[&str] = &[
+    "FlateDecode",
+    "DCTDecode",
+    "JPXDecode",
+    "LZWDecode",
+    "ASCII85Decode",
+    "ASCIIHexDecode",
+    "RunLengthDecode",
+    "CCITTFaxDecode",
+    "Crypt",
+];

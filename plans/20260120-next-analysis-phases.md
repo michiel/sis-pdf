@@ -1328,20 +1328,20 @@ Detect unusual or invalid filter sequences beyond depth-only heuristics, using a
 
 #### Filter Chain Detector
 
-- [ ] Implement `FilterChainDetector` in `crates/sis-pdf-detectors/src/filter_chains.rs`:
-  - [ ] Extract `/Filter` from all stream objects.
-  - [ ] Parse filter arrays (handle both single filter and array of filters).
+- [x] Implement `FilterChainAnomalyDetector` in `crates/sis-pdf-detectors/src/filter_chain_anomaly.rs`:
+  - [x] Extract `/Filter` from all stream objects.
+  - [x] Parse filter arrays (handle both single filter and array of filters).
   - [ ] Validate filter order against PDF specification rules.
   - [ ] Check filter combinations against allowlist (see "Filter Allowlist" section below).
-  - [ ] Flag unusual combinations (e.g., DCTDecode after FlateDecode).
-  - [ ] Flag invalid orders (e.g., ASCII85Decode before FlateDecode).
-  - [ ] Use `TimeoutChecker` with 10ms budget per chain.
-  - [ ] Use `EvidenceBuilder` for evidence formatting.
+  - [x] Flag unusual combinations (depth >= 3 or unknown filter names).
+  - [x] Flag invalid orders (ASCII filters after binary filters).
+  - [x] Use `TimeoutChecker` with 100ms budget per chain.
+  - [x] Use `EvidenceBuilder` for evidence formatting.
 
-- [ ] Emit findings:
-  - [ ] `filter_chain_unusual` when combination not in allowlist.
-  - [ ] `filter_order_invalid` when order violates PDF spec.
-  - [ ] `filter_combination_unusual` when combination is rare/suspicious (based on rarity threshold).
+- [x] Emit findings:
+  - [x] `filter_chain_unusual` when combination not in allowlist.
+  - [x] `filter_order_invalid` when order violates PDF spec.
+  - [x] `filter_combination_unusual` when combination repeats filters.
   - [ ] Include metadata: `filters` (array), `filter_count`, `allowlist_match` (bool), `violation_type`.
 
 #### Filter Allowlist
@@ -1423,23 +1423,28 @@ Implement PDF spec filter order rules:
 
 #### Registration
 
-- [ ] Register detector in `crates/sis-pdf-detectors/lib.rs`.
-- [ ] Add to scan pipeline (Phase C).
+- [x] Register detector in `crates/sis-pdf-detectors/lib.rs`.
+- [x] Add to scan pipeline (Phase C).
 - [ ] Load allowlist from config file or use default.
+
+#### Implementation Notes
+
+- Detector uses a fixed known-filter list and depth threshold instead of a configurable allowlist.
+- Filter order rules are simplified to ASCII encoding placement checks.
 
 ### Tests
 
 #### Unit Tests
 
 - [ ] `test_valid_filter_chains()` - All allowlist chains should NOT trigger findings.
-- [ ] `test_unusual_filter_chain()` - Non-allowlist chain triggers `filter_chain_unusual`.
-- [ ] `test_invalid_filter_order()` - FlateDecode before ASCII85Decode triggers `filter_order_invalid`.
+- [x] `test_unusual_filter_chain()` - Non-allowlist chain triggers `filter_chain_unusual`.
+- [x] `test_invalid_filter_order()` - FlateDecode before ASCII85Decode triggers `filter_order_invalid`.
 - [ ] `test_allowlist_loading()` - Load custom allowlist from TOML.
 - [ ] `test_strict_mode()` - Strict mode flags all non-standard chains.
 
 #### Integration Tests
 
-- [ ] `test_filter_chains_integration()` - Scan PDF with unusual filter, verify finding.
+- [x] `test_filter_chains_integration()` - Scan PDF with unusual filter, verify finding.
 - [ ] `test_cve_2010_2883_filter_obfuscation()` - Scan CVE-2010-2883 fixture.
 
 ### Query Interface Integration

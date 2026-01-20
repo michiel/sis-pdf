@@ -451,6 +451,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
+## filter_chain_unusual
+
+- ID: `filter_chain_unusual`
+- Label: Unusual filter chain
+- Description: Filter chain uses uncommon or unexpected combinations.
+- Tags: decoder, evasion
+- Details:
+  - Relevance: unusual filters can hide payloads.
+  - Meaning: stream decoding is non-standard.
+  - Chain usage: evasion context for hidden payloads.
+
+## filter_order_invalid
+
+- ID: `filter_order_invalid`
+- Label: Invalid filter order
+- Description: ASCII filters appear after binary filters.
+- Tags: decoder, evasion
+- Details:
+  - Relevance: invalid order can indicate obfuscation.
+  - Meaning: stream decoding order is inconsistent.
+  - Chain usage: evasion context for hidden payloads.
+
+## filter_combination_unusual
+
+- ID: `filter_combination_unusual`
+- Label: Repeated filters in chain
+- Description: Filter chain repeats the same filter multiple times.
+- Tags: decoder, evasion
+- Details:
+  - Relevance: redundant filters can hide payloads.
+  - Meaning: stream decoding is likely obfuscated.
+  - Chain usage: evasion context for hidden payloads.
+
 ## font_payload_present
 
 - ID: `font_payload_present`
