@@ -54,7 +54,19 @@ Establish shared infrastructure, fixtures, CVE mappings, and baseline tests befo
 - [x] Review `docs/findings.md` to confirm existing finding IDs and schemas.
 - [x] Allocate new finding IDs (see "New Finding IDs" section below).
 - [x] Ensure no ID conflicts with existing findings.
-- [ ] Document finding metadata schema (severity, tags, evidence fields).
+- [x] Document finding metadata schema (severity, tags, evidence fields).
+
+#### Finding Metadata Schema
+
+- Required fields: `id`, `kind`, `title`, `description`, `severity`, `confidence`, `surface`, `objects`.
+- Evidence: use `EvidenceSpan` entries with `source`, `offset`, `length`, `origin`, and short `note` values.
+- Metadata keys:
+  - Embedded files: `embedded.filename`, `embedded.sha256`, `embedded.size`, `embedded.magic`, `embedded.double_extension`, `embedded.encrypted_container`.
+  - Actions: `payload.key`, `payload.type`, `payload.decoded_len`, `payload.ref_chain`, `action.trigger`, `action.chain_depth`.
+  - Launch: `launch.target_type` plus payload metadata from `/F` or `/Win`.
+  - XFA: `xfa.submit.url`, `xfa.script.count`, `xfa.field.name`, `xfa.size_bytes`.
+  - Encryption/obfuscation: `crypto.algorithm`, `crypto.key_length`, `stream.entropy`, `stream.filters`.
+  - Filter chains: `stream.filter_chain`, `stream.filter_depth`.
 
 #### Shared Infrastructure
 
@@ -81,16 +93,16 @@ Establish shared infrastructure, fixtures, CVE mappings, and baseline tests befo
 
 #### CVE Regression Fixtures
 
-- [ ] Create `scripts/generate_analysis_fixtures.py` with functions:
-  - [ ] `generate_launch_cve_2010_1240()` - PDF with /Launch to cmd.exe
-  - [ ] `generate_embedded_exe_cve_2018_4990()` - PDF with embedded PE
-  - [ ] `generate_xfa_cve_2013_2729()` - PDF with XFA SOAP script
-  - [ ] `generate_swf_cve_2011_0611()` - PDF with malicious SWF structure
-  - [ ] `generate_weak_encryption_cve_2019_7089()` - PDF with RC4-40
-  - [ ] `generate_filter_obfuscation_cve_2010_2883()` - PDF with unusual filter chain
-- [ ] Generate synthetic fixtures (NOT real exploits, valid PDF structure only).
+- [x] Create `scripts/generate_analysis_fixtures.py` with functions:
+  - [x] `generate_launch_cve_2010_1240()` - PDF with /Launch to cmd.exe
+  - [x] `generate_embedded_exe_cve_2018_4990()` - PDF with embedded PE
+  - [x] `generate_xfa_cve_2013_2729()` - PDF with XFA SOAP script
+  - [x] `generate_swf_cve_2011_0611()` - PDF with malicious SWF structure
+  - [x] `generate_weak_encryption_cve_2019_7089()` - PDF with RC4-40
+  - [x] `generate_filter_obfuscation_cve_2010_2883()` - PDF with unusual filter chain
+- [x] Generate synthetic fixtures (NOT real exploits, valid PDF structure only).
 - [x] Add `tests/fixtures/README.md` documenting that fixtures are synthetic.
-- [ ] Run fixture generation script and commit outputs to repository.
+- [x] Run fixture generation script and commit outputs to repository.
 
 #### Dependency Security Review
 
