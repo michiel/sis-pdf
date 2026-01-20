@@ -1449,7 +1449,7 @@ Implement PDF spec filter order rules:
 #### Integration Tests
 
 - [x] `test_filter_chains_integration()` - Scan PDF with unusual filter, verify finding.
-- [ ] `test_cve_2010_2883_filter_obfuscation()` - Scan CVE-2010-2883 fixture.
+- [x] `test_cve_2010_2883_filter_obfuscation()` - Scan CVE-2010-2883 fixture (strict mode).
 
 ### Query Interface Integration
 
