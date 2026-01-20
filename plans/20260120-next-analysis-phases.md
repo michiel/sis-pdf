@@ -1029,17 +1029,17 @@ Inspect embedded SWF (Flash) and other rich media streams using minimal parsers 
 
 #### Rich Media Detector
 
-- [ ] Implement `RichMediaDetector` in `crates/sis-pdf-detectors/src/rich_media.rs`:
-  - [ ] Detect `/RichMedia`, `/3D`, `/Sound`, `/Movie` annotations.
-  - [ ] Extract embedded streams from rich media dictionaries.
-  - [ ] Detect file magic types (SWF, U3D, PRC, MP3, MP4, etc.).
-  - [ ] Use `stream_analysis::analyze_stream()` for unified analysis.
-  - [ ] Use `TimeoutChecker` with 250ms budget.
+- [x] Implement `RichMediaContentDetector` in `crates/sis-pdf-detectors/src/rich_media_analysis.rs`:
+  - [x] Detect `/RichMedia` or `/Flash` stream dictionaries.
+  - [x] Extract embedded stream bytes for magic detection.
+  - [x] Detect SWF magic types (FWS/CWS/ZWS).
+  - [ ] Use `stream_analysis::analyse_stream()` for unified analysis.
+  - [x] Use `TimeoutChecker` with 100ms budget.
 
 #### Minimal SWF Parser
 
 - [ ] Implement minimal SWF header parser (avoid full decompression):
-  - [ ] Detect SWF magic: `FWS` (uncompressed) or `CWS`/`ZWS` (compressed).
+  - [x] Detect SWF magic: `FWS` (uncompressed) or `CWS`/`ZWS` (compressed).
   - [ ] Parse header (version, file length, frame size, frame rate, frame count).
   - [ ] Decompress ONLY first 10 tags (not entire file) to detect ActionScript.
   - [ ] Enforce 10:1 decompression ratio limit using `DecompressionLimits`.
@@ -1048,8 +1048,8 @@ Inspect embedded SWF (Flash) and other rich media streams using minimal parsers 
   - [ ] Use `TimeoutChecker` with 250ms budget for decompression.
   - [ ] Custom minimal parser (no external SWF crate dependencies).
 
-- [ ] Emit findings:
-  - [ ] `swf_embedded` when SWF magic detected.
+- [x] Emit findings:
+  - [x] `swf_embedded` when SWF magic detected.
   - [ ] `swf_actionscript_detected` when ActionScript tags found.
   - [ ] Enrich existing `richmedia_present` with media type metadata.
   - [ ] Include metadata: `media_type` (swf|u3d|prc|mp3|mp4), `size_bytes`, `swf_version`, `actionscript_tags` (array).
@@ -1068,9 +1068,14 @@ Inspect embedded SWF (Flash) and other rich media streams using minimal parsers 
 
 #### Registration
 
-- [ ] Register detector in `crates/sis-pdf-detectors/lib.rs`.
-- [ ] Add to scan pipeline (Phase C).
+- [x] Register detector in `crates/sis-pdf-detectors/lib.rs`.
+- [x] Add to scan pipeline (Phase C).
 - [ ] Guard with rich media presence check (early exit optimization).
+
+#### Implementation Notes
+
+- SWF detection relies on magic headers; ActionScript tag parsing remains pending.
+- 3D/audio enrichments are not yet implemented beyond existing `3d_present` and `sound_movie_present` detectors.
 
 ### Tests
 
@@ -1087,8 +1092,8 @@ Inspect embedded SWF (Flash) and other rich media streams using minimal parsers 
 
 #### Integration Tests
 
-- [ ] `test_swf_integration()` - Scan PDF with embedded SWF, verify findings.
-- [ ] `test_cve_2011_0611_swf()` - Scan CVE-2011-0611 fixture, verify detection.
+- [x] `test_swf_integration()` - Scan PDF with embedded SWF, verify findings.
+- [x] `test_cve_2011_0611_swf()` - Scan CVE-2011-0611 fixture, verify detection.
 
 ### Query Interface Integration
 

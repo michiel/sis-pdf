@@ -2176,6 +2176,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: feature increases parsing or interaction complexity.
   - Chain usage: used as supporting context for delivery or exploitation stages.
 
+## swf_embedded
+
+- ID: `swf_embedded`
+- Label: SWF content embedded
+- Description: Stream data matches SWF magic header.
+- Tags: swf, richmedia
+- Details:
+  - Relevance: SWF content can contain ActionScript payloads.
+  - Meaning: embedded SWF increases execution risk.
+  - Chain usage: payload delivery or staging via SWF content.
+
 ## secondary_parser_failure
 
 - ID: `secondary_parser_failure`

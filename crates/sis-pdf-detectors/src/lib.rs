@@ -42,6 +42,7 @@ pub mod page_tree_anomalies;
 pub mod polyglot;
 pub mod quantum_risk;
 pub mod xfa_forms;
+pub mod rich_media_analysis;
 pub mod strict;
 pub mod supply_chain;
 pub mod uri_classification;
@@ -106,6 +107,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(image_analysis::ImageAnalysisDetector),
         Box::new(EmbeddedFileDetector),
         Box::new(RichMediaDetector),
+        Box::new(rich_media_analysis::RichMediaContentDetector),
         Box::new(ThreeDDetector),
         Box::new(SoundMovieDetector),
         Box::new(FileSpecDetector),
