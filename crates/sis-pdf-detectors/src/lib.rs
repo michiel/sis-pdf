@@ -15,6 +15,7 @@ use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
+use crate::encryption_obfuscation::{encryption_meta_from_dict, resolve_encrypt_dict};
 
 pub mod advanced_crypto;
 pub mod actions_triggers;
@@ -2094,9 +2095,15 @@ impl Detector for CryptoDetector {
         let mut findings = Vec::new();
 
         let mut encrypt_evidence = Vec::new();
+        let mut encrypt_meta = std::collections::HashMap::new();
         for trailer in &ctx.graph.trailers {
-            if trailer.get_first(b"/Encrypt").is_some() {
+            if let Some((_, enc_obj)) = trailer.get_first(b"/Encrypt") {
                 encrypt_evidence.push(span_to_evidence(trailer.span, "Trailer /Encrypt"));
+                if encrypt_meta.is_empty() {
+                    if let Some(dict) = resolve_encrypt_dict(ctx, enc_obj) {
+                        encrypt_meta = encryption_meta_from_dict(&dict);
+                    }
+                }
                 if encrypt_evidence.len() >= 2 {
                     break;
                 }
@@ -2114,7 +2121,7 @@ impl Detector for CryptoDetector {
                 objects: vec!["trailer".into()],
                 evidence: encrypt_evidence,
                 remediation: Some("Decrypt with trusted tooling to inspect all objects.".into()),
-                meta: Default::default(),
+                meta: encrypt_meta,
                 yara: None,
                 position: None,
                 positions: Vec::new(),

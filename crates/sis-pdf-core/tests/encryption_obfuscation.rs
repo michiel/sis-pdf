@@ -34,9 +34,13 @@ fn detects_encryption_key_short() {
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
         .expect("scan should succeed");
 
-    let kinds: std::collections::HashSet<&str> =
-        report.findings.iter().map(|f| f.kind.as_str()).collect();
-    assert!(kinds.contains("encryption_key_short"));
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "encryption_key_short")
+        .expect("encryption_key_short finding");
+    assert_eq!(finding.meta.get("crypto.key_length"), Some(&"40".to_string()));
+    assert_eq!(finding.meta.get("crypto.algorithm"), Some(&"RC4-40".to_string()));
 }
 
 #[test]

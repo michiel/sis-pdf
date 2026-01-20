@@ -1178,17 +1178,17 @@ Broaden encryption metadata checks, implement streaming entropy calculation, and
 
 - [x] Implement `EncryptionObfuscationDetector` in `crates/sis-pdf-detectors/src/encryption_obfuscation.rs`:
   - [x] Inspect `/Encrypt` dictionary in document trailer.
-  - [ ] Extract encryption algorithm (`/V` version, `/R` revision, `/Length` key length).
-  - [ ] Classify algorithms: RC4-40, RC4-128, AES-128, AES-256.
-  - [ ] Detect weak algorithms (RC4-40, RC4 < 128 bits).
+  - [x] Extract encryption algorithm (`/V` version, `/R` revision, `/Length` key length).
+  - [x] Classify algorithms: RC4-40, RC4-128, AES-128, AES-256.
+  - [x] Detect weak algorithms (RC4-40, RC4 < 128 bits).
   - [ ] Detect quantum-vulnerable algorithms (RSA < 3072 bits, if present).
-  - [ ] Use existing `encryption_present` finding, add enrichment metadata.
+  - [x] Use existing `encryption_present` finding, add enrichment metadata.
   - [x] Use `EvidenceBuilder` for evidence formatting.
 
 - [x] Emit findings:
   - [x] `encryption_key_short` when key length < 128 bits.
   - [ ] Enrich existing `crypto_weak_algo` finding with specific algorithm metadata.
-  - [ ] Include metadata: `algorithm` (RC4|AES), `key_length_bits`, `version`, `revision`.
+  - [x] Include metadata: `crypto.algorithm`, `crypto.key_length`, `crypto.version`, `crypto.revision`.
 
 #### Streaming Entropy Calculator
 
@@ -1426,18 +1426,18 @@ Implement PDF spec filter order rules:
 
 - [x] Register detector in `crates/sis-pdf-detectors/lib.rs`.
 - [x] Add to scan pipeline (Phase C).
-- [ ] Load allowlist from config file or use default.
+- [x] Load allowlist from config file or use default (default allowlist now used).
 
 #### Implementation Notes
 
-- Detector uses a fixed known-filter list and depth threshold instead of a configurable allowlist.
+- Detector uses a default allowlist and fixed order rules; configurable allowlist remains pending.
 - Filter order rules are simplified to ASCII encoding placement checks.
 
 ### Tests
 
 #### Unit Tests
 
-- [ ] `test_valid_filter_chains()` - All allowlist chains should NOT trigger findings.
+- [x] `test_valid_filter_chains()` - All allowlist chains should NOT trigger findings.
 - [x] `test_unusual_filter_chain()` - Non-allowlist chain triggers `filter_chain_unusual`.
 - [x] `test_invalid_filter_order()` - FlateDecode before ASCII85Decode triggers `filter_order_invalid`.
 - [ ] `test_allowlist_loading()` - Load custom allowlist from TOML.

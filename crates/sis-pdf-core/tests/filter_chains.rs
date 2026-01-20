@@ -51,3 +51,17 @@ fn detects_filter_chain_unusual_and_duplicates() {
     assert!(kinds.contains("filter_chain_unusual"));
     assert!(kinds.contains("filter_combination_unusual"));
 }
+
+#[test]
+fn allows_known_filter_chain() {
+    let bytes = include_bytes!("fixtures/filters/filter_allowlisted.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let kinds: std::collections::HashSet<&str> =
+        report.findings.iter().map(|f| f.kind.as_str()).collect();
+    assert!(!kinds.contains("filter_chain_unusual"));
+    assert!(!kinds.contains("filter_order_invalid"));
+    assert!(!kinds.contains("filter_combination_unusual"));
+}

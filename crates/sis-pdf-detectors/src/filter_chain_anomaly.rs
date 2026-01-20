@@ -115,16 +115,7 @@ impl Detector for FilterChainAnomalyDetector {
 }
 
 fn is_unusual_chain(filters: &[String]) -> bool {
-    if filters.len() >= 3 {
-        return true;
-    }
-    let mut out = false;
-    for f in filters {
-        if !KNOWN_FILTERS.contains(&f.as_str()) {
-            out = true;
-        }
-    }
-    out
+    !is_allowlisted_chain(filters)
 }
 
 fn has_invalid_order(filters: &[String]) -> bool {
@@ -161,5 +152,40 @@ const KNOWN_FILTERS: &[&str] = &[
     "ASCIIHexDecode",
     "RunLengthDecode",
     "CCITTFaxDecode",
+    "JBIG2Decode",
     "Crypt",
 ];
+
+const DEFAULT_ALLOWLIST: &[&[&str]] = &[
+    &["ASCIIHexDecode", "FlateDecode"],
+    &["ASCII85Decode", "FlateDecode"],
+    &["FlateDecode", "DCTDecode"],
+    &["DCTDecode"],
+    &["CCITTFaxDecode"],
+    &["JBIG2Decode"],
+    &["JPXDecode"],
+    &["LZWDecode"],
+    &["RunLengthDecode"],
+    &["ASCIIHexDecode"],
+    &["ASCII85Decode"],
+    &["FlateDecode"],
+    &["Crypt"],
+];
+
+fn is_allowlisted_chain(filters: &[String]) -> bool {
+    if filters.is_empty() {
+        return true;
+    }
+    if filters.iter().any(|f| !KNOWN_FILTERS.contains(&f.as_str())) {
+        return false;
+    }
+    DEFAULT_ALLOWLIST.iter().any(|allowed| {
+        if allowed.len() != filters.len() {
+            return false;
+        }
+        allowed
+            .iter()
+            .zip(filters.iter())
+            .all(|(a, f)| *a == f.as_str())
+    })
+}

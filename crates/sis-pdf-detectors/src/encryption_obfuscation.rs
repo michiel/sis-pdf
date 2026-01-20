@@ -36,18 +36,10 @@ impl Detector for EncryptionObfuscationDetector {
         for trailer in &ctx.graph.trailers {
             if let Some((_, encrypt_obj)) = trailer.get_first(b"/Encrypt") {
                 if let Some(dict) = resolve_encrypt_dict(ctx, encrypt_obj) {
+                    let mut meta = encryption_meta_from_dict(&dict);
                     if let Some(key_len) = dict_int(&dict, b"/Length") {
                         if key_len < 128 {
-                            let mut meta = std::collections::HashMap::new();
                             meta.insert("crypto.key_length".into(), key_len.to_string());
-                            if let Some((_, obj)) = dict.get_first(b"/Filter") {
-                                if let PdfAtom::Name(name) = &obj.atom {
-                                    meta.insert(
-                                        "crypto.filter".into(),
-                                        String::from_utf8_lossy(&name.decoded).to_string(),
-                                    );
-                                }
-                            }
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
@@ -164,7 +156,7 @@ impl Detector for EncryptionObfuscationDetector {
 const STREAM_HIGH_ENTROPY: f64 = 7.5;
 const STREAM_MIN_BYTES: usize = 1024;
 
-fn resolve_encrypt_dict<'a>(
+pub(crate) fn resolve_encrypt_dict<'a>(
     ctx: &'a sis_pdf_core::scan::ScanContext,
     obj: &'a PdfObj<'a>,
 ) -> Option<PdfDict<'a>> {
@@ -177,6 +169,63 @@ fn resolve_encrypt_dict<'a>(
                 PdfAtom::Dict(dict) => Some(dict.clone()),
                 _ => None,
             }),
+        _ => None,
+    }
+}
+
+pub(crate) fn encryption_meta_from_dict(dict: &PdfDict<'_>) -> std::collections::HashMap<String, String> {
+    let mut meta = std::collections::HashMap::new();
+    let version = dict_int(dict, b"/V");
+    let revision = dict_int(dict, b"/R");
+    let key_len = dict_int(dict, b"/Length");
+
+    if let Some(v) = version {
+        meta.insert("crypto.version".into(), v.to_string());
+    }
+    if let Some(r) = revision {
+        meta.insert("crypto.revision".into(), r.to_string());
+    }
+    if let Some(len) = key_len {
+        meta.insert("crypto.key_length".into(), len.to_string());
+    }
+    if let Some((_, obj)) = dict.get_first(b"/Filter") {
+        if let PdfAtom::Name(name) = &obj.atom {
+            meta.insert(
+                "crypto.filter".into(),
+                String::from_utf8_lossy(&name.decoded).to_string(),
+            );
+        }
+    }
+    if let Some(algorithm) = classify_encryption_algorithm(version, key_len) {
+        meta.insert("crypto.algorithm".into(), algorithm.into());
+    }
+    meta
+}
+
+fn classify_encryption_algorithm(version: Option<u32>, key_len: Option<u32>) -> Option<&'static str> {
+    match version {
+        Some(1 | 2) => {
+            if let Some(len) = key_len {
+                if len <= 40 {
+                    Some("RC4-40")
+                } else {
+                    Some("RC4-128")
+                }
+            } else {
+                Some("RC4")
+            }
+        }
+        Some(4 | 5) => {
+            if let Some(len) = key_len {
+                if len >= 256 {
+                    Some("AES-256")
+                } else {
+                    Some("AES-128")
+                }
+            } else {
+                Some("AES")
+            }
+        }
         _ => None,
     }
 }
