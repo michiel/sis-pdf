@@ -13,6 +13,7 @@ pub mod detect;
 pub mod diff;
 pub mod evidence;
 pub mod explainability;
+pub mod filter_allowlist;
 pub mod features;
 pub mod features_extended;
 pub mod graph_export;
@@ -44,6 +45,8 @@ pub mod stream_analyzer;
 pub mod supply_chain;
 pub mod taint;
 pub mod temporal;
+pub mod timeout;
 pub mod yara;
+pub mod stream_analysis;
 
 pub use detect::{Cost, Detector, Needs};

@@ -25,6 +25,7 @@ ml-graph = ["sis-pdf-ml-graph"]
 sis-pdf-detectors = { path = "../sis-pdf-detectors" }
 criterion = "0.5"
 tempfile = "3.8"
+jsonschema = "0.17.1"
 
 [[bench]]
 name = "scan"

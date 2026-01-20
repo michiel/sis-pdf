@@ -78,6 +78,7 @@ Focus: xref chains, object graph integrity, shadowing, ObjStm density.
 ### Interactive Layer
 Focus: automatic triggers and JS execution.
 - `open_action_present`, `aa_present`, `aa_event_present`.
+- `action_chain_complex`, `action_hidden_trigger`, `action_automatic_trigger`.
 - `js_present` plus JS behavior detectors (`js_time_evasion`, `js_env_probe`).
 
 ### External Layer
@@ -89,7 +90,10 @@ Focus: outbound actions and remote resources.
 Focus: streams, filters, embedded objects, media.
 - `decompression_ratio_suspicious`, `decoder_risk_present`.
 - `filter_chain_depth_high`.
+- `filter_chain_unusual`, `filter_order_invalid`, `filter_combination_unusual`.
 - `embedded_file_present`, `filespec_present`, `richmedia_present`, `3d_present`, `sound_movie_present`.
+- `embedded_executable_present`, `embedded_script_present`, `embedded_archive_encrypted`, `embedded_double_extension`.
+- `swf_embedded`.
 - `icc_profile_anomaly`, `font_table_anomaly`.
 - `image.jbig2_present`, `image.jpx_present`, `image.ccitt_present`.
 - `image.extreme_dimensions`, `image.pixel_count_excessive`, `image.decode_failed`.
@@ -97,6 +101,12 @@ Focus: streams, filters, embedded objects, media.
 ### Crypto / Signature Layer
 Focus: signatures and encryption anomalies.
 - `signature_present`, `crypto_weak_algo`, `crypto_cert_anomaly`, `crypto_mining_js`.
+- `encryption_key_short`, `stream_high_entropy`, `embedded_encrypted`.
+
+### Forms Layer
+Focus: AcroForm/XFA structures and submissions.
+- `xfa_present`, `xfa_script_present`, `xfa_submit`, `xfa_sensitive_field`.
+- `xfa_too_large`, `xfa_script_count_high`.
 
 ### Content / Phishing Layer
 Focus: textual cues and overlay links.

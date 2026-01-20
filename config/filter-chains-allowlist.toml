@@ -1,0 +1,54 @@
+# Standard filter chains allowlist
+# Add up to 20 entries maximum
+
+[[allowed_chains]]
+filters = ["FlateDecode"]
+description = "Standard zlib compression"
+
+[[allowed_chains]]
+filters = ["ASCIIHexDecode", "FlateDecode"]
+description = "Hex-encoded compressed stream"
+
+[[allowed_chains]]
+filters = ["ASCII85Decode", "FlateDecode"]
+description = "Base85-encoded compressed stream"
+
+[[allowed_chains]]
+filters = ["FlateDecode", "DCTDecode"]
+description = "Compressed JPEG image (unusual but valid)"
+
+[[allowed_chains]]
+filters = ["DCTDecode"]
+description = "JPEG image (uncompressed stream)"
+
+[[allowed_chains]]
+filters = ["CCITTFaxDecode"]
+description = "Fax-encoded image"
+
+[[allowed_chains]]
+filters = ["JBIG2Decode"]
+description = "JBIG2-encoded image"
+
+[[allowed_chains]]
+filters = ["JPXDecode"]
+description = "JPEG2000-encoded image"
+
+[[allowed_chains]]
+filters = ["LZWDecode"]
+description = "LZW compression (legacy)"
+
+[[allowed_chains]]
+filters = ["RunLengthDecode"]
+description = "Run-length encoding"
+
+[[allowed_chains]]
+filters = ["ASCIIHexDecode"]
+description = "Hex encoding only"
+
+[[allowed_chains]]
+filters = ["ASCII85Decode"]
+description = "Base85 encoding only"
+
+[[allowed_chains]]
+filters = ["Crypt"]
+description = "Crypt filter"

@@ -39,6 +39,8 @@ _"Smiley is suspicious, Percy"_
 - [JavaScript Extraction](JS_EXTRACTION_README.md) - JavaScript detection and extraction
 - [Risk Profiling](risk-profiling.md) - Document-level risk profiling and calibration
 - [URI Classification](uri-classification.md) - URL and network intent classification
+- [Forensic Workflows](forensic-workflows.md) - Repeatable analysis workflows
+- [Feature Extraction](feature-extraction.md) - Feature set overview for ML workflows
 
 ### Machine Learning
 

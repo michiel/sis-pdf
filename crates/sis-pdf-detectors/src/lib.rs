@@ -5,7 +5,9 @@ use std::collections::HashSet;
 
 use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii};
+use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii, EvidenceBuilder};
+use sis_pdf_core::timeout::TimeoutChecker;
+use std::time::Duration;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
@@ -13,14 +15,18 @@ use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
+use crate::encryption_obfuscation::{encryption_meta_from_dict, resolve_encrypt_dict};
 
 pub mod advanced_crypto;
+pub mod actions_triggers;
 pub mod annotations_advanced;
 pub mod content_first;
 pub mod content_phishing;
 pub mod evasion_env;
 pub mod evasion_time;
 pub mod external_context;
+pub mod encryption_obfuscation;
+pub mod filter_chain_anomaly;
 pub mod filter_depth;
 pub mod font_exploits;
 pub mod font_external_ref;
@@ -38,6 +44,8 @@ pub mod objstm_summary;
 pub mod page_tree_anomalies;
 pub mod polyglot;
 pub mod quantum_risk;
+pub mod xfa_forms;
+pub mod rich_media_analysis;
 pub mod strict;
 pub mod supply_chain;
 pub mod uri_classification;
@@ -75,6 +83,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(OpenActionDetector),
         Box::new(AAPresentDetector),
         Box::new(AAEventDetector),
+        Box::new(actions_triggers::ActionTriggerDetector),
         Box::new(JavaScriptDetector {
             enable_ast: settings.js_ast,
         }),
@@ -101,6 +110,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(image_analysis::ImageAnalysisDetector),
         Box::new(EmbeddedFileDetector),
         Box::new(RichMediaDetector),
+        Box::new(rich_media_analysis::RichMediaContentDetector),
         Box::new(ThreeDDetector),
         Box::new(SoundMovieDetector),
         Box::new(FileSpecDetector),
@@ -109,10 +119,13 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(page_tree_anomalies::PageTreeManipulationDetector),
         Box::new(object_cycles::ObjectReferenceCycleDetector),
         Box::new(CryptoDetector),
+        Box::new(encryption_obfuscation::EncryptionObfuscationDetector),
         Box::new(XfaDetector),
         Box::new(AcroFormDetector),
+        Box::new(xfa_forms::XfaFormDetector),
         Box::new(OCGDetector),
         Box::new(filter_depth::FilterChainDepthDetector),
+        Box::new(filter_chain_anomaly::FilterChainAnomalyDetector),
         Box::new(DecoderRiskDetector),
         Box::new(DecompressionRatioDetector),
         Box::new(HugeImageDetector),
@@ -989,7 +1002,7 @@ fn js_payload_candidates_from_xfa(
     out
 }
 
-fn xfa_payloads_from_obj(
+pub(crate) fn xfa_payloads_from_obj(
     ctx: &sis_pdf_core::scan::ScanContext,
     obj: &sis_pdf_pdf::object::PdfObj<'_>,
 ) -> Vec<PayloadInfo> {
@@ -1348,7 +1361,11 @@ impl Detector for LaunchActionDetector {
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+        let timeout = TimeoutChecker::new(Duration::from_millis(50));
         for entry in &ctx.graph.objects {
+            if timeout.check().is_err() {
+                break;
+            }
             let Some(dict) = entry_dict(entry) else {
                 continue;
             };
@@ -1356,7 +1373,9 @@ impl Detector for LaunchActionDetector {
                 continue;
             }
 
-            let mut evidence = vec![span_to_evidence(dict.span, "Action dict")];
+            let mut evidence = EvidenceBuilder::new()
+                .file_offset(dict.span.start, dict.span.len() as u32, "Action dict")
+                .build();
             let mut meta = std::collections::HashMap::new();
             if let Some(enriched) = payload_from_dict(ctx, dict, &[b"/F", b"/Win"], "Action payload")
             {
@@ -1723,13 +1742,21 @@ impl Detector for EmbeddedFileDetector {
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+        let timeout = TimeoutChecker::new(Duration::from_millis(100));
         for entry in &ctx.graph.objects {
+            if timeout.check().is_err() {
+                break;
+            }
             if let PdfAtom::Stream(st) = &entry.atom {
                 if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
-                    let mut evidence = vec![
-                        span_to_evidence(st.dict.span, "EmbeddedFile dict"),
-                        span_to_evidence(st.data_span, "EmbeddedFile stream"),
-                    ];
+                    let mut evidence = EvidenceBuilder::new()
+                        .file_offset(st.dict.span.start, st.dict.span.len() as u32, "EmbeddedFile dict")
+                        .file_offset(
+                            st.data_span.start,
+                            st.data_span.len() as u32,
+                            "EmbeddedFile stream",
+                        )
+                        .build();
                     let mut meta = std::collections::HashMap::new();
                     let mut magic = None;
                     let mut encrypted_container = false;
@@ -2068,9 +2095,15 @@ impl Detector for CryptoDetector {
         let mut findings = Vec::new();
 
         let mut encrypt_evidence = Vec::new();
+        let mut encrypt_meta = std::collections::HashMap::new();
         for trailer in &ctx.graph.trailers {
-            if trailer.get_first(b"/Encrypt").is_some() {
+            if let Some((_, enc_obj)) = trailer.get_first(b"/Encrypt") {
                 encrypt_evidence.push(span_to_evidence(trailer.span, "Trailer /Encrypt"));
+                if encrypt_meta.is_empty() {
+                    if let Some(dict) = resolve_encrypt_dict(ctx, enc_obj) {
+                        encrypt_meta = encryption_meta_from_dict(&dict);
+                    }
+                }
                 if encrypt_evidence.len() >= 2 {
                     break;
                 }
@@ -2088,7 +2121,7 @@ impl Detector for CryptoDetector {
                 objects: vec!["trailer".into()],
                 evidence: encrypt_evidence,
                 remediation: Some("Decrypt with trusted tooling to inspect all objects.".into()),
-                meta: Default::default(),
+                meta: encrypt_meta,
                 yara: None,
                 position: None,
                 positions: Vec::new(),

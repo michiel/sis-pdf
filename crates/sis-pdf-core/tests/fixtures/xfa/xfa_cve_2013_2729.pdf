@@ -1,0 +1,32 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] >>
+endobj
+4 0 obj
+<< /XFA 5 0 R >>
+endobj
+5 0 obj
+<< /Length 260 >>
+stream
+<xdp:xdp xmlns:xdp='http://ns.adobe.com/xdp/'><xfa:datasets xmlns:xfa='http://www.xfa.org/schema/xfa-data/1.0/'><xfa:data>test</xfa:data></xfa:datasets><xfa:script xmlns:xfa='http://www.xfa.org/schema/xfa-template/2.5/'>app.alert('xfa');</xfa:script></xdp:xdp>
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000074 00000 n 
+0000000131 00000 n 
+0000000202 00000 n 
+0000000234 00000 n 
+trailer
+<< /Root 1 0 R /Size 6 >>
+startxref
+545
+%%EOF

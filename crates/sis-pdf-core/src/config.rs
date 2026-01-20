@@ -5,6 +5,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::scan::ScanOptions;
+use crate::filter_allowlist::load_filter_allowlist;
 use crate::security_log::{SecurityDomain, SecurityEvent};
 use tracing::{info, warn, Level};
 
@@ -68,6 +69,8 @@ pub struct ScanConfig {
     pub ml_quantized: Option<bool>,
     pub ml_batch_size: Option<usize>,
     pub ml_provider_info: Option<bool>,
+    pub filter_allowlist: Option<String>,
+    pub filter_allowlist_strict: Option<bool>,
     #[serde(rename = "font-analysis")]
     pub font_analysis: Option<FontAnalysisConfig>,
     #[serde(rename = "image-analysis")]
@@ -371,6 +374,25 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
         }
         if let Some(print) = scan.ml_provider_info {
             cfg.runtime.print_provider = print;
+        }
+    }
+
+    if let Some(strict) = scan.filter_allowlist_strict {
+        opts.filter_allowlist_strict = strict;
+    }
+    if let Some(path) = scan.filter_allowlist.as_deref() {
+        match load_filter_allowlist(std::path::Path::new(path)) {
+            Ok(allowlist) => opts.filter_allowlist = Some(allowlist),
+            Err(err) => {
+                warn!(
+                    security = true,
+                    domain = %SecurityDomain::Detection,
+                    kind = "filter_allowlist_load_failed",
+                    error = %err,
+                    path = path,
+                    "Failed to load filter allowlist"
+                );
+            }
         }
     }
 

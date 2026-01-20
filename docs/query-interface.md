@@ -24,6 +24,14 @@ sis query sample.pdf js.count
 sis query sample.pdf embedded
 sis query sample.pdf images
 sis query sample.pdf images.risky
+sis query sample.pdf launch
+sis query sample.pdf embedded.executables
+sis query sample.pdf embedded.executables.count
+sis query sample.pdf xfa.submit
+sis query sample.pdf filters.unusual
+sis query sample.pdf streams.high-entropy
+sis query sample.pdf xfa.scripts.count
+sis query sample.pdf swf.extract.count
 ```
 
 ## Image Queries
@@ -46,6 +54,7 @@ Use `--where` to filter results:
 ```bash
 sis query sample.pdf images --where "pixels > 1000000 AND risky == true"
 sis query sample.pdf images --where "format == 'PNG' AND entropy > 7.5"
+sis query sample.pdf findings.count --where "subtype == 'embedded_executable_present'"
 ```
 
 See `docs/query-predicates.md` for all fields.
@@ -57,6 +66,8 @@ Extract payloads to disk:
 ```bash
 sis query sample.pdf images --extract-to /tmp/images
 sis query sample.pdf images --extract-to /tmp/images --raw
+sis query sample.pdf xfa.scripts --extract-to /tmp/xfa-scripts
+sis query sample.pdf swf.extract --extract-to /tmp/swf
 ```
 
 ## Output Formats
@@ -64,4 +75,43 @@ sis query sample.pdf images --extract-to /tmp/images --raw
 ```bash
 sis query sample.pdf images --format json
 sis query sample.pdf images --format jsonl
+```
+
+## Finding Shortcuts
+
+The following query shortcuts return `findings.kind` for common analysis paths.
+Add `.count` to return a numeric count.
+
+```bash
+sis query sample.pdf embedded.executables
+sis query sample.pdf embedded.scripts
+sis query sample.pdf embedded.archives.encrypted
+sis query sample.pdf embedded.encrypted
+sis query sample.pdf launch
+sis query sample.pdf launch.external
+sis query sample.pdf launch.embedded
+sis query sample.pdf actions.chains.complex
+sis query sample.pdf actions.triggers.automatic
+sis query sample.pdf actions.triggers.hidden
+sis query sample.pdf xfa.submit
+sis query sample.pdf xfa.sensitive
+sis query sample.pdf xfa.too-large
+sis query sample.pdf xfa.scripts.high
+sis query sample.pdf swf
+sis query sample.pdf streams.high-entropy
+sis query sample.pdf filters.unusual
+sis query sample.pdf filters.invalid
+sis query sample.pdf filters.repeated
+```
+
+## Filter Chain Queries
+
+Inspect filter-chain findings with optional predicates:
+
+```bash
+sis query sample.pdf filters.unusual
+sis query sample.pdf filters.invalid
+sis query sample.pdf filters.repeated
+sis query sample.pdf filters.unusual --where "filter_count > 1"
+sis query sample.pdf filters.invalid --where "violation_type == 'crypt_not_outermost'"
 ```

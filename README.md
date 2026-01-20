@@ -45,6 +45,10 @@ Key goals:
 - Deep object stream expansion and robust stream decoding with evidence spans.
 - Stable, deterministic finding IDs with reproducible evidence pointers.
 - Action chain detection across PDF actions, JavaScript, embedded files, and rich media.
+- Embedded file classification (executables, scripts, encrypted archives, double extensions).
+- XFA form inspection (submit actions, sensitive fields, script counts).
+- Rich media SWF detection and stream entropy signals.
+- Filter chain anomaly detection for unusual decoding sequences.
 - JavaScript malware detection with 72+ finding IDs (see `docs/findings.md`).
 - Font security analysis with Type 1, TrueType, OpenType, and variable font support (8+ finding IDs, see `docs/findings.md`).
 - Human-readable reports plus JSON, JSONL, and SARIF outputs.

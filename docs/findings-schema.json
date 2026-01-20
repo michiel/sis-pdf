@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sis-pdf.invalid/schemas/findings.schema.json",
+  "title": "SIS PDF Finding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "surface",
+    "kind",
+    "severity",
+    "confidence",
+    "title",
+    "description",
+    "objects",
+    "evidence"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "surface": {
+      "$ref": "#/$defs/attack_surface"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "severity": {
+      "$ref": "#/$defs/severity"
+    },
+    "confidence": {
+      "$ref": "#/$defs/confidence"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "objects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence_span"
+      }
+    },
+    "remediation": {
+      "type": ["string", "null"]
+    },
+    "position": {
+      "type": ["string", "null"]
+    },
+    "positions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "yara": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/yara_annotation"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "attack_surface": {
+      "type": "string",
+      "enum": [
+        "FileStructure",
+        "XRefTrailer",
+        "ObjectStreams",
+        "StreamsAndFilters",
+        "Actions",
+        "JavaScript",
+        "Forms",
+        "EmbeddedFiles",
+        "RichMedia3D",
+        "Images",
+        "CryptoSignatures",
+        "Metadata",
+        "ContentPhishing"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["Info", "Low", "Medium", "High", "Critical"]
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["Heuristic", "Probable", "Strong"]
+    },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "evidence_span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "offset", "length"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["File", "Decoded"]
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/span"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "note": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "yara_annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rule_name", "tags", "strings", "namespace"],
+      "properties": {
+        "rule_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "strings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "namespace": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}

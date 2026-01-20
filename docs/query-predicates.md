@@ -7,11 +7,14 @@ This guide documents the `--where` predicate filters for `sis query`.
 Predicate filtering is supported for:
 - `js`, `js.count`
 - `embedded`, `embedded.count`
+- `xfa.scripts`, `xfa.scripts.count`
+- `swf.extract`, `swf.extract.count`
 - `images`, `images.count`, `images.jbig2`, `images.jpx`, `images.ccitt`, `images.risky`, `images.malformed`
 - `objects.list`, `objects.with`, `objects.count`
 - `urls`, `urls.count`
 - `events`, `events.document`, `events.page`, `events.field`, `events.count`
 - `findings`, `findings.count`, `findings.kind`, `findings.high`, `findings.medium`, `findings.low`, `findings.info`, `findings.critical`
+- finding shortcut queries (for example `embedded.executables`, `launch.external`, `streams.high-entropy`) and their `.count` variants
 
 ## Fields
 
@@ -21,6 +24,14 @@ Predicates can use these fields:
 - `filter`: query-specific category (see mappings below)
 - `type`: high-level category name for the record
 - `subtype`: query-specific subtype (see mappings below)
+- `name`: record name or filename when available
+- `magic`: magic classifier label when available (for example `pe`, `zip`, `FWS`)
+- `severity`: finding severity (findings queries only, alias for `filter`)
+- `confidence`: finding confidence level (findings queries only)
+- `surface`: finding attack surface (findings queries only)
+- `kind`: finding kind (findings queries only, alias for `subtype`)
+- `objects`: finding related object count (findings queries only)
+- `evidence`: finding evidence span count (findings queries only)
 - `width`: image width in pixels (image queries only)
 - `height`: image height in pixels (image queries only)
 - `pixels`: total pixel count (image queries only)
@@ -42,6 +53,25 @@ Predicates can use these fields:
 - `type`: `Stream`
 - `filter`: stream `/Filter` name (if present)
 - `subtype`: stream `/Subtype` name (if present)
+- `name`: embedded filename
+- `magic`: magic classifier for payload bytes (for example `pe`, `zip`, `script`)
+
+### XFA scripts (`xfa.scripts`, `xfa.scripts.count`)
+- `length`: extracted script bytes
+- `entropy`: extracted script bytes entropy
+- `type`: `XfaScript`
+- `filter`: `xfa`
+- `subtype`: `script`
+- `name`: generated script filename
+
+### SWF extraction (`swf.extract`, `swf.extract.count`)
+- `length`: extracted SWF bytes (decoded or raw depending on flags)
+- `entropy`: extracted SWF bytes entropy
+- `type`: `SwfStream`
+- `filter`: stream `/Filter` name (if present)
+- `subtype`: `swf`
+- `name`: generated SWF filename
+- `magic`: SWF header tag (`FWS`, `CWS`, `ZWS`)
 
 ### Images (`images*`)
 - `length`: image stream bytes (decoded or raw depending on flags)
@@ -80,6 +110,12 @@ Predicates can use these fields:
 - `type`: `Finding`
 - `filter`: severity (`info`, `low`, `medium`, `high`, `critical`)
 - `subtype`: finding `kind`
+- `severity`: severity (`info`, `low`, `medium`, `high`, `critical`)
+- `confidence`: confidence (`heuristic`, `probable`, `strong`)
+- `surface`: attack surface (for example `embedded_files`, `actions`, `streams_and_filters`)
+- `kind`: finding kind (same as `subtype`)
+- `objects`: number of related objects
+- `evidence`: number of evidence spans
 
 ## Examples
 
@@ -101,4 +137,16 @@ sis query images file.pdf --where "risky == true AND pixels > 1000000"
 
 # PNG images with high entropy
 sis query images file.pdf --where "format == 'PNG' AND entropy > 7.5"
+
+# Filter chain findings with allowlist misses
+sis query filters.unusual file.pdf --where "violation_type == 'allowlist_miss'"
+
+# Filter order violations involving Crypt
+sis query filters.invalid file.pdf --where "violation_type == 'crypt_not_outermost'"
+
+# Filter chains flagged in strict mode
+sis query filters.unusual file.pdf --where "violation_type == 'strict_mode'"
+
+# Image filters chained with compression
+sis query filters.unusual file.pdf --where "violation_type == 'image_with_compression'"
 ```

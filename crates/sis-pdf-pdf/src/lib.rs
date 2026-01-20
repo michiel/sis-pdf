@@ -11,6 +11,7 @@ pub mod objstm;
 pub mod parser;
 pub mod path_finder;
 pub mod span;
+pub mod swf;
 pub mod typed_graph;
 pub mod xfa;
 pub mod xref;

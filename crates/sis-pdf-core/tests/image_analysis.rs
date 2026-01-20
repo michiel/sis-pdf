@@ -22,6 +22,8 @@ fn base_opts(deep: bool) -> ScanOptions {
         ml_config: None,
         font_analysis: FontAnalysisOptions::default(),
         image_analysis: ImageAnalysisOptions::default(),
+        filter_allowlist: None,
+        filter_allowlist_strict: false,
         profile: false,
         profile_format: ProfileFormat::Text,
         group_chains: true,

@@ -47,6 +47,8 @@ pub struct ScanOptions {
     pub ml_config: Option<crate::ml::MlConfig>,
     pub font_analysis: FontAnalysisOptions,
     pub image_analysis: ImageAnalysisOptions,
+    pub filter_allowlist: Option<Vec<Vec<String>>>,
+    pub filter_allowlist_strict: bool,
     pub profile: bool,
     pub profile_format: ProfileFormat,
     pub group_chains: bool,

@@ -64,6 +64,14 @@ pub enum PredicateField {
     Height,
     Pixels,
     Risky,
+    Severity,
+    Confidence,
+    Surface,
+    Kind,
+    Objects,
+    Evidence,
+    Name,
+    Magic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +101,14 @@ struct PredicateContext {
     height: u32,
     pixels: u64,
     risky: bool,
+    severity: Option<String>,
+    confidence: Option<String>,
+    surface: Option<String>,
+    kind: Option<String>,
+    object_count: usize,
+    evidence_count: usize,
+    name: Option<String>,
+    magic: Option<String>,
 }
 
 /// Query types supported by the interface
@@ -121,6 +137,10 @@ pub enum Query {
     UrlsCount,
     Embedded,
     EmbeddedCount,
+    XfaScripts,
+    XfaScriptsCount,
+    SwfStreams,
+    SwfStreamsCount,
     Images,
     ImagesCount,
     ImagesJbig2,
@@ -139,6 +159,7 @@ pub enum Query {
     FindingsCount,
     FindingsBySeverity(Severity),
     FindingsByKind(String),
+    FindingsByKindCount(String),
 
     // Event trigger queries
     Events,
@@ -249,6 +270,34 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "urls.count" => Ok(Query::UrlsCount),
         "embedded" => Ok(Query::Embedded),
         "embedded.count" => Ok(Query::EmbeddedCount),
+        "xfa.scripts" => Ok(Query::XfaScripts),
+        "xfa.scripts.count" => Ok(Query::XfaScriptsCount),
+        "swf.extract" => Ok(Query::SwfStreams),
+        "swf.extract.count" => Ok(Query::SwfStreamsCount),
+        "embedded.executables" => Ok(Query::FindingsByKind("embedded_executable_present".into())),
+        "embedded.executables.count" => {
+            Ok(Query::FindingsByKindCount("embedded_executable_present".into()))
+        }
+        "embedded.scripts" => Ok(Query::FindingsByKind("embedded_script_present".into())),
+        "embedded.scripts.count" => {
+            Ok(Query::FindingsByKindCount("embedded_script_present".into()))
+        }
+        "embedded.archives.encrypted" => {
+            Ok(Query::FindingsByKind("embedded_archive_encrypted".into()))
+        }
+        "embedded.archives.encrypted.count" => {
+            Ok(Query::FindingsByKindCount("embedded_archive_encrypted".into()))
+        }
+        "embedded.double-extension" => {
+            Ok(Query::FindingsByKind("embedded_double_extension".into()))
+        }
+        "embedded.double-extension.count" => {
+            Ok(Query::FindingsByKindCount("embedded_double_extension".into()))
+        }
+        "embedded.encrypted" => Ok(Query::FindingsByKind("embedded_encrypted".into())),
+        "embedded.encrypted.count" => {
+            Ok(Query::FindingsByKindCount("embedded_encrypted".into()))
+        }
         "images" => Ok(Query::Images),
         "images.count" => Ok(Query::ImagesCount),
         "images.jbig2" => Ok(Query::ImagesJbig2),
@@ -261,6 +310,54 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "images.risky.count" => Ok(Query::ImagesRiskyCount),
         "images.malformed" => Ok(Query::ImagesMalformed),
         "images.malformed.count" => Ok(Query::ImagesMalformedCount),
+        "launch" => Ok(Query::FindingsByKind("launch_action_present".into())),
+        "launch.count" => Ok(Query::FindingsByKindCount("launch_action_present".into())),
+        "launch.external" => Ok(Query::FindingsByKind("launch_external_program".into())),
+        "launch.external.count" => {
+            Ok(Query::FindingsByKindCount("launch_external_program".into()))
+        }
+        "launch.embedded" => Ok(Query::FindingsByKind("launch_embedded_file".into())),
+        "launch.embedded.count" => {
+            Ok(Query::FindingsByKindCount("launch_embedded_file".into()))
+        }
+        "actions.chains.complex" => Ok(Query::FindingsByKind("action_chain_complex".into())),
+        "actions.chains.complex.count" => {
+            Ok(Query::FindingsByKindCount("action_chain_complex".into()))
+        }
+        "actions.triggers.automatic" => {
+            Ok(Query::FindingsByKind("action_automatic_trigger".into()))
+        }
+        "actions.triggers.automatic.count" => {
+            Ok(Query::FindingsByKindCount("action_automatic_trigger".into()))
+        }
+        "actions.triggers.hidden" => Ok(Query::FindingsByKind("action_hidden_trigger".into())),
+        "actions.triggers.hidden.count" => {
+            Ok(Query::FindingsByKindCount("action_hidden_trigger".into()))
+        }
+        "xfa.submit" => Ok(Query::FindingsByKind("xfa_submit".into())),
+        "xfa.submit.count" => Ok(Query::FindingsByKindCount("xfa_submit".into())),
+        "xfa.sensitive" => Ok(Query::FindingsByKind("xfa_sensitive_field".into())),
+        "xfa.sensitive.count" => Ok(Query::FindingsByKindCount("xfa_sensitive_field".into())),
+        "xfa.too-large" => Ok(Query::FindingsByKind("xfa_too_large".into())),
+        "xfa.too-large.count" => Ok(Query::FindingsByKindCount("xfa_too_large".into())),
+        "xfa.scripts.high" => Ok(Query::FindingsByKind("xfa_script_count_high".into())),
+        "xfa.scripts.high.count" => {
+            Ok(Query::FindingsByKindCount("xfa_script_count_high".into()))
+        }
+        "swf" => Ok(Query::FindingsByKind("swf_embedded".into())),
+        "swf.count" => Ok(Query::FindingsByKindCount("swf_embedded".into())),
+        "streams.high-entropy" => Ok(Query::FindingsByKind("stream_high_entropy".into())),
+        "streams.high-entropy.count" => {
+            Ok(Query::FindingsByKindCount("stream_high_entropy".into()))
+        }
+        "filters.unusual" => Ok(Query::FindingsByKind("filter_chain_unusual".into())),
+        "filters.unusual.count" => Ok(Query::FindingsByKindCount("filter_chain_unusual".into())),
+        "filters.invalid" => Ok(Query::FindingsByKind("filter_order_invalid".into())),
+        "filters.invalid.count" => Ok(Query::FindingsByKindCount("filter_order_invalid".into())),
+        "filters.repeated" => Ok(Query::FindingsByKind("filter_combination_unusual".into())),
+        "filters.repeated.count" => {
+            Ok(Query::FindingsByKindCount("filter_combination_unusual".into()))
+        }
 
         // Findings
         "findings" => Ok(Query::Findings),
@@ -336,6 +433,10 @@ pub fn parse_query(input: &str) -> Result<Query> {
             }
 
             // Try to parse findings.kind query
+            if let Some(kind) = input.strip_prefix("findings.kind.count ") {
+                return Ok(Query::FindingsByKindCount(kind.to_string()));
+            }
+
             if let Some(kind) = input.strip_prefix("findings.kind ") {
                 return Ok(Query::FindingsByKind(kind.to_string()));
             }
@@ -665,6 +766,30 @@ fn parse_predicate_field(name: &str) -> Result<PredicateField> {
         PredicateField::Pixels
     } else if lower.ends_with(".risky") || lower == "risky" {
         PredicateField::Risky
+    } else if lower.ends_with(".severity") || lower == "severity" {
+        PredicateField::Severity
+    } else if lower.ends_with(".confidence") || lower == "confidence" {
+        PredicateField::Confidence
+    } else if lower.ends_with(".surface") || lower == "surface" {
+        PredicateField::Surface
+    } else if lower.ends_with(".kind") || lower == "kind" {
+        PredicateField::Kind
+    } else if lower.ends_with(".objects")
+        || lower == "objects"
+        || lower.ends_with(".object_count")
+        || lower == "object_count"
+    {
+        PredicateField::Objects
+    } else if lower.ends_with(".evidence")
+        || lower == "evidence"
+        || lower.ends_with(".evidence_count")
+        || lower == "evidence_count"
+    {
+        PredicateField::Evidence
+    } else if lower.ends_with(".name") || lower == "name" || lower.ends_with(".filename") || lower == "filename" {
+        PredicateField::Name
+    } else if lower.ends_with(".magic") || lower == "magic" {
+        PredicateField::Magic
     } else {
         return Err(anyhow!("Unknown predicate field: {}", name));
     };
@@ -687,6 +812,14 @@ impl PredicateExpr {
                 PredicateField::Height => compare_number(ctx.height as f64, *op, value),
                 PredicateField::Pixels => compare_number(ctx.pixels as f64, *op, value),
                 PredicateField::Risky => compare_bool(ctx.risky, *op, value),
+                PredicateField::Severity => compare_string(ctx.severity.as_deref(), *op, value),
+                PredicateField::Confidence => compare_string(ctx.confidence.as_deref(), *op, value),
+                PredicateField::Surface => compare_string(ctx.surface.as_deref(), *op, value),
+                PredicateField::Kind => compare_string(ctx.kind.as_deref(), *op, value),
+                PredicateField::Objects => compare_number(ctx.object_count as f64, *op, value),
+                PredicateField::Evidence => compare_number(ctx.evidence_count as f64, *op, value),
+                PredicateField::Name => compare_string(ctx.name.as_deref(), *op, value),
+                PredicateField::Magic => compare_string(ctx.magic.as_deref(), *op, value),
             },
         }
     }
@@ -799,6 +932,10 @@ pub fn execute_query_with_context(
                     | Query::JavaScriptCount
                     | Query::Embedded
                     | Query::EmbeddedCount
+                    | Query::XfaScripts
+                    | Query::XfaScriptsCount
+                    | Query::SwfStreams
+                    | Query::SwfStreamsCount
                     | Query::Urls
                     | Query::UrlsCount
                     | Query::Images
@@ -822,6 +959,7 @@ pub fn execute_query_with_context(
                     | Query::FindingsCount
                     | Query::FindingsBySeverity(_)
                     | Query::FindingsByKind(_)
+                    | Query::FindingsByKindCount(_)
                     | Query::ObjectsCount
                     | Query::ObjectsList
                     | Query::ObjectsWithType(_)
@@ -886,6 +1024,17 @@ pub fn execute_query_with_context(
                     .collect();
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
+            }
+            Query::FindingsByKindCount(kind) => {
+                let findings = run_detectors(ctx)?;
+                let filtered: Vec<sis_pdf_core::model::Finding> = findings
+                    .into_iter()
+                    .filter(|f| f.kind == *kind)
+                    .collect();
+                let filtered = filter_findings(filtered, predicate);
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    filtered.len() as i64
+                )))
             }
             Query::Findings => {
                 let findings = run_detectors(ctx)?;
@@ -956,6 +1105,64 @@ pub fn execute_query_with_context(
                 let embedded = extract_embedded_files(ctx, decode_mode, predicate)?;
                 Ok(QueryResult::Scalar(ScalarValue::Number(
                     embedded.len() as i64
+                )))
+            }
+            Query::XfaScripts => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                if let Some(extract_path) = extract_to {
+                    let written = write_xfa_scripts(ctx, extract_path, predicate)?;
+                    Ok(QueryResult::List(written))
+                } else {
+                    let scripts = extract_xfa_scripts(ctx, predicate)?;
+                    Ok(QueryResult::List(scripts))
+                }
+            }
+            Query::XfaScriptsCount => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let scripts = extract_xfa_scripts(ctx, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    scripts.len() as i64
+                )))
+            }
+            Query::SwfStreams => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                if let Some(extract_path) = extract_to {
+                    let written = write_swf_streams(
+                        ctx,
+                        extract_path,
+                        max_extract_bytes,
+                        decode_mode,
+                        predicate,
+                    )?;
+                    Ok(QueryResult::List(written))
+                } else {
+                    let streams = extract_swf_streams(
+                        ctx,
+                        max_extract_bytes,
+                        decode_mode,
+                        predicate,
+                    )?;
+                    Ok(QueryResult::List(streams))
+                }
+            }
+            Query::SwfStreamsCount => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let streams = extract_swf_streams(
+                    ctx,
+                    max_extract_bytes,
+                    decode_mode,
+                    predicate,
+                )?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    streams.len() as i64
                 )))
             }
             Query::Images => {
@@ -1343,6 +1550,8 @@ fn build_scan_context<'a>(
         ml_config: None,
         font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
         image_analysis: sis_pdf_core::scan::ImageAnalysisOptions::default(),
+        filter_allowlist: None,
+        filter_allowlist_strict: false,
         profile: false,
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
         group_chains: options.group_chains,
@@ -1650,6 +1859,12 @@ fn extract_embedded_files(
         if let PdfAtom::Stream(st) = &entry.atom {
             if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
                 let data = stream_bytes_for_mode(ctx.bytes, st, 32 * 1024 * 1024, decode_mode)?;
+                let name = embedded_filename(&st.dict)
+                    .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
+                let analysis = sis_pdf_core::stream_analysis::analyse_stream(
+                    &data,
+                    &sis_pdf_core::stream_analysis::StreamLimits::default(),
+                );
                 let meta = PredicateContext {
                     length: data.len(),
                     filter: filter_name(&st.dict),
@@ -1660,10 +1875,16 @@ fn extract_embedded_files(
                     height: 0,
                     pixels: 0,
                     risky: false,
+                    severity: None,
+                    confidence: None,
+                    surface: None,
+                    kind: None,
+                    object_count: 0,
+                    evidence_count: 0,
+                    name: Some(name.clone()),
+                    magic: Some(analysis.magic_type),
                 };
                 if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
-                    let name = embedded_filename(&st.dict)
-                        .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
                     embedded.push(format!(
                         "{} ({}_{}, {} bytes)",
                         name,
@@ -1677,6 +1898,263 @@ fn extract_embedded_files(
     }
 
     Ok(embedded)
+}
+
+struct XfaScriptPayload {
+    bytes: Vec<u8>,
+    source: String,
+}
+
+fn collect_xfa_script_payloads(ctx: &ScanContext) -> Vec<XfaScriptPayload> {
+    use sis_pdf_pdf::decode::DecodeLimits;
+    use sis_pdf_pdf::object::PdfAtom;
+
+    let limits = DecodeLimits {
+        max_decoded_bytes: ctx.options.image_analysis.max_xfa_decode_bytes,
+        max_filter_chain_depth: ctx.options.image_analysis.max_filter_chain_depth,
+    };
+    let mut out = Vec::new();
+    for entry in &ctx.graph.objects {
+        let dict = match &entry.atom {
+            PdfAtom::Dict(dict) => dict,
+            PdfAtom::Stream(stream) => &stream.dict,
+            _ => continue,
+        };
+        let Some((_, xfa_obj)) = dict.get_first(b"/XFA") else {
+            continue;
+        };
+        let payloads = xfa_payloads_from_obj(&ctx.graph, xfa_obj, limits);
+        for payload in payloads {
+            for script in sis_pdf_pdf::xfa::extract_xfa_script_payloads(&payload) {
+                out.push(XfaScriptPayload {
+                    bytes: script,
+                    source: format!("{}_{}", entry.obj, entry.gen),
+                });
+            }
+        }
+    }
+    out
+}
+
+fn extract_xfa_scripts(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<String>> {
+    let mut scripts = Vec::new();
+    let payloads = collect_xfa_script_payloads(ctx);
+    for (idx, payload) in payloads.iter().enumerate() {
+        let filename = format!("xfa_script_{:03}.js", idx + 1);
+        let meta = PredicateContext {
+            length: payload.bytes.len(),
+            filter: Some("xfa".to_string()),
+            type_name: "XfaScript".to_string(),
+            subtype: Some("script".to_string()),
+            entropy: entropy_score(&payload.bytes),
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: Some(filename.clone()),
+            magic: None,
+        };
+        if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
+            let preview = String::from_utf8_lossy(&payload.bytes);
+            scripts.push(format!(
+                "{} (source {}, {} bytes): {}",
+                filename,
+                payload.source,
+                payload.bytes.len(),
+                preview_text(&preview, 200)
+            ));
+        }
+    }
+    Ok(scripts)
+}
+
+fn write_xfa_scripts(
+    ctx: &ScanContext,
+    extract_to: &Path,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<String>> {
+    use std::fs;
+
+    fs::create_dir_all(extract_to)?;
+    let payloads = collect_xfa_script_payloads(ctx);
+    let mut written = Vec::new();
+    let mut manifest = Vec::new();
+    for (idx, payload) in payloads.iter().enumerate() {
+        let filename = format!("xfa_script_{:03}.js", idx + 1);
+        let meta = PredicateContext {
+            length: payload.bytes.len(),
+            filter: Some("xfa".to_string()),
+            type_name: "XfaScript".to_string(),
+            subtype: Some("script".to_string()),
+            entropy: entropy_score(&payload.bytes),
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: Some(filename.clone()),
+            magic: None,
+        };
+        if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
+            let filepath = extract_to.join(&filename);
+            fs::write(&filepath, &payload.bytes)?;
+            let hash = sha256_hex(&payload.bytes);
+            written.push(format!(
+                "{}: {} bytes, sha256={}, source={}",
+                filename,
+                payload.bytes.len(),
+                hash,
+                payload.source
+            ));
+            manifest.push(serde_json::json!({
+                "filename": filename,
+                "sha256": hash,
+                "length": payload.bytes.len(),
+                "source": payload.source,
+            }));
+        }
+    }
+    if !manifest.is_empty() {
+        let manifest_path = extract_to.join("manifest.json");
+        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
+        written.push(format!("manifest.json: {} entries", manifest.len()));
+    }
+    Ok(written)
+}
+
+struct SwfStreamInfo {
+    obj: u32,
+    gen: u16,
+    data: Vec<u8>,
+    filter: Option<String>,
+    magic: &'static str,
+}
+
+fn swf_magic_label(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"FWS") {
+        Some("FWS")
+    } else if bytes.starts_with(b"CWS") {
+        Some("CWS")
+    } else if bytes.starts_with(b"ZWS") {
+        Some("ZWS")
+    } else {
+        None
+    }
+}
+
+fn collect_swf_streams(
+    ctx: &ScanContext,
+    max_extract_bytes: usize,
+    decode_mode: DecodeMode,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<SwfStreamInfo>> {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    let mut streams = Vec::new();
+    for entry in &ctx.graph.objects {
+        let PdfAtom::Stream(stream) = &entry.atom else {
+            continue;
+        };
+        let data = match stream_bytes_for_mode(ctx.bytes, stream, max_extract_bytes, decode_mode) {
+            Ok(data) => data,
+            Err(_) => continue,
+        };
+        let Some(magic) = swf_magic_label(&data) else {
+            continue;
+        };
+        let name = format!("swf_{}_{}.swf", entry.obj, entry.gen);
+        let meta = PredicateContext {
+            length: data.len(),
+            filter: filter_name(&stream.dict),
+            type_name: "SwfStream".to_string(),
+            subtype: Some("swf".to_string()),
+            entropy: entropy_score(&data),
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: Some(name),
+            magic: Some(magic.to_string()),
+        };
+        if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
+            streams.push(SwfStreamInfo {
+                obj: entry.obj,
+                gen: entry.gen,
+                data,
+                filter: meta.filter,
+                magic,
+            });
+        }
+    }
+    Ok(streams)
+}
+
+fn extract_swf_streams(
+    ctx: &ScanContext,
+    max_extract_bytes: usize,
+    decode_mode: DecodeMode,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for info in collect_swf_streams(ctx, max_extract_bytes, decode_mode, predicate)? {
+        let filter = info.filter.unwrap_or_else(|| "none".into());
+        out.push(format!(
+            "SWF {} ({}_{}, {}, {} bytes)",
+            info.magic,
+            info.obj,
+            info.gen,
+            filter,
+            info.data.len()
+        ));
+    }
+    Ok(out)
+}
+
+fn write_swf_streams(
+    ctx: &ScanContext,
+    extract_to: &Path,
+    max_extract_bytes: usize,
+    decode_mode: DecodeMode,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<String>> {
+    use std::fs;
+
+    fs::create_dir_all(extract_to)?;
+    let mut written = Vec::new();
+    for info in collect_swf_streams(ctx, max_extract_bytes, decode_mode, predicate)? {
+        let filename = format!("swf_{}_{}.swf", info.obj, info.gen);
+        let filepath = extract_to.join(&filename);
+        fs::write(&filepath, &info.data)?;
+        let hash = sha256_hex(&info.data);
+        written.push(format!(
+            "{}: {} bytes, sha256={}, magic={}",
+            filename,
+            info.data.len(),
+            hash,
+            info.magic
+        ));
+    }
+    Ok(written)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1801,6 +2279,14 @@ fn collect_images(
             height,
             pixels,
             risky: format.risky(),
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: None,
+            magic: None,
         };
         if predicate.map(|pred| pred.evaluate(&ctx_meta)).unwrap_or(true) {
             images.push(ImageInfo {
@@ -2103,6 +2589,10 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::JavaScriptCount
         | Query::Embedded
         | Query::EmbeddedCount
+        | Query::XfaScripts
+        | Query::XfaScriptsCount
+        | Query::SwfStreams
+        | Query::SwfStreamsCount
         | Query::Urls
         | Query::UrlsCount
         | Query::Images
@@ -2126,6 +2616,7 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::FindingsCount
         | Query::FindingsBySeverity(_)
         | Query::FindingsByKind(_)
+        | Query::FindingsByKindCount(_)
         | Query::ObjectsCount
         | Query::ObjectsList
         | Query::ObjectsWithType(_) => Ok(()),
@@ -2436,6 +2927,69 @@ fn string_raw_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
     }
 }
 
+fn xfa_payloads_from_obj(
+    graph: &sis_pdf_pdf::ObjectGraph<'_>,
+    obj: &sis_pdf_pdf::object::PdfObj<'_>,
+    limits: sis_pdf_pdf::decode::DecodeLimits,
+) -> Vec<Vec<u8>> {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    let mut out = Vec::new();
+    match &obj.atom {
+        PdfAtom::Array(items) => {
+            let mut iter = items.iter().peekable();
+            while let Some(item) = iter.next() {
+                match &item.atom {
+                    PdfAtom::Name(_) | PdfAtom::Str(_) => {
+                        if let Some(next) = iter.next() {
+                            out.extend(resolve_xfa_payload(graph, next, limits));
+                        }
+                    }
+                    _ => out.extend(resolve_xfa_payload(graph, item, limits)),
+                }
+            }
+        }
+        _ => out.extend(resolve_xfa_payload(graph, obj, limits)),
+    }
+    out
+}
+
+fn resolve_xfa_payload(
+    graph: &sis_pdf_pdf::ObjectGraph<'_>,
+    obj: &sis_pdf_pdf::object::PdfObj<'_>,
+    limits: sis_pdf_pdf::decode::DecodeLimits,
+) -> Vec<Vec<u8>> {
+    use sis_pdf_pdf::decode::decode_stream_with_meta;
+    use sis_pdf_pdf::object::PdfAtom;
+
+    let mut out = Vec::new();
+    match &obj.atom {
+        PdfAtom::Str(s) => out.push(string_bytes(s)),
+        PdfAtom::Stream(stream) => {
+            let result = decode_stream_with_meta(graph.bytes, stream, limits);
+            if let Some(data) = result.data {
+                out.push(data);
+            }
+        }
+        PdfAtom::Ref { .. } => {
+            if let Some(entry) = graph.resolve_ref(obj) {
+                match &entry.atom {
+                    PdfAtom::Stream(stream) => {
+                        let result = decode_stream_with_meta(graph.bytes, stream, limits);
+                        if let Some(data) = result.data {
+                            out.push(data);
+                        }
+                    }
+                    PdfAtom::Str(s) => out.push(string_bytes(s)),
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
 fn entropy_score(data: &[u8]) -> f64 {
     if data.is_empty() {
         return 0.0;
@@ -2522,6 +3076,14 @@ fn predicate_context_for_entry(
                 height: 0,
                 pixels: 0,
                 risky: false,
+                severity: None,
+                confidence: None,
+                surface: None,
+                kind: None,
+                object_count: 0,
+                evidence_count: 0,
+                name: None,
+                magic: None,
             }
         }
         PdfAtom::Stream(stream) => {
@@ -2553,6 +3115,14 @@ fn predicate_context_for_entry(
                 height: 0,
                 pixels: 0,
                 risky: false,
+                severity: None,
+                confidence: None,
+                surface: None,
+                kind: None,
+                object_count: 0,
+                evidence_count: 0,
+                name: None,
+                magic: None,
             }
         }
         PdfAtom::Dict(dict) => PredicateContext {
@@ -2565,6 +3135,14 @@ fn predicate_context_for_entry(
             height: 0,
             pixels: 0,
             risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: None,
+            magic: None,
         },
         PdfAtom::Array(_) => PredicateContext {
             length: 0,
@@ -2576,6 +3154,14 @@ fn predicate_context_for_entry(
             height: 0,
             pixels: 0,
             risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: None,
+            magic: None,
         },
         atom => PredicateContext {
             length: 0,
@@ -2587,6 +3173,14 @@ fn predicate_context_for_entry(
             height: 0,
             pixels: 0,
             risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: None,
+            magic: None,
         },
     }
 }
@@ -2603,6 +3197,14 @@ fn predicate_context_for_url(url: &str) -> PredicateContext {
         height: 0,
         pixels: 0,
         risky: false,
+        severity: None,
+        confidence: None,
+        surface: None,
+        kind: None,
+        object_count: 0,
+        evidence_count: 0,
+        name: None,
+        magic: None,
     }
 }
 
@@ -2624,6 +3226,14 @@ fn predicate_context_for_event(event: &serde_json::Value) -> Option<PredicateCon
         height: 0,
         pixels: 0,
         risky: false,
+        severity: None,
+        confidence: None,
+        surface: None,
+        kind: None,
+        object_count: 0,
+        evidence_count: 0,
+        name: None,
+        magic: None,
     })
 }
 
@@ -2639,6 +3249,14 @@ fn predicate_context_for_finding(finding: &sis_pdf_core::model::Finding) -> Pred
         height: 0,
         pixels: 0,
         risky: false,
+        severity: Some(severity_to_string(&finding.severity)),
+        confidence: Some(confidence_to_string(&finding.confidence)),
+        surface: Some(surface_to_string(&finding.surface)),
+        kind: Some(finding.kind.clone()),
+        object_count: finding.objects.len(),
+        evidence_count: finding.evidence.len(),
+        name: None,
+        magic: None,
     }
 }
 
@@ -2649,6 +3267,34 @@ fn severity_to_string(severity: &sis_pdf_core::model::Severity) -> String {
         sis_pdf_core::model::Severity::Medium => "medium",
         sis_pdf_core::model::Severity::High => "high",
         sis_pdf_core::model::Severity::Critical => "critical",
+    }
+    .to_string()
+}
+
+fn confidence_to_string(confidence: &sis_pdf_core::model::Confidence) -> String {
+    match confidence {
+        sis_pdf_core::model::Confidence::Heuristic => "heuristic",
+        sis_pdf_core::model::Confidence::Probable => "probable",
+        sis_pdf_core::model::Confidence::Strong => "strong",
+    }
+    .to_string()
+}
+
+fn surface_to_string(surface: &sis_pdf_core::model::AttackSurface) -> String {
+    match surface {
+        sis_pdf_core::model::AttackSurface::FileStructure => "file_structure",
+        sis_pdf_core::model::AttackSurface::XRefTrailer => "xref_trailer",
+        sis_pdf_core::model::AttackSurface::ObjectStreams => "object_streams",
+        sis_pdf_core::model::AttackSurface::StreamsAndFilters => "streams_and_filters",
+        sis_pdf_core::model::AttackSurface::Actions => "actions",
+        sis_pdf_core::model::AttackSurface::JavaScript => "javascript",
+        sis_pdf_core::model::AttackSurface::Forms => "forms",
+        sis_pdf_core::model::AttackSurface::EmbeddedFiles => "embedded_files",
+        sis_pdf_core::model::AttackSurface::RichMedia3D => "rich_media_3d",
+        sis_pdf_core::model::AttackSurface::Images => "images",
+        sis_pdf_core::model::AttackSurface::CryptoSignatures => "crypto_signatures",
+        sis_pdf_core::model::AttackSurface::Metadata => "metadata",
+        sis_pdf_core::model::AttackSurface::ContentPhishing => "content_phishing",
     }
     .to_string()
 }
@@ -2766,6 +3412,14 @@ fn extract_obj_with_metadata(
                 height: 0,
                 pixels: 0,
                 risky: false,
+                severity: None,
+                confidence: None,
+                surface: None,
+                kind: None,
+                object_count: 0,
+                evidence_count: 0,
+                name: None,
+                magic: None,
             };
             Some((data, ctx))
         }
@@ -2781,6 +3435,14 @@ fn extract_obj_with_metadata(
                 height: 0,
                 pixels: 0,
                 risky: false,
+                severity: None,
+                confidence: None,
+                surface: None,
+                kind: None,
+                object_count: 0,
+                evidence_count: 0,
+                name: None,
+                magic: None,
             };
             Some((data, ctx))
         }
@@ -2802,6 +3464,14 @@ fn extract_obj_with_metadata(
                         height: 0,
                         pixels: 0,
                         risky: false,
+                        severity: None,
+                        confidence: None,
+                        surface: None,
+                        kind: None,
+                        object_count: 0,
+                        evidence_count: 0,
+                        name: None,
+                        magic: None,
                     };
                     Some((data, ctx))
                 }
@@ -2818,6 +3488,14 @@ fn extract_obj_with_metadata(
                         height: 0,
                         pixels: 0,
                         risky: false,
+                        severity: None,
+                        confidence: None,
+                        surface: None,
+                        kind: None,
+                        object_count: 0,
+                        evidence_count: 0,
+                        name: None,
+                        magic: None,
                     };
                     Some((data, ctx))
                 }
@@ -3022,6 +3700,13 @@ fn write_embedded_files(
                         break;
                     }
 
+                    let name = embedded_filename(&st.dict).unwrap_or_else(|| {
+                        format!("embedded_{}_{}.bin", entry.obj, entry.gen)
+                    });
+                    let analysis = sis_pdf_core::stream_analysis::analyse_stream(
+                        &data,
+                        &sis_pdf_core::stream_analysis::StreamLimits::default(),
+                    );
                     let meta = PredicateContext {
                         length: data.len(),
                         filter: filter_name(&st.dict),
@@ -3032,12 +3717,17 @@ fn write_embedded_files(
                         height: 0,
                         pixels: 0,
                         risky: false,
+                        severity: None,
+                        confidence: None,
+                        surface: None,
+                        kind: None,
+                        object_count: 0,
+                        evidence_count: 0,
+                        name: Some(name.clone()),
+                        magic: Some(analysis.magic_type),
                     };
                     if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
                     // Get filename
-                    let name = embedded_filename(&st.dict).unwrap_or_else(|| {
-                        format!("embedded_{}_{}.bin", entry.obj, entry.gen)
-                    });
                     let safe_name = sanitize_embedded_filename(&name);
                     let (filename, output_bytes, mode_label) = match decode_mode {
                         DecodeMode::Decode => (safe_name, data.clone(), "decode"),
@@ -4315,6 +5005,14 @@ mod tests {
             height: 0,
             pixels: 0,
             risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: None,
+            magic: None,
         };
         assert!(expr.evaluate(&ctx));
     }
@@ -4332,8 +5030,439 @@ mod tests {
             height: 0,
             pixels: 0,
             risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: None,
+            magic: None,
         };
         assert!(!expr.evaluate(&ctx));
+    }
+
+    #[test]
+    fn predicate_supports_finding_metadata_fields() {
+        let expr = parse_predicate(
+            "severity == 'high' AND confidence == 'strong' AND surface == 'actions' AND kind == 'launch_external_program' AND objects > 0 AND evidence >= 1",
+        )
+        .expect("predicate");
+        let ctx = PredicateContext {
+            length: 0,
+            filter: None,
+            type_name: "Finding".to_string(),
+            subtype: None,
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: false,
+            severity: Some("high".to_string()),
+            confidence: Some("strong".to_string()),
+            surface: Some("actions".to_string()),
+            kind: Some("launch_external_program".to_string()),
+            object_count: 2,
+            evidence_count: 1,
+            name: None,
+            magic: None,
+        };
+        assert!(expr.evaluate(&ctx));
+    }
+
+    #[test]
+    fn parse_query_supports_finding_shortcut_counts() {
+        let query = parse_query("embedded.executables.count").expect("query");
+        assert!(matches!(
+            query,
+            Query::FindingsByKindCount(ref kind) if kind == "embedded_executable_present"
+        ));
+        let query = parse_query("findings.kind.count embedded_executable_present").expect("query");
+        assert!(matches!(
+            query,
+            Query::FindingsByKindCount(ref kind) if kind == "embedded_executable_present"
+        ));
+    }
+
+    #[test]
+    fn execute_query_supports_finding_shortcut_counts() {
+        with_fixture_context("embedded/embedded_exe_cve_2018_4990.pdf", |ctx| {
+            let list_query = parse_query("embedded.executables").expect("query");
+            let list_result = execute_query_with_context(
+                &list_query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match list_result {
+                QueryResult::Structure(value) => {
+                    let list = value.as_array().expect("list");
+                    assert!(!list.is_empty());
+                }
+                _ => panic!("unexpected list query result"),
+            }
+
+            let count_query = parse_query("embedded.executables.count").expect("query");
+            let count_result = execute_query_with_context(
+                &count_query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match count_result {
+                QueryResult::Scalar(ScalarValue::Number(count)) => {
+                    assert!(count > 0);
+                }
+                _ => panic!("unexpected count query result"),
+            }
+
+            let predicate = parse_predicate(
+                "objects > 0 AND kind == 'embedded_executable_present' AND severity == 'high'",
+            )
+            .expect("predicate");
+            let filtered_result = execute_query_with_context(
+                &list_query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("execute query");
+            match filtered_result {
+                QueryResult::Structure(value) => {
+                    let list = value.as_array().expect("list");
+                    assert!(!list.is_empty());
+                }
+                _ => panic!("unexpected filtered query result"),
+            }
+        });
+    }
+
+    #[test]
+    fn batch_query_supports_finding_shortcut_counts() {
+        let temp = tempdir().expect("tempdir");
+        let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root")
+            .join("crates/sis-pdf-core/tests/fixtures/embedded/embedded_exe_cve_2018_4990.pdf");
+        let dst = temp.path().join("sample.pdf");
+        std::fs::copy(&src, &dst).expect("copy fixture");
+
+        let query = parse_query("embedded.executables.count").expect("query");
+        let scan_options = ScanOptions::default();
+        run_query_batch(
+            &query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+            OutputFormat::Json,
+            10,
+            10 * 1024 * 1024,
+            3,
+        )
+        .expect("batch query");
+    }
+
+    #[test]
+    fn execute_query_supports_embedded_extraction() {
+        with_fixture_context("embedded/embedded_exe_cve_2018_4990.pdf", |ctx| {
+            let temp = tempdir().expect("tempdir");
+            let query = parse_query("embedded").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                Some(temp.path()),
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::List(list) => {
+                    assert!(!list.is_empty());
+                    let count = std::fs::read_dir(temp.path())
+                        .expect("read dir")
+                        .count();
+                    assert!(count > 0);
+                }
+                _ => panic!("unexpected embedded extraction result"),
+            }
+        });
+    }
+
+    #[test]
+    fn execute_query_supports_filter_shortcuts() {
+        with_fixture_context("filters/filter_unusual_chain.pdf", |ctx| {
+            let query = parse_query("filters.unusual").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::Structure(value) => {
+                    let list = value.as_array().expect("list");
+                    assert!(!list.is_empty());
+                }
+                _ => panic!("unexpected filters.unusual result"),
+            }
+
+            let query = parse_query("filters.repeated").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::Structure(value) => {
+                    let list = value.as_array().expect("list");
+                    assert!(!list.is_empty());
+                }
+                _ => panic!("unexpected filters.repeated result"),
+            }
+        });
+
+        with_fixture_context("filters/filter_invalid_order.pdf", |ctx| {
+            let query = parse_query("filters.invalid").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::Structure(value) => {
+                    let list = value.as_array().expect("list");
+                    assert!(!list.is_empty());
+                }
+                _ => panic!("unexpected filters.invalid result"),
+            }
+        });
+    }
+
+    #[test]
+    fn embedded_predicate_supports_name_and_magic() {
+        with_fixture_context("embedded/embedded_exe_cve_2018_4990.pdf", |ctx| {
+            let predicate = parse_predicate("magic == 'pe' AND name == 'payload.exe'")
+                .expect("predicate");
+            let embedded = extract_embedded_files(ctx, DecodeMode::Decode, Some(&predicate))
+                .expect("embedded");
+            assert!(!embedded.is_empty());
+        });
+    }
+
+    #[test]
+    fn execute_query_supports_xfa_script_extraction() {
+        with_fixture_context("xfa/xfa_submit_sensitive.pdf", |ctx| {
+            let temp = tempdir().expect("tempdir");
+            let query = parse_query("xfa.scripts").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                Some(temp.path()),
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::List(list) => {
+                    assert!(!list.is_empty());
+                    let count = std::fs::read_dir(temp.path())
+                        .expect("read dir")
+                        .count();
+                    assert!(count > 0);
+                    let manifest = temp.path().join("manifest.json");
+                    assert!(manifest.exists());
+                }
+                _ => panic!("unexpected xfa scripts result"),
+            }
+        });
+    }
+
+    #[test]
+    fn execute_query_supports_swf_extraction() {
+        with_fixture_context("media/swf_cve_2011_0611.pdf", |ctx| {
+            let temp = tempdir().expect("tempdir");
+            let query = parse_query("swf.extract").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                Some(temp.path()),
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::List(list) => {
+                    assert!(!list.is_empty());
+                    let count = std::fs::read_dir(temp.path())
+                        .expect("read dir")
+                        .count();
+                    assert!(count > 0);
+                }
+                _ => panic!("unexpected swf extraction result"),
+            }
+        });
+    }
+
+    #[test]
+    fn batch_query_supports_xfa_and_swf_extract_counts() {
+        let temp = tempdir().expect("tempdir");
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root")
+            .join("crates/sis-pdf-core/tests/fixtures");
+        std::fs::copy(
+            root.join("xfa/xfa_submit_sensitive.pdf"),
+            temp.path().join("sample-xfa.pdf"),
+        )
+        .expect("copy xfa");
+        std::fs::copy(
+            root.join("media/swf_cve_2011_0611.pdf"),
+            temp.path().join("sample-swf.pdf"),
+        )
+        .expect("copy swf");
+
+        let scan_options = ScanOptions::default();
+        let query = parse_query("xfa.scripts.count").expect("query");
+        run_query_batch(
+            &query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+            OutputFormat::Json,
+            10,
+            10 * 1024 * 1024,
+            3,
+        )
+        .expect("batch query xfa");
+
+        let query = parse_query("swf.extract.count").expect("query");
+        run_query_batch(
+            &query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+            OutputFormat::Json,
+            10,
+            10 * 1024 * 1024,
+            3,
+        )
+        .expect("batch query swf");
+    }
+
+    #[test]
+    fn batch_query_supports_filter_shortcut_counts() {
+        let temp = tempdir().expect("tempdir");
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root")
+            .join("crates/sis-pdf-core/tests/fixtures/filters");
+        std::fs::copy(
+            root.join("filter_unusual_chain.pdf"),
+            temp.path().join("sample-unusual.pdf"),
+        )
+        .expect("copy unusual chain");
+        std::fs::copy(
+            root.join("filter_invalid_order.pdf"),
+            temp.path().join("sample-invalid.pdf"),
+        )
+        .expect("copy invalid order");
+
+        let scan_options = ScanOptions::default();
+        let query = parse_query("filters.unusual.count").expect("query");
+        run_query_batch(
+            &query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+            OutputFormat::Json,
+            10,
+            10 * 1024 * 1024,
+            3,
+        )
+        .expect("batch query filters");
+    }
+
+    #[test]
+    fn export_features_outputs_expected_counts() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let csv_query = parse_query("features").expect("query");
+            let csv_result = execute_query_with_context(
+                &csv_query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            let feature_names = sis_pdf_core::features::feature_names();
+            match csv_result {
+                QueryResult::Scalar(ScalarValue::String(csv)) => {
+                    let line_count = csv.lines().count();
+                    assert_eq!(line_count, feature_names.len() + 1);
+                }
+                _ => panic!("unexpected features csv result"),
+            }
+
+            let json_query = parse_query("features.json").expect("query");
+            let json_result = execute_query_with_context(
+                &json_query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match json_result {
+                QueryResult::Structure(value) => {
+                    let obj = value.as_object().expect("features object");
+                    assert_eq!(obj.len(), feature_names.len());
+                }
+                _ => panic!("unexpected features json result"),
+            }
+        });
     }
 
     #[test]

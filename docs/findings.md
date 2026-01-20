@@ -132,6 +132,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: an action node reaches a payload-like object in the graph.
   - Chain usage: used to connect actions to payloads in the synthesized chain.
 
+## action_chain_complex
+
+- ID: `action_chain_complex`
+- Label: Complex action chain
+- Description: Action chain depth exceeds expected threshold.
+- Tags: action, chain
+- Details:
+  - Relevance: chained actions can hide payload staging.
+  - Meaning: action chains increase execution complexity.
+  - Chain usage: treated as a higher-risk action staging indicator.
+
+## action_hidden_trigger
+
+- ID: `action_hidden_trigger`
+- Label: Hidden action trigger
+- Description: Action triggered from hidden or non-visible annotation.
+- Tags: action, evasion
+- Details:
+  - Relevance: hidden triggers can bypass user awareness.
+  - Meaning: actions may execute without user interaction.
+  - Chain usage: raises confidence for action-driven payloads.
+
+## action_automatic_trigger
+
+- ID: `action_automatic_trigger`
+- Label: Automatic action trigger
+- Description: Action triggers without explicit user interaction.
+- Tags: action
+- Details:
+  - Relevance: automatic triggers execute actions on open or visibility changes.
+  - Meaning: viewer may execute actions without user intent.
+  - Chain usage: treated as trigger stage in action chains.
+
 ## annotation_action_chain
 
 - ID: `annotation_action_chain`
@@ -330,6 +363,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: embedded filename attempts to appear benign.
   - Chain usage: used as evasion context for payload delivery.
 
+## embedded_encrypted
+
+- ID: `embedded_encrypted`
+- Label: Embedded file appears encrypted
+- Description: Embedded file has high entropy with unknown magic.
+- Tags: embedded, crypto
+- Details:
+  - Relevance: encrypted payloads can hide malicious content.
+  - Meaning: embedded file likely requires decryption to inspect.
+  - Chain usage: evasion context for payload delivery.
+
 ## encryption_present
 
 - ID: `encryption_present`
@@ -340,6 +384,28 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: cryptographic structures or misuse.
   - Meaning: signatures/encryption/crypto anomalies change trust or hide content.
   - Chain usage: used as staging or trust-evasion context in chains.
+
+## encryption_key_short
+
+- ID: `encryption_key_short`
+- Label: Encryption key length short
+- Description: Encryption key length is below recommended threshold.
+- Tags: crypto
+- Details:
+  - Relevance: weak encryption settings reduce trust.
+  - Meaning: encrypted content uses short keys.
+  - Chain usage: crypto weakness context for trust evaluation.
+
+## stream_high_entropy
+
+- ID: `stream_high_entropy`
+- Label: High entropy stream
+- Description: Stream entropy exceeds expected threshold.
+- Tags: decoder, evasion
+- Details:
+  - Relevance: high entropy indicates compression or encryption.
+  - Meaning: payload may be obfuscated or encrypted.
+  - Chain usage: evasion context for hidden payloads.
 
 ## eof_offset_unusual
 
@@ -384,6 +450,69 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
+
+## filter_chain_unusual
+
+- ID: `filter_chain_unusual`
+- Label: Unusual filter chain
+- Description: Filter chain uses uncommon or unexpected combinations.
+- Tags: decoder, evasion
+- Metadata:
+  - `filters`: Filter list encoded as JSON array string.
+  - `filter_count`: Number of filters in the chain.
+  - `allowlist_match`: Whether the chain matched the allowlist.
+  - `violation_type`: `allowlist_miss`, `unknown_filter`, or `strict_mode`.
+  - `stream.filter_chain`: Human-readable filter chain.
+  - `stream.filter_depth`: Filter chain length.
+- Details:
+  - Relevance: unusual filters can hide payloads.
+  - Meaning: stream decoding is non-standard.
+  - Violation types: `allowlist_miss`, `unknown_filter`, `strict_mode`, `image_with_compression`.
+  - Example chain: `ASCIIHexDecode -> FlateDecode`.
+  - Example metadata: `filters = ["ASCIIHexDecode", "FlateDecode"]`, `stream.filter_chain = ASCIIHexDecode -> FlateDecode`.
+  - Chain usage: evasion context for hidden payloads.
+
+## filter_order_invalid
+
+- ID: `filter_order_invalid`
+- Label: Invalid filter order
+- Description: ASCII filters appear after binary filters.
+- Tags: decoder, evasion
+- Metadata:
+  - `filters`: Filter list encoded as JSON array string.
+  - `filter_count`: Number of filters in the chain.
+  - `allowlist_match`: Whether the chain matched the allowlist.
+  - `violation_type`: `ascii_after_binary` or `crypt_not_outermost`.
+  - `stream.filter_chain`: Human-readable filter chain.
+  - `stream.filter_depth`: Filter chain length.
+- Details:
+  - Relevance: invalid order can indicate obfuscation.
+  - Meaning: stream decoding order is inconsistent.
+  - Violation types: `ascii_after_binary`, `crypt_not_outermost`.
+  - Example chain: `FlateDecode -> ASCII85Decode`.
+  - Example metadata: `filters = ["FlateDecode", "ASCII85Decode"]`, `stream.filter_chain = FlateDecode -> ASCII85Decode`.
+  - Chain usage: evasion context for hidden payloads.
+
+## filter_combination_unusual
+
+- ID: `filter_combination_unusual`
+- Label: Repeated filters in chain
+- Description: Filter chain repeats the same filter multiple times.
+- Tags: decoder, evasion
+- Metadata:
+  - `filters`: Filter list encoded as JSON array string.
+  - `filter_count`: Number of filters in the chain.
+  - `allowlist_match`: Whether the chain matched the allowlist.
+  - `violation_type`: `duplicate_filters`.
+  - `stream.filter_chain`: Human-readable filter chain.
+  - `stream.filter_depth`: Filter chain length.
+- Details:
+  - Relevance: redundant filters can hide payloads.
+  - Meaning: stream decoding is likely obfuscated.
+  - Violation types: `duplicate_filters`.
+  - Example chain: `ASCII85Decode -> FlateDecode -> FlateDecode`.
+  - Example metadata: `filters = ["ASCII85Decode", "FlateDecode", "FlateDecode"]`, `stream.filter_chain = ASCII85Decode -> FlateDecode -> FlateDecode`.
+  - Chain usage: evasion context for hidden payloads.
 
 ## font_payload_present
 
@@ -2143,6 +2272,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: feature increases parsing or interaction complexity.
   - Chain usage: used as supporting context for delivery or exploitation stages.
 
+## swf_embedded
+
+- ID: `swf_embedded`
+- Label: SWF content embedded
+- Description: Stream data matches SWF magic header.
+- Tags: swf, richmedia
+- Details:
+  - Relevance: SWF content can contain ActionScript payloads.
+  - Meaning: embedded SWF increases execution risk.
+  - Chain usage: payload delivery or staging via SWF content.
+
 ## secondary_parser_failure
 
 - ID: `secondary_parser_failure`
@@ -2351,6 +2491,50 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: scripts inside forms can trigger viewer execution paths.
   - Meaning: embedded XFA/XML scripts increase attack surface.
   - Chain usage: triggers or payload staging within form content.
+
+## xfa_submit
+
+- ID: `xfa_submit`
+- Label: XFA submit action present
+- Description: XFA form contains a submit action with target URL.
+- Tags: xfa, external
+- Details:
+  - Relevance: XFA can submit data to external endpoints.
+  - Meaning: submission targets may exfiltrate form data.
+  - Chain usage: external action stage for form data.
+
+## xfa_sensitive_field
+
+- ID: `xfa_sensitive_field`
+- Label: XFA sensitive field present
+- Description: XFA form contains a sensitive field name.
+- Tags: xfa
+- Details:
+  - Relevance: sensitive fields increase data exposure risk.
+  - Meaning: field names suggest collection of credentials or personal data.
+  - Chain usage: indicates data collection intent.
+
+## xfa_too_large
+
+- ID: `xfa_too_large`
+- Label: XFA content too large
+- Description: XFA content exceeds size limits.
+- Tags: xfa, evasion
+- Details:
+  - Relevance: oversized forms can hide payloads or trigger resource exhaustion.
+  - Meaning: XFA content size is unusually large.
+  - Chain usage: evasion context for hidden payload staging.
+
+## xfa_script_count_high
+
+- ID: `xfa_script_count_high`
+- Label: XFA script count high
+- Description: XFA contains an unusually high number of script blocks.
+- Tags: xfa, script
+- Details:
+  - Relevance: multiple scripts can indicate staged behaviour.
+  - Meaning: excessive script count raises suspicion of hidden logic.
+  - Chain usage: payload staging signal.
 
 ## actionscript_present
 

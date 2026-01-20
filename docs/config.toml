@@ -29,6 +29,10 @@ level = "warn"
 # YARA scope
 # yara_scope = "high"
 
+# Filter chain allowlist
+# filter_allowlist = "config/filter-chains-allowlist.toml"
+# filter_allowlist_strict = false
+
 # ML defaults
 # ml_model = "models/"
 # ml_threshold = 0.9
