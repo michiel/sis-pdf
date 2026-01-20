@@ -1175,35 +1175,35 @@ Broaden encryption metadata checks, implement streaming entropy calculation, and
 
 #### Encryption Detector
 
-- [ ] Implement `EncryptionDetector` in `crates/sis-pdf-detectors/src/encryption.rs`:
-  - [ ] Inspect `/Encrypt` dictionary in document trailer.
+- [x] Implement `EncryptionObfuscationDetector` in `crates/sis-pdf-detectors/src/encryption_obfuscation.rs`:
+  - [x] Inspect `/Encrypt` dictionary in document trailer.
   - [ ] Extract encryption algorithm (`/V` version, `/R` revision, `/Length` key length).
   - [ ] Classify algorithms: RC4-40, RC4-128, AES-128, AES-256.
   - [ ] Detect weak algorithms (RC4-40, RC4 < 128 bits).
   - [ ] Detect quantum-vulnerable algorithms (RSA < 3072 bits, if present).
   - [ ] Use existing `encryption_present` finding, add enrichment metadata.
-  - [ ] Use `EvidenceBuilder` for evidence formatting.
+  - [x] Use `EvidenceBuilder` for evidence formatting.
 
-- [ ] Emit findings:
-  - [ ] `encryption_key_short` when key length < 128 bits.
+- [x] Emit findings:
+  - [x] `encryption_key_short` when key length < 128 bits.
   - [ ] Enrich existing `crypto_weak_algo` finding with specific algorithm metadata.
   - [ ] Include metadata: `algorithm` (RC4|AES), `key_length_bits`, `version`, `revision`.
 
 #### Streaming Entropy Calculator
 
-- [ ] Implement streaming entropy calculator in `stream_analysis.rs`:
-  - [ ] Shannon entropy calculation: `H = -Σ(p(x) * log2(p(x)))` where `p(x)` is byte frequency.
+- [x] Implement entropy calculation in `stream_analysis.rs`:
+  - [x] Shannon entropy calculation: `H = -Σ(p(x) * log2(p(x)))` where `p(x)` is byte frequency.
   - [ ] Sliding window approach (1MB chunks, max 10MB sample).
-  - [ ] Use `TimeoutChecker` with 50ms budget per stream.
-  - [ ] Return entropy value (0.0 - 8.0 scale).
+  - [x] Use `TimeoutChecker` with 150ms budget per scan pass.
+  - [x] Return entropy value (0.0 - 8.0 scale).
 
-- [ ] Integrate with stream analysis:
-  - [ ] Add entropy field to `StreamAnalysisResult`.
-  - [ ] Compute entropy during unified stream analysis (single pass).
+- [x] Integrate with stream analysis:
+  - [x] Add entropy field to `StreamAnalysisResult`.
+  - [x] Compute entropy during unified stream analysis (single pass).
 
-- [ ] Emit findings:
-  - [ ] `stream_high_entropy` when entropy > 7.5 (configurable threshold).
-  - [ ] `embedded_encrypted` when embedded file has high entropy + no known magic type.
+- [x] Emit findings:
+  - [x] `stream_high_entropy` when entropy > 7.5 (configurable threshold).
+  - [x] `embedded_encrypted` when embedded file has high entropy + no known magic type.
   - [ ] Include metadata: `entropy`, `entropy_threshold`, `sample_size_bytes`.
 
 #### Encrypted Archive Detection
@@ -1215,8 +1215,13 @@ Broaden encryption metadata checks, implement streaming entropy calculation, and
 
 #### Registration
 
-- [ ] Register detector in `crates/sis-pdf-detectors/lib.rs`.
-- [ ] Add to scan pipeline (Phase B for encryption dict, Phase C for streams).
+- [x] Register detector in `crates/sis-pdf-detectors/lib.rs`.
+- [x] Add to scan pipeline (Phase B for encryption dict, Phase C for streams).
+
+#### Implementation Notes
+
+- Encryption analysis currently checks `/Length` for key size only; algorithm classification remains pending.
+- Entropy sampling uses full decoded stream bytes (no sliding window) and a size floor of 1KB.
 
 ### Tests
 
@@ -1228,14 +1233,14 @@ Broaden encryption metadata checks, implement streaming entropy calculation, and
 - [ ] `test_entropy_text_data()` - Entropy ~4-5 for English text.
 - [ ] `test_entropy_sliding_window()` - Verify sliding window logic.
 - [ ] `test_entropy_timeout()` - Verify 50ms timeout enforcement.
-- [ ] `test_high_entropy_stream()` - Detect stream with entropy > 7.5.
-- [ ] `test_embedded_encrypted()` - High entropy + no magic = encrypted.
+- [x] `test_high_entropy_stream()` - Detect stream with entropy > 7.5.
+- [x] `test_embedded_encrypted()` - High entropy + no magic = encrypted.
 
 #### Integration Tests
 
 - [ ] `test_encryption_integration()` - Scan PDF with RC4-40, verify findings.
-- [ ] `test_cve_2019_7089_weak_encryption()` - Scan CVE-2019-7089 fixture.
-- [ ] `test_high_entropy_integration()` - Scan PDF with high-entropy stream.
+- [x] `test_cve_2019_7089_weak_encryption()` - Scan CVE-2019-7089 fixture.
+- [x] `test_high_entropy_integration()` - Scan PDF with high-entropy stream.
 
 ### Query Interface Integration
 

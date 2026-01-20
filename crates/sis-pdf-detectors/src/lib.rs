@@ -24,6 +24,7 @@ pub mod content_phishing;
 pub mod evasion_env;
 pub mod evasion_time;
 pub mod external_context;
+pub mod encryption_obfuscation;
 pub mod filter_depth;
 pub mod font_exploits;
 pub mod font_external_ref;
@@ -116,6 +117,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(page_tree_anomalies::PageTreeManipulationDetector),
         Box::new(object_cycles::ObjectReferenceCycleDetector),
         Box::new(CryptoDetector),
+        Box::new(encryption_obfuscation::EncryptionObfuscationDetector),
         Box::new(XfaDetector),
         Box::new(AcroFormDetector),
         Box::new(xfa_forms::XfaFormDetector),

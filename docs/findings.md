@@ -363,6 +363,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: embedded filename attempts to appear benign.
   - Chain usage: used as evasion context for payload delivery.
 
+## embedded_encrypted
+
+- ID: `embedded_encrypted`
+- Label: Embedded file appears encrypted
+- Description: Embedded file has high entropy with unknown magic.
+- Tags: embedded, crypto
+- Details:
+  - Relevance: encrypted payloads can hide malicious content.
+  - Meaning: embedded file likely requires decryption to inspect.
+  - Chain usage: evasion context for payload delivery.
+
 ## encryption_present
 
 - ID: `encryption_present`
@@ -373,6 +384,28 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: cryptographic structures or misuse.
   - Meaning: signatures/encryption/crypto anomalies change trust or hide content.
   - Chain usage: used as staging or trust-evasion context in chains.
+
+## encryption_key_short
+
+- ID: `encryption_key_short`
+- Label: Encryption key length short
+- Description: Encryption key length is below recommended threshold.
+- Tags: crypto
+- Details:
+  - Relevance: weak encryption settings reduce trust.
+  - Meaning: encrypted content uses short keys.
+  - Chain usage: crypto weakness context for trust evaluation.
+
+## stream_high_entropy
+
+- ID: `stream_high_entropy`
+- Label: High entropy stream
+- Description: Stream entropy exceeds expected threshold.
+- Tags: decoder, evasion
+- Details:
+  - Relevance: high entropy indicates compression or encryption.
+  - Meaning: payload may be obfuscated or encrypted.
+  - Chain usage: evasion context for hidden payloads.
 
 ## eof_offset_unusual
 
