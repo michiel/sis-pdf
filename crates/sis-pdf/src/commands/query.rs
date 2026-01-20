@@ -249,6 +249,15 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "urls.count" => Ok(Query::UrlsCount),
         "embedded" => Ok(Query::Embedded),
         "embedded.count" => Ok(Query::EmbeddedCount),
+        "embedded.executables" => Ok(Query::FindingsByKind("embedded_executable_present".into())),
+        "embedded.scripts" => Ok(Query::FindingsByKind("embedded_script_present".into())),
+        "embedded.archives.encrypted" => {
+            Ok(Query::FindingsByKind("embedded_archive_encrypted".into()))
+        }
+        "embedded.double-extension" => {
+            Ok(Query::FindingsByKind("embedded_double_extension".into()))
+        }
+        "embedded.encrypted" => Ok(Query::FindingsByKind("embedded_encrypted".into())),
         "images" => Ok(Query::Images),
         "images.count" => Ok(Query::ImagesCount),
         "images.jbig2" => Ok(Query::ImagesJbig2),
@@ -261,6 +270,23 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "images.risky.count" => Ok(Query::ImagesRiskyCount),
         "images.malformed" => Ok(Query::ImagesMalformed),
         "images.malformed.count" => Ok(Query::ImagesMalformedCount),
+        "launch" => Ok(Query::FindingsByKind("launch_action_present".into())),
+        "launch.external" => Ok(Query::FindingsByKind("launch_external_program".into())),
+        "launch.embedded" => Ok(Query::FindingsByKind("launch_embedded_file".into())),
+        "actions.chains.complex" => Ok(Query::FindingsByKind("action_chain_complex".into())),
+        "actions.triggers.automatic" => {
+            Ok(Query::FindingsByKind("action_automatic_trigger".into()))
+        }
+        "actions.triggers.hidden" => Ok(Query::FindingsByKind("action_hidden_trigger".into())),
+        "xfa.submit" => Ok(Query::FindingsByKind("xfa_submit".into())),
+        "xfa.sensitive" => Ok(Query::FindingsByKind("xfa_sensitive_field".into())),
+        "xfa.too-large" => Ok(Query::FindingsByKind("xfa_too_large".into())),
+        "xfa.scripts.high" => Ok(Query::FindingsByKind("xfa_script_count_high".into())),
+        "swf" => Ok(Query::FindingsByKind("swf_embedded".into())),
+        "streams.high-entropy" => Ok(Query::FindingsByKind("stream_high_entropy".into())),
+        "filters.unusual" => Ok(Query::FindingsByKind("filter_chain_unusual".into())),
+        "filters.invalid" => Ok(Query::FindingsByKind("filter_order_invalid".into())),
+        "filters.repeated" => Ok(Query::FindingsByKind("filter_combination_unusual".into())),
 
         // Findings
         "findings" => Ok(Query::Findings),

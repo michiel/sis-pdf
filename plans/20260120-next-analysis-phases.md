@@ -1540,7 +1540,7 @@ Update all documentation to reflect new findings, ensure JSON schema alignment, 
 #### Update User-Facing Documentation
 
 - [x] Update README.md with new capabilities summary.
-- [ ] Deferred: update `docs/query-interface.md` with new query types (requires query implementation).
+- [x] Update `docs/query-interface.md` with new query types.
 - [x] Add `docs/forensic-workflows.md` with example workflows:
   - [x] Embedded file extraction and analysis workflow.
   - [x] Action chain review workflow.
@@ -1550,14 +1550,14 @@ Update all documentation to reflect new findings, ensure JSON schema alignment, 
 
 #### JSON Schema Validation
 
-- [ ] Deferred: verify all new findings emit valid JSON structure.
+- [x] Verify all new findings emit valid JSON structure (schema validation test).
 - [ ] Deferred: validate against JSON schema (if schema exists, otherwise create one).
 - [ ] Deferred: test JSONL output format for all new findings.
 - [ ] Deferred: ensure metadata fields are consistently typed (strings, ints, bools, arrays).
 
 #### End-to-End Validation
 
-- [ ] Deferred: run full test suite: `cargo test --all`.
+- [x] Run full test suite: `cargo test --all`.
 - [ ] Deferred: run targeted scans on all CVE fixtures (6 fixtures).
 - [ ] Deferred: verify all new findings can be emitted.
 - [ ] Deferred: test query interface with all new query types (30+ queries).
@@ -1575,14 +1575,14 @@ Update all documentation to reflect new findings, ensure JSON schema alignment, 
 
 ### Acceptance Criteria
 
-- ✅ `docs/findings.md` includes all 21 new findings with examples.
-- ✅ Forensic workflow documentation complete with 4+ example workflows.
-- ✅ JSON schema validated (all findings emit valid JSON).
-- ✅ Full test suite passes (100% success rate).
-- ✅ All CVE fixtures trigger expected findings.
-- ✅ All 30+ query types work correctly.
-- ✅ Extraction workflows tested and documented.
-- ✅ Performance profiling shows compliance with SLOs.
+- [ ] `docs/findings.md` includes all new findings with examples.
+- [x] Forensic workflow documentation complete with 4+ example workflows.
+- [x] JSON structure validation completed (schema validation test).
+- [x] Full test suite passes (`cargo test --all`).
+- [ ] All CVE fixtures trigger expected findings.
+- [ ] Query shortcuts and predicate filtering validated.
+- [ ] Extraction workflows tested end-to-end.
+- [ ] Performance profiling shows compliance with SLOs.
 
 ---
 
@@ -1594,149 +1594,63 @@ Consolidate all query types added in Stages 1-6 into the unified query interface
 
 ### New Query Types Summary
 
-**Total new queries: 36 (including .count variants)**
+Query shortcuts are implemented as `findings.kind` aliases. Counts can be obtained via
+`findings.count --where "subtype == '<finding_id>'"`.
 
-#### Embedded Files & Launch (Stage 1) - 12 queries
+#### Embedded Files & Launch (Stage 1)
 
 ```
 embedded.executables
-embedded.executables.count
 embedded.scripts
-embedded.scripts.count
-embedded.archives
 embedded.archives.encrypted
-embedded.archives.encrypted.count
 launch
-launch.count
 launch.external
-launch.external.count
 launch.embedded
-launch.embedded.count
 ```
 
-#### Actions & Triggers (Stage 2) - 10 queries
+#### Actions & Triggers (Stage 2)
 
 ```
-actions.chains
-actions.chains.count
 actions.chains.complex
-actions.chains.complex.count
-actions.triggers
-actions.triggers.count
 actions.triggers.automatic
-actions.triggers.automatic.count
 actions.triggers.hidden
-actions.triggers.hidden.count
 ```
 
-#### XFA Forms (Stage 3) - 8 queries
+#### XFA Forms (Stage 3)
 
 ```
-xfa
-xfa.count
-xfa.scripts
-xfa.scripts.count
 xfa.submit
-xfa.submit.count
 xfa.sensitive
-xfa.sensitive.count
+xfa.too-large
+xfa.scripts.high
 ```
 
-#### Rich Media (Stage 4) - 8 queries
+#### Rich Media (Stage 4)
 
 ```
 swf
-swf.count
-swf.actionscript
-swf.actionscript.count
-media.3d
-media.3d.count
-media.audio
-media.audio.count
 ```
 
-#### Encryption & Obfuscation (Stage 5) - 6 queries
+#### Encryption & Obfuscation (Stage 5)
 
 ```
-encryption
-encryption.weak
-encryption.weak.count
 streams.high-entropy
-streams.high-entropy.count
-streams.entropy
 ```
 
-#### Filter Chains (Stage 6) - 5 queries
+#### Filter Chains (Stage 6)
 
 ```
 filters.unusual
-filters.unusual.count
 filters.invalid
-filters.invalid.count
-filters.all
+filters.repeated
 ```
 
-### Predicate Fields Summary
+### Deferred Query Work
 
-New fields available for `--where` predicates:
-
-**Embedded files:**
-- `size` (int), `hash` (string), `magic_type` (string), `encrypted` (bool), `filename` (string)
-
-**Launch actions:**
-- `target_path` (string), `target_type` (string: external|embedded), `embedded_file_hash` (string)
-
-**Action chains:**
-- `depth` (int), `has_js` (bool), `event` (string), `trigger_type` (string)
-
-**XFA:**
-- `size` (int), `script_count` (int), `url` (string for submit), `field_name` (string)
-
-**SWF:**
-- `size` (int), `version` (int), `has_actionscript` (bool)
-
-**Encryption:**
-- `algorithm` (string), `key_length` (int)
-
-**Entropy:**
-- `entropy` (float)
-
-**Filters:**
-- `count` (int), `filters` (array), `allowlist_match` (bool)
-
-### Extraction Capabilities Summary
-
-**Embedded files:**
-- `sis query embedded.executables --extract --export-dir ./evidence/`
-- Generates: `{hash_prefix}_{filename}` with sanitized names
-
-**XFA scripts:**
-- `sis query xfa.scripts --extract --export-dir ./xfa-scripts/`
-- Generates: `script_NNN_obj_ID.js` + `manifest.json`
-
-**SWF content:**
-- `sis query swf --extract --decode --export-dir ./swf/` (decompressed)
-- `sis query swf --extract --raw --export-dir ./swf-raw/` (original compressed)
-
-### Checklist
-
-- [ ] Add all 36 query type variants to `Query` enum in `query.rs`.
-- [ ] Implement all query handlers in `execute_query_with_context()`.
-- [ ] Implement extraction functions for embedded files, XFA scripts, SWF.
-- [ ] Implement predicate evaluation for all new fields.
-- [ ] Add format support: text, JSON, JSONL, CSV, DOT (where applicable).
-- [ ] Test all queries in batch mode (`--batch`).
-- [ ] Test all queries in REPL mode.
-- [ ] Document all queries in `docs/query-reference.md`.
-
-### Tests
-
-- [ ] `test_query_embedded_executables()` - Query + count + predicate.
-- [ ] `test_query_launch_actions()` - Query + extraction.
-- [ ] `test_query_action_chains()` - Query + graph export.
-- [ ] `test_query_xfa_scripts()` - Query + extraction + manifest.
-- [ ] `test_query_swf()` - Query + decode/raw extraction.
-- [ ] `test_query_encryption()` - Query + predicate on algorithm.
+- Additional query variants (counts, allowlist-driven summaries).
+- Predicate fields for embedded files, launch targets, XFA, and SWF.
+- Extraction helpers for XFA scripts and SWF content.
+- Batch/REPL coverage and query reference documentation.
 - [ ] `test_query_filters()` - Query unusual filters.
 - [ ] `test_batch_mode_new_queries()` - All new queries in batch.
 - [ ] `test_repl_mode_new_queries()` - All new queries in REPL.
@@ -2395,3 +2309,11 @@ For fastest time-to-value, prioritize:
 - Follow structured `tracing` field conventions.
 - Maintain backward compatibility for feature vector order.
 - Document all breaking changes and migration paths.
+#### Streams and Filters (Stages 5-6)
+
+```
+streams.high-entropy
+filters.unusual
+filters.invalid
+filters.repeated
+```
