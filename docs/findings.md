@@ -468,6 +468,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: unusual filters can hide payloads.
   - Meaning: stream decoding is non-standard.
   - Violation types: `allowlist_miss`, `unknown_filter`, `strict_mode`, `image_with_compression`.
+  - Example chain: `ASCIIHexDecode -> FlateDecode`.
   - Chain usage: evasion context for hidden payloads.
 
 ## filter_order_invalid
@@ -487,6 +488,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: invalid order can indicate obfuscation.
   - Meaning: stream decoding order is inconsistent.
   - Violation types: `ascii_after_binary`, `crypt_not_outermost`.
+  - Example chain: `FlateDecode -> ASCII85Decode`.
   - Chain usage: evasion context for hidden payloads.
 
 ## filter_combination_unusual
@@ -506,6 +508,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: redundant filters can hide payloads.
   - Meaning: stream decoding is likely obfuscated.
   - Violation types: `duplicate_filters`.
+  - Example chain: `ASCII85Decode -> FlateDecode -> FlateDecode`.
   - Chain usage: evasion context for hidden payloads.
 
 ## font_payload_present

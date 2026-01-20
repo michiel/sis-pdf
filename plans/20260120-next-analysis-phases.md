@@ -1435,6 +1435,7 @@ Implement PDF spec filter order rules:
 - Filter order rules cover ASCII encoding placement, Crypt outermost, and image filters mixed with compression.
 - Filter findings documentation now lists metadata keys and violation type values; query guide includes filter examples.
 - Query predicate guide includes filter metadata examples and `violation_type` filters.
+- Filter findings include example chains in documentation.
 
 ### Tests
 
