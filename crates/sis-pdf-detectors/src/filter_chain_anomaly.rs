@@ -51,6 +51,7 @@ impl Detector for FilterChainAnomalyDetector {
             }
             let normalised: Vec<String> = filters.iter().map(|f| normalise_filter(f)).collect();
             let allowlist_match = is_allowlisted_chain(&normalised, &allowlist);
+            let image_with_compression = has_image_with_compression(&normalised);
             let mut meta = std::collections::HashMap::new();
             meta.insert("stream.filter_chain".into(), normalised.join(" -> "));
             meta.insert("stream.filter_depth".into(), normalised.len().to_string());
@@ -65,15 +66,10 @@ impl Detector for FilterChainAnomalyDetector {
                 )
                 .build();
 
-            if is_unusual_chain(allowlist_match, &normalised, strict) {
+            if let Some(violation) =
+                unusual_violation(allowlist_match, &normalised, strict, image_with_compression)
+            {
                 let mut meta = meta.clone();
-                let violation = if strict {
-                    "strict_mode"
-                } else if has_unknown_filter(&normalised) {
-                    "unknown_filter"
-                } else {
-                    "allowlist_miss"
-                };
                 meta.insert("violation_type".into(), violation.to_string());
                 findings.push(Finding {
                     id: String::new(),
@@ -139,11 +135,25 @@ impl Detector for FilterChainAnomalyDetector {
     }
 }
 
-fn is_unusual_chain(allowlist_match: bool, filters: &[String], strict: bool) -> bool {
-    if strict {
-        return !filters.is_empty();
+fn unusual_violation(
+    allowlist_match: bool,
+    filters: &[String],
+    strict: bool,
+    image_with_compression: bool,
+) -> Option<&'static str> {
+    if strict && !filters.is_empty() {
+        return Some("strict_mode");
     }
-    !allowlist_match
+    if has_unknown_filter(filters) {
+        return Some("unknown_filter");
+    }
+    if image_with_compression {
+        return Some("image_with_compression");
+    }
+    if !allowlist_match {
+        return Some("allowlist_miss");
+    }
+    None
 }
 
 fn invalid_order_reason(filters: &[String]) -> Option<&'static str> {
@@ -226,3 +236,14 @@ fn has_unknown_filter(filters: &[String]) -> bool {
         .iter()
         .any(|f| !KNOWN_FILTERS.contains(&f.as_str()))
 }
+
+fn has_image_with_compression(filters: &[String]) -> bool {
+    let has_image = filters.iter().any(|f| IMAGE_FILTERS.contains(&f.as_str()));
+    let has_compression = filters
+        .iter()
+        .any(|f| COMPRESSION_FILTERS.contains(&f.as_str()));
+    has_image && has_compression
+}
+
+const IMAGE_FILTERS: &[&str] = &["DCTDecode", "JPXDecode", "JBIG2Decode", "CCITTFaxDecode"];
+const COMPRESSION_FILTERS: &[&str] = &["FlateDecode", "LZWDecode", "RunLengthDecode"];

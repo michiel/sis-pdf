@@ -182,6 +182,21 @@ def generate_filter_allowlisted(path):
     write_pdf(path, [obj1, obj2, obj3, obj4])
 
 
+def generate_filter_image_compression(path):
+    flate_empty = bytes([0x78, 0x9C, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01])
+    obj1 = b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+    obj2 = b"2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n"
+    obj3 = b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] >>\nendobj\n"
+    obj4 = (
+        b"4 0 obj\n<< /Length "
+        + str(len(flate_empty)).encode("ascii")
+        + b" /Filter [/FlateDecode /DCTDecode] >>\nstream\n"
+        + flate_empty
+        + b"\nendstream\nendobj\n"
+    )
+    write_pdf(path, [obj1, obj2, obj3, obj4])
+
+
 def main():
     base = Path(__file__).resolve().parents[1] / "crates" / "sis-pdf-core" / "tests" / "fixtures"
     (base / "actions").mkdir(parents=True, exist_ok=True)
@@ -199,6 +214,7 @@ def main():
     generate_swf_cve_2011_0611(base / "media" / "swf_cve_2011_0611.pdf")
     generate_weak_encryption_cve_2019_7089(base / "encryption" / "weak_encryption_cve_2019_7089.pdf")
     generate_filter_allowlisted(base / "filters" / "filter_allowlisted.pdf")
+    generate_filter_image_compression(base / "filters" / "filter_image_compression.pdf")
     generate_filter_obfuscation_cve_2010_2883(base / "filters" / "filter_obfuscation_cve_2010_2883.pdf")
 
 

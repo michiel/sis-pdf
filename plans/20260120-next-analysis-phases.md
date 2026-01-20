@@ -1432,7 +1432,7 @@ Implement PDF spec filter order rules:
 #### Implementation Notes
 
 - Detector uses a default allowlist and fixed order rules; configurable allowlist is supported via CLI/config.
-- Filter order rules are simplified to ASCII encoding placement checks.
+- Filter order rules cover ASCII encoding placement, Crypt outermost, and image filters mixed with compression.
 - Filter findings documentation now lists metadata keys and violation type values; query guide includes filter examples.
 - Query predicate guide includes filter metadata examples.
 

@@ -467,7 +467,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Details:
   - Relevance: unusual filters can hide payloads.
   - Meaning: stream decoding is non-standard.
-  - Violation types: `allowlist_miss`, `unknown_filter`, `strict_mode`.
+  - Violation types: `allowlist_miss`, `unknown_filter`, `strict_mode`, `image_with_compression`.
   - Chain usage: evasion context for hidden payloads.
 
 ## filter_order_invalid

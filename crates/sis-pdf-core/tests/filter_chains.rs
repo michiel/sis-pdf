@@ -81,3 +81,22 @@ fn strict_mode_flags_allowlisted_chain() {
         report.findings.iter().map(|f| f.kind.as_str()).collect();
     assert!(kinds.contains("filter_chain_unusual"));
 }
+
+#[test]
+fn detects_image_filter_with_compression() {
+    let bytes = include_bytes!("fixtures/filters/filter_image_compression.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "filter_chain_unusual")
+        .expect("filter_chain_unusual");
+    assert_eq!(
+        finding.meta.get("violation_type"),
+        Some(&"image_with_compression".to_string())
+    );
+    assert_eq!(finding.meta.get("allowlist_match"), Some(&"true".to_string()));
+}
