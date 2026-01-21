@@ -6,11 +6,17 @@ use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{self, json};
 use std::fs;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use walkdir::WalkDir;
 
 use sis_pdf_core::model::Severity;
 use sis_pdf_core::scan::ScanContext;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{Style, Theme, ThemeSet};
+use syntect::parsing::SyntaxSet;
+use syntect::util::as_24_bit_terminal_escaped;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -191,6 +197,9 @@ pub enum Query {
 
     // Reference queries
     References(u32, u16),
+
+    // Stream queries
+    Stream(u32, u16),
 }
 
 /// Query result that can be serialized to JSON or formatted as text
@@ -432,6 +441,26 @@ pub fn parse_query(input: &str) -> Result<Query> {
                         .map_err(|_| anyhow!("Invalid generation number: {}", parts[1]))?;
                     return Ok(Query::ShowObject(obj, gen));
                 }
+            }
+
+            // Try to parse stream queries
+            if let Some(rest) = input.strip_prefix("stream ") {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if parts.len() == 1 {
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    return Ok(Query::Stream(obj, 0));
+                } else if parts.len() == 2 {
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let gen = parts[1]
+                        .parse::<u16>()
+                        .map_err(|_| anyhow!("Invalid generation number: {}", parts[1]))?;
+                    return Ok(Query::Stream(obj, gen));
+                }
+                return Err(anyhow!("Invalid stream query format"));
             }
 
             // Try to parse findings.kind query
@@ -1195,6 +1224,31 @@ pub fn execute_query_with_context(
                     images.len() as i64
                 )))
             }
+            Query::Stream(obj, gen) => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                if let Some(extract_path) = extract_to {
+                    let written = write_stream_object(
+                        ctx,
+                        *obj,
+                        *gen,
+                        extract_path,
+                        max_extract_bytes,
+                        decode_mode,
+                    )?;
+                    Ok(QueryResult::List(vec![written]))
+                } else {
+                    let preview = preview_stream_object(
+                        ctx,
+                        *obj,
+                        *gen,
+                        max_extract_bytes,
+                        decode_mode,
+                    )?;
+                    Ok(QueryResult::List(vec![preview]))
+                }
+            }
             Query::ImagesJbig2 => {
                 if predicate.is_some() {
                     ensure_predicate_supported(query)?;
@@ -1766,6 +1820,48 @@ pub fn format_yaml(query: &str, file: &str, result: &QueryResult) -> Result<Stri
     Ok(serde_yaml::to_string(&output)?)
 }
 
+pub fn colourise_output(output: &str, format: OutputFormat) -> Result<String> {
+    match format {
+        OutputFormat::Json => highlight_with_syntect(output, "json"),
+        OutputFormat::Yaml => highlight_with_syntect(output, "yaml"),
+        _ => Ok(output.to_string()),
+    }
+}
+
+fn highlight_with_syntect(text: &str, extension: &str) -> Result<String> {
+    static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
+    static THEME: OnceLock<Theme> = OnceLock::new();
+
+    let syntax_set = SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines);
+    let theme = THEME.get_or_init(|| {
+        let themes = ThemeSet::load_defaults();
+        themes
+            .themes
+            .get("base16-ocean.dark")
+            .cloned()
+            .or_else(|| themes.themes.values().next().cloned())
+            .unwrap_or_default()
+    });
+
+    let syntax = syntax_set
+        .find_syntax_by_extension(extension)
+        .or_else(|| syntax_set.find_syntax_by_token(extension))
+        .unwrap_or_else(|| syntax_set.find_syntax_plain_text());
+
+    let mut highlighter = HighlightLines::new(syntax, theme);
+    let mut output = String::new();
+    let mut lines = text.lines().peekable();
+    while let Some(line) = lines.next() {
+        let ranges: Vec<(Style, &str)> = highlighter.highlight_line(line, syntax_set)?;
+        output.push_str(&as_24_bit_terminal_escaped(&ranges, false));
+        if lines.peek().is_some() {
+            output.push('\n');
+        }
+    }
+
+    Ok(output)
+}
+
 /// Format query result as JSON Lines (single line per result)
 pub fn format_jsonl(query: &str, file: &str, result: &QueryResult) -> Result<String> {
     let output = serde_json::json!({
@@ -2168,6 +2264,115 @@ fn write_swf_streams(
         ));
     }
     Ok(written)
+}
+
+fn write_stream_object(
+    ctx: &ScanContext,
+    obj: u32,
+    gen: u16,
+    extract_to: &Path,
+    max_bytes: usize,
+    decode_mode: DecodeMode,
+) -> Result<String> {
+    use sis_pdf_pdf::object::PdfAtom;
+    use std::fs;
+
+    fs::create_dir_all(extract_to)?;
+
+    let entry = ctx
+        .graph
+        .get_object(obj, gen)
+        .ok_or_else(|| anyhow!("Object {} {} not found", obj, gen))?;
+    let PdfAtom::Stream(stream) = &entry.atom else {
+        return Err(anyhow!("Object {} {} is not a stream", obj, gen));
+    };
+
+    let data = stream_bytes_for_mode(ctx.bytes, stream, max_bytes, decode_mode)?;
+    let base_name = format!("stream_{}_{}", obj, gen);
+    let (filename, output_bytes, mode_label) = match decode_mode {
+        DecodeMode::Decode => (format!("{base_name}.bin"), data.clone(), "decode"),
+        DecodeMode::Raw => (format!("{base_name}.raw"), data.clone(), "raw"),
+        DecodeMode::Hexdump => (
+            format!("{base_name}.hex"),
+            format_hexdump(&data).into_bytes(),
+            "hexdump",
+        ),
+    };
+    let filepath = extract_to.join(&filename);
+    let hash = sha256_hex(&data);
+
+    fs::write(&filepath, &output_bytes)?;
+
+    let mut info = format!(
+        "{}: {} bytes, sha256={}, object={}_{}",
+        filename,
+        data.len(),
+        hash,
+        obj,
+        gen
+    );
+    info.push_str(&format!(", mode={}", mode_label));
+    if decode_mode == DecodeMode::Hexdump {
+        info.push_str(&format!(", hexdump_bytes={}", output_bytes.len()));
+    }
+    Ok(info)
+}
+
+fn preview_stream_object(
+    ctx: &ScanContext,
+    obj: u32,
+    gen: u16,
+    max_bytes: usize,
+    decode_mode: DecodeMode,
+) -> Result<String> {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    let entry = ctx
+        .graph
+        .get_object(obj, gen)
+        .ok_or_else(|| anyhow!("Object {} {} not found", obj, gen))?;
+    let PdfAtom::Stream(stream) = &entry.atom else {
+        return Err(anyhow!("Object {} {} is not a stream", obj, gen));
+    };
+
+    let data = stream_bytes_for_mode(ctx.bytes, stream, max_bytes, decode_mode)?;
+    let hash = sha256_hex(&data);
+    let mut info = format!(
+        "stream {}_{}: {} bytes, sha256={}",
+        obj,
+        gen,
+        data.len(),
+        hash
+    );
+
+    match decode_mode {
+        DecodeMode::Decode | DecodeMode::Raw => {
+            let preview = String::from_utf8_lossy(&data);
+            info.push_str(&format!(", preview=\"{}\"", preview_text(&preview, 200)));
+        }
+        DecodeMode::Hexdump => {
+            let preview = hex_preview(&data, 64);
+            info.push_str(&format!(", preview_hex=\"{}\"", preview));
+        }
+    }
+
+    Ok(info)
+}
+
+fn hex_preview(data: &[u8], max_bytes: usize) -> String {
+    let mut out = String::new();
+    let mut count = 0usize;
+    for byte in data.iter().take(max_bytes) {
+        if count > 0 {
+            out.push(' ');
+        }
+        out.push_str(&format!("{:02x}", byte));
+        count += 1;
+    }
+    if data.len() > max_bytes {
+        out.push_str(" ...");
+    }
+    out
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4600,6 +4805,7 @@ pub fn run_query_batch(
     decode_mode: DecodeMode,
     predicate: Option<&PredicateExpr>,
     output_format: OutputFormat,
+    colour: bool,
     max_batch_files: usize,
     max_batch_bytes: u64,
     max_walk_depth: usize,
@@ -4791,7 +4997,12 @@ pub fn run_query_batch(
     match output_format {
         OutputFormat::Json => {
             let results_only: Vec<_> = sorted_results.into_iter().map(|(_, r)| r).collect();
-            println!("{}", serde_json::to_string_pretty(&results_only)?);
+            let output = serde_json::to_string_pretty(&results_only)?;
+            if colour && std::io::stdout().is_terminal() {
+                println!("{}", colourise_output(&output, OutputFormat::Json)?);
+            } else {
+                println!("{}", output);
+            }
         }
         OutputFormat::Jsonl => {
             for (_, batch_result) in sorted_results {
@@ -4800,7 +5011,12 @@ pub fn run_query_batch(
         }
         OutputFormat::Yaml => {
             let results_only: Vec<_> = sorted_results.into_iter().map(|(_, r)| r).collect();
-            println!("{}", serde_yaml::to_string(&results_only)?);
+            let output = serde_yaml::to_string(&results_only)?;
+            if colour && std::io::stdout().is_terminal() {
+                println!("{}", colourise_output(&output, OutputFormat::Yaml)?);
+            } else {
+                println!("{}", output);
+            }
         }
         OutputFormat::Text | OutputFormat::Csv | OutputFormat::Dot => {
             for (_, batch_result) in sorted_results {
@@ -4905,6 +5121,34 @@ mod tests {
         bytes
     }
 
+    fn build_simple_stream_pdf() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"%PDF-1.4\n");
+
+        let objects = [
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+            "2 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n",
+            "3 0 obj\n<< /Length 5 >>\nstream\nhello\nendstream\nendobj\n",
+        ];
+
+        let mut offsets = Vec::new();
+        for object in objects {
+            offsets.push(bytes.len());
+            bytes.extend_from_slice(object.as_bytes());
+        }
+
+        let xref_offset = bytes.len();
+        bytes.extend_from_slice(b"xref\n0 4\n0000000000 65535 f \n");
+        for offset in offsets {
+            bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        bytes.extend_from_slice(b"trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n");
+        bytes.extend_from_slice(format!("{xref_offset}\n").as_bytes());
+        bytes.extend_from_slice(b"%%EOF\n");
+
+        bytes
+    }
+
     #[test]
     fn advanced_query_json_outputs_are_structured() {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
@@ -4934,6 +5178,60 @@ mod tests {
 
         let page_cycles = list_page_cycles(&ctx).expect("page cycles");
         assert_eq!(page_cycles["count"], json!(0));
+    }
+
+    #[test]
+    fn stream_query_extracts_object() {
+        let bytes = build_simple_stream_pdf();
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+        let temp = tempdir().expect("tempdir");
+
+        let result = execute_query_with_context(
+            &Query::Stream(3, 0),
+            &ctx,
+            Some(temp.path()),
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("stream query");
+
+        match result {
+            QueryResult::List(items) => {
+                assert_eq!(items.len(), 1);
+            }
+            _ => panic!("unexpected stream query result"),
+        }
+
+        let output_path = temp.path().join("stream_3_0.bin");
+        let data = std::fs::read(&output_path).expect("read stream output");
+        assert_eq!(data, b"hello");
+    }
+
+    #[test]
+    fn stream_query_preview_without_extract_to() {
+        let bytes = build_simple_stream_pdf();
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+
+        let result = execute_query_with_context(
+            &Query::Stream(3, 0),
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("stream query");
+
+        match result {
+            QueryResult::List(items) => {
+                assert_eq!(items.len(), 1);
+                assert!(items[0].contains("preview=\"hello\""));
+            }
+            _ => panic!("unexpected stream query result"),
+        }
     }
 
     #[test]
@@ -5023,6 +5321,13 @@ mod tests {
         assert_eq!(value["query"].as_str().unwrap(), "js.count");
         assert_eq!(value["file"].as_str().unwrap(), "sample.pdf");
         assert_eq!(value["result"].as_i64().unwrap(), 12);
+    }
+
+    #[test]
+    fn colourise_output_adds_ansi_codes_for_json() {
+        let json = "{\n  \"key\": 1\n}";
+        let output = colourise_output(json, OutputFormat::Json).unwrap();
+        assert!(output.contains('\u{1b}'));
     }
 
     #[test]
@@ -5244,6 +5549,7 @@ mod tests {
             DecodeMode::Decode,
             None,
             OutputFormat::Json,
+            false,
             10,
             10 * 1024 * 1024,
             3,
@@ -5437,6 +5743,7 @@ mod tests {
             DecodeMode::Decode,
             None,
             OutputFormat::Json,
+            false,
             10,
             10 * 1024 * 1024,
             3,
@@ -5454,6 +5761,7 @@ mod tests {
             DecodeMode::Decode,
             None,
             OutputFormat::Json,
+            false,
             10,
             10 * 1024 * 1024,
             3,
@@ -5492,6 +5800,7 @@ mod tests {
             DecodeMode::Decode,
             None,
             OutputFormat::Json,
+            false,
             10,
             10 * 1024 * 1024,
             3,

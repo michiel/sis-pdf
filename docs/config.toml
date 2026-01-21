@@ -55,3 +55,7 @@ level = "warn"
 # dynamic_enabled = false
 # dynamic_timeout_ms = 120
 # max_fonts = 256
+
+[query]
+# Output formatting
+# colour = false

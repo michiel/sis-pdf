@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use sis_pdf_core::model::Severity as SecuritySeverity;
 use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 use std::sync::{Arc, Mutex};
@@ -119,6 +119,8 @@ enum Command {
             help = "Output format (text, json, jsonl, yaml, csv, dot). Example: --format jsonl"
         )]
         format: String,
+        #[arg(long = "colour", alias = "color", help = "Enable colourised JSON/YAML output")]
+        colour: bool,
         #[arg(long, short = 'c', help = "Compact output (numbers only)")]
         compact: bool,
         #[arg(long, help = "Filter results with a predicate expression")]
@@ -659,6 +661,7 @@ fn main() -> Result<()> {
             pdf,
             json,
             format,
+            colour,
             compact,
             r#where,
             deep,
@@ -675,6 +678,12 @@ fn main() -> Result<()> {
             hexdump,
             ungroup_chains,
         } => {
+            let config_query_colour = config_path
+                .as_deref()
+                .and_then(|path| sis_pdf_core::config::Config::load(path).ok())
+                .and_then(|cfg| cfg.query.and_then(|query| query.colour))
+                .unwrap_or(false);
+            let colour = colour || config_query_colour;
             let mut output_format = commands::query::OutputFormat::parse(&format)?;
             if json {
                 if output_format != commands::query::OutputFormat::Text
@@ -737,6 +746,7 @@ fn main() -> Result<()> {
                     actual_pdf.as_deref(),
                     output_format,
                     compact,
+                    colour,
                     deep,
                     max_decode_bytes,
                     max_total_decoded_bytes,
@@ -774,6 +784,7 @@ fn main() -> Result<()> {
                     extract_to.as_deref(),
                     max_extract_bytes,
                     output_format,
+                    colour,
                     decode_mode,
                     predicate.as_ref(),
                 )
@@ -2663,11 +2674,26 @@ fn mmap_file(path: &str) -> Result<Mmap> {
     unsafe { Mmap::map(&f).map_err(|e| anyhow!(e)) }
 }
 
+fn maybe_colourise_output(
+    output: String,
+    output_format: commands::query::OutputFormat,
+    colour: bool,
+) -> String {
+    if !colour || !std::io::stdout().is_terminal() {
+        return output;
+    }
+    match commands::query::colourise_output(&output, output_format) {
+        Ok(colourised) => colourised,
+        Err(_) => output,
+    }
+}
+
 fn run_query_oneshot(
     query_str: &str,
     pdf_path: Option<&str>,
     output_format: commands::query::OutputFormat,
     compact: bool,
+    colour: bool,
     deep: bool,
     max_decode_bytes: usize,
     max_total_decoded_bytes: usize,
@@ -2692,7 +2718,7 @@ fn run_query_oneshot(
             match output_format {
                 query::OutputFormat::Json => {
                     let output = query::format_json(query_str, file_label, &error)?;
-                    println!("{}", output);
+                    println!("{}", maybe_colourise_output(output, output_format, colour));
                     return Ok(());
                 }
                 query::OutputFormat::Jsonl => {
@@ -2702,7 +2728,7 @@ fn run_query_oneshot(
                 }
                 query::OutputFormat::Yaml => {
                     let output = query::format_yaml(query_str, file_label, &error)?;
-                    println!("{}", output);
+                    println!("{}", maybe_colourise_output(output, output_format, colour));
                     return Ok(());
                 }
                 _ => return Err(anyhow!("Failed to parse query: {}", e)),
@@ -2733,6 +2759,7 @@ fn run_query_oneshot(
             decode_mode,
             predicate,
             output_format,
+            colour,
             MAX_BATCH_FILES,
             MAX_BATCH_BYTES,
             MAX_WALK_DEPTH,
@@ -2756,7 +2783,7 @@ fn run_query_oneshot(
     match output_format {
         query::OutputFormat::Json => {
             let output = query::format_json(query_str, pdf_path, &result)?;
-            println!("{}", output);
+            println!("{}", maybe_colourise_output(output, output_format, colour));
         }
         query::OutputFormat::Jsonl => {
             let output = query::format_jsonl(query_str, pdf_path, &result)?;
@@ -2764,7 +2791,7 @@ fn run_query_oneshot(
         }
         query::OutputFormat::Yaml => {
             let output = query::format_yaml(query_str, pdf_path, &result)?;
-            println!("{}", output);
+            println!("{}", maybe_colourise_output(output, output_format, colour));
         }
         query::OutputFormat::Text | query::OutputFormat::Csv | query::OutputFormat::Dot => {
             let output = query::format_result(&result, compact);
@@ -2786,6 +2813,7 @@ fn run_query_repl(
     extract_to: Option<&std::path::Path>,
     max_extract_bytes: usize,
     output_format: commands::query::OutputFormat,
+    colour: bool,
     decode_mode: commands::query::DecodeMode,
     predicate: Option<&commands::query::PredicateExpr>,
 ) -> Result<()> {
@@ -2832,6 +2860,7 @@ fn run_query_repl(
     );
     let mut jsonl_mode = output_format == query::OutputFormat::Jsonl;
     let mut yaml_mode = output_format == query::OutputFormat::Yaml;
+    let mut colour_mode = colour;
     let mut compact_mode = false;
     let mut predicate_expr = predicate.cloned();
 
@@ -2914,6 +2943,14 @@ fn run_query_repl(
                         );
                         continue;
                     }
+                    ":colour" | ":color" => {
+                        colour_mode = !colour_mode;
+                        eprintln!(
+                            "Colour mode: {}",
+                            if colour_mode { "enabled" } else { "disabled" }
+                        );
+                        continue;
+                    }
                     ":compact" => {
                         compact_mode = !compact_mode;
                         eprintln!(
@@ -2956,7 +2993,14 @@ fn run_query_repl(
                                 // Format and print result
                                 if yaml_mode {
                                     match query::format_yaml(line, pdf_path, &result) {
-                                        Ok(output) => println!("{}", output),
+                                        Ok(output) => println!(
+                                            "{}",
+                                            maybe_colourise_output(
+                                                output,
+                                                query::OutputFormat::Yaml,
+                                                colour_mode
+                                            )
+                                        ),
                                         Err(e) => eprintln!("Error formatting result: {}", e),
                                     }
                                 } else if jsonl_mode {
@@ -2966,7 +3010,14 @@ fn run_query_repl(
                                     }
                                 } else if json_mode {
                                     match query::format_json(line, pdf_path, &result) {
-                                        Ok(output) => println!("{}", output),
+                                        Ok(output) => println!(
+                                            "{}",
+                                            maybe_colourise_output(
+                                                output,
+                                                query::OutputFormat::Json,
+                                                colour_mode
+                                            )
+                                        ),
                                         Err(e) => eprintln!("Error formatting result: {}", e),
                                     }
                                 } else {
@@ -2981,7 +3032,14 @@ fn run_query_repl(
                         let error = query::query_syntax_error(format!("Invalid query: {}", e));
                         if yaml_mode {
                             match query::format_yaml(line, pdf_path, &error) {
-                                Ok(output) => println!("{}", output),
+                                Ok(output) => println!(
+                                    "{}",
+                                    maybe_colourise_output(
+                                        output,
+                                        query::OutputFormat::Yaml,
+                                        colour_mode
+                                    )
+                                ),
                                 Err(err) => eprintln!("Error formatting result: {}", err),
                             }
                         } else if jsonl_mode {
@@ -2991,7 +3049,14 @@ fn run_query_repl(
                             }
                         } else if json_mode {
                             match query::format_json(line, pdf_path, &error) {
-                                Ok(output) => println!("{}", output),
+                                Ok(output) => println!(
+                                    "{}",
+                                    maybe_colourise_output(
+                                        output,
+                                        query::OutputFormat::Json,
+                                        colour_mode
+                                    )
+                                ),
                                 Err(err) => eprintln!("Error formatting result: {}", err),
                             }
                         } else {
@@ -3073,6 +3138,7 @@ fn print_repl_help() {
     println!("Object inspection queries:");
     println!("  object N           - Show object N (generation 0)");
     println!("  object N G         - Show object N generation G");
+    println!("  stream N G         - Extract stream object N G (requires --extract-to)");
     println!("  objects.list       - List all object IDs");
     println!("  objects.with TYPE  - Filter objects by type (e.g., Page, Font)");
     println!("  trailer            - Show PDF trailer");
@@ -3089,6 +3155,7 @@ fn print_repl_help() {
     println!("  :json              - Toggle JSON output mode");
     println!("  :jsonl             - Toggle JSONL output mode");
     println!("  :yaml              - Toggle YAML output mode");
+    println!("  :colour            - Toggle colourised JSON/YAML output");
     println!("  :compact           - Toggle compact output mode");
     println!("  :where EXPR        - Set predicate filter (blank clears)");
     println!("  help / ?           - Show this help");

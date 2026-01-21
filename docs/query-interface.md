@@ -68,7 +68,10 @@ sis query sample.pdf images --extract-to /tmp/images
 sis query sample.pdf images --extract-to /tmp/images --raw
 sis query sample.pdf xfa.scripts --extract-to /tmp/xfa-scripts
 sis query sample.pdf swf.extract --extract-to /tmp/swf
+sis query sample.pdf stream 1487 0 --extract-to /tmp/streams --decode
 ```
+
+When `stream` is used without `--extract-to`, it returns a short preview string instead of writing a file.
 
 ## Output Formats
 
@@ -76,6 +79,7 @@ sis query sample.pdf swf.extract --extract-to /tmp/swf
 sis query sample.pdf images --format json
 sis query sample.pdf images --format jsonl
 sis query sample.pdf images --format yaml
+sis query sample.pdf images --format json --colour
 ```
 
 ## Finding Shortcuts

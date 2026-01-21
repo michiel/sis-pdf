@@ -30,6 +30,7 @@ pub struct Config {
     pub profiles: Option<HashMap<String, Profile>>,
     pub scan: Option<ScanConfig>,
     pub logging: Option<LoggingConfig>,
+    pub query: Option<QueryConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -40,6 +41,12 @@ pub struct Profile {
 #[derive(Debug, Deserialize, Clone)]
 pub struct LoggingConfig {
     pub level: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct QueryConfig {
+    #[serde(alias = "color")]
+    pub colour: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
