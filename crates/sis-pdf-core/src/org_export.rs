@@ -1,5 +1,7 @@
 use crate::explainability::GraphPathExplanation;
 use crate::org::OrgGraph;
+use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge, TypedGraph};
+use std::collections::HashSet;
 
 pub fn export_org_json(org: &OrgGraph) -> serde_json::Value {
     // If enhanced data is available, export it
@@ -166,10 +168,139 @@ pub fn export_org_with_paths_json_pretty(export: &OrgExportWithPaths) -> String 
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
 }
 
+pub fn export_action_graph_json(typed_graph: &TypedGraph<'_>) -> serde_json::Value {
+    let edges = collect_action_edges(typed_graph);
+    let mut node_set = HashSet::new();
+
+    let edge_values: Vec<_> = edges
+        .iter()
+        .map(|info| {
+            let from = format!("{} {}", info.edge.src.0, info.edge.src.1);
+            let to = format!("{} {}", info.edge.dst.0, info.edge.dst.1);
+            node_set.insert(from.clone());
+            node_set.insert(to.clone());
+            serde_json::json!({
+                "from": from,
+                "to": to,
+                "event": info.label,
+                "trigger_type": info.class.as_str(),
+                "color": trigger_color(&info.class),
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "type": "action_graph",
+        "nodes": node_set.into_iter().collect::<Vec<_>>(),
+        "edges": edge_values,
+    })
+}
+
+pub fn export_action_graph_dot(typed_graph: &TypedGraph<'_>) -> String {
+    let edges = collect_action_edges(typed_graph);
+    let mut out = String::new();
+    out.push_str("digraph action_graph {\n");
+
+    for info in &edges {
+        let from = format!("\"{} {}\"", info.edge.src.0, info.edge.src.1);
+        let to = format!("\"{} {}\"", info.edge.dst.0, info.edge.dst.1);
+        let label = info.label.replace('"', "\\\"");
+        out.push_str(&format!(
+            "  {} -> {} [label=\"{}\", color={}, style=bold];\n",
+            from,
+            to,
+            label,
+            trigger_color(&info.class)
+        ));
+    }
+
+    out.push_str("}\n");
+    out
+}
+
+struct ActionEdgeInfo<'a> {
+    edge: &'a TypedEdge,
+    label: String,
+    class: TriggerClass,
+}
+
+fn collect_action_edges<'a>(typed_graph: &'a TypedGraph<'a>) -> Vec<ActionEdgeInfo<'a>> {
+    typed_graph
+        .edges
+        .iter()
+        .filter_map(|edge| classify_action_edge(edge))
+        .collect()
+}
+
+fn classify_action_edge<'a>(edge: &'a TypedEdge) -> Option<ActionEdgeInfo<'a>> {
+    match &edge.edge_type {
+        EdgeType::OpenAction => Some(ActionEdgeInfo {
+            edge,
+            label: "/OpenAction".into(),
+            class: TriggerClass::Automatic,
+        }),
+        EdgeType::PageAction { event } => Some(ActionEdgeInfo {
+            edge,
+            label: format!("/PageAction {}", event),
+            class: if is_automatic_action_event(event) {
+                TriggerClass::Automatic
+            } else {
+                TriggerClass::User
+            },
+        }),
+        EdgeType::AnnotationAction => Some(ActionEdgeInfo {
+            edge,
+            label: "/AnnotationAction".into(),
+            class: TriggerClass::Hidden,
+        }),
+        EdgeType::AdditionalAction { event } => Some(ActionEdgeInfo {
+            edge,
+            label: format!("/AA {}", event),
+            class: if is_automatic_action_event(event) {
+                TriggerClass::Automatic
+            } else {
+                TriggerClass::User
+            },
+        }),
+        _ => None,
+    }
+}
+
+fn is_automatic_action_event(event: &str) -> bool {
+    matches!(event, "/O" | "/C" | "/PV" | "/PI" | "/V" | "/PO")
+}
+
+enum TriggerClass {
+    Automatic,
+    Hidden,
+    User,
+}
+
+impl TriggerClass {
+    fn as_str(&self) -> &'static str {
+        match self {
+            TriggerClass::Automatic => "automatic",
+            TriggerClass::Hidden => "hidden",
+            TriggerClass::User => "user",
+        }
+    }
+}
+
+fn trigger_color(class: &TriggerClass) -> &'static str {
+    match class {
+        TriggerClass::Automatic => "red",
+        TriggerClass::Hidden => "orange",
+        TriggerClass::User => "yellow",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::explainability::{PathNode, SuspiciousPath};
+    use sis_pdf_pdf::graph::ObjectGraph;
+    use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge, TypedGraph};
+    use std::collections::HashMap;
 
     fn create_empty_org() -> OrgGraph {
         OrgGraph {
@@ -254,5 +385,50 @@ mod tests {
 
         assert!(json_str.contains("org"));
         assert!(json_str.contains("suspicious_paths"));
+    }
+
+    #[test]
+    fn action_graph_json_exports_edges() {
+        let graph = test_object_graph();
+        let typed_graph = test_typed_graph(&graph);
+        let exported = export_action_graph_json(&typed_graph);
+        let edges = exported["edges"].as_array().expect("edges array");
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0]["trigger_type"], "automatic");
+        assert_eq!(edges[0]["event"], "/OpenAction");
+    }
+
+    #[test]
+    fn action_graph_dot_contains_colored_edge() {
+        let graph = test_object_graph();
+        let typed_graph = test_typed_graph(&graph);
+        let dot = export_action_graph_dot(&typed_graph);
+        assert!(dot.contains("color=red"));
+        assert!(dot.contains("/OpenAction"));
+    }
+
+    fn test_object_graph<'a>() -> ObjectGraph<'a> {
+        ObjectGraph {
+            bytes: &[],
+            objects: Vec::new(),
+            index: HashMap::new(),
+            trailers: Vec::new(),
+            startxrefs: Vec::new(),
+            deviations: Vec::new(),
+        }
+    }
+
+    fn test_typed_graph<'a>(graph: &'a ObjectGraph<'a>) -> TypedGraph<'a> {
+        let edge = TypedEdge::new_suspicious((1, 0), (2, 0), EdgeType::OpenAction);
+        let mut forward_index = HashMap::new();
+        forward_index.insert((1, 0), vec![0]);
+        let mut reverse_index = HashMap::new();
+        reverse_index.insert((2, 0), vec![0]);
+        TypedGraph {
+            graph,
+            edges: vec![edge],
+            forward_index,
+            reverse_index,
+        }
     }
 }

@@ -12,6 +12,7 @@ use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
+use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStream};
@@ -300,6 +301,13 @@ impl Detector for ObjectIdShadowingDetector {
         Cost::Cheap
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let classifications = ctx.classifications();
+        if !classifications
+            .values()
+            .any(|c| c.has_role(ObjectRole::EmbeddedFile))
+        {
+            return Ok(Vec::new());
+        }
         let mut findings = Vec::new();
 
         // Count total shadowing instances across document
@@ -376,6 +384,13 @@ impl Detector for ShadowObjectDivergenceDetector {
         Cost::Moderate
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let classifications = ctx.classifications();
+        if !classifications
+            .values()
+            .any(|c| c.has_role(ObjectRole::LaunchTarget))
+        {
+            return Ok(Vec::new());
+        }
         let mut findings = Vec::new();
         for ((obj, gen), idxs) in &ctx.graph.index {
             if idxs.len() <= 1 {
