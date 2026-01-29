@@ -42,12 +42,17 @@ fn correlate_launch_obfuscated_executable() {
     let launch = make_finding(
         "launch_embedded_file",
         &["4 0 obj"],
-        &[("launch.embedded_file_hash", "deadbeef"), ("launch.target_path", "payload.exe")],
+        &[
+            ("launch.embedded_file_hash", "deadbeef"),
+            ("launch.target_path", "payload.exe"),
+        ],
         AttackSurface::Actions,
     );
 
     let composites = correlation::correlate_findings(&[embedded.clone(), launch.clone()]);
-    assert!(composites.iter().any(|f| f.kind == "launch_obfuscated_executable"));
+    assert!(composites
+        .iter()
+        .any(|f| f.kind == "launch_obfuscated_executable"));
 }
 
 #[test]
@@ -55,7 +60,10 @@ fn correlate_action_chain_malicious() {
     let chain = make_finding(
         "action_chain_complex",
         &["10 0 obj"],
-        &[("action.chain_depth", "4"), ("action.trigger", "OpenAction")],
+        &[
+            ("action.chain_depth", "4"),
+            ("action.trigger", "OpenAction"),
+        ],
         AttackSurface::Actions,
     );
     let automatic = make_finding(
@@ -71,12 +79,11 @@ fn correlate_action_chain_malicious() {
         AttackSurface::EmbeddedFiles,
     );
 
-    let composites = correlation::correlate_findings(&[
-        chain.clone(),
-        automatic.clone(),
-        js.clone(),
-    ]);
-    assert!(composites.iter().any(|f| f.kind == "action_chain_malicious"));
+    let composites =
+        correlation::correlate_findings(&[chain.clone(), automatic.clone(), js.clone()]);
+    assert!(composites
+        .iter()
+        .any(|f| f.kind == "action_chain_malicious"));
 }
 
 #[test]
@@ -94,9 +101,10 @@ fn correlate_xfa_data_exfiltration_risk() {
         AttackSurface::Forms,
     );
 
-    let composites =
-        correlation::correlate_findings(&[submit.clone(), sensitive.clone()]);
-    assert!(composites.iter().any(|f| f.kind == "xfa_data_exfiltration_risk"));
+    let composites = correlation::correlate_findings(&[submit.clone(), sensitive.clone()]);
+    assert!(composites
+        .iter()
+        .any(|f| f.kind == "xfa_data_exfiltration_risk"));
 }
 
 #[test]
@@ -115,7 +123,9 @@ fn correlate_encrypted_payload_delivery() {
     );
 
     let composites = correlation::correlate_findings(&[archive.clone(), launch.clone()]);
-    assert!(composites.iter().any(|f| f.kind == "encrypted_payload_delivery"));
+    assert!(composites
+        .iter()
+        .any(|f| f.kind == "encrypted_payload_delivery"));
 }
 
 #[test]

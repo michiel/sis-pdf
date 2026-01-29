@@ -1090,19 +1090,14 @@ pub fn execute_query_with_context(
             Query::FindingsComposite => {
                 let findings = run_detectors(ctx)?;
                 let filtered = filter_findings(findings, predicate);
-                let composites: Vec<_> = filtered
-                    .into_iter()
-                    .filter(|f| is_composite(f))
-                    .collect();
+                let composites: Vec<_> = filtered.into_iter().filter(|f| is_composite(f)).collect();
                 Ok(QueryResult::Structure(json!(composites)))
             }
             Query::FindingsCompositeCount => {
                 let findings = run_detectors(ctx)?;
                 let filtered = filter_findings(findings, predicate);
                 let composites = filtered.into_iter().filter(|f| is_composite(f)).count();
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    composites as i64,
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(composites as i64)))
             }
             Query::JavaScript => {
                 if predicate.is_some() {
@@ -1989,36 +1984,36 @@ fn extract_embedded_files(
 
     for entry in &ctx.graph.objects {
         if let PdfAtom::Stream(st) = &entry.atom {
-                if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
-                    let data = stream_bytes_for_mode(ctx.bytes, st, 32 * 1024 * 1024, decode_mode)?;
-                    let name = embedded_filename(&st.dict)
-                        .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
-                    let analysis = sis_pdf_core::stream_analysis::analyse_stream(
-                        &data,
-                        &sis_pdf_core::stream_analysis::StreamLimits::default(),
-                    );
-                    let hash = sha256_hex(&data);
-                    let meta = PredicateContext {
-                        length: data.len(),
-                        filter: filter_name(&st.dict),
-                        type_name: "Stream".to_string(),
-                        subtype: subtype_name(&st.dict),
-                        entropy: entropy_score(&data),
-                        width: 0,
-                        height: 0,
-                        pixels: 0,
-                        risky: false,
-                        severity: None,
-                        confidence: None,
-                        surface: None,
-                        kind: None,
-                        object_count: 0,
-                        evidence_count: 0,
-                        name: Some(name.clone()),
-                        magic: Some(analysis.magic_type),
-                        hash: Some(hash),
-                    };
-                    if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
+            if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
+                let data = stream_bytes_for_mode(ctx.bytes, st, 32 * 1024 * 1024, decode_mode)?;
+                let name = embedded_filename(&st.dict)
+                    .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
+                let analysis = sis_pdf_core::stream_analysis::analyse_stream(
+                    &data,
+                    &sis_pdf_core::stream_analysis::StreamLimits::default(),
+                );
+                let hash = sha256_hex(&data);
+                let meta = PredicateContext {
+                    length: data.len(),
+                    filter: filter_name(&st.dict),
+                    type_name: "Stream".to_string(),
+                    subtype: subtype_name(&st.dict),
+                    entropy: entropy_score(&data),
+                    width: 0,
+                    height: 0,
+                    pixels: 0,
+                    risky: false,
+                    severity: None,
+                    confidence: None,
+                    surface: None,
+                    kind: None,
+                    object_count: 0,
+                    evidence_count: 0,
+                    name: Some(name.clone()),
+                    magic: Some(analysis.magic_type),
+                    hash: Some(hash),
+                };
+                if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
                     embedded.push(format!(
                         "{} ({}_{}, {} bytes)",
                         name,
@@ -2521,23 +2516,23 @@ fn collect_images(
         let ctx_meta = PredicateContext {
             length: data.len(),
             filter: filter.clone(),
-                type_name: "Image".to_string(),
-                subtype: Some(format.label().to_string()),
-                entropy,
-                width,
-                height,
-                pixels,
-                risky: format.risky(),
-                severity: None,
-                confidence: None,
-                surface: None,
-                kind: None,
-                object_count: 0,
-                evidence_count: 0,
-                name: None,
-                magic: None,
-                hash: None,
-            };
+            type_name: "Image".to_string(),
+            subtype: Some(format.label().to_string()),
+            entropy,
+            width,
+            height,
+            pixels,
+            risky: format.risky(),
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: None,
+            magic: None,
+            hash: None,
+        };
         if predicate
             .map(|pred| pred.evaluate(&ctx_meta))
             .unwrap_or(true)
@@ -3735,26 +3730,26 @@ fn extract_obj_with_metadata(
         }
         PdfAtom::Stream(stream) => {
             let data = stream_bytes_for_mode(bytes, stream, max_bytes, decode_mode).ok()?;
-                let ctx = PredicateContext {
-                    length: data.len(),
-                    filter: filter_name(&stream.dict),
-                    type_name: "Stream".to_string(),
-                    subtype: subtype_name(&stream.dict),
-                    entropy: entropy_score(&data),
-                    width: 0,
-                    height: 0,
-                    pixels: 0,
-                    risky: false,
-                    severity: None,
-                    confidence: None,
-                    surface: None,
-                    kind: None,
-                    object_count: 0,
-                    evidence_count: 0,
-                    name: None,
-                    magic: None,
-                    hash: None,
-                };
+            let ctx = PredicateContext {
+                length: data.len(),
+                filter: filter_name(&stream.dict),
+                type_name: "Stream".to_string(),
+                subtype: subtype_name(&stream.dict),
+                entropy: entropy_score(&data),
+                width: 0,
+                height: 0,
+                pixels: 0,
+                risky: false,
+                severity: None,
+                confidence: None,
+                surface: None,
+                kind: None,
+                object_count: 0,
+                evidence_count: 0,
+                name: None,
+                magic: None,
+                hash: None,
+            };
             Some((data, ctx))
         }
         PdfAtom::Ref { .. } => {
@@ -5894,10 +5889,9 @@ mod tests {
 
     fn assert_query_result_has_data(result: QueryResult) {
         match result {
-            QueryResult::List(list) => assert!(
-                !list.is_empty(),
-                "expected list result to contain entries"
-            ),
+            QueryResult::List(list) => {
+                assert!(!list.is_empty(), "expected list result to contain entries")
+            }
             QueryResult::Structure(value) => {
                 if !(value.is_array() || value.is_object() || value.is_string()) {
                     panic!("unexpected structure result: {}", value);
@@ -5944,8 +5938,7 @@ mod tests {
             let dst = temp
                 .path()
                 .join(std::path::Path::new(rel).file_name().expect("filename"));
-            std::fs::copy(&src, &dst)
-                .unwrap_or_else(|err| panic!("unable to copy {}: {err}", rel));
+            std::fs::copy(&src, &dst).unwrap_or_else(|err| panic!("unable to copy {}: {err}", rel));
         });
 
         let scan_options = ScanOptions::default();
@@ -5982,14 +5975,20 @@ mod tests {
     #[test]
     fn execute_query_supports_new_shortcuts() {
         for (query_str, fixture) in &[
-            ("embedded.executables", "embedded/embedded_exe_cve_2018_4990.pdf"),
+            (
+                "embedded.executables",
+                "embedded/embedded_exe_cve_2018_4990.pdf",
+            ),
             ("launch.external", "launch_action.pdf"),
             ("launch.embedded", "embedded/embedded_exe_cve_2018_4990.pdf"),
             ("actions.chains.complex", "action_chain_complex.pdf"),
             ("actions.triggers.hidden", "action_hidden_trigger.pdf"),
             ("xfa.submit", "xfa/xfa_submit_sensitive.pdf"),
             ("swf", "media/swf_cve_2011_0611.pdf"),
-            ("streams.high-entropy", "encryption/weak_encryption_cve_2019_7089.pdf"),
+            (
+                "streams.high-entropy",
+                "encryption/weak_encryption_cve_2019_7089.pdf",
+            ),
             ("filters.unusual", "filters/filter_unusual_chain.pdf"),
         ] {
             with_fixture_context(fixture, |ctx| {

@@ -133,10 +133,7 @@ fn correlate_xfa_data_exfiltration(findings: &[Finding]) -> Vec<Finding> {
                 .collect::<Vec<_>>(),
             vec![
                 ("xfa.submit_urls", Some(submit_urls.join(","))),
-                (
-                    "xfa.sensitive_fields",
-                    Some(sensitive_fields.join(",")),
-                ),
+                ("xfa.sensitive_fields", Some(sensitive_fields.join(","))),
             ],
         ));
     }
@@ -180,8 +177,12 @@ fn correlate_obfuscated_payload(findings: &[Finding]) -> Vec<Finding> {
     let filters = findings
         .iter()
         .filter(|f| {
-            ["filter_chain_unusual", "filter_order_invalid", "filter_combination_unusual"]
-                .contains(&f.kind.as_str())
+            [
+                "filter_chain_unusual",
+                "filter_order_invalid",
+                "filter_combination_unusual",
+            ]
+            .contains(&f.kind.as_str())
         })
         .collect::<Vec<_>>();
     let entropic = findings
