@@ -2745,9 +2745,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 "- Effect: {}\n",
                 escape_markdown(&chain_effect_summary(chain))
             ));
-            if let Some(trigger) = chain_note(chain, "trigger.label")
-                .or(chain.trigger.as_deref())
-            {
+            if let Some(trigger) = chain_note(chain, "trigger.label").or(chain.trigger.as_deref()) {
                 out.push_str(&format!("- Trigger: `{}`\n", escape_markdown(trigger)));
             }
             if let Some(action) = chain_note(chain, "action.label")

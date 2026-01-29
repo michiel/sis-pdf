@@ -42,7 +42,12 @@ pub fn synthesise_chains(
         let single = [f];
         let (trigger, action, payload) = chain_keys_from_findings(&single);
         let mut notes = notes_from_findings(&single, structural_count, &taint);
-        apply_chain_labels(&mut notes, trigger.as_deref(), action.as_deref(), payload.as_deref());
+        apply_chain_labels(
+            &mut notes,
+            trigger.as_deref(),
+            action.as_deref(),
+            payload.as_deref(),
+        );
         let mut chain = ExploitChain {
             id: String::new(),
             group_id: None,
@@ -125,7 +130,12 @@ fn build_object_chains(
         if action.is_some() && payload.is_some() {
             notes.insert("correlation.action_payload".into(), "true".into());
         }
-        apply_chain_labels(&mut notes, trigger.as_deref(), action.as_deref(), payload.as_deref());
+        apply_chain_labels(
+            &mut notes,
+            trigger.as_deref(),
+            action.as_deref(),
+            payload.as_deref(),
+        );
         let mut chain = ExploitChain {
             id: String::new(),
             group_id: None,
@@ -270,7 +280,9 @@ fn notes_from_findings(
     let mut notes = HashMap::new();
     for f in findings {
         if let Some(action_type) = f.meta.get("action.s") {
-            notes.entry("action.type".into()).or_insert_with(|| action_type.clone());
+            notes
+                .entry("action.type".into())
+                .or_insert_with(|| action_type.clone());
         }
         if let Some(action_target) = f.meta.get("action.target") {
             notes
@@ -561,8 +573,7 @@ fn group_chains_by_signature(
         for chain in &members {
             member_ids.push(chain.id.clone());
         }
-        let mut findings_set: BTreeSet<String> =
-            representative.findings.iter().cloned().collect();
+        let mut findings_set: BTreeSet<String> = representative.findings.iter().cloned().collect();
         let mut nodes_set: BTreeSet<String> = representative.nodes.iter().cloned().collect();
         for chain in &members {
             for id in &chain.findings {
@@ -581,7 +592,10 @@ fn group_chains_by_signature(
                 representative.payload = chain.payload.clone();
             }
             for (k, v) in &chain.notes {
-                representative.notes.entry(k.clone()).or_insert_with(|| v.clone());
+                representative
+                    .notes
+                    .entry(k.clone())
+                    .or_insert_with(|| v.clone());
             }
         }
         representative.findings = findings_set.into_iter().collect();

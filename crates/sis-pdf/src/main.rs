@@ -9,6 +9,7 @@ use memmap2::Mmap;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sis_pdf_core::filter_allowlist::{default_filter_allowlist_toml, load_filter_allowlist};
 use sis_pdf_core::model::Severity as SecuritySeverity;
 use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
 use std::fs;
@@ -19,7 +20,6 @@ use std::sync::{Arc, Mutex};
 use tar::Archive;
 use tempfile::tempdir;
 use toml_edit::{value, Array, DocumentMut, Item, Table, Value};
-use sis_pdf_core::filter_allowlist::{default_filter_allowlist_toml, load_filter_allowlist};
 use tracing::{debug, error, info, warn, Level};
 use walkdir::WalkDir;
 use zip::ZipArchive;
@@ -119,7 +119,11 @@ enum Command {
             help = "Output format (text, json, jsonl, yaml, csv, dot). Example: --format jsonl"
         )]
         format: String,
-        #[arg(long = "colour", alias = "color", help = "Enable colourised JSON/YAML output")]
+        #[arg(
+            long = "colour",
+            alias = "color",
+            help = "Enable colourised JSON/YAML output"
+        )]
         colour: bool,
         #[arg(long, short = 'c', help = "Compact output (numbers only)")]
         compact: bool,
@@ -234,7 +238,10 @@ enum Command {
         cache_dir: Option<PathBuf>,
         #[arg(long, alias = "seq")]
         sequential: bool,
-        #[arg(long, help = "Enable runtime profiling to measure detector performance")]
+        #[arg(
+            long,
+            help = "Enable runtime profiling to measure detector performance"
+        )]
         runtime_profile: bool,
         #[arg(long, default_value = "text", value_parser = ["text", "json"])]
         runtime_profile_format: String,
@@ -386,10 +393,7 @@ enum Command {
         no_js_sandbox: bool,
     },
     #[command(about = "Explain a specific finding with evidence details")]
-    Explain {
-        pdf: String,
-        finding_id: String,
-    },
+    Explain { pdf: String, finding_id: String },
     #[command(subcommand, about = "Streaming analysis of PDF content")]
     Stream(StreamCommand),
     #[command(subcommand, about = "Correlate findings across multiple PDFs")]
@@ -704,9 +708,7 @@ fn main() -> Result<()> {
             let decode_flags = [raw, decode, hexdump];
             let decode_count = decode_flags.iter().filter(|flag| **flag).count();
             if decode_count > 1 {
-                return Err(anyhow!(
-                    "Use only one of --raw, --decode, or --hexdump"
-                ));
+                return Err(anyhow!("Use only one of --raw, --decode, or --hexdump"));
             }
             let decode_mode = if raw {
                 commands::query::DecodeMode::Raw
@@ -774,7 +776,7 @@ fn main() -> Result<()> {
                     ));
                 }
                 run_query_repl(
-                    actual_pdf.as_deref().unwrap(),  // Safe because we validated above
+                    actual_pdf.as_deref().unwrap(), // Safe because we validated above
                     deep,
                     max_decode_bytes,
                     max_total_decoded_bytes,
@@ -857,65 +859,65 @@ fn main() -> Result<()> {
                 return Ok(());
             }
             run_scan(
-            pdf.as_deref(),
-            path.as_deref(),
-            &glob,
-            deep,
-            max_decode_bytes,
-            max_total_decoded_bytes,
-            !no_recover,
-            !ungroup_chains,
-            json,
-            jsonl,
-            jsonl_findings,
-            sarif,
-            sarif_out.as_deref(),
-            export_intents,
-            export_intents_out.as_deref(),
-            intents_derived,
-            yara,
-            yara_out.as_deref(),
-            &yara_scope,
-            diff_parser,
-            fast,
-            focus_trigger,
-            focus_depth,
-            strict,
-            strict_summary,
-            ir,
-            max_objects,
-            max_recursion_depth,
-            config_path.as_deref(),
-            profile.as_deref(),
-            filter_allowlist.as_deref(),
-            filter_allowlist_strict,
-            cache_dir.as_deref(),
-            sequential,
-            runtime_profile,
-            &runtime_profile_format,
-            ml,
-            ml_model_dir.as_deref(),
-            ml_threshold,
-            &ml_mode,
-            ml_extended_features,
-            ml_explain,
-            ml_advanced,
-            ml_temporal,
-            temporal_signals,
-            ml_baseline.as_deref(),
-            ml_calibration.as_deref(),
-            ml_provider.as_deref(),
-            ml_provider_order.as_deref(),
-            ml_provider_info,
-            ml_ort_dylib.as_deref(),
-            ml_quantized,
-            ml_batch_size,
-            !no_js_ast,
-            !no_js_sandbox,
-            !no_image_analysis,
-            !no_image_dynamic,
-            !no_font_signatures,
-            font_signature_dir.as_deref(),
+                pdf.as_deref(),
+                path.as_deref(),
+                &glob,
+                deep,
+                max_decode_bytes,
+                max_total_decoded_bytes,
+                !no_recover,
+                !ungroup_chains,
+                json,
+                jsonl,
+                jsonl_findings,
+                sarif,
+                sarif_out.as_deref(),
+                export_intents,
+                export_intents_out.as_deref(),
+                intents_derived,
+                yara,
+                yara_out.as_deref(),
+                &yara_scope,
+                diff_parser,
+                fast,
+                focus_trigger,
+                focus_depth,
+                strict,
+                strict_summary,
+                ir,
+                max_objects,
+                max_recursion_depth,
+                config_path.as_deref(),
+                profile.as_deref(),
+                filter_allowlist.as_deref(),
+                filter_allowlist_strict,
+                cache_dir.as_deref(),
+                sequential,
+                runtime_profile,
+                &runtime_profile_format,
+                ml,
+                ml_model_dir.as_deref(),
+                ml_threshold,
+                &ml_mode,
+                ml_extended_features,
+                ml_explain,
+                ml_advanced,
+                ml_temporal,
+                temporal_signals,
+                ml_baseline.as_deref(),
+                ml_calibration.as_deref(),
+                ml_provider.as_deref(),
+                ml_provider_order.as_deref(),
+                ml_provider_info,
+                ml_ort_dylib.as_deref(),
+                ml_quantized,
+                ml_batch_size,
+                !no_js_ast,
+                !no_js_sandbox,
+                !no_image_analysis,
+                !no_image_dynamic,
+                !no_font_signatures,
+                font_signature_dir.as_deref(),
             )
         }
         Command::Sandbox(cmd) => match cmd {
@@ -1749,7 +1751,11 @@ fn run_ml_detect(
         {
             match detect_provider_info(&runtime_overrides, &provider_order) {
                 Ok(info) => (info.available, info.selected, None),
-                Err(err) => (Vec::new(), None, Some(format!("provider detection failed: {err}"))),
+                Err(err) => (
+                    Vec::new(),
+                    None,
+                    Some(format!("provider detection failed: {err}")),
+                ),
             }
         }
         #[cfg(not(feature = "ml-graph"))]
@@ -2767,7 +2773,8 @@ fn run_query_oneshot(
     }
 
     // Single file mode
-    let pdf_path = pdf_path.ok_or_else(|| anyhow!("PDF file path required for single file mode"))?;
+    let pdf_path =
+        pdf_path.ok_or_else(|| anyhow!("PDF file path required for single file mode"))?;
     let result = query::execute_query(
         &query,
         std::path::Path::new(pdf_path),
@@ -4863,7 +4870,11 @@ mod tests {
         apply_filter_allowlist_options(&mut opts, Some(&config_path), true)
             .expect("apply allowlist");
         assert!(opts.filter_allowlist_strict);
-        assert!(opts.filter_allowlist.as_ref().map(|v| !v.is_empty()).unwrap_or(false));
+        assert!(opts
+            .filter_allowlist
+            .as_ref()
+            .map(|v| !v.is_empty())
+            .unwrap_or(false));
 
         print_filter_allowlist().expect("print allowlist");
     }

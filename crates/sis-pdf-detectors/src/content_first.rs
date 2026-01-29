@@ -843,7 +843,9 @@ fn decode_recovered_finding(
         description: "Recovered stream payload using fallback decoding.".to_string(),
         objects: vec![format!("{} {} obj", obj, gen)],
         evidence: vec![span_to_evidence(stream.data_span, "Stream data")],
-        remediation: Some("Treat stream data as suspect and verify filter declarations.".to_string()),
+        remediation: Some(
+            "Treat stream data as suspect and verify filter declarations.".to_string(),
+        ),
         meta: finding_meta,
         yara: None,
         position: None,
@@ -1016,7 +1018,9 @@ fn script_payload_findings(
 
     let mut findings = Vec::new();
     let mut push = |kind_str: &str, title: &str, description: &str, default_severity: Severity| {
-        let actual_severity = if kind.is_image() || matches!(kind, BlobKind::Xml | BlobKind::Html | BlobKind::Unknown) {
+        let actual_severity = if kind.is_image()
+            || matches!(kind, BlobKind::Xml | BlobKind::Html | BlobKind::Unknown)
+        {
             // If the blob is an image, XML, HTML, or unknown, and we found a script indicator,
             // it's likely a false positive or benign data. Lower severity.
             Severity::Low

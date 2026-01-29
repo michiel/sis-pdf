@@ -187,7 +187,10 @@ pub fn run_ml_inference(
                 interval.1 * 100.0
             )
         } else {
-            format!("{:.0}% probability of being malicious", calibrated_score * 100.0)
+            format!(
+                "{:.0}% probability of being malicious",
+                calibrated_score * 100.0
+            )
         };
 
         CalibratedPrediction {

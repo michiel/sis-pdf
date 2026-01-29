@@ -64,7 +64,6 @@ fn decompress_woff1(data: &[u8]) -> Result<Vec<u8>, String> {
     whole_font(&woff, &tags).map_err(|e| format!("Failed to build SFNT from WOFF: {:?}", e))
 }
 
-
 /// Decompress WOFF2 to SFNT
 #[cfg(feature = "dynamic")]
 fn decompress_woff2(data: &[u8]) -> Result<Vec<u8>, String> {
@@ -85,10 +84,8 @@ fn decompress_woff2(data: &[u8]) -> Result<Vec<u8>, String> {
     let provider = woff
         .table_provider(0)
         .map_err(|e| format!("Failed to load WOFF2 tables: {:?}", e))?;
-    whole_font(&provider, &tags)
-        .map_err(|e| format!("Failed to build SFNT from WOFF2: {:?}", e))
+    whole_font(&provider, &tags).map_err(|e| format!("Failed to build SFNT from WOFF2: {:?}", e))
 }
-
 
 /// Validate WOFF decompression for security issues
 #[cfg(feature = "dynamic")]
@@ -136,7 +133,10 @@ pub fn validate_woff_decompression(data: &[u8]) -> Vec<FontFinding> {
 
             let mut meta = HashMap::new();
             meta.insert("format".to_string(), "WOFF".to_string());
-            meta.insert("compression_ratio".to_string(), compression_ratio.to_string());
+            meta.insert(
+                "compression_ratio".to_string(),
+                compression_ratio.to_string(),
+            );
             meta.insert("compressed_size".to_string(), data.len().to_string());
             meta.insert("claimed_size".to_string(), original_length.to_string());
 
@@ -191,7 +191,10 @@ pub fn validate_woff_decompression(data: &[u8]) -> Vec<FontFinding> {
 
             let mut meta = HashMap::new();
             meta.insert("format".to_string(), "WOFF2".to_string());
-            meta.insert("compression_ratio".to_string(), compression_ratio.to_string());
+            meta.insert(
+                "compression_ratio".to_string(),
+                compression_ratio.to_string(),
+            );
 
             findings.push(FontFinding {
                 kind: "font.woff_decompression_anomaly".to_string(),

@@ -30,6 +30,8 @@ pub struct ImageDynamicOptions {
     pub max_pixels: u64,
     pub max_decode_bytes: usize,
     pub timeout_ms: u64,
+    pub total_budget_ms: u64,
+    pub skip_threshold: usize,
 }
 
 impl Default for ImageDynamicOptions {
@@ -38,6 +40,8 @@ impl Default for ImageDynamicOptions {
             max_pixels: 100_000_000,
             max_decode_bytes: 256 * 1024 * 1024,
             timeout_ms: 250,
+            total_budget_ms: 5_000,
+            skip_threshold: 50,
         }
     }
 }

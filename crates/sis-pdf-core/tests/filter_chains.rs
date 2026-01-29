@@ -98,7 +98,10 @@ fn detects_image_filter_with_compression() {
         finding.meta.get("violation_type"),
         Some(&"image_with_compression".to_string())
     );
-    assert_eq!(finding.meta.get("allowlist_match"), Some(&"true".to_string()));
+    assert_eq!(
+        finding.meta.get("allowlist_match"),
+        Some(&"true".to_string())
+    );
 }
 
 #[test]

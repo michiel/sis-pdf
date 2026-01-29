@@ -1,4 +1,4 @@
-use sis_pdf_core::features::FeatureExtractor;
+use sis_pdf_core::features::{feature_names, FeatureExtractor};
 use sis_pdf_core::scan::{FontAnalysisOptions, ProfileFormat, ScanOptions};
 
 fn fixture_path(rel: &str) -> std::path::PathBuf {
@@ -79,4 +79,64 @@ fn test_rich_media_swf_features() {
     let features = extract_features("media/swf_cve_2011_0611.pdf");
     assert!(features.content.rich_media_count > 0);
     assert!(features.content.rich_media_swf_count > 0);
+}
+
+#[test]
+fn test_graph_features_extended() {
+    let features = extract_features("action_chain_complex.pdf");
+    assert!(features.graph.action_chain_count > 0);
+    assert!(features.graph.max_chain_length >= 3);
+    assert!(features.graph.automatic_chain_count > 0);
+}
+
+#[test]
+fn test_feature_name_count_matches_vector_length() {
+    let names = feature_names();
+    assert_eq!(names.len(), 76);
+    let features = extract_features("embedded/embedded_exe_cve_2018_4990.pdf");
+    assert_eq!(features.as_f32_vec().len(), names.len());
+}
+
+#[test]
+fn test_features_backward_compatibility() {
+    const PREFIX: &[&str] = &[
+        "general.file_size",
+        "general.file_entropy",
+        "general.binary_ratio",
+        "general.object_count",
+        "structural.startxref_count",
+        "structural.trailer_count",
+        "structural.objstm_count",
+        "structural.linearized_present",
+        "structural.max_object_id",
+        "behavior.action_count",
+        "behavior.js_object_count",
+        "behavior.js_entropy_avg",
+        "behavior.js_eval_count",
+        "behavior.js_suspicious_api_count",
+        "behavior.time_api_count",
+        "behavior.env_probe_count",
+        "content.embedded_file_count",
+        "content.rich_media_count",
+        "content.annotation_count",
+        "content.page_count",
+        "graph.total_edges",
+        "graph.open_action_edges",
+        "graph.js_payload_edges",
+        "graph.uri_target_edges",
+        "graph.launch_target_edges",
+        "graph.suspicious_edge_count",
+        "graph.action_chain_count",
+        "graph.max_chain_length",
+        "graph.automatic_chain_count",
+        "graph.js_chain_count",
+        "graph.external_chain_count",
+        "graph.max_graph_depth",
+        "graph.avg_graph_depth",
+        "graph.catalog_to_js_paths",
+        "graph.multi_stage_indicators",
+    ];
+    let names = feature_names();
+    assert!(names.len() >= PREFIX.len());
+    assert_eq!(&names[..PREFIX.len()], PREFIX);
 }

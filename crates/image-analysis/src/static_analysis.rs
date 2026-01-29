@@ -10,7 +10,10 @@ use crate::{ImageFinding, ImageStaticOptions, ImageStaticResult};
 
 const DEFAULT_HEADER_BYTES: usize = 4096;
 
-pub fn analyze_static_images(graph: &ObjectGraph<'_>, opts: &ImageStaticOptions) -> ImageStaticResult {
+pub fn analyze_static_images(
+    graph: &ObjectGraph<'_>,
+    opts: &ImageStaticOptions,
+) -> ImageStaticResult {
     let max_header_bytes = if opts.max_header_bytes == 0 {
         DEFAULT_HEADER_BYTES
     } else {
@@ -133,7 +136,10 @@ fn stream_filters(stream: &PdfStream<'_>) -> (Vec<String>, String) {
     };
     match &filter.atom {
         PdfAtom::Name(name) => {
-            let label = String::from_utf8_lossy(&name.decoded).trim().trim_start_matches('/').to_string();
+            let label = String::from_utf8_lossy(&name.decoded)
+                .trim()
+                .trim_start_matches('/')
+                .to_string();
             (vec![label.clone()], label)
         }
         PdfAtom::Array(arr) => {
@@ -147,7 +153,11 @@ fn stream_filters(stream: &PdfStream<'_>) -> (Vec<String>, String) {
                     out.push(label);
                 }
             }
-            let label = if out.is_empty() { "-".into() } else { out.join(",") };
+            let label = if out.is_empty() {
+                "-".into()
+            } else {
+                out.join(",")
+            };
             (out, label)
         }
         _ => (Vec::new(), "-".into()),
@@ -203,7 +213,8 @@ fn analyze_xfa_images(
                 if header_starts_with(header, b"\x89PNG\r\n\x1a\n") {
                     meta.insert("image.header.png".into(), "true".into());
                 }
-                if header_starts_with(header, b"II*\x00") || header_starts_with(header, b"MM\x00*") {
+                if header_starts_with(header, b"II*\x00") || header_starts_with(header, b"MM\x00*")
+                {
                     meta.insert("image.header.tiff".into(), "true".into());
                 }
                 findings.push(ImageFinding {

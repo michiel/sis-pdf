@@ -47,7 +47,8 @@ impl Detector for EncryptionObfuscationDetector {
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
                                 title: "Encryption key length short".into(),
-                                description: "Encryption key length is below recommended threshold.".into(),
+                                description:
+                                    "Encryption key length is below recommended threshold.".into(),
                                 objects: vec!["trailer".into()],
                                 evidence: EvidenceBuilder::new()
                                     .file_offset(
@@ -139,7 +140,9 @@ impl Detector for EncryptionObfuscationDetector {
                                 "EmbeddedFile stream",
                             )
                             .build(),
-                        remediation: Some("Attempt to extract and decrypt the embedded file.".into()),
+                        remediation: Some(
+                            "Attempt to extract and decrypt the embedded file.".into(),
+                        ),
                         meta,
                         yara: None,
                         position: None,
@@ -162,18 +165,21 @@ pub(crate) fn resolve_encrypt_dict<'a>(
 ) -> Option<PdfDict<'a>> {
     match &obj.atom {
         PdfAtom::Dict(dict) => Some(dict.clone()),
-        PdfAtom::Ref { obj, gen } => ctx
-            .graph
-            .get_object(*obj, *gen)
-            .and_then(|entry| match &entry.atom {
-                PdfAtom::Dict(dict) => Some(dict.clone()),
-                _ => None,
-            }),
+        PdfAtom::Ref { obj, gen } => {
+            ctx.graph
+                .get_object(*obj, *gen)
+                .and_then(|entry| match &entry.atom {
+                    PdfAtom::Dict(dict) => Some(dict.clone()),
+                    _ => None,
+                })
+        }
         _ => None,
     }
 }
 
-pub(crate) fn encryption_meta_from_dict(dict: &PdfDict<'_>) -> std::collections::HashMap<String, String> {
+pub(crate) fn encryption_meta_from_dict(
+    dict: &PdfDict<'_>,
+) -> std::collections::HashMap<String, String> {
     let mut meta = std::collections::HashMap::new();
     let version = dict_int(dict, b"/V");
     let revision = dict_int(dict, b"/R");
@@ -202,7 +208,10 @@ pub(crate) fn encryption_meta_from_dict(dict: &PdfDict<'_>) -> std::collections:
     meta
 }
 
-fn classify_encryption_algorithm(version: Option<u32>, key_len: Option<u32>) -> Option<&'static str> {
+fn classify_encryption_algorithm(
+    version: Option<u32>,
+    key_len: Option<u32>,
+) -> Option<&'static str> {
     match version {
         Some(1 | 2) => {
             if let Some(len) = key_len {

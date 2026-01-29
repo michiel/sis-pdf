@@ -774,8 +774,12 @@ mod sandbox_impl {
         };
 
         let viewer_version_value = JsValue::from(9);
-        let viewer_version_callable =
-            build_callable_value(context, log.clone(), "app.viewerVersion", viewer_version_value);
+        let viewer_version_callable = build_callable_value(
+            context,
+            log.clone(),
+            "app.viewerVersion",
+            viewer_version_value,
+        );
         let viewer_type_value = JsValue::from(JsString::from("Reader"));
         let viewer_type_callable =
             build_callable_value(context, log.clone(), "app.viewerType", viewer_type_value);

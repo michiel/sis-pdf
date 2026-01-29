@@ -3927,6 +3927,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "sis-pdf-detectors",
  "sis-pdf-ml-graph",
  "sis-pdf-pdf",

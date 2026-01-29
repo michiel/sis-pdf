@@ -99,7 +99,9 @@ impl Detector for JavaScriptSandboxDetector {
                             description: "Sandbox execution exceeded the time limit.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                             evidence: evidence.clone(),
-                            remediation: Some("Inspect the JS payload for long-running loops.".into()),
+                            remediation: Some(
+                                "Inspect the JS payload for long-running loops.".into(),
+                            ),
                             meta,
                             yara: None,
                             position: None,
@@ -175,7 +177,8 @@ impl Detector for JavaScriptSandboxDetector {
                             base_meta.insert("js.runtime.urls".into(), signals.urls.join(", "));
                         }
                         if !signals.domains.is_empty() {
-                            base_meta.insert("js.runtime.domains".into(), signals.domains.join(", "));
+                            base_meta
+                                .insert("js.runtime.domains".into(), signals.domains.join(", "));
                         }
                         if !signals.prop_reads.is_empty() {
                             base_meta.insert(

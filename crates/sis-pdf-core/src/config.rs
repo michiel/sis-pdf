@@ -4,8 +4,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::scan::ScanOptions;
 use crate::filter_allowlist::load_filter_allowlist;
+use crate::scan::ScanOptions;
 use crate::security_log::{SecurityDomain, SecurityEvent};
 use tracing::{info, warn, Level};
 

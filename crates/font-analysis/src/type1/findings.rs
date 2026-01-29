@@ -1,5 +1,4 @@
 /// Type 1 font finding generation
-
 use std::collections::HashMap;
 
 use crate::model::{Confidence, FontFinding, Severity};
@@ -108,7 +107,10 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
     // Check for dangerous operators
     if !analysis.dangerous_ops.is_empty() {
         let mut meta = HashMap::new();
-        meta.insert("operator_count".to_string(), analysis.dangerous_ops.len().to_string());
+        meta.insert(
+            "operator_count".to_string(),
+            analysis.dangerous_ops.len().to_string(),
+        );
 
         let operators: Vec<String> = analysis
             .dangerous_ops
@@ -133,7 +135,10 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
     // Check for excessive stack depth
     if analysis.max_stack_depth > MAX_SAFE_STACK_DEPTH {
         let mut meta = HashMap::new();
-        meta.insert("max_stack_depth".to_string(), analysis.max_stack_depth.to_string());
+        meta.insert(
+            "max_stack_depth".to_string(),
+            analysis.max_stack_depth.to_string(),
+        );
         meta.insert("threshold".to_string(), MAX_SAFE_STACK_DEPTH.to_string());
 
         findings.push(FontFinding {
@@ -152,7 +157,10 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
     // Check for large charstring programs
     if analysis.total_operators > MAX_SAFE_OPERATORS {
         let mut meta = HashMap::new();
-        meta.insert("total_operators".to_string(), analysis.total_operators.to_string());
+        meta.insert(
+            "total_operators".to_string(),
+            analysis.total_operators.to_string(),
+        );
         meta.insert("threshold".to_string(), MAX_SAFE_OPERATORS.to_string());
 
         findings.push(FontFinding {
@@ -178,7 +186,9 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
             severity: Severity::High,
             confidence: Confidence::Strong,
             title: "Type 1 BLEND exploit pattern detected".to_string(),
-            description: "Font contains the signature pattern of the 2015 BLEND exploit (CVE-2015-XXXX).".to_string(),
+            description:
+                "Font contains the signature pattern of the 2015 BLEND exploit (CVE-2015-XXXX)."
+                    .to_string(),
             meta,
         });
     }
@@ -213,7 +223,9 @@ mod tests {
 
         // Should generate findings for dangerous operators
         assert!(!findings.is_empty());
-        assert!(findings.iter().any(|f| f.kind == "font.type1_dangerous_operator"));
+        assert!(findings
+            .iter()
+            .any(|f| f.kind == "font.type1_dangerous_operator"));
     }
 
     #[test]
@@ -223,7 +235,9 @@ mod tests {
         let findings = analyze_type1(data);
 
         // Should detect BLEND pattern
-        assert!(findings.iter().any(|f| f.kind == "font.type1_blend_exploit"));
+        assert!(findings
+            .iter()
+            .any(|f| f.kind == "font.type1_blend_exploit"));
     }
 
     #[test]

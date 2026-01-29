@@ -38,9 +38,8 @@ fn has_finding(report: &sis_pdf_core::report::Report, kind: &str) -> bool {
 fn cve_2009_0658_jbig2_static() {
     let bytes = include_bytes!("fixtures/images/cve-2009-0658-jbig2.pdf");
     let detectors = sis_pdf_detectors::default_detectors();
-    let report =
-        sis_pdf_core::runner::run_scan_with_detectors(bytes, base_opts(false), &detectors)
-            .expect("scan should succeed");
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, base_opts(false), &detectors)
+        .expect("scan should succeed");
     assert!(has_finding(&report, "image.jbig2_present"));
 }
 
@@ -48,9 +47,8 @@ fn cve_2009_0658_jbig2_static() {
 fn cve_2018_4990_jpx_dynamic() {
     let bytes = include_bytes!("fixtures/images/cve-2018-4990-jpx.pdf");
     let detectors = sis_pdf_detectors::default_detectors();
-    let report =
-        sis_pdf_core::runner::run_scan_with_detectors(bytes, base_opts(true), &detectors)
-            .expect("scan should succeed");
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, base_opts(true), &detectors)
+        .expect("scan should succeed");
     assert!(has_finding(&report, "image.jpx_present"));
     assert!(has_finding(&report, "image.jpx_malformed"));
 }
@@ -59,9 +57,8 @@ fn cve_2018_4990_jpx_dynamic() {
 fn cve_2010_0188_xfa_tiff_static() {
     let bytes = include_bytes!("fixtures/images/cve-2010-0188-xfa-tiff.pdf");
     let detectors = sis_pdf_detectors::default_detectors();
-    let report =
-        sis_pdf_core::runner::run_scan_with_detectors(bytes, base_opts(false), &detectors)
-            .expect("scan should succeed");
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, base_opts(false), &detectors)
+        .expect("scan should succeed");
     assert!(has_finding(&report, "image.xfa_image_present"));
 }
 
@@ -69,9 +66,8 @@ fn cve_2010_0188_xfa_tiff_static() {
 fn cve_2021_30860_jbig2_dynamic() {
     let bytes = include_bytes!("fixtures/images/cve-2021-30860-jbig2.pdf");
     let detectors = sis_pdf_detectors::default_detectors();
-    let report =
-        sis_pdf_core::runner::run_scan_with_detectors(bytes, base_opts(true), &detectors)
-            .expect("scan should succeed");
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, base_opts(true), &detectors)
+        .expect("scan should succeed");
     assert!(has_finding(&report, "image.jbig2_present"));
     assert!(has_finding(&report, "image.decode_too_large"));
     assert!(has_finding(&report, "image.extreme_dimensions"));
@@ -82,9 +78,8 @@ fn cve_2021_30860_jbig2_dynamic() {
 fn cve_2009_0658_jbig2_dynamic_malformed() {
     let bytes = include_bytes!("fixtures/images/cve-2009-0658-jbig2.pdf");
     let detectors = sis_pdf_detectors::default_detectors();
-    let report =
-        sis_pdf_core::runner::run_scan_with_detectors(bytes, base_opts(true), &detectors)
-            .expect("scan should succeed");
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, base_opts(true), &detectors)
+        .expect("scan should succeed");
     assert!(has_finding(&report, "image.jbig2_present"));
     assert!(has_finding(&report, "image.jbig2_malformed"));
 }

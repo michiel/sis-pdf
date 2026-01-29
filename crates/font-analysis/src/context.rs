@@ -1,7 +1,6 @@
 /// Context-aware severity adjustment for font analysis findings
 ///
 /// Adjusts finding severity based on the source and environment context.
-
 use crate::model::{FontFinding, Severity};
 use tracing::{debug, instrument};
 

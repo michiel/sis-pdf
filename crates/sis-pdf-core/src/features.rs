@@ -5,10 +5,10 @@ use crate::scan::{ScanContext, ScanOptions};
 use image_analysis::ImageDynamicOptions;
 use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::decode::{decode_stream_with_meta, DecodeLimits};
-use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 use sis_pdf_pdf::graph::ObjEntry;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr, PdfStream};
 use sis_pdf_pdf::typed_graph::EdgeType;
+use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
@@ -541,7 +541,9 @@ fn has_double_extension(name: &str) -> bool {
     let last = parts[parts.len() - 1];
     let prev = parts[parts.len() - 2];
     let suspicious = ["exe", "scr", "js", "vbs", "bat", "cmd", "com", "ps1"];
-    let common = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "zip"];
+    let common = [
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "zip",
+    ];
     suspicious.contains(&last) && common.contains(&prev)
 }
 
@@ -559,9 +561,9 @@ fn stream_has_crypt_filter(dict: &PdfDict<'_>) -> bool {
     let filter_obj = dict.get_first(b"/Filter").map(|(_, obj)| obj);
     match filter_obj.map(|obj| &obj.atom) {
         Some(PdfAtom::Name(name)) => name.decoded == b"/Crypt",
-        Some(PdfAtom::Array(items)) => items.iter().any(|item| {
-            matches!(&item.atom, PdfAtom::Name(name) if name.decoded == b"/Crypt")
-        }),
+        Some(PdfAtom::Array(items)) => items
+            .iter()
+            .any(|item| matches!(&item.atom, PdfAtom::Name(name) if name.decoded == b"/Crypt")),
         _ => false,
     }
 }
@@ -802,11 +804,7 @@ fn has_multi_filter(dict: &PdfDict<'_>) -> bool {
     }
 }
 
-fn detect_image_format(
-    ctx: &ScanContext,
-    entry: &ObjEntry<'_>,
-    dict: &PdfDict<'_>,
-) -> ImageFormat {
+fn detect_image_format(ctx: &ScanContext, entry: &ObjEntry<'_>, dict: &PdfDict<'_>) -> ImageFormat {
     if let Some(filters) = image_filters(dict) {
         for filter in filters {
             if filter.eq_ignore_ascii_case(b"/JBIG2Decode") {
@@ -905,6 +903,8 @@ fn count_malformed_images(ctx: &ScanContext) -> usize {
         max_pixels: ctx.options.image_analysis.max_pixels,
         max_decode_bytes: ctx.options.image_analysis.max_decode_bytes,
         timeout_ms: ctx.options.image_analysis.timeout_ms,
+        total_budget_ms: ctx.options.image_analysis.total_budget_ms,
+        skip_threshold: ctx.options.image_analysis.skip_threshold,
     };
     let dynamic = image_analysis::dynamic::analyze_dynamic_images(&ctx.graph, &opts);
     dynamic
@@ -1072,8 +1072,7 @@ fn extract_filter_features(ctx: &ScanContext) -> FilterFeatures {
             .iter()
             .map(|f| f.trim_start_matches('/').to_string())
             .collect();
-        features.max_filter_chain_depth =
-            features.max_filter_chain_depth.max(normalised.len());
+        features.max_filter_chain_depth = features.max_filter_chain_depth.max(normalised.len());
         if is_unusual_chain(&normalised) {
             features.unusual_chain_count += 1;
         }
@@ -1093,11 +1092,14 @@ fn resolve_encrypt_dict<'a>(
 ) -> Option<PdfDict<'a>> {
     match &obj.atom {
         PdfAtom::Dict(dict) => Some(dict.clone()),
-        PdfAtom::Ref { obj, gen } => graph.get_object(*obj, *gen).and_then(|entry| match &entry.atom
-        {
-            PdfAtom::Dict(dict) => Some(dict.clone()),
-            _ => None,
-        }),
+        PdfAtom::Ref { obj, gen } => {
+            graph
+                .get_object(*obj, *gen)
+                .and_then(|entry| match &entry.atom {
+                    PdfAtom::Dict(dict) => Some(dict.clone()),
+                    _ => None,
+                })
+        }
         _ => None,
     }
 }
@@ -1113,9 +1115,7 @@ fn is_unusual_chain(filters: &[String]) -> bool {
     if filters.len() >= 3 {
         return true;
     }
-    filters
-        .iter()
-        .any(|f| !KNOWN_FILTERS.contains(&f.as_str()))
+    filters.iter().any(|f| !KNOWN_FILTERS.contains(&f.as_str()))
 }
 
 fn has_invalid_order(filters: &[String]) -> bool {
@@ -1447,7 +1447,10 @@ fn build_feature_map(fv: &FeatureVector) -> HashMap<String, f64> {
         "xfa.sensitive_field_count".into(),
         fv.xfa.sensitive_field_count as f64,
     );
-    out.insert("xfa.max_payload_bytes".into(), fv.xfa.max_payload_bytes as f64);
+    out.insert(
+        "xfa.max_payload_bytes".into(),
+        fv.xfa.max_payload_bytes as f64,
+    );
     out.insert(
         "encryption.present".into(),
         if fv.encryption.present { 1.0 } else { 0.0 },
@@ -1460,14 +1463,8 @@ fn build_feature_map(fv: &FeatureVector) -> HashMap<String, f64> {
         "encryption.key_length_bits".into(),
         fv.encryption.key_length_bits as f64,
     );
-    out.insert(
-        "encryption.version".into(),
-        fv.encryption.version as f64,
-    );
-    out.insert(
-        "encryption.revision".into(),
-        fv.encryption.revision as f64,
-    );
+    out.insert("encryption.version".into(), fv.encryption.version as f64);
+    out.insert("encryption.revision".into(), fv.encryption.revision as f64);
     out.insert(
         "encryption.weak_key".into(),
         if fv.encryption.weak_key { 1.0 } else { 0.0 },

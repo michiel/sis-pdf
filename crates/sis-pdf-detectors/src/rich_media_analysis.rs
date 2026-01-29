@@ -52,12 +52,18 @@ impl Detector for RichMediaContentDetector {
             };
             if swf_magic(&decoded.data) {
                 let mut meta = std::collections::HashMap::new();
-                meta.insert("swf.magic".into(), String::from_utf8_lossy(&decoded.data[..3]).into());
+                meta.insert(
+                    "swf.magic".into(),
+                    String::from_utf8_lossy(&decoded.data[..3]).into(),
+                );
                 meta.insert("swf.size".into(), decoded.data.len().to_string());
                 if let Some(header) = parse_swf_header(&decoded.data) {
                     meta.insert("swf.version".into(), header.version.to_string());
                     meta.insert("swf.declared_length".into(), header.file_length.to_string());
-                    meta.insert("swf.compression".into(), swf_compression_label(header.compression));
+                    meta.insert(
+                        "swf.compression".into(),
+                        swf_compression_label(header.compression),
+                    );
                     if let Some(rate) = header.frame_rate {
                         meta.insert("swf.frame_rate".into(), format!("{:.2}", rate));
                     }

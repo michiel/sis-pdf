@@ -40,10 +40,8 @@ impl Detector for ImageAnalysisDetector {
             max_xfa_decode_bytes: options.max_xfa_decode_bytes,
             max_filter_chain_depth: options.max_filter_chain_depth,
         };
-        let static_result = image_analysis::static_analysis::analyze_static_images(
-            &ctx.graph,
-            &static_opts,
-        );
+        let static_result =
+            image_analysis::static_analysis::analyze_static_images(&ctx.graph, &static_opts);
         findings.extend(map_findings(ctx, static_result.findings, false));
 
         if ctx.options.deep && options.dynamic_enabled {
@@ -51,6 +49,8 @@ impl Detector for ImageAnalysisDetector {
                 max_pixels: options.max_pixels,
                 max_decode_bytes: options.max_decode_bytes,
                 timeout_ms: options.timeout_ms,
+                total_budget_ms: options.total_budget_ms,
+                skip_threshold: options.skip_threshold,
             };
             let dynamic_result =
                 image_analysis::dynamic::analyze_dynamic_images(&ctx.graph, &dynamic_opts);
@@ -77,7 +77,11 @@ fn map_finding(
     dynamic: bool,
 ) -> Option<Finding> {
     let entry = ctx.graph.get_object(finding.obj, finding.gen);
-    let mut meta: HashMap<String, String> = finding.meta.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let mut meta: HashMap<String, String> = finding
+        .meta
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     if dynamic {
         meta.insert("image.dynamic".into(), "true".into());
     }
@@ -149,10 +153,18 @@ fn payload_format(meta: &HashMap<String, String>) -> Option<String> {
     if filters.iter().any(|f| *f == "DCTDecode" || *f == "DCT") {
         return Some("JPEG".into());
     }
-    if meta.get("image.header.png").map(|v| v == "true").unwrap_or(false) {
+    if meta
+        .get("image.header.png")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         return Some("PNG".into());
     }
-    if meta.get("image.header.tiff").map(|v| v == "true").unwrap_or(false) {
+    if meta
+        .get("image.header.tiff")
+        .map(|v| v == "true")
+        .unwrap_or(false)
+    {
         return Some("TIFF".into());
     }
     None
@@ -215,8 +227,7 @@ fn image_finding_summary(
             Severity::Low,
             Confidence::Probable,
             "Image uses multiple filters".into(),
-            "Image stream uses a filter chain, which can hide malicious payloads."
-                .into(),
+            "Image stream uses a filter chain, which can hide malicious payloads.".into(),
             "Inspect filter chain and decoded image data.".into(),
         ),
         "image.extreme_dimensions" => (
@@ -237,8 +248,7 @@ fn image_finding_summary(
             Severity::Medium,
             Confidence::Probable,
             "Image has suspect strip dimensions".into(),
-            "Image dimensions indicate thin strip patterns that may hide payloads."
-                .into(),
+            "Image dimensions indicate thin strip patterns that may hide payloads.".into(),
             "Inspect image payload for obfuscated content.".into(),
         ),
         "image.decode_too_large" => (
@@ -259,40 +269,35 @@ fn image_finding_summary(
             Severity::Medium,
             Confidence::Probable,
             "Image decode failed".into(),
-            "Image stream failed to decode, indicating malformed or unsupported data."
-                .into(),
+            "Image stream failed to decode, indicating malformed or unsupported data.".into(),
             "Inspect image data for corruption or exploit-like structure.".into(),
         ),
         "image.jbig2_malformed" => (
             Severity::High,
             Confidence::Strong,
             "JBIG2 decode failed".into(),
-            "JBIG2 image data failed to decode, which may indicate exploit-like content."
-                .into(),
+            "JBIG2 image data failed to decode, which may indicate exploit-like content.".into(),
             "Inspect JBIG2 payload and decoder paths.".into(),
         ),
         "image.jpx_malformed" => (
             Severity::High,
             Confidence::Strong,
             "JPEG2000 decode failed".into(),
-            "JPEG2000 image data failed to decode, which may indicate exploit-like content."
-                .into(),
+            "JPEG2000 image data failed to decode, which may indicate exploit-like content.".into(),
             "Inspect JPX payload and decoder paths.".into(),
         ),
         "image.jpeg_malformed" => (
             Severity::Medium,
             Confidence::Probable,
             "JPEG decode failed".into(),
-            "JPEG image data failed to decode, indicating malformed or suspicious data."
-                .into(),
+            "JPEG image data failed to decode, indicating malformed or suspicious data.".into(),
             "Inspect JPEG payload and decoder paths.".into(),
         ),
         "image.ccitt_malformed" => (
             Severity::Medium,
             Confidence::Probable,
             "CCITT decode failed".into(),
-            "CCITT image data failed to decode, indicating malformed or suspicious data."
-                .into(),
+            "CCITT image data failed to decode, indicating malformed or suspicious data.".into(),
             "Inspect CCITT payload and decoder paths.".into(),
         ),
         "image.xfa_decode_failed" => (

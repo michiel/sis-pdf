@@ -41,8 +41,14 @@ fn detects_encryption_key_short() {
         .iter()
         .find(|f| f.kind == "encryption_key_short")
         .expect("encryption_key_short finding");
-    assert_eq!(finding.meta.get("crypto.key_length"), Some(&"40".to_string()));
-    assert_eq!(finding.meta.get("crypto.algorithm"), Some(&"RC4-40".to_string()));
+    assert_eq!(
+        finding.meta.get("crypto.key_length"),
+        Some(&"40".to_string())
+    );
+    assert_eq!(
+        finding.meta.get("crypto.algorithm"),
+        Some(&"RC4-40".to_string())
+    );
 }
 
 #[test]

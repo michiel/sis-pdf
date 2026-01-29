@@ -140,6 +140,6 @@ Findings in this project include metadata fields for `severity`, `impact`, and `
 
 ## Code and supply chain
 
- - No unsafe code
+ - No unsafe code, no unwraps
  - Rust native crates only
 

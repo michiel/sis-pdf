@@ -9,8 +9,52 @@ use sis_pdf_pdf::ObjectGraph;
 use crate::util::dict_u32;
 use crate::{ImageDynamicOptions, ImageDynamicResult, ImageFinding};
 
-pub fn analyze_dynamic_images(graph: &ObjectGraph<'_>, opts: &ImageDynamicOptions) -> ImageDynamicResult {
+pub fn analyze_dynamic_images(
+    graph: &ObjectGraph<'_>,
+    opts: &ImageDynamicOptions,
+) -> ImageDynamicResult {
+    let image_count = graph
+        .objects
+        .iter()
+        .filter(|entry| {
+            if let PdfAtom::Stream(stream) = &entry.atom {
+                is_image_stream(stream)
+            } else {
+                false
+            }
+        })
+        .count();
     let mut findings = Vec::new();
+
+    if opts.skip_threshold > 0 && image_count > opts.skip_threshold {
+        if let Some(entry) = graph.objects.iter().find(|entry| {
+            if let PdfAtom::Stream(stream) = &entry.atom {
+                is_image_stream(stream)
+            } else {
+                false
+            }
+        }) {
+            let mut meta = BTreeMap::new();
+            meta.insert("image.decode_skipped".into(), "too_many_images".into());
+            meta.insert("image.decode".into(), "skipped".into());
+            meta.insert("image.count".into(), image_count.to_string());
+            meta.insert(
+                "image.skip_threshold".into(),
+                opts.skip_threshold.to_string(),
+            );
+            findings.push(ImageFinding {
+                kind: "image.decode_skipped".into(),
+                obj: entry.obj,
+                gen: entry.gen,
+                meta,
+            });
+        }
+        return ImageDynamicResult { findings };
+    }
+
+    let mut total_decode_ms = 0u64;
+    let mut budget_exceeded = false;
+
     for entry in &graph.objects {
         let PdfAtom::Stream(stream) = &entry.atom else {
             continue;
@@ -18,11 +62,8 @@ pub fn analyze_dynamic_images(graph: &ObjectGraph<'_>, opts: &ImageDynamicOption
         if !is_image_stream(stream) {
             continue;
         }
-        let Some(data) = stream_data(graph, stream) else {
-            continue;
-        };
+
         let (filters, filter_label) = stream_filters(stream);
-        let start = Instant::now();
         let mut meta = BTreeMap::new();
         meta.insert("image.filters".into(), filter_label);
         if let Some(width) = dict_u32(&stream.dict, b"/Width") {
@@ -31,42 +72,95 @@ pub fn analyze_dynamic_images(graph: &ObjectGraph<'_>, opts: &ImageDynamicOption
         if let Some(height) = dict_u32(&stream.dict, b"/Height") {
             meta.insert("image.height".into(), height.to_string());
         }
-        if image_exceeds_limits(stream, opts) {
-            meta.insert("image.decode_too_large".into(), "true".into());
+
+        if opts.total_budget_ms > 0 && total_decode_ms >= opts.total_budget_ms {
+            meta.insert("image.decode_skipped".into(), "budget_exceeded".into());
+            meta.insert("image.decode".into(), "skipped".into());
             findings.push(ImageFinding {
-                kind: "image.decode_too_large".into(),
+                kind: "image.decode_skipped".into(),
                 obj: entry.obj,
                 gen: entry.gen,
                 meta,
             });
+            budget_exceeded = true;
+            break;
+        }
+
+        let Some(data) = stream_data(graph, stream) else {
+            continue;
+        };
+
+        if image_exceeds_limits(stream, opts) {
+            meta.insert("image.decode_too_large".into(), "true".into());
+            meta.insert("image.decode".into(), "too_large".into());
+            findings.push(ImageFinding {
+                kind: "image.decode_too_large".into(),
+                obj: entry.obj,
+                gen: entry.gen,
+                meta: meta.clone(),
+            });
             continue;
         }
+
+        let start = Instant::now();
         let decode_result = decode_image_data(graph, data, stream, &filters, opts);
-        let elapsed = start.elapsed().as_millis();
-        meta.insert("image.decode_ms".into(), elapsed.to_string());
+        let mut elapsed_ms = start.elapsed().as_millis();
+        if elapsed_ms == 0 {
+            elapsed_ms = 1;
+        }
+        let elapsed_ms = elapsed_ms as u64;
+        meta.insert("image.decode_ms".into(), elapsed_ms.to_string());
+        if opts.total_budget_ms > 0 {
+            total_decode_ms = total_decode_ms.saturating_add(elapsed_ms);
+        }
+
+        if opts.timeout_ms > 0 && elapsed_ms >= opts.timeout_ms {
+            meta.insert("image.decode".into(), "timeout".into());
+            meta.insert("image.decode_skipped".into(), "timeout".into());
+            findings.push(ImageFinding {
+                kind: "image.decode_skipped".into(),
+                obj: entry.obj,
+                gen: entry.gen,
+                meta: meta.clone(),
+            });
+            if opts.total_budget_ms > 0 && total_decode_ms >= opts.total_budget_ms {
+                budget_exceeded = true;
+                break;
+            }
+            continue;
+        }
+
         match decode_result {
-            DecodeStatus::Ok => {}
+            DecodeStatus::Ok => {
+                meta.insert("image.decode".into(), "success".into());
+            }
             DecodeStatus::Skipped(reason) => {
-                meta.insert("image.decode_skipped".into(), reason);
+                meta.insert("image.decode".into(), "skipped".into());
+                meta.insert("image.decode_skipped".into(), reason.clone());
                 findings.push(ImageFinding {
                     kind: "image.decode_skipped".into(),
                     obj: entry.obj,
                     gen: entry.gen,
-                    meta,
+                    meta: meta.clone(),
                 });
             }
             DecodeStatus::Failed(err) => {
-                meta.insert("image.decode_error".into(), err);
+                meta.insert("image.decode".into(), "failed".into());
+                meta.insert("image.decode_error".into(), err.clone());
                 findings.push(ImageFinding {
                     kind: decode_error_kind(&filters),
                     obj: entry.obj,
                     gen: entry.gen,
-                    meta,
+                    meta: meta.clone(),
                 });
             }
         }
     }
-    findings.extend(analyze_xfa_images(graph, opts));
+
+    if !budget_exceeded {
+        findings.extend(analyze_xfa_images(graph, opts));
+    }
+
     ImageDynamicResult { findings }
 }
 
@@ -103,7 +197,11 @@ fn stream_filters(stream: &PdfStream<'_>) -> (Vec<String>, String) {
                     out.push(label);
                 }
             }
-            let label = if out.is_empty() { "-".into() } else { out.join(",") };
+            let label = if out.is_empty() {
+                "-".into()
+            } else {
+                out.join(",")
+            };
             (out, label)
         }
         _ => (Vec::new(), "-".into()),
@@ -370,12 +468,10 @@ fn jbig2_globals_bytes(
     let (_, parms_obj) = stream.dict.get_first(b"/DecodeParms")?;
     let globals_obj = match &parms_obj.atom {
         PdfAtom::Dict(dict) => dict.get_first(b"/JBIG2Globals").map(|(_, v)| v),
-        PdfAtom::Array(items) => items
-            .iter()
-            .find_map(|item| match &item.atom {
-                PdfAtom::Dict(dict) => dict.get_first(b"/JBIG2Globals").map(|(_, v)| v),
-                _ => None,
-            }),
+        PdfAtom::Array(items) => items.iter().find_map(|item| match &item.atom {
+            PdfAtom::Dict(dict) => dict.get_first(b"/JBIG2Globals").map(|(_, v)| v),
+            _ => None,
+        }),
         _ => None,
     }?;
     match &globals_obj.atom {

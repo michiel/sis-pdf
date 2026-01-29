@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::filter_allowlist::default_filter_allowlist;
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::object::PdfAtom;
@@ -232,9 +232,7 @@ fn is_allowlisted_chain(filters: &[String], allowlist: &[Vec<String>]) -> bool {
 }
 
 fn has_unknown_filter(filters: &[String]) -> bool {
-    filters
-        .iter()
-        .any(|f| !KNOWN_FILTERS.contains(&f.as_str()))
+    filters.iter().any(|f| !KNOWN_FILTERS.contains(&f.as_str()))
 }
 
 fn has_image_with_compression(filters: &[String]) -> bool {

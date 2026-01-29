@@ -58,16 +58,20 @@ fn findings_schema_validation() {
             }
             let value = serde_json::to_value(finding).expect("finding serialise");
             let obj = value.as_object().expect("finding json object");
-            for key in ["kind", "title", "description", "severity", "confidence", "objects"] {
+            for key in [
+                "kind",
+                "title",
+                "description",
+                "severity",
+                "confidence",
+                "objects",
+            ] {
                 assert!(obj.contains_key(key), "missing key {}", key);
             }
             let validation = compiled.validate(&value);
             if let Err(errors) = validation {
                 let messages: Vec<String> = errors.map(|err| err.to_string()).collect();
-                panic!(
-                    "finding schema validation failed: {}",
-                    messages.join("; ")
-                );
+                panic!("finding schema validation failed: {}", messages.join("; "));
             }
         }
     }
@@ -93,12 +97,10 @@ fn findings_jsonl_schema_validation() {
             .expect("scan should succeed")
             .with_input_path(Some(fixture.to_string()));
         let mut buffer = Vec::new();
-        sis_pdf_core::report::write_jsonl_findings(&report, &mut buffer)
-            .expect("write jsonl");
+        sis_pdf_core::report::write_jsonl_findings(&report, &mut buffer).expect("write jsonl");
         let output = String::from_utf8(buffer).expect("utf8 jsonl");
         for line in output.lines() {
-            let record: serde_json::Value =
-                serde_json::from_str(line).expect("parse jsonl line");
+            let record: serde_json::Value = serde_json::from_str(line).expect("parse jsonl line");
             if let Some(finding) = record.get("finding") {
                 let validation = compiled.validate(finding);
                 if let Err(errors) = validation {

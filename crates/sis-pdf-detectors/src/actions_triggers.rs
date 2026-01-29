@@ -2,11 +2,11 @@ use anyhow::Result;
 use std::collections::HashSet;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::evidence::EvidenceBuilder;
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::timeout::TimeoutChecker;
-use std::time::Duration;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
+use std::time::Duration;
 
 use crate::entry_dict;
 
@@ -119,7 +119,9 @@ impl Detector for ActionTriggerDetector {
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
                                 title: "Automatic action trigger".into(),
-                                description: "Additional action triggers without explicit user interaction.".into(),
+                                description:
+                                    "Additional action triggers without explicit user interaction."
+                                        .into(),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                                 evidence: evidence.clone(),
                                 remediation: Some("Review the action target and payload.".into()),
@@ -138,7 +140,8 @@ impl Detector for ActionTriggerDetector {
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
                                 title: "Complex action chain".into(),
-                                description: "Action chain depth exceeds expected threshold.".into(),
+                                description: "Action chain depth exceeds expected threshold."
+                                    .into(),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                                 evidence: EvidenceBuilder::new()
                                     .file_offset(
@@ -147,7 +150,9 @@ impl Detector for ActionTriggerDetector {
                                         "AA event",
                                     )
                                     .build(),
-                                remediation: Some("Inspect action chains for hidden payloads.".into()),
+                                remediation: Some(
+                                    "Inspect action chains for hidden payloads.".into(),
+                                ),
                                 meta,
                                 yara: None,
                                 position: None,
@@ -158,7 +163,8 @@ impl Detector for ActionTriggerDetector {
                 }
             }
 
-            if is_annotation(dict) && (dict.get_first(b"/A").is_some() || dict.get_first(b"/AA").is_some())
+            if is_annotation(dict)
+                && (dict.get_first(b"/A").is_some() || dict.get_first(b"/AA").is_some())
             {
                 let (hidden, mut meta) = annotation_hidden_status(dict);
                 if hidden {
@@ -169,16 +175,15 @@ impl Detector for ActionTriggerDetector {
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
                         title: "Hidden action trigger".into(),
-                        description: "Action triggered from a hidden or non-visible annotation.".into(),
+                        description: "Action triggered from a hidden or non-visible annotation."
+                            .into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: EvidenceBuilder::new()
-                            .file_offset(
-                                dict.span.start,
-                                dict.span.len() as u32,
-                                "Annotation dict",
-                            )
+                            .file_offset(dict.span.start, dict.span.len() as u32, "Annotation dict")
                             .build(),
-                        remediation: Some("Inspect hidden annotations for action execution.".into()),
+                        remediation: Some(
+                            "Inspect hidden annotations for action execution.".into(),
+                        ),
                         meta: meta.drain().collect(),
                         yara: None,
                         position: None,
@@ -250,17 +255,16 @@ fn action_chain_depth(
 }
 
 fn is_automatic_event(name: &[u8]) -> bool {
-    matches!(
-        name,
-        b"/O" | b"/C" | b"/PV" | b"/PI" | b"/V" | b"/PO"
-    )
+    matches!(name, b"/O" | b"/C" | b"/PV" | b"/PI" | b"/V" | b"/PO")
 }
 
 fn is_annotation(dict: &PdfDict<'_>) -> bool {
     dict.get_first(b"/Subtype").is_some()
 }
 
-fn annotation_hidden_status(dict: &PdfDict<'_>) -> (bool, std::collections::HashMap<String, String>) {
+fn annotation_hidden_status(
+    dict: &PdfDict<'_>,
+) -> (bool, std::collections::HashMap<String, String>) {
     let mut meta = std::collections::HashMap::new();
     if let Some(rect) = dict.get_first(b"/Rect").map(|(_, v)| v) {
         if let Some((w, h)) = rect_size(rect) {
