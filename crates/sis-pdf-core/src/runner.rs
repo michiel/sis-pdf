@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use crate::correlation;
 use crate::evidence::preview_ascii;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
 use crate::model::Finding;
@@ -572,6 +573,8 @@ pub fn run_scan_with_detectors(
     annotate_positions(&ctx, &mut findings);
     annotate_orphaned_page_context(&mut findings);
     correlate_font_js(&mut findings);
+    let composites = correlation::correlate_findings(&findings);
+    findings.extend(composites);
     let intent_summary = Some(crate::intent::apply_intent(&mut findings));
     let yara_rules =
         crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());

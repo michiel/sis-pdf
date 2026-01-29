@@ -107,6 +107,8 @@ sis query sample.pdf streams.high-entropy
 sis query sample.pdf filters.unusual
 sis query sample.pdf filters.invalid
 sis query sample.pdf filters.repeated
+sis query sample.pdf findings.composite
+sis query sample.pdf findings.composite.count
 ```
 
 ## Filter Chain Queries

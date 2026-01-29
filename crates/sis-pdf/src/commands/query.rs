@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use walkdir::WalkDir;
 
+use sis_pdf_core::correlation;
 use sis_pdf_core::model::Severity;
 use sis_pdf_core::scan::ScanContext;
 use syntect::easy::HighlightLines;
@@ -170,6 +171,8 @@ pub enum Query {
     FindingsBySeverity(Severity),
     FindingsByKind(String),
     FindingsByKindCount(String),
+    FindingsComposite,
+    FindingsCompositeCount,
 
     // Event trigger queries
     Events,
@@ -367,6 +370,8 @@ pub fn parse_query(input: &str) -> Result<Query> {
         // Findings
         "findings" => Ok(Query::Findings),
         "findings.count" => Ok(Query::FindingsCount),
+        "findings.composite" => Ok(Query::FindingsComposite),
+        "findings.composite.count" => Ok(Query::FindingsCompositeCount),
         "findings.high" => Ok(Query::FindingsBySeverity(Severity::High)),
         "findings.medium" => Ok(Query::FindingsBySeverity(Severity::Medium)),
         "findings.low" => Ok(Query::FindingsBySeverity(Severity::Low)),
@@ -1082,6 +1087,23 @@ pub fn execute_query_with_context(
                 let filtered = filter_findings(findings, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
+            Query::FindingsComposite => {
+                let findings = run_detectors(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                let composites: Vec<_> = filtered
+                    .into_iter()
+                    .filter(|f| is_composite(f))
+                    .collect();
+                Ok(QueryResult::Structure(json!(composites)))
+            }
+            Query::FindingsCompositeCount => {
+                let findings = run_detectors(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                let composites = filtered.into_iter().filter(|f| is_composite(f)).count();
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    composites as i64,
+                )))
+            }
             Query::JavaScript => {
                 if predicate.is_some() {
                     ensure_predicate_supported(query)?;
@@ -1766,6 +1788,9 @@ fn run_detectors(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>>
             }
         }
     }
+
+    let composites = correlation::correlate_findings(&findings);
+    findings.extend(composites);
 
     Ok(findings)
 }
@@ -3639,6 +3664,14 @@ fn filter_findings(
     } else {
         findings
     }
+}
+
+fn is_composite(finding: &sis_pdf_core::model::Finding) -> bool {
+    finding
+        .meta
+        .get("is_composite")
+        .map(|value| value == "true")
+        .unwrap_or(false)
 }
 
 fn embedded_filename(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> Option<String> {

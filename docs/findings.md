@@ -2645,3 +2645,58 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
+
+## launch_obfuscated_executable
+
+- ID: `launch_obfuscated_executable`
+- Label: Correlated obfuscated executable launch
+- Description: Launch action targets an embedded executable with high entropy.
+- Tags: action, embedded, correlation
+- Details:
+  - Relevance: automatic execution tied to obfuscated payloads is high risk.
+  - Meaning: correlation of launch and embedded executable strengthens confidence.
+  - Chain usage: delivery/execution stage.
+
+## action_chain_malicious
+
+- ID: `action_chain_malicious`
+- Label: Malicious automatic action chain
+- Description: Complex action chain triggers automatically and executes JavaScript.
+- Tags: action, chain, correlation
+- Details:
+  - Relevance: automatic chains are a hallmark of malware.
+  - Meaning: combined evidence of chain depth, trigger, and JS increases signal.
+  - Chain usage: multi-stage activation without user interaction.
+
+## xfa_data_exfiltration_risk
+
+- ID: `xfa_data_exfiltration_risk`
+- Label: XFA data exfiltration risk
+- Description: XFA form submits sensitive fields to an external endpoint.
+- Tags: xfa, data, correlation
+- Details:
+  - Relevance: sensitive fields plus external submits indicate theft.
+  - Meaning: correlation of submit URLs with sensitive fields raises confidence.
+  - Chain usage: data exfiltration stage.
+
+## encrypted_payload_delivery
+
+- ID: `encrypted_payload_delivery`
+- Label: Encrypted payload delivery
+- Description: Encrypted archive delivery is coupled with launch or SWF actions.
+- Tags: embedded, crypto, correlation
+- Details:
+  - Relevance: encrypted containers hide payloads while launch/SWF triggers delivery.
+  - Meaning: correlation shows encrypted payload ready for execution.
+  - Chain usage: obfuscated delivery stage.
+
+## obfuscated_payload
+
+- ID: `obfuscated_payload`
+- Label: Obfuscated payload
+- Description: High entropy stream coincides with unusual filter chain.
+- Tags: filters, entropy, correlation
+- Details:
+  - Relevance: unusual filter order with high entropy indicates obfuscation.
+  - Meaning: combined signal is more reliable than individual findings.
+  - Chain usage: obfuscation context within delivery or staging phases.

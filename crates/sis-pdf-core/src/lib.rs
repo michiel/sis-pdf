@@ -2,6 +2,7 @@ pub mod adversarial;
 pub mod behavior;
 pub mod cache;
 pub mod campaign;
+pub mod correlation;
 pub mod chain;
 pub mod chain_render;
 pub mod chain_score;
