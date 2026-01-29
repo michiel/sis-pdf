@@ -87,13 +87,27 @@
 **Detectors upgraded**: 8 (confidence levels)
 **Detectors enhanced**: 4 (false positive reduction)
 
+## Latest Progress
+
+### Stage 1/2 Metadata and Predicate Work
+  ✅ Added stream analysis metadata (blake3 hash, stream entropy/size/magic) to every embedded-file finding and verified it through a regression test.
+  ✅ Exposed finding metadata inside query predicates via `PredicateField::Meta`, extended contexts (embedded, SWF, images, events, findings) with `HashMap` copies of metadata, and documented new tests that filter action-chain findings by depth and trigger type.
+  ✅ Ensured the query subsystem still compiles cleanly (`cargo test -p sis-pdf`) and that the targeted embedded-file suite runs (`cargo test -p sis-pdf-detectors embedded_files`).
+
 ## Next Actions
 
-1. ✅ Update corpus-findings-deep-analysis.md with completion status
-2. Validate changes on 2022 benign corpus (measure FP reduction)
-3. Run full deep scan on 2024 VirusShare corpus to test new detectors
-4. Optional: Implement remaining Phase 3/4 enhancements (filters, evidence)
-5. Generate final testing report with before/after metrics
+1. **Stage 3 – XFA analysis completion**  
+   - Finish XML parsing/metadata capture for `<script>`, `<submit>` and sensitive field tags, keeping DOCTYPE rejection and the 1 MB limit.  
+   - Add script preview/extraction (manifest, SHA/metadata) so `sis query xfa.scripts` can export scripts with context.  
+   - Expand tests/fixtures to cover XFA submit + script counts and CVE-2013-2729 flow.
+2. **Query interface wiring**  
+   - Ensure all new XFA findings expose `xfa.*` metadata fields and predicates/shortcut queries respect them.  
+   - Confirm extraction helpers (scripts, embedded files) continue to honour predicate filters and budget limits.
+3. **Documentation & reporting**  
+   - Update `docs/findings.md` and relevant plan docs with the new metadata keys/queries.  
+   - Add progression notes to `plans/20260120-next-analysis-phases.md` (Stage 3 checklist items) and refresh `NEXT_STEPS.md` once Stage 3 is verified.
+4. **Stage 4 preparation**  
+   - Outline the minimal SWF header extraction + ActionScript detection helpers so we can gate the stage with performance-safe decoding before moving on to the ML/feature vector work in Stage 8.
 
 ## Test Extraction Status
 
