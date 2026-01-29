@@ -2058,6 +2058,8 @@ fn extract_embedded_files(
 struct XfaScriptPayload {
     bytes: Vec<u8>,
     source: String,
+    entry_ref: String,
+    ref_chain: String,
 }
 
 fn collect_xfa_script_payloads(ctx: &ScanContext) -> Vec<XfaScriptPayload> {
@@ -2079,11 +2081,15 @@ fn collect_xfa_script_payloads(ctx: &ScanContext) -> Vec<XfaScriptPayload> {
             continue;
         };
         let payloads = xfa_payloads_from_obj(&ctx.graph, xfa_obj, limits);
-        for payload in payloads {
-            for script in sis_pdf_pdf::xfa::extract_xfa_script_payloads(&payload) {
+        for xfa_payload in payloads {
+            let entry_ref = format!("{} {} obj", entry.obj, entry.gen);
+            let ref_chain = xfa_payload.ref_chain.clone();
+            for script in sis_pdf_pdf::xfa::extract_xfa_script_payloads(&xfa_payload.bytes) {
                 out.push(XfaScriptPayload {
                     bytes: script,
                     source: format!("{}_{}", entry.obj, entry.gen),
+                    entry_ref: entry_ref.clone(),
+                    ref_chain: ref_chain.clone(),
                 });
             }
         }
@@ -2099,6 +2105,13 @@ fn extract_xfa_scripts(
     let payloads = collect_xfa_script_payloads(ctx);
     for (idx, payload) in payloads.iter().enumerate() {
         let filename = format!("xfa_script_{:03}.js", idx + 1);
+        let hash = sha256_hex(&payload.bytes);
+        let mut predicate_meta = HashMap::new();
+        predicate_meta.insert("filename".into(), filename.clone());
+        predicate_meta.insert("object".into(), payload.entry_ref.clone());
+        predicate_meta.insert("xfa.ref_chain".into(), payload.ref_chain.clone());
+        predicate_meta.insert("hash.sha256".into(), hash.clone());
+        predicate_meta.insert("size_bytes".into(), payload.bytes.len().to_string());
         let meta = PredicateContext {
             length: payload.bytes.len(),
             filter: Some("xfa".to_string()),
@@ -2116,9 +2129,9 @@ fn extract_xfa_scripts(
             object_count: 0,
             evidence_count: 0,
             name: Some(filename.clone()),
-            hash: None,
+            hash: Some(hash),
             magic: None,
-            meta: HashMap::new(),
+            meta: predicate_meta,
         };
         if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
             let preview = String::from_utf8_lossy(&payload.bytes);
@@ -2147,6 +2160,13 @@ fn write_xfa_scripts(
     let mut manifest = Vec::new();
     for (idx, payload) in payloads.iter().enumerate() {
         let filename = format!("xfa_script_{:03}.js", idx + 1);
+        let hash = sha256_hex(&payload.bytes);
+        let mut predicate_meta = HashMap::new();
+        predicate_meta.insert("filename".into(), filename.clone());
+        predicate_meta.insert("object".into(), payload.entry_ref.clone());
+        predicate_meta.insert("xfa.ref_chain".into(), payload.ref_chain.clone());
+        predicate_meta.insert("hash.sha256".into(), hash.clone());
+        predicate_meta.insert("size_bytes".into(), payload.bytes.len().to_string());
         let meta = PredicateContext {
             length: payload.bytes.len(),
             filter: Some("xfa".to_string()),
@@ -2164,14 +2184,13 @@ fn write_xfa_scripts(
             object_count: 0,
             evidence_count: 0,
             name: Some(filename.clone()),
-            hash: None,
+            hash: Some(hash.clone()),
             magic: None,
-            meta: HashMap::new(),
+            meta: predicate_meta,
         };
         if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
             let filepath = extract_to.join(&filename);
             fs::write(&filepath, &payload.bytes)?;
-            let hash = sha256_hex(&payload.bytes);
             written.push(format!(
                 "{}: {} bytes, sha256={}, source={}",
                 filename,
@@ -2180,18 +2199,19 @@ fn write_xfa_scripts(
                 payload.source
             ));
             manifest.push(serde_json::json!({
+                "index": idx + 1,
                 "filename": filename,
                 "sha256": hash,
-                "length": payload.bytes.len(),
+                "size_bytes": payload.bytes.len(),
+                "object": payload.entry_ref,
+                "ref_chain": payload.ref_chain,
                 "source": payload.source,
             }));
         }
     }
-    if !manifest.is_empty() {
-        let manifest_path = extract_to.join("manifest.json");
-        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
-        written.push(format!("manifest.json: {} entries", manifest.len()));
-    }
+    let manifest_path = extract_to.join("manifest.json");
+    fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
+    written.push(format!("manifest.json: {} entries", manifest.len()));
     Ok(written)
 }
 
@@ -3250,11 +3270,16 @@ fn string_raw_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
     }
 }
 
+struct XfaPayloadMeta {
+    bytes: Vec<u8>,
+    ref_chain: String,
+}
+
 fn xfa_payloads_from_obj(
     graph: &sis_pdf_pdf::ObjectGraph<'_>,
     obj: &sis_pdf_pdf::object::PdfObj<'_>,
     limits: sis_pdf_pdf::decode::DecodeLimits,
-) -> Vec<Vec<u8>> {
+) -> Vec<XfaPayloadMeta> {
     use sis_pdf_pdf::object::PdfAtom;
 
     let mut out = Vec::new();
@@ -3265,14 +3290,14 @@ fn xfa_payloads_from_obj(
                 match &item.atom {
                     PdfAtom::Name(_) | PdfAtom::Str(_) => {
                         if let Some(next) = iter.next() {
-                            out.extend(resolve_xfa_payload(graph, next, limits));
+                            out.extend(resolve_xfa_payload(graph, next, limits, Vec::new()));
                         }
                     }
-                    _ => out.extend(resolve_xfa_payload(graph, item, limits)),
+                    _ => out.extend(resolve_xfa_payload(graph, item, limits, Vec::new())),
                 }
             }
         }
-        _ => out.extend(resolve_xfa_payload(graph, obj, limits)),
+        _ => out.extend(resolve_xfa_payload(graph, obj, limits, Vec::new())),
     }
     out
 }
@@ -3281,29 +3306,44 @@ fn resolve_xfa_payload(
     graph: &sis_pdf_pdf::ObjectGraph<'_>,
     obj: &sis_pdf_pdf::object::PdfObj<'_>,
     limits: sis_pdf_pdf::decode::DecodeLimits,
-) -> Vec<Vec<u8>> {
+    ref_chain: Vec<String>,
+) -> Vec<XfaPayloadMeta> {
     use sis_pdf_pdf::decode::decode_stream_with_meta;
     use sis_pdf_pdf::object::PdfAtom;
 
     let mut out = Vec::new();
     match &obj.atom {
-        PdfAtom::Str(s) => out.push(string_bytes(s)),
+        PdfAtom::Str(s) => out.push(XfaPayloadMeta {
+            bytes: string_bytes(s),
+            ref_chain: format_ref_chain(&ref_chain),
+        }),
         PdfAtom::Stream(stream) => {
             let result = decode_stream_with_meta(graph.bytes, stream, limits);
             if let Some(data) = result.data {
-                out.push(data);
+                out.push(XfaPayloadMeta {
+                    bytes: data,
+                    ref_chain: format_ref_chain(&ref_chain),
+                });
             }
         }
         PdfAtom::Ref { .. } => {
             if let Some(entry) = graph.resolve_ref(obj) {
+                let mut next_chain = ref_chain.clone();
+                next_chain.push(format!("{} {} R", entry.obj, entry.gen));
                 match &entry.atom {
                     PdfAtom::Stream(stream) => {
                         let result = decode_stream_with_meta(graph.bytes, stream, limits);
                         if let Some(data) = result.data {
-                            out.push(data);
+                            out.push(XfaPayloadMeta {
+                                bytes: data,
+                                ref_chain: format_ref_chain(&next_chain),
+                            });
                         }
                     }
-                    PdfAtom::Str(s) => out.push(string_bytes(s)),
+                    PdfAtom::Str(s) => out.push(XfaPayloadMeta {
+                        bytes: string_bytes(s),
+                        ref_chain: format_ref_chain(&next_chain),
+                    }),
                     _ => {}
                 }
             }
@@ -3311,6 +3351,14 @@ fn resolve_xfa_payload(
         _ => {}
     }
     out
+}
+
+fn format_ref_chain(chain: &[String]) -> String {
+    if chain.is_empty() {
+        "-".into()
+    } else {
+        chain.join(" -> ")
+    }
 }
 
 fn entropy_score(data: &[u8]) -> f64 {
@@ -5890,6 +5938,29 @@ mod tests {
                     assert!(count > 0);
                     let manifest = temp.path().join("manifest.json");
                     assert!(manifest.exists());
+                    let data = std::fs::read(&manifest).expect("read manifest");
+                    let entries: Vec<serde_json::Value> =
+                        serde_json::from_slice(&data).expect("parse manifest");
+                    let script_entries = list
+                        .iter()
+                        .filter(|line| !line.starts_with("manifest.json"))
+                        .count();
+                    assert_eq!(entries.len(), script_entries);
+                    let first = &entries[0];
+                    assert!(
+                        first["sha256"]
+                            .as_str()
+                            .map(|s| s.len() == 64)
+                            .unwrap_or(false),
+                        "sha256 length"
+                    );
+                    assert!(
+                        first["filename"]
+                            .as_str()
+                            .map(|name| name.starts_with("xfa_script"))
+                            .unwrap_or(false),
+                        "filename format"
+                    );
                 }
                 _ => panic!("unexpected xfa scripts result"),
             }
