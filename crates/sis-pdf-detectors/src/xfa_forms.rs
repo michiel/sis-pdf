@@ -1,10 +1,11 @@
 use anyhow::Result;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::timeout::TimeoutChecker;
+use roxmltree::Document;
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 
 use crate::{entry_dict, xfa_payloads_from_obj};
@@ -47,11 +48,19 @@ impl Detector for XfaFormDetector {
                 .build();
 
             let payloads = xfa_payloads_from_obj(ctx, xfa_obj);
-            let mut script_count = 0usize;
             for payload in &payloads {
+                let decoded = String::from_utf8_lossy(&payload.bytes);
+                let xml = decoded.as_ref();
+                let lower = decoded.to_ascii_lowercase();
+
                 if payload.bytes.len() > XFA_MAX_BYTES {
-                    let mut meta = std::collections::HashMap::new();
-                    meta.insert("xfa.size_bytes".into(), payload.bytes.len().to_string());
+                    let mut meta = base_xfa_meta(
+                        payload.bytes.len(),
+                        0,
+                        &[],
+                        &[],
+                        None,
+                    );
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -70,16 +79,59 @@ impl Detector for XfaFormDetector {
                     });
                 }
 
-                let lower = String::from_utf8_lossy(&payload.bytes).to_ascii_lowercase();
                 if has_doctype(&lower) {
                     continue;
                 }
 
-                script_count += extract_xfa_script_payloads(&payload.bytes).len();
-                script_count += count_execute_tags(&lower, XFA_EXECUTE_TAG_LIMIT);
+                let mut script_count = 0usize;
+                let mut submit_urls = HashSet::new();
+                let mut sensitive_fields = HashSet::new();
+                let mut script_preview = None;
+                let mut parsed = false;
 
-                for url in find_submit_urls(&lower, XFA_SUBMIT_URL_LIMIT) {
-                    let mut meta = std::collections::HashMap::new();
+                if let Ok(doc) = Document::parse(xml) {
+                    parsed = true;
+                    gather_xfa_doc_info(
+                        &doc,
+                        &mut script_count,
+                        &mut submit_urls,
+                        &mut sensitive_fields,
+                        &mut script_preview,
+                    );
+                }
+
+                if !parsed || script_count == 0 {
+                    script_count += extract_xfa_script_payloads(&payload.bytes).len();
+                    script_count += count_execute_tags(&lower, XFA_EXECUTE_TAG_LIMIT);
+                }
+
+                if script_preview.is_none() {
+                    if let Some(script) = extract_xfa_script_payloads(&payload.bytes).first() {
+                        script_preview = Some(preview_script(script, XFA_SCRIPT_PREVIEW_LEN));
+                    }
+                }
+
+                if submit_urls.is_empty() {
+                    for url in find_submit_urls(&lower, XFA_SUBMIT_URL_LIMIT) {
+                        insert_limited(&mut submit_urls, url, XFA_SUBMIT_URL_LIMIT);
+                    }
+                }
+
+                if sensitive_fields.is_empty() {
+                    for name in find_field_names(&lower, XFA_FIELD_NAME_LIMIT) {
+                        if is_sensitive_field(&name) {
+                            insert_limited(&mut sensitive_fields, name, XFA_FIELD_NAME_LIMIT);
+                        }
+                    }
+                }
+
+                let submit_list = sorted_strings(&submit_urls);
+                let field_list = sorted_strings(&sensitive_fields);
+                let base_meta =
+                    base_xfa_meta(payload.bytes.len(), script_count, &submit_list, &field_list, script_preview.as_deref());
+
+                for url in submit_list.iter().take(XFA_SUBMIT_URL_LIMIT) {
+                    let mut meta = base_meta.clone();
                     meta.insert("xfa.submit.url".into(), url.clone());
                     findings.push(Finding {
                         id: String::new(),
@@ -99,14 +151,8 @@ impl Detector for XfaFormDetector {
                     });
                 }
 
-                let mut field_names = HashSet::new();
-                for name in find_field_names(&lower, XFA_FIELD_NAME_LIMIT) {
-                    if is_sensitive_field(&name) {
-                        field_names.insert(name);
-                    }
-                }
-                for name in field_names {
-                    let mut meta = std::collections::HashMap::new();
+                for name in field_list.iter().take(XFA_FIELD_NAME_LIMIT) {
+                    let mut meta = base_meta.clone();
                     meta.insert("xfa.field.name".into(), name.clone());
                     findings.push(Finding {
                         id: String::new(),
@@ -125,27 +171,26 @@ impl Detector for XfaFormDetector {
                         positions: Vec::new(),
                     });
                 }
-            }
 
-            if script_count > XFA_SCRIPT_COUNT_HIGH {
-                let mut meta = std::collections::HashMap::new();
-                meta.insert("xfa.script.count".into(), script_count.to_string());
-                findings.push(Finding {
-                    id: String::new(),
-                    surface: self.surface(),
-                    kind: "xfa_script_count_high".into(),
-                    severity: Severity::Medium,
-                    confidence: Confidence::Probable,
-                    title: "XFA script count high".into(),
-                    description: "XFA contains an unusually high number of script blocks.".into(),
-                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                    evidence: evidence.clone(),
-                    remediation: Some("Inspect XFA scripts for malicious behaviour.".into()),
-                    meta,
-                    yara: None,
-                    position: None,
-                    positions: Vec::new(),
-                });
+                if script_count > XFA_SCRIPT_COUNT_HIGH {
+                    let meta = base_meta.clone();
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: self.surface(),
+                        kind: "xfa_script_count_high".into(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::Probable,
+                        title: "XFA script count high".into(),
+                        description: "XFA contains an unusually high number of script blocks.".into(),
+                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                        evidence: evidence.clone(),
+                        remediation: Some("Inspect XFA scripts for malicious behaviour.".into()),
+                        meta,
+                        yara: None,
+                        position: None,
+                        positions: Vec::new(),
+                    });
+                }
             }
         }
         Ok(findings)
@@ -157,6 +202,7 @@ const XFA_SCRIPT_COUNT_HIGH: usize = 5;
 const XFA_SUBMIT_URL_LIMIT: usize = 5;
 const XFA_FIELD_NAME_LIMIT: usize = 20;
 const XFA_EXECUTE_TAG_LIMIT: usize = 50;
+const XFA_SCRIPT_PREVIEW_LEN: usize = 120;
 
 fn has_doctype(input: &str) -> bool {
     input.contains("<!doctype")
@@ -227,4 +273,117 @@ fn is_sensitive_field(name: &str) -> bool {
     ["password", "passwd", "ssn", "credit", "card", "cvv", "pin"]
         .iter()
         .any(|needle| lower.contains(needle))
+}
+
+fn gather_xfa_doc_info(
+    doc: &Document,
+    script_count: &mut usize,
+    submit_urls: &mut HashSet<String>,
+    sensitive_fields: &mut HashSet<String>,
+    script_preview: &mut Option<String>,
+) {
+    const SCRIPT_TAGS: &[&str] = &["script", "xfa:script"];
+    const EXECUTE_TAGS: &[&str] = &["execute", "xfa:execute"];
+    const SUBMIT_TAGS: &[&str] = &["submit", "xfa:submit"];
+    const FIELD_TAGS: &[&str] = &["field", "xfa:field"];
+
+    for node in doc.descendants() {
+        if !node.is_element() {
+            continue;
+        }
+        let name = node.tag_name().name();
+        if tag_matches(name, SCRIPT_TAGS) {
+            *script_count += 1;
+            if script_preview.is_none() {
+                if let Some(text) = node.text() {
+                    let preview = preview_text(text, XFA_SCRIPT_PREVIEW_LEN);
+                    if !preview.is_empty() {
+                        script_preview.replace(preview);
+                    }
+                }
+            }
+        } else if tag_matches(name, EXECUTE_TAGS) {
+            *script_count += 1;
+        }
+
+        if tag_matches(name, SUBMIT_TAGS) && submit_urls.len() < XFA_SUBMIT_URL_LIMIT {
+            if let Some(url) = attribute_ci(&node, "url")
+                .or_else(|| attribute_ci(&node, "target"))
+            {
+                insert_limited(submit_urls, url, XFA_SUBMIT_URL_LIMIT);
+            }
+        }
+
+        if tag_matches(name, FIELD_TAGS) && sensitive_fields.len() < XFA_FIELD_NAME_LIMIT {
+            if let Some(name_attr) = attribute_ci(&node, "name") {
+                if is_sensitive_field(&name_attr) {
+                    insert_limited(sensitive_fields, name_attr, XFA_FIELD_NAME_LIMIT);
+                }
+            }
+        }
+    }
+}
+
+fn tag_matches(name: &str, candidates: &[&str]) -> bool {
+    candidates
+        .iter()
+        .any(|candidate| name.eq_ignore_ascii_case(candidate))
+}
+
+fn attribute_ci(node: &roxmltree::Node, name: &str) -> Option<String> {
+    node.attributes()
+        .iter()
+        .find(|attr| attr.name().eq_ignore_ascii_case(name))
+        .map(|attr| attr.value().to_string())
+}
+
+fn insert_limited(set: &mut HashSet<String>, value: String, limit: usize) {
+    if set.len() < limit {
+        set.insert(value);
+    }
+}
+
+fn sorted_strings(set: &HashSet<String>) -> Vec<String> {
+    let mut values: Vec<String> = set.iter().cloned().collect();
+    values.sort();
+    values
+}
+
+fn base_xfa_meta(
+    size: usize,
+    script_count: usize,
+    submit_urls: &[String],
+    sensitive_fields: &[String],
+    script_preview: Option<&str>,
+) -> HashMap<String, String> {
+    let mut meta = HashMap::new();
+    meta.insert("xfa.size_bytes".into(), size.to_string());
+    meta.insert("xfa.script_count".into(), script_count.to_string());
+    if !submit_urls.is_empty() {
+        meta.insert("xfa.submit_urls".into(), encode_array(submit_urls));
+    }
+    if !sensitive_fields.is_empty() {
+        meta.insert("xfa.sensitive_fields".into(), encode_array(sensitive_fields));
+    }
+    if let Some(preview) = script_preview {
+        meta.insert("xfa.script.preview".into(), preview.to_string());
+    }
+    meta
+}
+
+fn encode_array(values: &[String]) -> String {
+    let escaped: Vec<String> = values
+        .iter()
+        .map(|value| format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\"")))
+        .collect();
+    format!("[{}]", escaped.join(","))
+}
+
+fn preview_text(text: &str, max_len: usize) -> String {
+    let normalized = text.trim().replace('\n', " ").replace('\r', " ");
+    if normalized.len() <= max_len {
+        normalized
+    } else {
+        format!("{}...", &normalized[..max_len])
+    }
 }
