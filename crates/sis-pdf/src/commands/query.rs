@@ -5,6 +5,7 @@ use globset::Glob;
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{self, json};
+use std::collections::HashMap;
 use std::fs;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -62,7 +63,7 @@ pub enum PredicateExpr {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PredicateField {
     Length,
     Filter,
@@ -82,6 +83,7 @@ pub enum PredicateField {
     Name,
     Magic,
     Hash,
+    Meta(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +122,7 @@ struct PredicateContext {
     name: Option<String>,
     magic: Option<String>,
     hash: Option<String>,
+    meta: HashMap<String, String>,
 }
 
 /// Query types supported by the interface
@@ -840,7 +843,7 @@ fn parse_predicate_field(name: &str) -> Result<PredicateField> {
     } else if lower.ends_with(".hash") || lower == "hash" {
         PredicateField::Hash
     } else {
-        return Err(anyhow!("Unknown predicate field: {}", name));
+        PredicateField::Meta(lower.clone())
     };
     Ok(field)
 }
@@ -870,6 +873,7 @@ impl PredicateExpr {
                 PredicateField::Name => compare_string(ctx.name.as_deref(), *op, value),
                 PredicateField::Magic => compare_string(ctx.magic.as_deref(), *op, value),
                 PredicateField::Hash => compare_string(ctx.hash.as_deref(), *op, value),
+                PredicateField::Meta(key) => compare_meta(ctx.meta.get(key), *op, value),
             },
         }
     }
@@ -919,6 +923,23 @@ fn compare_string(lhs: Option<&str>, op: PredicateOp, value: &PredicateValue) ->
         PredicateOp::Eq => lhs == rhs,
         PredicateOp::NotEq => lhs != rhs,
         _ => false,
+    }
+}
+
+fn compare_meta(value: Option<&String>, op: PredicateOp, predicate: &PredicateValue) -> bool {
+    if let Some(actual) = value {
+        match predicate {
+            PredicateValue::Number(_) => {
+                if let Ok(lhs) = actual.parse::<f64>() {
+                    compare_number(lhs, op, predicate)
+                } else {
+                    false
+                }
+            }
+            PredicateValue::String(_) => compare_string(Some(actual.as_str()), op, predicate),
+        }
+    } else {
+        false
     }
 }
 
@@ -1993,6 +2014,10 @@ fn extract_embedded_files(
                     &sis_pdf_core::stream_analysis::StreamLimits::default(),
                 );
                 let hash = sha256_hex(&data);
+                let mut predicate_meta = HashMap::new();
+                predicate_meta.insert("name".into(), name.clone());
+                predicate_meta.insert("magic".into(), analysis.magic_type.clone());
+                predicate_meta.insert("hash".into(), hash.clone());
                 let meta = PredicateContext {
                     length: data.len(),
                     filter: filter_name(&st.dict),
@@ -2012,6 +2037,7 @@ fn extract_embedded_files(
                     name: Some(name.clone()),
                     magic: Some(analysis.magic_type),
                     hash: Some(hash),
+                    meta: predicate_meta,
                 };
                 if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
                     embedded.push(format!(
@@ -2092,6 +2118,7 @@ fn extract_xfa_scripts(
             name: Some(filename.clone()),
             hash: None,
             magic: None,
+            meta: HashMap::new(),
         };
         if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
             let preview = String::from_utf8_lossy(&payload.bytes);
@@ -2139,6 +2166,7 @@ fn write_xfa_scripts(
             name: Some(filename.clone()),
             hash: None,
             magic: None,
+            meta: HashMap::new(),
         };
         if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
             let filepath = extract_to.join(&filename);
@@ -2208,6 +2236,11 @@ fn collect_swf_streams(
             continue;
         };
         let name = format!("swf_{}_{}.swf", entry.obj, entry.gen);
+        let magic_label = magic.to_string();
+        let mut predicate_meta = HashMap::new();
+        let name_clone = name.clone();
+        predicate_meta.insert("name".into(), name_clone.clone());
+        predicate_meta.insert("magic".into(), magic_label.clone());
         let meta = PredicateContext {
             length: data.len(),
             filter: filter_name(&stream.dict),
@@ -2226,7 +2259,8 @@ fn collect_swf_streams(
             evidence_count: 0,
             name: Some(name),
             hash: None,
-            magic: Some(magic.to_string()),
+            magic: Some(magic_label),
+            meta: predicate_meta,
         };
         if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
             streams.push(SwfStreamInfo {
@@ -2532,6 +2566,7 @@ fn collect_images(
             name: None,
             magic: None,
             hash: None,
+            meta: HashMap::new(),
         };
         if predicate
             .map(|pred| pred.evaluate(&ctx_meta))
@@ -3373,6 +3408,7 @@ fn predicate_context_for_entry(
                 name: None,
                 magic: None,
                 hash: None,
+                meta: HashMap::new(),
             }
         }
         PdfAtom::Stream(stream) => {
@@ -3413,6 +3449,7 @@ fn predicate_context_for_entry(
                 name: None,
                 magic: None,
                 hash: None,
+                meta: HashMap::new(),
             }
         }
         PdfAtom::Dict(dict) => PredicateContext {
@@ -3434,6 +3471,7 @@ fn predicate_context_for_entry(
             name: None,
             magic: None,
             hash: None,
+            meta: HashMap::new(),
         },
         PdfAtom::Array(_) => PredicateContext {
             length: 0,
@@ -3454,6 +3492,7 @@ fn predicate_context_for_entry(
             name: None,
             magic: None,
             hash: None,
+            meta: HashMap::new(),
         },
         atom => PredicateContext {
             length: 0,
@@ -3474,6 +3513,7 @@ fn predicate_context_for_entry(
             name: None,
             magic: None,
             hash: None,
+            meta: HashMap::new(),
         },
     }
 }
@@ -3499,6 +3539,7 @@ fn predicate_context_for_url(url: &str) -> PredicateContext {
         name: None,
         hash: None,
         magic: None,
+        meta: HashMap::new(),
     }
 }
 
@@ -3529,11 +3570,32 @@ fn predicate_context_for_event(event: &serde_json::Value) -> Option<PredicateCon
         name: None,
         hash: None,
         magic: None,
+        meta: HashMap::new(),
     })
 }
 
 fn predicate_context_for_finding(finding: &sis_pdf_core::model::Finding) -> PredicateContext {
     let bytes = finding.description.as_bytes();
+    let mut meta_map = HashMap::new();
+    for (key, value) in &finding.meta {
+        meta_map.insert(key.to_ascii_lowercase(), value.clone());
+    }
+    let name = meta_map
+        .get("filename")
+        .cloned()
+        .or_else(|| meta_map.get("name").cloned())
+        .or_else(|| meta_map.get("embedded.filename").cloned())
+        .or_else(|| meta_map.get("launch.target_path").cloned());
+    let magic = meta_map
+        .get("magic")
+        .cloned()
+        .or_else(|| meta_map.get("embedded.magic").cloned())
+        .or_else(|| meta_map.get("stream.magic_type").cloned());
+    let hash = meta_map
+        .get("hash.sha256")
+        .cloned()
+        .or_else(|| meta_map.get("hash").cloned())
+        .or_else(|| meta_map.get("embedded.sha256").cloned());
     PredicateContext {
         length: bytes.len(),
         filter: Some(severity_to_string(&finding.severity)),
@@ -3550,9 +3612,10 @@ fn predicate_context_for_finding(finding: &sis_pdf_core::model::Finding) -> Pred
         kind: Some(finding.kind.clone()),
         object_count: finding.objects.len(),
         evidence_count: finding.evidence.len(),
-        name: None,
-        magic: None,
-        hash: None,
+        name,
+        magic,
+        hash,
+        meta: meta_map,
     }
 }
 
@@ -3725,6 +3788,7 @@ fn extract_obj_with_metadata(
                 name: None,
                 magic: None,
                 hash: None,
+                meta: HashMap::new(),
             };
             Some((data, ctx))
         }
@@ -3749,6 +3813,7 @@ fn extract_obj_with_metadata(
                 name: None,
                 magic: None,
                 hash: None,
+                meta: HashMap::new(),
             };
             Some((data, ctx))
         }
@@ -3779,6 +3844,7 @@ fn extract_obj_with_metadata(
                         name: None,
                         magic: None,
                         hash: None,
+                        meta: HashMap::new(),
                     };
                     Some((data, ctx))
                 }
@@ -3803,6 +3869,7 @@ fn extract_obj_with_metadata(
                         name: None,
                         magic: None,
                         hash: None,
+                        meta: HashMap::new(),
                     };
                     Some((data, ctx))
                 }
@@ -4012,6 +4079,10 @@ fn write_embedded_files(
                         &sis_pdf_core::stream_analysis::StreamLimits::default(),
                     );
                     let hash = sha256_hex(&data);
+                    let mut predicate_meta = HashMap::new();
+                    predicate_meta.insert("name".into(), name.clone());
+                    predicate_meta.insert("magic".into(), analysis.magic_type.clone());
+                    predicate_meta.insert("hash".into(), hash.clone());
                     let meta = PredicateContext {
                         length: data.len(),
                         filter: filter_name(&st.dict),
@@ -4031,6 +4102,7 @@ fn write_embedded_files(
                         name: Some(name.clone()),
                         magic: Some(analysis.magic_type),
                         hash: Some(hash.clone()),
+                        meta: predicate_meta,
                     };
                     if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
                         // Get filename
@@ -5477,6 +5549,7 @@ mod tests {
             name: None,
             magic: None,
             hash: None,
+            meta: HashMap::new(),
         };
         assert!(expr.evaluate(&ctx));
     }
@@ -5503,6 +5576,7 @@ mod tests {
             name: None,
             magic: None,
             hash: None,
+            meta: HashMap::new(),
         };
         assert!(!expr.evaluate(&ctx));
     }
@@ -5532,8 +5606,64 @@ mod tests {
             name: None,
             magic: None,
             hash: None,
+            meta: HashMap::new(),
         };
         assert!(expr.evaluate(&ctx));
+    }
+
+    #[test]
+    fn action_chain_predicate_filters_by_depth() {
+        with_fixture_context("action_chain_complex.pdf", |ctx| {
+            let query = parse_query("actions.chains.complex").expect("query");
+            let predicate = parse_predicate("action.chain_depth >= 3").expect("predicate");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("query");
+            match result {
+                QueryResult::Structure(value) => {
+                    let list = value.as_array().expect("array result");
+                    assert!(
+                        !list.is_empty(),
+                        "expected findings after filtering by depth"
+                    );
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn action_chain_predicate_filters_by_trigger_type() {
+        with_fixture_context("action_chain_complex.pdf", |ctx| {
+            let query = parse_query("actions.chains.complex").expect("query");
+            let predicate =
+                parse_predicate("action.trigger_type == 'automatic'").expect("predicate");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("query");
+            match result {
+                QueryResult::Structure(value) => {
+                    let list = value.as_array().expect("array result");
+                    assert!(
+                        !list.is_empty(),
+                        "expected findings after filtering by trigger type"
+                    );
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
     }
 
     #[test]

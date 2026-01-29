@@ -1805,13 +1805,18 @@ impl Detector for EmbeddedFileDetector {
                         let hash = sha256_hex(&decoded.data);
                         meta.insert("hash.sha256".into(), hash.clone());
                         meta.insert("embedded.sha256".into(), hash.clone());
-                        meta.insert("size_bytes".into(), decoded.data.len().to_string());
+                        meta.insert("hash.blake3".into(), analysis.blake3.clone());
+                        meta.insert("embedded.blake3".into(), analysis.blake3.clone());
+                        meta.insert("size_bytes".into(), analysis.size_bytes.to_string());
+                        meta.insert("stream.size_bytes".into(), analysis.size_bytes.to_string());
                         meta.insert("entropy".into(), format!("{:.2}", analysis.entropy));
+                        meta.insert("stream.entropy".into(), format!("{:.2}", analysis.entropy));
                         let mut encrypted_flag = "false";
                         let magic_value = analysis.magic_type.clone();
                         let is_zip = magic_value == "zip";
                         meta.insert("embedded.magic".into(), magic_value.clone());
                         meta.insert("magic_type".into(), magic_value.clone());
+                        meta.insert("stream.magic_type".into(), magic_value.clone());
                         magic = Some(magic_value);
                         if is_zip && zip_encrypted(&decoded.data) {
                             meta.insert("embedded.encrypted_container".into(), "true".into());

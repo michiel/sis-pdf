@@ -93,3 +93,27 @@ fn detectors_flag_embedded_encrypted_archive() {
             >= 64
     );
 }
+
+#[test]
+fn embedded_findings_include_blake3_metadata() {
+    let bytes =
+        include_bytes!("../../sis-pdf-core/tests/fixtures/embedded/embedded_exe_cve_2018_4990.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "embedded_file_present")
+        .expect("embedded file finding");
+    assert_eq!(
+        finding
+            .meta
+            .get("hash.blake3")
+            .map(|hash| hash.len())
+            .unwrap_or(0),
+        64
+    );
+}

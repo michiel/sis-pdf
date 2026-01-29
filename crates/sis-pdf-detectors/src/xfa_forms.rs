@@ -1,11 +1,11 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
+use roxmltree::Document;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::timeout::TimeoutChecker;
-use roxmltree::Document;
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 
 use crate::{entry_dict, xfa_payloads_from_obj};
@@ -54,13 +54,7 @@ impl Detector for XfaFormDetector {
                 let lower = decoded.to_ascii_lowercase();
 
                 if payload.bytes.len() > XFA_MAX_BYTES {
-                    let mut meta = base_xfa_meta(
-                        payload.bytes.len(),
-                        0,
-                        &[],
-                        &[],
-                        None,
-                    );
+                    let meta = base_xfa_meta(payload.bytes.len(), 0, &[], &[], None);
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -107,7 +101,8 @@ impl Detector for XfaFormDetector {
 
                 if script_preview.is_none() {
                     if let Some(script) = extract_xfa_script_payloads(&payload.bytes).first() {
-                        script_preview = Some(preview_script(script, XFA_SCRIPT_PREVIEW_LEN));
+                        let preview = String::from_utf8_lossy(script);
+                        script_preview = Some(preview_text(&preview, XFA_SCRIPT_PREVIEW_LEN));
                     }
                 }
 
@@ -127,8 +122,13 @@ impl Detector for XfaFormDetector {
 
                 let submit_list = sorted_strings(&submit_urls);
                 let field_list = sorted_strings(&sensitive_fields);
-                let base_meta =
-                    base_xfa_meta(payload.bytes.len(), script_count, &submit_list, &field_list, script_preview.as_deref());
+                let base_meta = base_xfa_meta(
+                    payload.bytes.len(),
+                    script_count,
+                    &submit_list,
+                    &field_list,
+                    script_preview.as_deref(),
+                );
 
                 for url in submit_list.iter().take(XFA_SUBMIT_URL_LIMIT) {
                     let mut meta = base_meta.clone();
@@ -181,7 +181,8 @@ impl Detector for XfaFormDetector {
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
                         title: "XFA script count high".into(),
-                        description: "XFA contains an unusually high number of script blocks.".into(),
+                        description: "XFA contains an unusually high number of script blocks."
+                            .into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: evidence.clone(),
                         remediation: Some("Inspect XFA scripts for malicious behaviour.".into()),
@@ -307,8 +308,7 @@ fn gather_xfa_doc_info(
         }
 
         if tag_matches(name, SUBMIT_TAGS) && submit_urls.len() < XFA_SUBMIT_URL_LIMIT {
-            if let Some(url) = attribute_ci(&node, "url")
-                .or_else(|| attribute_ci(&node, "target"))
+            if let Some(url) = attribute_ci(&node, "url").or_else(|| attribute_ci(&node, "target"))
             {
                 insert_limited(submit_urls, url, XFA_SUBMIT_URL_LIMIT);
             }
@@ -331,10 +331,12 @@ fn tag_matches(name: &str, candidates: &[&str]) -> bool {
 }
 
 fn attribute_ci(node: &roxmltree::Node, name: &str) -> Option<String> {
-    node.attributes()
-        .iter()
-        .find(|attr| attr.name().eq_ignore_ascii_case(name))
-        .map(|attr| attr.value().to_string())
+    for attr in node.attributes() {
+        if attr.name().eq_ignore_ascii_case(name) {
+            return Some(attr.value().to_string());
+        }
+    }
+    None
 }
 
 fn insert_limited(set: &mut HashSet<String>, value: String, limit: usize) {
@@ -363,7 +365,10 @@ fn base_xfa_meta(
         meta.insert("xfa.submit_urls".into(), encode_array(submit_urls));
     }
     if !sensitive_fields.is_empty() {
-        meta.insert("xfa.sensitive_fields".into(), encode_array(sensitive_fields));
+        meta.insert(
+            "xfa.sensitive_fields".into(),
+            encode_array(sensitive_fields),
+        );
     }
     if let Some(preview) = script_preview {
         meta.insert("xfa.script.preview".into(), preview.to_string());
