@@ -1193,7 +1193,7 @@ Broaden encryption metadata checks, implement streaming entropy calculation, and
 
 - [x] Emit findings:
   - [x] `encryption_key_short` when key length < 128 bits.
-  - [ ] Enrich existing `crypto_weak_algo` finding with specific algorithm metadata.
+  - [x] Enrich existing `crypto_weak_algo` finding with specific algorithm metadata.
   - [x] Include metadata: `crypto.algorithm`, `crypto.key_length`, `crypto.version`, `crypto.revision`.
 
 #### Streaming Entropy Calculator
@@ -1227,8 +1227,8 @@ Broaden encryption metadata checks, implement streaming entropy calculation, and
 
 #### Implementation Notes
 
-- Encryption analysis currently checks `/Length` for key size only; algorithm classification remains pending.
-- Entropy sampling uses full decoded stream bytes (no sliding window) and a size floor of 1KB.
+- Encryption analysis now extracts `/Length`, `/V`, and `/R` fields and uses `classify_encryption_algorithm` to label RC4-40/128 and AES-128/256 settings.
+- Entropy sampling uses sliding windows (1 MB chunks up to 10 MB, 150 ms budget) with cooperative timeout checks and reports sampled bytes plus `stream.sample_timed_out` flags.
 
 ### Tests
 
