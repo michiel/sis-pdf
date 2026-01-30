@@ -1869,10 +1869,9 @@ Implement correlation layer to combine findings and emit high-confidence composi
 ### Checklist
 
 - [ ] Implement `FindingCorrelator` in `crates/sis-pdf-detectors/src/correlator.rs`:
-  - [ ] Accept list of all findings from scan.
-  - [ ] Apply correlation rules (pattern matching).
-  - [ ] Emit new composite findings.
-  - [ ] Include references to source findings in evidence.
+  - [ ] Accept the full finding set plus correlation configuration flags.
+  - [ ] Provide `correlate(&self, findings: &[Finding]) -> Vec<Finding>` and helper routines that copy and re-use evidence spans.
+  - [ ] Emit composite findings precisely once per matching pattern, even when multiple sources qualify, and reference the contributing findings in the metadata.
 
 - [ ] Define composite finding IDs:
   - [ ] `launch_obfuscated_executable`
@@ -1881,11 +1880,21 @@ Implement correlation layer to combine findings and emit high-confidence composi
   - [ ] `encrypted_payload_delivery`
   - [ ] `obfuscated_payload`
 
-- [ ] Register correlator in scan pipeline (Phase D: post-processing).
+- [ ] Register the correlator in the Phase D (post-processing) pipeline so it runs after every detector.
 
 - [ ] Add configuration for correlation rules:
-  - [ ] Enable/disable specific patterns.
-  - [ ] Adjust thresholds (e.g., entropy threshold, chain depth).
+  - [ ] Enable/disable individual patterns.
+  - [ ] Adjust thresholds (entropy, chain depth, script count, sensitive field count).
+
+#### Fixture mapping
+
+| Pattern | Composite finding | Example fixtures/tests |
+| --- | --- | --- |
+| Obfuscated embedded executable | `launch_obfuscated_executable` | `crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf` + `fixtures/embedded/embedded_exe_cve_2018_4990.pdf`; validate via `tests/action_triggers.rs` and `tests/embedded_files.rs`. |
+| Malicious action chain | `action_chain_malicious` | `crates/sis-pdf-core/tests/fixtures/action_chain_complex.pdf` (depth ≥3, auto trigger + JS payload). |
+| XFA data exfiltration risk | `xfa_data_exfiltration_risk` | `crates/sis-pdf-core/tests/fixtures/xfa/xfa_submit_sensitive.pdf`; reuse `tests/xfa_forms.rs`. |
+| Encrypted payload delivery | `encrypted_payload_delivery` | `fixtures/encryption/weak_encryption_cve_2019_7089.pdf` plus `fixtures/embedded/embedded_encrypted.pdf`; leverage `tests/encryption_obfuscation.rs`. |
+| Filter obfuscation + high entropy | `obfuscated_payload` | `fixtures/filters/filter_unusual_chain.pdf` and `fixtures/encryption/high_entropy_stream.pdf`; combine `filters` and `stream_high_entropy` tests. |
 
 ### Tests
 

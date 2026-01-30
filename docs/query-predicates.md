@@ -20,6 +20,10 @@ Predicate filtering is supported for:
 - `encryption`, `encryption.weak`, `encryption.weak.count`
 - `streams.entropy`
 
+## Feature vector highlights
+
+While `features` is not a predicate-driven query, the exported vector (CSV/JSON/JSONL) includes the same counts you can probe via `--where` elsewhere. The final entries in that vector map to the Stage 8 additions: `xfa.present`, `xfa.*` (payload/script/submit/sensitive-field counts), `encryption.*` (encryption presence, key length, entropy stats, encrypted embedded files) and `filters.*` (unusual/invalid filter counts and depth). Use `docs/ml-features.md` for the canonical index mapping and to ensure your ML pipeline normalises these inputs consistently.
+
 ## Fields
 
 Predicates can use these fields:

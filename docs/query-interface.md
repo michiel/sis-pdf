@@ -188,3 +188,15 @@ sis query sample.pdf filters.repeated
 sis query sample.pdf filters.unusual --where "filter_count > 1"
 sis query sample.pdf filters.invalid --where "violation_type == 'crypt_not_outermost'"
 ```
+
+## Feature vector exports
+
+Use `sis query features` (or `sis export-features`) to emit the fixed-length ML feature vector. The vector includes the new XFA, encryption and filter-chain inputs that Stage 8 feeds into downstream models; the order is stable and matches `sis_pdf_core::features::feature_names()`, so CSV, JSON and JSONL outputs line up with the documented index mapping.
+
+```bash
+sis query sample.pdf features --format csv
+sis query sample.pdf features --format json | jq -r '.features'
+sis query --path corpus --glob "*.pdf" features --format jsonl
+```
+
+CSV output includes a header row (`feature,value`) while JSON/JSONL include feature-name→value objects, which makes the encryption (`encryption.*`), filter (`filters.*`) and XFA (`xfa.*`) contributions easy to consume. See `docs/ml-features.md` for the full breakdown and instructions on ingesting the vector in ML pipelines.

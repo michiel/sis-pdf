@@ -6070,6 +6070,7 @@ mod tests {
     use serde_json::json;
     use sis_pdf_pdf::path_finder::TriggerType;
     use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge};
+    use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
 
@@ -7195,6 +7196,73 @@ mod tests {
                 _ => panic!("unexpected features json result"),
             }
         });
+    }
+
+    #[test]
+    fn export_features_jsonl_contains_all_fields() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("features").expect("query");
+            let query = apply_output_format(query, OutputFormat::Jsonl).expect("jsonl");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("query");
+            let output =
+                format_jsonl("features", "content_first_phase1.pdf", &result).expect("jsonl line");
+            let parsed: serde_json::Value =
+                serde_json::from_str(&output).expect("parse jsonl features");
+            let result_map = parsed["result"]
+                .as_object()
+                .expect("expected result object");
+            let feature_names = sis_pdf_core::features::feature_names();
+            assert_eq!(result_map.len(), feature_names.len());
+            for name in feature_names {
+                assert!(
+                    result_map.contains_key(name),
+                    "jsonl output missing feature {}",
+                    name
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn batch_query_features_jsonl_streaming() {
+        let temp = tempdir().expect("tempdir");
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let fixture_root = root.join("crates/sis-pdf-core/tests/fixtures");
+        let fixture = fixture_root.join("content_first_phase1.pdf");
+        let dest = temp.path().join("content_first_phase1.pdf");
+        fs::copy(&fixture, &dest).expect("copy fixture");
+
+        let scan_options = ScanOptions::default();
+        let query = parse_query("features").expect("query");
+        let query = apply_output_format(query, OutputFormat::Jsonl).expect("jsonl format");
+        run_query_batch(
+            &query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+            OutputFormat::Jsonl,
+            false,
+            5,
+            10 * 1024 * 1024,
+            3,
+        )
+        .expect("batch features jsonl");
     }
 
     #[test]
