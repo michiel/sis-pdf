@@ -1022,6 +1022,11 @@ pub struct FeatureVector {
 
 ## Stage 4: Rich Media Content
 
+### Stage 4 status (updated 2026-01-30)
+- `RichMediaContentDetector` already flags SWF payloads, emits COMPRESSION metadata, and reports `swf_actionscript_detected` once tags are found. The detector uses `parse_swf_header` and the current tag scan loop (`SWF_ACTION_TAG_LIMIT`) to keep ActionScript discovery bounded, and `const` limits guard decompressed bytes/ratio before findings are emitted.
+- A regression test (`crates/sis-pdf-detectors/tests/rich_media.rs`) now exercises CVE-2011-0611 fixtures to ensure ActionScript tags surface.
+- Outstanding work: integrate `stream_analysis::analyse_stream` so rich media metadata, entropy and hashes feed the unified stream view, guard the detector with an early rich-media presence check, finish the U3D/PRC and MP3/MP4 format detections, wire the new query/feature vector hooks, and expand unit tests around SWF limits.
+
 ### Scope
 
 Inspect embedded SWF (Flash) and other rich media streams using minimal parsers to detect ActionScript and risky indicators without full decompression.
