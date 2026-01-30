@@ -821,7 +821,7 @@ Parse XFA XML streams, detect embedded scripts and submission actions, enumerate
 - [x] Implement `XfaFormDetector` in `crates/sis-pdf-detectors/src/xfa_forms.rs`:
   - [x] Extract `/XFA` streams from document catalog or AcroForm dictionary.
   - [x] Concatenate XFA array elements if `/XFA` is an array (per PDF spec).
-  - [ ] Parse XML using `roxmltree` (pinned to 0.20.0).
+  - [x] Parse XML using `roxmltree` (pinned to 0.20.0).
   - [x] Reject XML with DOCTYPE declarations (entity expansion attack prevention).
   - [x] Enforce 1MB size limit on XFA content pre-parse.
   - [x] Use `TimeoutChecker` with 100ms budget for parsing.
@@ -837,16 +837,16 @@ Parse XFA XML streams, detect embedded scripts and submission actions, enumerate
   - [x] `xfa_sensitive_field` when sensitive field detected, include field name.
   - [x] `xfa_too_large` when size exceeds 1MB limit.
   - [x] `xfa_script_count_high` when script count > 5 (configurable threshold).
-  - [ ] Enrich existing `xfa_script_present` finding with script content preview.
-  - [ ] Include metadata: `xfa_size_bytes`, `script_count`, `submit_urls` (array), `sensitive_fields` (array).
+- [x] Enrich existing `xfa_script_present` finding with script content preview.
+- [x] Include metadata: `xfa_size_bytes`, `script_count`, `submit_urls` (array), `sensitive_fields` (array).
 
 #### XFA Script Extraction
 
-- [ ] Add XFA script extraction function:
-  - [ ] Extract all `<script>` tag contents.
-  - [ ] Decode CDATA sections if present.
-  - [ ] Generate unique filenames (hash-based or sequential).
-  - [ ] Include metadata file (`manifest.json`) with script index, source object, field context.
+- [x] Add XFA script extraction function:
+  - [x] Extract all `<script>` tag contents.
+  - [x] Decode CDATA sections if present.
+  - [x] Generate unique filenames (hash-based or sequential).
+  - [x] Include metadata file (`manifest.json`) with script index, source object, field context.
 
 #### Registration
 
@@ -856,8 +856,8 @@ Parse XFA XML streams, detect embedded scripts and submission actions, enumerate
 
 #### Implementation Notes
 
-- Detector uses lightweight tag scanning rather than full XML parsing; `roxmltree` parsing remains pending.
-- Script detection uses `extract_xfa_script_payloads` and `<execute>` tag counts.
+- Detector now parses XFA XML with `roxmltree` to surface submit fields, scripts, executes and metadata in a single pass.
+- Script extraction produces sequential filenames plus `manifest.json` containing index, filename, sha256, object, ref chain and source so external SAST tooling can consume the artifacts.
 
 ### Tests
 

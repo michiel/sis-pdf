@@ -2491,6 +2491,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: scripts inside forms can trigger viewer execution paths.
   - Meaning: embedded XFA/XML scripts increase attack surface.
   - Chain usage: triggers or payload staging within form content.
+  - Metadata:
+    - `xfa.script.preview` (string): preview of the first script block (trimmed to 120 characters).
+    - `xfa.script_count` (int): total script blocks observed in the payload.
+    - `xfa.size_bytes` (int): total XFA payload size measured in bytes.
 
 ## xfa_submit
 
@@ -2502,6 +2506,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: XFA can submit data to external endpoints.
   - Meaning: submission targets may exfiltrate form data.
   - Chain usage: external action stage for form data.
+  - Metadata:
+    - `xfa.submit.url` (string): one of the submit targets discovered in the form.
+    - `xfa.submit_urls` (array of strings): aggregated submit URLs captured during parsing.
+    - `xfa.script_count` (int): scripts evaluated when the submit action was found.
+    - `xfa.size_bytes` (int): XFA payload byte size.
 
 ## xfa_sensitive_field
 
@@ -2513,6 +2522,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: sensitive fields increase data exposure risk.
   - Meaning: field names suggest collection of credentials or personal data.
   - Chain usage: indicates data collection intent.
+  - Metadata:
+    - `xfa.field.name` (string): sensitive field that matched one of the heuristics.
+    - `xfa.sensitive_fields` (array of strings): all sensitive field names detected in the XFA payload.
+    - `xfa.size_bytes` (int): total XFA payload byte size.
 
 ## xfa_too_large
 
@@ -2524,6 +2537,9 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: oversized forms can hide payloads or trigger resource exhaustion.
   - Meaning: XFA content size is unusually large.
   - Chain usage: evasion context for hidden payload staging.
+  - Metadata:
+    - `xfa.size_bytes` (int): total byte size measured on the XFA stream.
+    - `xfa.size_limit_bytes` (int): configured limit (1,048,576 by default).
 
 ## xfa_script_count_high
 
@@ -2535,6 +2551,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: multiple scripts can indicate staged behaviour.
   - Meaning: excessive script count raises suspicion of hidden logic.
   - Chain usage: payload staging signal.
+  - Metadata:
+    - `xfa.script_count` (int): number of `<script>` or `<execute>` nodes detected.
+    - `xfa.script_preview` (string): bounded preview of a representative script or execute block.
+    - `xfa.size_bytes` (int): total XFA payload byte size.
 
 ## actionscript_present
 
