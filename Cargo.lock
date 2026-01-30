@@ -3953,6 +3953,7 @@ dependencies = [
  "hex",
  "image-analysis",
  "js-analysis",
+ "lzma-rust2",
  "roxmltree",
  "sha2",
  "sis-pdf-core",

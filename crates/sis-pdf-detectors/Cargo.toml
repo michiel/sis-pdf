@@ -16,6 +16,7 @@ js-analysis = { path = "../js-analysis", default-features = false }
 tracing = "0.1"
 font-analysis = { path = "../font-analysis" }
 image-analysis = { path = "../image-analysis" }
+lzma-rust2 = { version = "0.15.6", default-features = false, features = ["std"] }
 
 [features]
 default = ["js-ast", "js-sandbox"]

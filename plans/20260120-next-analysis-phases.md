@@ -1023,10 +1023,10 @@ pub struct FeatureVector {
 ## Stage 4: Rich Media Content
 
 ### Stage 4 status (updated 2026-01-30)
-- `RichMediaContentDetector` already flags SWF payloads, emits COMPRESSION metadata, and reports `swf_actionscript_detected` once tags are found. The detector uses `parse_swf_header` and the current tag scan loop (`SWF_ACTION_TAG_LIMIT`) to keep ActionScript discovery bounded, and `const` limits guard decompressed bytes/ratio before findings are emitted.
+- `RichMediaContentDetector` now decompresses SWF bodies incrementally (Zlib/LZMA) until the first 10 tags are scanned, enforcing the 10:1 ratio, 10 MB size, and 250 ms timeout budget before emitting findings; the parser reuses `scan_swf_action_tags` on the streamed fragments to keep ActionScript detection bounded.
 - Stream analysis metadata (magic/entropy/blake3) is now added to every SWF finding via `insert_stream_analysis_meta`, and the detector short-circuits when the document lacks rich-media objects to avoid unnecessary decoding.
 - `ThreeDDetector` and `SoundMovieDetector` now attach `size_bytes` plus format metadata (U3D/PRC, MP3/MP4) so rich-media heuristics surface the formats the plan targets.
-- Outstanding work: finish the minimal SWF parser (partial decompression limits, ActionScript extraction safeguards), wire the rich-media queries/feature-vector fields, and add the remaining SWF/3D/audio unit tests.
+- Outstanding work: wire the rich-media queries/feature-vector fields, and add the remaining SWF/3D/audio unit tests referenced in this stage before moving into Stage 5.
 
 ### Scope
 
