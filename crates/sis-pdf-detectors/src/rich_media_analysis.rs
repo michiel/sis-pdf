@@ -3,8 +3,9 @@ use anyhow::Result;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
 use sis_pdf_core::timeout::TimeoutChecker;
-use sis_pdf_pdf::object::PdfAtom;
+use sis_pdf_pdf::object::{PdfAtom, PdfDict};
 use sis_pdf_pdf::swf::{parse_swf_header, SwfCompression};
 
 use crate::entry_dict;
@@ -31,6 +32,14 @@ impl Detector for RichMediaContentDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         let timeout = TimeoutChecker::new(std::time::Duration::from_millis(100));
+        let has_rich_media = ctx
+            .graph
+            .objects
+            .iter()
+            .any(|entry| entry_dict(entry).map_or(false, |dict| is_rich_media_dict(dict)));
+        if !has_rich_media {
+            return Ok(findings);
+        }
         for entry in &ctx.graph.objects {
             if timeout.check().is_err() {
                 break;
@@ -39,11 +48,7 @@ impl Detector for RichMediaContentDetector {
                 continue;
             };
             if let Some(dict) = entry_dict(entry) {
-                if !dict.has_name(b"/Type", b"/RichMedia")
-                    && !dict.has_name(b"/Subtype", b"/RichMedia")
-                    && !dict.has_name(b"/Subtype", b"/Flash")
-                    && dict.get_first(b"/RichMedia").is_none()
-                {
+                if !is_rich_media_dict(dict) {
                     continue;
                 }
             }
@@ -52,6 +57,7 @@ impl Detector for RichMediaContentDetector {
             };
             if swf_magic(&decoded.data) {
                 let mut meta = std::collections::HashMap::new();
+                insert_stream_analysis_meta(&mut meta, &decoded.data);
                 meta.insert(
                     "swf.magic".into(),
                     String::from_utf8_lossy(&decoded.data[..3]).into(),
@@ -102,6 +108,7 @@ impl Detector for RichMediaContentDetector {
                         "RichMedia stream",
                     )
                     .build();
+                let action_evidence = evidence.clone();
                 findings.push(Finding {
                     id: String::new(),
                     surface: self.surface(),
@@ -125,14 +132,8 @@ impl Detector for RichMediaContentDetector {
                         "swf.action_tag_count".into(),
                         actions.action_tags.len().to_string(),
                     );
-                    action_meta.insert(
-                        "swf.tags_scanned".into(),
-                        actions.tags_scanned.to_string(),
-                    );
-                    action_meta.insert(
-                        "swf.action_tags".into(),
-                        encode_list(&actions.action_tags),
-                    );
+                    action_meta.insert("swf.tags_scanned".into(), actions.tags_scanned.to_string());
+                    action_meta.insert("swf.action_tags".into(), encode_list(&actions.action_tags));
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -144,8 +145,10 @@ impl Detector for RichMediaContentDetector {
                             "SWF stream contains ActionScript tags (DoAction/DoInitAction/DoABC)."
                                 .into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                        evidence: evidence.clone(),
-                        remediation: Some("Review the ActionScript tags for malicious logic.".into()),
+                        evidence: action_evidence,
+                        remediation: Some(
+                            "Review the ActionScript tags for malicious logic.".into(),
+                        ),
                         meta: action_meta,
                         yara: None,
                         position: None,
@@ -251,6 +254,21 @@ fn encode_list(values: &[String]) -> String {
         })
         .collect();
     format!("[{}]", escaped.join(","))
+}
+
+fn insert_stream_analysis_meta(meta: &mut std::collections::HashMap<String, String>, data: &[u8]) {
+    let analysis = analyse_stream(data, &StreamLimits::default());
+    meta.insert("stream.magic_type".into(), analysis.magic_type);
+    meta.insert("stream.entropy".into(), format!("{:.2}", analysis.entropy));
+    meta.insert("stream.blake3".into(), analysis.blake3);
+    meta.insert("size_bytes".into(), analysis.size_bytes.to_string());
+}
+
+fn is_rich_media_dict(dict: &PdfDict<'_>) -> bool {
+    dict.has_name(b"/Type", b"/RichMedia")
+        || dict.has_name(b"/Subtype", b"/RichMedia")
+        || dict.has_name(b"/Subtype", b"/Flash")
+        || dict.get_first(b"/RichMedia").is_some()
 }
 
 const SWF_ACTION_TAG_LIMIT: usize = 10;

@@ -16,7 +16,10 @@ fn detects_swf_action_tags() {
         .collect();
     assert!(!swf_filtered.is_empty(), "expected ActionScript finding");
     let meta = &swf_filtered[0].meta;
-    assert_eq!(meta.get("swf.action_tag_count").map(String::as_str), Some("1"));
+    assert_eq!(
+        meta.get("swf.action_tag_count").map(String::as_str),
+        Some("1")
+    );
     assert!(
         meta.get("swf.action_tags")
             .map(|value| value.contains("DoABC"))

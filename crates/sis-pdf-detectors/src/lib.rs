@@ -2009,6 +2009,13 @@ impl Detector for ThreeDDetector {
                     || dict.get_first(b"/U3D").is_some()
                     || dict.get_first(b"/PRC").is_some()
                 {
+                    let mut meta = std::collections::HashMap::new();
+                    if let Some(bytes) = entry_payload_bytes(ctx.bytes, entry) {
+                        meta.insert("size_bytes".into(), bytes.len().to_string());
+                        if let Some(media_type) = detect_3d_format(bytes) {
+                            meta.insert("media_type".into(), media_type.to_string());
+                        }
+                    }
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -2020,7 +2027,7 @@ impl Detector for ThreeDDetector {
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(entry.full_span, "3D object")],
                         remediation: Some("Inspect embedded 3D assets.".into()),
-                        meta: Default::default(),
+                        meta,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
@@ -2055,6 +2062,13 @@ impl Detector for SoundMovieDetector {
                     || dict.get_first(b"/Movie").is_some()
                     || dict.get_first(b"/Rendition").is_some()
                 {
+                    let mut meta = std::collections::HashMap::new();
+                    if let Some(bytes) = entry_payload_bytes(ctx.bytes, entry) {
+                        meta.insert("size_bytes".into(), bytes.len().to_string());
+                        if let Some(media_format) = detect_media_format(bytes) {
+                            meta.insert("media_format".into(), media_format.to_string());
+                        }
+                    }
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -2066,7 +2080,7 @@ impl Detector for SoundMovieDetector {
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(entry.full_span, "Sound/Movie object")],
                         remediation: Some("Inspect embedded media objects.".into()),
-                        meta: Default::default(),
+                        meta,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
@@ -2566,6 +2580,29 @@ fn span_bytes<'a>(bytes: &'a [u8], span: sis_pdf_pdf::span::Span) -> Option<&'a 
         return None;
     }
     Some(&bytes[start..end])
+}
+
+fn detect_3d_format(data: &[u8]) -> Option<&'static str> {
+    if data.len() >= 4 && data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x00 && data[3] == 0x24 {
+        return Some("u3d");
+    }
+    if data.starts_with(b"PRC") {
+        return Some("prc");
+    }
+    None
+}
+
+fn detect_media_format(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(b"ID3") {
+        return Some("mp3");
+    }
+    if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xFB {
+        return Some("mp3");
+    }
+    if data.len() >= 12 && &data[4..8] == b"ftyp" {
+        return Some("mp4");
+    }
+    None
 }
 
 fn provenance_label(provenance: ObjProvenance) -> String {
