@@ -17,6 +17,8 @@ image-analysis = { path = "../image-analysis" }
 sis-pdf-pdf = { path = "../sis-pdf-pdf" }
 sis-pdf-ml-graph = { path = "../sis-pdf-ml-graph", optional = true }
 tracing = "0.1"
+flate2 = "1.0"
+lzma-rust2 = { version = "0.15.6", default-features = false, features = ["std"] }
 
 [features]
 ml-graph = ["sis-pdf-ml-graph"]

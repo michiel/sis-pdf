@@ -1,9 +1,17 @@
 use blake3::Hasher;
+use std::time::Duration;
+
+use crate::timeout::TimeoutChecker;
+
+pub const STREAM_MIN_BYTES: usize = 1024;
+pub const STREAM_HIGH_ENTROPY_THRESHOLD: f64 = 7.5;
 
 #[derive(Debug, Clone)]
 pub struct StreamAnalysisResult {
     pub magic_type: String,
     pub entropy: f64,
+    pub sample_bytes: usize,
+    pub timed_out: bool,
     pub blake3: String,
     pub size_bytes: usize,
 }
@@ -11,34 +19,80 @@ pub struct StreamAnalysisResult {
 #[derive(Debug, Clone)]
 pub struct StreamLimits {
     pub max_bytes: usize,
+    pub max_sample_bytes: usize,
+    pub sample_window_bytes: usize,
+    pub timeout_ms: Option<u64>,
 }
 
 impl Default for StreamLimits {
     fn default() -> Self {
         Self {
             max_bytes: 1024 * 1024,
+            max_sample_bytes: 10 * 1024 * 1024,
+            sample_window_bytes: 1024 * 1024,
+            timeout_ms: Some(150),
         }
     }
 }
 
 pub fn analyse_stream(bytes: &[u8], limits: &StreamLimits) -> StreamAnalysisResult {
     let size_bytes = bytes.len();
-    let sample = if bytes.len() > limits.max_bytes {
-        &bytes[..limits.max_bytes]
-    } else {
-        bytes
-    };
-    let magic_type = magic_type(sample);
-    let entropy = shannon_entropy(sample);
+    let sample_end = bytes.len().min(limits.max_sample_bytes);
+    let window_bytes = limits.sample_window_bytes.max(1);
+    let sample = &bytes[..sample_end];
+    let magic_sample_end = bytes.len().min(limits.max_bytes);
+    let magic_type = magic_type(&bytes[..magic_sample_end]);
+
+    let mut entropy: f64 = 0.0;
+    let mut offset = 0usize;
+    let mut processed_bytes = 0usize;
+    let mut timed_out = false;
+    let mut timeout_checker = None;
+    if let Some(ms) = limits.timeout_ms {
+        if ms == 0 {
+            timed_out = true;
+        } else {
+            timeout_checker = Some(TimeoutChecker::new(Duration::from_millis(ms)));
+        }
+    }
+
+    if !timed_out {
+        while offset < sample.len() {
+            if let Some(checker) = &timeout_checker {
+                if checker.check().is_err() {
+                    timed_out = true;
+                    break;
+                }
+            }
+            let end = (offset + window_bytes).min(sample.len());
+            let chunk = &sample[offset..end];
+            processed_bytes += chunk.len();
+            if !chunk.is_empty() {
+                let chunk_entropy = shannon_entropy(chunk);
+                entropy = entropy.max(chunk_entropy);
+            }
+            offset = end;
+        }
+    }
+
     let mut hasher = Hasher::new();
     hasher.update(bytes);
     let blake3 = hasher.finalize().to_hex().to_string();
     StreamAnalysisResult {
         magic_type,
         entropy,
+        sample_bytes: processed_bytes,
+        timed_out,
         blake3,
         size_bytes,
     }
+}
+
+const RAR4_MAGIC: &[u8] = b"Rar!\x1A\x07\x00";
+const RAR5_MAGIC: &[u8] = b"Rar!\x1A\x07\x01\x00";
+
+fn is_rar(data: &[u8]) -> bool {
+    data.starts_with(RAR4_MAGIC) || data.starts_with(RAR5_MAGIC)
 }
 
 fn magic_type(data: &[u8]) -> String {
@@ -48,6 +102,8 @@ fn magic_type(data: &[u8]) -> String {
         "pdf".into()
     } else if data.starts_with(b"PK\x03\x04") {
         "zip".into()
+    } else if is_rar(data) {
+        "rar".into()
     } else if data.starts_with(b"\x7fELF") {
         "elf".into()
     } else if is_macho(data) {
@@ -108,5 +164,54 @@ mod tests {
         assert_eq!(res.magic_type, "pdf");
         assert_eq!(res.size_bytes, data.len());
         assert_eq!(res.blake3.len(), 64);
+        assert!(res.sample_bytes > 0);
+        assert!(!res.timed_out);
+    }
+
+    #[test]
+    fn entropy_high_for_untyped() {
+        let mut data = Vec::new();
+        for _ in 0..4 {
+            for byte in 0..=255u8 {
+                data.push(byte);
+            }
+        }
+        let res = analyse_stream(&data, &StreamLimits::default());
+        assert!(res.entropy > 7.9);
+        assert!(!res.timed_out);
+    }
+
+    #[test]
+    fn entropy_low_for_textual() {
+        let data = b"hello world ".repeat(1024);
+        let res = analyse_stream(&data, &StreamLimits::default());
+        assert!(res.entropy < 6.0);
+        assert!(!res.timed_out);
+    }
+
+    #[test]
+    fn sliding_window_prefers_high_entropy() {
+        let mut data = vec![b'A'; 1024 * 1024];
+        for _ in 0..4096 {
+            for byte in 0..=255u8 {
+                data.push(byte);
+            }
+        }
+        let mut limits = StreamLimits::default();
+        limits.max_sample_bytes = data.len();
+        limits.sample_window_bytes = 1024 * 1024;
+        let res = analyse_stream(&data, &limits);
+        assert!(res.entropy > 7.8);
+        assert_eq!(res.sample_bytes, data.len());
+    }
+
+    #[test]
+    fn entropy_timeout_breaks_early() {
+        let mut limits = StreamLimits::default();
+        limits.timeout_ms = Some(0);
+        let data = vec![0u8; 1024 * 1024];
+        let res = analyse_stream(&data, &limits);
+        assert!(res.timed_out);
+        assert_eq!(res.sample_bytes, 0);
     }
 }

@@ -7,14 +7,18 @@ This guide documents the `--where` predicate filters for `sis query`.
 Predicate filtering is supported for:
 - `js`, `js.count`
 - `embedded`, `embedded.count`
+- `xfa`, `xfa.count`
 - `xfa.scripts`, `xfa.scripts.count`
-- `swf.extract`, `swf.extract.count`
+- `swf`, `swf.count`, `swf.actionscript`, `swf.actionscript.count`, `swf.extract`, `swf.extract.count`
+- `media.3d`, `media.3d.count`, `media.audio`, `media.audio.count`
 - `images`, `images.count`, `images.jbig2`, `images.jpx`, `images.ccitt`, `images.risky`, `images.malformed`
 - `objects.list`, `objects.with`, `objects.count`
 - `urls`, `urls.count`
 - `events`, `events.document`, `events.page`, `events.field`, `events.count`
 - `findings`, `findings.count`, `findings.kind`, `findings.high`, `findings.medium`, `findings.low`, `findings.info`, `findings.critical`
 - finding shortcut queries (for example `embedded.executables`, `launch.external`, `streams.high-entropy`) and their `.count` variants
+- `encryption`, `encryption.weak`, `encryption.weak.count`
+- `streams.entropy`
 
 ## Fields
 
@@ -64,14 +68,32 @@ Predicates can use these fields:
 - `subtype`: `script`
 - `name`: generated script filename
 
-### SWF extraction (`swf.extract`, `swf.extract.count`)
+### XFA forms (`xfa`, `xfa.count`)
+- `length`: decoded XFA payload size
+- `script_count`: number of `<script>`/`<execute>` occurrences found
+- `type`: `XfaForm`
+- `filter`: `xfa`
+- `url`: submit target (per `xfa.submit` finding)
+- `field`: sensitive field name (per `xfa.sensitive` finding)
+- `has_doctype`: `true` when DOCTYPE guard triggered (matches `xfa.has_doctype`)
+- `submit_urls`: JSON array of detected submit URLs
+- `sensitive_fields`: JSON array of field names reported for the payload
+
+### SWF queries (`swf`, `swf.count`, `swf.actionscript`, `swf.actionscript.count`, `swf.extract`, `swf.extract.count`)
 - `length`: extracted SWF bytes (decoded or raw depending on flags)
 - `entropy`: extracted SWF bytes entropy
-- `type`: `SwfStream`
+- `type`: `SwfContent`
 - `filter`: stream `/Filter` name (if present)
 - `subtype`: `swf`
 - `name`: generated SWF filename
 - `magic`: SWF header tag (`FWS`, `CWS`, `ZWS`)
+- `media_type`: always `swf`
+- `size_bytes`: stream size before extraction limits
+- `swf.version`: SWF header version (when parsing succeeds)
+- `swf.decompressed_bytes`: bytes parsed during ActionScript analysis
+- `swf.declared_length`: length from the SWF header (used to enforce the 10 MB limit)
+- `swf.action_tag_count`: number of ActionScript tags scanned
+- `swf.action_tags`: comma-separated list of ActionScript tag names
 
 ### Images (`images*`)
 - `length`: image stream bytes (decoded or raw depending on flags)
@@ -84,6 +106,15 @@ Predicates can use these fields:
 - `pixels`: `width * height` when available
 - `risky`: `true` for `JBIG2`, `JPX`, `CCITT` formats
 - `format`: alias for `subtype`
+
+### Media queries (`media.3d`, `media.3d.count`, `media.audio`, `media.audio.count`)
+- `type`: `Media3D` or `MediaAudio`
+- `filter`: stream `/Filter` name (if present)
+- `subtype`: media type label (`u3d`, `prc`, `mp3`, `mp4`, or `unknown`)
+- `media_type`: format label (`u3d`, `prc`, `mp3`, `mp4`, `unknown`)
+- `size_bytes`: stream payload length
+- `name`: generated handle derived from the object identifier
+- `object`: object reference string (included in `meta`)
 
 ### Objects (`objects.list`, `objects.with`, `objects.count`)
 - `length`: stream length (decoded where possible; falls back to `/Length`)
@@ -116,6 +147,30 @@ Predicates can use these fields:
 - `kind`: finding kind (same as `subtype`)
 - `objects`: number of related objects
 - `evidence`: number of evidence spans
+
+### Encryption queries
+- `type`: `Finding`
+- `subtype`: `encryption_present`, `encryption_key_short`, or `crypto_weak_algo`
+- `kind`: alias for `subtype`
+- `crypto.algorithm`: detected encryption algorithm (`RC4-40`, `AES-256`)
+- `crypto.key_length`: key length in bits (extracted from `/Length`)
+- `crypto.version`: `/V` value from the encryption dictionary
+- `crypto.revision`: `/R` value from the encryption dictionary
+- `crypto.issue`: description of the weakness (sourced from `crypto_weak_algo`)
+- `filter`: severity of the finding
+- `objects`: typically `["trailer"]` or `["signature"]`
+- `evidence`: spans covering the trailer or signature dict
+
+### Streams entropy (`streams.entropy`)
+- `length`: decoded stream length (subject to decode limits)
+- `entropy`: entropy computed on sliding windows (0-8 scale)
+- `sample_size_bytes`: bytes consumed for entropy sampling (max 10 MB)
+- `stream.magic_type`: classifier label (`zip`, `rar`, `unknown`, etc.)
+- `stream.sample_timed_out`: `true` if the sampling hit the timeout budget
+- `filter`: stream `/Filter` value (if present)
+- `subtype`: `/Subtype` name (if present)
+- `name`: generated handle such as `123 0 obj`
+- `meta`: includes `stream.size_bytes`, `stream.sample_size_bytes`, `stream.magic_type`, and `stream.sample_timed_out`
 
 ## Examples
 

@@ -1,9 +1,13 @@
 use anyhow::Result;
 
+use sis_pdf_core::crypto_analysis::classify_encryption_algorithm;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
-use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
+use sis_pdf_core::stream_analysis::{
+    analyse_stream, StreamAnalysisResult, StreamLimits, STREAM_HIGH_ENTROPY_THRESHOLD,
+    STREAM_MIN_BYTES,
+};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 
@@ -83,11 +87,8 @@ impl Detector for EncryptionObfuscationDetector {
                 continue;
             }
             let analysis = analyse_stream(&decoded.data, &limits);
-            if analysis.entropy >= STREAM_HIGH_ENTROPY {
-                let mut meta = std::collections::HashMap::new();
-                meta.insert("stream.entropy".into(), format!("{:.3}", analysis.entropy));
-                meta.insert("stream.size_bytes".into(), decoded.data.len().to_string());
-                meta.insert("stream.magic".into(), analysis.magic_type.clone());
+            if analysis.entropy >= STREAM_HIGH_ENTROPY_THRESHOLD {
+                let meta = stream_entropy_meta(&analysis);
                 findings.push(Finding {
                     id: String::new(),
                     surface: AttackSurface::StreamsAndFilters,
@@ -156,8 +157,33 @@ impl Detector for EncryptionObfuscationDetector {
     }
 }
 
-const STREAM_HIGH_ENTROPY: f64 = 7.5;
-const STREAM_MIN_BYTES: usize = 1024;
+fn stream_entropy_meta(
+    analysis: &StreamAnalysisResult,
+) -> std::collections::HashMap<String, String> {
+    let mut meta = std::collections::HashMap::new();
+    meta.insert("entropy".into(), format!("{:.3}", analysis.entropy));
+    meta.insert("stream.entropy".into(), format!("{:.3}", analysis.entropy));
+    meta.insert(
+        "entropy_threshold".into(),
+        format!("{:.1}", STREAM_HIGH_ENTROPY_THRESHOLD),
+    );
+    meta.insert(
+        "sample_size_bytes".into(),
+        analysis.sample_bytes.to_string(),
+    );
+    meta.insert(
+        "stream.sample_size_bytes".into(),
+        analysis.sample_bytes.to_string(),
+    );
+    meta.insert(
+        "stream.sample_timed_out".into(),
+        analysis.timed_out.to_string(),
+    );
+    meta.insert("stream.size_bytes".into(), analysis.size_bytes.to_string());
+    meta.insert("stream.magic".into(), analysis.magic_type.clone());
+    meta.insert("stream.magic_type".into(), analysis.magic_type.clone());
+    meta
+}
 
 pub(crate) fn resolve_encrypt_dict<'a>(
     ctx: &'a sis_pdf_core::scan::ScanContext,
@@ -206,35 +232,4 @@ pub(crate) fn encryption_meta_from_dict(
         meta.insert("crypto.algorithm".into(), algorithm.into());
     }
     meta
-}
-
-fn classify_encryption_algorithm(
-    version: Option<u32>,
-    key_len: Option<u32>,
-) -> Option<&'static str> {
-    match version {
-        Some(1 | 2) => {
-            if let Some(len) = key_len {
-                if len <= 40 {
-                    Some("RC4-40")
-                } else {
-                    Some("RC4-128")
-                }
-            } else {
-                Some("RC4")
-            }
-        }
-        Some(4 | 5) => {
-            if let Some(len) = key_len {
-                if len >= 256 {
-                    Some("AES-256")
-                } else {
-                    Some("AES-128")
-                }
-            } else {
-                Some("AES")
-            }
-        }
-        _ => None,
-    }
 }

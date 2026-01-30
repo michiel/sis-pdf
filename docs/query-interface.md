@@ -148,6 +148,18 @@ sis query sample.pdf actions.chains --format json
 
 `actions.chains` also supports the `--format dot` export that can be rendered with Graphviz.
 
+## XFA form queries
+
+`xfa`/`xfa.count` lists decoded XFA payloads with script counts, submit targets, and hidden-field indicators. Use `--where` to filter by payload size or script volume, and predicate filtering extends to `xfa.submit`/`xfa.sensitive` via the `url` and `field` fields.
+
+```bash
+sis query sample.pdf xfa
+sis query sample.pdf xfa.count
+sis query sample.pdf xfa --where "size > 500000"
+sis query sample.pdf xfa --where "script_count > 5"
+sis query sample.pdf xfa.submit --where "url contains 'external.com'"
+```
+
 ## Encryption & Stream Entropy Queries
 
 `encryption` reports findings related to `/Encrypt` dictionaries, including detected algorithms and key lengths. Use `encryption.weak` to focus on detected weak cryptography and `.count` to tally them.

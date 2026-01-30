@@ -1814,11 +1814,14 @@ impl Detector for EmbeddedFileDetector {
                         let mut encrypted_flag = "false";
                         let magic_value = analysis.magic_type.clone();
                         let is_zip = magic_value == "zip";
+                        let is_rar = crate::is_rar_magic(&decoded.data);
+                        let is_encrypted_archive = (is_zip && crate::zip_encrypted(&decoded.data))
+                            || (is_rar && crate::rar_encrypted(&decoded.data));
                         meta.insert("embedded.magic".into(), magic_value.clone());
                         meta.insert("magic_type".into(), magic_value.clone());
                         meta.insert("stream.magic_type".into(), magic_value.clone());
                         magic = Some(magic_value);
-                        if is_zip && zip_encrypted(&decoded.data) {
+                        if is_encrypted_archive {
                             meta.insert("embedded.encrypted_container".into(), "true".into());
                             encrypted_flag = "true";
                             encrypted_container = true;
@@ -3364,12 +3367,37 @@ fn keyword_evidence(
     out
 }
 
-fn zip_encrypted(data: &[u8]) -> bool {
+pub(crate) fn zip_encrypted(data: &[u8]) -> bool {
     if data.len() < 8 || !data.starts_with(b"PK\x03\x04") {
         return false;
     }
     let flag = u16::from_le_bytes([data[6], data[7]]);
     (flag & 0x0001) != 0
+}
+
+const RAR4_MAGIC: &[u8] = b"Rar!\x1A\x07\x00";
+const RAR5_MAGIC: &[u8] = b"Rar!\x1A\x07\x01\x00";
+
+pub(crate) fn is_rar_magic(data: &[u8]) -> bool {
+    data.starts_with(RAR4_MAGIC) || data.starts_with(RAR5_MAGIC)
+}
+
+pub(crate) fn rar_encrypted(data: &[u8]) -> bool {
+    if let Some(flags) = rar_header_flags(data) {
+        (flags & 0x0080) != 0
+    } else {
+        false
+    }
+}
+
+fn rar_header_flags(data: &[u8]) -> Option<u16> {
+    if data.starts_with(RAR4_MAGIC) && data.len() >= 9 {
+        Some(u16::from_le_bytes([data[7], data[8]]))
+    } else if data.starts_with(RAR5_MAGIC) && data.len() >= 10 {
+        Some(u16::from_le_bytes([data[8], data[9]]))
+    } else {
+        None
+    }
 }
 
 fn string_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {

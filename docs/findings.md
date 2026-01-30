@@ -373,6 +373,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: encrypted payloads can hide malicious content.
   - Meaning: embedded file likely requires decryption to inspect.
   - Chain usage: evasion context for payload delivery.
+  - Metadata:
+    - `entropy`: observed entropy value
+    - `entropy_threshold`: configured detection threshold
+    - `sample_size_bytes`: bytes used to compute entropy
+    - `stream.magic_type`: classifier label emitted by the stream analysis
+    - `stream.sample_timed_out`: `true` when sampling hit the timeout limit
 
 ## encryption_present
 
@@ -406,6 +412,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: high entropy indicates compression or encryption.
   - Meaning: payload may be obfuscated or encrypted.
   - Chain usage: evasion context for hidden payloads.
+  - Metadata:
+    - `entropy`: computed entropy value (0-8)
+    - `entropy_threshold`: threshold that triggered the finding
+    - `sample_size_bytes`: bytes consumed for entropy sampling
+    - `stream.magic_type`: detected magic label (`zip`, `rar`, `unknown`, etc.)
+    - `stream.sample_timed_out`: indicates sampling was stopped due to the timeout budget
 
 ## eof_offset_unusual
 

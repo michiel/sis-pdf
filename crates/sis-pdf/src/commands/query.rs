@@ -20,6 +20,7 @@ use sis_pdf_core::rich_media::{
 };
 use sis_pdf_core::scan::ScanContext;
 use sis_pdf_core::timeout::TimeoutChecker;
+use sis_pdf_detectors::xfa_forms::{collect_xfa_forms, XfaFormRecord};
 use sis_pdf_pdf::object::PdfAtom;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, Theme, ThemeSet};
@@ -76,6 +77,7 @@ pub enum PredicateField {
     Type,
     Subtype,
     Entropy,
+    ScriptCount,
     Width,
     Height,
     Pixels,
@@ -90,6 +92,9 @@ pub enum PredicateField {
     Magic,
     Hash,
     Meta(String),
+    Url,
+    Field,
+    HasDoctype,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +164,8 @@ pub enum Query {
     EmbeddedCount,
     XfaScripts,
     XfaScriptsCount,
+    XfaForms,
+    XfaFormsCount,
     Images,
     ImagesCount,
     ImagesJbig2,
@@ -308,6 +315,8 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "urls.count" => Ok(Query::UrlsCount),
         "embedded" => Ok(Query::Embedded),
         "embedded.count" => Ok(Query::EmbeddedCount),
+        "xfa" => Ok(Query::XfaForms),
+        "xfa.count" => Ok(Query::XfaFormsCount),
         "xfa.scripts" => Ok(Query::XfaScripts),
         "xfa.scripts.count" => Ok(Query::XfaScriptsCount),
         "swf" => Ok(Query::SwfContent),
@@ -825,6 +834,8 @@ fn parse_predicate_field(name: &str) -> Result<PredicateField> {
     let lower = name.to_ascii_lowercase();
     let field = if lower.ends_with(".length") || lower == "length" {
         PredicateField::Length
+    } else if lower == "size" || lower.ends_with(".size") {
+        PredicateField::Length
     } else if lower.ends_with(".filter") || lower == "filter" {
         PredicateField::Filter
     } else if lower.ends_with(".type") || lower == "type" {
@@ -875,6 +886,18 @@ fn parse_predicate_field(name: &str) -> Result<PredicateField> {
         PredicateField::Magic
     } else if lower.ends_with(".hash") || lower == "hash" {
         PredicateField::Hash
+    } else if lower == "script_count" || lower.ends_with(".script_count") {
+        PredicateField::ScriptCount
+    } else if lower == "url" || lower.ends_with(".url") {
+        PredicateField::Url
+    } else if lower == "field"
+        || lower.ends_with(".field")
+        || lower.ends_with(".field_name")
+        || lower == "field_name"
+    {
+        PredicateField::Field
+    } else if lower == "has_doctype" || lower.ends_with(".has_doctype") {
+        PredicateField::HasDoctype
     } else {
         PredicateField::Meta(lower.clone())
     };
@@ -906,6 +929,36 @@ impl PredicateExpr {
                 PredicateField::Name => compare_string(ctx.name.as_deref(), *op, value),
                 PredicateField::Magic => compare_string(ctx.magic.as_deref(), *op, value),
                 PredicateField::Hash => compare_string(ctx.hash.as_deref(), *op, value),
+                PredicateField::ScriptCount => {
+                    let lhs = ctx
+                        .meta
+                        .get("script_count")
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .unwrap_or(0.0);
+                    compare_number(lhs, *op, value)
+                }
+                PredicateField::Url => {
+                    let candidate = ctx
+                        .meta
+                        .get("url")
+                        .or_else(|| ctx.meta.get("xfa.submit.url"));
+                    compare_string(candidate.map(|s| s.as_str()), *op, value)
+                }
+                PredicateField::Field => {
+                    let candidate = ctx
+                        .meta
+                        .get("field")
+                        .or_else(|| ctx.meta.get("xfa.field.name"));
+                    compare_string(candidate.map(|s| s.as_str()), *op, value)
+                }
+                PredicateField::HasDoctype => {
+                    let actual = ctx
+                        .meta
+                        .get("has_doctype")
+                        .map(|v| v == "true")
+                        .unwrap_or(false);
+                    compare_bool(actual, *op, value)
+                }
                 PredicateField::Meta(key) => compare_meta(ctx.meta.get(key), *op, value),
             },
         }
@@ -1259,6 +1312,21 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::Scalar(ScalarValue::Number(
                     embedded.len() as i64
                 )))
+            }
+            Query::XfaForms => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let forms = list_xfa_forms(ctx, predicate)?;
+                Ok(QueryResult::Structure(forms))
+            }
+            Query::XfaFormsCount => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let forms = list_xfa_forms(ctx, predicate)?;
+                let count = forms["count"].as_u64().unwrap_or(0);
+                Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
             }
             Query::XfaScripts => {
                 if predicate.is_some() {
@@ -3457,6 +3525,8 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::EmbeddedCount
         | Query::XfaScripts
         | Query::XfaScriptsCount
+        | Query::XfaForms
+        | Query::XfaFormsCount
         | Query::SwfStreams
         | Query::SwfStreamsCount
         | Query::Urls
@@ -5049,6 +5119,98 @@ fn list_js_chains(
     ))
 }
 
+fn list_xfa_forms(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<serde_json::Value> {
+    let records = collect_xfa_forms(ctx);
+    let total = records.len();
+    let filtered: Vec<_> = records
+        .iter()
+        .enumerate()
+        .filter(|(_, record)| xfa_form_matches_predicate(record, predicate))
+        .collect();
+    let forms: Vec<_> = filtered
+        .iter()
+        .map(|(_, record)| format_xfa_record(record))
+        .collect();
+    Ok(json!({
+        "type": "xfa",
+        "count": forms.len(),
+        "total": total,
+        "forms": forms,
+    }))
+}
+
+fn xfa_form_matches_predicate(record: &XfaFormRecord, predicate: Option<&PredicateExpr>) -> bool {
+    predicate
+        .map(|pred| pred.evaluate(&predicate_context_for_xfa_form(record)))
+        .unwrap_or(true)
+}
+
+fn predicate_context_for_xfa_form(record: &XfaFormRecord) -> PredicateContext {
+    let mut meta = HashMap::new();
+    meta.insert("object".into(), record.object_ref.clone());
+    meta.insert("ref_chain".into(), record.ref_chain.clone());
+    meta.insert("script_count".into(), record.script_count.to_string());
+    meta.insert("has_doctype".into(), record.has_doctype.to_string());
+    if !record.submit_urls.is_empty() {
+        meta.insert("submit_urls".into(), encode_array(&record.submit_urls));
+    }
+    if !record.sensitive_fields.is_empty() {
+        meta.insert(
+            "sensitive_fields".into(),
+            encode_array(&record.sensitive_fields),
+        );
+    }
+    if let Some(preview) = &record.script_preview {
+        meta.insert("script_preview".into(), preview.clone());
+    }
+    PredicateContext {
+        length: record.size_bytes,
+        filter: Some("xfa".to_string()),
+        type_name: "XfaForm".to_string(),
+        subtype: Some("xfa".to_string()),
+        entropy: 0.0,
+        width: 0,
+        height: 0,
+        pixels: 0,
+        risky: record.has_doctype,
+        severity: None,
+        confidence: None,
+        surface: Some("forms".to_string()),
+        kind: None,
+        object_count: 0,
+        evidence_count: 0,
+        name: Some(record.object_ref.clone()),
+        hash: None,
+        magic: None,
+        meta,
+    }
+}
+
+fn format_xfa_record(record: &XfaFormRecord) -> serde_json::Value {
+    json!({
+        "object": record.object_ref,
+        "payload_index": record.payload_index,
+        "size_bytes": record.size_bytes,
+        "script_count": record.script_count,
+        "submit_urls": record.submit_urls,
+        "sensitive_fields": record.sensitive_fields,
+        "script_preview": record.script_preview,
+        "has_doctype": record.has_doctype,
+        "ref_chain": record.ref_chain,
+    })
+}
+
+fn encode_array(values: &[String]) -> String {
+    let escaped: Vec<String> = values
+        .iter()
+        .map(|value| format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\"")))
+        .collect();
+    format!("[{}]", escaped.join(","))
+}
+
 /// List all reference cycles
 fn list_cycles(ctx: &ScanContext) -> Result<serde_json::Value> {
     use std::collections::HashSet;
@@ -6398,6 +6560,88 @@ mod tests {
             let query = parse_query("actions.chains.count").expect("query");
             let predicate = parse_predicate("has_js == 'true'").expect("predicate");
             let expected = list_action_chains(ctx, Some(&predicate)).expect("chains");
+            let expected_count = expected["count"].as_i64().expect("count");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("query");
+            match result {
+                QueryResult::Scalar(ScalarValue::Number(count)) => {
+                    assert_eq!(count, expected_count);
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn xfa_forms_query_returns_entries() {
+        with_fixture_context("xfa/xfa_submit_sensitive.pdf", |ctx| {
+            let query = parse_query("xfa").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("query");
+            match result {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value["type"], json!("xfa"));
+                    assert!(
+                        value["count"].as_u64().unwrap_or(0) > 0,
+                        "expected at least one XFA form"
+                    );
+                    let forms = value["forms"].as_array().expect("forms array");
+                    assert!(!forms.is_empty(), "expected non-empty forms list");
+                    let has_scripts = forms
+                        .iter()
+                        .any(|form| form["script_count"].as_u64().unwrap_or(0) > 0);
+                    assert!(has_scripts, "expected some forms to report scripts");
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn xfa_forms_query_supports_script_predicate() {
+        with_fixture_context("xfa/xfa_execute_high.pdf", |ctx| {
+            let query = parse_query("xfa").expect("query");
+            let predicate = parse_predicate("script_count > 1").expect("predicate");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("query");
+            if let QueryResult::Structure(value) = result {
+                let count = value["count"].as_u64().unwrap_or(0);
+                let total = value["total"].as_u64().unwrap_or(0);
+                assert!(count <= total);
+                assert!(count > 0, "predicate should match at least one form");
+            } else {
+                panic!("Unexpected result type");
+            }
+        });
+    }
+
+    #[test]
+    fn xfa_forms_count_matches_predicate() {
+        with_fixture_context("xfa/xfa_execute_high.pdf", |ctx| {
+            let query = parse_query("xfa.count").expect("query");
+            let predicate = parse_predicate("script_count > 1").expect("predicate");
+            let expected = list_xfa_forms(ctx, Some(&predicate)).expect("forms");
             let expected_count = expected["count"].as_i64().expect("count");
             let result = execute_query_with_context(
                 &query,

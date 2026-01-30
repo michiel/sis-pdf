@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use sis_pdf_core::crypto_analysis::{CryptoAnalyzer, SignatureInfo};
+use sis_pdf_core::crypto_analysis::{classify_encryption_algorithm, CryptoAnalyzer, SignatureInfo};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
@@ -32,9 +32,25 @@ impl Detector for AdvancedCryptoDetector {
         let mut findings = Vec::new();
         let analyzer = CryptoAnalyzer;
         if let Some(enc) = trailer_encrypt_dict(ctx) {
+            let version = dict_int(&enc, b"/V");
+            let key_len = dict_int(&enc, b"/Length");
+            let revision = dict_int(&enc, b"/R");
+            let algorithm = classify_encryption_algorithm(version, key_len);
             for weak in analyzer.detect_weak_crypto(&enc) {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("crypto.issue".into(), weak.issue.clone());
+                if let Some(algo) = algorithm {
+                    meta.insert("crypto.algorithm".into(), algo.into());
+                }
+                if let Some(len) = key_len {
+                    meta.insert("crypto.key_length".into(), len.to_string());
+                }
+                if let Some(v) = version {
+                    meta.insert("crypto.version".into(), v.to_string());
+                }
+                if let Some(r) = revision {
+                    meta.insert("crypto.revision".into(), r.to_string());
+                }
                 findings.push(Finding {
                     id: String::new(),
                     surface: AttackSurface::CryptoSignatures,
@@ -184,4 +200,11 @@ fn name_string(obj: &PdfObj<'_>) -> Option<String> {
         PdfAtom::Name(n) => Some(String::from_utf8_lossy(&n.decoded).to_string()),
         _ => None,
     }
+}
+
+fn dict_int(dict: &PdfDict<'_>, key: &[u8]) -> Option<u32> {
+    dict.get_first(key).and_then(|(_, obj)| match obj.atom {
+        PdfAtom::Int(value) => Some(value as u32),
+        _ => None,
+    })
 }

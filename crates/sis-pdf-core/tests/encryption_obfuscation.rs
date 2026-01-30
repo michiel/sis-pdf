@@ -52,6 +52,35 @@ fn detects_encryption_key_short() {
 }
 
 #[test]
+fn detects_aes_256_alignment() {
+    let bytes = include_bytes!("fixtures/encryption/aes_256.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "encryption_present")
+        .expect("encryption_present finding");
+    assert_eq!(
+        finding.meta.get("crypto.algorithm"),
+        Some(&"AES-256".to_string())
+    );
+    assert_eq!(
+        finding.meta.get("crypto.key_length"),
+        Some(&"256".to_string())
+    );
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.kind == "encryption_key_short"),
+        "AES-256 should not trigger short key detections"
+    );
+}
+
+#[test]
 fn detects_high_entropy_stream() {
     let bytes = include_bytes!("fixtures/encryption/high_entropy_stream.pdf");
     let detectors = sis_pdf_detectors::default_detectors();

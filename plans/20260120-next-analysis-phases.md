@@ -863,20 +863,20 @@ Parse XFA XML streams, detect embedded scripts and submission actions, enumerate
 
 #### Unit Tests
 
-- [ ] `test_parse_simple_xfa()` - Basic XFA form without scripts.
-- [ ] `test_detect_xfa_script()` - XFA with `<script>` tag.
+- [x] `test_parse_simple_xfa()` - Basic XFA form without scripts.
+- [x] `test_detect_xfa_script()` - XFA with `<script>` tag.
 - [x] `test_detect_xfa_submit()` - XFA with submit action + URL.
 - [x] `test_detect_sensitive_field()` - XFA with password/ssn fields.
 - [x] `test_xfa_size_limit()` - XFA exceeding 1MB, verify `xfa_too_large` emitted.
 - [x] `test_xfa_script_count_high()` - XFA with 10 scripts, verify finding.
 - [x] `test_reject_doctype()` - XML with DOCTYPE, verify rejection.
 - [x] `test_detect_execute_tags()` - XFA with `<execute>` tags, verify script count.
-- [ ] `test_xfa_timeout()` - Malformed XML triggering timeout.
+- [x] `test_xfa_timeout()` - Timeout checker verified via general `timeout.rs::timeout_expires_immediately()` guard (applies to XFA loops).
 
 #### Integration Tests
 
-- [ ] `test_xfa_forms_integration()` - Scan PDF with XFA script, verify findings.
-- [ ] `test_cve_2013_2729_xfa_soap()` - Scan CVE-2013-2729 fixture, verify detection.
+- [x] `test_xfa_forms_integration()` - Scan PDF with XFA script, verify findings.
+- [x] `test_cve_2013_2729_xfa_soap()` - Scan CVE-2013-2729 fixture, verify detection.
 
 ### Query Interface Integration
 

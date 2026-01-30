@@ -38,6 +38,7 @@ pub mod quantum;
 pub mod redteam;
 pub mod report;
 pub mod response;
+pub mod rich_media;
 pub mod runner;
 pub mod sarif;
 pub mod scan;

