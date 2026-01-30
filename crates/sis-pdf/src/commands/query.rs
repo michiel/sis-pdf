@@ -10,11 +10,17 @@ use std::fs;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::time::Duration;
 use walkdir::WalkDir;
 
 use sis_pdf_core::correlation;
 use sis_pdf_core::model::Severity;
+use sis_pdf_core::rich_media::{
+    analyze_swf, detect_3d_format, detect_media_format, SWF_DECODE_TIMEOUT_MS,
+};
 use sis_pdf_core::scan::ScanContext;
+use sis_pdf_core::timeout::TimeoutChecker;
+use sis_pdf_pdf::object::PdfAtom;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, Theme, ThemeSet};
 use syntect::parsing::SyntaxSet;
@@ -153,8 +159,6 @@ pub enum Query {
     EmbeddedCount,
     XfaScripts,
     XfaScriptsCount,
-    SwfStreams,
-    SwfStreamsCount,
     Images,
     ImagesCount,
     ImagesJbig2,
@@ -167,6 +171,16 @@ pub enum Query {
     ImagesRiskyCount,
     ImagesMalformed,
     ImagesMalformedCount,
+    SwfContent,
+    SwfContentCount,
+    SwfActionScript,
+    SwfActionScriptCount,
+    SwfStreams,
+    SwfStreamsCount,
+    Media3D,
+    Media3DCount,
+    MediaAudio,
+    MediaAudioCount,
 
     // Finding queries
     Findings,
@@ -176,6 +190,9 @@ pub enum Query {
     FindingsByKindCount(String),
     FindingsComposite,
     FindingsCompositeCount,
+    Encryption,
+    EncryptionWeak,
+    EncryptionWeakCount,
 
     // Event trigger queries
     Events,
@@ -191,6 +208,7 @@ pub enum Query {
 
     // Advanced queries
     Chains,
+    ChainsCount,
     ChainsJs,
     Cycles,
     CyclesPage,
@@ -208,6 +226,7 @@ pub enum Query {
 
     // Stream queries
     Stream(u32, u16),
+    StreamsEntropy,
 }
 
 /// Query result that can be serialized to JSON or formatted as text
@@ -291,6 +310,10 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "embedded.count" => Ok(Query::EmbeddedCount),
         "xfa.scripts" => Ok(Query::XfaScripts),
         "xfa.scripts.count" => Ok(Query::XfaScriptsCount),
+        "swf" => Ok(Query::SwfContent),
+        "swf.count" => Ok(Query::SwfContentCount),
+        "swf.actionscript" => Ok(Query::SwfActionScript),
+        "swf.actionscript.count" => Ok(Query::SwfActionScriptCount),
         "swf.extract" => Ok(Query::SwfStreams),
         "swf.extract.count" => Ok(Query::SwfStreamsCount),
         "embedded.executables" => Ok(Query::FindingsByKind("embedded_executable_present".into())),
@@ -327,12 +350,18 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "images.risky.count" => Ok(Query::ImagesRiskyCount),
         "images.malformed" => Ok(Query::ImagesMalformed),
         "images.malformed.count" => Ok(Query::ImagesMalformedCount),
+        "media.3d" => Ok(Query::Media3D),
+        "media.3d.count" => Ok(Query::Media3DCount),
+        "media.audio" => Ok(Query::MediaAudio),
+        "media.audio.count" => Ok(Query::MediaAudioCount),
         "launch" => Ok(Query::FindingsByKind("launch_action_present".into())),
         "launch.count" => Ok(Query::FindingsByKindCount("launch_action_present".into())),
         "launch.external" => Ok(Query::FindingsByKind("launch_external_program".into())),
         "launch.external.count" => Ok(Query::FindingsByKindCount("launch_external_program".into())),
         "launch.embedded" => Ok(Query::FindingsByKind("launch_embedded_file".into())),
         "launch.embedded.count" => Ok(Query::FindingsByKindCount("launch_embedded_file".into())),
+        "actions.chains" => Ok(Query::Chains),
+        "actions.chains.count" => Ok(Query::ChainsCount),
         "actions.chains.complex" => Ok(Query::FindingsByKind("action_chain_complex".into())),
         "actions.chains.complex.count" => {
             Ok(Query::FindingsByKindCount("action_chain_complex".into()))
@@ -355,12 +384,16 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "xfa.too-large.count" => Ok(Query::FindingsByKindCount("xfa_too_large".into())),
         "xfa.scripts.high" => Ok(Query::FindingsByKind("xfa_script_count_high".into())),
         "xfa.scripts.high.count" => Ok(Query::FindingsByKindCount("xfa_script_count_high".into())),
-        "swf" => Ok(Query::FindingsByKind("swf_embedded".into())),
-        "swf.count" => Ok(Query::FindingsByKindCount("swf_embedded".into())),
+        "findings.swf" => Ok(Query::FindingsByKind("swf_embedded".into())),
+        "findings.swf.count" => Ok(Query::FindingsByKindCount("swf_embedded".into())),
         "streams.high-entropy" => Ok(Query::FindingsByKind("stream_high_entropy".into())),
         "streams.high-entropy.count" => {
             Ok(Query::FindingsByKindCount("stream_high_entropy".into()))
         }
+        "streams.entropy" => Ok(Query::StreamsEntropy),
+        "encryption" => Ok(Query::Encryption),
+        "encryption.weak" => Ok(Query::EncryptionWeak),
+        "encryption.weak.count" => Ok(Query::EncryptionWeakCount),
         "filters.unusual" => Ok(Query::FindingsByKind("filter_chain_unusual".into())),
         "filters.unusual.count" => Ok(Query::FindingsByKindCount("filter_chain_unusual".into())),
         "filters.invalid" => Ok(Query::FindingsByKind("filter_order_invalid".into())),
@@ -1005,6 +1038,10 @@ pub fn execute_query_with_context(
                     | Query::EmbeddedCount
                     | Query::XfaScripts
                     | Query::XfaScriptsCount
+                    | Query::SwfContent
+                    | Query::SwfContentCount
+                    | Query::SwfActionScript
+                    | Query::SwfActionScriptCount
                     | Query::SwfStreams
                     | Query::SwfStreamsCount
                     | Query::Urls
@@ -1021,16 +1058,24 @@ pub fn execute_query_with_context(
                     | Query::ImagesRiskyCount
                     | Query::ImagesMalformed
                     | Query::ImagesMalformedCount
+                    | Query::Media3D
+                    | Query::Media3DCount
+                    | Query::MediaAudio
+                    | Query::MediaAudioCount
                     | Query::Events
                     | Query::EventsCount
                     | Query::EventsDocument
                     | Query::EventsPage
                     | Query::EventsField
+                    | Query::Chains
+                    | Query::ChainsCount
+                    | Query::ChainsJs
                     | Query::Findings
                     | Query::FindingsCount
                     | Query::FindingsBySeverity(_)
                     | Query::FindingsByKind(_)
                     | Query::FindingsByKindCount(_)
+                    | Query::StreamsEntropy
                     | Query::ObjectsCount
                     | Query::ObjectsList
                     | Query::ObjectsWithType(_)
@@ -1120,6 +1165,35 @@ pub fn execute_query_with_context(
                 let composites = filtered.into_iter().filter(|f| is_composite(f)).count();
                 Ok(QueryResult::Scalar(ScalarValue::Number(composites as i64)))
             }
+            Query::Encryption => {
+                let findings = run_detectors(ctx)?;
+                let filtered: Vec<_> = findings
+                    .into_iter()
+                    .filter(|f| f.kind == "encryption_present" || f.kind == "encryption_key_short")
+                    .collect();
+                let filtered = filter_findings(filtered, predicate);
+                Ok(QueryResult::Structure(json!(filtered)))
+            }
+            Query::EncryptionWeak => {
+                let findings = run_detectors(ctx)?;
+                let filtered: Vec<_> = findings
+                    .into_iter()
+                    .filter(|f| f.kind == "crypto_weak_algo")
+                    .collect();
+                let filtered = filter_findings(filtered, predicate);
+                Ok(QueryResult::Structure(json!(filtered)))
+            }
+            Query::EncryptionWeakCount => {
+                let findings = run_detectors(ctx)?;
+                let filtered: Vec<_> = findings
+                    .into_iter()
+                    .filter(|f| f.kind == "crypto_weak_algo")
+                    .collect();
+                let filtered = filter_findings(filtered, predicate);
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    filtered.len() as i64
+                )))
+            }
             Query::JavaScript => {
                 if predicate.is_some() {
                     ensure_predicate_supported(query)?;
@@ -1207,6 +1281,60 @@ pub fn execute_query_with_context(
                     scripts.len() as i64
                 )))
             }
+            Query::SwfContent => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                if let Some(extract_path) = extract_to {
+                    let written = write_swf_streams(
+                        ctx,
+                        extract_path,
+                        max_extract_bytes,
+                        decode_mode,
+                        predicate,
+                    )?;
+                    Ok(QueryResult::List(written))
+                } else {
+                    let entries =
+                        collect_swf_content(ctx, max_extract_bytes, decode_mode, predicate)?;
+                    let lines = entries.iter().map(format_swf_summary).collect();
+                    Ok(QueryResult::List(lines))
+                }
+            }
+            Query::SwfContentCount => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let entries = collect_swf_content(ctx, max_extract_bytes, decode_mode, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    entries.len() as i64
+                )))
+            }
+            Query::SwfActionScript => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let entries = collect_swf_content(ctx, max_extract_bytes, decode_mode, predicate)?;
+                let scripts: Vec<_> = entries
+                    .into_iter()
+                    .filter(|entry| !entry.action_tags.is_empty())
+                    .collect();
+                let lines = scripts.iter().map(format_swf_summary).collect();
+                Ok(QueryResult::List(lines))
+            }
+            Query::SwfActionScriptCount => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let entries = collect_swf_content(ctx, max_extract_bytes, decode_mode, predicate)?;
+                let script_count = entries
+                    .into_iter()
+                    .filter(|entry| !entry.action_tags.is_empty())
+                    .count();
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    script_count as i64,
+                )))
+            }
             Query::SwfStreams => {
                 if predicate.is_some() {
                     ensure_predicate_supported(query)?;
@@ -1281,6 +1409,81 @@ pub fn execute_query_with_context(
                         preview_stream_object(ctx, *obj, *gen, max_extract_bytes, decode_mode)?;
                     Ok(QueryResult::List(vec![preview]))
                 }
+            }
+            Query::StreamsEntropy => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let mut rows = Vec::new();
+                for entry in &ctx.graph.objects {
+                    let PdfAtom::Stream(stream) = &entry.atom else {
+                        continue;
+                    };
+                    let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, stream) else {
+                        continue;
+                    };
+                    let analysis = sis_pdf_core::stream_analysis::analyse_stream(
+                        &decoded.data,
+                        &sis_pdf_core::stream_analysis::StreamLimits::default(),
+                    );
+                    let filter_label = filter_name(&stream.dict).unwrap_or_default();
+                    let subtype = subtype_name(&stream.dict);
+                    let mut predicate_meta = HashMap::new();
+                    predicate_meta.insert(
+                        "sample_size_bytes".into(),
+                        analysis.sample_bytes.to_string(),
+                    );
+                    predicate_meta
+                        .insert("stream.size_bytes".into(), analysis.size_bytes.to_string());
+                    predicate_meta.insert("stream.magic_type".into(), analysis.magic_type.clone());
+                    predicate_meta.insert(
+                        "stream.sample_timed_out".into(),
+                        analysis.timed_out.to_string(),
+                    );
+                    let predicate_context = PredicateContext {
+                        length: decoded.data.len(),
+                        filter: Some(filter_label.clone()),
+                        type_name: "Stream".to_string(),
+                        subtype: subtype.clone(),
+                        entropy: analysis.entropy,
+                        width: 0,
+                        height: 0,
+                        pixels: 0,
+                        risky: false,
+                        severity: None,
+                        confidence: None,
+                        surface: None,
+                        kind: None,
+                        object_count: 0,
+                        evidence_count: 0,
+                        name: Some(format!("{} {} obj", entry.obj, entry.gen)),
+                        magic: Some(analysis.magic_type.clone()),
+                        hash: None,
+                        meta: predicate_meta,
+                    };
+                    if predicate
+                        .map(|pred| pred.evaluate(&predicate_context))
+                        .unwrap_or(true)
+                    {
+                        let filter_display = if filter_label.is_empty() {
+                            "none".to_string()
+                        } else {
+                            filter_label.clone()
+                        };
+                        let subtype_display = subtype.unwrap_or_else(|| "unknown".into());
+                        rows.push(format!(
+                            "{} {} obj: entropy={:.3}, sample={} bytes, magic={}, filter={}, subtype={}",
+                            entry.obj,
+                            entry.gen,
+                            analysis.entropy,
+                            analysis.sample_bytes,
+                            analysis.magic_type,
+                            filter_display,
+                            subtype_display,
+                        ));
+                    }
+                }
+                Ok(QueryResult::List(rows))
             }
             Query::ImagesJbig2 => {
                 if predicate.is_some() {
@@ -1400,6 +1603,46 @@ pub fn execute_query_with_context(
                     ScalarValue::Number(images.len() as i64),
                 ))
             }
+            Query::Media3D => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let entries = collect_media_3d_entries(ctx, predicate)?;
+                let lines = entries
+                    .iter()
+                    .map(|entry| format_media_summary("3D", entry))
+                    .collect();
+                Ok(QueryResult::List(lines))
+            }
+            Query::Media3DCount => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let entries = collect_media_3d_entries(ctx, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    entries.len() as i64
+                )))
+            }
+            Query::MediaAudio => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let entries = collect_media_audio_entries(ctx, predicate)?;
+                let lines = entries
+                    .iter()
+                    .map(|entry| format_media_summary("MediaAudio", entry))
+                    .collect();
+                Ok(QueryResult::List(lines))
+            }
+            Query::MediaAudioCount => {
+                if predicate.is_some() {
+                    ensure_predicate_supported(query)?;
+                }
+                let entries = collect_media_audio_entries(ctx, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(
+                    entries.len() as i64
+                )))
+            }
             Query::Created => {
                 let created = get_metadata_field(ctx, "CreationDate")?;
                 Ok(QueryResult::Scalar(ScalarValue::String(created)))
@@ -1435,11 +1678,19 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::Scalar(ScalarValue::String(catalog_str)))
             }
             Query::Chains => {
-                let chains = list_action_chains(ctx)?;
+                let chains = list_action_chains(ctx, predicate)?;
                 Ok(QueryResult::Structure(chains))
             }
+            Query::ChainsCount => {
+                let chains = list_action_chains(ctx, predicate)?;
+                let count = chains
+                    .get("count")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0);
+                Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
+            }
             Query::ChainsJs => {
-                let chains = list_js_chains(ctx)?;
+                let chains = list_js_chains(ctx, predicate)?;
                 Ok(QueryResult::Structure(chains))
             }
             Query::Cycles => {
@@ -2235,6 +2486,318 @@ fn swf_magic_label(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
+struct SwfContentEntry {
+    name: String,
+    filter: Option<String>,
+    magic: &'static str,
+    size_bytes: usize,
+    version: Option<u8>,
+    declared_length: Option<u32>,
+    decompressed_bytes: usize,
+    action_tags: Vec<String>,
+}
+
+fn collect_swf_content(
+    ctx: &ScanContext,
+    max_extract_bytes: usize,
+    decode_mode: DecodeMode,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<SwfContentEntry>> {
+    let mut entries = Vec::new();
+    for entry in &ctx.graph.objects {
+        let sis_pdf_pdf::object::PdfAtom::Stream(stream) = &entry.atom else {
+            continue;
+        };
+        let data = match stream_bytes_for_mode(ctx.bytes, stream, max_extract_bytes, decode_mode) {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
+        };
+        let Some(magic) = swf_magic_label(&data) else {
+            continue;
+        };
+        let filter = filter_name(&stream.dict);
+        let name = format!("swf_{}_{}", entry.obj, entry.gen);
+        let mut meta = HashMap::new();
+        meta.insert("object".into(), format!("{} {}", entry.obj, entry.gen));
+        meta.insert("media_type".into(), "swf".into());
+        meta.insert("magic".into(), magic.to_string());
+        if let Some(filter_name) = &filter {
+            meta.insert("filter".into(), filter_name.clone());
+        }
+        meta.insert("size_bytes".into(), data.len().to_string());
+
+        let mut version = None;
+        let mut declared_length = None;
+        let mut decompressed_bytes = 0;
+        let mut action_tags = Vec::new();
+        let mut timeout = TimeoutChecker::new(Duration::from_millis(SWF_DECODE_TIMEOUT_MS));
+        if let Some(analysis) = analyze_swf(&data, &mut timeout) {
+            version = Some(analysis.header.version);
+            declared_length = Some(analysis.header.file_length);
+            decompressed_bytes = analysis.decompressed_body_len;
+            action_tags = analysis.action_scan.action_tags.clone();
+            meta.insert("swf.version".into(), version.unwrap().to_string());
+            meta.insert(
+                "swf.decompressed_bytes".into(),
+                decompressed_bytes.to_string(),
+            );
+            meta.insert(
+                "swf.declared_length".into(),
+                analysis.header.file_length.to_string(),
+            );
+            meta.insert("swf.action_tag_count".into(), action_tags.len().to_string());
+            if !action_tags.is_empty() {
+                meta.insert("swf.action_tags".into(), action_tags.join(","));
+            }
+        }
+
+        let predicate_context = PredicateContext {
+            length: data.len(),
+            filter: filter.clone(),
+            type_name: "SwfContent".to_string(),
+            subtype: Some("swf".to_string()),
+            entropy: entropy_score(&data),
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: Some(name.clone()),
+            magic: Some(magic.to_string()),
+            hash: None,
+            meta: meta.clone(),
+        };
+
+        if predicate
+            .map(|pred| pred.evaluate(&predicate_context))
+            .unwrap_or(true)
+        {
+            entries.push(SwfContentEntry {
+                name,
+                filter,
+                magic,
+                size_bytes: data.len(),
+                version,
+                declared_length,
+                decompressed_bytes,
+                action_tags,
+            });
+        }
+    }
+    Ok(entries)
+}
+
+fn format_swf_summary(entry: &SwfContentEntry) -> String {
+    let mut parts = vec![format!("SWF {} ({})", entry.magic, entry.name)];
+    parts.push(format!("size={} bytes", entry.size_bytes));
+    if let Some(filter) = &entry.filter {
+        parts.push(format!("filter={}", filter));
+    }
+    if let Some(version) = entry.version {
+        parts.push(format!("version={}", version));
+    }
+    if let Some(declared) = entry.declared_length {
+        parts.push(format!("declared={}", declared));
+    }
+    parts.push(format!("decompressed={}", entry.decompressed_bytes));
+    let actions = if entry.action_tags.is_empty() {
+        "none".to_string()
+    } else {
+        entry.action_tags.join(",")
+    };
+    parts.push(format!("actions=[{}]", actions));
+    parts.join(", ")
+}
+
+struct MediaContentEntry {
+    name: String,
+    media_type: String,
+    size_bytes: usize,
+    filter: Option<String>,
+}
+
+fn collect_media_3d_entries(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<MediaContentEntry>> {
+    let mut entries = Vec::new();
+    for entry in &ctx.graph.objects {
+        let sis_pdf_pdf::object::PdfAtom::Stream(stream) = &entry.atom else {
+            continue;
+        };
+        let dict = match entry_dict(entry) {
+            Some(d) => d,
+            None => continue,
+        };
+        let is_3d = dict.has_name(b"/Subtype", b"/3D")
+            || dict.has_name(b"/Subtype", b"/U3D")
+            || dict.has_name(b"/Subtype", b"/PRC")
+            || dict.has_name(b"/Type", b"/3D")
+            || dict.get_first(b"/3D").is_some()
+            || dict.get_first(b"/U3D").is_some()
+            || dict.get_first(b"/PRC").is_some();
+        if !is_3d {
+            continue;
+        }
+        let span = stream.data_span;
+        if span.end as usize > ctx.bytes.len() {
+            continue;
+        }
+        let size_bytes = (span.end - span.start) as usize;
+        let filter = filter_name(&stream.dict);
+        let name = format!("media_3d_{}_{}", entry.obj, entry.gen);
+        let media_type = peek_stream_bytes(ctx.bytes, stream, 16)
+            .as_deref()
+            .and_then(detect_3d_format)
+            .unwrap_or("unknown")
+            .to_string();
+        let mut meta = HashMap::new();
+        meta.insert("object".into(), format!("{} {}", entry.obj, entry.gen));
+        meta.insert("media_type".into(), media_type.clone());
+        meta.insert("size_bytes".into(), size_bytes.to_string());
+        if let Some(filter_name) = &filter {
+            meta.insert("filter".into(), filter_name.clone());
+        }
+        let predicate_context = PredicateContext {
+            length: size_bytes,
+            filter: filter.clone(),
+            type_name: "Media3D".to_string(),
+            subtype: Some(media_type.clone()),
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: Some(name.clone()),
+            magic: Some(media_type.clone()),
+            hash: None,
+            meta,
+        };
+        if predicate
+            .map(|pred| pred.evaluate(&predicate_context))
+            .unwrap_or(true)
+        {
+            entries.push(MediaContentEntry {
+                name,
+                media_type,
+                size_bytes,
+                filter,
+            });
+        }
+    }
+    Ok(entries)
+}
+
+fn collect_media_audio_entries(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<MediaContentEntry>> {
+    let mut entries = Vec::new();
+    for entry in &ctx.graph.objects {
+        let sis_pdf_pdf::object::PdfAtom::Stream(stream) = &entry.atom else {
+            continue;
+        };
+        let dict = match entry_dict(entry) {
+            Some(d) => d,
+            None => continue,
+        };
+        let has_media = dict.has_name(b"/Subtype", b"/Sound")
+            || dict.has_name(b"/Subtype", b"/Movie")
+            || dict.get_first(b"/Sound").is_some()
+            || dict.get_first(b"/Movie").is_some()
+            || dict.get_first(b"/Rendition").is_some();
+        if !has_media {
+            continue;
+        }
+        let span = stream.data_span;
+        if span.end as usize > ctx.bytes.len() {
+            continue;
+        }
+        let size_bytes = (span.end - span.start) as usize;
+        let filter = filter_name(&stream.dict);
+        let name = format!("media_audio_{}_{}", entry.obj, entry.gen);
+        let media_type = peek_stream_bytes(ctx.bytes, stream, 16)
+            .as_deref()
+            .and_then(detect_media_format)
+            .unwrap_or("unknown")
+            .to_string();
+        let mut meta = HashMap::new();
+        meta.insert("object".into(), format!("{} {}", entry.obj, entry.gen));
+        meta.insert("media_type".into(), media_type.clone());
+        meta.insert("size_bytes".into(), size_bytes.to_string());
+        if let Some(filter_name) = &filter {
+            meta.insert("filter".into(), filter_name.clone());
+        }
+        let predicate_context = PredicateContext {
+            length: size_bytes,
+            filter: filter.clone(),
+            type_name: "MediaAudio".to_string(),
+            subtype: Some(media_type.clone()),
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: None,
+            object_count: 0,
+            evidence_count: 0,
+            name: Some(name.clone()),
+            magic: Some(media_type.clone()),
+            hash: None,
+            meta,
+        };
+        if predicate
+            .map(|pred| pred.evaluate(&predicate_context))
+            .unwrap_or(true)
+        {
+            entries.push(MediaContentEntry {
+                name,
+                media_type,
+                size_bytes,
+                filter,
+            });
+        }
+    }
+    Ok(entries)
+}
+
+fn format_media_summary(label: &str, entry: &MediaContentEntry) -> String {
+    let filter = entry.filter.as_deref().unwrap_or("none");
+    format!(
+        "{} {} ({} bytes, filter={}, type={})",
+        label, entry.name, entry.size_bytes, filter, entry.media_type
+    )
+}
+
+fn peek_stream_bytes(
+    bytes: &[u8],
+    stream: &sis_pdf_pdf::object::PdfStream<'_>,
+    max_len: usize,
+) -> Option<Vec<u8>> {
+    let span = stream.data_span;
+    let start = span.start as usize;
+    let end = span.end as usize;
+    if end > bytes.len() || start >= end {
+        return None;
+    }
+    let length = std::cmp::min(end - start, max_len);
+    Some(bytes[start..start + length].to_vec())
+}
+
 fn collect_swf_streams(
     ctx: &ScanContext,
     max_extract_bytes: usize,
@@ -2915,6 +3478,9 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::EventsDocument
         | Query::EventsPage
         | Query::EventsField
+        | Query::Chains
+        | Query::ChainsCount
+        | Query::ChainsJs
         | Query::Findings
         | Query::FindingsCount
         | Query::FindingsBySeverity(_)
@@ -4433,34 +4999,52 @@ fn show_catalog(ctx: &ScanContext) -> Result<String> {
 }
 
 /// List all action chains
-fn list_action_chains(ctx: &ScanContext) -> Result<serde_json::Value> {
+fn list_action_chains(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<serde_json::Value> {
     let classifications = ctx.classifications();
     let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
     let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(&typed_graph);
 
     let chains = path_finder.find_all_action_chains();
+    let total_chains = chains.len();
+    let filtered: Vec<_> = chains
+        .iter()
+        .enumerate()
+        .filter(|(_, chain)| chain_matches_predicate(chain, predicate))
+        .collect();
+
     Ok(build_chain_query_result(
         "chains",
-        chains.iter().enumerate(),
+        filtered.into_iter(),
+        total_chains,
         ctx.options.group_chains,
     ))
 }
 
 /// List JavaScript-containing action chains
-fn list_js_chains(ctx: &ScanContext) -> Result<serde_json::Value> {
+fn list_js_chains(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<serde_json::Value> {
     let classifications = ctx.classifications();
     let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
     let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(&typed_graph);
 
     let chains = path_finder.find_all_action_chains();
-    let js_chains = chains
+    let total_chains = chains.len();
+    let filtered: Vec<_> = chains
         .iter()
         .enumerate()
-        .filter(|(_, chain)| chain.involves_js);
+        .filter(|(_, chain)| chain_matches_predicate(chain, predicate))
+        .filter(|(_, chain)| chain.involves_js)
+        .collect();
 
     Ok(build_chain_query_result(
         "chains.js",
-        js_chains,
+        filtered.into_iter(),
+        total_chains,
         ctx.options.group_chains,
     ))
 }
@@ -4754,12 +5338,17 @@ fn collect_refs(
     }
 }
 
-fn build_chain_query_result<'a, I>(label: &str, chains: I, group_chains: bool) -> serde_json::Value
+fn build_chain_query_result<'a, I>(
+    label: &str,
+    chains: I,
+    total_chains: usize,
+    group_chains: bool,
+) -> serde_json::Value
 where
     I: Iterator<Item = (usize, &'a sis_pdf_pdf::path_finder::ActionChain<'a>)>,
 {
     let items: Vec<(usize, &'a sis_pdf_pdf::path_finder::ActionChain<'a>)> = chains.collect();
-    let (chain_values, total_chains) = if group_chains {
+    let chain_values = if group_chains {
         let groups = group_query_chains(&items);
         let mut values = Vec::new();
         for group in groups {
@@ -4774,13 +5363,12 @@ where
                 Some(&meta),
             ));
         }
-        (values, items.len())
+        values
     } else {
-        let values: Vec<_> = items
+        items
             .iter()
             .map(|(idx, chain)| chain_to_json(*idx, *chain, None))
-            .collect();
-        (values, items.len())
+            .collect()
     };
 
     json!({
@@ -4789,6 +5377,69 @@ where
         "total_chains": total_chains,
         "chains": chain_values,
     })
+}
+
+fn chain_matches_predicate(
+    chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
+    predicate: Option<&PredicateExpr>,
+) -> bool {
+    predicate
+        .map(|pred| pred.evaluate(&predicate_context_for_chain(chain)))
+        .unwrap_or(true)
+}
+
+fn predicate_context_for_chain(
+    chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
+) -> PredicateContext {
+    let mut meta = HashMap::new();
+    meta.insert("depth".into(), chain.length().to_string());
+    meta.insert("trigger".into(), chain.trigger.as_str().to_string());
+    meta.insert(
+        "automatic".into(),
+        if chain.automatic {
+            "true".into()
+        } else {
+            "false".into()
+        },
+    );
+    meta.insert(
+        "has_js".into(),
+        if chain.involves_js {
+            "true".into()
+        } else {
+            "false".into()
+        },
+    );
+    meta.insert(
+        "has_external".into(),
+        if chain.involves_external {
+            "true".into()
+        } else {
+            "false".into()
+        },
+    );
+
+    PredicateContext {
+        length: chain.length(),
+        filter: None,
+        type_name: "action_chain".into(),
+        subtype: Some(chain.trigger.as_str().to_string()),
+        entropy: 0.0,
+        width: 0,
+        height: 0,
+        pixels: 0,
+        risky: false,
+        severity: None,
+        confidence: None,
+        surface: Some("action".into()),
+        kind: Some(chain.trigger.as_str().to_string()),
+        object_count: chain.edges.len(),
+        evidence_count: 0,
+        name: None,
+        magic: None,
+        hash: None,
+        meta,
+    }
 }
 
 fn chain_to_json(
@@ -5354,11 +6005,11 @@ mod tests {
     #[test]
     fn advanced_query_json_outputs_are_structured() {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
-            let chains = list_action_chains(ctx).expect("chains");
+            let chains = list_action_chains(ctx, None).expect("chains");
             assert_eq!(chains["type"], json!("chains"));
             assert!(chains["chains"].is_array());
 
-            let js_chains = list_js_chains(ctx).expect("js chains");
+            let js_chains = list_js_chains(ctx, None).expect("js chains");
             assert_eq!(js_chains["type"], json!("chains.js"));
 
             let cycles = list_cycles(ctx).expect("cycles");
@@ -5708,6 +6359,58 @@ mod tests {
                         !list.is_empty(),
                         "expected findings after filtering by trigger type"
                     );
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn action_chains_query_supports_predicate() {
+        with_fixture_context("action_chain_complex.pdf", |ctx| {
+            let query = parse_query("actions.chains").expect("query");
+            let predicate = parse_predicate("has_js == 'true'").expect("predicate");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("query");
+            match result {
+                QueryResult::Structure(value) => {
+                    let chains = value["chains"].as_array().expect("chains array");
+                    let count = value["count"].as_u64().expect("count");
+                    let total = value["total_chains"].as_u64().expect("total");
+                    assert_eq!(count as usize, chains.len());
+                    assert!(count <= total);
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn action_chains_count_respects_predicate() {
+        with_fixture_context("action_chain_complex.pdf", |ctx| {
+            let query = parse_query("actions.chains.count").expect("query");
+            let predicate = parse_predicate("has_js == 'true'").expect("predicate");
+            let expected = list_action_chains(ctx, Some(&predicate)).expect("chains");
+            let expected_count = expected["count"].as_i64().expect("count");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("query");
+            match result {
+                QueryResult::Scalar(ScalarValue::Number(count)) => {
+                    assert_eq!(count, expected_count);
                 }
                 other => panic!("Unexpected result type: {:?}", other),
             }

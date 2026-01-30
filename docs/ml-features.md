@@ -1,6 +1,6 @@
 # ML Feature Vector Reference
 
-The `sis` feature extraction pipeline produces a fixed-length 76-element vector that feeds ML models and inference tooling. Each feature is available through the `sis query features` command, the CSV/JSON exports and the streaming JSONL output (`--format jsonl`). The order is stable; indexes run from **0** to **75** and are guaranteed to match `sis_pdf_core::features::feature_names()` and `FeatureVector::as_f32_vec()`.
+The `sis` feature extraction pipeline produces a fixed-length 81-element vector that feeds ML models and inference tooling. Each feature is available through the `sis query features` command, the CSV/JSON exports and the streaming JSONL output (`--format jsonl`). The order is stable; indexes run from **0** to **80** and are guaranteed to match `sis_pdf_core::features::feature_names()` and `FeatureVector::as_f32_vec()`.
 
 ## Viewing the feature vector
 
@@ -22,18 +22,18 @@ In code or ML pipelines, treat missing content (e.g., no XFA) as zeros. The vect
 | **Structural (4–8)** | 4‑8 | XRef layout metrics | `structural.startxref_count`, `structural.linearized_present` | Counts / boolean |
 | **Behavioural (9–15)** | 9‑15 | Action/JS activity counts and averages | `behavior.action_count`, `behavior.js_entropy_avg` | Counts / averages |
 | **Content (16–20)** | 16‑20 | Top-level embedded/rich-media/annotation counts | `content.embedded_file_count`, `content.page_count` | Counts |
-| **Graph (20–34)** | 20‑34 | Typed graph statistics and chain metrics | `graph.total_edges`, `graph.action_chain_count` | Counts / lengths |
+| **Graph (20–34)** | 20‑34 | Typed graph statistics, chain depth, and trigger mix | `graph.total_edges`, `graph.action_chain_count`, `graph.hidden_trigger_count`, `graph.user_trigger_count`, `graph.complex_chain_count` | Counts / lengths |
 | **Images (35–50)** | 35‑50 | Image format counts, size, entropy and decoding anomalies (JBIG2, JPX, CCITT, malformed, extreme dimensions, multi-filter usage, XFA image count) | `images.jbig2_count`, `images.max_image_pixels`, `images.malformed_image_count` | Counts, pixels, entropy averages |
-| **Additional content (51–57)** | 51‑57 | Embedded executable/script/archive/double-extension/encrypted counts and rich media type breakdown | `content.embedded_executable_count`, `content.rich_media_swf_count` | Counts |
+| **Additional content (51–62)** | 51‑62 | Embedded executable/script/archive/double-extension/encrypted counts plus detailed rich media breakdown (SWF, action script and media format totals) | `content.embedded_executable_count`, `content.rich_media_swf_count`, `content.swf_count`, `content.swf_actionscript_count`, `content.media_audio_count`, `content.media_video_count` | Counts |
 | **XFA (58–63)** | 58‑63 | Form payload/script/submit/sensitive-field metrics | `xfa.present`, `xfa.script_count`, `xfa.max_payload_bytes` | Binary flag + counts/sizes |
-| **Encryption (64–70)** | 64‑70 | Encryption dictionary exposure, key length and crypt filter counts | `encryption.present`, `encryption.key_length_bits`, `encryption.weak_key` | Flags + key-length |
+| **Encryption (64–70)** | 64‑70 | Encryption dictionary presence, key length, entropy statistics, and encrypted embedded files | `encryption.encrypted`, `encryption.encryption_key_length`, `encryption.high_entropy_stream_count`, `encryption.avg_stream_entropy`, `encryption.max_stream_entropy`, `encryption.encrypted_embedded_file_count` | Flags, counts, entropy |
 | **Filters (71–75)** | 71‑75 | Filter chain anomalies (counts, max depth, unusual/invalid/duplicate patterns) | `filters.unusual_chain_count`, `filters.duplicate_filter_count` | Counts |
 
 ## Feature types and normalisation guidance
 
 - **Counts** (e.g., `image_count`, `filters.filter_chain_count`) are integer accumulation values; normalise them per page count or document size if your model expects scaled inputs.
 - **Ratios/averages** (e.g., `general.binary_ratio`, `graph.avg_graph_depth`, `images.avg_image_entropy`) are already bounded between 0‑1 or by plausible maxima. Clamp values if your ML model assumes smaller ranges.
-- **Booleans** (e.g., `structural.linearized_present`, `encryption.weak_key`) are encoded as `1.0` (true) or `0.0` (false) inside the vector.
+- **Booleans** (e.g., `structural.linearized_present`, `encryption.encrypted`) are encoded as `1.0` (true) or `0.0` (false) inside the vector.
 - **Entropy and pixels** can be large; use log-scaling when training on feature vectors from very large collections to avoid dominance by outliers.
 
 ## ML integration example

@@ -30,8 +30,15 @@ sis query sample.pdf embedded.executables.count
 sis query sample.pdf xfa.submit
 sis query sample.pdf filters.unusual
 sis query sample.pdf streams.high-entropy
+sis query sample.pdf streams.entropy
 sis query sample.pdf xfa.scripts.count
-sis query sample.pdf swf.extract.count
+sis query sample.pdf swf.count
+sis query sample.pdf swf.actionscript
+sis query sample.pdf media.3d
+sis query sample.pdf media.audio
+sis query sample.pdf encryption
+sis query sample.pdf encryption.weak
+sis query sample.pdf encryption.weak.count
 ```
 
 ## Image Queries
@@ -45,6 +52,17 @@ sis query sample.pdf images.jpx
 sis query sample.pdf images.ccitt
 sis query sample.pdf images.risky
 sis query sample.pdf images.malformed --deep
+```
+
+## Rich media queries
+
+Use `swf` and `swf.actionscript` to list all SWF streams or just the ones that carry ActionScript tags; `media.3d` and `media.audio` summarise 3D, visual and audio/rendition objects, and all four commands grow richer metadata with each scan. They support `--where` filters on SWF version, action-tag count, declared size, media type and payload size.
+
+```bash
+sis query sample.pdf swf --where "size > 1024"
+sis query sample.pdf swf.actionscript --format json
+sis query sample.pdf media.3d --where "media_type == 'prc'"
+sis query sample.pdf media.audio --where "media_type == 'mp3'"
 ```
 
 ## Predicate Filters
@@ -67,6 +85,7 @@ Extract payloads to disk:
 sis query sample.pdf images --extract-to /tmp/images
 sis query sample.pdf images --extract-to /tmp/images --raw
 sis query sample.pdf xfa.scripts --extract-to /tmp/xfa-scripts
+sis query sample.pdf swf --extract-to /tmp/swf --decode
 sis query sample.pdf swf.extract --extract-to /tmp/swf
 sis query sample.pdf stream 1487 0 --extract-to /tmp/streams --decode
 ```
@@ -102,13 +121,48 @@ sis query sample.pdf xfa.submit
 sis query sample.pdf xfa.sensitive
 sis query sample.pdf xfa.too-large
 sis query sample.pdf xfa.scripts.high
-sis query sample.pdf swf
+sis query sample.pdf findings.swf
 sis query sample.pdf streams.high-entropy
+sis query sample.pdf streams.entropy
+sis query sample.pdf encryption
+sis query sample.pdf encryption.weak
+sis query sample.pdf encryption.weak.count
 sis query sample.pdf filters.unusual
 sis query sample.pdf filters.invalid
 sis query sample.pdf filters.repeated
 sis query sample.pdf findings.composite
 sis query sample.pdf findings.composite.count
+```
+
+## Action Chain Queries
+
+Use `actions.chains` to inspect the catalog of action chains and `actions.chains.count` to tally them (predicate filtering applies to both). The JSON output includes chain metadata such as trigger, length (depth), automatic flag, `has_js`, and `has_external` flags, so you can run queries like:
+
+```bash
+sis query sample.pdf actions.chains
+sis query sample.pdf actions.chains.count
+sis query sample.pdf actions.chains --where "depth >= 3"
+sis query sample.pdf actions.chains --where "has_js == true"
+sis query sample.pdf actions.chains --format json
+```
+
+`actions.chains` also supports the `--format dot` export that can be rendered with Graphviz.
+
+## Encryption & Stream Entropy Queries
+
+`encryption` reports findings related to `/Encrypt` dictionaries, including detected algorithms and key lengths. Use `encryption.weak` to focus on detected weak cryptography and `.count` to tally them.
+
+```bash
+sis query sample.pdf encryption
+sis query sample.pdf encryption.weak --where "crypto.algorithm == 'RC4-40'"
+sis query sample.pdf encryption.weak.count
+```
+
+`streams.entropy` lists every decoded stream along with entropy, sample size, magic type, and timing metadata. Combine with `--where` to hunt for highly entropic, unknown, or timed-out streams.
+
+```bash
+sis query sample.pdf streams.entropy --where "entropy > 7.5 AND magic == 'unknown'"
+sis query sample.pdf streams.entropy --format jsonl
 ```
 
 ## Filter Chain Queries

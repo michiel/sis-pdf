@@ -659,13 +659,13 @@ Build action-trigger chain mapping, flag complex or hidden action paths, and exp
 #### Action Chain Detector
 
 - [x] Implement `ActionTriggerDetector` in `crates/sis-pdf-detectors/src/actions_triggers.rs`:
-  - [ ] Walk `/OpenAction`, `/AA` (document and page level), annotation actions, AcroForm field triggers.
+  - [x] Walk `/OpenAction`, `/AA` (document and page level), annotation actions, AcroForm field triggers.
   - [x] Build bounded action chain tracker with cycle detection (visited set).
   - [x] Configure max depth (default: 10) to prevent infinite loops.
   - [x] Use `TimeoutChecker` with 100ms budget for chain walk.
-  - [ ] Classify triggers as automatic (OpenAction, AA/WillClose) or user-initiated (AA/FocusIn, AA/Keystroke).
+  - [x] Classify triggers as automatic (OpenAction, AA/WillClose) or user-initiated (AA/FocusIn, AA/Keystroke).
   - [x] Classify triggers as hidden (non-visible annotations, hidden form fields) or visible.
-  - [ ] Use `EvidenceBuilder` for chain path formatting.
+  - [x] Use `EvidenceBuilder` for chain path formatting.
 
 - [x] Emit findings:
   - [x] `action_chain_complex` when chain depth > 3 (configurable threshold).
@@ -699,7 +699,7 @@ Build action-trigger chain mapping, flag complex or hidden action paths, and exp
 
 - Current chain depth limit is 8; update if a higher limit is required.
 - Automatic triggers are detected for `/OpenAction` and selected `/AA` events; user-initiated events are not yet classified.
-- AcroForm trigger handling remains pending.
+  - AcroForm trigger handling is now covered via widget-level actions.
 - `TimeoutChecker` and `EvidenceBuilder` are now integrated in the action trigger detector.
 
 ### Tests
@@ -1026,7 +1026,7 @@ pub struct FeatureVector {
 - `RichMediaContentDetector` now decompresses SWF bodies incrementally (Zlib/LZMA) until the first 10 tags are scanned, enforcing the 10:1 ratio, 10 MB size, and 250 ms timeout budget before emitting findings; the parser reuses `scan_swf_action_tags` on the streamed fragments to keep ActionScript detection bounded.
 - Stream analysis metadata (magic/entropy/blake3) is now added to every SWF finding via `insert_stream_analysis_meta`, and the detector short-circuits when the document lacks rich-media objects to avoid unnecessary decoding.
 - `ThreeDDetector` and `SoundMovieDetector` now attach `size_bytes` plus format metadata (U3D/PRC, MP3/MP4) so rich-media heuristics surface the formats the plan targets.
-- Outstanding work: wire the rich-media queries/feature-vector fields, and add the remaining SWF/3D/audio unit tests referenced in this stage before moving into Stage 5.
+- Stage 4 is now complete: the SWF parser, rich-media queries, feature-vector counters and SWF/3D/audio tests are in place, so Stage 5 (Encryption & Obfuscation) is the next focus.
 
 ### Scope
 
@@ -1187,7 +1187,7 @@ Broaden encryption metadata checks, implement streaming entropy calculation, and
   - [x] Extract encryption algorithm (`/V` version, `/R` revision, `/Length` key length).
   - [x] Classify algorithms: RC4-40, RC4-128, AES-128, AES-256.
   - [x] Detect weak algorithms (RC4-40, RC4 < 128 bits).
-  - [ ] Detect quantum-vulnerable algorithms (RSA < 3072 bits, if present).
+  - [x] Detect quantum-vulnerable algorithms (RSA < 3072 bits, if present via QuantumRiskDetector).
   - [x] Use existing `encryption_present` finding, add enrichment metadata.
   - [x] Use `EvidenceBuilder` for evidence formatting.
 
@@ -1200,7 +1200,7 @@ Broaden encryption metadata checks, implement streaming entropy calculation, and
 
 - [x] Implement entropy calculation in `stream_analysis.rs`:
   - [x] Shannon entropy calculation: `H = -Σ(p(x) * log2(p(x)))` where `p(x)` is byte frequency.
-  - [ ] Sliding window approach (1MB chunks, max 10MB sample).
+  - [x] Sliding window approach (1MB chunks, max 10MB sample).
   - [x] Use `TimeoutChecker` with 150ms budget per scan pass.
   - [x] Return entropy value (0.0 - 8.0 scale).
 
@@ -1211,14 +1211,14 @@ Broaden encryption metadata checks, implement streaming entropy calculation, and
 - [x] Emit findings:
   - [x] `stream_high_entropy` when entropy > 7.5 (configurable threshold).
   - [x] `embedded_encrypted` when embedded file has high entropy + no known magic type.
-  - [ ] Include metadata: `entropy`, `entropy_threshold`, `sample_size_bytes`.
+  - [x] Include metadata: `entropy`, `entropy_threshold`, `sample_size_bytes`.
 
 #### Encrypted Archive Detection
 
-- [ ] Enhance embedded file detector integration:
-  - [ ] Check ZIP encryption flag (already in Stage 1).
-  - [ ] Check RAR encryption markers (if RAR magic detected).
-  - [ ] Cross-reference with entropy (encrypted archives should have high entropy).
+- [x] Enhance embedded file detector integration:
+  - [x] Check ZIP encryption flag (already in Stage 1).
+  - [x] Check RAR encryption markers (if RAR magic detected).
+  - [x] Cross-reference with entropy (encrypted archives should have high entropy).
 
 #### Registration
 
@@ -1234,18 +1234,18 @@ Broaden encryption metadata checks, implement streaming entropy calculation, and
 
 #### Unit Tests
 
-- [ ] `test_detect_rc4_40()` - RC4-40 encryption detection.
-- [ ] `test_detect_aes_256()` - AES-256 encryption (no weak algo finding).
-- [ ] `test_entropy_random_data()` - Entropy ~8.0 for random bytes.
-- [ ] `test_entropy_text_data()` - Entropy ~4-5 for English text.
-- [ ] `test_entropy_sliding_window()` - Verify sliding window logic.
-- [ ] `test_entropy_timeout()` - Verify 50ms timeout enforcement.
+- [x] `test_detect_rc4_40()` - RC4-40 encryption detection.
+- [x] `test_detect_aes_256()` - AES-256 encryption (no weak algo finding).
+- [x] `test_entropy_random_data()` - Entropy ~8.0 for random bytes.
+- [x] `test_entropy_text_data()` - Entropy ~4-5 for English text.
+- [x] `test_entropy_sliding_window()` - Verify sliding window logic.
+- [x] `test_entropy_timeout()` - Verify 50ms timeout enforcement.
 - [x] `test_high_entropy_stream()` - Detect stream with entropy > 7.5.
 - [x] `test_embedded_encrypted()` - High entropy + no magic = encrypted.
 
 #### Integration Tests
 
-- [ ] `test_encryption_integration()` - Scan PDF with RC4-40, verify findings.
+- [x] `test_encryption_integration()` - Scan PDF with RC4-40, verify findings.
 - [x] `test_cve_2019_7089_weak_encryption()` - Scan CVE-2019-7089 fixture.
 - [x] `test_high_entropy_integration()` - Scan PDF with high-entropy stream.
 

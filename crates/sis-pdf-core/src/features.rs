@@ -1,15 +1,20 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::crypto_analysis::classify_encryption_algorithm;
 use crate::page_tree::build_page_tree;
+use crate::rich_media::{analyze_swf, detect_media_format, SWF_DECODE_TIMEOUT_MS};
 use crate::scan::{ScanContext, ScanOptions};
+use crate::timeout::TimeoutChecker;
 use image_analysis::ImageDynamicOptions;
 use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::decode::{decode_stream_with_meta, DecodeLimits};
 use sis_pdf_pdf::graph::ObjEntry;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr, PdfStream};
+use sis_pdf_pdf::path_finder::ActionChain;
 use sis_pdf_pdf::typed_graph::EdgeType;
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
+use std::time::Duration;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct GeneralFeatures {
@@ -50,6 +55,11 @@ pub struct ContentFeatures {
     pub rich_media_count: usize,
     pub rich_media_swf_count: usize,
     pub rich_media_3d_count: usize,
+    pub swf_count: usize,
+    pub swf_actionscript_count: usize,
+    pub media_3d_count: usize,
+    pub media_audio_count: usize,
+    pub media_video_count: usize,
     pub annotation_count: usize,
     pub page_count: usize,
 }
@@ -85,6 +95,9 @@ pub struct GraphFeatures {
     pub action_chain_count: usize,
     pub max_chain_length: usize,
     pub automatic_chain_count: usize,
+    pub hidden_trigger_count: usize,
+    pub user_trigger_count: usize,
+    pub complex_chain_count: usize,
     pub js_chain_count: usize,
     pub external_chain_count: usize,
     pub max_graph_depth: usize,
@@ -105,13 +118,13 @@ pub struct XfaFeatures {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct EncryptionFeatures {
-    pub present: bool,
-    pub encrypt_dict_count: usize,
-    pub key_length_bits: u32,
-    pub version: u32,
-    pub revision: u32,
-    pub weak_key: bool,
-    pub crypt_filter_stream_count: usize,
+    pub encrypted: bool,
+    pub encryption_algorithm: String,
+    pub encryption_key_length: usize,
+    pub high_entropy_stream_count: usize,
+    pub avg_stream_entropy: f64,
+    pub max_stream_entropy: f64,
+    pub encrypted_embedded_file_count: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
@@ -168,6 +181,9 @@ impl FeatureVector {
             self.graph.action_chain_count as f32,
             self.graph.max_chain_length as f32,
             self.graph.automatic_chain_count as f32,
+            self.graph.hidden_trigger_count as f32,
+            self.graph.user_trigger_count as f32,
+            self.graph.complex_chain_count as f32,
             self.graph.js_chain_count as f32,
             self.graph.external_chain_count as f32,
             self.graph.max_graph_depth as f32,
@@ -198,19 +214,23 @@ impl FeatureVector {
             self.content.embedded_encrypted_count as f32,
             self.content.rich_media_swf_count as f32,
             self.content.rich_media_3d_count as f32,
+            self.content.swf_count as f32,
+            self.content.swf_actionscript_count as f32,
+            self.content.media_3d_count as f32,
+            self.content.media_audio_count as f32,
+            self.content.media_video_count as f32,
             bool_to_f32(self.xfa.present),
             self.xfa.payload_count as f32,
             self.xfa.script_count as f32,
             self.xfa.submit_url_count as f32,
             self.xfa.sensitive_field_count as f32,
             self.xfa.max_payload_bytes as f32,
-            bool_to_f32(self.encryption.present),
-            self.encryption.encrypt_dict_count as f32,
-            self.encryption.key_length_bits as f32,
-            self.encryption.version as f32,
-            self.encryption.revision as f32,
-            bool_to_f32(self.encryption.weak_key),
-            self.encryption.crypt_filter_stream_count as f32,
+            bool_to_f32(self.encryption.encrypted),
+            self.encryption.encryption_key_length as f32,
+            self.encryption.high_entropy_stream_count as f32,
+            self.encryption.avg_stream_entropy as f32,
+            self.encryption.max_stream_entropy as f32,
+            self.encryption.encrypted_embedded_file_count as f32,
             self.filters.filter_chain_count as f32,
             self.filters.max_filter_chain_depth as f32,
             self.filters.unusual_chain_count as f32,
@@ -251,6 +271,9 @@ pub fn feature_names() -> Vec<&'static str> {
         "graph.action_chain_count",
         "graph.max_chain_length",
         "graph.automatic_chain_count",
+        "graph.hidden_trigger_count",
+        "graph.user_trigger_count",
+        "graph.complex_chain_count",
         "graph.js_chain_count",
         "graph.external_chain_count",
         "graph.max_graph_depth",
@@ -280,19 +303,23 @@ pub fn feature_names() -> Vec<&'static str> {
         "content.embedded_encrypted_count",
         "content.rich_media_swf_count",
         "content.rich_media_3d_count",
+        "content.swf_count",
+        "content.swf_actionscript_count",
+        "content.media_3d_count",
+        "content.media_audio_count",
+        "content.media_video_count",
         "xfa.present",
         "xfa.payload_count",
         "xfa.script_count",
         "xfa.submit_url_count",
         "xfa.sensitive_field_count",
         "xfa.max_payload_bytes",
-        "encryption.present",
-        "encryption.encrypt_dict_count",
-        "encryption.key_length_bits",
-        "encryption.version",
-        "encryption.revision",
-        "encryption.weak_key",
-        "encryption.crypt_filter_stream_count",
+        "encryption.encrypted",
+        "encryption.encryption_key_length",
+        "encryption.high_entropy_stream_count",
+        "encryption.avg_stream_entropy",
+        "encryption.max_stream_entropy",
+        "encryption.encrypted_embedded_file_count",
         "filters.filter_chain_count",
         "filters.max_filter_chain_depth",
         "filters.unusual_chain_count",
@@ -338,6 +365,10 @@ impl FeatureExtractor {
         let mut rich_media_count = 0usize;
         let mut rich_media_swf_count = 0usize;
         let mut rich_media_3d_count = 0usize;
+        let mut swf_count = 0usize;
+        let mut swf_actionscript_count = 0usize;
+        let mut media_audio_count = 0usize;
+        let mut media_video_count = 0usize;
         let mut annotation_count = 0usize;
         let mut js_payloads = Vec::new();
 
@@ -411,6 +442,30 @@ impl FeatureExtractor {
                     if let Some(bytes) = stream_bytes(ctx, entry, 1024 * 1024) {
                         if swf_magic_label(&bytes).is_some() {
                             rich_media_swf_count += 1;
+                            swf_count += 1;
+                            let mut timeout =
+                                TimeoutChecker::new(Duration::from_millis(SWF_DECODE_TIMEOUT_MS));
+                            if let Some(analysis) = analyze_swf(&bytes, &mut timeout) {
+                                if !analysis.action_scan.action_tags.is_empty() {
+                                    swf_actionscript_count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+                let has_sound_movie = dict.has_name(b"/Subtype", b"/Sound")
+                    || dict.has_name(b"/Subtype", b"/Movie")
+                    || dict.get_first(b"/Sound").is_some()
+                    || dict.get_first(b"/Movie").is_some()
+                    || dict.get_first(b"/Rendition").is_some();
+                if has_sound_movie {
+                    if let Some(bytes) = stream_bytes(ctx, entry, 1024 * 1024) {
+                        if let Some(media_format) = detect_media_format(&bytes) {
+                            match media_format {
+                                "mp3" => media_audio_count += 1,
+                                "mp4" => media_video_count += 1,
+                                _ => {}
+                            }
                         }
                     }
                 }
@@ -471,6 +526,11 @@ impl FeatureExtractor {
                 rich_media_count,
                 rich_media_swf_count,
                 rich_media_3d_count,
+                swf_count,
+                swf_actionscript_count,
+                media_3d_count: rich_media_3d_count,
+                media_audio_count,
+                media_video_count,
                 annotation_count,
                 page_count,
             },
@@ -1027,31 +1087,56 @@ fn extract_encryption_features(ctx: &ScanContext) -> EncryptionFeatures {
     for trailer in &ctx.graph.trailers {
         if let Some((_, encrypt_obj)) = trailer.get_first(b"/Encrypt") {
             if let Some(dict) = resolve_encrypt_dict(&ctx.graph, encrypt_obj) {
-                features.present = true;
-                features.encrypt_dict_count += 1;
-                if let Some(value) = dict_int(&dict, b"/Length") {
-                    features.key_length_bits = value as u32;
-                    if value < 128 {
-                        features.weak_key = true;
-                    }
+                features.encrypted = true;
+                let version = dict_int(&dict, b"/V").map(|v| v as u32);
+                let length_raw = dict_int(&dict, b"/Length");
+                let key_length = length_raw.map(|v| v as usize);
+                let key_len_for_algo = length_raw.map(|v| v as u32);
+                let algorithm = classify_encryption_algorithm(version, key_len_for_algo);
+                if let Some(len) = key_length {
+                    features.encryption_key_length = len;
                 }
-                if let Some(value) = dict_int(&dict, b"/V") {
-                    features.version = value as u32;
-                }
-                if let Some(value) = dict_int(&dict, b"/R") {
-                    features.revision = value as u32;
+                if let Some(algo) = algorithm {
+                    features.encryption_algorithm = algo.to_string();
                 }
             }
         }
     }
+
+    let mut entropy_total = 0.0;
+    let mut entropy_count = 0usize;
+    let mut max_entropy = 0.0;
+
     for entry in &ctx.graph.objects {
-        let Some(dict) = entry_dict(entry) else {
+        let PdfAtom::Stream(stream) = &entry.atom else {
             continue;
         };
-        if stream_has_crypt_filter(dict) {
-            features.crypt_filter_stream_count += 1;
+        let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, stream) else {
+            continue;
+        };
+        let analysis = crate::stream_analysis::analyse_stream(
+            &decoded.data,
+            &crate::stream_analysis::StreamLimits::default(),
+        );
+        entropy_total += analysis.entropy;
+        entropy_count += 1;
+        if analysis.entropy > max_entropy {
+            max_entropy = analysis.entropy;
+        }
+        if analysis.entropy >= crate::stream_analysis::STREAM_HIGH_ENTROPY_THRESHOLD {
+            features.high_entropy_stream_count += 1;
+            if stream.dict.has_name(b"/Type", b"/EmbeddedFile") && analysis.magic_type == "unknown"
+            {
+                features.encrypted_embedded_file_count += 1;
+            }
         }
     }
+
+    if entropy_count > 0 {
+        features.avg_stream_entropy = entropy_total / entropy_count as f64;
+        features.max_stream_entropy = max_entropy;
+    }
+
     features
 }
 
@@ -1280,9 +1365,24 @@ fn extract_graph_features(ctx: &ScanContext) -> GraphFeatures {
     let path_finder = typed_graph.path_finder();
     let chains = path_finder.find_all_action_chains();
 
+    const ACTION_CHAIN_COMPLEX_THRESHOLD: usize = 3;
     let action_chain_count = chains.len();
     let max_chain_length = chains.iter().map(|c| c.length()).max().unwrap_or(0);
     let automatic_chain_count = chains.iter().filter(|c| c.automatic).count();
+    let mut hidden_trigger_count = 0usize;
+    let mut user_trigger_count = 0usize;
+    let mut complex_chain_count = 0usize;
+    for chain in &chains {
+        if chain.length() >= ACTION_CHAIN_COMPLEX_THRESHOLD {
+            complex_chain_count += 1;
+        }
+        let hidden = is_chain_hidden(ctx, chain);
+        if hidden {
+            hidden_trigger_count += 1;
+        } else if !chain.automatic {
+            user_trigger_count += 1;
+        }
+    }
     let js_chain_count = chains.iter().filter(|c| c.involves_js).count();
     let external_chain_count = chains.iter().filter(|c| c.involves_external).count();
 
@@ -1324,6 +1424,9 @@ fn extract_graph_features(ctx: &ScanContext) -> GraphFeatures {
         action_chain_count,
         max_chain_length,
         automatic_chain_count,
+        hidden_trigger_count,
+        user_trigger_count,
+        complex_chain_count,
         js_chain_count,
         external_chain_count,
         max_graph_depth,
@@ -1452,26 +1555,28 @@ fn build_feature_map(fv: &FeatureVector) -> HashMap<String, f64> {
         fv.xfa.max_payload_bytes as f64,
     );
     out.insert(
-        "encryption.present".into(),
-        if fv.encryption.present { 1.0 } else { 0.0 },
+        "encryption.encrypted".into(),
+        if fv.encryption.encrypted { 1.0 } else { 0.0 },
     );
     out.insert(
-        "encryption.encrypt_dict_count".into(),
-        fv.encryption.encrypt_dict_count as f64,
+        "encryption.encryption_key_length".into(),
+        fv.encryption.encryption_key_length as f64,
     );
     out.insert(
-        "encryption.key_length_bits".into(),
-        fv.encryption.key_length_bits as f64,
-    );
-    out.insert("encryption.version".into(), fv.encryption.version as f64);
-    out.insert("encryption.revision".into(), fv.encryption.revision as f64);
-    out.insert(
-        "encryption.weak_key".into(),
-        if fv.encryption.weak_key { 1.0 } else { 0.0 },
+        "encryption.high_entropy_stream_count".into(),
+        fv.encryption.high_entropy_stream_count as f64,
     );
     out.insert(
-        "encryption.crypt_filter_stream_count".into(),
-        fv.encryption.crypt_filter_stream_count as f64,
+        "encryption.avg_stream_entropy".into(),
+        fv.encryption.avg_stream_entropy,
+    );
+    out.insert(
+        "encryption.max_stream_entropy".into(),
+        fv.encryption.max_stream_entropy,
+    );
+    out.insert(
+        "encryption.encrypted_embedded_file_count".into(),
+        fv.encryption.encrypted_embedded_file_count as f64,
     );
     out.insert(
         "filters.filter_chain_count".into(),
@@ -1494,4 +1599,63 @@ fn build_feature_map(fv: &FeatureVector) -> HashMap<String, f64> {
         fv.filters.duplicate_filter_count as f64,
     );
     out
+}
+
+fn is_chain_hidden(ctx: &ScanContext, chain: &ActionChain<'_>) -> bool {
+    let first_edge = match chain.edges.first() {
+        Some(edge) => edge,
+        None => return false,
+    };
+    if !matches!(first_edge.edge_type, EdgeType::AnnotationAction) {
+        return false;
+    }
+    if let Some(entry) = ctx.graph.get_object(first_edge.src.0, first_edge.src.1) {
+        if let Some(dict) = entry_dict(entry) {
+            return annotation_is_hidden(dict);
+        }
+    }
+    false
+}
+
+fn annotation_is_hidden(dict: &PdfDict<'_>) -> bool {
+    if let Some((_, rect)) = dict.get_first(b"/Rect") {
+        if let Some((width, height)) = rect_size(rect) {
+            if width <= 0.1 || height <= 0.1 {
+                return true;
+            }
+        }
+    }
+    if let Some((_, flags)) = dict.get_first(b"/F") {
+        if let PdfAtom::Int(value) = &flags.atom {
+            let flag_value = *value as u32;
+            if (flag_value & (1 << 1)) != 0 || (flag_value & (1 << 5)) != 0 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn rect_size(obj: &PdfObj<'_>) -> Option<(f32, f32)> {
+    let PdfAtom::Array(arr) = &obj.atom else {
+        return None;
+    };
+    if arr.len() < 4 {
+        return None;
+    }
+    let coords: Vec<f32> = arr
+        .iter()
+        .take(4)
+        .filter_map(|item| match &item.atom {
+            PdfAtom::Int(value) => Some(*value as f32),
+            PdfAtom::Real(value) => Some(*value as f32),
+            _ => None,
+        })
+        .collect();
+    if coords.len() < 4 {
+        return None;
+    }
+    let width = (coords[2] - coords[0]).abs();
+    let height = (coords[3] - coords[1]).abs();
+    Some((width, height))
 }

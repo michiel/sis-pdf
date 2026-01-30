@@ -6,7 +6,7 @@ use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::classification::ClassificationMap;
-use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
+use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr};
 use std::time::Duration;
 
 use crate::entry_dict;
@@ -225,6 +225,189 @@ impl Detector for ActionTriggerDetector {
                     });
                 }
             }
+
+            if is_form_field(dict) {
+                let field_name = extract_field_name(dict);
+                let (hidden_field, hidden_meta) = annotation_hidden_status(dict);
+
+                if let Some((k, action_obj)) = dict.get_first(b"/A") {
+                    let mut visited = HashSet::new();
+                    let summary =
+                        action_chain_summary(ctx, classifications, action_obj, 1, &mut visited);
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("action.trigger".into(), "field".into());
+                    meta.insert("action.field_name".into(), field_name.clone());
+                    insert_chain_metadata(&mut meta, "field", field_name.clone(), "user", &summary);
+                    let evidence = EvidenceBuilder::new()
+                        .file_offset(dict.span.start, dict.span.len() as u32, "Field dict")
+                        .file_offset(k.span.start, k.span.len() as u32, "/A key")
+                        .build();
+
+                    if hidden_field {
+                        let mut hidden_with_meta = meta.clone();
+                        hidden_with_meta.extend(hidden_meta.clone());
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "action_hidden_trigger".into(),
+                            severity: Severity::Low,
+                            confidence: Confidence::Probable,
+                            title: "Hidden action trigger".into(),
+                            description:
+                                "Form field action triggered from a hidden or non-visible widget."
+                                    .into(),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence: evidence.clone(),
+                            remediation: Some(
+                                "Inspect hidden fields for unexpected actions.".into(),
+                            ),
+                            meta: hidden_with_meta,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
+                    }
+
+                    if summary.depth >= ACTION_CHAIN_COMPLEX_DEPTH {
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "action_chain_complex".into(),
+                            severity: Severity::Medium,
+                            confidence: Confidence::Probable,
+                            title: "Complex action chain".into(),
+                            description: "Action chain depth exceeds expected threshold.".into(),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence: EvidenceBuilder::new()
+                                .file_offset(k.span.start, k.span.len() as u32, "/A key")
+                                .build(),
+                            remediation: Some("Inspect action chains for hidden payloads.".into()),
+                            meta: meta.clone(),
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
+                    }
+                }
+
+                if let Some((k, aa_obj)) = dict.get_first(b"/AA") {
+                    if let PdfAtom::Dict(aa_dict) = &aa_obj.atom {
+                        for (event_name, action_obj) in &aa_dict.entries {
+                            let mut visited = HashSet::new();
+                            let summary = action_chain_summary(
+                                ctx,
+                                classifications,
+                                action_obj,
+                                1,
+                                &mut visited,
+                            );
+                            let event_label =
+                                String::from_utf8_lossy(&event_name.decoded).to_string();
+                            let trigger_type = if is_automatic_event(&event_name.decoded) {
+                                "automatic"
+                            } else {
+                                "user"
+                            };
+                            let mut meta = std::collections::HashMap::new();
+                            meta.insert("action.trigger".into(), event_label.clone());
+                            meta.insert("action.field_name".into(), field_name.clone());
+                            insert_chain_metadata(
+                                &mut meta,
+                                &event_label,
+                                field_name.clone(),
+                                trigger_type,
+                                &summary,
+                            );
+                            let evidence = EvidenceBuilder::new()
+                                .file_offset(dict.span.start, dict.span.len() as u32, "Field dict")
+                                .file_offset(k.span.start, k.span.len() as u32, "/AA key")
+                                .file_offset(
+                                    event_name.span.start,
+                                    event_name.span.len() as u32,
+                                    "AA event",
+                                )
+                                .build();
+
+                            if trigger_type == "automatic" {
+                                findings.push(Finding {
+                                    id: String::new(),
+                                    surface: self.surface(),
+                                    kind: "action_automatic_trigger".into(),
+                                    severity: Severity::Medium,
+                                    confidence: Confidence::Probable,
+                                    title: "Automatic action trigger".into(),
+                                    description:
+                                        "Field actions triggered automatically via /AA entries."
+                                            .into(),
+                                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                    evidence: evidence.clone(),
+                                    remediation: Some(
+                                        "Review automatic field actions for unexpected behavior."
+                                            .into(),
+                                    ),
+                                    meta: meta.clone(),
+                                    yara: None,
+                                    position: None,
+                                    positions: Vec::new(),
+                                });
+                            }
+
+                            if hidden_field {
+                                let mut hidden_with_meta = meta.clone();
+                                hidden_with_meta.extend(hidden_meta.clone());
+                                findings.push(Finding {
+                                    id: String::new(),
+                                    surface: self.surface(),
+                                    kind: "action_hidden_trigger".into(),
+                                    severity: Severity::Low,
+                                    confidence: Confidence::Probable,
+                                    title: "Hidden action trigger".into(),
+                                    description:
+                                        "Hidden form field action triggered without visibility."
+                                            .into(),
+                                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                    evidence: evidence.clone(),
+                                    remediation: Some(
+                                        "Inspect hidden fields for unexpected actions.".into(),
+                                    ),
+                                    meta: hidden_with_meta,
+                                    yara: None,
+                                    position: None,
+                                    positions: Vec::new(),
+                                });
+                            }
+
+                            if summary.depth >= ACTION_CHAIN_COMPLEX_DEPTH {
+                                findings.push(Finding {
+                                    id: String::new(),
+                                    surface: self.surface(),
+                                    kind: "action_chain_complex".into(),
+                                    severity: Severity::Medium,
+                                    confidence: Confidence::Probable,
+                                    title: "Complex action chain".into(),
+                                    description: "Action chain depth exceeds expected threshold."
+                                        .into(),
+                                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                    evidence: EvidenceBuilder::new()
+                                        .file_offset(
+                                            event_name.span.start,
+                                            event_name.span.len() as u32,
+                                            "AA event",
+                                        )
+                                        .build(),
+                                    remediation: Some(
+                                        "Inspect action chains for hidden payloads.".into(),
+                                    ),
+                                    meta: meta.clone(),
+                                    yara: None,
+                                    position: None,
+                                    positions: Vec::new(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
         }
         Ok(findings)
     }
@@ -434,4 +617,27 @@ fn rect_size(obj: &PdfObj<'_>) -> Option<(f32, f32)> {
     let w = (vals[2] - vals[0]).abs();
     let h = (vals[3] - vals[1]).abs();
     Some((w, h))
+}
+
+fn is_form_field(dict: &PdfDict<'_>) -> bool {
+    dict.has_name(b"/Subtype", b"/Widget") || dict.get_first(b"/FT").is_some()
+}
+
+fn extract_field_name(dict: &PdfDict<'_>) -> String {
+    if let Some((_, obj)) = dict.get_first(b"/T") {
+        if let Some(name) = pdf_obj_to_string(obj) {
+            return name;
+        }
+    }
+    "unnamed".into()
+}
+
+fn pdf_obj_to_string(obj: &PdfObj<'_>) -> Option<String> {
+    if let PdfAtom::Str(s) = &obj.atom {
+        return Some(match s {
+            PdfStr::Literal { decoded, .. } => String::from_utf8_lossy(&decoded).to_string(),
+            PdfStr::Hex { decoded, .. } => String::from_utf8_lossy(&decoded).to_string(),
+        });
+    }
+    None
 }

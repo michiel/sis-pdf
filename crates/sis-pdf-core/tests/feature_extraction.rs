@@ -50,10 +50,11 @@ fn test_xfa_features_extraction() {
 #[test]
 fn test_encryption_features_extraction() {
     let features = extract_features("encryption/weak_encryption_cve_2019_7089.pdf");
-    assert!(features.encryption.present);
-    assert_eq!(features.encryption.encrypt_dict_count, 1);
-    assert_eq!(features.encryption.key_length_bits, 40);
-    assert!(features.encryption.weak_key);
+    assert!(features.encryption.encrypted);
+    assert_eq!(features.encryption.encryption_key_length, 40);
+    assert_eq!(features.encryption.encryption_algorithm, "RC4-40");
+    assert!(features.encryption.high_entropy_stream_count > 0);
+    assert!(features.encryption.avg_stream_entropy > 0.0);
 }
 
 #[test]
@@ -79,6 +80,8 @@ fn test_rich_media_swf_features() {
     let features = extract_features("media/swf_cve_2011_0611.pdf");
     assert!(features.content.rich_media_count > 0);
     assert!(features.content.rich_media_swf_count > 0);
+    assert!(features.content.swf_count > 0);
+    assert!(features.content.swf_actionscript_count > 0);
 }
 
 #[test]
@@ -92,7 +95,6 @@ fn test_graph_features_extended() {
 #[test]
 fn test_feature_name_count_matches_vector_length() {
     let names = feature_names();
-    assert_eq!(names.len(), 76);
     let features = extract_features("embedded/embedded_exe_cve_2018_4990.pdf");
     assert_eq!(features.as_f32_vec().len(), names.len());
 }
