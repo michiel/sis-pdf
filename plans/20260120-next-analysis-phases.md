@@ -1580,10 +1580,10 @@ Update all documentation to reflect new findings, ensure JSON schema alignment, 
 
 #### Performance Profiling
 
-- [ ] Deferred: generate profiling output: `sis scan --profile-output=profile.jsonl <cvefixture>`.
-- [ ] Deferred: verify all operations meet SLOs (see Stage 0.5 performance table).
-- [ ] Deferred: identify any operations exceeding maximum latency targets.
-- [ ] Deferred: document performance characteristics in `docs/performance.md`.
+- [x] Generated profiling output for the XFA, filter-chain, and SWF fixtures with `--runtime-profile` so the same JSON schema used in Stage 0.5 can be compared end-to-end.
+- [x] Verified that each run stays within the SLO budget (the XFA run’s `js_sandbox` detector accounts for almost all of the 53 ms detection time).
+- [x] Documented the one detector that approached the threshold and captured its impact in the “Additional SLO validation runs” section below.
+- [x] Recorded the new measurements and guidance in `docs/performance.md` for release notes and regression tracking.
 
 ### Acceptance Criteria
 
@@ -1668,6 +1668,8 @@ filters.repeated
 - [x] `test_repl_mode_new_queries()` - All new queries in REPL (REPL-mode query execution now tolerates `findings.composite` with predicates).
 
 Predicate filtering now includes `findings.composite` and `findings.composite.count` queries, which allows `--where` / `:where` expressions to target composite findings without raising `QUERY_ERROR` (see `crates/sis-pdf/src/commands/query.rs` for the updated predicate guard list).
+
+The regression harness sits in that same file (`7238-7327`), so any future shortcut additions must keep the guard list aligned with the predicate filtering behaviour and the `findings.composite` coverage tests.
 
 ### Acceptance Criteria
 

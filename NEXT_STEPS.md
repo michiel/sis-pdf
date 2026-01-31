@@ -1,5 +1,5 @@
 # Next Steps (2026-01-31)
 
-1. Keep the Stage 7 documentation and integration sweep on the radar: add any remaining instrumentation narratives or release notes to `docs/performance.md`/`docs/analysis.md`, and capture additional profiling runs for other fixtures if the SLO table needs further validation.
-2. Maintain the Stage 7.5 query coverage: extend the regression harness (`crates/sis-pdf/src/commands/query.rs:7238-7327`) and documentation whenever new findings or shortcuts arrive so the `--where` guard list never regresses.
-3. Plot the Stage 8/9 follow-up work for the 83-element feature vector and the optional correlation exports (dashboard, CSV/JSONL helpers) so the ML/feature pipeline can pick up where Stage 8 left off without chasing outdated schema notes.
+1. Keep Stage 7 artefacts up to date: the instrumentation narratives and tables now include the XFA/filter/SWF runs in `docs/performance.md`, so continue adding release-note text or regression warnings there or in `docs/analysis.md` whenever new fixtures shift the SLO profile.
+2. Solidify Stage 7.5 query coverage: guard-list logic and predicate documentation live in `crates/sis-pdf/src/commands/query.rs:7238-7327` and `docs/query-predicates.md`, so treat those files as the reference when adding new shortcuts or composite queries to keep `--where` coverage intact.
+3. Prepare Stage 8/9 by auditing the ML feature vector schema (`docs/ml-features.md`, `crates/sis-pdf-core/src/features.rs`) and the correlation patterns so the 83-feature export and composite findings can be locked down without relearning obsolete schema notes.
