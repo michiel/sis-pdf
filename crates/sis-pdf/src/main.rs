@@ -2751,6 +2751,7 @@ fn run_query_oneshot(
         no_recover: !recover_xref,
         max_objects,
         group_chains,
+        correlation: sis_pdf_core::scan::CorrelationOptions::default(),
     };
 
     // Phase 3: Batch mode - execute query across directory
@@ -3939,6 +3940,7 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         profile: false,
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
         group_chains: true,
+        correlation: CorrelationOptions::default(),
     };
     let detectors = sis_pdf_detectors::default_detectors();
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(true);
@@ -4494,6 +4496,7 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
             profile: false,
             profile_format: sis_pdf_core::scan::ProfileFormat::Text,
             group_chains: true,
+            correlation: CorrelationOptions::default(),
         };
         let base_report =
             sis_pdf_core::runner::run_scan_with_detectors(&data, opts.clone(), &detectors)?;
@@ -4794,6 +4797,7 @@ mod tests {
             profile: false,
             profile_format: sis_pdf_core::scan::ProfileFormat::Text,
             group_chains: true,
+            correlation: CorrelationOptions::default(),
         }
     }
 

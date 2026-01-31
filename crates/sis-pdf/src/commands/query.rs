@@ -1920,6 +1920,7 @@ impl Default for ScanOptions {
             no_recover: false,
             max_objects: 500_000,
             group_chains: true,
+            correlation: CorrelationOptions::default(),
         }
     }
 }
@@ -1966,6 +1967,7 @@ fn build_scan_context<'a>(
         profile: false,
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
         group_chains: options.group_chains,
+        correlation: sis_pdf_core::scan::CorrelationOptions::default(),
     };
 
     // Parse PDF
@@ -2124,7 +2126,7 @@ fn run_detectors(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>>
         }
     }
 
-    let composites = correlation::correlate_findings(&findings);
+    let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
     findings.extend(composites);
 
     Ok(findings)

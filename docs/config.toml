@@ -56,6 +56,18 @@ level = "warn"
 # dynamic_timeout_ms = 120
 # max_fonts = 256
 
+# Correlation tuning (Stage 9)
+# [scan.correlation]
+# enabled = true
+# launch_obfuscated = true
+# action_chain_malicious = true
+# xfa_data_exfiltration = true
+# encrypted_payload_delivery = true
+# obfuscated_payload = true
+# high_entropy_threshold = 7.5
+# action_chain_depth = 3
+# xfa_sensitive_field_threshold = 1
+
 [query]
 # Output formatting
 # colour = false

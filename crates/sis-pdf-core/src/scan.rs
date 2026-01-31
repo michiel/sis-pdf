@@ -52,6 +52,7 @@ pub struct ScanOptions {
     pub profile: bool,
     pub profile_format: ProfileFormat,
     pub group_chains: bool,
+    pub correlation: CorrelationOptions,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +94,35 @@ impl Default for ImageAnalysisOptions {
             max_dimension: 10_000,
             max_xfa_decode_bytes: 8 * 1024 * 1024,
             max_filter_chain_depth: 8,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CorrelationOptions {
+    pub enabled: bool,
+    pub launch_obfuscated_enabled: bool,
+    pub action_chain_malicious_enabled: bool,
+    pub xfa_data_exfiltration_enabled: bool,
+    pub encrypted_payload_delivery_enabled: bool,
+    pub obfuscated_payload_enabled: bool,
+    pub high_entropy_threshold: f64,
+    pub action_chain_depth_threshold: usize,
+    pub xfa_sensitive_field_threshold: usize,
+}
+
+impl Default for CorrelationOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            launch_obfuscated_enabled: true,
+            action_chain_malicious_enabled: true,
+            xfa_data_exfiltration_enabled: true,
+            encrypted_payload_delivery_enabled: true,
+            obfuscated_payload_enabled: true,
+            high_entropy_threshold: 7.5,
+            action_chain_depth_threshold: 3,
+            xfa_sensitive_field_threshold: 1,
         }
     }
 }

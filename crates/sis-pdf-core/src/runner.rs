@@ -573,7 +573,7 @@ pub fn run_scan_with_detectors(
     annotate_positions(&ctx, &mut findings);
     annotate_orphaned_page_context(&mut findings);
     correlate_font_js(&mut findings);
-    let composites = correlation::correlate_findings(&findings);
+    let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
     findings.extend(composites);
     let intent_summary = Some(crate::intent::apply_intent(&mut findings));
     let yara_rules =

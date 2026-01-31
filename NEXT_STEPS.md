@@ -1,5 +1,5 @@
 # Next Steps (2026-01-30)
 
-1. Implement Stage 9 correlation plumbing: scaffold `FindingCorrelator`, wire the composite finding IDs (`launch_obfuscated_executable`, `action_chain_malicious`, etc.), and ensure correlation configuration (pattern enablement, entropy/depth thresholds) is plumbed through the pipeline.
-2. Flesh out the Stage 9 regression coverage by linking each correlation pattern to its CVE fixtures/tests, then build the unit/integration skeletons that prove `launch_obfuscated_executable`, `xfa_data_exfiltration_risk`, `obfuscated_payload` and the rest fire when expected.
-3. Capture the remaining validation tasks (JSONL export streaming, ML schema updates, cross-finding QA) so the next work cycle can pick up exactly where Stage 9 leaves off.
+1. Document the completed Stage 9 correlation layer (config knobs, composite IDs, and regression tests) so future reviewers can trace the new composite findings back to the configuration docs and test matrix.
+2. Validate the remaining data paths introduced by the new findings: run `sis query features --format jsonl` to ensure the 76 feature columns (including correlation metadata) appear, refresh `docs/ml-features.md` with the updated feature index, and double-check JSONL/csv exports still match the schema.
+3. Continue Stage 8 Feature Vector integration and cross-finding QA: lock down the feature ordering, confirm the JSONL & CSV exporters reference the new fields, and plan follow-up query documentation for the correlation shortcuts introduced today.

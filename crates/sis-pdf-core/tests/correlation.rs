@@ -2,6 +2,11 @@ use std::collections::HashMap;
 
 use sis_pdf_core::correlation;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::runner::run_scan_with_detectors;
+use sis_pdf_core::scan::{
+    CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat, ScanOptions,
+};
+use sis_pdf_detectors::default_detectors;
 
 fn make_finding(
     kind: &str,
@@ -49,7 +54,8 @@ fn correlate_launch_obfuscated_executable() {
         AttackSurface::Actions,
     );
 
-    let composites = correlation::correlate_findings(&[embedded.clone(), launch.clone()]);
+    let config = CorrelationOptions::default();
+    let composites = correlation::correlate_findings(&[embedded.clone(), launch.clone()], &config);
     assert!(composites
         .iter()
         .any(|f| f.kind == "launch_obfuscated_executable"));
@@ -79,8 +85,9 @@ fn correlate_action_chain_malicious() {
         AttackSurface::EmbeddedFiles,
     );
 
+    let config = CorrelationOptions::default();
     let composites =
-        correlation::correlate_findings(&[chain.clone(), automatic.clone(), js.clone()]);
+        correlation::correlate_findings(&[chain.clone(), automatic.clone(), js.clone()], &config);
     assert!(composites
         .iter()
         .any(|f| f.kind == "action_chain_malicious"));
@@ -101,7 +108,8 @@ fn correlate_xfa_data_exfiltration_risk() {
         AttackSurface::Forms,
     );
 
-    let composites = correlation::correlate_findings(&[submit.clone(), sensitive.clone()]);
+    let config = CorrelationOptions::default();
+    let composites = correlation::correlate_findings(&[submit.clone(), sensitive.clone()], &config);
     assert!(composites
         .iter()
         .any(|f| f.kind == "xfa_data_exfiltration_risk"));
@@ -122,7 +130,8 @@ fn correlate_encrypted_payload_delivery() {
         AttackSurface::Actions,
     );
 
-    let composites = correlation::correlate_findings(&[archive.clone(), launch.clone()]);
+    let config = CorrelationOptions::default();
+    let composites = correlation::correlate_findings(&[archive.clone(), launch.clone()], &config);
     assert!(composites
         .iter()
         .any(|f| f.kind == "encrypted_payload_delivery"));
@@ -143,6 +152,188 @@ fn correlate_obfuscated_payload() {
         AttackSurface::StreamsAndFilters,
     );
 
-    let composites = correlation::correlate_findings(&[filter.clone(), entropy.clone()]);
+    let config = CorrelationOptions::default();
+    let composites = correlation::correlate_findings(&[filter.clone(), entropy.clone()], &config);
     assert!(composites.iter().any(|f| f.kind == "obfuscated_payload"));
+}
+
+#[test]
+fn correlation_launch_obfuscated_integration() {
+    let detectors = default_detectors();
+    let report = run_scan_with_detectors(
+        &build_launch_obfuscated_pdf(&high_entropy_payload()),
+        scan_opts(false),
+        &detectors,
+    )
+    .expect("scan should succeed");
+
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.kind == "launch_obfuscated_executable"));
+}
+
+#[test]
+fn correlation_xfa_data_exfiltration_integration() {
+    let detectors = default_detectors();
+    let report = run_scan_with_detectors(
+        include_bytes!("fixtures/xfa/xfa_submit_sensitive.pdf"),
+        scan_opts(false),
+        &detectors,
+    )
+    .expect("scan should succeed");
+
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| f.kind == "xfa_data_exfiltration_risk"));
+}
+
+#[test]
+fn correlation_obfuscated_payload_integration() {
+    let detectors = default_detectors();
+    let report = run_scan_with_detectors(
+        include_bytes!("fixtures/filters/filter_unusual_chain.pdf"),
+        scan_opts(true),
+        &detectors,
+    )
+    .expect("scan should succeed");
+
+    let filter_finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "filter_chain_unusual")
+        .expect("expected filter_chain_unusual finding");
+
+    let mut meta = std::collections::HashMap::new();
+    if let Some(violation) = filter_finding.meta.get("violation_type") {
+        meta.insert("violation_type".into(), violation.clone());
+    }
+    meta.insert("entropy".into(), "7.8".into());
+
+    let stream_finding = Finding {
+        id: String::new(),
+        surface: filter_finding.surface,
+        kind: "stream_high_entropy".into(),
+        severity: Severity::Low,
+        confidence: Confidence::Probable,
+        title: "Synthetic high entropy stream".into(),
+        description: "Synthetic high entropy stream for correlation.".into(),
+        objects: filter_finding.objects.clone(),
+        evidence: Vec::new(),
+        remediation: None,
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    };
+
+    let mut augmented = report.findings.clone();
+    augmented.push(stream_finding);
+
+    let composites = correlation::correlate_findings(&augmented, &CorrelationOptions::default());
+    assert!(composites.iter().any(|f| f.kind == "obfuscated_payload"));
+}
+
+fn scan_opts(deep: bool) -> ScanOptions {
+    ScanOptions {
+        deep,
+        max_decode_bytes: 8 * 1024 * 1024,
+        max_total_decoded_bytes: 64 * 1024 * 1024,
+        recover_xref: true,
+        parallel: false,
+        batch_parallel: false,
+        diff_parser: false,
+        max_objects: 100_000,
+        max_recursion_depth: 64,
+        fast: false,
+        focus_trigger: None,
+        focus_depth: 0,
+        yara_scope: None,
+        strict: false,
+        strict_summary: false,
+        ir: false,
+        ml_config: None,
+        font_analysis: FontAnalysisOptions::default(),
+        image_analysis: ImageAnalysisOptions::default(),
+        filter_allowlist: None,
+        filter_allowlist_strict: false,
+        profile: false,
+        profile_format: ProfileFormat::Text,
+        group_chains: true,
+        correlation: CorrelationOptions::default(),
+    }
+}
+
+fn high_entropy_payload() -> Vec<u8> {
+    let mut payload = Vec::with_capacity(1024);
+    payload.extend_from_slice(b"MZ");
+    payload.extend((0u8..=255).cycle().take(1022));
+    payload
+}
+
+fn build_launch_obfuscated_pdf(payload: &[u8]) -> Vec<u8> {
+    let mut doc = Vec::new();
+    doc.extend_from_slice(b"%PDF-1.7\n");
+    let mut offsets = Vec::new();
+
+    append_text_object(
+        &mut doc,
+        &mut offsets,
+        1,
+        b"<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\n",
+    );
+    append_text_object(
+        &mut doc,
+        &mut offsets,
+        2,
+        b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>\n",
+    );
+    append_text_object(
+        &mut doc,
+        &mut offsets,
+        3,
+        b"<< /Type /Page /Parent 2 0 R >>\n",
+    );
+    append_text_object(
+        &mut doc,
+        &mut offsets,
+        4,
+        b"<< /Type /Action /S /Launch /F 5 0 R >>\n",
+    );
+    append_text_object(
+        &mut doc,
+        &mut offsets,
+        5,
+        b"<< /Type /Filespec /F (payload.exe) /EF << /F 6 0 R >> >>\n",
+    );
+
+    let offset = doc.len();
+    offsets.push(offset);
+    doc.extend_from_slice(b"6 0 obj << /Type /EmbeddedFile /Length ");
+    doc.extend_from_slice(payload.len().to_string().as_bytes());
+    doc.extend_from_slice(b" >>\nstream\n");
+    doc.extend_from_slice(payload);
+    doc.extend_from_slice(b"\nendstream\nendobj\n");
+
+    let xref_offset = doc.len();
+    doc.extend_from_slice(b"xref\n0 7\n");
+    doc.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in &offsets {
+        doc.extend_from_slice(format!("{:010} 00000 n \n", offset).as_bytes());
+    }
+    doc.extend_from_slice(b"trailer << /Size 7 /Root 1 0 R >>\n");
+    doc.extend_from_slice(format!("startxref\n{}\n%%EOF\n", xref_offset).as_bytes());
+
+    doc
+}
+
+fn append_text_object(doc: &mut Vec<u8>, offsets: &mut Vec<usize>, number: usize, content: &[u8]) {
+    offsets.push(doc.len());
+    doc.extend_from_slice(format!("{} 0 obj\n", number).as_bytes());
+    doc.extend_from_slice(content);
+    if !content.ends_with(b"\n") {
+        doc.extend_from_slice(b"\n");
+    }
+    doc.extend_from_slice(b"endobj\n");
 }

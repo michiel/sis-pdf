@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use sis_pdf_core::ml_inference::{run_ml_inference, MlInferenceConfig};
-use sis_pdf_core::scan::{FontAnalysisOptions, ProfileFormat, ScanContext, ScanOptions};
+use sis_pdf_core::scan::{
+    CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanContext, ScanOptions,
+};
 
 fn load_context() -> anyhow::Result<ScanContext<'static>> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/synthetic.pdf");
@@ -46,6 +48,7 @@ fn load_context() -> anyhow::Result<ScanContext<'static>> {
         profile: false,
         profile_format: ProfileFormat::Text,
         group_chains: true,
+        correlation: CorrelationOptions::default(),
     };
     Ok(ScanContext::new(bytes, graph, opts))
 }

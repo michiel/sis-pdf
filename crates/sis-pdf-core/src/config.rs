@@ -82,6 +82,7 @@ pub struct ScanConfig {
     pub font_analysis: Option<FontAnalysisConfig>,
     #[serde(rename = "image-analysis")]
     pub image_analysis: Option<ImageAnalysisConfig>,
+    pub correlation: Option<CorrelationConfig>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -103,6 +104,19 @@ pub struct ImageAnalysisConfig {
     pub max_dimension: Option<u32>,
     pub max_xfa_decode_bytes: Option<usize>,
     pub max_filter_chain_depth: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CorrelationConfig {
+    pub enabled: Option<bool>,
+    pub launch_obfuscated: Option<bool>,
+    pub action_chain_malicious: Option<bool>,
+    pub xfa_data_exfiltration: Option<bool>,
+    pub encrypted_payload_delivery: Option<bool>,
+    pub obfuscated_payload: Option<bool>,
+    pub high_entropy_threshold: Option<f64>,
+    pub action_chain_depth: Option<usize>,
+    pub xfa_sensitive_field_threshold: Option<usize>,
 }
 
 impl Config {
@@ -646,6 +660,36 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
         }
         if !opts.image_analysis.enabled {
             opts.image_analysis.dynamic_enabled = false;
+        }
+    }
+    if let Some(corr_cfg) = &scan.correlation {
+        let corr = &mut opts.correlation;
+        if let Some(enabled) = corr_cfg.enabled {
+            corr.enabled = enabled;
+        }
+        if let Some(value) = corr_cfg.launch_obfuscated {
+            corr.launch_obfuscated_enabled = value;
+        }
+        if let Some(value) = corr_cfg.action_chain_malicious {
+            corr.action_chain_malicious_enabled = value;
+        }
+        if let Some(value) = corr_cfg.xfa_data_exfiltration {
+            corr.xfa_data_exfiltration_enabled = value;
+        }
+        if let Some(value) = corr_cfg.encrypted_payload_delivery {
+            corr.encrypted_payload_delivery_enabled = value;
+        }
+        if let Some(value) = corr_cfg.obfuscated_payload {
+            corr.obfuscated_payload_enabled = value;
+        }
+        if let Some(threshold) = corr_cfg.high_entropy_threshold {
+            corr.high_entropy_threshold = threshold;
+        }
+        if let Some(depth) = corr_cfg.action_chain_depth {
+            corr.action_chain_depth_threshold = depth;
+        }
+        if let Some(fields) = corr_cfg.xfa_sensitive_field_threshold {
+            corr.xfa_sensitive_field_threshold = fields;
         }
     }
 }

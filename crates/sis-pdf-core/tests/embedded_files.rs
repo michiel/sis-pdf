@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use sha2::{Digest, Sha256};
-use sis_pdf_core::scan::{FontAnalysisOptions, ProfileFormat, ScanOptions};
+use sis_pdf_core::scan::{CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanOptions};
 
 fn opts() -> ScanOptions {
     ScanOptions {
@@ -29,6 +29,7 @@ fn opts() -> ScanOptions {
         profile: false,
         profile_format: ProfileFormat::Text,
         group_chains: true,
+        correlation: CorrelationOptions::default(),
     }
 }
 

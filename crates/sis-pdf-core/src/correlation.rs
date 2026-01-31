@@ -1,21 +1,29 @@
 use crate::model::{AttackSurface, Confidence, Finding, Severity};
+use crate::scan::CorrelationOptions;
 use std::collections::{HashMap, HashSet};
 
-const HIGH_ENTROPY_THRESHOLD: f64 = 7.5;
-
 /// Produce correlated composite findings based on existing detectors.
-pub fn correlate_findings(findings: &[Finding]) -> Vec<Finding> {
+pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> Vec<Finding> {
+    if !config.enabled {
+        return Vec::new();
+    }
     let mut composites = Vec::new();
-    composites.extend(correlate_launch_obfuscated_executable(findings));
-    composites.extend(correlate_action_chain_malicious(findings));
-    composites.extend(correlate_xfa_data_exfiltration(findings));
-    composites.extend(correlate_encrypted_payload_delivery(findings));
-    composites.extend(correlate_obfuscated_payload(findings));
+    composites.extend(correlate_launch_obfuscated_executable(findings, config));
+    composites.extend(correlate_action_chain_malicious(findings, config));
+    composites.extend(correlate_xfa_data_exfiltration(findings, config));
+    composites.extend(correlate_encrypted_payload_delivery(findings, config));
+    composites.extend(correlate_obfuscated_payload(findings, config));
     composites
 }
 
-fn correlate_launch_obfuscated_executable(findings: &[Finding]) -> Vec<Finding> {
+fn correlate_launch_obfuscated_executable(
+    findings: &[Finding],
+    config: &CorrelationOptions,
+) -> Vec<Finding> {
     let mut composites = Vec::new();
+    if !config.launch_obfuscated_enabled {
+        return composites;
+    }
     let exe_map: HashMap<String, &Finding> = findings
         .iter()
         .filter(|f| f.kind == "embedded_executable_present")
@@ -25,7 +33,7 @@ fn correlate_launch_obfuscated_executable(findings: &[Finding]) -> Vec<Finding> 
     for launch in findings.iter().filter(|f| f.kind == "launch_embedded_file") {
         if let Some(hash) = get_meta(launch, "launch.embedded_file_hash") {
             if let Some(exe) = exe_map.get(hash) {
-                if has_high_entropy(exe) {
+                if has_high_entropy(exe, config.high_entropy_threshold) {
                     composites.push(build_composite(
                         "launch_obfuscated_executable",
                         "Obfuscated embedded executable launch",
@@ -54,8 +62,14 @@ fn correlate_launch_obfuscated_executable(findings: &[Finding]) -> Vec<Finding> 
     composites
 }
 
-fn correlate_action_chain_malicious(findings: &[Finding]) -> Vec<Finding> {
+fn correlate_action_chain_malicious(
+    findings: &[Finding],
+    config: &CorrelationOptions,
+) -> Vec<Finding> {
     let mut composites = Vec::new();
+    if !config.action_chain_malicious_enabled {
+        return composites;
+    }
     let complex = findings
         .iter()
         .filter(|f| f.kind == "action_chain_complex")
@@ -73,6 +87,9 @@ fn correlate_action_chain_malicious(findings: &[Finding]) -> Vec<Finding> {
         .collect::<Vec<_>>();
 
     for chain in complex {
+        if !meets_chain_depth(chain, config.action_chain_depth_threshold) {
+            continue;
+        }
         if automatic.iter().any(|a| shares_object(chain, a))
             && js_candidates.iter().any(|js| shares_object(chain, js))
         {
@@ -101,8 +118,14 @@ fn correlate_action_chain_malicious(findings: &[Finding]) -> Vec<Finding> {
     composites
 }
 
-fn correlate_xfa_data_exfiltration(findings: &[Finding]) -> Vec<Finding> {
+fn correlate_xfa_data_exfiltration(
+    findings: &[Finding],
+    config: &CorrelationOptions,
+) -> Vec<Finding> {
     let mut composites = Vec::new();
+    if !config.xfa_data_exfiltration_enabled {
+        return composites;
+    }
     let submit_urls: Vec<String> = findings
         .iter()
         .filter(|f| f.kind == "xfa_submit")
@@ -119,7 +142,7 @@ fn correlate_xfa_data_exfiltration(findings: &[Finding]) -> Vec<Finding> {
         .map(str::to_string)
         .collect();
 
-    if !submit_urls.is_empty() && !sensitive_fields.is_empty() {
+    if !submit_urls.is_empty() && sensitive_fields.len() >= config.xfa_sensitive_field_threshold {
         composites.push(build_composite(
             "xfa_data_exfiltration_risk",
             "Potential XFA data exfiltration",
@@ -141,8 +164,14 @@ fn correlate_xfa_data_exfiltration(findings: &[Finding]) -> Vec<Finding> {
     composites
 }
 
-fn correlate_encrypted_payload_delivery(findings: &[Finding]) -> Vec<Finding> {
+fn correlate_encrypted_payload_delivery(
+    findings: &[Finding],
+    config: &CorrelationOptions,
+) -> Vec<Finding> {
     let mut composites = Vec::new();
+    if !config.encrypted_payload_delivery_enabled {
+        return composites;
+    }
     let archives = findings
         .iter()
         .filter(|f| f.kind == "embedded_archive_encrypted")
@@ -172,8 +201,11 @@ fn correlate_encrypted_payload_delivery(findings: &[Finding]) -> Vec<Finding> {
     composites
 }
 
-fn correlate_obfuscated_payload(findings: &[Finding]) -> Vec<Finding> {
+fn correlate_obfuscated_payload(findings: &[Finding], config: &CorrelationOptions) -> Vec<Finding> {
     let mut composites = Vec::new();
+    if !config.obfuscated_payload_enabled {
+        return composites;
+    }
     let filters = findings
         .iter()
         .filter(|f| {
@@ -281,14 +313,21 @@ fn parse_float(value: Option<&str>) -> Option<f64> {
     value.and_then(|v| v.parse::<f64>().ok())
 }
 
-fn has_high_entropy(finding: &Finding) -> bool {
+fn has_high_entropy(finding: &Finding, threshold: f64) -> bool {
     parse_float(get_meta(finding, "entropy"))
-        .map(|entropy| entropy >= HIGH_ENTROPY_THRESHOLD)
+        .map(|entropy| entropy >= threshold)
         .unwrap_or(false)
 }
 
 fn shares_object(a: &Finding, b: &Finding) -> bool {
     a.objects.iter().any(|obj| b.objects.contains(obj))
+}
+
+fn meets_chain_depth(finding: &Finding, threshold: usize) -> bool {
+    get_meta(finding, "action.chain_depth")
+        .and_then(|value| value.parse::<usize>().ok())
+        .map(|depth| depth >= threshold)
+        .unwrap_or(false)
 }
 
 fn is_external_url(url: &str) -> bool {

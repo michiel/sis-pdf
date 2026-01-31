@@ -2906,8 +2906,8 @@ mod tests {
         // 76 (legacy) + 13 (attack surfaces) + 15 (severity) + 9 (confidence) +
         // 71 (presence) + 71 (counts) + 30 (JS) + 20 (URI) + 15 (content) +
         // 10 (supply chain) + 20 (structural) + 10 (crypto) + 15 (embedded)
-        // = 76 + 311 = 387
-        assert_eq!(vec.len(), 387, "Expected 387 features, got {}", vec.len());
+        // + 3 (correlation metadata) = 76 + 311 + 3 = 390
+        assert_eq!(vec.len(), 390, "Expected 390 features, got {}", vec.len());
     }
 
     #[test]
@@ -2923,7 +2923,7 @@ mod tests {
             names.len(),
             values.len()
         );
-        assert_eq!(names.len(), 387, "Expected 387 feature names");
+        assert_eq!(names.len(), 390, "Expected 390 feature names");
     }
 
     #[test]
@@ -2931,7 +2931,7 @@ mod tests {
         let features = ExtendedFeatureVector::default();
         let map = features.to_named_map();
 
-        assert_eq!(map.len(), 387, "Named map should have 387 entries");
+        assert_eq!(map.len(), 390, "Named map should have 390 entries");
         assert!(map.contains_key("general.file_size"));
         assert!(map.contains_key("js_signals.max_obfuscation_score"));
         assert!(map.contains_key("uri_signals.total_count"));
@@ -3330,18 +3330,18 @@ mod tests {
 
     #[test]
     fn test_extended_feature_vector_update_count() {
-        // This test verifies we have 387 features total
+        // This test verifies we have 390 features total
         let features = ExtendedFeatureVector::default();
         let vec = features.as_f32_vec();
 
         // 76 (legacy) + 13 (attack surfaces - added Images) + 15 (severity) + 9 (confidence) +
         // 71 (presence) + 71 (counts) + 30 (JS) + 28 (URI) + 15 (content) +
         // 10 (supply chain) + 20 (structural) + 10 (crypto) + 15 (embedded)
-        // = 76 + 311 = 387
+        // + 3 (correlation metadata) = 76 + 311 + 3 = 390
         assert_eq!(
             vec.len(),
-            387,
-            "Expected 387 features total, got {}",
+            390,
+            "Expected 390 features total, got {}",
             vec.len()
         );
     }

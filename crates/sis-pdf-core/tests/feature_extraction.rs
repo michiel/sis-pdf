@@ -1,5 +1,5 @@
 use sis_pdf_core::features::{feature_names, FeatureExtractor};
-use sis_pdf_core::scan::{FontAnalysisOptions, ProfileFormat, ScanOptions};
+use sis_pdf_core::scan::{CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanOptions};
 
 fn fixture_path(rel: &str) -> std::path::PathBuf {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -33,6 +33,7 @@ fn extract_features(rel: &str) -> sis_pdf_core::features::FeatureVector {
         profile: false,
         profile_format: ProfileFormat::Text,
         group_chains: true,
+        correlation: CorrelationOptions::default(),
     };
     FeatureExtractor::extract_from_bytes(&bytes, &opts).expect("extract features")
 }

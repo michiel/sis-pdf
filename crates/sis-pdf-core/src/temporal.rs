@@ -205,7 +205,9 @@ mod tests {
     use super::*;
     use crate::model::Confidence;
     use crate::report::Report;
-    use crate::scan::{FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat};
+    use crate::scan::{
+        CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat,
+    };
 
     fn test_opts() -> ScanOptions {
         ScanOptions {
@@ -233,6 +235,7 @@ mod tests {
             profile: false,
             profile_format: ProfileFormat::Text,
             group_chains: true,
+            correlation: CorrelationOptions::default(),
         }
     }
 
