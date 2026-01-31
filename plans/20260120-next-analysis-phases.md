@@ -1812,6 +1812,17 @@ Integrate all new features from Stages 1-6 into the feature extraction pipeline,
 - ✅ Integration tests validate full export pipeline.
 - ✅ ML pipeline documentation complete with examples.
 
+### Stage 8 completion
+
+- [x] Export outputs (CSV/JSON/JSONL) have been validated against `feature_names()` so the ML schema stays aligned with downstream pipelines.
+- [x] All Stage 8 documentation references (`docs/ml-features.md`, plan checklist) are up to date so the exporter shape is reproducible.
+- [x] Stage 9 prep notes captured in `NEXT_STEPS.md` so we can switch focus to correlation exports.
+
+### Stage 8 kickoff
+
+- [x] Verified `docs/ml-features.md` documents the 83-element vector and Stage 8 additions (XFA, encryption, filters).
+- [x] Run `sis query features --format csv/json` against the new fixtures to lock down the CSV header ordering and JSON structure for the ML export.
+
 ---
 
 ## Stage 9: Cross-Finding Correlation (Optional)
@@ -1919,6 +1930,11 @@ Implement correlation layer to combine findings and emit high-confidence composi
 - ✅ Integration tests verify correlation flows for launch, XFA, and filters.
 - ✅ No false correlations on benign PDFs.
 - ✅ Documentation updated with correlation options and usage notes.
+
+### Stage 9 preparation
+
+- [x] Captured the existing regression coverage and query exports in `plans/20260120-next-analysis-phases.md` so Stage 9 work can build on the stabilized pipeline.
+- [ ] Plan dashboard/JSONL/CSV exports for composite findings (`correlations` query) so operators can monitor per-pattern counts once Stage 9 runs land.
 
 ## Follow-up: Stage 7 and beyond
 

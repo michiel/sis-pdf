@@ -7325,6 +7325,63 @@ mod tests {
     }
 
     #[test]
+    fn batch_query_supports_correlations_predicate() {
+        let temp = tempdir().expect("tempdir");
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root is two levels above crate manifest");
+        let fixture_path = workspace_root
+            .join("crates")
+            .join("sis-pdf-core")
+            .join("tests")
+            .join("fixtures")
+            .join("xfa")
+            .join("xfa_submit_sensitive.pdf");
+        let pdf_path = temp.path().join("xfa_submit_sensitive.pdf");
+        fs::copy(&fixture_path, &pdf_path).expect("copy fixture");
+
+        let scan_options = ScanOptions::default();
+        let query = parse_query("correlations").expect("query");
+        let predicate = parse_predicate("kind == 'xfa_data_exfiltration_risk'").expect("predicate");
+        run_query_batch(
+            &query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            Some(&predicate),
+            OutputFormat::Json,
+            false,
+            5,
+            5 * 1024 * 1024,
+            3,
+        )
+        .expect("batch correlations query");
+
+        let count_query = parse_query("correlations.count").expect("query");
+        run_query_batch(
+            &count_query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            Some(&predicate),
+            OutputFormat::Json,
+            false,
+            5,
+            5 * 1024 * 1024,
+            3,
+        )
+        .expect("batch correlations count query");
+    }
+
+    #[test]
     fn execute_query_supports_findings_composite_predicate() {
         let bytes = build_launch_obfuscated_pdf(&high_entropy_payload());
         let options = ScanOptions::default();
@@ -7363,6 +7420,36 @@ mod tests {
                 assert!(n > 0, "expected positive composite count");
             }
             other => panic!("unexpected count result: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn execute_query_supports_correlations_predicate() {
+        let bytes = build_launch_obfuscated_pdf(&high_entropy_payload());
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+        let predicate =
+            parse_predicate("kind == 'launch_obfuscated_executable'").expect("predicate");
+
+        let result = execute_query_with_context(
+            &Query::Correlations,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            Some(&predicate),
+        )
+        .expect("execute correlations query");
+        match result {
+            QueryResult::Structure(value) => {
+                let obj = value.as_object().expect("expected object");
+                let entry = obj
+                    .get("launch_obfuscated_executable")
+                    .expect("expected composite summary");
+                let count = entry.get("count").and_then(Value::as_u64).expect("count");
+                assert!(count > 0, "expected positive composite count");
+            }
+            other => panic!("unexpected query result: {:?}", other),
         }
     }
 
