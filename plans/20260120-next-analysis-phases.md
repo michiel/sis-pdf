@@ -1917,6 +1917,12 @@ Implement correlation layer to combine findings and emit high-confidence composi
 - ✅ No false correlations on benign PDFs.
 - ✅ Documentation updated with correlation options and usage notes.
 
+## Follow-up: Stage 7 and beyond
+
+- **Stage 7 (Documentation & integration)** – The performance profile summary in `docs/performance.md` documents the Stage 0.5 SLO measurements, and the `docs/query-interface.md`/`docs/query-predicates.md` updates keep the predicate experience aligned with the new composite queries. Use this section as the place to capture any additional release-note text or instrumentation results before shipping.
+- **Stage 7.5 (Query integration)** – Maintain the regression coverage in `crates/sis-pdf/src/commands/query.rs:7238-7327` as new query shortcuts are introduced so `findings.composite` can stay predicate-filterable in batch/REPL contexts.
+- **Stage 8/9 (Feature vectors & ML)** – With the feature vector schema stabilised at 83 elements, the next push is to lock down the ML documentation (`docs/ml-features.md`, exporter scripts) and to ensure any optional correlation exports (dashboards, composite shortcut counts, or CSV/JSONL pipelines) remain consistent with the new architecture.
+
 ---
 
 ## Appendix A: Complete Findings Reference

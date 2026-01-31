@@ -16,6 +16,7 @@ Predicate filtering is supported for:
 - `urls`, `urls.count`
 - `events`, `events.document`, `events.page`, `events.field`, `events.count`
 - `findings`, `findings.count`, `findings.kind`, `findings.high`, `findings.medium`, `findings.low`, `findings.info`, `findings.critical`
+- `findings.composite`, `findings.composite.count`
 - finding shortcut queries (for example `embedded.executables`, `launch.external`, `streams.high-entropy`) and their `.count` variants
 - `encryption`, `encryption.weak`, `encryption.weak.count`
 - `streams.entropy`

@@ -144,6 +144,10 @@ sis query sample.pdf findings.composite
 sis query sample.pdf findings.composite.count
 ```
 
+### Composite findings queries
+
+`findings.composite` and `findings.composite.count` expose the Stage 9 correlated findings (for example `launch_obfuscated_executable`, `action_chain_malicious`, `xfa_data_exfiltration_risk`, `encrypted_payload_delivery`, `obfuscated_payload`). Because the predicate guard list now includes these queries, you can still pipe `--where` expressions such as `--where "kind == 'launch_obfuscated_executable'"` or `:where kind == \"launch_obfuscated_executable\"` in the REPL without hitting `QUERY_ERROR`. The regression coverage for both batch and REPL modes lives in `crates/sis-pdf/src/commands/query.rs:7238-7327`, so you can reference those tests when evaluating future grazing.
+
 ## Action Chain Queries
 
 Use `actions.chains` to inspect the catalog of action chains and `actions.chains.count` to tally them (predicate filtering applies to both). The JSON output includes chain metadata such as trigger, length (depth), automatic flag, `has_js`, and `has_external` flags, so you can run queries like:
