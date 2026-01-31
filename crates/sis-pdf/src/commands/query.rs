@@ -14,7 +14,9 @@ use std::time::Duration;
 use walkdir::WalkDir;
 
 use sis_pdf_core::correlation;
-use sis_pdf_core::model::Severity;
+use sis_pdf_core::model::{
+    AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
+};
 use sis_pdf_core::rich_media::{
     analyze_swf, detect_3d_format, detect_media_format, SWF_DECODE_TIMEOUT_MS,
 };
@@ -285,6 +287,40 @@ pub fn query_error_with_context(
         message: message.into(),
         context,
     })
+}
+
+fn build_invalid_pdf_result(pdf_path: &Path, bytes: &[u8], reason: &str) -> QueryResult {
+    let mut meta = HashMap::new();
+    meta.insert("path".to_string(), pdf_path.display().to_string());
+    meta.insert("reason".to_string(), reason.to_string());
+
+    let evidence_len = bytes.len().min(16) as u32;
+    let evidence = EvidenceSpan {
+        source: EvidenceSource::File,
+        offset: 0,
+        length: evidence_len,
+        origin: None,
+        note: Some("Invalid PDF header".into()),
+    };
+
+    let finding = Finding {
+        id: "invalid_pdf_header".into(),
+        surface: AttackSurface::FileStructure,
+        kind: "invalid_pdf_header".into(),
+        severity: Severity::High,
+        confidence: Confidence::Strong,
+        title: "Invalid PDF format".into(),
+        description: format!("File header validation failed: {}", reason),
+        objects: vec![pdf_path.display().to_string()],
+        evidence: vec![evidence],
+        remediation: Some("Ensure the file is a valid PDF and retry the scan.".into()),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    };
+
+    QueryResult::Structure(json!([finding]))
 }
 
 /// Parse a query string into a Query enum
@@ -1914,6 +1950,10 @@ pub fn execute_query(
     let ctx = match build_scan_context(&bytes, scan_options) {
         Ok(ctx) => ctx,
         Err(err) => {
+            let reason = err.to_string();
+            if reason.contains("missing PDF header") {
+                return Ok(build_invalid_pdf_result(pdf_path, &bytes, &reason));
+            }
             return Ok(query_error_with_context(
                 "PARSE_ERROR",
                 format!("Failed to parse PDF: {}", err),
@@ -5879,6 +5919,30 @@ pub fn run_query_batch(
     // Compile glob matcher
     let matcher = Glob::new(glob)?.compile_matcher();
 
+    let log_batch_file_issue =
+        |path: &Path, kind: &'static str, severity: SecuritySeverity, detail: &str| {
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Detection,
+                severity,
+                kind,
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Batch query skipped file",
+            }
+            .emit();
+            error!(
+                path = %path.display(),
+                reason = %detail,
+                kind = %kind,
+                "Batch query skipped file"
+            );
+        };
+
     // Walk directory and collect matching files
     let iter = if path.is_file() {
         WalkDir::new(path.parent().unwrap_or(path))
@@ -5981,10 +6045,34 @@ pub fn run_query_batch(
 
     let process_path = |path_buf: &PathBuf| -> Result<Option<BatchResult>> {
         let path_str = path_buf.display().to_string();
-        let mmap = mmap_file(path_buf)?;
+        let mmap = match mmap_file(path_buf) {
+            Ok(mmap) => mmap,
+            Err(err) => {
+                let detail = err.to_string();
+                log_batch_file_issue(
+                    path_buf,
+                    "batch_file_read_error",
+                    SecuritySeverity::Medium,
+                    &detail,
+                );
+                return Ok(None);
+            }
+        };
 
         // Build scan context
-        let ctx = build_scan_context(&mmap, scan_options)?;
+        let ctx = match build_scan_context(&mmap, scan_options) {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                let detail = err.to_string();
+                log_batch_file_issue(
+                    path_buf,
+                    "batch_invalid_pdf",
+                    SecuritySeverity::Low,
+                    &detail,
+                );
+                return Ok(None);
+            }
+        };
 
         // Execute query
         let result = execute_query_with_context(
@@ -7723,7 +7811,7 @@ mod tests {
     }
 
     #[test]
-    fn execute_query_reports_parse_error_for_missing_header() {
+    fn execute_query_reports_invalid_pdf_finding_for_missing_header() {
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let workspace_root = manifest_dir
             .parent()
@@ -7742,13 +7830,52 @@ mod tests {
             None,
         )
         .expect("query result");
-        let err = match result {
-            QueryResult::Error(err) => err,
-            other => panic!("expected error result, got {:?}", other),
+        let findings_value = match result {
+            QueryResult::Structure(value) => value,
+            other => panic!("expected findings result, got {:?}", other),
         };
-        assert_eq!(err.error_code, "PARSE_ERROR");
-        let context = err.context.expect("context");
-        assert_eq!(context["path"], json!(fixture_path.display().to_string()));
+        let findings: Vec<Finding> =
+            serde_json::from_value(findings_value).expect("deserialize findings");
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.kind, "invalid_pdf_header");
+        assert_eq!(finding.severity, Severity::High);
+        assert_eq!(finding.surface, AttackSurface::FileStructure);
+        assert!(finding.meta["path"].ends_with("invalid_header.pdf"));
+    }
+
+    #[test]
+    fn execute_query_reports_invalid_pdf_finding_for_html_header() {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root is two levels above crate manifest");
+        let fixture_path: PathBuf =
+            workspace_root.join("crates/sis-pdf-core/tests/fixtures/html_header.pdf");
+        let options = ScanOptions::default();
+        let result = execute_query(
+            &Query::Pages,
+            &fixture_path,
+            &options,
+            None,
+            1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("query result");
+        let findings_value = match result {
+            QueryResult::Structure(value) => value,
+            other => panic!("expected findings result, got {:?}", other),
+        };
+        let findings: Vec<Finding> =
+            serde_json::from_value(findings_value).expect("deserialize findings");
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.kind, "invalid_pdf_header");
+        assert_eq!(finding.severity, Severity::High);
+        assert_eq!(finding.surface, AttackSurface::FileStructure);
+        assert!(finding.meta["path"].ends_with("html_header.pdf"));
     }
 
     #[test]

@@ -2020,6 +2020,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
+## invalid_pdf_header
+
+- ID: `invalid_pdf_header`
+- Label: Invalid PDF header
+- Description: File identified as a PDF (extension/path) but the binary lacks a valid `%PDF-` header and is treated as malformed.
+- Tags: evasion, structure
+- Details:
+  - Relevance: high-risk heuristic encountered before detection execution.
+  - Meaning: the payload is hiding behind a PDF extension but is actually another format (HTML/JS/VBScript, etc.).
+  - Chain usage: reported independently so downstream analyses know the file never reached full parsing; correlates with parser failures and triggers early alerts.
+
 ## ml_adversarial_suspected
 
 - ID: `ml_adversarial_suspected`
