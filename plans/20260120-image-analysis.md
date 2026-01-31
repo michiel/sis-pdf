@@ -1340,9 +1340,9 @@ sis scan malware.pdf --deep  # Default behavior with full features
 - [x] Add tests for decode success cases
 
 **Fixtures:**
-- [ ] Add malformed JBIG2 fixture
-- [ ] Add malformed JPEG2000 fixture
-- [ ] Add valid image fixtures for each format
+- [x] Add malformed JBIG2 fixture
+- [x] Add malformed JPEG2000 fixture
+- [x] Add valid image fixtures for each format
 
 **Files to create:**
 - `crates/image-analysis/tests/dynamic_tests.rs`
@@ -1384,7 +1384,7 @@ sis scan malware.pdf --deep  # Default behavior with full features
 - [ ] Add differential analysis hooks (optional)
 
 **CVE Fixture Generation:**
-- [ ] Create `scripts/generate_image_fixtures.py`
+- [x] Create `scripts/generate_image_fixtures.py`
 - [x] Generate synthetic fixtures for CVE-2009-0658 (JBIG2)
 - [x] Generate synthetic fixtures for CVE-2018-4990 (JPX)
 - [x] Generate synthetic fixtures for CVE-2010-0188 (XFA/TIFF)
