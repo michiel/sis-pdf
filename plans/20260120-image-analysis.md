@@ -1363,6 +1363,7 @@ sis scan malware.pdf --deep  # Default behavior with full features
 - [ ] Test REPL mode with image queries
 - [ ] Add comprehensive documentation
 - [ ] Add usage examples to docs
+- [x] Add query-module tests covering `images`, `images.count`, and `images.malformed` with the new fixtures to verify predicate and deep-scan behaviour.
 
 **Files to modify:**
 - `docs/query-interface.md` (comprehensive image query docs)

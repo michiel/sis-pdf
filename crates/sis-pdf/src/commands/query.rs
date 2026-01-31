@@ -18,7 +18,7 @@ use sis_pdf_core::model::Severity;
 use sis_pdf_core::rich_media::{
     analyze_swf, detect_3d_format, detect_media_format, SWF_DECODE_TIMEOUT_MS,
 };
-use sis_pdf_core::scan::ScanContext;
+use sis_pdf_core::scan::{CorrelationOptions, ScanContext};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_detectors::xfa_forms::{collect_xfa_forms, XfaFormRecord};
 use sis_pdf_pdf::object::PdfAtom;
@@ -1909,6 +1909,7 @@ pub struct ScanOptions {
     pub no_recover: bool,
     pub max_objects: usize,
     pub group_chains: bool,
+    pub correlation: CorrelationOptions,
 }
 
 impl Default for ScanOptions {
@@ -1967,7 +1968,7 @@ fn build_scan_context<'a>(
         profile: false,
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
         group_chains: options.group_chains,
-        correlation: sis_pdf_core::scan::CorrelationOptions::default(),
+        correlation: options.correlation.clone(),
     };
 
     // Parse PDF
@@ -6377,6 +6378,78 @@ mod tests {
             let images =
                 extract_images(ctx, DecodeMode::Decode, 1024 * 1024, None).expect("images");
             assert!(images.iter().any(|line| line.contains("JBIG2")));
+        });
+    }
+
+    #[test]
+    fn images_query_reports_valid_jpeg_entries() {
+        with_fixture_context("images/valid_jpeg.pdf", |ctx| {
+            let result = execute_query_with_context(
+                &Query::Images,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("images query");
+
+            match result {
+                QueryResult::List(entries) => assert!(
+                    entries.iter().any(|entry| entry.contains("DCTDecode")),
+                    "expected JPEG filter entry"
+                ),
+                _ => panic!("expected list result for images query"),
+            }
+        });
+    }
+
+    #[test]
+    fn images_count_query_returns_positive() {
+        with_fixture_context("images/valid_jpeg.pdf", |ctx| {
+            let result = execute_query_with_context(
+                &Query::ImagesCount,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("images count query");
+
+            match result {
+                QueryResult::Scalar(ScalarValue::Number(count)) => {
+                    assert!(count > 0, "expected positive image count");
+                }
+                _ => panic!("expected scalar result for images.count query"),
+            }
+        });
+    }
+
+    #[test]
+    fn images_malformed_query_mentions_jbig2_fixture() {
+        let mut options = ScanOptions::default();
+        options.deep = true;
+        with_fixture_context_opts("images/malformed_jbig2.pdf", options, |ctx| {
+            let result = execute_query_with_context(
+                &Query::ImagesMalformed,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("images malformed query");
+
+            match result {
+                QueryResult::List(entries) => {
+                    assert!(
+                        entries.iter().any(|entry| entry.contains("JBIG2")),
+                        "expected JBIG2 indicator"
+                    )
+                }
+                _ => panic!("expected list result for images.malformed query"),
+            }
         });
     }
 

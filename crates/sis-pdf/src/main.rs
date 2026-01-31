@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sis_pdf_core::filter_allowlist::{default_filter_allowlist_toml, load_filter_allowlist};
 use sis_pdf_core::model::Severity as SecuritySeverity;
+use sis_pdf_core::scan::CorrelationOptions;
 use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
 use std::fs;
 use std::io::{IsTerminal, Read, Write};
@@ -2841,6 +2842,7 @@ fn run_query_repl(
         no_recover: !recover_xref,
         max_objects,
         group_chains,
+        correlation: CorrelationOptions::default(),
     };
 
     // Build scan context (this is expensive, so we do it once)
@@ -3319,6 +3321,7 @@ fn run_scan(
             _ => sis_pdf_core::scan::ProfileFormat::Text,
         },
         group_chains,
+        correlation: CorrelationOptions::default(),
     };
     let runtime_overrides = build_ml_runtime_config(
         ml_provider,
@@ -4068,6 +4071,7 @@ fn run_report(
         profile: false,
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
         group_chains,
+        correlation: CorrelationOptions::default(),
     };
     let mut opts = opts;
     let runtime_overrides = build_ml_runtime_config(
