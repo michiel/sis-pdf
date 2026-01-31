@@ -394,7 +394,12 @@ enum Command {
         no_js_sandbox: bool,
     },
     #[command(about = "Explain a specific finding with evidence details")]
-    Explain { pdf: String, finding_id: String },
+    Explain {
+        pdf: String,
+        finding_id: String,
+        #[arg(long, help = "Custom scan config to match the original scan")]
+        config: Option<PathBuf>,
+    },
     #[command(subcommand, about = "Streaming analysis of PDF content")]
     Stream(StreamCommand),
     #[command(subcommand, about = "Correlate findings across multiple PDFs")]
@@ -997,7 +1002,9 @@ fn main() -> Result<()> {
             !no_image_analysis,
             !no_image_dynamic,
         ),
-        Command::Explain { pdf, finding_id } => run_explain(&pdf, &finding_id),
+        Command::Explain {
+            pdf, finding_id, ..
+        } => run_explain(&pdf, &finding_id, config_path.as_deref()),
         Command::Stream(cmd) => match cmd {
             StreamCommand::Analyse {
                 pdf,
@@ -1036,6 +1043,7 @@ fn init_tracing(level: Option<&str>) {
 fn resolve_config_path_from_args(args: &Args) -> Option<PathBuf> {
     match &args.command {
         Command::Scan { config, .. } => resolve_config_path(config.as_deref()),
+        Command::Explain { config, .. } => resolve_config_path(config.as_deref()),
         Command::Ml(cmd) => match cmd {
             MlCommand::Detect { config, .. } => resolve_config_path(config.as_deref()),
             MlCommand::Autoconfig { config, .. } => resolve_config_path(config.as_deref()),
@@ -3916,9 +3924,9 @@ fn run_scan_batch(
     println!("{}", md);
     Ok(())
 }
-fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
+fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) -> Result<()> {
     let mmap = mmap_file(pdf)?;
-    let opts = sis_pdf_core::scan::ScanOptions {
+    let mut opts = sis_pdf_core::scan::ScanOptions {
         strict: false,
         strict_summary: false,
         ir: false,
@@ -3945,13 +3953,17 @@ fn run_explain(pdf: &str, finding_id: &str) -> Result<()> {
         group_chains: true,
         correlation: CorrelationOptions::default(),
     };
+    if let Some(path) = config {
+        let cfg = sis_pdf_core::config::Config::load(path)?;
+        cfg.apply(&mut opts, None);
+    }
     let detectors = sis_pdf_detectors::default_detectors();
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(true);
     let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
         .with_input_path(Some(pdf.to_string()))
         .with_sandbox_summary(sandbox_summary);
     let Some(finding) = report.findings.iter().find(|f| f.id == finding_id) else {
-        return Err(anyhow!("finding id not found"));
+        return Err(anyhow!("finding id not found; the scan that produced this ID may have been run with a different configuration (rerun this explain with the same --config or default settings)."));
     };
     println!(
         "{} - {}",

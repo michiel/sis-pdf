@@ -7622,7 +7622,12 @@ mod tests {
         doc
     }
 
-    fn append_text_object(doc: &mut Vec<u8>, offsets: &mut Vec<usize>, number: usize, content: &[u8]) {
+    fn append_text_object(
+        doc: &mut Vec<u8>,
+        offsets: &mut Vec<usize>,
+        number: usize,
+        content: &[u8],
+    ) {
         offsets.push(doc.len());
         doc.extend_from_slice(format!("{} 0 obj\n", number).as_bytes());
         doc.extend_from_slice(content);
