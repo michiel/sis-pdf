@@ -1,5 +1,5 @@
-# Next Steps (2026-01-30)
+# Next Steps (2026-01-31)
 
-1. Document the completed Stage 9 correlation layer (config knobs, composite IDs, and regression tests) so future reviewers can trace the new composite findings back to the configuration docs and test matrix.
-2. Validate the remaining data paths introduced by the new findings: run `sis query features --format jsonl` to ensure the 76 feature columns (including correlation metadata) appear, refresh `docs/ml-features.md` with the updated feature index, and double-check JSONL/csv exports still match the schema.
-3. Continue Stage 8 Feature Vector integration and cross-finding QA: lock down the feature ordering, confirm the JSONL & CSV exporters reference the new fields, and plan follow-up query documentation for the correlation shortcuts introduced today.
+1. Add the batch/REPL regression tests described around `plans/20260120-next-analysis-phases.md:1667-1677` so every new query (including the `findings.composite` shortcuts and predicate fields) runs cleanly in both `--path` and REPL modes, revealing any remaining gaps before we ship.
+2. Capture the Stage 0.5 performance profile table by wiring proper `--profile` instrumentation into `sis`, running it against a CVE fixture (per `plans/20260120-next-analysis-phases.md:1583-1586`), and documenting the latency/SLO results for inclusion in the future `docs/performance` or `docs/analysis` sections.
+3. Follow through with the deferred query/predicate documentation/coverage items at `plans/20260120-next-analysis-phases.md:1547-1597`—add metadata examples, refresh predicate guidance, and lock down the remaining predicate filtering tests now that the feature vector and correlation data are settled.

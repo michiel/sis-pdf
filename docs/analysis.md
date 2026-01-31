@@ -131,6 +131,11 @@ Focus: textual cues and overlay links.
 - Extract URLs from actions, JS, and payload previews.
 - `network_intents` provides a cross-file correlation surface.
 
+### Stage 9: Composite Correlation Layer
+- `sis` runs the optional Stage 9 correlator after detectors resolve, composing higher-level findings from multiple signals. The configuration knobs live under `[scan.correlation]` in `docs/configuration.md`, and the Rust `CorrelationOptions` struct (defaults shown there) lets operators tune entropy, chain depth and sensitive-field thresholds while enabling or disabling each pattern individually.
+- Composite findings correspond to the Stage 9 patterns: `launch_obfuscated_executable`, `action_chain_malicious`, `xfa_data_exfiltration_risk`, `encrypted_payload_delivery`, and `obfuscated_payload`. Each one reuses the evidence spans from the contributing findings (launch targets, embedded executables, action chains, XFA submissions, filters and entropy) so triage workflows can trace the full attack path back through the base findings listed above.
+- Regression coverage lives in `crates/sis-pdf-core/tests/correlation.rs` and the fixtures referenced there. Those tests exercise every correlation pattern, including the no-op guardrail that ensures benign PDFs do not emit composite findings, and integration suites such as `tests/action_triggers.rs`, `tests/embedded_files.rs`, and `tests/encryption_obfuscation.rs` validate the correlated findings when the inputs span multiple modules.
+
 ## 4) IR/ORG Static Graph Detectors (No ML)
 
 ### Action-to-Payload Path

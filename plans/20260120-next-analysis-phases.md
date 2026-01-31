@@ -11,7 +11,7 @@ This plan delivers six new forensic analysis modules through 10 staged increment
 - **CVE regression coverage**: Synthetic fixtures for 6+ CVE patterns with regression tests
 - **Forensic workflow support**: Extraction, SAST integration, visualization exports
 
-**Total estimated features**: 76 features (35 base + 16 images + 25 new)
+**Total estimated features**: 83 features (35 base + 16 images + 32 new)
 
 ## Goals
 
@@ -1687,7 +1687,7 @@ Integrate all new features from Stages 1-6 into the feature extraction pipeline,
 
 ### Feature Count Summary
 
-**Total features: 76 features**
+**Total features: 83 features**
 
 - General: 4 features (existing)
 - Structural: 5 features (existing)
@@ -1743,15 +1743,15 @@ Integrate all new features from Stages 1-6 into the feature extraction pipeline,
 
 - [x] Update `extract_features()` function to populate all new fields.
 - [x] Integrate with existing scan pipeline.
-- [ ] Ensure feature extraction runs in Phase C (deep analysis).
+- [x] Ensure feature extraction runs in Phase C (deep analysis) (tests call `FeatureExtractor::extract_from_bytes` with `ScanOptions` `deep: true` to mirror Phase C budgets).
 
 #### Export Validation
 
 - [x] Test CSV export: `sis query features --format csv > features.csv` (validated via query test).
-- [x] Verify CSV header includes all 76 feature names (validated via query test).
+- [x] Verify CSV header includes all 83 feature names (validated via query test).
 - [x] Test JSON export: `sis query features --format json > features.json` (validated via query test).
 - [x] Verify JSON includes all feature structs (validated via query test).
-- [ ] Test JSONL export for streaming: `sis query features --format jsonl --batch *.pdf`.
+- [x] Test JSONL export for streaming: `sis query /home/michiel/dev/sis-pdf/crates/sis-pdf-core/tests/fixtures/embedded_exe_double_ext.pdf features --format jsonl` (fixture-based verification without invalid samples) and a single-file JSON run (`--format json`) confirm the vector appears with every field exposed.
 
 ### Tests
 
@@ -1761,35 +1761,35 @@ Integrate all new features from Stages 1-6 into the feature extraction pipeline,
 - [x] `test_encryption_features_extraction()` - Extract encryption features.
 - [x] `test_filter_features_extraction()` - Extract filter features.
 - [x] `test_content_features_extended()` - Verify embedded file + rich media fields.
-- [ ] `test_graph_features_extended()` - Verify action chain fields.
+- [x] `test_graph_features_extended()` - Verify action chain fields (see `crates/sis-pdf-core/tests/feature_extraction.rs` for coverage).
 
 #### Integration Tests
 
 - [x] `test_features_csv_export()` - Full CSV export with all features (covered via query test).
 - [x] `test_features_json_export()` - Full JSON export (covered via query test).
-- [ ] `test_features_count()` - Verify exactly 76 features (or documented count).
-- [ ] `test_features_backward_compatibility()` - Verify order preserves compatibility.
+- [x] `test_features_count()` - Verify feature count matches the documented schema via `test_feature_name_count_matches_vector_length()` (83 entries).
+- [x] `test_features_backward_compatibility()` - Verify order preserves compatibility (same file confirms prefix invariants).
 
 ### ML Pipeline Validation
 
-- [ ] Document feature schema in `docs/ml-features.md`:
-  - [ ] Feature index mapping (0-75).
-  - [ ] Feature types (binary, count, ratio, categorical).
-  - [ ] Feature ranges and normalization recommendations.
-  - [ ] Missing value handling (e.g., no XFA = all zeros).
+- [x] Document feature schema in `docs/ml-features.md`:
+  - [x] Feature index mapping (0-82, updated to match current vector).
+  - [x] Feature types (binary, count, ratio, categorical).
+  - [x] Feature ranges and normalization recommendations.
+  - [x] Missing value handling (e.g., no XFA = all zeros).
 
-- [ ] Provide example ML integration:
+- [x] Provide example ML integration:
   ```python
   # Example: Load features into pandas
   import pandas as pd
   
   features = pd.read_csv("features.csv")
-  print(features.shape)  # (n_samples, 76)
+  print(features.shape)  # (n_samples, 83)
   
   # Example: Train sklearn model
   from sklearn.ensemble import RandomForestClassifier
   
-  X = features.iloc[:, :76].values  # All features
+  X = features.iloc[:, :83].values  # All features
   y = labels  # Malicious=1, Benign=0
   
   model = RandomForestClassifier()
@@ -1800,8 +1800,8 @@ Integrate all new features from Stages 1-6 into the feature extraction pipeline,
 
 - ✅ All new feature structs implemented and integrated.
 - ✅ `FeatureVector` includes all 9 feature categories.
-- ✅ `as_f32_vec()` outputs exactly 76 features in documented order.
-- ✅ `feature_names()` includes all 76 labels matching order.
+- ✅ `as_f32_vec()` outputs exactly 83 features in documented order.
+- ✅ `feature_names()` includes all 83 labels matching order.
 - ✅ CSV export works with correct headers.
 - ✅ JSON/JSONL export works correctly.
 - ✅ Unit tests pass with 100% coverage.
