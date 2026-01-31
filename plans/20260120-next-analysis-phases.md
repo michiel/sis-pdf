@@ -1930,11 +1930,12 @@ Implement correlation layer to combine findings and emit high-confidence composi
 - ✅ Integration tests verify correlation flows for launch, XFA, and filters.
 - ✅ No false correlations on benign PDFs.
 - ✅ Documentation updated with correlation options and usage notes.
+- [x] Correlation export helpers (`scripts/export_correlations.py` and docs/correlation-exports.md) guide dashboard ingestion.
 
 ### Stage 9 preparation
 
 - [x] Captured the existing regression coverage and query exports in `plans/20260120-next-analysis-phases.md` so Stage 9 work can build on the stabilized pipeline.
-- [ ] Plan dashboard/JSONL/CSV exports for composite findings (`correlations` query) so operators can monitor per-pattern counts once Stage 9 runs land.
+- [x] Plan dashboard/JSONL/CSV exports for composite findings (`correlations` query) so operators can monitor per-pattern counts once Stage 9 runs land.
 
 ## Follow-up: Stage 7 and beyond
 
