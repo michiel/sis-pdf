@@ -1334,10 +1334,10 @@ sis scan malware.pdf --deep  # Default behavior with full features
 #### Step 7 (continued): Extended Testing
 
 **Dynamic analysis tests:**
-- [ ] Add tests for timeout enforcement
-- [ ] Add tests for size limit enforcement
-- [ ] Add tests for malformed image handling
-- [ ] Add tests for decode success cases
+- [x] Add tests for timeout enforcement
+- [x] Add tests for size limit enforcement
+- [x] Add tests for malformed image handling
+- [x] Add tests for decode success cases
 
 **Fixtures:**
 - [ ] Add malformed JBIG2 fixture
