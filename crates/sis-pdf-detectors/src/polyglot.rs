@@ -21,59 +21,19 @@ impl Detector for PolyglotDetector {
         Cost::Cheap
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let bytes = ctx.bytes;
-        if bytes.is_empty() {
+        let summary = analyze_polyglot_signatures(ctx.bytes);
+        if summary.pdf_header_offset.is_none() {
             return Ok(Vec::new());
         }
-        let head_len = 4096.min(bytes.len());
-        let tail_len = 4096.min(bytes.len());
-        let head = &bytes[..head_len];
-        let tail = &bytes[bytes.len().saturating_sub(tail_len)..];
-
-        let pdf_offsets = find_all(head, b"%PDF-");
-        let pdf_offset = pdf_offsets.first().copied();
-        let pdf_at_zero = matches!(pdf_offset, Some(0));
-        if pdf_offset.is_none() {
+        if summary.hits.is_empty() {
             return Ok(Vec::new());
         }
 
-        let mut hits = Vec::new();
-        let sigs = magic_signatures();
-        for sig in sigs {
-            if sig.offset_zero {
-                if bytes.starts_with(sig.bytes) {
-                    hits.push(MagicHit::new(sig.label, 0, sig.bytes.len(), "offset0"));
-                }
-                continue;
-            }
-            for off in find_all(head, sig.bytes) {
-                hits.push(MagicHit::new(sig.label, off, sig.bytes.len(), "head"));
-            }
-            for off in find_all(tail, sig.bytes) {
-                let abs = bytes.len().saturating_sub(tail.len()).saturating_add(off);
-                hits.push(MagicHit::new(sig.label, abs, sig.bytes.len(), "tail"));
-            }
-            if sig.case_insensitive {
-                for off in find_all_ascii_case_insensitive(head, sig.bytes) {
-                    hits.push(MagicHit::new(sig.label, off, sig.bytes.len(), "head-ci"));
-                }
-                for off in find_all_ascii_case_insensitive(tail, sig.bytes) {
-                    let abs = bytes.len().saturating_sub(tail.len()).saturating_add(off);
-                    hits.push(MagicHit::new(sig.label, abs, sig.bytes.len(), "tail-ci"));
-                }
-            }
-        }
+        let pdf_offset = summary.pdf_header_offset.unwrap_or(0);
+        let pdf_at_zero = summary.pdf_header_at_zero;
 
-        hits.retain(|h| !h.label.eq_ignore_ascii_case("PDF"));
-        hits.sort_by(|a, b| (a.offset, a.label).cmp(&(b.offset, b.label)));
-        hits.dedup_by(|a, b| a.offset == b.offset && a.label == b.label);
-
-        if hits.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let non_pdf_at_zero = hits.iter().any(|h| h.offset == 0);
-        let strong_conflict = non_pdf_at_zero && pdf_offset.unwrap_or(0) > 0;
+        let non_pdf_at_zero = summary.hits.iter().any(|h| h.offset == 0);
+        let strong_conflict = non_pdf_at_zero && pdf_offset > 0;
 
         let severity = if strong_conflict {
             Severity::Medium
@@ -89,12 +49,12 @@ impl Detector for PolyglotDetector {
         let mut evidence = Vec::new();
         evidence.push(EvidenceSpan {
             source: EvidenceSource::File,
-            offset: pdf_offset.unwrap_or(0) as u64,
+            offset: pdf_offset as u64,
             length: 5,
             origin: None,
             note: Some("PDF header".into()),
         });
-        for hit in hits.iter().take(8) {
+        for hit in summary.hits.iter().take(8) {
             evidence.push(EvidenceSpan {
                 source: EvidenceSource::File,
                 offset: hit.offset as u64,
@@ -104,17 +64,15 @@ impl Detector for PolyglotDetector {
             });
         }
 
-        let sig_list = hits
+        let sig_list = summary
+            .hits
             .iter()
             .take(12)
             .map(|h| format!("{}@{}", h.label, h.offset))
             .collect::<Vec<_>>()
             .join(", ");
         let mut meta = std::collections::HashMap::new();
-        meta.insert(
-            "polyglot.pdf_header_offset".into(),
-            pdf_offset.unwrap_or(0).to_string(),
-        );
+        meta.insert("polyglot.pdf_header_offset".into(), pdf_offset.to_string());
         meta.insert(
             "polyglot.pdf_header_at_zero".into(),
             pdf_at_zero.to_string(),
@@ -130,8 +88,7 @@ impl Detector for PolyglotDetector {
             title: "Polyglot signature conflict".into(),
             description: format!(
                 "Detected conflicting magic signatures with PDF header at offset {}. Signatures: {}.",
-                pdf_offset.unwrap_or(0),
-                sig_list
+                pdf_offset, sig_list
             ),
             objects: vec!["file_header".into()],
             evidence,
@@ -141,9 +98,88 @@ impl Detector for PolyglotDetector {
             ),
             meta,
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
         }])
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PolyglotMagicHit {
+    pub label: &'static str,
+    pub offset: usize,
+    pub length: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct PolyglotSignatureSummary {
+    pub hits: Vec<PolyglotMagicHit>,
+    pub pdf_header_offset: Option<usize>,
+    pub pdf_header_at_zero: bool,
+}
+
+pub fn analyze_polyglot_signatures(bytes: &[u8]) -> PolyglotSignatureSummary {
+    if bytes.is_empty() {
+        return PolyglotSignatureSummary {
+            hits: Vec::new(),
+            pdf_header_offset: None,
+            pdf_header_at_zero: false,
+        };
+    }
+
+    let head_len = 4096.min(bytes.len());
+    let tail_len = 4096.min(bytes.len());
+    let head = &bytes[..head_len];
+    let tail = &bytes[bytes.len().saturating_sub(tail_len)..];
+
+    let pdf_offsets = find_all(head, b"%PDF-");
+    let pdf_offset = pdf_offsets.first().copied();
+    let pdf_at_zero = matches!(pdf_offset, Some(0));
+
+    let mut hits = Vec::new();
+    let sigs = magic_signatures();
+    for sig in sigs {
+        if sig.offset_zero {
+            if bytes.starts_with(sig.bytes) {
+                hits.push(MagicHit::new(sig.label, 0, sig.bytes.len(), "offset0"));
+            }
+            continue;
+        }
+        for off in find_all(head, sig.bytes) {
+            hits.push(MagicHit::new(sig.label, off, sig.bytes.len(), "head"));
+        }
+        for off in find_all(tail, sig.bytes) {
+            let abs = bytes.len().saturating_sub(tail.len()).saturating_add(off);
+            hits.push(MagicHit::new(sig.label, abs, sig.bytes.len(), "tail"));
+        }
+        if sig.case_insensitive {
+            for off in find_all_ascii_case_insensitive(head, sig.bytes) {
+                hits.push(MagicHit::new(sig.label, off, sig.bytes.len(), "head-ci"));
+            }
+            for off in find_all_ascii_case_insensitive(tail, sig.bytes) {
+                let abs = bytes.len().saturating_sub(tail.len()).saturating_add(off);
+                hits.push(MagicHit::new(sig.label, abs, sig.bytes.len(), "tail-ci"));
+            }
+        }
+    }
+
+    hits.retain(|h| !h.label.eq_ignore_ascii_case("PDF"));
+    hits.sort_by(|a, b| (a.offset, a.label).cmp(&(b.offset, b.label)));
+    hits.dedup_by(|a, b| a.offset == b.offset && a.label == b.label);
+
+    let hits = hits
+        .into_iter()
+        .map(|hit| PolyglotMagicHit {
+            label: hit.label,
+            offset: hit.offset,
+            length: hit.length,
+        })
+        .collect::<Vec<_>>();
+
+    PolyglotSignatureSummary {
+        hits,
+        pdf_header_offset: pdf_offset,
+        pdf_header_at_zero: pdf_at_zero,
     }
 }
 

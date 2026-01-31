@@ -22,6 +22,7 @@ use sis_pdf_core::rich_media::{
 };
 use sis_pdf_core::scan::{CorrelationOptions, ScanContext};
 use sis_pdf_core::timeout::TimeoutChecker;
+use sis_pdf_detectors::polyglot::analyze_polyglot_signatures;
 use sis_pdf_detectors::xfa_forms::{collect_xfa_forms, XfaFormRecord};
 use sis_pdf_pdf::object::PdfAtom;
 use syntect::easy::HighlightLines;
@@ -320,7 +321,88 @@ fn build_invalid_pdf_result(pdf_path: &Path, bytes: &[u8], reason: &str) -> Quer
         positions: Vec::new(),
     };
 
-    QueryResult::Structure(json!([finding]))
+    let mut findings = vec![finding];
+    let summary = analyze_polyglot_signatures(bytes);
+    if let Some(polyglot) = build_polyglot_finding(pdf_path, &summary) {
+        findings.push(polyglot);
+    }
+
+    QueryResult::Structure(json!(findings))
+}
+
+fn build_polyglot_finding(
+    pdf_path: &Path,
+    summary: &sis_pdf_detectors::polyglot::PolyglotSignatureSummary,
+) -> Option<Finding> {
+    if summary.hits.is_empty() {
+        return None;
+    }
+
+    let strong_conflict = summary.hits.iter().any(|hit| hit.offset == 0);
+    let severity = if strong_conflict {
+        Severity::Medium
+    } else {
+        Severity::Low
+    };
+    let confidence = if strong_conflict {
+        Confidence::Probable
+    } else {
+        Confidence::Heuristic
+    };
+
+    let sig_list = summary
+        .hits
+        .iter()
+        .take(12)
+        .map(|hit| format!("{}@{}", hit.label, hit.offset))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut evidence = Vec::new();
+    for hit in summary.hits.iter().take(8) {
+        evidence.push(EvidenceSpan {
+            source: EvidenceSource::File,
+            offset: hit.offset as u64,
+            length: hit.length as u32,
+            origin: None,
+            note: Some(format!("Magic {}", hit.label)),
+        });
+    }
+
+    let mut meta = HashMap::new();
+    let header_offset = summary
+        .pdf_header_offset
+        .map(|off| off.to_string())
+        .unwrap_or_else(|| "missing".into());
+    meta.insert("polyglot.pdf_header_offset".into(), header_offset);
+    meta.insert(
+        "polyglot.pdf_header_at_zero".into(),
+        summary.pdf_header_at_zero.to_string(),
+    );
+    meta.insert("polyglot.signatures".into(), sig_list.clone());
+
+    Some(Finding {
+        id: "polyglot_signature_conflict".into(),
+        surface: AttackSurface::FileStructure,
+        kind: "polyglot_signature_conflict".into(),
+        severity,
+        confidence,
+        title: "Polyglot signature conflict".into(),
+        description: format!(
+            "File header failed but conflicting signatures were still detected: {}.",
+            sig_list
+        ),
+        objects: vec![pdf_path.display().to_string()],
+        evidence,
+        remediation: Some(
+            "Validate file type by content and block mixed-format files in the PDF pipeline."
+                .into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    })
 }
 
 /// Parse a query string into a Query enum
@@ -7836,12 +7918,19 @@ mod tests {
         };
         let findings: Vec<Finding> =
             serde_json::from_value(findings_value).expect("deserialize findings");
-        assert_eq!(findings.len(), 1);
-        let finding = &findings[0];
-        assert_eq!(finding.kind, "invalid_pdf_header");
-        assert_eq!(finding.severity, Severity::High);
-        assert_eq!(finding.surface, AttackSurface::FileStructure);
-        assert!(finding.meta["path"].ends_with("invalid_header.pdf"));
+        let invalid = findings
+            .iter()
+            .find(|f| f.kind == "invalid_pdf_header")
+            .expect("missing invalid header finding");
+        assert_eq!(invalid.severity, Severity::High);
+        assert_eq!(invalid.surface, AttackSurface::FileStructure);
+        assert!(invalid.meta["path"].ends_with("invalid_header.pdf"));
+        if let Some(polyglot) = findings
+            .iter()
+            .find(|f| f.kind == "polyglot_signature_conflict")
+        {
+            assert!(polyglot.meta["polyglot.signatures"].as_str().len() > 0);
+        }
     }
 
     #[test]
@@ -7870,12 +7959,19 @@ mod tests {
         };
         let findings: Vec<Finding> =
             serde_json::from_value(findings_value).expect("deserialize findings");
-        assert_eq!(findings.len(), 1);
-        let finding = &findings[0];
-        assert_eq!(finding.kind, "invalid_pdf_header");
-        assert_eq!(finding.severity, Severity::High);
-        assert_eq!(finding.surface, AttackSurface::FileStructure);
-        assert!(finding.meta["path"].ends_with("html_header.pdf"));
+        let invalid = findings
+            .iter()
+            .find(|f| f.kind == "invalid_pdf_header")
+            .expect("missing invalid header finding");
+        assert_eq!(invalid.severity, Severity::High);
+        assert!(invalid.meta["path"].ends_with("html_header.pdf"));
+        let polyglot = findings
+            .iter()
+            .find(|f| f.kind == "polyglot_signature_conflict")
+            .expect("missing polyglot finding");
+        assert_eq!(polyglot.surface, AttackSurface::FileStructure);
+        assert_eq!(polyglot.severity, Severity::Medium);
+        assert!(polyglot.meta["polyglot.signatures"].as_str().contains("@"));
     }
 
     #[test]
