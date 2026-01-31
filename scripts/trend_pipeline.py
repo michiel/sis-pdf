@@ -13,7 +13,7 @@ from pathlib import Path
 
 def sis_version() -> str:
     try:
-        proc = subprocess.run(["sis", "--version"], check=True, capture_output=True, text=True)
+        proc = subprocess.run(["sis", "version"], check=True, capture_output=True, text=True)
         return proc.stdout.strip()
     except subprocess.CalledProcessError:
         return "unknown"

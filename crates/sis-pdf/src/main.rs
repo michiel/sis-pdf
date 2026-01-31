@@ -406,6 +406,8 @@ enum Command {
     Correlate(CorrelateCommand),
     #[command(subcommand, about = "Generate test fixtures and response rules")]
     Generate(GenerateCommand),
+    #[command(about = "Print sis version")]
+    Version,
 }
 
 #[derive(Subcommand)]
@@ -666,6 +668,10 @@ fn main() -> Result<()> {
             MlCommand::ComputeBaseline { input, out } => run_compute_baseline(&input, &out),
         },
         Command::Update { include_prerelease } => run_update(include_prerelease),
+        Command::Version => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         Command::Query {
             query,
             pdf,

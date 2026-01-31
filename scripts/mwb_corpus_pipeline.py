@@ -149,7 +149,7 @@ def run_sis_scan(
 def read_sis_version(sis_bin: str) -> str:
     try:
         proc = subprocess.run(
-            [sis_bin, "--version"], capture_output=True, text=True, check=False
+            [sis_bin, "version"], capture_output=True, text=True, check=False
         )
         version = proc.stdout.strip()
         return version or "unknown"
