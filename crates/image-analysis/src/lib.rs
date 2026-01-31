@@ -1,5 +1,6 @@
 pub mod dynamic;
 pub mod static_analysis;
+mod timeout;
 mod util;
 
 use serde::{Deserialize, Serialize};

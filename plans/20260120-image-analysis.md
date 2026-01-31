@@ -1315,11 +1315,11 @@ sis scan malware.pdf --deep  # Default behavior with full features
 - [x] Add JPEG2000 decoder (`hayro-jpeg2000` crate)
 
 **Hard limits implementation:**
-- [ ] Implement cooperative timeout checking (TimeoutChecker)
-- [ ] Implement max_pixels limit (100 million default)
-- [ ] Implement max_decode_bytes limit (256 MB default)
-- [ ] Implement total budget per PDF (5 seconds default)
-- [ ] Implement auto-skip threshold (50 images default)
+- [x] Implement cooperative timeout checking (TimeoutChecker)
+- [x] Implement max_pixels limit (100 million default)
+- [x] Implement max_decode_bytes limit (256 MB default)
+- [x] Implement total budget per PDF (5 seconds default)
+- [x] Implement auto-skip threshold (50 images default)
 
 **Findings emission:**
 - [x] Emit findings for decode failures

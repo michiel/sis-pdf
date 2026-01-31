@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use sis_pdf_pdf::decode::{decode_stream_with_meta, DecodeLimits};
 use sis_pdf_pdf::object::{PdfAtom, PdfStream};
 use sis_pdf_pdf::xfa::extract_xfa_image_payloads;
 use sis_pdf_pdf::ObjectGraph;
 
+use crate::timeout::TimeoutChecker;
 use crate::util::dict_u32;
 use crate::{ImageDynamicOptions, ImageDynamicResult, ImageFinding};
 
@@ -90,8 +91,9 @@ pub fn analyze_dynamic_images(
             continue;
         };
 
-        if image_exceeds_limits(stream, opts) {
+        if let Some(reason) = image_exceeds_limits(stream, data, opts) {
             meta.insert("image.decode_too_large".into(), "true".into());
+            meta.insert("image.decode_too_large_reason".into(), reason.into());
             meta.insert("image.decode".into(), "too_large".into());
             findings.push(ImageFinding {
                 kind: "image.decode_too_large".into(),
@@ -102,9 +104,21 @@ pub fn analyze_dynamic_images(
             continue;
         }
 
+        let timeout = if opts.timeout_ms > 0 {
+            Some(TimeoutChecker::new(
+                Duration::from_millis(opts.timeout_ms),
+                1024,
+            ))
+        } else {
+            None
+        };
+        let timeout_ref = timeout.as_ref();
         let start = Instant::now();
-        let decode_result = decode_image_data(graph, data, stream, &filters, opts);
-        let mut elapsed_ms = start.elapsed().as_millis();
+        let decode_result = decode_image_data(graph, data, stream, &filters, opts, timeout_ref);
+        let elapsed = timeout_ref
+            .map(|checker| checker.elapsed())
+            .unwrap_or_else(|| start.elapsed());
+        let mut elapsed_ms = elapsed.as_millis();
         if elapsed_ms == 0 {
             elapsed_ms = 1;
         }
@@ -218,13 +232,24 @@ fn stream_data<'a>(graph: &'a ObjectGraph<'a>, stream: &PdfStream<'_>) -> Option
     Some(&graph.bytes[start..end])
 }
 
-fn image_exceeds_limits(stream: &PdfStream<'_>, opts: &ImageDynamicOptions) -> bool {
+fn image_exceeds_limits(
+    stream: &PdfStream<'_>,
+    data: &[u8],
+    opts: &ImageDynamicOptions,
+) -> Option<&'static str> {
+    if opts.max_decode_bytes > 0 && data.len() > opts.max_decode_bytes {
+        return Some("bytes");
+    }
     let width = dict_u32(&stream.dict, b"/Width");
     let height = dict_u32(&stream.dict, b"/Height");
-    let Some(width) = width else { return false };
-    let Some(height) = height else { return false };
+    let Some(width) = width else { return None };
+    let Some(height) = height else { return None };
     let pixels = width as u64 * height as u64;
-    pixels > opts.max_pixels
+    if opts.max_pixels > 0 && pixels > opts.max_pixels {
+        Some("pixels")
+    } else {
+        None
+    }
 }
 
 fn decode_error_kind(filters: &[String]) -> String {
@@ -249,38 +274,93 @@ enum DecodeStatus {
     Failed(String),
 }
 
+fn check_timeout(timeout: Option<&TimeoutChecker>) -> Option<DecodeStatus> {
+    if let Some(checker) = timeout {
+        if checker.check().is_err() {
+            return Some(DecodeStatus::Skipped("timeout".into()));
+        }
+    }
+    None
+}
+
 fn decode_image_data(
     graph: &ObjectGraph<'_>,
     data: &[u8],
     stream: &PdfStream<'_>,
     filters: &[String],
     opts: &ImageDynamicOptions,
+    timeout: Option<&TimeoutChecker>,
 ) -> DecodeStatus {
+    if let Some(status) = check_timeout(timeout) {
+        return status;
+    }
+
     if filters.len() > 1 {
         return DecodeStatus::Skipped("filter_chain_unsupported".into());
     }
+
     if filters.iter().any(|f| f == "JBIG2Decode") {
-        return decode_jbig2(graph, stream, data, opts);
+        if let Some(status) = check_timeout(timeout) {
+            return status;
+        }
+        let status = decode_jbig2(graph, stream, data, opts, timeout);
+        if let Some(status) = check_timeout(timeout) {
+            return status;
+        }
+        return status;
     }
+
     if filters.iter().any(|f| f == "JPXDecode") {
-        return decode_jpx(data, opts);
+        if let Some(status) = check_timeout(timeout) {
+            return status;
+        }
+        let status = decode_jpx(data, opts, timeout);
+        if let Some(status) = check_timeout(timeout) {
+            return status;
+        }
+        return status;
     }
+
     if filters.iter().any(|f| f == "DCTDecode" || f == "DCT") {
-        return decode_jpeg(data);
+        if let Some(status) = check_timeout(timeout) {
+            return status;
+        }
+        let status = decode_jpeg(data, timeout);
+        if let Some(status) = check_timeout(timeout) {
+            return status;
+        }
+        return status;
     }
+
     if filters.iter().any(|f| f == "CCITTFaxDecode") {
         return DecodeStatus::Skipped("ccitt_decode_not_implemented".into());
     }
+
     if filters.is_empty() {
+        if let Some(status) = check_timeout(timeout) {
+            return status;
+        }
         let header = &data[..data.len().min(16)];
         if header.starts_with(b"\x89PNG\r\n\x1a\n") {
-            return decode_png(data);
+            let status = decode_png(data, timeout);
+            if let Some(status) = check_timeout(timeout) {
+                return status;
+            }
+            return status;
         }
         if header.starts_with(b"II*\x00") || header.starts_with(b"MM\x00*") {
-            return decode_tiff(data);
+            let status = decode_tiff(data, timeout);
+            if let Some(status) = check_timeout(timeout) {
+                return status;
+            }
+            return status;
         }
         if header.starts_with(b"\xFF\xD8") {
-            return decode_jpeg(data);
+            let status = decode_jpeg(data, timeout);
+            if let Some(status) = check_timeout(timeout) {
+                return status;
+            }
+            return status;
         }
     }
     DecodeStatus::Skipped("unknown_format".into())
@@ -342,39 +422,54 @@ fn analyze_xfa_images(graph: &ObjectGraph<'_>, opts: &ImageDynamicOptions) -> Ve
 
 fn decode_xfa_image(bytes: &[u8]) -> DecodeStatus {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return decode_png(bytes);
+        return decode_png(bytes, None);
     }
     if bytes.starts_with(b"II*\x00") || bytes.starts_with(b"MM\x00*") {
-        return decode_tiff(bytes);
+        return decode_tiff(bytes, None);
     }
     if bytes.starts_with(b"\xFF\xD8") {
-        return decode_jpeg(bytes);
+        return decode_jpeg(bytes, None);
     }
     DecodeStatus::Skipped("unknown_xfa_image".into())
 }
 
 #[cfg(feature = "jpeg")]
-fn decode_jpeg(bytes: &[u8]) -> DecodeStatus {
+fn decode_jpeg(bytes: &[u8], timeout: Option<&TimeoutChecker>) -> DecodeStatus {
+    if let Some(status) = check_timeout(timeout) {
+        return status;
+    }
     let mut decoder = jpeg_decoder::Decoder::new(bytes);
-    match decoder.decode() {
+    let result = decoder.decode();
+    if let Some(status) = check_timeout(timeout) {
+        return status;
+    }
+    match result {
         Ok(_) => DecodeStatus::Ok,
         Err(err) => DecodeStatus::Failed(err.to_string()),
     }
 }
 
 #[cfg(not(feature = "jpeg"))]
-fn decode_jpeg(_bytes: &[u8]) -> DecodeStatus {
+fn decode_jpeg(_bytes: &[u8], _timeout: Option<&TimeoutChecker>) -> DecodeStatus {
     DecodeStatus::Skipped("jpeg_decoder_unavailable".into())
 }
 
 #[cfg(feature = "png")]
-fn decode_png(bytes: &[u8]) -> DecodeStatus {
+fn decode_png(bytes: &[u8], timeout: Option<&TimeoutChecker>) -> DecodeStatus {
+    if let Some(status) = check_timeout(timeout) {
+        return status;
+    }
     let decoder = png::Decoder::new(bytes);
     match decoder.read_info() {
         Ok(mut reader) => {
             let mut buf = vec![0; reader.output_buffer_size()];
             match reader.next_frame(&mut buf) {
-                Ok(_) => DecodeStatus::Ok,
+                Ok(_) => {
+                    if let Some(status) = check_timeout(timeout) {
+                        return status;
+                    }
+                    DecodeStatus::Ok
+                }
                 Err(err) => DecodeStatus::Failed(err.to_string()),
             }
         }
@@ -383,17 +478,25 @@ fn decode_png(bytes: &[u8]) -> DecodeStatus {
 }
 
 #[cfg(not(feature = "png"))]
-fn decode_png(_bytes: &[u8]) -> DecodeStatus {
+fn decode_png(_bytes: &[u8], _timeout: Option<&TimeoutChecker>) -> DecodeStatus {
     DecodeStatus::Skipped("png_decoder_unavailable".into())
 }
 
 #[cfg(feature = "tiff")]
-fn decode_tiff(bytes: &[u8]) -> DecodeStatus {
+fn decode_tiff(bytes: &[u8], timeout: Option<&TimeoutChecker>) -> DecodeStatus {
+    if let Some(status) = check_timeout(timeout) {
+        return status;
+    }
     let cursor = std::io::Cursor::new(bytes);
     let decoder = tiff::decoder::Decoder::new(cursor);
     match decoder {
         Ok(mut decoder) => match decoder.read_image() {
-            Ok(_) => DecodeStatus::Ok,
+            Ok(_) => {
+                if let Some(status) = check_timeout(timeout) {
+                    return status;
+                }
+                DecodeStatus::Ok
+            }
             Err(err) => DecodeStatus::Failed(err.to_string()),
         },
         Err(err) => DecodeStatus::Failed(err.to_string()),
@@ -401,7 +504,7 @@ fn decode_tiff(bytes: &[u8]) -> DecodeStatus {
 }
 
 #[cfg(not(feature = "tiff"))]
-fn decode_tiff(_bytes: &[u8]) -> DecodeStatus {
+fn decode_tiff(_bytes: &[u8], _timeout: Option<&TimeoutChecker>) -> DecodeStatus {
     DecodeStatus::Skipped("tiff_decoder_unavailable".into())
 }
 
@@ -411,13 +514,20 @@ fn decode_jbig2(
     stream: &PdfStream<'_>,
     bytes: &[u8],
     opts: &ImageDynamicOptions,
+    timeout: Option<&TimeoutChecker>,
 ) -> DecodeStatus {
+    if let Some(status) = check_timeout(timeout) {
+        return status;
+    }
     let globals = jbig2_globals_bytes(graph, stream, opts);
     let result = if let Some(globals) = globals.as_deref() {
         hayro_jbig2::decode_embedded(bytes, Some(globals))
     } else {
         hayro_jbig2::decode(bytes)
     };
+    if let Some(status) = check_timeout(timeout) {
+        return status;
+    }
     match result {
         Ok(image) => {
             let pixels = image.width as u64 * image.height as u64;
@@ -437,12 +547,20 @@ fn decode_jbig2(
     _stream: &PdfStream<'_>,
     _bytes: &[u8],
     _opts: &ImageDynamicOptions,
+    _timeout: Option<&TimeoutChecker>,
 ) -> DecodeStatus {
     DecodeStatus::Skipped("jbig2_decoder_unavailable".into())
 }
 
 #[cfg(feature = "jpx")]
-fn decode_jpx(bytes: &[u8], opts: &ImageDynamicOptions) -> DecodeStatus {
+fn decode_jpx(
+    bytes: &[u8],
+    opts: &ImageDynamicOptions,
+    timeout: Option<&TimeoutChecker>,
+) -> DecodeStatus {
+    if let Some(status) = check_timeout(timeout) {
+        return status;
+    }
     let settings = hayro_jpeg2000::DecodeSettings {
         resolve_palette_indices: true,
         strict: true,
@@ -453,11 +571,23 @@ fn decode_jpx(bytes: &[u8], opts: &ImageDynamicOptions) -> DecodeStatus {
             if pixels > opts.max_pixels {
                 DecodeStatus::Failed("pixel_limit_exceeded".into())
             } else {
+                if let Some(status) = check_timeout(timeout) {
+                    return status;
+                }
                 DecodeStatus::Ok
             }
         }
         Err(err) => DecodeStatus::Failed(err.to_string()),
     }
+}
+
+#[cfg(not(feature = "jpx"))]
+fn decode_jpx(
+    _bytes: &[u8],
+    _opts: &ImageDynamicOptions,
+    _timeout: Option<&TimeoutChecker>,
+) -> DecodeStatus {
+    DecodeStatus::Skipped("jpx_decoder_unavailable".into())
 }
 
 fn jbig2_globals_bytes(
@@ -503,9 +633,4 @@ fn jbig2_globals_bytes(
         }
         _ => None,
     }
-}
-
-#[cfg(not(feature = "jpx"))]
-fn decode_jpx(_bytes: &[u8], _opts: &ImageDynamicOptions) -> DecodeStatus {
-    DecodeStatus::Skipped("jpx_decoder_unavailable".into())
 }
