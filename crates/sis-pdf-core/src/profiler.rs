@@ -249,7 +249,10 @@ pub fn format_text(report: &ProfileReport) -> String {
 
     output.push_str("Scan Profile Report\n");
     output.push_str("===================\n");
-    output.push_str(&format!("Total Time: {:.3}s\n\n", report.total_duration_ms as f64 / 1000.0));
+    output.push_str(&format!(
+        "Total Time: {:.3}s\n\n",
+        report.total_duration_ms as f64 / 1000.0
+    ));
 
     // Phase breakdown
     if !report.phases.is_empty() {
@@ -273,11 +276,7 @@ pub fn format_text(report: &ProfileReport) -> String {
             let bar_width = 20;
             let filled = ((detector.percentage / 100.0) * bar_width as f64) as usize;
             let filled = filled.min(bar_width);
-            let bar = format!(
-                "[{}{}]",
-                "█".repeat(filled),
-                " ".repeat(bar_width - filled)
-            );
+            let bar = format!("[{}{}]", "█".repeat(filled), " ".repeat(bar_width - filled));
 
             output.push_str(&format!(
                 "  {:2}. {:.<30} {:>7}ms  {:>3} findings  {} {:>5.1}%\n",

@@ -76,7 +76,8 @@ impl Detector for JsPolymorphicDetector {
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
                         title: "Polymorphic JavaScript patterns".into(),
-                        description: "JavaScript shows traits of polymorphic or staged code.".into(),
+                        description: "JavaScript shows traits of polymorphic or staged code."
+                            .into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: evidence.clone(),
                         remediation: Some(

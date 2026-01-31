@@ -107,8 +107,8 @@ fn xfa_script_tag_is_javascript(tag: &[u8]) -> bool {
 
 fn extract_data_uri_from_tag(tag_lower: &[u8], tag_raw: &[u8]) -> Option<XfaPayload> {
     let tag = String::from_utf8_lossy(tag_lower).to_string();
-    let value = extract_attr_value(&tag, "href")
-        .or_else(|| extract_attr_value(&tag, "xlink:href"))?;
+    let value =
+        extract_attr_value(&tag, "href").or_else(|| extract_attr_value(&tag, "xlink:href"))?;
     if !value.starts_with("data:") {
         return None;
     }

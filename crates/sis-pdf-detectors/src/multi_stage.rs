@@ -107,10 +107,7 @@ impl Detector for MultiStageDetector {
 
             meta.insert("multi_stage.js_count".into(), js_count.to_string());
             if js_uri_count > 0 {
-                meta.insert(
-                    "multi_stage.js_uri_count".into(),
-                    js_uri_count.to_string(),
-                );
+                meta.insert("multi_stage.js_uri_count".into(), js_uri_count.to_string());
             }
             meta.insert(
                 "multi_stage.embedded_count".into(),

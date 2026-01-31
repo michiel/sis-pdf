@@ -373,6 +373,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: encrypted payloads can hide malicious content.
   - Meaning: embedded file likely requires decryption to inspect.
   - Chain usage: evasion context for payload delivery.
+  - Metadata:
+    - `entropy`: observed entropy value
+    - `entropy_threshold`: configured detection threshold
+    - `sample_size_bytes`: bytes used to compute entropy
+    - `stream.magic_type`: classifier label emitted by the stream analysis
+    - `stream.sample_timed_out`: `true` when sampling hit the timeout limit
 
 ## encryption_present
 
@@ -406,6 +412,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: high entropy indicates compression or encryption.
   - Meaning: payload may be obfuscated or encrypted.
   - Chain usage: evasion context for hidden payloads.
+  - Metadata:
+    - `entropy`: computed entropy value (0-8)
+    - `entropy_threshold`: threshold that triggered the finding
+    - `sample_size_bytes`: bytes consumed for entropy sampling
+    - `stream.magic_type`: detected magic label (`zip`, `rar`, `unknown`, etc.)
+    - `stream.sample_timed_out`: indicates sampling was stopped due to the timeout budget
 
 ## eof_offset_unusual
 
@@ -2491,6 +2503,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: scripts inside forms can trigger viewer execution paths.
   - Meaning: embedded XFA/XML scripts increase attack surface.
   - Chain usage: triggers or payload staging within form content.
+  - Metadata:
+    - `xfa.script.preview` (string): preview of the first script block (trimmed to 120 characters).
+    - `xfa.script_count` (int): total script blocks observed in the payload.
+    - `xfa.size_bytes` (int): total XFA payload size measured in bytes.
 
 ## xfa_submit
 
@@ -2502,6 +2518,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: XFA can submit data to external endpoints.
   - Meaning: submission targets may exfiltrate form data.
   - Chain usage: external action stage for form data.
+  - Metadata:
+    - `xfa.submit.url` (string): one of the submit targets discovered in the form.
+    - `xfa.submit_urls` (array of strings): aggregated submit URLs captured during parsing.
+    - `xfa.script_count` (int): scripts evaluated when the submit action was found.
+    - `xfa.size_bytes` (int): XFA payload byte size.
 
 ## xfa_sensitive_field
 
@@ -2513,6 +2534,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: sensitive fields increase data exposure risk.
   - Meaning: field names suggest collection of credentials or personal data.
   - Chain usage: indicates data collection intent.
+  - Metadata:
+    - `xfa.field.name` (string): sensitive field that matched one of the heuristics.
+    - `xfa.sensitive_fields` (array of strings): all sensitive field names detected in the XFA payload.
+    - `xfa.size_bytes` (int): total XFA payload byte size.
 
 ## xfa_too_large
 
@@ -2524,6 +2549,9 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: oversized forms can hide payloads or trigger resource exhaustion.
   - Meaning: XFA content size is unusually large.
   - Chain usage: evasion context for hidden payload staging.
+  - Metadata:
+    - `xfa.size_bytes` (int): total byte size measured on the XFA stream.
+    - `xfa.size_limit_bytes` (int): configured limit (1,048,576 by default).
 
 ## xfa_script_count_high
 
@@ -2535,6 +2563,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: multiple scripts can indicate staged behaviour.
   - Meaning: excessive script count raises suspicion of hidden logic.
   - Chain usage: payload staging signal.
+  - Metadata:
+    - `xfa.script_count` (int): number of `<script>` or `<execute>` nodes detected.
+    - `xfa.script_preview` (string): bounded preview of a representative script or execute block.
+    - `xfa.size_bytes` (int): total XFA payload byte size.
 
 ## actionscript_present
 
@@ -2645,3 +2677,58 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
+
+## launch_obfuscated_executable
+
+- ID: `launch_obfuscated_executable`
+- Label: Correlated obfuscated executable launch
+- Description: Launch action targets an embedded executable with high entropy.
+- Tags: action, embedded, correlation
+- Details:
+  - Relevance: automatic execution tied to obfuscated payloads is high risk.
+  - Meaning: correlation of launch and embedded executable strengthens confidence.
+  - Chain usage: delivery/execution stage.
+
+## action_chain_malicious
+
+- ID: `action_chain_malicious`
+- Label: Malicious automatic action chain
+- Description: Complex action chain triggers automatically and executes JavaScript.
+- Tags: action, chain, correlation
+- Details:
+  - Relevance: automatic chains are a hallmark of malware.
+  - Meaning: combined evidence of chain depth, trigger, and JS increases signal.
+  - Chain usage: multi-stage activation without user interaction.
+
+## xfa_data_exfiltration_risk
+
+- ID: `xfa_data_exfiltration_risk`
+- Label: XFA data exfiltration risk
+- Description: XFA form submits sensitive fields to an external endpoint.
+- Tags: xfa, data, correlation
+- Details:
+  - Relevance: sensitive fields plus external submits indicate theft.
+  - Meaning: correlation of submit URLs with sensitive fields raises confidence.
+  - Chain usage: data exfiltration stage.
+
+## encrypted_payload_delivery
+
+- ID: `encrypted_payload_delivery`
+- Label: Encrypted payload delivery
+- Description: Encrypted archive delivery is coupled with launch or SWF actions.
+- Tags: embedded, crypto, correlation
+- Details:
+  - Relevance: encrypted containers hide payloads while launch/SWF triggers delivery.
+  - Meaning: correlation shows encrypted payload ready for execution.
+  - Chain usage: obfuscated delivery stage.
+
+## obfuscated_payload
+
+- ID: `obfuscated_payload`
+- Label: Obfuscated payload
+- Description: High entropy stream coincides with unusual filter chain.
+- Tags: filters, entropy, correlation
+- Details:
+  - Relevance: unusual filter order with high entropy indicates obfuscation.
+  - Meaning: combined signal is more reliable than individual findings.
+  - Chain usage: obfuscation context within delivery or staging phases.

@@ -11,10 +11,12 @@ sis-pdf-core = { path = "../sis-pdf-core" }
 sis-pdf-pdf = { path = "../sis-pdf-pdf" }
 base64 = "0.22"
 flate2 = "1.0"
+roxmltree = "0.20.0"
 js-analysis = { path = "../js-analysis", default-features = false }
 tracing = "0.1"
 font-analysis = { path = "../font-analysis" }
 image-analysis = { path = "../image-analysis" }
+lzma-rust2 = { version = "0.15.6", default-features = false, features = ["std"] }
 
 [features]
 default = ["js-ast", "js-sandbox"]

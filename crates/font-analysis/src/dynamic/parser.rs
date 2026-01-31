@@ -220,10 +220,14 @@ fn extract_table_references(data: &[u8], context: &mut FontContext) {
     let has_gpos = context.table_map.contains_key("GPOS");
     if has_gsub && has_gpos {
         // GSUB and GPOS can reference each other through feature tables
-        context.table_references.entry("GSUB".to_string())
+        context
+            .table_references
+            .entry("GSUB".to_string())
             .or_insert_with(Vec::new)
             .push("GPOS".to_string());
-        context.table_references.entry("GPOS".to_string())
+        context
+            .table_references
+            .entry("GPOS".to_string())
             .or_insert_with(Vec::new)
             .push("GSUB".to_string());
     }
@@ -232,7 +236,9 @@ fn extract_table_references(data: &[u8], context: &mut FontContext) {
     if let Some(_cff_table) = context.table_map.get("CFF ") {
         // CFF internal structure has references, but these are within the table
         // We track this as self-reference for recursion depth tracking
-        context.table_references.entry("CFF ".to_string())
+        context
+            .table_references
+            .entry("CFF ".to_string())
             .or_insert_with(Vec::new);
     }
 }
@@ -259,10 +265,8 @@ fn extract_glyf_references(data: &[u8], glyf_table: &TableInfo, context: &mut Fo
         return;
     }
 
-    let index_to_loc_format = i16::from_be_bytes([
-        data[head_table.offset + 50],
-        data[head_table.offset + 51],
-    ]);
+    let index_to_loc_format =
+        i16::from_be_bytes([data[head_table.offset + 50], data[head_table.offset + 51]]);
 
     let num_glyphs = context.glyph_count_maxp.unwrap_or(0) as usize;
 
@@ -276,7 +280,8 @@ fn extract_glyf_references(data: &[u8], glyf_table: &TableInfo, context: &mut Fo
             let offset = u16::from_be_bytes([
                 data[loca_offset + glyph_id * 2],
                 data[loca_offset + glyph_id * 2 + 1],
-            ]) as usize * 2;
+            ]) as usize
+                * 2;
             glyf_offset + offset
         } else {
             // Long format: offsets are u32
@@ -297,15 +302,14 @@ fn extract_glyf_references(data: &[u8], glyf_table: &TableInfo, context: &mut Fo
             continue;
         }
 
-        let num_contours = i16::from_be_bytes([
-            data[glyph_offset],
-            data[glyph_offset + 1],
-        ]);
+        let num_contours = i16::from_be_bytes([data[glyph_offset], data[glyph_offset + 1]]);
 
         if num_contours < 0 {
             // This is a composite glyph - track the reference
             let glyf_key = format!("glyf[{}]", glyph_id);
-            context.table_references.entry(glyf_key)
+            context
+                .table_references
+                .entry(glyf_key)
                 .or_insert_with(Vec::new);
             // Note: Full component parsing would require more complex logic
             // For now we just mark that this glyph has references
@@ -320,7 +324,9 @@ fn extract_recursion_depths(data: &[u8], context: &mut FontContext) {
     if let Some(glyf_table) = context.table_map.get("glyf").cloned() {
         let max_depth = calculate_glyf_recursion_depth(data, &glyf_table, context);
         if max_depth > 0 {
-            context.recursion_depths.insert("glyf".to_string(), max_depth);
+            context
+                .recursion_depths
+                .insert("glyf".to_string(), max_depth);
         }
     }
 
@@ -342,7 +348,11 @@ fn extract_recursion_depths(data: &[u8], context: &mut FontContext) {
 
 /// Calculate maximum nesting depth of composite glyphs
 #[cfg(feature = "dynamic")]
-fn calculate_glyf_recursion_depth(_data: &[u8], _glyf_table: &TableInfo, _context: &FontContext) -> usize {
+fn calculate_glyf_recursion_depth(
+    _data: &[u8],
+    _glyf_table: &TableInfo,
+    _context: &FontContext,
+) -> usize {
     // Simplified implementation: assume max depth of 1 for any composite glyph
     // Full implementation would require DFS through component tree
     // This is a conservative estimate that prevents false positives
@@ -357,20 +367,16 @@ fn estimate_lookup_depth(data: &[u8], table: &TableInfo) -> usize {
         return 0;
     }
 
-    let lookup_list_offset = u16::from_be_bytes([
-        data[table.offset + 6],
-        data[table.offset + 7],
-    ]) as usize;
+    let lookup_list_offset =
+        u16::from_be_bytes([data[table.offset + 6], data[table.offset + 7]]) as usize;
 
     let lookup_list_addr = table.offset + lookup_list_offset;
     if lookup_list_addr + 2 > data.len() {
         return 0;
     }
 
-    let lookup_count = u16::from_be_bytes([
-        data[lookup_list_addr],
-        data[lookup_list_addr + 1],
-    ]) as usize;
+    let lookup_count =
+        u16::from_be_bytes([data[lookup_list_addr], data[lookup_list_addr + 1]]) as usize;
 
     // Heuristic: estimate depth based on lookup count
     // More lookups often means more nesting
@@ -482,7 +488,12 @@ fn analyze_instructions(data: &[u8], context: &mut FontContext) {
 
 /// Analyze TrueType instructions in a table
 #[cfg(feature = "dynamic")]
-fn analyze_tt_instructions(data: &[u8], table: &TableInfo, table_name: &str, context: &mut FontContext) {
+fn analyze_tt_instructions(
+    data: &[u8],
+    table: &TableInfo,
+    table_name: &str,
+    context: &mut FontContext,
+) {
     let start = table.offset;
     let end = start + table.length;
 
@@ -544,7 +555,10 @@ fn is_dangerous_sequence(opcode1: u8, opcode2: u8) -> bool {
     const LOOPCALL: u8 = 0x2A;
 
     // Consecutive CALL/LOOPCALL can be dangerous
-    matches!((opcode1, opcode2), (CALL, CALL) | (CALL, LOOPCALL) | (LOOPCALL, CALL))
+    matches!(
+        (opcode1, opcode2),
+        (CALL, CALL) | (CALL, LOOPCALL) | (LOOPCALL, CALL)
+    )
 }
 
 #[cfg(not(feature = "dynamic"))]

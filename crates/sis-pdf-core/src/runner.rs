@@ -2,11 +2,12 @@ use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use crate::correlation;
 use crate::evidence::preview_ascii;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
-use crate::profiler::{DocumentInfo, Profiler};
 use crate::model::Finding;
 use crate::position;
+use crate::profiler::{DocumentInfo, Profiler};
 #[cfg(feature = "ml-graph")]
 use crate::report::MlNodeAttribution;
 use crate::report::{MlRunSummary, MlSummary, Report, SecondaryParserSummary, StructuralSummary};
@@ -137,7 +138,10 @@ pub fn run_scan_with_detectors(
                 }
 
                 // Flatten findings
-                results.into_iter().flat_map(|(_, _, _, findings)| findings).collect()
+                results
+                    .into_iter()
+                    .flat_map(|(_, _, _, findings)| findings)
+                    .collect()
             }
             Err(err) => {
                 SecurityEvent {
@@ -569,6 +573,8 @@ pub fn run_scan_with_detectors(
     annotate_positions(&ctx, &mut findings);
     annotate_orphaned_page_context(&mut findings);
     correlate_font_js(&mut findings);
+    let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
+    findings.extend(composites);
     let intent_summary = Some(crate::intent::apply_intent(&mut findings));
     let yara_rules =
         crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());
@@ -621,11 +627,8 @@ pub fn run_scan_with_detectors(
         if let Some(report) = profiler.finalize(doc_info) {
             let output = match ctx.options.profile_format {
                 crate::scan::ProfileFormat::Text => crate::profiler::format_text(&report),
-                crate::scan::ProfileFormat::Json => {
-                    crate::profiler::format_json(&report).unwrap_or_else(|e| {
-                        format!("Error formatting profile JSON: {}", e)
-                    })
-                }
+                crate::scan::ProfileFormat::Json => crate::profiler::format_json(&report)
+                    .unwrap_or_else(|e| format!("Error formatting profile JSON: {}", e)),
             };
             eprintln!("{}", output);
         }
@@ -762,7 +765,10 @@ fn correlate_font_js(findings: &mut Vec<Finding>) {
     // Check if we have both font and JavaScript findings
     let has_high_font = findings.iter().any(|f| {
         f.kind.starts_with("font.")
-            && matches!(f.severity, crate::model::Severity::High | crate::model::Severity::Critical)
+            && matches!(
+                f.severity,
+                crate::model::Severity::High | crate::model::Severity::Critical
+            )
     });
 
     let has_js_obfuscation = findings.iter().any(|f| {
@@ -771,7 +777,10 @@ fn correlate_font_js(findings: &mut Vec<Finding>) {
 
     let has_js_exploit = findings.iter().any(|f| {
         f.kind.contains("js_")
-            && matches!(f.severity, crate::model::Severity::High | crate::model::Severity::Critical)
+            && matches!(
+                f.severity,
+                crate::model::Severity::High | crate::model::Severity::Critical
+            )
     });
 
     // High severity font + JavaScript exploit = combined attack pattern
@@ -1382,24 +1391,22 @@ mod tests {
 
     #[test]
     fn test_font_js_correlation_no_action() {
-        let mut findings = vec![
-            Finding {
-                id: "font1".into(),
-                surface: crate::model::AttackSurface::StreamsAndFilters,
-                kind: "font.type1_excessive_stack".into(),
-                severity: crate::model::Severity::Low,
-                confidence: crate::model::Confidence::Probable,
-                title: "Font anomaly".into(),
-                description: "Test font finding".into(),
-                objects: vec![],
-                evidence: vec![],
-                remediation: None,
-                meta: std::collections::HashMap::new(),
-                yara: None,
-                position: None,
-                positions: vec![],
-            },
-        ];
+        let mut findings = vec![Finding {
+            id: "font1".into(),
+            surface: crate::model::AttackSurface::StreamsAndFilters,
+            kind: "font.type1_excessive_stack".into(),
+            severity: crate::model::Severity::Low,
+            confidence: crate::model::Confidence::Probable,
+            title: "Font anomaly".into(),
+            description: "Test font finding".into(),
+            objects: vec![],
+            evidence: vec![],
+            remediation: None,
+            meta: std::collections::HashMap::new(),
+            yara: None,
+            position: None,
+            positions: vec![],
+        }];
 
         let original_count = findings.len();
         correlate_font_js(&mut findings);

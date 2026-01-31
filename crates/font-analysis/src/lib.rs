@@ -34,7 +34,9 @@ pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysis
     // Handle WOFF/WOFF2 decompression
     let font_data = if woff::is_woff(data) || woff::is_woff2(data) {
         // Validate WOFF for decompression bombs before decompressing
-        outcome.findings.extend(woff::validate_woff_decompression(data));
+        outcome
+            .findings
+            .extend(woff::validate_woff_decompression(data));
 
         // Attempt decompression if dynamic features enabled
         #[cfg(feature = "dynamic")]

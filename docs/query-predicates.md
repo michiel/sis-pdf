@@ -7,14 +7,24 @@ This guide documents the `--where` predicate filters for `sis query`.
 Predicate filtering is supported for:
 - `js`, `js.count`
 - `embedded`, `embedded.count`
+- `xfa`, `xfa.count`
 - `xfa.scripts`, `xfa.scripts.count`
-- `swf.extract`, `swf.extract.count`
+- `swf`, `swf.count`, `swf.actionscript`, `swf.actionscript.count`, `swf.extract`, `swf.extract.count`
+- `media.3d`, `media.3d.count`, `media.audio`, `media.audio.count`
 - `images`, `images.count`, `images.jbig2`, `images.jpx`, `images.ccitt`, `images.risky`, `images.malformed`
 - `objects.list`, `objects.with`, `objects.count`
 - `urls`, `urls.count`
 - `events`, `events.document`, `events.page`, `events.field`, `events.count`
 - `findings`, `findings.count`, `findings.kind`, `findings.high`, `findings.medium`, `findings.low`, `findings.info`, `findings.critical`
+- `findings.composite`, `findings.composite.count`
+- `correlations`, `correlations.count`
 - finding shortcut queries (for example `embedded.executables`, `launch.external`, `streams.high-entropy`) and their `.count` variants
+- `encryption`, `encryption.weak`, `encryption.weak.count`
+- `streams.entropy`
+
+## Feature vector highlights
+
+While `features` is not a predicate-driven query, the exported vector (CSV/JSON/JSONL) includes the same counts you can probe via `--where` elsewhere. The final entries in that vector map to the Stage 8 additions: `xfa.present`, `xfa.*` (payload/script/submit/sensitive-field counts), `encryption.*` (encryption presence, key length, entropy stats, encrypted embedded files) and `filters.*` (unusual/invalid filter counts and depth). Use `docs/ml-features.md` for the canonical index mapping and to ensure your ML pipeline normalises these inputs consistently.
 
 ## Fields
 
@@ -64,14 +74,32 @@ Predicates can use these fields:
 - `subtype`: `script`
 - `name`: generated script filename
 
-### SWF extraction (`swf.extract`, `swf.extract.count`)
+### XFA forms (`xfa`, `xfa.count`)
+- `length`: decoded XFA payload size
+- `script_count`: number of `<script>`/`<execute>` occurrences found
+- `type`: `XfaForm`
+- `filter`: `xfa`
+- `url`: submit target (per `xfa.submit` finding)
+- `field`: sensitive field name (per `xfa.sensitive` finding)
+- `has_doctype`: `true` when DOCTYPE guard triggered (matches `xfa.has_doctype`)
+- `submit_urls`: JSON array of detected submit URLs
+- `sensitive_fields`: JSON array of field names reported for the payload
+
+### SWF queries (`swf`, `swf.count`, `swf.actionscript`, `swf.actionscript.count`, `swf.extract`, `swf.extract.count`)
 - `length`: extracted SWF bytes (decoded or raw depending on flags)
 - `entropy`: extracted SWF bytes entropy
-- `type`: `SwfStream`
+- `type`: `SwfContent`
 - `filter`: stream `/Filter` name (if present)
 - `subtype`: `swf`
 - `name`: generated SWF filename
 - `magic`: SWF header tag (`FWS`, `CWS`, `ZWS`)
+- `media_type`: always `swf`
+- `size_bytes`: stream size before extraction limits
+- `swf.version`: SWF header version (when parsing succeeds)
+- `swf.decompressed_bytes`: bytes parsed during ActionScript analysis
+- `swf.declared_length`: length from the SWF header (used to enforce the 10 MB limit)
+- `swf.action_tag_count`: number of ActionScript tags scanned
+- `swf.action_tags`: comma-separated list of ActionScript tag names
 
 ### Images (`images*`)
 - `length`: image stream bytes (decoded or raw depending on flags)
@@ -84,6 +112,15 @@ Predicates can use these fields:
 - `pixels`: `width * height` when available
 - `risky`: `true` for `JBIG2`, `JPX`, `CCITT` formats
 - `format`: alias for `subtype`
+
+### Media queries (`media.3d`, `media.3d.count`, `media.audio`, `media.audio.count`)
+- `type`: `Media3D` or `MediaAudio`
+- `filter`: stream `/Filter` name (if present)
+- `subtype`: media type label (`u3d`, `prc`, `mp3`, `mp4`, or `unknown`)
+- `media_type`: format label (`u3d`, `prc`, `mp3`, `mp4`, `unknown`)
+- `size_bytes`: stream payload length
+- `name`: generated handle derived from the object identifier
+- `object`: object reference string (included in `meta`)
 
 ### Objects (`objects.list`, `objects.with`, `objects.count`)
 - `length`: stream length (decoded where possible; falls back to `/Length`)
@@ -117,6 +154,30 @@ Predicates can use these fields:
 - `objects`: number of related objects
 - `evidence`: number of evidence spans
 
+### Encryption queries
+- `type`: `Finding`
+- `subtype`: `encryption_present`, `encryption_key_short`, or `crypto_weak_algo`
+- `kind`: alias for `subtype`
+- `crypto.algorithm`: detected encryption algorithm (`RC4-40`, `AES-256`)
+- `crypto.key_length`: key length in bits (extracted from `/Length`)
+- `crypto.version`: `/V` value from the encryption dictionary
+- `crypto.revision`: `/R` value from the encryption dictionary
+- `crypto.issue`: description of the weakness (sourced from `crypto_weak_algo`)
+- `filter`: severity of the finding
+- `objects`: typically `["trailer"]` or `["signature"]`
+- `evidence`: spans covering the trailer or signature dict
+
+### Streams entropy (`streams.entropy`)
+- `length`: decoded stream length (subject to decode limits)
+- `entropy`: entropy computed on sliding windows (0-8 scale)
+- `sample_size_bytes`: bytes consumed for entropy sampling (max 10 MB)
+- `stream.magic_type`: classifier label (`zip`, `rar`, `unknown`, etc.)
+- `stream.sample_timed_out`: `true` if the sampling hit the timeout budget
+- `filter`: stream `/Filter` value (if present)
+- `subtype`: `/Subtype` name (if present)
+- `name`: generated handle such as `123 0 obj`
+- `meta`: includes `stream.size_bytes`, `stream.sample_size_bytes`, `stream.magic_type`, and `stream.sample_timed_out`
+
 ## Examples
 
 ```bash
@@ -149,4 +210,25 @@ sis query filters.unusual file.pdf --where "violation_type == 'strict_mode'"
 
 # Image filters chained with compression
 sis query filters.unusual file.pdf --where "violation_type == 'image_with_compression'"
+
+## Image predicate metadata
+
+When querying `images`, `images.malformed` or other image shortcuts, the predicate context exposes the dynamic inspection metadata produced by the static and decode pipelines:
+
+- `width`, `height`, `pixels`: reported dimensions and total pixels.
+- `format`: detected format label (`JPEG`, `JBIG2`, `JPX`, `CCITT`, etc.).
+- `image.decode`: decode outcome (`success`, `failed`, `skipped`).
+- `image.decode_error`: decoder message when `image.decode == 'failed'`.
+- `image.decode_skipped`: skip reason (`too_many_images`, `budget_exceeded`, `timeout`).
+- `image.decode_too_large_reason`: whether `bytes` or `pixels` limits triggered `image.decode_too_large`.
+- `image.decode_ms`: measured decode time in milliseconds.
+- `image.filters`: comma-joined filter chain labels.
+
+Use these fields to target specific decode behaviours:
+
+```bash
+sis query sample.pdf images --deep --where "image.decode == 'failed'"
+sis query sample.pdf images.malformed --where "format == 'JBIG2'"
+sis query sample.pdf images --where "image.decode_too_large_reason == 'pixels'"
+```
 ```

@@ -1,9 +1,8 @@
+use super::parser::FontContext;
 /// Variable font validation and CVE checks
-
 use crate::model::FontFinding;
 #[cfg(feature = "dynamic")]
 use crate::model::{Confidence, Severity};
-use super::parser::FontContext;
 #[cfg(feature = "dynamic")]
 use std::collections::HashMap;
 
@@ -50,12 +49,15 @@ pub fn check_cve_2025_27164(context: &FontContext, findings: &mut Vec<FontFindin
     }
 
     if let (Some(glyph_count_maxp), Some(glyph_count_cff)) =
-        (context.glyph_count_maxp, context.glyph_count_cff) {
-
+        (context.glyph_count_maxp, context.glyph_count_cff)
+    {
         if glyph_count_maxp as usize > glyph_count_cff {
             let mut meta = HashMap::new();
             meta.insert("maxp_glyph_count".to_string(), glyph_count_maxp.to_string());
-            meta.insert("cff2_charstring_count".to_string(), glyph_count_cff.to_string());
+            meta.insert(
+                "cff2_charstring_count".to_string(),
+                glyph_count_cff.to_string(),
+            );
             meta.insert("cve".to_string(), "CVE-2025-27164".to_string());
 
             findings.push(FontFinding {

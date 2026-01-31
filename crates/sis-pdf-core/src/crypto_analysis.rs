@@ -95,3 +95,34 @@ fn dict_int(dict: &PdfDict<'_>, key: &[u8]) -> Option<u32> {
         _ => None,
     }
 }
+
+pub fn classify_encryption_algorithm(
+    version: Option<u32>,
+    key_len: Option<u32>,
+) -> Option<&'static str> {
+    match version {
+        Some(1 | 2) => {
+            if let Some(len) = key_len {
+                if len <= 40 {
+                    Some("RC4-40")
+                } else {
+                    Some("RC4-128")
+                }
+            } else {
+                Some("RC4")
+            }
+        }
+        Some(4 | 5) => {
+            if let Some(len) = key_len {
+                if len >= 256 {
+                    Some("AES-256")
+                } else {
+                    Some("AES-128")
+                }
+            } else {
+                Some("AES")
+            }
+        }
+        _ => None,
+    }
+}

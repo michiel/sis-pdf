@@ -1,4 +1,4 @@
-use sis_pdf_core::scan::{FontAnalysisOptions, ProfileFormat, ScanOptions};
+use sis_pdf_core::scan::{CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanOptions};
 
 fn base_opts() -> ScanOptions {
     ScanOptions {
@@ -26,6 +26,7 @@ fn base_opts() -> ScanOptions {
         profile: false,
         profile_format: ProfileFormat::Text,
         group_chains: true,
+        correlation: CorrelationOptions::default(),
     }
 }
 

@@ -52,6 +52,7 @@ pub struct ScanOptions {
     pub profile: bool,
     pub profile_format: ProfileFormat,
     pub group_chains: bool,
+    pub correlation: CorrelationOptions,
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +72,8 @@ pub struct ImageAnalysisOptions {
     pub max_pixels: u64,
     pub max_decode_bytes: usize,
     pub timeout_ms: u64,
+    pub total_budget_ms: u64,
+    pub skip_threshold: usize,
     pub max_header_bytes: usize,
     pub max_dimension: u32,
     pub max_xfa_decode_bytes: usize,
@@ -85,10 +88,41 @@ impl Default for ImageAnalysisOptions {
             max_pixels: 100_000_000,
             max_decode_bytes: 256 * 1024 * 1024,
             timeout_ms: 250,
+            total_budget_ms: 5_000,
+            skip_threshold: 50,
             max_header_bytes: 4096,
             max_dimension: 10_000,
             max_xfa_decode_bytes: 8 * 1024 * 1024,
             max_filter_chain_depth: 8,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CorrelationOptions {
+    pub enabled: bool,
+    pub launch_obfuscated_enabled: bool,
+    pub action_chain_malicious_enabled: bool,
+    pub xfa_data_exfiltration_enabled: bool,
+    pub encrypted_payload_delivery_enabled: bool,
+    pub obfuscated_payload_enabled: bool,
+    pub high_entropy_threshold: f64,
+    pub action_chain_depth_threshold: usize,
+    pub xfa_sensitive_field_threshold: usize,
+}
+
+impl Default for CorrelationOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            launch_obfuscated_enabled: true,
+            action_chain_malicious_enabled: true,
+            xfa_data_exfiltration_enabled: true,
+            encrypted_payload_delivery_enabled: true,
+            obfuscated_payload_enabled: true,
+            high_entropy_threshold: 7.5,
+            action_chain_depth_threshold: 3,
+            xfa_sensitive_field_threshold: 1,
         }
     }
 }

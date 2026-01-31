@@ -2,7 +2,6 @@
 ///
 /// These tests validate the font analysis implementation against
 /// synthetic exploit samples, CVE test cases, and benign fonts.
-
 use font_analysis::{analyse_font, FontAnalysisConfig};
 
 /// Test that BLEND exploit pattern is detected
@@ -37,10 +36,7 @@ fn test_type1_dangerous_operators() {
         .iter()
         .any(|f| f.kind == "font.type1_dangerous_operator");
 
-    assert!(
-        has_dangerous_ops,
-        "Dangerous operators should be detected"
-    );
+    assert!(has_dangerous_ops, "Dangerous operators should be detected");
 }
 
 /// Test that excessive stack depth is detected
@@ -75,10 +71,7 @@ fn test_type1_large_charstring() {
         .iter()
         .any(|f| f.kind == "font.type1_large_charstring");
 
-    assert!(
-        has_large_charstring,
-        "Large charstring should be detected"
-    );
+    assert!(has_large_charstring, "Large charstring should be detected");
 }
 
 /// Test that minimal benign Type 1 font produces no findings
@@ -349,12 +342,11 @@ fn test_color_font_inconsistent_tables() {
     let outcome = analyse_font(data, &config);
 
     // Should detect COLR without CPAL inconsistency OR parse failure (both are security findings)
-    let has_security_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.color_table_inconsistent"
-                || f.kind == "font.dynamic_parse_failure"
-                || f.kind == "font.invalid_structure");
+    let has_security_finding = outcome.findings.iter().any(|f| {
+        f.kind == "font.color_table_inconsistent"
+            || f.kind == "font.dynamic_parse_failure"
+            || f.kind == "font.invalid_structure"
+    });
 
     assert!(
         has_security_finding,
@@ -363,7 +355,10 @@ fn test_color_font_inconsistent_tables() {
     );
 
     // Should have at least one finding
-    assert!(!outcome.findings.is_empty(), "Should generate security findings");
+    assert!(
+        !outcome.findings.is_empty(),
+        "Should generate security findings"
+    );
 }
 
 /// Test that color font with excessive palettes is detected
@@ -377,12 +372,11 @@ fn test_color_font_excessive_palettes() {
     let outcome = analyse_font(data, &config);
 
     // Should detect excessive palette count OR parse failure
-    let has_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.color_table_inconsistent"
-                || f.kind == "font.dynamic_parse_failure"
-                || f.kind == "font.invalid_structure");
+    let has_finding = outcome.findings.iter().any(|f| {
+        f.kind == "font.color_table_inconsistent"
+            || f.kind == "font.dynamic_parse_failure"
+            || f.kind == "font.invalid_structure"
+    });
 
     assert!(
         has_finding,
@@ -403,12 +397,11 @@ fn test_color_font_glyph_mismatch() {
     let outcome = analyse_font(data, &config);
 
     // Should detect glyph count mismatch OR parse failure
-    let has_mismatch = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.color_table_inconsistent"
-                || f.kind == "font.dynamic_parse_failure"
-                || f.kind == "font.invalid_structure");
+    let has_mismatch = outcome.findings.iter().any(|f| {
+        f.kind == "font.color_table_inconsistent"
+            || f.kind == "font.dynamic_parse_failure"
+            || f.kind == "font.invalid_structure"
+    });
 
     assert!(
         has_mismatch,
@@ -429,10 +422,7 @@ fn test_benign_color_font() {
     let outcome = analyse_font(data, &config);
 
     // Should not produce color-related findings
-    let has_color_findings = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind.contains("color"));
+    let has_color_findings = outcome.findings.iter().any(|f| f.kind.contains("color"));
 
     assert!(
         !has_color_findings,
@@ -457,19 +447,21 @@ fn test_woff_decompression_bomb() {
     let outcome = analyse_font(data, &config);
 
     // Should detect decompression bomb OR parse/decompression failure
-    let has_security_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.woff_decompression_anomaly"
-                || f.kind == "font.woff_decompression_failed"
-                || f.kind == "font.dynamic_parse_failure");
+    let has_security_finding = outcome.findings.iter().any(|f| {
+        f.kind == "font.woff_decompression_anomaly"
+            || f.kind == "font.woff_decompression_failed"
+            || f.kind == "font.dynamic_parse_failure"
+    });
 
     assert!(
         has_security_finding,
         "WOFF decompression bomb or failure should be detected. Findings: {:?}",
         outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
     );
-    assert!(!outcome.findings.is_empty(), "Should generate security findings");
+    assert!(
+        !outcome.findings.is_empty(),
+        "Should generate security findings"
+    );
 }
 
 /// Test that WOFF2 decompression bomb is detected
@@ -483,12 +475,11 @@ fn test_woff2_decompression_bomb() {
     let outcome = analyse_font(data, &config);
 
     // Should detect decompression bomb OR parse/decompression failure
-    let has_security_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.woff_decompression_anomaly"
-                || f.kind == "font.woff_decompression_failed"
-                || f.kind == "font.dynamic_parse_failure");
+    let has_security_finding = outcome.findings.iter().any(|f| {
+        f.kind == "font.woff_decompression_anomaly"
+            || f.kind == "font.woff_decompression_failed"
+            || f.kind == "font.dynamic_parse_failure"
+    });
 
     assert!(
         has_security_finding,
@@ -509,12 +500,11 @@ fn test_woff_excessive_size() {
     let outcome = analyse_font(data, &config);
 
     // Should detect excessive size OR parse/decompression failure
-    let has_security_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.woff_decompression_anomaly"
-                || f.kind == "font.woff_decompression_failed"
-                || f.kind == "font.dynamic_parse_failure");
+    let has_security_finding = outcome.findings.iter().any(|f| {
+        f.kind == "font.woff_decompression_anomaly"
+            || f.kind == "font.woff_decompression_failed"
+            || f.kind == "font.dynamic_parse_failure"
+    });
 
     assert!(
         has_security_finding,
@@ -535,10 +525,7 @@ fn test_benign_woff_font() {
     let outcome = analyse_font(data, &config);
 
     // Should not produce WOFF-specific findings
-    let has_woff_findings = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind.contains("woff"));
+    let has_woff_findings = outcome.findings.iter().any(|f| f.kind.contains("woff"));
 
     assert!(
         !has_woff_findings,
@@ -563,12 +550,11 @@ fn test_variable_font_excessive_axes() {
     let outcome = analyse_font(data, &config);
 
     // Should detect excessive variation axes OR parse failure
-    let has_security_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.anomalous_variation_table"
-                || f.kind == "font.dynamic_parse_failure"
-                || f.kind == "font.invalid_structure");
+    let has_security_finding = outcome.findings.iter().any(|f| {
+        f.kind == "font.anomalous_variation_table"
+            || f.kind == "font.dynamic_parse_failure"
+            || f.kind == "font.invalid_structure"
+    });
 
     assert!(
         has_security_finding,
@@ -589,12 +575,11 @@ fn test_variable_font_excessive_hvar() {
     let outcome = analyse_font(data, &config);
 
     // Should detect excessive HVAR table size OR parse failure
-    let has_security_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.anomalous_variation_table"
-                || f.kind == "font.dynamic_parse_failure"
-                || f.kind == "font.invalid_structure");
+    let has_security_finding = outcome.findings.iter().any(|f| {
+        f.kind == "font.anomalous_variation_table"
+            || f.kind == "font.dynamic_parse_failure"
+            || f.kind == "font.invalid_structure"
+    });
 
     assert!(
         has_security_finding,
@@ -615,12 +600,11 @@ fn test_variable_font_excessive_mvar() {
     let outcome = analyse_font(data, &config);
 
     // Should detect excessive MVAR table size OR parse failure
-    let has_security_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.anomalous_variation_table"
-                || f.kind == "font.dynamic_parse_failure"
-                || f.kind == "font.invalid_structure");
+    let has_security_finding = outcome.findings.iter().any(|f| {
+        f.kind == "font.anomalous_variation_table"
+            || f.kind == "font.dynamic_parse_failure"
+            || f.kind == "font.invalid_structure"
+    });
 
     assert!(
         has_security_finding,
@@ -651,7 +635,10 @@ fn test_load_embedded_signatures() {
 
     assert!(result.is_ok(), "Should load embedded signatures");
     let signatures = result.unwrap();
-    assert!(signatures.len() >= 3, "Should have at least 3 active signatures");
+    assert!(
+        signatures.len() >= 3,
+        "Should have at least 3 active signatures"
+    );
 }
 
 /// Test that signature matching can be disabled
@@ -667,15 +654,16 @@ fn test_signature_matching_disabled() {
     let outcome = analyse_font(&malformed_font, &config);
 
     // Should not have any CVE findings since signature matching is disabled
-    let has_cve_findings = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind.starts_with("cve."));
+    let has_cve_findings = outcome.findings.iter().any(|f| f.kind.starts_with("cve."));
 
     assert!(
         !has_cve_findings,
         "Should not detect CVE signatures when disabled. Found: {:?}",
-        outcome.findings.iter().filter(|f| f.kind.starts_with("cve.")).collect::<Vec<_>>()
+        outcome
+            .findings
+            .iter()
+            .filter(|f| f.kind.starts_with("cve."))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -699,9 +687,17 @@ fn test_cve_2025_27163_signature_match() {
 
     // May also have legacy hardcoded check finding
     assert!(
-        has_cve || outcome.findings.iter().any(|f| f.description.contains("hmtx")),
+        has_cve
+            || outcome
+                .findings
+                .iter()
+                .any(|f| f.description.contains("hmtx")),
         "Should detect hmtx length mismatch. Findings: {:?}",
-        outcome.findings.iter().map(|f| (&f.kind, &f.description)).collect::<Vec<_>>()
+        outcome
+            .findings
+            .iter()
+            .map(|f| (&f.kind, &f.description))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -718,20 +714,23 @@ fn test_cve_2025_27164_signature_match() {
     let outcome = analyse_font(&malformed_font, &config);
 
     // Should detect CVE-2025-27164, glyph mismatch, OR parse failure (all acceptable security outcomes)
-    let has_security_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind.contains("2025-27164")
-                || f.kind.contains("cff2")
-                || f.kind.contains("glyph")
-                || f.kind.contains("parse_failure")
-                || f.description.to_lowercase().contains("glyph")
-                || f.description.to_lowercase().contains("parsing"));
+    let has_security_finding = outcome.findings.iter().any(|f| {
+        f.kind.contains("2025-27164")
+            || f.kind.contains("cff2")
+            || f.kind.contains("glyph")
+            || f.kind.contains("parse_failure")
+            || f.description.to_lowercase().contains("glyph")
+            || f.description.to_lowercase().contains("parsing")
+    });
 
     assert!(
         has_security_finding,
         "Should detect glyph mismatch or parse failure. Findings: {:?}",
-        outcome.findings.iter().map(|f| (&f.kind, &f.description)).collect::<Vec<_>>()
+        outcome
+            .findings
+            .iter()
+            .map(|f| (&f.kind, &f.description))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -748,15 +747,16 @@ fn test_benign_font_no_signature_matches() {
     let outcome = analyse_font(&benign_font, &config);
 
     // Should not have CVE signature matches
-    let has_cve_findings = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind.starts_with("cve."));
+    let has_cve_findings = outcome.findings.iter().any(|f| f.kind.starts_with("cve."));
 
     assert!(
         !has_cve_findings,
         "Benign font should not trigger CVE signatures. Found: {:?}",
-        outcome.findings.iter().filter(|f| f.kind.starts_with("cve.")).collect::<Vec<_>>()
+        outcome
+            .findings
+            .iter()
+            .filter(|f| f.kind.starts_with("cve."))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -768,7 +768,10 @@ fn test_signature_loading_invalid_directory() {
     config.signature_directory = Some("/nonexistent/directory".to_string());
 
     let result = config.load_signatures();
-    assert!(result.is_err(), "Should fail to load from nonexistent directory");
+    assert!(
+        result.is_err(),
+        "Should fail to load from nonexistent directory"
+    );
 }
 
 /// Test that multiple signatures can match on the same font
@@ -799,10 +802,8 @@ fn test_multiple_signature_matches() {
 fn create_minimal_valid_font() -> Vec<u8> {
     let mut font_data = vec![
         // TrueType signature
-        0x00, 0x01, 0x00, 0x00,
-        // numTables = 3 (head, hhea, maxp)
-        0x00, 0x03,
-        // searchRange, entrySelector, rangeShift
+        0x00, 0x01, 0x00, 0x00, // numTables = 3 (head, hhea, maxp)
+        0x00, 0x03, // searchRange, entrySelector, rangeShift
         0x00, 0x30, 0x00, 0x02, 0x00, 0x00,
     ];
 

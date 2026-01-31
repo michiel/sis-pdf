@@ -1,4 +1,4 @@
-use sis_pdf_core::scan::{FontAnalysisOptions, ProfileFormat, ScanOptions};
+use sis_pdf_core::scan::{CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanOptions};
 
 fn opts() -> ScanOptions {
     ScanOptions {
@@ -26,6 +26,7 @@ fn opts() -> ScanOptions {
         profile: false,
         profile_format: ProfileFormat::Text,
         group_chains: true,
+        correlation: CorrelationOptions::default(),
     }
 }
 
@@ -41,8 +42,43 @@ fn detects_encryption_key_short() {
         .iter()
         .find(|f| f.kind == "encryption_key_short")
         .expect("encryption_key_short finding");
-    assert_eq!(finding.meta.get("crypto.key_length"), Some(&"40".to_string()));
-    assert_eq!(finding.meta.get("crypto.algorithm"), Some(&"RC4-40".to_string()));
+    assert_eq!(
+        finding.meta.get("crypto.key_length"),
+        Some(&"40".to_string())
+    );
+    assert_eq!(
+        finding.meta.get("crypto.algorithm"),
+        Some(&"RC4-40".to_string())
+    );
+}
+
+#[test]
+fn detects_aes_256_alignment() {
+    let bytes = include_bytes!("fixtures/encryption/aes_256.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "encryption_present")
+        .expect("encryption_present finding");
+    assert_eq!(
+        finding.meta.get("crypto.algorithm"),
+        Some(&"AES-256".to_string())
+    );
+    assert_eq!(
+        finding.meta.get("crypto.key_length"),
+        Some(&"256".to_string())
+    );
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.kind == "encryption_key_short"),
+        "AES-256 should not trigger short key detections"
+    );
 }
 
 #[test]

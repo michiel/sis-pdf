@@ -3,7 +3,6 @@
 /// This module implements a minimal TrueType VM to analyze hinting programs
 /// for security issues. It tracks instruction counts, stack depth, and
 /// detects suspicious patterns.
-
 use std::collections::HashMap;
 use tracing::{debug, instrument, warn};
 
@@ -78,7 +77,9 @@ impl VMState {
     }
 
     fn pop(&mut self) -> Result<i32, String> {
-        self.stack.pop().ok_or_else(|| "Stack underflow".to_string())
+        self.stack
+            .pop()
+            .ok_or_else(|| "Stack underflow".to_string())
     }
 
     fn check_budget(&mut self) -> Result<(), String> {
@@ -138,10 +139,7 @@ pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFin
     // Check for suspicious patterns even if execution succeeded
     if !state.suspicious_patterns.is_empty() {
         let mut meta = HashMap::new();
-        meta.insert(
-            "patterns".to_string(),
-            state.suspicious_patterns.join(", "),
-        );
+        meta.insert("patterns".to_string(), state.suspicious_patterns.join(", "));
         meta.insert(
             "instruction_count".to_string(),
             state.instruction_count.to_string(),
@@ -387,13 +385,15 @@ fn skip_to_else_or_eif(program: &[u8], mut pc: usize) -> Result<usize, String> {
     let mut depth = 1;
     while pc < program.len() && depth > 0 {
         match program[pc] {
-            0x58 => depth += 1,      // IF
-            0x1B => {                // ELSE
+            0x58 => depth += 1, // IF
+            0x1B => {
+                // ELSE
                 if depth == 1 {
                     return Ok(pc + 1);
                 }
             }
-            0x59 => {                // EIF
+            0x59 => {
+                // EIF
                 depth -= 1;
                 if depth == 0 {
                     return Ok(pc + 1);

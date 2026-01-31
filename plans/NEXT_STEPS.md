@@ -87,13 +87,24 @@
 **Detectors upgraded**: 8 (confidence levels)
 **Detectors enhanced**: 4 (false positive reduction)
 
+## Latest Progress
+
+### Stage 3 – XFA forms
+  ✅ Finished XFA XML parsing with `roxmltree`, tuned script/execute counts, submit URL detection and sensitive field enumeration while keeping the 1 MB limit.
+  ✅ Enriched all XFA findings with `xfa.size_bytes`, `xfa.script_count`, `xfa.submit_urls`, `xfa.sensitive_fields` and preview metadata; added script extraction that writes `manifest.json` entries with indexes, hashes, object refs and ref chains.
+  ✅ Added query predicate coverage for the new metadata, validated the extraction manifest contents in `xfa.scripts` extraction tests, and documented the metadata/queries in `docs/findings.md`.
+
 ## Next Actions
 
-1. ✅ Update corpus-findings-deep-analysis.md with completion status
-2. Validate changes on 2022 benign corpus (measure FP reduction)
-3. Run full deep scan on 2024 VirusShare corpus to test new detectors
-4. Optional: Implement remaining Phase 3/4 enhancements (filters, evidence)
-5. Generate final testing report with before/after metrics
+1. **Stage 4 – Rich media + SWF**  
+   - Implement the minimal SWF header parser with 10-tag parsing, ActionScript/tag detection, 10:1 decompression ratio limit, 10 MB size guard, and timeframe-safe `TimeoutChecker` wrapping.  
+   - Emit `swf_embedded` and `swf_actionscript_detected` findings with metadata (`media_type`, `size_bytes`, `swf_version`, `actionscript_tags`), and extend query shortcuts/documentation accordingly.
+2. **Stage 4 query & extraction wiring**  
+   - Ensure `sis query swf/*` and related predicates expose the new metadata, predicate support, and extraction helpers mirror the XFA manifest approach with validated metadata for each output.  
+   - Add coverage in `plans/20260120-next-analysis-phases.md` for Stage 4 query/manifest requirements.
+3. **Stage 5 readiness**  
+   - Plan the encryption/obfuscation checklist (entropy slide windows, streaming metadata) so Stage 5 can begin once SWF metadata is stable.  
+   - Outline any CVE fixtures required for Stage 4 to avoid blocking the SWF work.
 
 ## Test Extraction Status
 

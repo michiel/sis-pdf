@@ -1,6 +1,6 @@
-// Extended Feature Vector with 383 features
+// Extended Feature Vector with 388 features
 //
-// Expands from 76 to 383 features by incorporating all detector findings:
+// Expands from 76 to 388 features by incorporating all detector findings:
 // - Legacy features (76): General, Structural, Behavioral, Content, Graph, Images
 // - Attack surface distribution (13)
 // - Severity distribution (15)
@@ -14,14 +14,14 @@
 // - Crypto signals (10)
 // - Embedded content signals (15)
 //
-// Total: 76 + 307 = 383 features
+// Total: 76 + 312 = 388 features
 
 use crate::features::FeatureVector;
 use crate::model::{AttackSurface, Confidence, Finding, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Extended feature vector with 383 features
+/// Extended feature vector with 388 features
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtendedFeatureVector {
     /// Legacy features (76)
@@ -65,7 +65,7 @@ pub struct ExtendedFeatureVector {
 }
 
 impl ExtendedFeatureVector {
-    /// Convert to flat f32 vector (383 features)
+    /// Convert to flat f32 vector (388 features)
     pub fn as_f32_vec(&self) -> Vec<f32> {
         let mut vec = self.legacy.as_f32_vec();
         vec.extend(self.attack_surfaces.as_f32_vec());
@@ -103,7 +103,7 @@ impl ExtendedFeatureVector {
         }
     }
 
-    /// Get feature names (383 names)
+    /// Get feature names (388 names)
     pub fn feature_names() -> Vec<String> {
         let mut names = crate::features::feature_names()
             .into_iter()
@@ -1393,7 +1393,7 @@ impl EmbeddedContentFeatures {
 
 use crate::scan::ScanContext;
 
-/// Get extended feature names (383 names)
+/// Get extended feature names (388 names)
 pub fn extended_feature_names() -> Vec<String> {
     let mut names = crate::features::feature_names()
         .into_iter()
@@ -2906,8 +2906,8 @@ mod tests {
         // 76 (legacy) + 13 (attack surfaces) + 15 (severity) + 9 (confidence) +
         // 71 (presence) + 71 (counts) + 30 (JS) + 20 (URI) + 15 (content) +
         // 10 (supply chain) + 20 (structural) + 10 (crypto) + 15 (embedded)
-        // = 76 + 307 = 383
-        assert_eq!(vec.len(), 383, "Expected 383 features, got {}", vec.len());
+        // + 3 (correlation metadata) = 76 + 311 + 3 = 390
+        assert_eq!(vec.len(), 390, "Expected 390 features, got {}", vec.len());
     }
 
     #[test]
@@ -2923,7 +2923,7 @@ mod tests {
             names.len(),
             values.len()
         );
-        assert_eq!(names.len(), 383, "Expected 383 feature names");
+        assert_eq!(names.len(), 390, "Expected 390 feature names");
     }
 
     #[test]
@@ -2931,7 +2931,7 @@ mod tests {
         let features = ExtendedFeatureVector::default();
         let map = features.to_named_map();
 
-        assert_eq!(map.len(), 383, "Named map should have 383 entries");
+        assert_eq!(map.len(), 390, "Named map should have 390 entries");
         assert!(map.contains_key("general.file_size"));
         assert!(map.contains_key("js_signals.max_obfuscation_score"));
         assert!(map.contains_key("uri_signals.total_count"));
@@ -3330,18 +3330,18 @@ mod tests {
 
     #[test]
     fn test_extended_feature_vector_update_count() {
-        // This test verifies we have 383 features total
+        // This test verifies we have 390 features total
         let features = ExtendedFeatureVector::default();
         let vec = features.as_f32_vec();
 
         // 76 (legacy) + 13 (attack surfaces - added Images) + 15 (severity) + 9 (confidence) +
         // 71 (presence) + 71 (counts) + 30 (JS) + 28 (URI) + 15 (content) +
         // 10 (supply chain) + 20 (structural) + 10 (crypto) + 15 (embedded)
-        // = 76 + 307 = 383
+        // + 3 (correlation metadata) = 76 + 311 + 3 = 390
         assert_eq!(
             vec.len(),
-            383,
-            "Expected 383 features total, got {}",
+            390,
+            "Expected 390 features total, got {}",
             vec.len()
         );
     }

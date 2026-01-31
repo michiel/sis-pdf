@@ -1315,11 +1315,11 @@ sis scan malware.pdf --deep  # Default behavior with full features
 - [x] Add JPEG2000 decoder (`hayro-jpeg2000` crate)
 
 **Hard limits implementation:**
-- [ ] Implement cooperative timeout checking (TimeoutChecker)
-- [ ] Implement max_pixels limit (100 million default)
-- [ ] Implement max_decode_bytes limit (256 MB default)
-- [ ] Implement total budget per PDF (5 seconds default)
-- [ ] Implement auto-skip threshold (50 images default)
+- [x] Implement cooperative timeout checking (TimeoutChecker)
+- [x] Implement max_pixels limit (100 million default)
+- [x] Implement max_decode_bytes limit (256 MB default)
+- [x] Implement total budget per PDF (5 seconds default)
+- [x] Implement auto-skip threshold (50 images default)
 
 **Findings emission:**
 - [x] Emit findings for decode failures
@@ -1334,15 +1334,15 @@ sis scan malware.pdf --deep  # Default behavior with full features
 #### Step 7 (continued): Extended Testing
 
 **Dynamic analysis tests:**
-- [ ] Add tests for timeout enforcement
-- [ ] Add tests for size limit enforcement
-- [ ] Add tests for malformed image handling
-- [ ] Add tests for decode success cases
+- [x] Add tests for timeout enforcement
+- [x] Add tests for size limit enforcement
+- [x] Add tests for malformed image handling
+- [x] Add tests for decode success cases
 
 **Fixtures:**
-- [ ] Add malformed JBIG2 fixture
-- [ ] Add malformed JPEG2000 fixture
-- [ ] Add valid image fixtures for each format
+- [x] Add malformed JBIG2 fixture
+- [x] Add malformed JPEG2000 fixture
+- [x] Add valid image fixtures for each format
 
 **Files to create:**
 - `crates/image-analysis/tests/dynamic_tests.rs`
@@ -1356,13 +1356,14 @@ sis scan malware.pdf --deep  # Default behavior with full features
 
 **Goal:** Full query interface integration with all features.
 
-- [ ] Test all image query types end-to-end
-- [ ] Test predicate filtering with images
-- [ ] Test image extraction in various modes (decode/raw/hexdump)
-- [ ] Test batch mode with image queries
-- [ ] Test REPL mode with image queries
-- [ ] Add comprehensive documentation
-- [ ] Add usage examples to docs
+- [x] Test all image query types end-to-end
+- [x] Test predicate filtering with images
+- [x] Test image extraction in various modes (decode/raw/hexdump)
+- [x] Test batch mode with image queries
+- [x] Test REPL mode with image queries
+- [x] Add comprehensive documentation
+- [x] Add usage examples to docs
+- [x] Add query-module tests covering `images`, `images.count`, and `images.malformed` with the new fixtures to verify predicate and deep-scan behaviour.
 
 **Files to modify:**
 - `docs/query-interface.md` (comprehensive image query docs)
@@ -1384,7 +1385,7 @@ sis scan malware.pdf --deep  # Default behavior with full features
 - [ ] Add differential analysis hooks (optional)
 
 **CVE Fixture Generation:**
-- [ ] Create `scripts/generate_image_fixtures.py`
+- [x] Create `scripts/generate_image_fixtures.py`
 - [x] Generate synthetic fixtures for CVE-2009-0658 (JBIG2)
 - [x] Generate synthetic fixtures for CVE-2018-4990 (JPX)
 - [x] Generate synthetic fixtures for CVE-2010-0188 (XFA/TIFF)

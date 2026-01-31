@@ -1,5 +1,4 @@
 /// Type 1 charstring analysis for detecting dangerous operators and exploit patterns
-
 use tracing::{debug, instrument, warn};
 
 /// Analysis results from charstring parsing
@@ -24,14 +23,7 @@ pub const MAX_SAFE_STACK_DEPTH: usize = 100;
 pub const MAX_SAFE_OPERATORS: usize = 10_000;
 
 /// Dangerous Type 1 operators that can be exploited
-const DANGEROUS_OPERATORS: &[&str] = &[
-    "callothersubr",
-    "pop",
-    "return",
-    "put",
-    "store",
-    "blend",
-];
+const DANGEROUS_OPERATORS: &[&str] = &["callothersubr", "pop", "return", "put", "store", "blend"];
 
 /// Analyze Type 1 charstrings for dangerous patterns
 #[instrument(skip(data), fields(data_len = data.len()))]
@@ -45,7 +37,10 @@ pub fn analyze_charstring(data: &[u8]) -> CharstringAnalysis {
 
     // Try to parse charstrings from the data
     let charstrings = extract_charstrings(data);
-    debug!(charstring_count = charstrings.len(), "Extracted charstrings");
+    debug!(
+        charstring_count = charstrings.len(),
+        "Extracted charstrings"
+    );
 
     for (name, cs_data) in charstrings {
         analyze_single_charstring(&mut analysis, &name, cs_data);
@@ -101,11 +96,7 @@ fn extract_charstrings(data: &[u8]) -> Vec<(String, Vec<u8>)> {
 
 /// Analyze a single charstring
 #[instrument(skip(analysis, data), fields(glyph = name, data_len = data.len()))]
-fn analyze_single_charstring(
-    analysis: &mut CharstringAnalysis,
-    name: &str,
-    data: Vec<u8>,
-) {
+fn analyze_single_charstring(analysis: &mut CharstringAnalysis, name: &str, data: Vec<u8>) {
     let text = String::from_utf8_lossy(&data);
     let tokens: Vec<&str> = text.split_whitespace().collect();
 
@@ -119,7 +110,6 @@ fn analyze_single_charstring(
         if DANGEROUS_OPERATORS.contains(token) {
             debug!(operator = token, position = pos, "Dangerous operator found");
             analysis.dangerous_ops.push(DangerousOperator {
-
                 operator: token.to_string(),
                 context: format!("{}:{}", name, pos),
             });
@@ -208,7 +198,7 @@ fn detect_blend_pattern(dangerous_ops: &[DangerousOperator]) -> bool {
 ///     // Handle suspicious font
 /// }
 /// ```
-#[allow(dead_code)]  // Public API for library consumers
+#[allow(dead_code)] // Public API for library consumers
 pub fn is_suspicious(analysis: &CharstringAnalysis) -> bool {
     analysis.max_stack_depth > MAX_SAFE_STACK_DEPTH
         || analysis.total_operators > MAX_SAFE_OPERATORS
@@ -227,14 +217,12 @@ mod tests {
         // Add multiple callothersubr and return
         for i in 0..4 {
             ops.push(DangerousOperator {
-
                 operator: "callothersubr".to_string(),
                 context: format!("test:{}", i),
             });
         }
         for i in 0..4 {
             ops.push(DangerousOperator {
-
                 operator: "return".to_string(),
                 context: format!("test:{}", i + 4),
             });

@@ -3,36 +3,38 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use std::collections::HashSet;
 
+use crate::encryption_obfuscation::{encryption_meta_from_dict, resolve_encrypt_dict};
 use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii, EvidenceBuilder};
-use sis_pdf_core::timeout::TimeoutChecker;
-use std::time::Duration;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
+use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
+use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance};
-use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
+use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStream};
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
-use crate::encryption_obfuscation::{encryption_meta_from_dict, resolve_encrypt_dict};
+use std::time::Duration;
 
-pub mod advanced_crypto;
 pub mod actions_triggers;
+pub mod advanced_crypto;
 pub mod annotations_advanced;
 pub mod content_first;
 pub mod content_phishing;
+pub mod encryption_obfuscation;
 pub mod evasion_env;
 pub mod evasion_time;
 pub mod external_context;
-pub mod encryption_obfuscation;
 pub mod filter_chain_anomaly;
 pub mod filter_depth;
 pub mod font_exploits;
 pub mod font_external_ref;
 pub mod icc_profiles;
-pub mod ir_graph_static;
 pub mod image_analysis;
+pub mod ir_graph_static;
 pub mod js_polymorphic;
 #[cfg(feature = "js-sandbox")]
 pub mod js_sandbox;
@@ -44,11 +46,11 @@ pub mod objstm_summary;
 pub mod page_tree_anomalies;
 pub mod polyglot;
 pub mod quantum_risk;
-pub mod xfa_forms;
 pub mod rich_media_analysis;
 pub mod strict;
 pub mod supply_chain;
 pub mod uri_classification;
+pub mod xfa_forms;
 
 #[derive(Clone, Copy)]
 pub struct DetectorSettings {
@@ -299,6 +301,13 @@ impl Detector for ObjectIdShadowingDetector {
         Cost::Cheap
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let classifications = ctx.classifications();
+        if !classifications
+            .values()
+            .any(|c| c.has_role(ObjectRole::EmbeddedFile))
+        {
+            return Ok(Vec::new());
+        }
         let mut findings = Vec::new();
 
         // Count total shadowing instances across document
@@ -375,6 +384,13 @@ impl Detector for ShadowObjectDivergenceDetector {
         Cost::Moderate
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let classifications = ctx.classifications();
+        if !classifications
+            .values()
+            .any(|c| c.has_role(ObjectRole::LaunchTarget))
+        {
+            return Ok(Vec::new());
+        }
         let mut findings = Vec::new();
         for ((obj, gen), idxs) in &ctx.graph.index {
             if idxs.len() <= 1 {
@@ -1069,7 +1085,11 @@ fn js_payload_candidates_from_embedded_stream(
         span_to_evidence(stream.data_span, "EmbeddedFile stream"),
     ];
     if let Some(origin) = payload.origin {
-        evidence.push(decoded_evidence_span(origin, &payload.bytes, "Embedded JS payload"));
+        evidence.push(decoded_evidence_span(
+            origin,
+            &payload.bytes,
+            "Embedded JS payload",
+        ));
     }
     let key_name = embedded_filename(&stream.dict)
         .map(|name| format!("EmbeddedFile {}", name))
@@ -1377,13 +1397,37 @@ impl Detector for LaunchActionDetector {
                 .file_offset(dict.span.start, dict.span.len() as u32, "Action dict")
                 .build();
             let mut meta = std::collections::HashMap::new();
-            if let Some(enriched) = payload_from_dict(ctx, dict, &[b"/F", b"/Win"], "Action payload")
+            if let Some(enriched) =
+                payload_from_dict(ctx, dict, &[b"/F", b"/Win"], "Action payload")
             {
                 evidence.extend(enriched.evidence);
                 meta.extend(enriched.meta);
             }
 
+            let mut tracker = LaunchTargetTracker::default();
+            if let Some((_, value)) = dict.get_first(b"/F") {
+                update_launch_targets(ctx, value, &mut tracker);
+            }
+            if let Some((_, value)) = dict.get_first(b"/Win") {
+                if let PdfAtom::Dict(win_dict) = &value.atom {
+                    if let Some((_, win_value)) = win_dict.get_first(b"/F") {
+                        update_launch_targets(ctx, win_value, &mut tracker);
+                    }
+                }
+            }
+
+            if let Some(path) = tracker.target_path.clone() {
+                meta.insert("launch.target_path".into(), path);
+            }
+            meta.insert(
+                "launch.target_type".into(),
+                tracker.target_type().to_string(),
+            );
+            if let Some(hash) = tracker.embedded_file_hash.clone() {
+                meta.insert("launch.embedded_file_hash".into(), hash);
+            }
             let objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
+            let base_meta = meta.clone();
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::Actions,
@@ -1395,31 +1439,13 @@ impl Detector for LaunchActionDetector {
                 objects: objects.clone(),
                 evidence: evidence.clone(),
                 remediation: Some("Review the action target.".into()),
-                meta: meta.clone(),
+                meta: base_meta,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
             });
 
-            let mut launch_external = false;
-            let mut launch_embedded = false;
-            if let Some((_, value)) = dict.get_first(b"/F") {
-                update_launch_targets(ctx, value, &mut launch_external, &mut launch_embedded);
-            }
-            if let Some((_, value)) = dict.get_first(b"/Win") {
-                if let PdfAtom::Dict(win_dict) = &value.atom {
-                    if let Some((_, win_value)) = win_dict.get_first(b"/F") {
-                        update_launch_targets(
-                            ctx,
-                            win_value,
-                            &mut launch_external,
-                            &mut launch_embedded,
-                        );
-                    }
-                }
-            }
-
-            if launch_external {
+            if tracker.external {
                 let mut extra_meta = meta.clone();
                 extra_meta.insert("launch.target_type".into(), "external".into());
                 findings.push(Finding {
@@ -1440,7 +1466,7 @@ impl Detector for LaunchActionDetector {
                 });
             }
 
-            if launch_embedded {
+            if tracker.embedded {
                 let mut extra_meta = meta.clone();
                 extra_meta.insert("launch.target_type".into(), "embedded".into());
                 findings.push(Finding {
@@ -1750,7 +1776,11 @@ impl Detector for EmbeddedFileDetector {
             if let PdfAtom::Stream(st) = &entry.atom {
                 if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
                     let mut evidence = EvidenceBuilder::new()
-                        .file_offset(st.dict.span.start, st.dict.span.len() as u32, "EmbeddedFile dict")
+                        .file_offset(
+                            st.dict.span.start,
+                            st.dict.span.len() as u32,
+                            "EmbeddedFile dict",
+                        )
                         .file_offset(
                             st.data_span.start,
                             st.data_span.len() as u32,
@@ -1761,25 +1791,42 @@ impl Detector for EmbeddedFileDetector {
                     let mut magic = None;
                     let mut encrypted_container = false;
                     let mut has_double = false;
-                    if let Some(name) = embedded_filename(&st.dict) {
+                    let filename = embedded_filename(&st.dict);
+                    if let Some(name) = &filename {
                         meta.insert("embedded.filename".into(), name.clone());
-                        has_double = has_double_extension(&name);
+                        meta.insert("filename".into(), name.clone());
+                        has_double = has_double_extension(name);
                         if has_double {
                             meta.insert("embedded.double_extension".into(), "true".into());
                         }
                     }
                     if let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, st) {
+                        let analysis = analyse_stream(&decoded.data, &StreamLimits::default());
                         let hash = sha256_hex(&decoded.data);
-                        let magic_value = magic_type(&decoded.data);
-                        meta.insert("embedded.sha256".into(), hash);
-                        meta.insert("embedded.size".into(), decoded.data.len().to_string());
+                        meta.insert("hash.sha256".into(), hash.clone());
+                        meta.insert("embedded.sha256".into(), hash.clone());
+                        meta.insert("hash.blake3".into(), analysis.blake3.clone());
+                        meta.insert("embedded.blake3".into(), analysis.blake3.clone());
+                        meta.insert("size_bytes".into(), analysis.size_bytes.to_string());
+                        meta.insert("stream.size_bytes".into(), analysis.size_bytes.to_string());
+                        meta.insert("entropy".into(), format!("{:.2}", analysis.entropy));
+                        meta.insert("stream.entropy".into(), format!("{:.2}", analysis.entropy));
+                        let mut encrypted_flag = "false";
+                        let magic_value = analysis.magic_type.clone();
                         let is_zip = magic_value == "zip";
+                        let is_rar = crate::is_rar_magic(&decoded.data);
+                        let is_encrypted_archive = (is_zip && crate::zip_encrypted(&decoded.data))
+                            || (is_rar && crate::rar_encrypted(&decoded.data));
                         meta.insert("embedded.magic".into(), magic_value.clone());
+                        meta.insert("magic_type".into(), magic_value.clone());
+                        meta.insert("stream.magic_type".into(), magic_value.clone());
                         magic = Some(magic_value);
-                        if is_zip && zip_encrypted(&decoded.data) {
+                        if is_encrypted_archive {
                             meta.insert("embedded.encrypted_container".into(), "true".into());
+                            encrypted_flag = "true";
                             encrypted_container = true;
                         }
+                        meta.insert("encrypted".into(), encrypted_flag.into());
                         if decoded.input_len > 0 {
                             let ratio = decoded.data.len() as f64 / decoded.input_len as f64;
                             meta.insert("embedded.decode_ratio".into(), format!("{:.2}", ratio));
@@ -1861,7 +1908,9 @@ impl Detector for EmbeddedFileDetector {
                             description: "Embedded archive indicates encryption flags.".into(),
                             objects: objects.clone(),
                             evidence: evidence.clone(),
-                            remediation: Some("Extract and attempt to inspect archive contents.".into()),
+                            remediation: Some(
+                                "Extract and attempt to inspect archive contents.".into(),
+                            ),
                             meta: meta.clone(),
                             yara: None,
                             position: None,
@@ -1879,7 +1928,9 @@ impl Detector for EmbeddedFileDetector {
                             description: "Embedded filename uses multiple extensions.".into(),
                             objects,
                             evidence,
-                            remediation: Some("Treat the file as suspicious and inspect carefully.".into()),
+                            remediation: Some(
+                                "Treat the file as suspicious and inspect carefully.".into(),
+                            ),
                             meta: meta.clone(),
                             yara: None,
                             position: None,
@@ -1961,6 +2012,13 @@ impl Detector for ThreeDDetector {
                     || dict.get_first(b"/U3D").is_some()
                     || dict.get_first(b"/PRC").is_some()
                 {
+                    let mut meta = std::collections::HashMap::new();
+                    if let Some(bytes) = entry_payload_bytes(ctx.bytes, entry) {
+                        meta.insert("size_bytes".into(), bytes.len().to_string());
+                        if let Some(media_type) = detect_3d_format(bytes) {
+                            meta.insert("media_type".into(), media_type.to_string());
+                        }
+                    }
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -1972,7 +2030,7 @@ impl Detector for ThreeDDetector {
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(entry.full_span, "3D object")],
                         remediation: Some("Inspect embedded 3D assets.".into()),
-                        meta: Default::default(),
+                        meta,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
@@ -2007,6 +2065,13 @@ impl Detector for SoundMovieDetector {
                     || dict.get_first(b"/Movie").is_some()
                     || dict.get_first(b"/Rendition").is_some()
                 {
+                    let mut meta = std::collections::HashMap::new();
+                    if let Some(bytes) = entry_payload_bytes(ctx.bytes, entry) {
+                        meta.insert("size_bytes".into(), bytes.len().to_string());
+                        if let Some(media_format) = detect_media_format(bytes) {
+                            meta.insert("media_format".into(), media_format.to_string());
+                        }
+                    }
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -2018,7 +2083,7 @@ impl Detector for SoundMovieDetector {
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(entry.full_span, "Sound/Movie object")],
                         remediation: Some("Inspect embedded media objects.".into()),
-                        meta: Default::default(),
+                        meta,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
@@ -2518,6 +2583,29 @@ fn span_bytes<'a>(bytes: &'a [u8], span: sis_pdf_pdf::span::Span) -> Option<&'a 
         return None;
     }
     Some(&bytes[start..end])
+}
+
+fn detect_3d_format(data: &[u8]) -> Option<&'static str> {
+    if data.len() >= 4 && data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x00 && data[3] == 0x24 {
+        return Some("u3d");
+    }
+    if data.starts_with(b"PRC") {
+        return Some("prc");
+    }
+    None
+}
+
+fn detect_media_format(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(b"ID3") {
+        return Some("mp3");
+    }
+    if data.len() >= 2 && data[0] == 0xFF && data[1] == 0xFB {
+        return Some("mp3");
+    }
+    if data.len() >= 12 && &data[4..8] == b"ftyp" {
+        return Some("mp4");
+    }
+    None
 }
 
 fn provenance_label(provenance: ObjProvenance) -> String {
@@ -3055,44 +3143,187 @@ fn is_embedded_file_dict(dict: &PdfDict<'_>) -> bool {
         || dict.get_first(b"/EF").is_some()
 }
 
+#[derive(Default)]
+struct LaunchTargetTracker {
+    external: bool,
+    embedded: bool,
+    target_path: Option<String>,
+    embedded_file_hash: Option<String>,
+}
+
+impl LaunchTargetTracker {
+    fn mark_external(&mut self, path: Option<String>) {
+        self.external = true;
+        if let Some(name) = path {
+            self.set_target_path(name);
+        }
+    }
+
+    fn mark_embedded(&mut self, path: Option<String>, hash: Option<String>) {
+        self.embedded = true;
+        if let Some(name) = path {
+            self.set_target_path(name);
+        }
+        if self.embedded_file_hash.is_none() {
+            self.embedded_file_hash = hash;
+        }
+    }
+
+    fn set_target_path(&mut self, path: String) {
+        if self.target_path.is_none() {
+            self.target_path = Some(path);
+        }
+    }
+
+    fn target_type(&self) -> &'static str {
+        if self.embedded {
+            "embedded"
+        } else if self.external {
+            "external"
+        } else {
+            "unknown"
+        }
+    }
+}
+
 fn update_launch_targets(
     ctx: &sis_pdf_core::scan::ScanContext,
     value: &PdfObj<'_>,
-    launch_external: &mut bool,
-    launch_embedded: &mut bool,
+    tracker: &mut LaunchTargetTracker,
 ) {
     match &value.atom {
-        PdfAtom::Str(_) => {
-            *launch_external = true;
+        PdfAtom::Str(s) => {
+            let path = String::from_utf8_lossy(&string_bytes(s)).to_string();
+            tracker.mark_external(Some(path.clone()));
+            if let Some(hash) = find_embedded_hash_by_name(ctx, &path) {
+                tracker.mark_embedded(Some(path), Some(hash));
+            }
         }
-        PdfAtom::Stream(st) => {
-            if is_embedded_file_dict(&st.dict) {
-                *launch_embedded = true;
+        PdfAtom::Name(n) => {
+            let path = String::from_utf8_lossy(&n.decoded).to_string();
+            tracker.mark_external(Some(path.clone()));
+            if let Some(hash) = find_embedded_hash_by_name(ctx, &path) {
+                tracker.mark_embedded(Some(path), Some(hash));
             }
         }
         PdfAtom::Dict(dict) => {
-            if is_embedded_file_dict(dict) {
-                *launch_embedded = true;
-            }
+            handle_dict_target(ctx, dict, tracker);
+        }
+        PdfAtom::Stream(stream) => {
+            handle_stream_target(ctx, stream, tracker);
         }
         PdfAtom::Ref { obj, gen } => {
             if let Some(entry) = ctx.graph.get_object(*obj, *gen) {
                 match &entry.atom {
-                    PdfAtom::Stream(st) => {
-                        if is_embedded_file_dict(&st.dict) {
-                            *launch_embedded = true;
-                        }
-                    }
-                    PdfAtom::Dict(dict) => {
-                        if is_embedded_file_dict(dict) {
-                            *launch_embedded = true;
-                        }
-                    }
+                    PdfAtom::Dict(dict) => handle_dict_target(ctx, dict, tracker),
+                    PdfAtom::Stream(stream) => handle_stream_target(ctx, stream, tracker),
                     _ => {}
                 }
             }
         }
         _ => {}
+    }
+}
+
+fn handle_dict_target(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    dict: &PdfDict<'_>,
+    tracker: &mut LaunchTargetTracker,
+) {
+    let filename = embedded_filename(dict);
+    if let Some(name) = filename.clone() {
+        tracker.set_target_path(name);
+    }
+    if is_embedded_file_dict(dict) {
+        tracker.mark_embedded(filename, embedded_hash_from_dict(ctx, dict));
+    } else if let Some(name) = filename {
+        if let Some(hash) = find_embedded_hash_by_name(ctx, &name) {
+            tracker.mark_embedded(Some(name), Some(hash));
+        }
+    }
+}
+
+fn handle_stream_target(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    stream: &PdfStream<'_>,
+    tracker: &mut LaunchTargetTracker,
+) {
+    if is_embedded_file_dict(&stream.dict) {
+        tracker.mark_embedded(
+            embedded_filename(&stream.dict),
+            embedded_hash_from_stream(ctx, stream),
+        );
+    }
+}
+
+fn find_embedded_hash_by_name(ctx: &sis_pdf_core::scan::ScanContext, name: &str) -> Option<String> {
+    for entry in &ctx.graph.objects {
+        if let PdfAtom::Stream(st) = &entry.atom {
+            if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
+                if let Some(filename) = embedded_filename(&st.dict) {
+                    if filename == name {
+                        if let Some(hash) = embedded_hash_from_stream(ctx, st) {
+                            return Some(hash);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn embedded_hash_from_stream(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    stream: &PdfStream<'_>,
+) -> Option<String> {
+    if !stream.dict.has_name(b"/Type", b"/EmbeddedFile") {
+        return None;
+    }
+    ctx.decoded
+        .get_or_decode(ctx.bytes, stream)
+        .ok()
+        .map(|decoded| sha256_hex(&decoded.data))
+}
+
+fn embedded_hash_from_dict(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    dict: &PdfDict<'_>,
+) -> Option<String> {
+    if let Some((_, ef_obj)) = dict.get_first(b"/EF") {
+        match &ef_obj.atom {
+            PdfAtom::Dict(ef_dict) => {
+                for (_, value) in &ef_dict.entries {
+                    if let Some(hash) = embedded_hash_from_obj(ctx, value) {
+                        return Some(hash);
+                    }
+                }
+            }
+            _ => {
+                if let Some(hash) = embedded_hash_from_obj(ctx, ef_obj) {
+                    return Some(hash);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn embedded_hash_from_obj(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    obj: &PdfObj<'_>,
+) -> Option<String> {
+    match &obj.atom {
+        PdfAtom::Stream(stream) => embedded_hash_from_stream(ctx, stream),
+        PdfAtom::Ref { obj, gen } => {
+            if let Some(entry) = ctx.graph.get_object(*obj, *gen) {
+                if let PdfAtom::Stream(stream) = &entry.atom {
+                    return embedded_hash_from_stream(ctx, stream);
+                }
+            }
+            None
+        }
+        _ => None,
     }
 }
 
@@ -3106,22 +3337,6 @@ fn sha256_hex(data: &[u8]) -> String {
     hasher.update(data);
     let digest = hasher.finalize();
     hex::encode(digest)
-}
-
-fn magic_type(data: &[u8]) -> String {
-    if data.starts_with(b"MZ") {
-        "pe".into()
-    } else if data.starts_with(b"%PDF") {
-        "pdf".into()
-    } else if data.starts_with(b"PK\x03\x04") {
-        "zip".into()
-    } else if data.starts_with(b"\x7fELF") {
-        "elf".into()
-    } else if data.starts_with(b"#!") {
-        "script".into()
-    } else {
-        "unknown".into()
-    }
 }
 
 fn keyword_evidence(
@@ -3152,12 +3367,37 @@ fn keyword_evidence(
     out
 }
 
-fn zip_encrypted(data: &[u8]) -> bool {
+pub(crate) fn zip_encrypted(data: &[u8]) -> bool {
     if data.len() < 8 || !data.starts_with(b"PK\x03\x04") {
         return false;
     }
     let flag = u16::from_le_bytes([data[6], data[7]]);
     (flag & 0x0001) != 0
+}
+
+const RAR4_MAGIC: &[u8] = b"Rar!\x1A\x07\x00";
+const RAR5_MAGIC: &[u8] = b"Rar!\x1A\x07\x01\x00";
+
+pub(crate) fn is_rar_magic(data: &[u8]) -> bool {
+    data.starts_with(RAR4_MAGIC) || data.starts_with(RAR5_MAGIC)
+}
+
+pub(crate) fn rar_encrypted(data: &[u8]) -> bool {
+    if let Some(flags) = rar_header_flags(data) {
+        (flags & 0x0080) != 0
+    } else {
+        false
+    }
+}
+
+fn rar_header_flags(data: &[u8]) -> Option<u16> {
+    if data.starts_with(RAR4_MAGIC) && data.len() >= 9 {
+        Some(u16::from_le_bytes([data[7], data[8]]))
+    } else if data.starts_with(RAR5_MAGIC) && data.len() >= 10 {
+        Some(u16::from_le_bytes([data[8], data[9]]))
+    } else {
+        None
+    }
 }
 
 fn string_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
@@ -3170,8 +3410,8 @@ fn string_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        data_uri_payload_from_bytes, extract_xfa_script_payloads, javascript_uri_payload_from_bytes,
-        normalise_text_bytes_for_script,
+        data_uri_payload_from_bytes, extract_xfa_script_payloads,
+        javascript_uri_payload_from_bytes, normalise_text_bytes_for_script,
     };
 
     #[test]

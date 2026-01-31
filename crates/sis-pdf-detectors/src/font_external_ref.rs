@@ -88,8 +88,7 @@ impl Detector for FontExternalReferenceDetector {
             if let Some((_, fs_obj)) = dict.get_first(b"/FS") {
                 if let PdfAtom::Name(name) = &fs_obj.atom {
                     if name.raw.as_ref() == b"/URL" {
-                        referenced_external
-                            .push(("/FS /URL".to_string(), (entry.obj, entry.gen)));
+                        referenced_external.push(("/FS /URL".to_string(), (entry.obj, entry.gen)));
                     }
                 }
             }
@@ -148,17 +147,14 @@ impl Detector for FontExternalReferenceDetector {
 
 /// Check if a dictionary appears to be a font dictionary
 fn is_font_dict(dict: &PdfDict) -> bool {
-    dict.entries
-        .iter()
-        .any(|(k, v)| {
-            k.raw.as_ref() == b"/Type"
-                && matches!(&v.atom, PdfAtom::Name(n) if n.raw.as_ref() == b"/Font")
-        })
-        || dict.entries.iter().any(|(k, _)| {
-            k.raw.as_ref() == b"/BaseFont"
-                || k.raw.as_ref() == b"/FontDescriptor"
-                || k.raw.as_ref() == b"/ToUnicode"
-        })
+    dict.entries.iter().any(|(k, v)| {
+        k.raw.as_ref() == b"/Type"
+            && matches!(&v.atom, PdfAtom::Name(n) if n.raw.as_ref() == b"/Font")
+    }) || dict.entries.iter().any(|(k, _)| {
+        k.raw.as_ref() == b"/BaseFont"
+            || k.raw.as_ref() == b"/FontDescriptor"
+            || k.raw.as_ref() == b"/ToUnicode"
+    })
 }
 
 /// Check if a dictionary appears to be a font descriptor

@@ -2,7 +2,6 @@
 ///
 /// This module analyzes color font tables (COLR, CPAL) for consistency
 /// and potential security issues.
-
 use crate::model::FontFinding;
 
 #[cfg(feature = "dynamic")]
@@ -41,7 +40,11 @@ pub fn analyze_color_font(font_data: &[u8]) -> Vec<FontFinding> {
         return findings;
     }
 
-    debug!(has_colr = has_colr, has_cpal = has_cpal, "Analyzing color font");
+    debug!(
+        has_colr = has_colr,
+        has_cpal = has_cpal,
+        "Analyzing color font"
+    );
 
     // COLR without CPAL or vice versa is suspicious
     if has_colr != has_cpal {
@@ -129,7 +132,10 @@ fn validate_cpal_table(font_data: &[u8]) -> Option<Vec<FontFinding>> {
             severity: Severity::Medium,
             confidence: Confidence::Probable,
             title: "CPAL table too small".to_string(),
-            description: format!("CPAL table size ({} bytes) is smaller than minimum (12 bytes)", length),
+            description: format!(
+                "CPAL table size ({} bytes) is smaller than minimum (12 bytes)",
+                length
+            ),
             meta,
         });
         return Some(findings);
@@ -141,7 +147,10 @@ fn validate_cpal_table(font_data: &[u8]) -> Option<Vec<FontFinding>> {
     let num_palettes = u16::from_be_bytes([table_data[4], table_data[5]]) as usize;
 
     if num_palettes > MAX_SAFE_PALETTES {
-        warn!(num_palettes = num_palettes, "Excessive number of color palettes");
+        warn!(
+            num_palettes = num_palettes,
+            "Excessive number of color palettes"
+        );
 
         let mut meta = HashMap::new();
         meta.insert("num_palettes".to_string(), num_palettes.to_string());
@@ -206,7 +215,10 @@ fn validate_colr_table(font_data: &[u8], font_num_glyphs: u16) -> Option<Vec<Fon
             severity: Severity::Medium,
             confidence: Confidence::Probable,
             title: "COLR table too small".to_string(),
-            description: format!("COLR table size ({} bytes) is smaller than minimum (14 bytes)", length),
+            description: format!(
+                "COLR table size ({} bytes) is smaller than minimum (14 bytes)",
+                length
+            ),
             meta,
         });
         return Some(findings);

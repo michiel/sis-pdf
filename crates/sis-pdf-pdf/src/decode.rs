@@ -449,13 +449,13 @@ fn decode_filter(data: &[u8], filter: &str, max_out: usize) -> Result<(Vec<u8>, 
     match filter {
         "/FlateDecode" | "/Fl" => decode_flate(data, max_out),
         "/ASCIIHexDecode" | "/AHx" => Ok((decode_ascii_hex(data), false, false)),
-        "/ASCII85Decode" | "/A85" => decode_ascii85(data).map(|(data, truncated)| {
-            (data, truncated, false)
-        }),
+        "/ASCII85Decode" | "/A85" => {
+            decode_ascii85(data).map(|(data, truncated)| (data, truncated, false))
+        }
         "/RunLengthDecode" | "/RL" => Ok((decode_run_length(data), false, false)),
-        "/LZWDecode" | "/LZW" => decode_lzw(data, max_out).map(|(data, truncated)| {
-            (data, truncated, false)
-        }),
+        "/LZWDecode" | "/LZW" => {
+            decode_lzw(data, max_out).map(|(data, truncated)| (data, truncated, false))
+        }
         other => Err(anyhow!("unsupported filter {}", other)),
     }
 }

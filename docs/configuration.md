@@ -195,6 +195,20 @@ All `scan` configuration options correspond to command-line flags.
 | `image-analysis.max_xfa_decode_bytes` | integer | Maximum bytes for XFA image decoding | N/A |
 | `image-analysis.max_filter_chain_depth` | integer | Max filter chain depth for XFA decoding | N/A |
 
+### Correlation Options
+
+| Configuration Key | Type | Description | CLI Flag |
+|------------------|------|-------------|----------|
+| `correlation.enabled` | boolean | Enable Stage 9 cross-finding correlation (composite findings) | N/A |
+| `correlation.launch_obfuscated` | boolean | Emit `launch_obfuscated_executable` for correlated launch + embedded executable | N/A |
+| `correlation.action_chain_malicious` | boolean | Emit `action_chain_malicious` for automatic JS chains | N/A |
+| `correlation.xfa_data_exfiltration` | boolean | Emit `xfa_data_exfiltration_risk` when sensitive fields pair with external submits | N/A |
+| `correlation.encrypted_payload_delivery` | boolean | Emit `encrypted_payload_delivery` for encrypted archives + launch/SWF | N/A |
+| `correlation.obfuscated_payload` | boolean | Emit `obfuscated_payload` when unusual filters coincide with high entropy streams | N/A |
+| `correlation.high_entropy_threshold` | float | Entropy threshold (0-8) used when matching high entropy streams | N/A |
+| `correlation.action_chain_depth` | integer | Minimum depth required to treat an action chain as complex | N/A |
+| `correlation.xfa_sensitive_field_threshold` | integer | Minimum sensitive field count for XFA exfiltration correlation | N/A |
+
 ## Example Configurations
 
 ### Example 1: Security-Focused Profile

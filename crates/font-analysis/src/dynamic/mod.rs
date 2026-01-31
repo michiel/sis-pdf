@@ -1,10 +1,10 @@
 mod parser;
 #[cfg(feature = "dynamic")]
-mod variable_fonts;
-#[cfg(feature = "dynamic")]
 mod ttf_vm;
+#[cfg(feature = "dynamic")]
+mod variable_fonts;
 
-pub use parser::{parse_font, FontContext, InvalidMagic, InstructionIssue, TableInfo};
+pub use parser::{parse_font, FontContext, InstructionIssue, InvalidMagic, TableInfo};
 
 use crate::model::FontFinding;
 #[cfg(feature = "dynamic")]

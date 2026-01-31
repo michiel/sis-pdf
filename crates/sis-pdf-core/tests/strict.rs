@@ -1,4 +1,4 @@
-use sis_pdf_core::scan::{FontAnalysisOptions, ProfileFormat, ScanOptions};
+use sis_pdf_core::scan::{CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanOptions};
 
 #[test]
 fn strict_mode_emits_deviation() {
@@ -29,6 +29,7 @@ fn strict_mode_emits_deviation() {
         profile: false,
         profile_format: ProfileFormat::Text,
         group_chains: true,
+        correlation: CorrelationOptions::default(),
     };
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts, &detectors)
         .expect("scan should succeed");

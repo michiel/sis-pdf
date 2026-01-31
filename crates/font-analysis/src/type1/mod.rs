@@ -1,5 +1,5 @@
-mod eexec;
 mod charstring;
+mod eexec;
 mod findings;
 
 pub use findings::analyze_type1;

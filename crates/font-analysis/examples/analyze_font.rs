@@ -3,8 +3,8 @@
 //! Usage: cargo run --example analyze_font -- <font_file>
 //! Usage (with dynamic analysis): cargo run --features dynamic --example analyze_font -- <font_file>
 
-use font_analysis::model::{FontAnalysisConfig, Severity};
 use font_analysis::analyse_font;
+use font_analysis::model::{FontAnalysisConfig, Severity};
 use std::env;
 use std::fs;
 use std::path::Path;

@@ -103,7 +103,8 @@ impl FontAnalysisConfig {
 
     /// Convert to JSON string
     pub fn to_json(&self) -> Result<String, String> {
-        serde_json::to_string_pretty(self).map_err(|e| format!("Failed to serialize to JSON: {}", e))
+        serde_json::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize to JSON: {}", e))
     }
 
     /// Convert to YAML string
@@ -264,6 +265,10 @@ network_access: false
         assert!(result.is_ok());
         let signatures = result.unwrap();
         // We expect at least the 3 signatures we migrated
-        assert!(signatures.len() >= 3, "Expected at least 3 signatures, got {}", signatures.len());
+        assert!(
+            signatures.len() >= 3,
+            "Expected at least 3 signatures, got {}",
+            signatures.len()
+        );
     }
 }

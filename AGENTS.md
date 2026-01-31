@@ -113,6 +113,8 @@ Findings in this project include metadata fields for `severity`, `impact`, and `
 - Balance deep analysis and artefact recovery with throughput for large-scale processing.
 - Optimise for rapid handling of very large corpora (500,000+ PDFs) without sacrificing safety.
 - Keep batch mode resilient; avoid per-file failures halting pipelines.
+- Stage 0.5 performance instrumentation lives under `docs/performance.md`: we already exercise `sis scan <fixture> --deep --runtime-profile --runtime-profile-format json` (Stage 1 CVE fixture `crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf`) and the resulting metrics prove the SLO table (parse <10ms, detection <50ms, etc.). Capture future runs with the same pattern so anomalies surface quickly.
+- Profiling tests: `cargo test -p sis-pdf batch_query_supports_findings_composite_predicate -- --nocapture` and `cargo test -p sis-pdf execute_query_supports_findings_composite_predicate -- --nocapture` cover the new composite query predicate paths while the runtime profile command ensures the profiler wiring works end-to-end.
 
 ## Testing Guidelines
 
@@ -140,6 +142,5 @@ Findings in this project include metadata fields for `severity`, `impact`, and `
 
 ## Code and supply chain
 
- - No unsafe code
+ - No unsafe code, no unwraps
  - Rust native crates only
-

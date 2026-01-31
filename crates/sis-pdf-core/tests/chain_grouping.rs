@@ -41,9 +41,7 @@ fn adds_payload_summary_from_decode_meta() {
     finding
         .meta
         .insert("stream.filters".into(), "/FlateDecode".into());
-    finding
-        .meta
-        .insert("decode.outcome".into(), "error".into());
+    finding.meta.insert("decode.outcome".into(), "error".into());
     let findings = vec![finding];
     let (chains, _) = synthesise_chains(&findings, true);
     let chain = chains

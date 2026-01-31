@@ -1,4 +1,4 @@
-use sis_pdf_core::scan::{FontAnalysisOptions, ProfileFormat, ScanOptions};
+use sis_pdf_core::scan::{CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanOptions};
 
 fn opts() -> ScanOptions {
     ScanOptions {
@@ -26,6 +26,7 @@ fn opts() -> ScanOptions {
         profile: false,
         profile_format: ProfileFormat::Text,
         group_chains: true,
+        correlation: CorrelationOptions::default(),
     }
 }
 
@@ -98,7 +99,10 @@ fn detects_image_filter_with_compression() {
         finding.meta.get("violation_type"),
         Some(&"image_with_compression".to_string())
     );
-    assert_eq!(finding.meta.get("allowlist_match"), Some(&"true".to_string()));
+    assert_eq!(
+        finding.meta.get("allowlist_match"),
+        Some(&"true".to_string())
+    );
 }
 
 #[test]
