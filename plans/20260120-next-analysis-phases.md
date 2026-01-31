@@ -1664,8 +1664,10 @@ filters.repeated
 - Extraction helpers for embedded files shipped; batch/REPL coverage remains.
 - Batch/REPL coverage and query reference documentation.
 - [x] `test_query_filters()` - Query unusual filters.
-- [ ] `test_batch_mode_new_queries()` - All new queries in batch.
-- [ ] `test_repl_mode_new_queries()` - All new queries in REPL.
+- [x] `test_batch_mode_new_queries()` - All new queries in batch (composite shortcuts now covered via predicate-aware batch test).
+- [x] `test_repl_mode_new_queries()` - All new queries in REPL (REPL-mode query execution now tolerates `findings.composite` with predicates).
+
+Predicate filtering now includes `findings.composite` and `findings.composite.count` queries, which allows `--where` / `:where` expressions to target composite findings without raising `QUERY_ERROR` (see `crates/sis-pdf/src/commands/query.rs` for the updated predicate guard list).
 
 ### Acceptance Criteria
 

@@ -1128,6 +1128,8 @@ pub fn execute_query_with_context(
                     | Query::FindingsBySeverity(_)
                     | Query::FindingsByKind(_)
                     | Query::FindingsByKindCount(_)
+                    | Query::FindingsComposite
+                    | Query::FindingsCompositeCount
                     | Query::StreamsEntropy
                     | Query::ObjectsCount
                     | Query::ObjectsList
@@ -3559,6 +3561,8 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::FindingsBySeverity(_)
         | Query::FindingsByKind(_)
         | Query::FindingsByKindCount(_)
+        | Query::FindingsComposite
+        | Query::FindingsCompositeCount
         | Query::ObjectsCount
         | Query::ObjectsList
         | Query::ObjectsWithType(_) => Ok(()),
@@ -7232,6 +7236,98 @@ mod tests {
     }
 
     #[test]
+    fn batch_query_supports_findings_composite_predicate() {
+        let temp = tempdir().expect("tempdir");
+        let pdf_path = temp.path().join("launch_obfuscated.pdf");
+        fs::write(
+            &pdf_path,
+            build_launch_obfuscated_pdf(&high_entropy_payload()),
+        )
+        .expect("write pdf");
+
+        let scan_options = ScanOptions::default();
+        let query = parse_query("findings.composite").expect("query");
+        let predicate =
+            parse_predicate("kind == 'launch_obfuscated_executable'").expect("predicate");
+        run_query_batch(
+            &query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            Some(&predicate),
+            OutputFormat::Json,
+            false,
+            5,
+            5 * 1024 * 1024,
+            3,
+        )
+        .expect("batch composite query");
+
+        let count_query = parse_query("findings.composite.count").expect("query");
+        run_query_batch(
+            &count_query,
+            temp.path(),
+            "*.pdf",
+            &scan_options,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            Some(&predicate),
+            OutputFormat::Json,
+            false,
+            5,
+            5 * 1024 * 1024,
+            3,
+        )
+        .expect("batch composite count query");
+    }
+
+    #[test]
+    fn execute_query_supports_findings_composite_predicate() {
+        let bytes = build_launch_obfuscated_pdf(&high_entropy_payload());
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+        let predicate =
+            parse_predicate("kind == 'launch_obfuscated_executable'").expect("predicate");
+
+        let result = execute_query_with_context(
+            &Query::FindingsComposite,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            Some(&predicate),
+        )
+        .expect("execute composite query");
+        match result {
+            QueryResult::Structure(value) => {
+                let arr = value.as_array().expect("expected array");
+                assert!(!arr.is_empty(), "composite results should not be empty");
+            }
+            other => panic!("unexpected query result: {:?}", other),
+        }
+
+        let count_result = execute_query_with_context(
+            &Query::FindingsCompositeCount,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            Some(&predicate),
+        )
+        .expect("execute composite count query");
+        match count_result {
+            QueryResult::Scalar(ScalarValue::Number(n)) => {
+                assert!(n > 0, "expected positive composite count");
+            }
+            other => panic!("unexpected count result: {:?}", other),
+        }
+    }
+
+    #[test]
     fn export_features_outputs_expected_counts() {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
             let csv_query = parse_query("features").expect("query");
@@ -7461,5 +7557,78 @@ mod tests {
         assert_eq!(query_error.error_code, "OBJ_NOT_FOUND");
         let context = query_error.context.expect("context");
         assert_eq!(context["requested"], json!("5 0"));
+    }
+
+    fn high_entropy_payload() -> Vec<u8> {
+        let mut payload = Vec::with_capacity(1024);
+        payload.extend_from_slice(b"MZ");
+        payload.extend((0u8..=255).cycle().take(1022));
+        payload
+    }
+
+    fn build_launch_obfuscated_pdf(payload: &[u8]) -> Vec<u8> {
+        let mut doc = Vec::new();
+        doc.extend_from_slice(b"%PDF-1.7\n");
+        let mut offsets = Vec::new();
+
+        append_text_object(
+            &mut doc,
+            &mut offsets,
+            1,
+            b"<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\n",
+        );
+        append_text_object(
+            &mut doc,
+            &mut offsets,
+            2,
+            b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>\n",
+        );
+        append_text_object(
+            &mut doc,
+            &mut offsets,
+            3,
+            b"<< /Type /Page /Parent 2 0 R >>\n",
+        );
+        append_text_object(
+            &mut doc,
+            &mut offsets,
+            4,
+            b"<< /Type /Action /S /Launch /F 5 0 R >>\n",
+        );
+        append_text_object(
+            &mut doc,
+            &mut offsets,
+            5,
+            b"<< /Type /Filespec /F (payload.exe) /EF << /F 6 0 R >> >>\n",
+        );
+
+        let offset = doc.len();
+        offsets.push(offset);
+        doc.extend_from_slice(b"6 0 obj << /Type /EmbeddedFile /Length ");
+        doc.extend_from_slice(payload.len().to_string().as_bytes());
+        doc.extend_from_slice(b" >>\nstream\n");
+        doc.extend_from_slice(payload);
+        doc.extend_from_slice(b"\nendstream\nendobj\n");
+
+        let xref_offset = doc.len();
+        doc.extend_from_slice(b"xref\n0 7\n");
+        doc.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in &offsets {
+            doc.extend_from_slice(format!("{:010} 00000 n \n", offset).as_bytes());
+        }
+        doc.extend_from_slice(b"trailer << /Size 7 /Root 1 0 R >>\n");
+        doc.extend_from_slice(format!("startxref\n{}\n%%EOF\n", xref_offset).as_bytes());
+
+        doc
+    }
+
+    fn append_text_object(doc: &mut Vec<u8>, offsets: &mut Vec<usize>, number: usize, content: &[u8]) {
+        offsets.push(doc.len());
+        doc.extend_from_slice(format!("{} 0 obj\n", number).as_bytes());
+        doc.extend_from_slice(content);
+        if !content.ends_with(b"\n") {
+            doc.extend_from_slice(b"\n");
+        }
+        doc.extend_from_slice(b"endobj\n");
     }
 }
