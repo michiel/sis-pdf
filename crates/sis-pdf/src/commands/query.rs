@@ -7845,6 +7845,40 @@ mod tests {
     }
 
     #[test]
+    fn execute_query_reports_invalid_pdf_finding_for_html_header() {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root is two levels above crate manifest");
+        let fixture_path: PathBuf =
+            workspace_root.join("crates/sis-pdf-core/tests/fixtures/html_header.pdf");
+        let options = ScanOptions::default();
+        let result = execute_query(
+            &Query::Pages,
+            &fixture_path,
+            &options,
+            None,
+            1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("query result");
+        let findings_value = match result {
+            QueryResult::Structure(value) => value,
+            other => panic!("expected findings result, got {:?}", other),
+        };
+        let findings: Vec<Finding> =
+            serde_json::from_value(findings_value).expect("deserialize findings");
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.kind, "invalid_pdf_header");
+        assert_eq!(finding.severity, Severity::High);
+        assert_eq!(finding.surface, AttackSurface::FileStructure);
+        assert!(finding.meta["path"].ends_with("html_header.pdf"));
+    }
+
+    #[test]
     fn classify_query_error_detects_object_not_found() {
         let err = anyhow!("Object 5 0 not found");
         let query_error = build_query_error(err);
