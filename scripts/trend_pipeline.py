@@ -7,7 +7,7 @@ import json
 import subprocess
 import sys
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -19,14 +19,11 @@ def sis_version() -> str:
         return "unknown"
 
 
-def run_query(corpus: Path, glob: str, query: str, output_format: str) -> list[dict]:
+def run_query_file(pdf_path: Path, query: str, output_format: str) -> list[dict]:
     cmd = [
         "sis",
         "query",
-        "--path",
-        str(corpus),
-        "--glob",
-        glob,
+        str(pdf_path),
         query,
         "--format",
         output_format,
@@ -34,6 +31,19 @@ def run_query(corpus: Path, glob: str, query: str, output_format: str) -> list[d
     proc = subprocess.run(cmd, check=True, capture_output=True, text=True)
     lines = [line for line in proc.stdout.splitlines() if line.strip()]
     return [json.loads(line) for line in lines]
+
+
+def find_pdf_files(corpus: Path, glob: str) -> list[Path]:
+    return sorted(p for p in corpus.rglob(glob) if p.is_file())
+
+
+def is_pdf(path: Path) -> bool:
+    try:
+        with path.open("rb") as f:
+            header = f.read(5)
+            return header.startswith(b"%PDF-")
+    except OSError:
+        return False
 
 
 def aggregate_findings(records: list[dict]) -> tuple[Counter, set[int]]:
@@ -155,17 +165,30 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     version = sis_version()
-    date_iso = datetime.utcnow().isoformat()
+    date_iso = datetime.now(timezone.utc).isoformat()
 
-    findings_records = run_query(args.corpus, args.glob, "findings", "jsonl")
-    finding_counts, files = aggregate_findings(findings_records)
-    correlations_records = run_query(args.corpus, args.glob, "correlations", "jsonl")
-    correlation_counts = aggregate_correlations(correlations_records)
+    pdf_files = find_pdf_files(args.corpus, args.glob)
+    finding_counts = Counter()
+    correlation_counts = Counter()
+    valid_files = set()
+    for pdf in pdf_files:
+        if not is_pdf(pdf):
+            print(f"skipping {pdf}: missing PDF header", file=sys.stderr)
+            continue
+        try:
+            findings_records = run_query_file(pdf, "findings", "jsonl")
+            partial_counts, _ = aggregate_findings(findings_records)
+            finding_counts.update(partial_counts)
+            correlation_records = run_query_file(pdf, "correlations", "jsonl")
+            correlation_counts.update(aggregate_correlations(correlation_records))
+            valid_files.add(str(pdf))
+        except subprocess.CalledProcessError as err:
+            print(f"sis query failed for {pdf}: {err}", file=sys.stderr)
 
     rows = build_rows(
         date_iso,
         version,
-        len(files),
+        len(valid_files),
         finding_counts,
         correlation_counts,
     )

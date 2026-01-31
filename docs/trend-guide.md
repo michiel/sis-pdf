@@ -28,6 +28,8 @@ python scripts/trend_pipeline.py \
 
 The resulting CSV has columns like `date`, `sis_version`, `type` (finding/correlation/summary), `kind_or_pattern`, `severity`, `surface`, `confidence`, `count`, and `files_scanned`. Each run also records correlation summaries for `launch_obfuscated_executable`, `xfa_data_exfiltration_risk`, etc., plus totals for the current samples.
 
+> **Note:** The script now inspects each PDF file individually and confirms the `%PDF-` header before running `sis query`. If a file lacks a valid header, it is skipped and a warning is printed (e.g., `skipping corpus/.../doc.pdf: missing PDF header`), so one bad file no longer stops the daily export.
+
 ## 3. Integrate with your corpus cron job
 
 Add the trend script immediately after `scripts/mwb_corpus_pipeline.py` in your existing cron job so the dataset includes the newest PDFs. Example crontab entry:
