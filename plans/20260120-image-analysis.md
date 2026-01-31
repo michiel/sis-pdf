@@ -1356,13 +1356,13 @@ sis scan malware.pdf --deep  # Default behavior with full features
 
 **Goal:** Full query interface integration with all features.
 
-- [ ] Test all image query types end-to-end
-- [ ] Test predicate filtering with images
-- [ ] Test image extraction in various modes (decode/raw/hexdump)
-- [ ] Test batch mode with image queries
-- [ ] Test REPL mode with image queries
-- [ ] Add comprehensive documentation
-- [ ] Add usage examples to docs
+- [x] Test all image query types end-to-end
+- [x] Test predicate filtering with images
+- [x] Test image extraction in various modes (decode/raw/hexdump)
+- [x] Test batch mode with image queries
+- [x] Test REPL mode with image queries
+- [x] Add comprehensive documentation
+- [x] Add usage examples to docs
 - [x] Add query-module tests covering `images`, `images.count`, and `images.malformed` with the new fixtures to verify predicate and deep-scan behaviour.
 
 **Files to modify:**

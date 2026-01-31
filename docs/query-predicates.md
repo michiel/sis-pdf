@@ -208,4 +208,25 @@ sis query filters.unusual file.pdf --where "violation_type == 'strict_mode'"
 
 # Image filters chained with compression
 sis query filters.unusual file.pdf --where "violation_type == 'image_with_compression'"
+
+## Image predicate metadata
+
+When querying `images`, `images.malformed` or other image shortcuts, the predicate context exposes the dynamic inspection metadata produced by the static and decode pipelines:
+
+- `width`, `height`, `pixels`: reported dimensions and total pixels.
+- `format`: detected format label (`JPEG`, `JBIG2`, `JPX`, `CCITT`, etc.).
+- `image.decode`: decode outcome (`success`, `failed`, `skipped`).
+- `image.decode_error`: decoder message when `image.decode == 'failed'`.
+- `image.decode_skipped`: skip reason (`too_many_images`, `budget_exceeded`, `timeout`).
+- `image.decode_too_large_reason`: whether `bytes` or `pixels` limits triggered `image.decode_too_large`.
+- `image.decode_ms`: measured decode time in milliseconds.
+- `image.filters`: comma-joined filter chain labels.
+
+Use these fields to target specific decode behaviours:
+
+```bash
+sis query sample.pdf images --deep --where "image.decode == 'failed'"
+sis query sample.pdf images.malformed --where "format == 'JBIG2'"
+sis query sample.pdf images --where "image.decode_too_large_reason == 'pixels'"
+```
 ```

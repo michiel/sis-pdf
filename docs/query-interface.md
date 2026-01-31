@@ -54,6 +54,16 @@ sis query sample.pdf images.risky
 sis query sample.pdf images.malformed --deep
 ```
 
+Run `images --deep` when you need decode metadata (timeouts, malformed streams, buckets of filters) and combine with `--where` to hunt for specific decode outcomes. The JSON output includes fields such as `image.decode` (`success`, `failed`, `skipped`), `image.decode_error`, `image.decode_too_large_reason`, `image.filters`, `image.width`, and `image.height`, so you can chain predicates like:
+
+```bash
+sis query sample.pdf images --deep --where "image.decode == 'failed'"
+sis query sample.pdf images --where "format == 'JPEG' AND pixels > 1000000"
+sis query sample.pdf images --where "image.decode_skipped == 'budget_exceeded'"
+```
+
+`images.malformed` already forces a deep scan and highlights any decode failures (JBIG2, JPX, JPEG, CCITT) or skipped streams; use it along with `--where` or `--extract-to` to flush out the offending bytes before exporting to another tool. Our new fixtures (`images/valid_jpeg.pdf`, `images/malformed_jbig2.pdf`, `images/malformed_jpx.pdf`) live under `crates/sis-pdf-core/tests/fixtures/images/` and demonstrate how the pipeline responds to success, malformed JBIG2, and malformed JPX streams.
+
 ## Rich media queries
 
 Use `swf` and `swf.actionscript` to list all SWF streams or just the ones that carry ActionScript tags; `media.3d` and `media.audio` summarise 3D, visual and audio/rendition objects, and all four commands grow richer metadata with each scan. They support `--where` filters on SWF version, action-tag count, declared size, media type and payload size.
