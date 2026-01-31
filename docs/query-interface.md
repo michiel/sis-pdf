@@ -148,6 +148,19 @@ sis query sample.pdf findings.composite.count
 
 `findings.composite` and `findings.composite.count` expose the Stage 9 correlated findings (for example `launch_obfuscated_executable`, `action_chain_malicious`, `xfa_data_exfiltration_risk`, `encrypted_payload_delivery`, `obfuscated_payload`). Because the predicate guard list now includes these queries, you can still pipe `--where` expressions such as `--where "kind == 'launch_obfuscated_executable'"` or `:where kind == \"launch_obfuscated_executable\"` in the REPL without hitting `QUERY_ERROR`. The regression coverage for both batch and REPL modes lives in `crates/sis-pdf/src/commands/query.rs:7238-7327`, so you can reference those tests when evaluating future grazing.
 
+### Correlation exports
+
+`correlations` and `correlations.count` provide dashboard-ready summaries of the composite patterns emitted by Stage 9:
+
+```bash
+sis query sample.pdf correlations
+sis query sample.pdf correlations --format json
+sis query sample.pdf correlations --format jsonl
+sis query sample.pdf correlations.count
+```
+
+The default response is a JSON object keyed by the correlation pattern name (for example `xfa_data_exfiltration_risk`), with each entry describing the `count` of matching findings and the `severity` level for that pattern. Use the `.count` shortcut when you only care about whether any composite findings fired during a batch run, and pipe the JSON/JSONL output into dashboards or analytics pipelines to track per-pattern activity.
+
 ## Action Chain Queries
 
 Use `actions.chains` to inspect the catalog of action chains and `actions.chains.count` to tally them (predicate filtering applies to both). The JSON output includes chain metadata such as trigger, length (depth), automatic flag, `has_js`, and `has_external` flags, so you can run queries like:

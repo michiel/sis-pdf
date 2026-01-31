@@ -1908,6 +1908,7 @@ Implement correlation layer to combine findings and emit high-confidence composi
 
 - [x] Added `findings.composite` shortcuts and counts (`sis query ... findings.composite`).
 - [x] Composite findings are queryable via predicates such as `--where "is_composite == true"`.
+- [x] Added `correlations`/`correlations.count` shortcuts so composite pattern counts can be exported to dashboards and JSONL pipelines.
 
 ### Acceptance Criteria
 

@@ -197,6 +197,8 @@ pub enum Query {
     FindingsByKindCount(String),
     FindingsComposite,
     FindingsCompositeCount,
+    Correlations,
+    CorrelationsCount,
     Encryption,
     EncryptionWeak,
     EncryptionWeakCount,
@@ -417,6 +419,8 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "findings.count" => Ok(Query::FindingsCount),
         "findings.composite" => Ok(Query::FindingsComposite),
         "findings.composite.count" => Ok(Query::FindingsCompositeCount),
+        "correlations" => Ok(Query::Correlations),
+        "correlations.count" => Ok(Query::CorrelationsCount),
         "findings.high" => Ok(Query::FindingsBySeverity(Severity::High)),
         "findings.medium" => Ok(Query::FindingsBySeverity(Severity::Medium)),
         "findings.low" => Ok(Query::FindingsBySeverity(Severity::Low)),
@@ -1215,6 +1219,32 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::Structure(json!(composites)))
             }
             Query::FindingsCompositeCount => {
+                let findings = run_detectors(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                let composites = filtered.into_iter().filter(|f| is_composite(f)).count();
+                Ok(QueryResult::Scalar(ScalarValue::Number(composites as i64)))
+            }
+            Query::Correlations => {
+                let findings = run_detectors(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                let composites: Vec<_> = filtered.into_iter().filter(|f| is_composite(f)).collect();
+                let mut summary_map: HashMap<String, CorrelationSummary> = HashMap::new();
+                for composite in composites {
+                    let pattern = composite
+                        .meta
+                        .get("composite.pattern")
+                        .map(|value| value.as_str())
+                        .unwrap_or(composite.kind.as_str())
+                        .to_string();
+                    let severity = format!("{:?}", composite.severity);
+                    let entry = summary_map
+                        .entry(pattern)
+                        .or_insert(CorrelationSummary { count: 0, severity });
+                    entry.count += 1;
+                }
+                Ok(QueryResult::Structure(json!(summary_map)))
+            }
+            Query::CorrelationsCount => {
                 let findings = run_detectors(ctx)?;
                 let filtered = filter_findings(findings, predicate);
                 let composites = filtered.into_iter().filter(|f| is_composite(f)).count();
@@ -3563,13 +3593,21 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::FindingsByKindCount(_)
         | Query::FindingsComposite
         | Query::FindingsCompositeCount
+        | Query::Correlations
+        | Query::CorrelationsCount
         | Query::ObjectsCount
         | Query::ObjectsList
         | Query::ObjectsWithType(_) => Ok(()),
         _ => Err(anyhow!(
-            "Predicate filtering is only supported for js, embedded, urls, images, events, findings, and objects queries"
+            "Predicate filtering is only supported for js, embedded, urls, images, events, findings, correlations, and objects queries"
         )),
     }
+}
+
+#[derive(Debug, serde::Serialize)]
+struct CorrelationSummary {
+    count: usize,
+    severity: String,
 }
 
 /// Extract event triggers from PDF
@@ -6075,6 +6113,7 @@ pub fn run_query_batch(
 mod tests {
     use super::*;
     use serde_json::json;
+    use serde_json::Value;
     use sis_pdf_pdf::path_finder::TriggerType;
     use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge};
     use std::fs;
@@ -7325,6 +7364,81 @@ mod tests {
             }
             other => panic!("unexpected count result: {:?}", other),
         }
+    }
+
+    #[test]
+    fn query_correlations_summary_reports_counts() {
+        with_fixture_context("xfa/xfa_submit_sensitive.pdf", |ctx| {
+            let query = parse_query("correlations").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute correlations query");
+            match result {
+                QueryResult::Structure(value) => {
+                    let obj = value.as_object().expect("expected object");
+                    let entry = obj
+                        .get("xfa_data_exfiltration_risk")
+                        .expect("expected xfa composite");
+                    let count = entry
+                        .get("count")
+                        .and_then(Value::as_u64)
+                        .expect("count as number");
+                    assert!(count > 0, "expected positive composite count");
+                }
+                other => panic!("unexpected query result: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn query_correlations_count_matches_summary() {
+        with_fixture_context("xfa/xfa_submit_sensitive.pdf", |ctx| {
+            let summary_query = parse_query("correlations").expect("parse summary");
+            let summary_result = execute_query_with_context(
+                &summary_query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute correlations summary");
+            let total_from_summary = match summary_result {
+                QueryResult::Structure(value) => value
+                    .as_object()
+                    .expect("object")
+                    .values()
+                    .map(|entry| {
+                        entry.get("count").and_then(Value::as_u64).expect("count") as usize
+                    })
+                    .sum::<usize>(),
+                other => panic!("unexpected result: {:?}", other),
+            };
+
+            let count_query = parse_query("correlations.count").expect("parse count");
+            let count_result = execute_query_with_context(
+                &count_query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute correlations count");
+            match count_result {
+                QueryResult::Scalar(ScalarValue::Number(n)) => {
+                    assert_eq!(n as usize, total_from_summary);
+                    assert!(n > 0, "expected at least one correlation");
+                }
+                other => panic!("unexpected count result: {:?}", other),
+            }
+        });
     }
 
     #[test]
