@@ -5879,6 +5879,30 @@ pub fn run_query_batch(
     // Compile glob matcher
     let matcher = Glob::new(glob)?.compile_matcher();
 
+    let log_batch_file_issue =
+        |path: &Path, kind: &'static str, severity: SecuritySeverity, detail: &str| {
+            SecurityEvent {
+                level: Level::WARN,
+                domain: SecurityDomain::Detection,
+                severity,
+                kind,
+                policy: None,
+                object_id: None,
+                object_type: None,
+                vector: None,
+                technique: None,
+                confidence: None,
+                message: "Batch query skipped file",
+            }
+            .emit();
+            error!(
+                path = %path.display(),
+                reason = %detail,
+                kind = %kind,
+                "Batch query skipped file"
+            );
+        };
+
     // Walk directory and collect matching files
     let iter = if path.is_file() {
         WalkDir::new(path.parent().unwrap_or(path))
@@ -5981,10 +6005,34 @@ pub fn run_query_batch(
 
     let process_path = |path_buf: &PathBuf| -> Result<Option<BatchResult>> {
         let path_str = path_buf.display().to_string();
-        let mmap = mmap_file(path_buf)?;
+        let mmap = match mmap_file(path_buf) {
+            Ok(mmap) => mmap,
+            Err(err) => {
+                let detail = err.to_string();
+                log_batch_file_issue(
+                    path_buf,
+                    "batch_file_read_error",
+                    SecuritySeverity::Medium,
+                    &detail,
+                );
+                return Ok(None);
+            }
+        };
 
         // Build scan context
-        let ctx = build_scan_context(&mmap, scan_options)?;
+        let ctx = match build_scan_context(&mmap, scan_options) {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                let detail = err.to_string();
+                log_batch_file_issue(
+                    path_buf,
+                    "batch_invalid_pdf",
+                    SecuritySeverity::Low,
+                    &detail,
+                );
+                return Ok(None);
+            }
+        };
 
         // Execute query
         let result = execute_query_with_context(
