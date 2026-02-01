@@ -61,6 +61,42 @@ As of 2026-01-08, sis-pdf includes enhanced payload reconstruction capabilities 
   - `array too large: 1234 elements (max 1000)` - Array size limit exceeded
   - `array payload reconstruction failed: ...` - Array reconstruction error
 
+### Action & Reader Telemetry Fields
+
+**impact**
+- Values: `critical`, `high`, `medium`, `low`, `none`.
+- Meaning: Coarse impact bucket describing the fallout if the finding is exploited; derived from the adjusted severity so downstream tools can rely on a stable impact label.
+- Example: `high` for an action that launches an external payload.
+
+**action_type**
+- Values: Strings such as `Launch`, `JavaScript`, `GoTo`, `RichMedia`, `EmbeddedFile`.
+- Meaning: The category of action path that produced the finding.
+- Example: `Launch` for a `/Launch` entry that starts a child process.
+
+**action_target**
+- Values: Convenient descriptors like `uri:http://example.com/malware.exe`, `file:payload.exe`, `object:15 0 R`.
+- Meaning: Where the action is attempting to go or what it is invoking.
+
+**action_initiation**
+- Values: `automatic`, `user`, `hidden`, `deep`.
+- Meaning: Describes whether the action fires automatically on open, requires user interaction, or is hidden.
+
+**reader_impacts**
+- Values: An array of reader-scored entries with keys `profile`, `surface`, `severity`, `impact`, and optional `note`.
+- Meaning: Details how severity and impact shift for each supported reader (`acrobat`, `pdfium`, `preview`).
+- Example: `[{ "profile": "preview", "surface": "Actions", "severity": "low", "impact": "low", "note": "Severity capped for preview limits" }]`.
+- Notes:
+  - `surface` is repeated for clarity even though the finding already declares it.
+  - `note` appears whenever the reader-specific score diverges from the base severity.
+
+**reader.impact.<profile>**
+- Values: `info`, `low`, `medium`, `high`, `critical`.
+- Meaning: Mirrors each reader's severity bucket and is populated for the same profiles above.
+
+**reader.impact.summary**
+- Values: A comma-separated string of `<profile>:<severity>/<impact>` pairs (e.g., `acrobat:critical/critical,pdfium:low/low`).
+- Meaning: Quick reference for analyst workflows that only need a textual summary of reader divergence.
+
 ### Evasion Techniques Detected
 
 The enhanced analysis now detects and reconstructs:

@@ -43,29 +43,20 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
     let summary = match diff_summary(bytes, primary) {
         Ok(v) => v,
         Err(err) => {
-            findings.push(Finding {
-                id: String::new(),
-                surface: AttackSurface::FileStructure,
-                kind: "secondary_parser_failure".into(),
-                severity: Severity::Low,
-                confidence: Confidence::Probable,
-                title: "Secondary parser failed".into(),
-                description: format!("lopdf failed to parse the document: {}", err),
-                objects: vec!["parser".into()],
-                evidence,
-                remediation: Some(
-                    "Compare with a stricter parser or inspect file integrity.".into(),
-                ),
-                meta: Default::default(),
-                yara: None,
-                position: None,
-                positions: Vec::new(),
-                impact: None,
-                reader_impacts: Vec::new(),
-                action_type: None,
-                action_target: None,
-                action_initiation: None,
-            });
+            let mut finding = Finding::template(
+                AttackSurface::FileStructure,
+                "secondary_parser_failure",
+                Severity::Low,
+                Confidence::Probable,
+                "Secondary parser failed",
+                format!("lopdf failed to parse the document: {}", err),
+            );
+            finding.objects = vec!["parser".into()];
+            finding.evidence = evidence;
+            finding.remediation = Some(
+                "Compare with a stricter parser or inspect file integrity.".into(),
+            );
+            findings.push(finding);
             return DiffResult {
                 findings,
                 summary: None,

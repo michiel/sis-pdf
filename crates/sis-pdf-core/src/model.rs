@@ -158,3 +158,49 @@ pub struct YaraAnnotation {
     pub strings: Vec<String>,
     pub namespace: Option<String>,
 }
+
+impl Default for Finding {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            surface: AttackSurface::FileStructure,
+            kind: String::new(),
+            severity: Severity::Info,
+            confidence: Confidence::Heuristic,
+            impact: None,
+            title: String::new(),
+            description: String::new(),
+            objects: Vec::new(),
+            evidence: Vec::new(),
+            remediation: None,
+            position: None,
+            positions: Vec::new(),
+            meta: HashMap::new(),
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            yara: None,
+        }
+    }
+}
+
+impl Finding {
+    pub fn template(
+        surface: AttackSurface,
+        kind: impl Into<String>,
+        severity: Severity,
+        confidence: Confidence,
+        title: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        let mut base = Finding::default();
+        base.surface = surface;
+        base.kind = kind.into();
+        base.severity = severity;
+        base.confidence = confidence;
+        base.title = title.into();
+        base.description = description.into();
+        base
+    }
+}
