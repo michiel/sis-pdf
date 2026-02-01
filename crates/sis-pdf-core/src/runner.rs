@@ -1169,6 +1169,7 @@ fn build_structural_summary(
     } else {
         None
     };
+    let canonical = ctx.canonical_view();
     StructuralSummary {
         startxref_count: ctx.graph.startxrefs.len(),
         trailer_count: ctx.graph.trailers.len(),
@@ -1185,6 +1186,9 @@ fn build_structural_summary(
         secondary_parser,
         secondary_parser_error,
         ir_summary,
+        canonical_object_count: canonical.indices.len(),
+        incremental_updates_removed: canonical.incremental_removed,
+        normalized_name_changes: canonical.normalized_name_changes,
     }
 }
 

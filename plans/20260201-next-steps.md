@@ -1,46 +1,56 @@
 # 20260201 Next Steps
 
 ## Evaluation
-- The 2026 attack-surface research reiterates that fonts, image codecs, JavaScript engines, parser structures, actions/embedded content, encryption/signatures, reader-specific features, and obfuscation techniques remain the primary categories for PDF exploitation, with multiple critical CVEs still being chained in the wild. sis already targets several of these via the detectors in `crates/sis-pdf-detectors` (JavaScript heuristics, metadata extraction, embedded stream decoding) and the JS-analysis/ font-analysis crates, so we have a solid foothold in image and script-driven categories, but the research warns that every category can shift to zero-click exploitation or multi-stage chains, so we must stay attentive to emergence across the taxonomy.
-- The document emphasises the perennial and evolving severity of font parsing (FreeType, CoolType, variable fonts) and image codecs (JBIG2, JPEG2000, OpenJPEG, libpng), most recently exemplified by CVE-2025-27363 and the multi-stage FORCEDENTRY attack. sis’s font analysis and AI-driven heuristics already flag suspicious charstring and encoding behaviour, yet the research shows that entirely new primitives (e.g. JBIG2 virtual CPUs and zero-click payloads) can bypass defenses if we rely only on pattern matching rather than semantics or contextual anomaly scoring.
-- The research also notes parser differential and obfuscation tactics (filter chains, polyglots, incremental updates, shadow attacks) that evade signature-based extraction. Our pipeline’s current content-first decoding and query predicates give us visibility, but we need more robust sanitisation/normalisation (e.g. stripping incremental updates, canonicalising names) before either detection or downstream data modelling.
-- Reader-specific sandboxes and action types are highlighted as exploitable vectors: NTLM theft via `/GoToE`, `/Launch`, embedded 3D/U3D, and weak JavaScript APIs. sis focuses on detection rather than mitigation, so our posture depends on comprehensive action/exploit metadata in reports so that downstream consumers (EDR, analysts) can tune policies with those priorities.
+- The 2026 attack-surface research confirms that PDFs continue to present danger across fonts, image codecs, JavaScript, parser structure, actions, signatures, and reader-specific sandboxes. sis already covers many of these areas via the detectors in `crates/sis-pdf-detectors`, the font/image analysis crates, and the JS-analysis pipeline, but the paper emphasises that the same primitives can suddenly reappear as zero-click chains or sandbox bypasses, so we must favour semantics (operand stacks, filter graphs, action flows) over brittle literals.
+- Font parsing remains a critical vector—FreeType’s variable-font CVEs (CVE-2025-27363) and JBIG2 virtual-CPU chains (CVE-2021-30860, CVE-2022-38171) are still exploited in the wild. Our font analysis heuristics already flag anomalous tables, but we need to capture the semantics behind new primitives (gvar glyph count mismatches, chained ASCII/JBIG2 filters) and annotate detections with the CVE and attack surface metadata called out in the research.
+- Parser-level obfuscation (escaped names, filter chaining, incremental updates, polyglots) plus reader differences (Acrobat vs PDFium vs Preview) allows adversaries to evade detection. The whitepaper’s differential parsing examples demonstrate that we should canonicalise documents before analysis and mark every finding with the canonical metadata so downstream tooling sees exactly what changed.
+- Action/embedded content telemetry is essential for SOC tuning: `/Launch`, `/GoToE`, embedded files, and automatic actions are repeatedly cited in NTLM credential theft and zero-click cases, so our reports must surface structured fields (`action_type`, `action_target`, `action_initiation`) to make the priority visible at a glance.
 
 ## Recommendations
-1. **Prioritise coverage of emerging primitives** (font and image layers) by expanding heuristic signals that encode stateful semantics instead of just lexical patterns. Map new CVEs (e.g. CVE-2025-27363 on FreeType subglyph parsing and continuing JBIG2 integer overflow chains) to dedicated detectors or anomaly scores so we maintain parity with research-driven threat models.
-2. **Hardening against obfuscation and differential parsing**: implement a canonicalisation stage that normalises `/OpenAction`-style names, linearises filter chains, and optionally removes incremental updates to present a deterministic stream to detection layers, limiting the 100% evasion paths described in the whitepaper.
-3. **Action/embedded content telemetry**: extend reporting so every finding includes the action type (`/Launch`, `/GoToE`, `/JS`, `/EmbeddedFile`) and any redirection targets, enabling policy enforcement and making it easier for downstream tooling to prioritise high-impact flows highlighted by NTLM credential theft research.
-4. **Reader-contextual scoring**: align detection severity with the affected reader surface (e.g. Font/codec bugs that target core graphics stacks vs. JS issues that only hit Reader/Acrobat). This will help analysts understand that the same finding may be `Critical` for Adobe Acrobat but `Medium` for a sandboxed PDFium embed.
-5. **Threat intelligence cadence**: create a lightweight process for curating new relevant CVEs and attack chain findings from the research (fonts, JBIG2, Zero-click chains) into the detectors and into docs/alerts inside `docs/js-detection-*.md` and `docs/findings.md`, ensuring the physical descriptions and severity/impact/confidence metadata stay current as the attack surface evolves.
-6. **Validation via fixtures**: add targeted fixtures exercising recent attack primitives (variable fonts, JBIG2 streams with chained filter obfuscation, incremental update modifications) in `crates/sis-pdf-core/tests/fixtures` and corresponding integration tests to ensure the new detectors maintain coverage without regressing existing flows.
+1. **Strengthen emerging-primitive heuristics**—capture the semantics behind new CVEs (variable-font gvar mismatches, JBIG2 filter graph anomalies, zero-click images) in `crates/sis-pdf-detectors`, `crates/font-analysis`, and `crates/image-analysis` so every exploit vector surfaces with CVE metadata, not just raw patterns.
+2. **Canonicalise before detection**—normalise object names (`/Open#41ction` → `/OpenAction`), linearise filter chains, and prefer the latest object version so detectors operate on a consistent view even when adversaries rely on incremental updates or escaped names.
+3. **Surface action telemetry**—propagate structured fields (`action_type`, `action_target`, `action_initiation`) into every finding so JSON and text reports (and downstream tooling) can react to `/Launch`, `/GoToE`, `/EmbeddedFile`, and similar actions without re-parsing metadata keys.
+4. **Reader-aware scoring**—attach reader-impact metadata (e.g., Acrobat `critical`, PDFium `medium`, Preview `low`) to each finding so analysts know whether the primitive matters for their chosen viewer; surface the same data in reports and docs.
+5. **Maintain the threat-intel cadence**—continue curating CVEs (fonts, JBIG2, codecs, javascript) in `docs/threat-intel-tracker.md`, linking each entry back to the detectors/docs it affects so every CVE flows through the triage, implementation, and documentation workflow.
+6. **Validate with fixtures**—encode the researched edge cases (variable fonts, chained JBIG2, incremental updates) into fixtures/tests so we can assert that canonicalisation, heuristics, and reader scoring stay stable as the code evolves.
 
 ## Implementation plan
-1. **Prioritise emerging primitives**
-   - Catalogue the CVEs and research primitives called out in the report (FreeType subglyph parsing, JBIG2 integer overflows, chained codecs) and map each to the most relevant detector module inside `crates/sis-pdf-detectors`, `crates/font-analysis`, or `crates/js-analysis`.
-   - For each primitive, design semantic heuristics (e.g., operand-stack anomalies for font blending; JBIG2 segment graph sanity checks) that capture the exploit semantics rather than just byte sequences, then implement the heuristics with supporting unit tests and `crates/sis-pdf-detectors/tests`.
-   - Update the detector metadata so each heuristic lists the CVE(s) and attack surface element it addresses, enabling clearer telemetry when a match fires.
-2. **Hardening canonicalisation**
-   - Add a canonicalisation pass early in `crates/sis-pdf-core` that normalises names (`/Open#41ction` → `/OpenAction`), expands/linearises filter chains, and optionally strips incremental updates before handing data to detectors.
-   - Ensure the pass emits diff-friendly metadata so downstream queries understand what was changed and why; cover the new logic with regression tests that feed obfuscated samples and verify the canonicalised output.
-   - Coordinate with the detection team to rely on the canonical source for all heuristics, preventing inconsistent parsing across modules.
-3. **Action/embedded content telemetry**
-   - Extend the observation schema (likely `crates/sis-pdf-core/src/report.rs` or similar) so every finding records `action_type`, `action_target`, and whether the action is automatic or user-initiated.
-   - Retrofit detectors that currently flag embedded content so they populate these fields; ensure JSON and textual report sinks surface the extra metadata via new CLI flags/examples in `docs/js-detection-*.md`.
-   - Add integration tests that open sample PDFs containing `/Launch`, `/GoToE`, and embedded file actions to assert the telemetry fields are populated with the expected values.
-4. **Reader-contextual scoring**
-   - Define reader profiles (e.g., Acrobat/Reader with JavaScript, PDFium sandbox with no JS, Preview w/out sandbox) and add a mapping table that indicates which primitives are `Critical` vs `Medium` for each profile.
-   - Update the scoring engine (maybe `crates/sis-pdf-core/src/severity.rs` or similar) to incorporate the reader profile metadata when emitting a finding, allowing reports to state “critical for Acrobat, medium for PDFium”.
-   - Document the reader-aware scoring approach in `docs/findings.md` so analysts understand how severity/impact/confidence shift depending on the target application.
-5. **Threat intelligence cadence**
-   - Establish a lightweight triage workflow (e.g., a weekly review of CVE feeds for fonts, JBIG2, image codecs) and log the findings in a dedicated tracker (could live under `docs/` or `plans/`), noting which detectors need updates.
-   - Assign ownership for updating detectors and documentation (docs/js-detection-*.md, docs/findings.md) whenever a new primitive is added; include CI or checklist items ensuring new CVE entries contain `severity`, `impact`, `confidence`.
-   - Automate or script the ingestion of the tracker into release notes or alerts so analysts learn about the new capabilities as soon as they land.
-6. **Validation via fixtures**
-   - Develop fixtures that encode the researched edge cases: variable-font glyph programs, JBIG2 streams that rely on chained filters, incremental update manipulations, and any new obfuscation styles introduced by canonicalisation.
-   - Place the fixtures into `crates/sis-pdf-core/tests/fixtures` with descriptive names and reference them from integration tests that run `sis` in CI via `crates/sis-pdf/tests` or test harnesses under `plans/`.
-   - Tie each fixture to the detector that should fire and assert that the stats (e.g., detection labels, severity) remain consistent even after canonicalisation and new heuristics are applied.
+1. **Emerging primitives**
+   - Map the CVEs and primitives called out in the research to detector modules inside `crates/sis-pdf-detectors`, `crates/font-analysis`, and `crates/image-analysis`.
+   - Add or expand semantic heuristics (gvar glyph count mismatches, chained ASCII/JBIG2 filters) and document the CVE/attack-surface metadata each one addresses.
+   - Cover the heuristics with unit/integration tests so the new primitives stay observable in CI.
+2. **Canonicalisation pass**
+   - Extend `sis_pdf_core` with a canonicalisation snapshot that strips incremental updates, normalises names, linearises filter chains, and tracks diff-friendly metadata.
+   - Expose the snapshot’s indices to detectors so every detector reuses the same canonical object list.
+   - Surface the canonical metadata (`incremental_updates_removed`, name corrections) inside the structural summary and add regression tests that feed obfuscated samples.
+3. **Action telemetry**
+   - Add `action_type`, `action_target`, and `action_initiation` fields to `Finding`, populate them from existing metadata helpers, and ensure all output formats surface them.
+   - Highlight the new fields in `docs/findings.md` and query documentation so analysts can reference them via `action_target` or `meta.action.*`.
+   - Confirm embedded-action detectors continue to provide the metadata so the fields stay populated.
+4. **Reader-context scoring**
+   - Expand `reader_context` to emit a `reader_impacts` list in addition to the existing `reader.impact.<profile>` metadata (Acrobat, PDFium, Preview).
+   - Document how severity shifts per reader profile in `docs/findings.md` so analysts understand the significance.
+5. **Threat-intel cadence & docs**
+   - Keep driving the weekly triage workflow in `plans/20260201-threat-intel-cadence.md`, ensuring every CVE entry references relevant detectors/docs and includes severity/impact/confidence.
+   - Automate reminder/checklist hooks so new CVEs trigger updates to detectors/docs and surface in release notes.
+6. **Validation fixtures**
+   - Add fixtures for variable fonts, chained JBIG2 streams, and incremental update tricks to `crates/sis-pdf-core/tests/fixtures`.
+   - Create integration tests that run the runner against those fixtures to verify canonicalisation, heuristics, and scoring stay stable.
+
+## CVE automation plan
+1. **Scope and cadence**
+   - Rework the CVE tool to only fetch NVD data for the last 7 days by default (configurable via `--days`/`--since`/`--until`).
+   - Broaden the keyword list to encompass our full attack surface (fonts, image codecs, JavaScript, actions) and surface the matched categories alongside each CVE entry.
+   - Continue writing placeholder artifacts into the shared workspace directory (e.g., `docs/threat-intel-tracker.md` or a signature directory) so the automation can seed further detector work.
+2. **Workflow resilience**
+   - Update `.github/workflows/cve-update.yml` so it runs the new tool with the short window, is idempotent (skips files that already exist), and can run multiple times per week without hitting API limits.
+   - Surface any 4xx/5xx NVD responses or skipped ranges in the workflow logs so reviewers know when to adjust windows or add API keys.
+3. **Risks, gaps, opportunities**
+   - API rate limits still exist—retain exponential backoff and consider running during off-peak hours if 429s persist.
+   - Keyword matching may surface false positives; pair the automation with a brief human triage checklist before adding CVEs to detectors.
+   - Once the tool spans all attack surfaces we can auto-generate tracker rows and notify detector owners (via release notes or issue templates) to close the loop faster.
 
 ## Next actions
-- Schedule time in the sprint to align the font/image detectors with the new CVEs and to surface obfuscation normalisation logic for review; tie the work to test cases from the research so QA can validate them automatically.
-- Update `docs/js-detection-*.md` and `docs/findings.md` explaining the new primitives and their detection approach so analysts understand how sis interprets the emergent threats described in the research.
-- Drive the new threat intelligence cadence (`plans/20260201-threat-intel-cadence.md`) so every CVE entry flows through `docs/threat-intel-tracker.md`, the helper script (`scripts/threat_intel_summary.py`), and the docs/detectors that implement it.
+- Schedule sprint capacity to land the canonicalisation pass, action telemetry, and reader-impact updates so the fixtures/tests can validate them automatically.
+- Refresh `docs/findings.md` (and the query docs) with the new action/readout metadata so analysts know how to consume those fields; mention the `sis version` command as a quick check for release alignment.
+- Keep the threat-intel cadence active so every CVE feeds through `docs/threat-intel-tracker.md`, the automation, the detectors, and the documentation defined above.

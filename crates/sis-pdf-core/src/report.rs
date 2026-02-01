@@ -184,6 +184,12 @@ pub struct StructuralSummary {
     pub secondary_parser: Option<SecondaryParserSummary>,
     pub secondary_parser_error: Option<String>,
     pub ir_summary: Option<IrSummary>,
+    #[serde(default)]
+    pub canonical_object_count: usize,
+    #[serde(default)]
+    pub incremental_updates_removed: usize,
+    #[serde(default)]
+    pub normalized_name_changes: usize,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

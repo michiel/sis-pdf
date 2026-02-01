@@ -60,6 +60,11 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                impact: None,
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
             });
             return DiffResult {
                 findings,

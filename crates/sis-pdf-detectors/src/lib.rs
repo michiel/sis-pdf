@@ -1432,10 +1432,11 @@ impl Detector for LaunchActionDetector {
                 .as_deref()
                 .map(|s| s.to_string())
                 .or(payload_target);
-            annotate_action_meta(&mut meta, "/Launch", action_target.as_deref(), "automatic");
+            let action_telemetry =
+                annotate_action_meta(&mut meta, "/Launch", action_target.as_deref(), "automatic");
             let objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
             let base_meta = meta.clone();
-            findings.push(Finding {
+            let mut base_finding = Finding {
                 id: String::new(),
                 surface: AttackSurface::Actions,
                 kind: "launch_action_present".into(),
@@ -1450,12 +1451,14 @@ impl Detector for LaunchActionDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-            });
+            };
+            apply_action_telemetry(&mut base_finding, &action_telemetry);
+            findings.push(base_finding);
 
             if tracker.external {
                 let mut extra_meta = meta.clone();
                 extra_meta.insert("launch.target_type".into(), "external".into());
-                findings.push(Finding {
+                let mut extra_finding = Finding {
                     id: String::new(),
                     surface: AttackSurface::Actions,
                     kind: "launch_external_program".into(),
@@ -1470,13 +1473,15 @@ impl Detector for LaunchActionDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                });
+                };
+                apply_action_telemetry(&mut extra_finding, &action_telemetry);
+                findings.push(extra_finding);
             }
 
             if tracker.embedded {
                 let mut extra_meta = meta.clone();
                 extra_meta.insert("launch.target_type".into(), "embedded".into());
-                findings.push(Finding {
+                let mut embedded_finding = Finding {
                     id: String::new(),
                     surface: AttackSurface::Actions,
                     kind: "launch_embedded_file".into(),
@@ -1491,7 +1496,9 @@ impl Detector for LaunchActionDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                });
+                };
+                apply_action_telemetry(&mut embedded_finding, &action_telemetry);
+                findings.push(embedded_finding);
             }
         }
         Ok(findings)
@@ -3090,19 +3097,34 @@ fn payload_from_obj(
     Some(PayloadEnrichment { evidence, meta })
 }
 
+#[derive(Clone)]
+pub(crate) struct ActionTelemetry {
+    pub action_type: String,
+    pub action_target: Option<String>,
+    pub action_initiation: String,
+}
+
 pub(crate) fn annotate_action_meta(
     meta: &mut std::collections::HashMap<String, String>,
     action_type: &str,
     target: Option<&str>,
     initiation: &str,
-) {
+) -> ActionTelemetry {
     meta.insert("action.type".into(), action_type.to_string());
+    let mut recorded_target = None;
     if let Some(t) = target {
         if !t.trim().is_empty() {
-            meta.insert("action.target".into(), shorten_action_target(t));
+            let target_value = shorten_action_target(t);
+            meta.insert("action.target".into(), target_value.clone());
+            recorded_target = Some(target_value);
         }
     }
     meta.insert("action.initiation".into(), initiation.to_string());
+    ActionTelemetry {
+        action_type: action_type.to_string(),
+        action_target: recorded_target,
+        action_initiation: initiation.to_string(),
+    }
 }
 
 pub(crate) fn action_target_from_meta(
@@ -3118,6 +3140,12 @@ pub(crate) fn action_target_from_meta(
 
 fn shorten_action_target(value: &str) -> String {
     value.chars().take(256).collect()
+}
+
+pub(crate) fn apply_action_telemetry(finding: &mut Finding, telemetry: &ActionTelemetry) {
+    finding.action_type = Some(telemetry.action_type.clone());
+    finding.action_target = telemetry.action_target.clone();
+    finding.action_initiation = Some(telemetry.action_initiation.clone());
 }
 
 pub(crate) fn action_type_from_obj(

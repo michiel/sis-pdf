@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 
-use sis_pdf_core::canonical::{canonical_filter_chain, canonical_object_indices};
+use sis_pdf_core::canonical::canonical_filter_chain;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::filter_allowlist::default_filter_allowlist;
@@ -38,7 +38,7 @@ impl Detector for FilterChainAnomalyDetector {
             .cloned()
             .unwrap_or_else(default_filter_allowlist);
         let strict = ctx.options.filter_allowlist_strict;
-        for idx in canonical_object_indices(&ctx.graph, true) {
+        for &idx in &ctx.canonical_view().indices {
             let entry = &ctx.graph.objects[idx];
             if timeout.check().is_err() {
                 break;
