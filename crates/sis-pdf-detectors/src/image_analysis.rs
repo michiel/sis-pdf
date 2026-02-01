@@ -133,6 +133,7 @@ fn map_finding(
         yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
     })
 }
 

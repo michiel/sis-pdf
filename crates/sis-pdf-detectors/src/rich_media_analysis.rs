@@ -123,15 +123,22 @@ impl Detector for RichMediaContentDetector {
                 kind: "swf_embedded".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "SWF content embedded".into(),
                 description: "Stream data matches SWF magic header.".into(),
                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                 evidence: evidence.clone(),
                 remediation: Some("Extract and inspect the SWF payload.".into()),
                 meta: meta.clone(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
             if !analysis.action_scan.action_tags.is_empty() {
                 let mut action_meta = meta.clone();
@@ -153,6 +160,7 @@ impl Detector for RichMediaContentDetector {
                     kind: "swf_actionscript_detected".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "SWF ActionScript tags detected".into(),
                     description:
                         "SWF stream contains ActionScript tags (DoAction/DoInitAction/DoABC)."
@@ -161,9 +169,15 @@ impl Detector for RichMediaContentDetector {
                     evidence: action_evidence,
                     remediation: Some("Review the ActionScript tags for malicious logic.".into()),
                     meta: action_meta,
+
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }

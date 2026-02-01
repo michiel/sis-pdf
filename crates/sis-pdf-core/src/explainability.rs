@@ -2494,6 +2494,7 @@ mod tests {
             kind: "js_eval".to_string(),
             severity: Severity::High,
             confidence: Confidence::Strong,
+            impact: None,
             surface: AttackSurface::JavaScript,
             title: "JavaScript eval usage".to_string(),
             description: "test".to_string(),
@@ -2504,6 +2505,7 @@ mod tests {
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
 
         let profile = extract_js_risk_profile(&findings);
@@ -2529,6 +2531,7 @@ mod tests {
             kind: "aa_uri_suspicious".to_string(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
+            impact: None,
             surface: AttackSurface::Actions,
             title: "Suspicious URI".to_string(),
             description: "test".to_string(),
@@ -2539,6 +2542,7 @@ mod tests {
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
 
         let profile = extract_uri_risk_profile(&findings);
@@ -2558,6 +2562,7 @@ mod tests {
                 kind: "xref_conflict".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
+                impact: None,
                 surface: AttackSurface::XRefTrailer,
                 title: "XRef conflict".to_string(),
                 description: "test".to_string(),
@@ -2565,15 +2570,22 @@ mod tests {
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
             Finding {
                 id: "struct-1".to_string(),
                 kind: "invalid_structure".to_string(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
+                impact: None,
                 surface: AttackSurface::FileStructure,
                 title: "Invalid structure".to_string(),
                 description: "test".to_string(),
@@ -2581,9 +2593,15 @@ mod tests {
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
         ];
 
@@ -2602,6 +2620,7 @@ mod tests {
                 kind: "js_eval".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
+                impact: None,
                 surface: AttackSurface::JavaScript,
                 title: "JavaScript eval".to_string(),
                 description: "test".to_string(),
@@ -2609,15 +2628,22 @@ mod tests {
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
             Finding {
                 id: "xref-1".to_string(),
                 kind: "xref_conflict".to_string(),
                 severity: Severity::Critical,
                 confidence: Confidence::Strong,
+                impact: None,
                 surface: AttackSurface::XRefTrailer,
                 title: "XRef conflict".to_string(),
                 description: "test".to_string(),
@@ -2625,9 +2651,15 @@ mod tests {
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
         ];
 

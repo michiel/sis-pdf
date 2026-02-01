@@ -70,6 +70,7 @@ impl Detector for JavaScriptSandboxDetector {
                             kind: "js_sandbox_skipped".into(),
                             severity: Severity::Info,
                             confidence: Confidence::Probable,
+            impact: None,
                             title: "JavaScript sandbox skipped".into(),
                             description: "Sandbox skipped because the JS payload exceeds the size limit or sandbox is unavailable.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -79,6 +80,7 @@ impl Detector for JavaScriptSandboxDetector {
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                        ..Finding::default()
                         });
                     }
                     DynamicOutcome::TimedOut { timeout_ms } => {
@@ -95,6 +97,7 @@ impl Detector for JavaScriptSandboxDetector {
                             kind: "js_sandbox_timeout".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Probable,
+                            impact: None,
                             title: "JavaScript sandbox timeout".into(),
                             description: "Sandbox execution exceeded the time limit.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -106,6 +109,7 @@ impl Detector for JavaScriptSandboxDetector {
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                            ..Finding::default()
                         });
                     }
                     DynamicOutcome::Executed(signals) => {
@@ -144,6 +148,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_sandbox_exec".into(),
                                 severity: Severity::Info,
                                 confidence: Confidence::Probable,
+                                impact: None,
                                 title: "JavaScript sandbox executed".into(),
                                 description: description.into(),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -153,6 +158,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                             continue;
                         }
@@ -229,6 +235,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_runtime_network_intent".into(),
                                 severity: Severity::High,
                                 confidence: Confidence::Probable,
+            impact: None,
                                 title: "Runtime network intent".into(),
                                 description: "JavaScript invoked network-capable APIs during sandboxed execution.".into(),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -238,6 +245,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                            ..Finding::default()
                             });
                         }
                         if has_file {
@@ -249,6 +257,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_runtime_file_probe".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
+            impact: None,
                                 title: "Runtime file or object probe".into(),
                                 description: "JavaScript invoked file or object-related APIs during sandboxed execution.".into(),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -258,6 +267,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                            ..Finding::default()
                             });
                         }
                         if let Some(label) = risky_call_label.as_ref() {
@@ -269,6 +279,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_runtime_risky_calls".into(),
                                 severity: Severity::High,
                                 confidence: Confidence::Strong,
+            impact: None,
                                 title: "Runtime risky JavaScript calls".into(),
                                 description: format!(
                                     "JavaScript invoked high-risk calls during sandboxed execution ({}).",
@@ -283,6 +294,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                            ..Finding::default()
                             });
                         }
                         if !has_network && !has_file {
@@ -294,6 +306,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_sandbox_exec".into(),
                                 severity: Severity::Info,
                                 confidence: Confidence::Probable,
+            impact: None,
                                 title: "JavaScript sandbox executed".into(),
                                 description: "Sandbox executed JS; monitored API calls were observed but no network/file APIs.".into(),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -303,6 +316,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                            ..Finding::default()
                             });
                         }
                     }

@@ -69,6 +69,7 @@ impl Detector for QuantumRiskDetector {
             kind: "quantum_vulnerable_crypto".into(),
             severity: Severity::Low,
             confidence: Confidence::Heuristic,
+            impact: None,
             title: "Quantum-vulnerable cryptography".into(),
             description: "Signature algorithms are vulnerable to post-quantum attacks.".into(),
             objects: vec!["signature".into()],
@@ -78,6 +79,7 @@ impl Detector for QuantumRiskDetector {
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         }])
     }
 }

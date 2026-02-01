@@ -45,15 +45,22 @@ impl Detector for ICCProfileDetector {
                             kind: "icc_profile_oversized".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
+                            impact: None,
                             title: "Oversized ICC profile".into(),
                             description: "ICC profile stream exceeds expected size bounds.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                             evidence: evidence.clone(),
                             remediation: Some("Inspect ICC profile contents for anomalies.".into()),
                             meta: meta.clone(),
+
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                            ..Finding::default()
                         });
                     }
                     if let Some(issue) = icc_header_issue(ctx.bytes, &stream) {
@@ -64,6 +71,7 @@ impl Detector for ICCProfileDetector {
                             kind: "icc_profile_anomaly".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
+                            impact: None,
                             title: "ICC profile header anomaly".into(),
                             description: issue,
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -75,6 +83,7 @@ impl Detector for ICCProfileDetector {
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                            ..Finding::default()
                         });
                     }
                 }

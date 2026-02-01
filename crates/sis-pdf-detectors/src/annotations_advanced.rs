@@ -55,15 +55,22 @@ impl Detector for AnnotationAttackDetector {
                             kind: "annotation_hidden".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Probable,
+                            impact: None,
                             title: "Hidden annotation".into(),
                             description: "Annotation rectangle has near-zero size.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                             evidence: vec![span_to_evidence(dict.span, "Annotation dict")],
                             remediation: Some("Inspect hidden annotations for actions.".into()),
                             meta: meta.clone(),
+
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                            ..Finding::default()
                         });
                     }
                 }
@@ -75,6 +82,7 @@ impl Detector for AnnotationAttackDetector {
                     kind: "annotation_action_chain".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Annotation action chain".into(),
                     description: "Annotation contains /A or /AA action entries.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -84,6 +92,7 @@ impl Detector for AnnotationAttackDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }

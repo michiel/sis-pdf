@@ -78,7 +78,7 @@ pub fn annotate_reader_context(finding: &mut Finding) {
                     "{}:{}/{}",
                     impact.profile.name(),
                     impact.severity.as_str(),
-                    impact.impact.to_string().to_lowercase()
+                    impact.impact.as_str()
                 )
             })
             .collect::<Vec<_>>()

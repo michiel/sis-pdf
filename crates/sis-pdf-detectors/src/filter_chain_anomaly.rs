@@ -77,6 +77,7 @@ impl Detector for FilterChainAnomalyDetector {
                     kind: "filter_chain_unusual".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Unusual filter chain".into(),
                     description: "Filter chain uses uncommon or unexpected combinations.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -86,6 +87,7 @@ impl Detector for FilterChainAnomalyDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
 
@@ -98,6 +100,7 @@ impl Detector for FilterChainAnomalyDetector {
                     kind: "filter_order_invalid".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Invalid filter order".into(),
                     description: "Filter order violates PDF decoding rules.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -107,6 +110,7 @@ impl Detector for FilterChainAnomalyDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
 
@@ -119,6 +123,7 @@ impl Detector for FilterChainAnomalyDetector {
                     kind: "filter_combination_unusual".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Repeated filters in chain".into(),
                     description: "Filter chain repeats the same filter multiple times.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -128,6 +133,7 @@ impl Detector for FilterChainAnomalyDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
             if is_jbig2_obfuscation(&normalised) {
@@ -140,6 +146,7 @@ impl Detector for FilterChainAnomalyDetector {
                     kind: "filter_chain_jbig2_obfuscation".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+            impact: None,
                     title: "JBIG2 filter chain obfuscation".into(),
                     description: "JBIG2 payloads wrapped with ASCII/Flate layers match known CVE obfuscations.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -149,6 +156,7 @@ impl Detector for FilterChainAnomalyDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                ..Finding::default()
                 });
             }
         }

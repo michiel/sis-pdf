@@ -66,6 +66,7 @@ impl Detector for ContentPhishingDetector {
                 kind: "content_phishing".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Heuristic,
+                impact: None,
                 title: "Potential phishing content".into(),
                 description: "Detected phishing-like keywords alongside external URI actions."
                     .into(),
@@ -73,9 +74,15 @@ impl Detector for ContentPhishingDetector {
                 evidence,
                 remediation: Some("Manually review page content and links.".into()),
                 meta: Default::default(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             }]);
         }
         let mut out = Vec::new();
@@ -101,15 +108,22 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
                     kind: "content_html_payload".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Heuristic,
+                    impact: None,
                     title: "HTML-like payload in content".into(),
                     description: "Content contains HTML or javascript-like sequences.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                     evidence: vec![span_to_evidence(span, "HTML-like content")],
                     remediation: Some("Review rendered text for embedded scripts or links.".into()),
                     meta: Default::default(),
+
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }
@@ -158,6 +172,7 @@ impl Detector for ContentDeceptionDetector {
                     kind: "content_image_only_page".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Heuristic,
+                    impact: None,
                     title: "Image-only page".into(),
                     description: "Page content contains images without detectable text.".into(),
                     objects: vec![format!("{} {} obj", page.obj, page.gen)],
@@ -167,6 +182,7 @@ impl Detector for ContentDeceptionDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
             if page.invisible_text {
@@ -181,6 +197,7 @@ impl Detector for ContentDeceptionDetector {
                     kind: "content_invisible_text".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Heuristic,
+                    impact: None,
                     title: "Invisible text rendering".into(),
                     description: "Content stream suggests invisible text rendering mode.".into(),
                     objects: vec![format!("{} {} obj", page.obj, page.gen)],
@@ -190,6 +207,7 @@ impl Detector for ContentDeceptionDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
             if has_image && page_has_uri_annot(ctx, dict) {
@@ -204,6 +222,7 @@ impl Detector for ContentDeceptionDetector {
                     kind: "content_overlay_link".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Heuristic,
+                    impact: None,
                     title: "Potential overlay link".into(),
                     description: "Page combines image content with URI annotations.".into(),
                     objects: vec![format!("{} {} obj", page.obj, page.gen)],
@@ -213,6 +232,7 @@ impl Detector for ContentDeceptionDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }

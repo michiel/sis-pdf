@@ -1140,6 +1140,7 @@ impl Detector for UriContentDetector {
                             kind: "uri_content_analysis".to_string(),
                             severity,
                             confidence: Confidence::Probable,
+                            impact: None,
                             title: "URI with suspicious characteristics".to_string(),
                             description,
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -1151,6 +1152,7 @@ impl Detector for UriContentDetector {
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                            ..Finding::default()
                         });
                     }
                 }
@@ -1378,6 +1380,7 @@ impl Detector for UriPresenceDetector {
                 kind: "uri_presence_summary".to_string(),
                 severity,
                 confidence: Confidence::Strong,
+                impact: None,
                 title: "Document contains URIs".to_string(),
                 description,
                 objects: vec!["document".to_string()],
@@ -1389,6 +1392,7 @@ impl Detector for UriPresenceDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             }])
         } else {
             Ok(Vec::new())

@@ -47,6 +47,7 @@ impl Detector for LinearizationDetector {
                 kind: "linearization_multiple".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Multiple linearization dictionaries".into(),
                 description: format!("Found {} linearization dictionaries.", linearized.len()),
                 objects: linearized
@@ -56,9 +57,15 @@ impl Detector for LinearizationDetector {
                 evidence,
                 remediation: Some("Validate linearization with a strict parser.".into()),
                 meta: Default::default(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         }
         if let Some(entry) = linearized.first() {
@@ -96,6 +103,7 @@ impl Detector for LinearizationDetector {
                         kind: "linearization_invalid".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Linearization values inconsistent".into(),
                         description: "Linearization dictionary fields do not match file layout."
                             .into(),
@@ -106,6 +114,7 @@ impl Detector for LinearizationDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 } else if dict.get_first(b"/H").is_some() {
                     findings.push(Finding {
@@ -114,6 +123,7 @@ impl Detector for LinearizationDetector {
                         kind: "linearization_hint_anomaly".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Heuristic,
+                        impact: None,
                         title: "Linearization hint tables present".into(),
                         description: "Linearization hint tables may hide malformed offsets.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -123,6 +133,7 @@ impl Detector for LinearizationDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }

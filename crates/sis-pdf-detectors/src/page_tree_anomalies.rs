@@ -83,6 +83,7 @@ impl Detector for PageTreeManipulationDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -138,6 +139,7 @@ impl Detector for PageTreeManipulationDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }
@@ -160,15 +162,21 @@ fn fallback_pages_root<'a>(
         kind: "page_tree_fallback".into(),
         severity: Severity::Low,
         confidence: Confidence::Heuristic,
+            impact: None,
         title: "Fallback /Pages root".into(),
         description: "Page tree root resolved by scanning the object graph, not by the catalog /Root.".into(),
         objects: vec!["page_tree".into()],
         evidence: vec![span_to_evidence(entry.body_span, "Fallback /Pages root")],
         remediation: Some("Inspect catalog /Root and /Pages references for consistency.".into()),
         meta: Default::default(),
-        yara: None,
+
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,        yara: None,
         position: None,
         positions: Vec::new(),
+    ..Finding::default()
     });
     Some(PdfObj {
         span: entry.body_span,
@@ -215,9 +223,15 @@ fn detect_cycles(
                 evidence: vec![span_to_evidence(dict.span, "Pages node")],
                 remediation: Some("Inspect /Kids references for cycles.".into()),
                 meta: Default::default(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
             return;
         }

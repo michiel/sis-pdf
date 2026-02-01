@@ -1509,8 +1509,10 @@ fn extract_severity_features(findings: &[Finding]) -> SeverityFeatures {
 
         // Confidence weight (0-1)
         let confidence_weight = match finding.confidence {
-            Confidence::Strong => 1.0,
+            Confidence::Certain | Confidence::Strong => 1.0,
             Confidence::Probable => 0.7,
+            Confidence::Tentative => 0.5,
+            Confidence::Weak => 0.3,
             Confidence::Heuristic => 0.4,
         };
         severity_confidence_weighted += severity_score * confidence_weight;
@@ -1576,24 +1578,30 @@ fn extract_confidence_features(findings: &[Finding]) -> ConfidenceFeatures {
     for finding in findings {
         // Count by confidence
         match finding.confidence {
-            Confidence::Strong => features.strong_count += 1.0,
+            Confidence::Certain | Confidence::Strong => features.strong_count += 1.0,
             Confidence::Probable => features.probable_count += 1.0,
-            Confidence::Heuristic => features.heuristic_count += 1.0,
+            Confidence::Tentative | Confidence::Weak | Confidence::Heuristic => {
+                features.heuristic_count += 1.0
+            }
         }
 
         // Count high-severity by confidence
         if finding.severity == Severity::High || finding.severity == Severity::Critical {
             match finding.confidence {
-                Confidence::Strong => features.strong_high_severity += 1.0,
+                Confidence::Certain | Confidence::Strong => features.strong_high_severity += 1.0,
                 Confidence::Probable => features.probable_high_severity += 1.0,
-                Confidence::Heuristic => features.heuristic_high_severity += 1.0,
+                Confidence::Tentative | Confidence::Weak | Confidence::Heuristic => {
+                    features.heuristic_high_severity += 1.0
+                }
             }
         }
 
         // Confidence score (0-1)
         let confidence_score = match finding.confidence {
-            Confidence::Strong => 1.0,
+            Confidence::Certain | Confidence::Strong => 1.0,
             Confidence::Probable => 0.7,
+            Confidence::Tentative => 0.5,
+            Confidence::Weak => 0.3,
             Confidence::Heuristic => 0.4,
         };
         confidence_sum += confidence_score;
@@ -2974,15 +2982,22 @@ mod tests {
                 kind: "js_present".to_string(),
                 severity: Severity::Medium,
                 confidence: Confidence::Strong,
+                impact: None,
                 title: "JavaScript Present".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -2990,15 +3005,22 @@ mod tests {
                 kind: "js_obfuscation".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
+                impact: None,
                 title: "Obfuscated JS".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
             Finding {
                 id: "3".to_string(),
@@ -3006,15 +3028,22 @@ mod tests {
                 kind: "open_action".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
+                impact: None,
                 title: "OpenAction".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
         ];
 
@@ -3033,15 +3062,22 @@ mod tests {
                 kind: "test".to_string(),
                 severity: Severity::Critical,
                 confidence: Confidence::Strong,
+                impact: None,
                 title: "Test".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3049,15 +3085,22 @@ mod tests {
                 kind: "test".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Test".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
             Finding {
                 id: "3".to_string(),
@@ -3065,15 +3108,22 @@ mod tests {
                 kind: "test".to_string(),
                 severity: Severity::Medium,
                 confidence: Confidence::Heuristic,
+                impact: None,
                 title: "Test".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
         ];
 
@@ -3094,15 +3144,22 @@ mod tests {
                 kind: "test".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
+                impact: None,
                 title: "Test".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3110,15 +3167,22 @@ mod tests {
                 kind: "test".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Test".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
         ];
 
@@ -3148,15 +3212,21 @@ mod tests {
                 kind: "js_polymorphic".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
+            impact: None,
                 title: "Polymorphic JS".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: meta.clone(),
-                yara: None,
+
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,                yara: None,
                 position: None,
                 positions: Vec::new(),
+            ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3164,19 +3234,25 @@ mod tests {
                 kind: "js_time_evasion".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
+            impact: None,
                 title: "Time Evasion".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: {
-                    let mut m = HashMap::new();
+
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,                    let mut m = HashMap::new();
                     m.insert("js.time_evasion".to_string(), "true".to_string());
                     m
                 },
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+            ..Finding::default()
             },
         ];
 
@@ -3205,6 +3281,7 @@ mod tests {
             kind: "uri_content_analysis".to_string(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
+            impact: None,
             title: "Suspicious URI".to_string(),
             description: "Test".to_string(),
             objects: vec![],
@@ -3214,6 +3291,7 @@ mod tests {
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         }];
 
         let features = extract_uri_features(&findings);
@@ -3235,15 +3313,22 @@ mod tests {
                 kind: "xref_conflict".to_string(),
                 severity: Severity::Medium,
                 confidence: Confidence::Strong,
+                impact: None,
                 title: "XRef Conflict".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3251,15 +3336,22 @@ mod tests {
                 kind: "xref_conflict".to_string(),
                 severity: Severity::Medium,
                 confidence: Confidence::Strong,
+                impact: None,
                 title: "XRef Conflict 2".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
             Finding {
                 id: "3".to_string(),
@@ -3267,15 +3359,22 @@ mod tests {
                 kind: "js_polymorphic".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
+                impact: None,
                 title: "Polymorphic JS".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
         ];
 
@@ -3295,15 +3394,22 @@ mod tests {
                 kind: "phishing_indicator".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
+                impact: None,
                 title: "Phishing".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3311,15 +3417,22 @@ mod tests {
                 kind: "invisible_text".to_string(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Invisible Text".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             },
         ];
 

@@ -119,6 +119,7 @@ impl Detector for FontExternalReferenceDetector {
                     kind: "font.external_reference".into(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
+            impact: None,
                     title: "Font with external reference detected".into(),
                     description: format!(
                         "Font dictionary contains references to external resources ({}). \
@@ -137,6 +138,7 @@ impl Detector for FontExternalReferenceDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                ..Finding::default()
                 });
             }
         }

@@ -53,9 +53,8 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             );
             finding.objects = vec!["parser".into()];
             finding.evidence = evidence;
-            finding.remediation = Some(
-                "Compare with a stricter parser or inspect file integrity.".into(),
-            );
+            finding.remediation =
+                Some("Compare with a stricter parser or inspect file integrity.".into());
             findings.push(finding);
             return DiffResult {
                 findings,
@@ -71,6 +70,7 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             kind: "parser_object_count_diff".into(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
+            impact: None,
             title: "Parser object count mismatch".into(),
             description: format!(
                 "Primary parser saw {} objects; lopdf saw {} objects.",
@@ -80,9 +80,14 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             evidence: evidence.clone(),
             remediation: Some("Investigate parser differential artifacts.".into()),
             meta: Default::default(),
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
     }
     if summary.primary_trailers != summary.secondary_trailers {
@@ -92,6 +97,7 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             kind: "parser_trailer_count_diff".into(),
             severity: Severity::Low,
             confidence: Confidence::Probable,
+            impact: None,
             title: "Parser trailer count mismatch".into(),
             description: format!(
                 "Primary parser saw {} trailers; lopdf saw {} trailer entries.",
@@ -101,9 +107,14 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             evidence: evidence.clone(),
             remediation: Some("Inspect xref and trailer sections.".into()),
             meta: Default::default(),
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
     }
     if summary.missing_in_secondary > 0 || summary.missing_in_primary > 0 {
@@ -122,6 +133,7 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             kind: "parser_diff_structural".into(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
+            impact: None,
             title: "Structural parser differential".into(),
             description: format!(
                 "Primary parser missing in lopdf: {}; lopdf-only objects: {}.",
@@ -131,9 +143,14 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             evidence: evidence.clone(),
             remediation: Some("Inspect missing objects and xref consistency.".into()),
             meta,
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
         let mut meta = std::collections::HashMap::new();
         meta.insert(
@@ -150,6 +167,7 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             kind: "object_shadow_mismatch".into(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
+            impact: None,
             title: "Object shadow mismatch".into(),
             description: format!(
                 "Object sets differ between primary scan and xref-based parse (missing_in_secondary={}, missing_in_primary={}).",
@@ -159,9 +177,14 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             evidence: evidence.clone(),
             remediation: Some("Compare recovered objects to xref entries for hidden revisions.".into()),
             meta,
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
-        position: None,
-        positions: Vec::new(),
+            position: None,
+            positions: Vec::new(),
+        ..Finding::default()
         });
     }
     DiffResult {

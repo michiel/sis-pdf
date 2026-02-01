@@ -133,6 +133,7 @@ fn find_action_payload_paths(
                 kind: "action_payload_path".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Action path reaches payload".into(),
                 description: format!(
                     "Action object reaches payload-like object {} {}.",
@@ -145,6 +146,7 @@ fn find_action_payload_paths(
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         }
     }
@@ -176,6 +178,7 @@ fn find_orphan_payloads(
                 kind: "orphan_payload_object".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Orphaned payload object".into(),
                 description: format!(
                     "Payload-like object {} {} is not reachable from catalog root.",
@@ -188,6 +191,7 @@ fn find_orphan_payloads(
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         }
     }
@@ -222,6 +226,7 @@ fn find_shadow_payloads(
                 kind: "shadow_payload_chain".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Shadowed payload object".into(),
                 description: format!(
                     "Shadowed object {} {} contains payload-like content.",
@@ -234,6 +239,7 @@ fn find_shadow_payloads(
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         }
     }
@@ -271,6 +277,7 @@ fn find_objstm_payloads(
                     kind: "objstm_action_chain".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Payload in ObjStm".into(),
                     description: format!(
                         "Payload-like object {} {} appears within ObjStm stream span.",
@@ -283,6 +290,7 @@ fn find_objstm_payloads(
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }

@@ -65,6 +65,7 @@ fn analyze_info_dict(
             kind: "info_dict_oversized".into(),
             severity: Severity::Low,
             confidence: Confidence::Probable,
+            impact: None,
             title: "Oversized Info dictionary".into(),
             description: format!(
                 "/Info dictionary contains {} keys (normal: 5-10). May hide data.",
@@ -74,9 +75,15 @@ fn analyze_info_dict(
             evidence: vec![span_to_evidence(info_dict.span, "Info dictionary")],
             remediation: Some("Inspect unusual metadata keys for steganography.".into()),
             meta: meta.clone(),
+
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
     }
 
@@ -136,6 +143,7 @@ fn analyze_info_dict(
             kind: "info_dict_suspicious".into(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
+            impact: None,
             title: "Suspicious Info dictionary content".into(),
             description: format!(
                 "/Info dictionary contains suspicious values or unusual keys: {}",
@@ -148,6 +156,7 @@ fn analyze_info_dict(
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
     }
 }
@@ -176,6 +185,7 @@ fn analyze_xmp_metadata(ctx: &sis_pdf_core::scan::ScanContext, findings: &mut Ve
                             kind: "xmp_oversized".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Strong,
+            impact: None,
                             title: "Oversized XMP metadata".into(),
                             description: format!(
                                 "XMP metadata stream is {} bytes (normal: <10KB). May hide embedded data.",
@@ -188,6 +198,7 @@ fn analyze_xmp_metadata(ctx: &sis_pdf_core::scan::ScanContext, findings: &mut Ve
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                        ..Finding::default()
                         });
                     }
 

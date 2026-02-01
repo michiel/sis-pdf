@@ -301,6 +301,7 @@ fn build_composite(
         action_type: None,
         action_target: None,
         action_initiation: None,
+        ..Finding::default()
     }
 }
 

@@ -273,8 +273,10 @@ fn compute_object_risk_score(findings: &[&Finding]) -> f32 {
     let confidence_mult = findings
         .iter()
         .map(|f| match f.confidence {
-            Confidence::Strong => 1.0,
+            Confidence::Certain | Confidence::Strong => 1.0,
             Confidence::Probable => 0.7,
+            Confidence::Tentative => 0.5,
+            Confidence::Weak => 0.3,
             Confidence::Heuristic => 0.4,
         })
         .sum::<f32>()
@@ -447,6 +449,7 @@ mod tests {
             positions: Vec::new(),
             meta,
             yara: None,
+            ..Finding::default()
         }
     }
 

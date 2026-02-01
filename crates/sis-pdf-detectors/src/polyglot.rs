@@ -100,6 +100,7 @@ impl Detector for PolyglotDetector {
             yara: None,
             position: None,
             positions: Vec::new(),
+        ..Finding::default()
         }])
     }
 }

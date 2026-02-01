@@ -147,11 +147,17 @@ Predicates can use these fields:
 - `type`: `Finding`
 - `filter`: severity (`info`, `low`, `medium`, `high`, `critical`)
 - `subtype`: finding `kind`
-- `severity`: severity (`info`, `low`, `medium`, `high`, `critical`)
-- `confidence`: confidence (`heuristic`, `probable`, `strong`)
-- `surface`: attack surface (for example `embedded_files`, `actions`, `streams_and_filters`)
-- `kind`: finding kind (same as `subtype`)
-- `objects`: number of related objects
+  - `severity`: severity (`info`, `low`, `medium`, `high`, `critical`)
+  - `impact`: impact bucket (`critical`, `high`, `medium`, `low`, `none`)
+  - `confidence`: confidence (`certain`, `strong`, `probable`, `tentative`, `weak`, `heuristic`)
+  - `action_type`: action taxonomy (for example `Launch`, `JavaScript`, `GoTo`)
+  - `action_target`: where the action is headed (for example `uri:http://example.com`)
+  - `action_initiation`: how the action is triggered (`automatic`, `user`, `hidden`, `deep`)
+  - `reader.impact.<profile>`: severity bucket seen by each reader profile (`acrobat`, `pdfium`, `preview`)
+  - `reader.impact.summary`: comma-separated `<profile>:<severity>/<impact>` summary (for example `acrobat:critical/critical,pdfium:low/low`)
+  - `surface`: attack surface (for example `embedded_files`, `actions`, `streams_and_filters`)
+  - `kind`: finding kind (same as `subtype`)
+  - `objects`: number of related objects
 - `evidence`: number of evidence spans
 
 ### Encryption queries
@@ -198,6 +204,9 @@ sis query images file.pdf --where "risky == true AND pixels > 1000000"
 
 # PNG images with high entropy
 sis query images file.pdf --where "format == 'PNG' AND entropy > 7.5"
+
+# Reader divergence example
+sis query findings file.pdf --where "reader.impact.preview == 'low'"
 
 # Filter chain findings with allowlist misses
 sis query filters.unusual file.pdf --where "violation_type == 'allowlist_miss'"

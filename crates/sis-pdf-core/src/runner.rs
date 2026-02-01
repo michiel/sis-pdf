@@ -264,6 +264,7 @@ pub fn run_scan_with_detectors(
             kind: "object_count_exceeded".into(),
             severity: crate::model::Severity::Medium,
             confidence: crate::model::Confidence::Probable,
+            impact: None,
             title: "Object count exceeds budget".into(),
             description: format!(
                 "Object count {} exceeds configured budget {}.",
@@ -274,9 +275,14 @@ pub fn run_scan_with_detectors(
             evidence,
             remediation: Some("Reduce scan scope or raise max_objects.".into()),
             meta: Default::default(),
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
     }
 
@@ -317,6 +323,7 @@ pub fn run_scan_with_detectors(
             kind: "js_font_exploitation".into(),
             severity: crate::model::Severity::High,
             confidence: crate::model::Confidence::Probable,
+            impact: None,
             title: "Font exploitation chain suspected".into(),
             description: "JavaScript findings coincide with suspicious embedded fonts.".into(),
             objects: vec!["fonts".into(), "javascript".into()],
@@ -325,9 +332,14 @@ pub fn run_scan_with_detectors(
                 "Review JavaScript payloads and embedded font tables together.".into(),
             ),
             meta,
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
     }
     let mut ml_summary_override: Option<MlSummary> = None;
@@ -386,6 +398,7 @@ pub fn run_scan_with_detectors(
                                 kind: "ml_malware_score_high".into(),
                                 severity: crate::model::Severity::High,
                                 confidence: crate::model::Confidence::Probable,
+                                impact: None,
                                 title: "ML classifier score high".into(),
                                 description: format!(
                                     "Stacking classifier scored {:.4} (threshold {:.4}).",
@@ -397,9 +410,14 @@ pub fn run_scan_with_detectors(
                                     "Review ML features and validate with manual analysis.".into(),
                                 ),
                                 meta,
+                                reader_impacts: Vec::new(),
+                                action_type: None,
+                                action_target: None,
+                                action_initiation: None,
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
                     }
@@ -411,15 +429,21 @@ pub fn run_scan_with_detectors(
                             kind: "ml_model_error".into(),
                             severity: crate::model::Severity::Low,
                             confidence: crate::model::Confidence::Heuristic,
+                            impact: None,
                             title: "ML model load failed".into(),
                             description: format!("Failed to load ML model: {}", err),
                             objects: vec!["ml".into()],
                             evidence: Vec::new(),
                             remediation: Some("Check ML model path and format.".into()),
                             meta: Default::default(),
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                            ..Finding::default()
                         });
                     }
                 }
@@ -436,6 +460,7 @@ pub fn run_scan_with_detectors(
                         kind: "ml_adversarial_suspected".into(),
                         severity: crate::model::Severity::Low,
                         confidence: crate::model::Confidence::Heuristic,
+                        impact: None,
                         title: "Potential adversarial ML sample".into(),
                         description: "Feature profile suggests adversarial manipulation attempts."
                             .into(),
@@ -443,9 +468,14 @@ pub fn run_scan_with_detectors(
                         evidence: Vec::new(),
                         remediation: Some("Validate findings against alternate detectors.".into()),
                         meta,
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -501,6 +531,7 @@ pub fn run_scan_with_detectors(
                                     kind: "ml_graph_score_high".into(),
                                     severity: crate::model::Severity::High,
                                     confidence: crate::model::Confidence::Probable,
+                                    impact: None,
                                     title: "Graph ML classifier score high".into(),
                                     description: format!(
                                         "Graph classifier scored {:.4} (threshold {:.4}).",
@@ -513,9 +544,14 @@ pub fn run_scan_with_detectors(
                                             .into(),
                                     ),
                                     meta,
+                                    reader_impacts: Vec::new(),
+                                    action_type: None,
+                                    action_target: None,
+                                    action_initiation: None,
                                     yara: None,
                                     position: None,
                                     positions: Vec::new(),
+                                    ..Finding::default()
                                 });
                             }
                         }
@@ -527,15 +563,21 @@ pub fn run_scan_with_detectors(
                                 kind: "ml_model_error".into(),
                                 severity: crate::model::Severity::Low,
                                 confidence: crate::model::Confidence::Heuristic,
+                                impact: None,
                                 title: "ML model load failed".into(),
                                 description: format!("Graph ML failed: {}", err),
                                 objects: vec!["ml".into()],
                                 evidence: Vec::new(),
                                 remediation: Some("Check graph model files and format.".into()),
                                 meta: Default::default(),
+                                reader_impacts: Vec::new(),
+                                action_type: None,
+                                action_target: None,
+                                action_initiation: None,
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
                     }
@@ -549,6 +591,7 @@ pub fn run_scan_with_detectors(
                         kind: "ml_model_error".into(),
                         severity: crate::model::Severity::Low,
                         confidence: crate::model::Confidence::Heuristic,
+                        impact: None,
                         title: "ML graph mode unavailable".into(),
                         description:
                             "Graph ML mode requested but not compiled (enable feature ml-graph)."
@@ -557,9 +600,14 @@ pub fn run_scan_with_detectors(
                         evidence: Vec::new(),
                         remediation: Some("Rebuild with --features ml-graph.".into()),
                         meta: Default::default(),
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -823,15 +871,21 @@ fn correlate_font_js(findings: &mut Vec<Finding>) {
             kind: "pdf.font_js_combined_exploit".into(),
             severity: crate::model::Severity::Critical,
             confidence: crate::model::Confidence::Probable,
+            impact: None,
             title: "Font and JavaScript combined exploitation pattern".into(),
             description: "Document contains both high-severity font vulnerabilities and JavaScript exploits, suggesting a multi-vector attack.".into(),
             objects: Vec::new(),
             evidence: Vec::new(),
             remediation: Some("This document shows signs of a sophisticated multi-vector attack. Block or quarantine immediately.".into()),
             meta,
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: Vec::new(),
+        ..Finding::default()
         });
     }
 
@@ -1295,15 +1349,22 @@ mod tests {
                 kind: "font.type1_blend_exploit".into(),
                 severity: crate::model::Severity::High,
                 confidence: crate::model::Confidence::Probable,
+                impact: None,
                 title: "Font exploit".into(),
                 description: "Test font finding".into(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: std::collections::HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: vec![],
+                ..Finding::default()
             },
             Finding {
                 id: "js1".into(),
@@ -1311,15 +1372,22 @@ mod tests {
                 kind: "js_malicious_pattern".into(),
                 severity: crate::model::Severity::High,
                 confidence: crate::model::Confidence::Probable,
+                impact: None,
                 title: "JS exploit".into(),
                 description: "Test JS finding".into(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: std::collections::HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: vec![],
+                ..Finding::default()
             },
         ];
 
@@ -1352,15 +1420,22 @@ mod tests {
                 kind: "font.type1_large_charstring".into(),
                 severity: crate::model::Severity::Medium,
                 confidence: crate::model::Confidence::Probable,
+                impact: None,
                 title: "Font anomaly".into(),
                 description: "Test font finding".into(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: std::collections::HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: vec![],
+                ..Finding::default()
             },
             Finding {
                 id: "js1".into(),
@@ -1368,15 +1443,22 @@ mod tests {
                 kind: "js_obfuscation_detected".into(),
                 severity: crate::model::Severity::Medium,
                 confidence: crate::model::Confidence::Probable,
+                impact: None,
                 title: "JS obfuscation".into(),
                 description: "Test JS obfuscation".into(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: std::collections::HashMap::new(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: vec![],
+                ..Finding::default()
             },
         ];
 
@@ -1401,15 +1483,22 @@ mod tests {
             kind: "font.type1_excessive_stack".into(),
             severity: crate::model::Severity::Low,
             confidence: crate::model::Confidence::Probable,
+            impact: None,
             title: "Font anomaly".into(),
             description: "Test font finding".into(),
             objects: vec![],
             evidence: vec![],
             remediation: None,
             meta: std::collections::HashMap::new(),
+
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: vec![],
+            ..Finding::default()
         }];
 
         let original_count = findings.len();

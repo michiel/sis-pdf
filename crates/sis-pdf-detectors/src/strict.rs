@@ -36,6 +36,7 @@ impl Detector for StrictParseDeviationDetector {
                 kind: "missing_pdf_header".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Missing PDF header".into(),
                 description: "PDF header not found at start of file.".into(),
                 objects: vec!["header".into()],
@@ -48,9 +49,15 @@ impl Detector for StrictParseDeviationDetector {
                 }],
                 remediation: Some("Verify file type and parser tolerance.".into()),
                 meta: Default::default(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         }
         if let Some(off) = header_offset {
@@ -67,6 +74,7 @@ impl Detector for StrictParseDeviationDetector {
                         Severity::Low
                     },
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "PDF header offset unusual".into(),
                     description: format!(
                         "PDF header found at offset {} (expected at start of file).",
@@ -85,6 +93,7 @@ impl Detector for StrictParseDeviationDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }
@@ -113,9 +122,15 @@ impl Detector for StrictParseDeviationDetector {
                 }],
                 remediation: Some("Check for truncated or malformed file.".into()),
                 meta: Default::default(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         } else if let Some(off) = eof_offset {
             let distance = ctx.bytes.len().saturating_sub(off + 5);
@@ -129,6 +144,7 @@ impl Detector for StrictParseDeviationDetector {
                     kind: "eof_offset_unusual".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "EOF marker far from file end".into(),
                     description: format!(
                         "EOF marker found at offset {}, which is {} bytes from file end.",
@@ -147,6 +163,7 @@ impl Detector for StrictParseDeviationDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }
@@ -188,6 +205,7 @@ impl Detector for StrictParseDeviationDetector {
                                 kind: "stream_length_mismatch".into(),
                                 severity,
                                 confidence: Confidence::Probable,
+                                impact: None,
                                 title: "Stream length mismatch".into(),
                                 description,
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -199,6 +217,7 @@ impl Detector for StrictParseDeviationDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
                     }
@@ -220,6 +239,7 @@ impl Detector for StrictParseDeviationDetector {
                     kind: "parser_deviation_cluster".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+            impact: None,
                     title: "High deviation count".into(),
                     description: format!(
                         "Strict parser recorded {} deviations, indicating potential parser confusion.",
@@ -229,9 +249,14 @@ impl Detector for StrictParseDeviationDetector {
                     evidence: Vec::new(),
                     remediation: Some("Treat as evasion attempt; inspect malformed structure.".into()),
                     meta: Default::default(),
-                    yara: None,
+
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,                    yara: None,
         position: None,
         positions: Vec::new(),
+                ..Finding::default()
                 });
             }
             let mut action_object = None;
@@ -265,6 +290,7 @@ impl Detector for StrictParseDeviationDetector {
                     kind: "parser_deviation_in_action_context".into(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Parser deviations with action context".into(),
                     description:
                         "Parser deviations present alongside JavaScript or Action objects.".into(),
@@ -274,9 +300,15 @@ impl Detector for StrictParseDeviationDetector {
                         "Validate with alternate parser and inspect action payloads.".into(),
                     ),
                     meta: Default::default(),
+
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
             if ctx.options.strict_summary {
@@ -308,6 +340,7 @@ impl Detector for StrictParseDeviationDetector {
                         kind: "strict_parse_deviation_summary".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Heuristic,
+                        impact: None,
                         title: "Strict parser deviation summary".into(),
                         description: "Strict parser deviations summarised by kind.".into(),
                         objects: vec!["parser".into()],
@@ -319,6 +352,7 @@ impl Detector for StrictParseDeviationDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             } else {
@@ -334,15 +368,22 @@ impl Detector for StrictParseDeviationDetector {
                         kind: "strict_parse_deviation".into(),
                         severity: deviation_severity(&dev.kind),
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: format!("Strict parser deviation: {}", dev.kind),
                         description,
                         objects: vec!["parser".into()],
                         evidence: vec![span_to_evidence(dev.span, "Parser deviation")],
                         remediation: Some("Inspect malformed tokens or truncated objects.".into()),
                         meta: Default::default(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }

@@ -73,15 +73,22 @@ impl Detector for ActionTriggerDetector {
                     kind: "action_automatic_trigger".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Automatic action trigger".into(),
                     description: "OpenAction triggers automatically on document open.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                     evidence,
                     remediation: Some("Review the action target and payload.".into()),
                     meta: meta.clone(),
+
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
                 if summary.depth >= ACTION_CHAIN_COMPLEX_DEPTH {
                     findings.push(Finding {
@@ -90,6 +97,7 @@ impl Detector for ActionTriggerDetector {
                         kind: "action_chain_complex".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Complex action chain".into(),
                         description: "Action chain depth exceeds expected threshold.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -101,6 +109,7 @@ impl Detector for ActionTriggerDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -156,6 +165,7 @@ impl Detector for ActionTriggerDetector {
                                 kind: "action_automatic_trigger".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
+                                impact: None,
                                 title: "Automatic action trigger".into(),
                                 description:
                                     "Additional action triggers without explicit user interaction."
@@ -164,9 +174,15 @@ impl Detector for ActionTriggerDetector {
                                 evidence: evidence.clone(),
                                 remediation: Some("Review the action target and payload.".into()),
                                 meta: meta.clone(),
+
+                                reader_impacts: Vec::new(),
+                                action_type: None,
+                                action_target: None,
+                                action_initiation: None,
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
 
@@ -177,6 +193,7 @@ impl Detector for ActionTriggerDetector {
                                 kind: "action_chain_complex".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
+                                impact: None,
                                 title: "Complex action chain".into(),
                                 description: "Action chain depth exceeds expected threshold."
                                     .into(),
@@ -195,6 +212,7 @@ impl Detector for ActionTriggerDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
                     }
@@ -237,6 +255,7 @@ impl Detector for ActionTriggerDetector {
                         kind: "action_hidden_trigger".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Hidden action trigger".into(),
                         description: "Action triggered from a hidden or non-visible annotation."
                             .into(),
@@ -248,9 +267,15 @@ impl Detector for ActionTriggerDetector {
                             "Inspect hidden annotations for action execution.".into(),
                         ),
                         meta: meta.clone(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -286,6 +311,7 @@ impl Detector for ActionTriggerDetector {
                             kind: "action_hidden_trigger".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Probable,
+                            impact: None,
                             title: "Hidden action trigger".into(),
                             description:
                                 "Form field action triggered from a hidden or non-visible widget."
@@ -296,9 +322,15 @@ impl Detector for ActionTriggerDetector {
                                 "Inspect hidden fields for unexpected actions.".into(),
                             ),
                             meta: hidden_with_meta,
+
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                            ..Finding::default()
                         });
                     }
 
@@ -309,6 +341,7 @@ impl Detector for ActionTriggerDetector {
                             kind: "action_chain_complex".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
+                            impact: None,
                             title: "Complex action chain".into(),
                             description: "Action chain depth exceeds expected threshold.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -317,9 +350,15 @@ impl Detector for ActionTriggerDetector {
                                 .build(),
                             remediation: Some("Inspect action chains for hidden payloads.".into()),
                             meta: meta.clone(),
+
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                            ..Finding::default()
                         });
                     }
                 }
@@ -369,6 +408,7 @@ impl Detector for ActionTriggerDetector {
                                     kind: "action_automatic_trigger".into(),
                                     severity: Severity::Medium,
                                     confidence: Confidence::Probable,
+                                    impact: None,
                                     title: "Automatic action trigger".into(),
                                     description:
                                         "Field actions triggered automatically via /AA entries."
@@ -380,9 +420,15 @@ impl Detector for ActionTriggerDetector {
                                             .into(),
                                     ),
                                     meta: meta.clone(),
+
+                                    reader_impacts: Vec::new(),
+                                    action_type: None,
+                                    action_target: None,
+                                    action_initiation: None,
                                     yara: None,
                                     position: None,
                                     positions: Vec::new(),
+                                    ..Finding::default()
                                 });
                             }
 
@@ -395,6 +441,7 @@ impl Detector for ActionTriggerDetector {
                                     kind: "action_hidden_trigger".into(),
                                     severity: Severity::Low,
                                     confidence: Confidence::Probable,
+                                    impact: None,
                                     title: "Hidden action trigger".into(),
                                     description:
                                         "Hidden form field action triggered without visibility."
@@ -405,9 +452,15 @@ impl Detector for ActionTriggerDetector {
                                         "Inspect hidden fields for unexpected actions.".into(),
                                     ),
                                     meta: hidden_with_meta,
+
+                                    reader_impacts: Vec::new(),
+                                    action_type: None,
+                                    action_target: None,
+                                    action_initiation: None,
                                     yara: None,
                                     position: None,
                                     positions: Vec::new(),
+                                    ..Finding::default()
                                 });
                             }
 
@@ -418,6 +471,7 @@ impl Detector for ActionTriggerDetector {
                                     kind: "action_chain_complex".into(),
                                     severity: Severity::Medium,
                                     confidence: Confidence::Probable,
+                                    impact: None,
                                     title: "Complex action chain".into(),
                                     description: "Action chain depth exceeds expected threshold."
                                         .into(),
@@ -433,9 +487,15 @@ impl Detector for ActionTriggerDetector {
                                         "Inspect action chains for hidden payloads.".into(),
                                     ),
                                     meta: meta.clone(),
+
+                                    reader_impacts: Vec::new(),
+                                    action_type: None,
+                                    action_target: None,
+                                    action_initiation: None,
                                     yara: None,
                                     position: None,
                                     positions: Vec::new(),
+                                    ..Finding::default()
                                 });
                             }
                         }

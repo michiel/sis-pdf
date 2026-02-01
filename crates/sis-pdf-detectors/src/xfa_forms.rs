@@ -115,6 +115,7 @@ impl Detector for XfaFormDetector {
                         kind: "xfa_too_large".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "XFA content exceeds size limit".into(),
                         description: "XFA content size exceeds the configured threshold.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -124,6 +125,7 @@ impl Detector for XfaFormDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
 
@@ -154,6 +156,7 @@ impl Detector for XfaFormDetector {
                         kind: "xfa_submit".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "XFA submit action present".into(),
                         description: "XFA form contains submit action with target URL.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -163,6 +166,7 @@ impl Detector for XfaFormDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
 
@@ -176,6 +180,7 @@ impl Detector for XfaFormDetector {
                         kind: "xfa_sensitive_field".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "XFA sensitive field present".into(),
                         description: "XFA form contains a sensitive field name.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -185,6 +190,7 @@ impl Detector for XfaFormDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
 
@@ -196,6 +202,7 @@ impl Detector for XfaFormDetector {
                         kind: "xfa_script_count_high".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "XFA script count high".into(),
                         description: "XFA contains an unusually high number of script blocks."
                             .into(),
@@ -206,6 +213,7 @@ impl Detector for XfaFormDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }

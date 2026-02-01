@@ -17,6 +17,7 @@ use sis_pdf_core::correlation;
 use sis_pdf_core::model::{
     AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
 };
+use sis_pdf_core::reader_context;
 use sis_pdf_core::rich_media::{
     analyze_swf, detect_3d_format, detect_media_format, SWF_DECODE_TIMEOUT_MS,
 };
@@ -87,8 +88,12 @@ pub enum PredicateField {
     Risky,
     Severity,
     Confidence,
+    Impact,
     Surface,
     Kind,
+    ActionType,
+    ActionTarget,
+    ActionInitiation,
     Objects,
     Evidence,
     Name,
@@ -136,6 +141,10 @@ struct PredicateContext {
     name: Option<String>,
     magic: Option<String>,
     hash: Option<String>,
+    impact: Option<String>,
+    action_type: Option<String>,
+    action_target: Option<String>,
+    action_initiation: Option<String>,
     meta: HashMap<String, String>,
 }
 
@@ -310,6 +319,7 @@ fn build_invalid_pdf_result(pdf_path: &Path, bytes: &[u8], reason: &str) -> Quer
         kind: "invalid_pdf_header".into(),
         severity: Severity::High,
         confidence: Confidence::Strong,
+        impact: None,
         title: "Invalid PDF format".into(),
         description: format!("File header validation failed: {}", reason),
         objects: vec![pdf_path.display().to_string()],
@@ -319,6 +329,7 @@ fn build_invalid_pdf_result(pdf_path: &Path, bytes: &[u8], reason: &str) -> Quer
         yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
     };
 
     let mut findings = vec![finding];
@@ -402,6 +413,7 @@ fn build_polyglot_finding(
         yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
     })
 }
 
@@ -982,10 +994,18 @@ fn parse_predicate_field(name: &str) -> Result<PredicateField> {
         PredicateField::Severity
     } else if lower.ends_with(".confidence") || lower == "confidence" {
         PredicateField::Confidence
+    } else if lower.ends_with(".impact") || lower == "impact" {
+        PredicateField::Impact
     } else if lower.ends_with(".surface") || lower == "surface" {
         PredicateField::Surface
     } else if lower.ends_with(".kind") || lower == "kind" {
         PredicateField::Kind
+    } else if lower == "action_type" || lower.ends_with(".action_type") {
+        PredicateField::ActionType
+    } else if lower == "action_target" || lower.ends_with(".action_target") {
+        PredicateField::ActionTarget
+    } else if lower == "action_initiation" || lower.ends_with(".action_initiation") {
+        PredicateField::ActionInitiation
     } else if lower.ends_with(".objects")
         || lower == "objects"
         || lower.ends_with(".object_count")
@@ -1046,6 +1066,16 @@ impl PredicateExpr {
                 PredicateField::Confidence => compare_string(ctx.confidence.as_deref(), *op, value),
                 PredicateField::Surface => compare_string(ctx.surface.as_deref(), *op, value),
                 PredicateField::Kind => compare_string(ctx.kind.as_deref(), *op, value),
+                PredicateField::Impact => compare_string(ctx.impact.as_deref(), *op, value),
+                PredicateField::ActionType => {
+                    compare_string(ctx.action_type.as_deref(), *op, value)
+                }
+                PredicateField::ActionTarget => {
+                    compare_string(ctx.action_target.as_deref(), *op, value)
+                }
+                PredicateField::ActionInitiation => {
+                    compare_string(ctx.action_initiation.as_deref(), *op, value)
+                }
                 PredicateField::Objects => compare_number(ctx.object_count as f64, *op, value),
                 PredicateField::Evidence => compare_number(ctx.evidence_count as f64, *op, value),
                 PredicateField::Name => compare_string(ctx.name.as_deref(), *op, value),
@@ -1677,6 +1707,10 @@ pub fn execute_query_with_context(
                         name: Some(format!("{} {} obj", entry.obj, entry.gen)),
                         magic: Some(analysis.magic_type.clone()),
                         hash: None,
+                        impact: None,
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         meta: predicate_meta,
                     };
                     if predicate
@@ -2284,6 +2318,10 @@ fn run_detectors(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>>
     let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
     findings.extend(composites);
 
+    for finding in &mut findings {
+        reader_context::annotate_reader_context(finding);
+    }
+
     Ok(findings)
 }
 
@@ -2513,6 +2551,10 @@ fn extract_embedded_files(
                     name: Some(name.clone()),
                     magic: Some(analysis.magic_type),
                     hash: Some(hash),
+                    impact: None,
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     meta: predicate_meta,
                 };
                 if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
@@ -2607,6 +2649,10 @@ fn extract_xfa_scripts(
             name: Some(filename.clone()),
             hash: Some(hash),
             magic: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta: predicate_meta,
         };
         if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
@@ -2662,6 +2708,10 @@ fn write_xfa_scripts(
             name: Some(filename.clone()),
             hash: Some(hash.clone()),
             magic: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta: predicate_meta,
         };
         if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
@@ -2795,6 +2845,10 @@ fn collect_swf_content(
             name: Some(name.clone()),
             magic: Some(magic.to_string()),
             hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta: meta.clone(),
         };
 
@@ -2907,6 +2961,10 @@ fn collect_media_3d_entries(
             name: Some(name.clone()),
             magic: Some(media_type.clone()),
             hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta,
         };
         if predicate
@@ -2983,6 +3041,10 @@ fn collect_media_audio_entries(
             name: Some(name.clone()),
             magic: Some(media_type.clone()),
             hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta,
         };
         if predicate
@@ -3067,6 +3129,10 @@ fn collect_swf_streams(
             evidence_count: 0,
             name: Some(name),
             hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             magic: Some(magic_label),
             meta: predicate_meta,
         };
@@ -3374,6 +3440,10 @@ fn collect_images(
             name: None,
             magic: None,
             hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta: HashMap::new(),
         };
         if predicate
@@ -4259,6 +4329,10 @@ fn predicate_context_for_entry(
                 name: None,
                 magic: None,
                 hash: None,
+                impact: None,
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 meta: HashMap::new(),
             }
         }
@@ -4300,6 +4374,10 @@ fn predicate_context_for_entry(
                 name: None,
                 magic: None,
                 hash: None,
+                impact: None,
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 meta: HashMap::new(),
             }
         }
@@ -4322,6 +4400,10 @@ fn predicate_context_for_entry(
             name: None,
             magic: None,
             hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta: HashMap::new(),
         },
         PdfAtom::Array(_) => PredicateContext {
@@ -4343,6 +4425,10 @@ fn predicate_context_for_entry(
             name: None,
             magic: None,
             hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta: HashMap::new(),
         },
         atom => PredicateContext {
@@ -4364,6 +4450,10 @@ fn predicate_context_for_entry(
             name: None,
             magic: None,
             hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta: HashMap::new(),
         },
     }
@@ -4390,6 +4480,10 @@ fn predicate_context_for_url(url: &str) -> PredicateContext {
         name: None,
         hash: None,
         magic: None,
+        impact: None,
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         meta: HashMap::new(),
     }
 }
@@ -4421,6 +4515,10 @@ fn predicate_context_for_event(event: &serde_json::Value) -> Option<PredicateCon
         name: None,
         hash: None,
         magic: None,
+        impact: None,
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         meta: HashMap::new(),
     })
 }
@@ -4447,6 +4545,22 @@ fn predicate_context_for_finding(finding: &sis_pdf_core::model::Finding) -> Pred
         .cloned()
         .or_else(|| meta_map.get("hash").cloned())
         .or_else(|| meta_map.get("embedded.sha256").cloned());
+    let impact_value = finding.impact.map(|impact| impact.as_str().to_string());
+    if let Some(value) = &impact_value {
+        meta_map.insert("impact".into(), value.clone());
+    }
+    let action_type = finding.action_type.clone();
+    if let Some(value) = &action_type {
+        meta_map.insert("action_type".into(), value.clone());
+    }
+    let action_target = finding.action_target.clone();
+    if let Some(value) = &action_target {
+        meta_map.insert("action_target".into(), value.clone());
+    }
+    let action_initiation = finding.action_initiation.clone();
+    if let Some(value) = &action_initiation {
+        meta_map.insert("action_initiation".into(), value.clone());
+    }
     PredicateContext {
         length: bytes.len(),
         filter: Some(severity_to_string(&finding.severity)),
@@ -4466,6 +4580,10 @@ fn predicate_context_for_finding(finding: &sis_pdf_core::model::Finding) -> Pred
         name,
         magic,
         hash,
+        impact: impact_value,
+        action_type,
+        action_target,
+        action_initiation,
         meta: meta_map,
     }
 }
@@ -4483,9 +4601,12 @@ fn severity_to_string(severity: &sis_pdf_core::model::Severity) -> String {
 
 fn confidence_to_string(confidence: &sis_pdf_core::model::Confidence) -> String {
     match confidence {
-        sis_pdf_core::model::Confidence::Heuristic => "heuristic",
-        sis_pdf_core::model::Confidence::Probable => "probable",
+        sis_pdf_core::model::Confidence::Certain => "certain",
         sis_pdf_core::model::Confidence::Strong => "strong",
+        sis_pdf_core::model::Confidence::Probable => "probable",
+        sis_pdf_core::model::Confidence::Tentative => "tentative",
+        sis_pdf_core::model::Confidence::Weak => "weak",
+        sis_pdf_core::model::Confidence::Heuristic => "heuristic",
     }
     .to_string()
 }
@@ -4639,6 +4760,10 @@ fn extract_obj_with_metadata(
                 name: None,
                 magic: None,
                 hash: None,
+                impact: None,
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 meta: HashMap::new(),
             };
             Some((data, ctx))
@@ -4664,6 +4789,10 @@ fn extract_obj_with_metadata(
                 name: None,
                 magic: None,
                 hash: None,
+                impact: None,
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 meta: HashMap::new(),
             };
             Some((data, ctx))
@@ -4695,6 +4824,10 @@ fn extract_obj_with_metadata(
                         name: None,
                         magic: None,
                         hash: None,
+                        impact: None,
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         meta: HashMap::new(),
                     };
                     Some((data, ctx))
@@ -4720,6 +4853,10 @@ fn extract_obj_with_metadata(
                         name: None,
                         magic: None,
                         hash: None,
+                        impact: None,
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         meta: HashMap::new(),
                     };
                     Some((data, ctx))
@@ -4953,6 +5090,10 @@ fn write_embedded_files(
                         name: Some(name.clone()),
                         magic: Some(analysis.magic_type),
                         hash: Some(hash.clone()),
+                        impact: None,
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         meta: predicate_meta,
                     };
                     if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
@@ -5352,6 +5493,10 @@ fn predicate_context_for_xfa_form(record: &XfaFormRecord) -> PredicateContext {
         name: Some(record.object_ref.clone()),
         hash: None,
         magic: None,
+        impact: None,
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         meta,
     }
 }
@@ -5767,6 +5912,10 @@ fn predicate_context_for_chain(
         name: None,
         magic: None,
         hash: None,
+        impact: None,
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         meta,
     }
 }
@@ -6699,6 +6848,10 @@ mod tests {
             name: None,
             magic: None,
             hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta: HashMap::new(),
         };
         assert!(expr.evaluate(&ctx));
@@ -6726,6 +6879,10 @@ mod tests {
             name: None,
             magic: None,
             hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             meta: HashMap::new(),
         };
         assert!(!expr.evaluate(&ctx));
@@ -6734,7 +6891,7 @@ mod tests {
     #[test]
     fn predicate_supports_finding_metadata_fields() {
         let expr = parse_predicate(
-            "severity == 'high' AND confidence == 'strong' AND surface == 'actions' AND kind == 'launch_external_program' AND objects > 0 AND evidence >= 1",
+            "severity == 'high' AND impact == 'high' AND action_type == 'Launch' AND action_target == 'uri:http://example.com' AND action_initiation == 'automatic' AND confidence == 'strong' AND surface == 'actions' AND kind == 'launch_external_program' AND objects > 0 AND evidence >= 1",
         )
         .expect("predicate");
         let ctx = PredicateContext {
@@ -6756,6 +6913,10 @@ mod tests {
             name: None,
             magic: None,
             hash: None,
+            impact: Some("high".to_string()),
+            action_type: Some("Launch".to_string()),
+            action_target: Some("uri:http://example.com".to_string()),
+            action_initiation: Some("automatic".to_string()),
             meta: HashMap::new(),
         };
         assert!(expr.evaluate(&ctx));
