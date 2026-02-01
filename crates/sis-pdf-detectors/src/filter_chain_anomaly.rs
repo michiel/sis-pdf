@@ -5,7 +5,7 @@ use sis_pdf_core::canonical::canonical_filter_chain;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::filter_allowlist::default_filter_allowlist;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::object::PdfAtom;
 
@@ -144,9 +144,9 @@ impl Detector for FilterChainAnomalyDetector {
                     id: String::new(),
                     surface: self.surface(),
                     kind: "filter_chain_jbig2_obfuscation".into(),
-                    severity: Severity::Medium,
+                    severity: Severity::High,
                     confidence: Confidence::Probable,
-            impact: None,
+                    impact: Some(Impact::High),
                     title: "JBIG2 filter chain obfuscation".into(),
                     description: "JBIG2 payloads wrapped with ASCII/Flate layers match known CVE obfuscations.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -156,7 +156,7 @@ impl Detector for FilterChainAnomalyDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                ..Finding::default()
+                    ..Finding::default()
                 });
             }
         }
@@ -227,6 +227,27 @@ fn format_filter_list(filters: &[String]) -> String {
 
 fn is_jbig2_obfuscation(filters: &[String]) -> bool {
     filters.iter().any(|f| f == "JBIG2DECODE") && filters.iter().any(|f| is_ascii_filter(f))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jbig2_obfuscation_detects_ascii_wrapper() {
+        let filters = vec![
+            "ASCIIHEXDECODE".into(),
+            "FlateDecode".into(),
+            "JBIG2DECODE".into(),
+        ];
+        assert!(is_jbig2_obfuscation(&filters));
+    }
+
+    #[test]
+    fn jbig2_obfuscation_requires_both_filters() {
+        let filters = vec!["FlateDecode".into(), "JBIG2Decode".into()];
+        assert!(!is_jbig2_obfuscation(&filters));
+    }
 }
 
 const KNOWN_FILTERS: &[&str] = &[
