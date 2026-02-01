@@ -9,7 +9,7 @@ use sis_pdf_pdf::classification::ClassificationMap;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr};
 use std::time::Duration;
 
-use crate::entry_dict;
+use crate::{action_type_from_obj, annotate_action_meta, entry_dict};
 
 pub struct ActionTriggerDetector;
 
@@ -53,6 +53,15 @@ impl Detector for ActionTriggerDetector {
                     "OpenAction".into(),
                     "automatic",
                     &summary,
+                );
+                let action_type =
+                    action_type_from_obj(ctx, v).unwrap_or_else(|| "OpenAction".into());
+                let target_value = meta.get("action.chain_path").map(|v| v.clone());
+                annotate_action_meta(
+                    &mut meta,
+                    &action_type,
+                    target_value.as_deref(),
+                    "automatic",
                 );
                 let evidence = EvidenceBuilder::new()
                     .file_offset(dict.span.start, dict.span.len() as u32, "Catalog dict")
@@ -116,6 +125,15 @@ impl Detector for ActionTriggerDetector {
                             event_label.clone(),
                             trigger_type,
                             &summary,
+                        );
+                        let action_type = action_type_from_obj(ctx, action_obj)
+                            .unwrap_or_else(|| event_label.clone());
+                        let target_value = meta.get("action.chain_path").map(|v| v.clone());
+                        annotate_action_meta(
+                            &mut meta,
+                            &action_type,
+                            target_value.as_deref(),
+                            trigger_type,
                         );
                         let evidence = EvidenceBuilder::new()
                             .file_offset(
@@ -190,8 +208,8 @@ impl Detector for ActionTriggerDetector {
                 if hidden {
                     let (event_label, action_obj) = extract_annotation_trigger(dict);
                     let mut visited = HashSet::new();
-                    let summary = if let Some(obj) = action_obj {
-                        action_chain_summary(ctx, classifications, &obj, 1, &mut visited)
+                    let summary = if let Some(obj) = action_obj.as_ref() {
+                        action_chain_summary(ctx, classifications, obj, 1, &mut visited)
                     } else {
                         ChainSummary::new(1)
                     };
@@ -201,6 +219,17 @@ impl Detector for ActionTriggerDetector {
                         event_label.clone(),
                         "hidden",
                         &summary,
+                    );
+                    let action_type = action_obj
+                        .as_ref()
+                        .and_then(|obj| action_type_from_obj(ctx, obj))
+                        .unwrap_or_else(|| event_label.clone());
+                    let target_value = meta.get("action.chain_path").map(|v| v.clone());
+                    annotate_action_meta(
+                        &mut meta,
+                        &action_type,
+                        target_value.as_deref(),
+                        "hidden",
                     );
                     findings.push(Finding {
                         id: String::new(),
@@ -238,6 +267,11 @@ impl Detector for ActionTriggerDetector {
                     meta.insert("action.trigger".into(), "field".into());
                     meta.insert("action.field_name".into(), field_name.clone());
                     insert_chain_metadata(&mut meta, "field", field_name.clone(), "user", &summary);
+                    let action_type =
+                        action_type_from_obj(ctx, action_obj).unwrap_or_else(|| "field".into());
+                    let target = meta.get("action.chain_path").map(|v| v.clone());
+                    let initiation = if hidden_field { "hidden" } else { "user" };
+                    annotate_action_meta(&mut meta, &action_type, target.as_deref(), initiation);
                     let evidence = EvidenceBuilder::new()
                         .file_offset(dict.span.start, dict.span.len() as u32, "Field dict")
                         .file_offset(k.span.start, k.span.len() as u32, "/A key")

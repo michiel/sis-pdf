@@ -1426,6 +1426,13 @@ impl Detector for LaunchActionDetector {
             if let Some(hash) = tracker.embedded_file_hash.clone() {
                 meta.insert("launch.embedded_file_hash".into(), hash);
             }
+            let payload_target = action_target_from_meta(&meta);
+            let action_target = tracker
+                .target_path
+                .as_deref()
+                .map(|s| s.to_string())
+                .or(payload_target);
+            annotate_action_meta(&mut meta, "/Launch", action_target.as_deref(), "automatic");
             let objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
             let base_meta = meta.clone();
             findings.push(Finding {
@@ -1513,6 +1520,8 @@ impl Detector for UriDetector {
             &[b"/URI"],
             "uri_present",
             "URI action present",
+            "/URI",
+            "user",
         )?;
         for entry in &ctx.graph.objects {
             if let Some(dict) = entry_dict(entry) {
@@ -1721,6 +1730,8 @@ impl Detector for SubmitFormDetector {
             &[b"/F"],
             "submitform_present",
             "SubmitForm action present",
+            "/SubmitForm",
+            "user",
         )
     }
 }
@@ -1747,6 +1758,8 @@ impl Detector for GoToRDetector {
             &[b"/F"],
             "gotor_present",
             "GoToR action present",
+            "/GoToR",
+            "automatic",
         )
     }
 }
@@ -1841,6 +1854,17 @@ impl Detector for EmbeddedFileDetector {
                             preview_ascii(&decoded.data, 120),
                         );
                     }
+                    let payload_target = action_target_from_meta(&meta);
+                    let action_target = meta
+                        .get("embedded.filename")
+                        .map(|v| v.clone())
+                        .or(payload_target);
+                    annotate_action_meta(
+                        &mut meta,
+                        "/EmbeddedFile",
+                        action_target.as_deref(),
+                        "automatic",
+                    );
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -2634,6 +2658,8 @@ fn action_by_s(
     payload_keys: &[&[u8]],
     kind: &str,
     title: &str,
+    action_type: &str,
+    initiation: &str,
 ) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for entry in &ctx.graph.objects {
@@ -2646,6 +2672,8 @@ fn action_by_s(
                     evidence.extend(enriched.evidence);
                     meta.extend(enriched.meta);
                 }
+                let target = action_target_from_meta(&meta);
+                annotate_action_meta(&mut meta, action_type, target.as_deref(), initiation);
                 findings.push(Finding {
                     id: String::new(),
                     surface: AttackSurface::Actions,
@@ -3060,6 +3088,58 @@ fn payload_from_obj(
         }
     }
     Some(PayloadEnrichment { evidence, meta })
+}
+
+pub(crate) fn annotate_action_meta(
+    meta: &mut std::collections::HashMap<String, String>,
+    action_type: &str,
+    target: Option<&str>,
+    initiation: &str,
+) {
+    meta.insert("action.type".into(), action_type.to_string());
+    if let Some(t) = target {
+        if !t.trim().is_empty() {
+            meta.insert("action.target".into(), shorten_action_target(t));
+        }
+    }
+    meta.insert("action.initiation".into(), initiation.to_string());
+}
+
+pub(crate) fn action_target_from_meta(
+    meta: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    meta.get("payload.preview")
+        .or_else(|| meta.get("payload.decoded_preview"))
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(shorten_action_target)
+}
+
+fn shorten_action_target(value: &str) -> String {
+    value.chars().take(256).collect()
+}
+
+pub(crate) fn action_type_from_obj(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    obj: &PdfObj<'_>,
+) -> Option<String> {
+    let dict = match &obj.atom {
+        PdfAtom::Dict(dict) => dict,
+        PdfAtom::Ref { obj: obj_id, gen } => {
+            let entry = ctx.graph.get_object(*obj_id, *gen)?;
+            match &entry.atom {
+                PdfAtom::Dict(dict) => dict,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    dict.get_first(b"/S")
+        .and_then(|(_, value)| match &value.atom {
+            PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
+            _ => None,
+        })
 }
 
 fn s_span(s: &sis_pdf_pdf::object::PdfStr<'_>) -> sis_pdf_pdf::span::Span {
