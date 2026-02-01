@@ -54,3 +54,27 @@ fn detects_hidden_action_trigger() {
         report.findings.iter().map(|f| f.kind.as_str()).collect();
     assert!(kinds.contains("action_hidden_trigger"));
 }
+
+#[test]
+fn canonical_incremental_action_prefers_latest_definition() {
+    let bytes = include_bytes!("fixtures/filters/action_incremental.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "action_automatic_trigger")
+        .expect("action automatic trigger");
+    assert_eq!(finding.meta.get("action.type"), Some(&"/GoToR".to_string()));
+    assert!(finding
+        .meta
+        .get("action.target")
+        .map(|v| v.contains("attacker"))
+        .unwrap_or(false));
+    assert_eq!(
+        finding.meta.get("action.initiation"),
+        Some(&"automatic".to_string())
+    );
+}

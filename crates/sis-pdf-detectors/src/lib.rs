@@ -1426,11 +1426,13 @@ impl Detector for LaunchActionDetector {
             if let Some(hash) = tracker.embedded_file_hash.clone() {
                 meta.insert("launch.embedded_file_hash".into(), hash);
             }
+            let payload_target = action_target_from_meta(&meta);
             let action_target = tracker
                 .target_path
                 .as_deref()
-                .or_else(|| meta.get("payload.preview").map(String::as_str));
-            annotate_action_meta(&mut meta, "/Launch", action_target, "automatic");
+                .map(|s| s.to_string())
+                .or(payload_target);
+            annotate_action_meta(&mut meta, "/Launch", action_target.as_deref(), "automatic");
             let objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
             let base_meta = meta.clone();
             findings.push(Finding {
@@ -1852,11 +1854,17 @@ impl Detector for EmbeddedFileDetector {
                             preview_ascii(&decoded.data, 120),
                         );
                     }
+                    let payload_target = action_target_from_meta(&meta);
                     let action_target = meta
                         .get("embedded.filename")
-                        .map(String::as_str)
-                        .filter(|s| !s.is_empty());
-                    annotate_action_meta(&mut meta, "/EmbeddedFile", action_target, "automatic");
+                        .map(|v| v.clone())
+                        .or(payload_target);
+                    annotate_action_meta(
+                        &mut meta,
+                        "/EmbeddedFile",
+                        action_target.as_deref(),
+                        "automatic",
+                    );
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),

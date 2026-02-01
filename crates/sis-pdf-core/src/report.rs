@@ -82,7 +82,7 @@ fn chain_note<'a>(chain: &'a ExploitChain, key: &str) -> Option<&'a str> {
 
 impl Report {
     pub fn from_findings(
-        findings: Vec<Finding>,
+        mut findings: Vec<Finding>,
         chains: Vec<ExploitChain>,
         chain_templates: Vec<ChainTemplate>,
         yara_rules: Vec<crate::yara::YaraRule>,

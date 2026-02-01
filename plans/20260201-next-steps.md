@@ -43,3 +43,4 @@
 ## Next actions
 - Schedule time in the sprint to align the font/image detectors with the new CVEs and to surface obfuscation normalisation logic for review; tie the work to test cases from the research so QA can validate them automatically.
 - Update `docs/js-detection-*.md` and `docs/findings.md` explaining the new primitives and their detection approach so analysts understand how sis interprets the emergent threats described in the research.
+- Drive the new threat intelligence cadence (`plans/20260201-threat-intel-cadence.md`) so every CVE entry flows through `docs/threat-intel-tracker.md`, the helper script (`scripts/threat_intel_summary.py`), and the docs/detectors that implement it.

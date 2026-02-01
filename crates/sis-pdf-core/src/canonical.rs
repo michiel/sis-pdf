@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use crate::graph::ObjectGraph;
 use sis_pdf_pdf::decode::stream_filters;
+use sis_pdf_pdf::graph::ObjectGraph;
 use sis_pdf_pdf::object::PdfStream;
 
 /// Returns a canonical string representation of a PDF name.
@@ -20,7 +20,6 @@ pub fn canonical_name(name_bytes: &[u8]) -> String {
 /// Produces a normalized filter chain for a stream.
 pub fn canonical_filter_chain(stream: &PdfStream<'_>) -> Vec<String> {
     stream_filters(&stream.dict)
-        .0
         .into_iter()
         .map(|filter| canonical_filter_name(&filter))
         .collect()

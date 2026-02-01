@@ -118,3 +118,25 @@ fn cve_2010_2883_filter_obfuscation_strict_mode() {
         report.findings.iter().map(|f| f.kind.as_str()).collect();
     assert!(kinds.contains("filter_chain_unusual"));
 }
+
+#[test]
+fn detects_jbig2_filter_chain_obfuscation() {
+    let bytes = include_bytes!("fixtures/filters/jbig2_ascii_obfuscation.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "filter_chain_jbig2_obfuscation")
+        .expect("filter_chain_jbig2_obfuscation");
+    assert_eq!(
+        finding.meta.get("jbig2.cves"),
+        Some(&"CVE-2021-30860,CVE-2022-38171".to_string())
+    );
+    assert_eq!(
+        finding.meta.get("violation_type"),
+        Some(&"jbig2_obfuscation".to_string())
+    );
+}
