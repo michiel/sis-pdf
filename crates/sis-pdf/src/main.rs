@@ -40,7 +40,7 @@ const ORT_VERSION_DEFAULT: &str = "1.23.2";
 const ORT_USER_AGENT: &str = "sis-ort-download";
 const ORT_RELEASE_BASE: &str = "https://github.com/microsoft/onnxruntime/releases/download";
 #[derive(Parser)]
-#[command(name = "sis")]
+#[command(name = "sis", version = env!("CARGO_PKG_VERSION"), propagate_version = true)]
 struct Args {
     #[command(subcommand)]
     command: Command,
@@ -1032,6 +1032,10 @@ fn main() -> Result<()> {
             GenerateCommand::Mutate { pdf, out, scan } => run_mutate(&pdf, &out, scan),
             GenerateCommand::RedTeam { target, out } => run_redteam(&target, &out),
         },
+        Command::Version => {
+            println!("{}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
     }
 }
 
