@@ -140,6 +140,11 @@ impl Detector for FilterChainAnomalyDetector {
                 let mut meta = meta.clone();
                 meta.insert("violation_type".into(), "jbig2_obfuscation".to_string());
                 meta.insert("jbig2.cves".into(), "CVE-2021-30860,CVE-2022-38171".into());
+                meta.insert("cve".into(), "CVE-2021-30860,CVE-2022-38171".into());
+                meta.insert(
+                    "attack_surface".into(),
+                    "Image codecs / filter obfuscation".into(),
+                );
                 findings.push(Finding {
                     id: String::new(),
                     surface: self.surface(),

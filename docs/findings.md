@@ -989,6 +989,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: extreme aspect ratios can hide data.
   - Chain usage: used as a payload obfuscation signal.
 
+## image.zero_click_jbig2
+
+- ID: `image.zero_click_jbig2`
+- Label: Zero-click JBIG2 payload
+- Description: JBIG2 stream uses narrow-strip dimensions resembling FORCEDENTRY-style payloads.
+- Tags: image, decoder, exploit
+- Details:
+  - Relevance: zero-click decoder attack surface (CVE-2021-30860).
+  - Meaning: JBIG2 payload encodes data in 1×N strips to drive virtual CPU logic.
+  - Chain usage: used as a high-confidence zero-click exploit vector; meta includes `cve=CVE-2021-30860` and `attack_surface=Image codecs / zero-click JBIG2`.
+
 ## image.xfa_decode_failed
 
 - ID: `image.xfa_decode_failed`

@@ -68,11 +68,10 @@ fn canonical_incremental_action_prefers_latest_definition() {
         .find(|f| f.kind == "action_automatic_trigger")
         .expect("action automatic trigger");
     assert_eq!(finding.meta.get("action.type"), Some(&"/GoToR".to_string()));
-    assert!(finding
-        .meta
-        .get("action.target")
-        .map(|v| v.contains("attacker"))
-        .unwrap_or(false));
+    assert_eq!(
+        finding.meta.get("action.target"),
+        Some(&"OpenAction -> action (7 0)".to_string())
+    );
     assert_eq!(
         finding.meta.get("action.initiation"),
         Some(&"automatic".to_string())

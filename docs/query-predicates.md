@@ -151,13 +151,14 @@ Predicates can use these fields:
   - `impact`: impact bucket (`critical`, `high`, `medium`, `low`, `none`)
   - `confidence`: confidence (`certain`, `strong`, `probable`, `tentative`, `weak`, `heuristic`)
   - `action_type`: action taxonomy (for example `Launch`, `JavaScript`, `GoTo`)
-  - `action_target`: where the action is headed (for example `uri:http://example.com`)
-  - `action_initiation`: how the action is triggered (`automatic`, `user`, `hidden`, `deep`)
-  - `reader.impact.<profile>`: severity bucket seen by each reader profile (`acrobat`, `pdfium`, `preview`)
-  - `reader.impact.summary`: comma-separated `<profile>:<severity>/<impact>` summary (for example `acrobat:critical/critical,pdfium:low/low`)
-  - `surface`: attack surface (for example `embedded_files`, `actions`, `streams_and_filters`)
-  - `kind`: finding kind (same as `subtype`)
-  - `objects`: number of related objects
+- `action_target`: where the action is headed (for example `uri:http://example.com`)
+- `action_initiation`: how the action is triggered (`automatic`, `user`, `hidden`, `deep`)
+- `reader.impact.<profile>`: severity bucket seen by each reader profile (`acrobat`, `pdfium`, `preview`)
+- `reader.impact.summary`: comma-separated `<profile>:<severity>/<impact>` summary (for example `acrobat:critical/critical,pdfium:low/low`)
+- `surface`: attack surface (for example `embedded_files`, `actions`, `streams_and_filters`)
+- `kind`: finding kind (same as `subtype`)
+- `objects`: number of related objects
+- `meta.<key>`: detector metadata entries such as `meta.cve`, `meta.attack_surface`, `meta.launch.target_path`, or `meta.reader.impact.summary`. Use `meta.cve` to focus on CVE-driven heuristics and `meta.attack_surface` to group detections by the taxonomy referenced in `docs/threat-intel-tracker.md`.
 - `evidence`: number of evidence spans
 
 ### Encryption queries
@@ -195,6 +196,9 @@ sis query events file.pdf --where "filter == 'document'"
 
 # High severity findings
 sis query findings file.pdf --where "filter == 'high'"
+
+# CVE-specific detections (e.g., limit to the FreeType gvar heuristic)
+sis query findings file.pdf --where "meta.cve == 'CVE-2025-27363'"
 
 # Streams using FlateDecode
 sis query objects.with Stream file.pdf --where "filter == '/FlateDecode'"

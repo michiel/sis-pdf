@@ -10,9 +10,12 @@ pub enum Severity {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Confidence {
-    Heuristic,
-    Probable,
+    Certain,
     Strong,
+    Probable,
+    Tentative,
+    Weak,
+    Heuristic,
 }
 
 #[derive(Debug, Clone)]

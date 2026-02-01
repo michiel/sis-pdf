@@ -75,6 +75,20 @@ fn cve_2021_30860_jbig2_dynamic() {
     assert!(has_finding(&report, "image.decode_too_large"));
     assert!(has_finding(&report, "image.extreme_dimensions"));
     assert!(has_finding(&report, "image.pixel_count_excessive"));
+    assert!(has_finding(&report, "image.zero_click_jbig2"));
+    let zero_click = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "image.zero_click_jbig2")
+        .expect("image.zero_click_jbig2 finding");
+    assert_eq!(
+        zero_click.meta.get("cve"),
+        Some(&"CVE-2021-30860".to_string())
+    );
+    assert_eq!(
+        zero_click.meta.get("attack_surface"),
+        Some(&"Image codecs / zero-click JBIG2".to_string())
+    );
 }
 
 #[test]

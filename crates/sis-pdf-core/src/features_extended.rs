@@ -299,13 +299,19 @@ impl SeverityFeatures {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConfidenceFeatures {
+    pub certain_count: f32,
     pub strong_count: f32,
     pub probable_count: f32,
+    pub tentative_count: f32,
+    pub weak_count: f32,
     pub heuristic_count: f32,
     pub strong_ratio: f32,
     pub avg_confidence_score: f32,
+    pub certain_high_severity: f32,
     pub strong_high_severity: f32,
     pub probable_high_severity: f32,
+    pub tentative_high_severity: f32,
+    pub weak_high_severity: f32,
     pub heuristic_high_severity: f32,
     pub weighted_confidence: f32,
 }
@@ -313,13 +319,19 @@ pub struct ConfidenceFeatures {
 impl ConfidenceFeatures {
     pub fn as_f32_vec(&self) -> Vec<f32> {
         vec![
+            self.certain_count,
             self.strong_count,
             self.probable_count,
+            self.tentative_count,
+            self.weak_count,
             self.heuristic_count,
             self.strong_ratio,
             self.avg_confidence_score,
+            self.certain_high_severity,
             self.strong_high_severity,
             self.probable_high_severity,
+            self.tentative_high_severity,
+            self.weak_high_severity,
             self.heuristic_high_severity,
             self.weighted_confidence,
         ]
@@ -327,13 +339,19 @@ impl ConfidenceFeatures {
 
     pub fn feature_names() -> Vec<String> {
         vec![
+            "confidence_dist.certain_count",
             "confidence_dist.strong_count",
             "confidence_dist.probable_count",
+            "confidence_dist.tentative_count",
+            "confidence_dist.weak_count",
             "confidence_dist.heuristic_count",
             "confidence_dist.strong_ratio",
             "confidence_dist.avg_confidence_score",
+            "confidence_dist.certain_high_severity",
             "confidence_dist.strong_high_severity",
             "confidence_dist.probable_high_severity",
+            "confidence_dist.tentative_high_severity",
+            "confidence_dist.weak_high_severity",
             "confidence_dist.heuristic_high_severity",
             "confidence_dist.weighted_confidence",
         ]
@@ -1578,21 +1596,23 @@ fn extract_confidence_features(findings: &[Finding]) -> ConfidenceFeatures {
     for finding in findings {
         // Count by confidence
         match finding.confidence {
-            Confidence::Certain | Confidence::Strong => features.strong_count += 1.0,
+            Confidence::Certain => features.certain_count += 1.0,
+            Confidence::Strong => features.strong_count += 1.0,
             Confidence::Probable => features.probable_count += 1.0,
-            Confidence::Tentative | Confidence::Weak | Confidence::Heuristic => {
-                features.heuristic_count += 1.0
-            }
+            Confidence::Tentative => features.tentative_count += 1.0,
+            Confidence::Weak => features.weak_count += 1.0,
+            Confidence::Heuristic => features.heuristic_count += 1.0,
         }
 
         // Count high-severity by confidence
         if finding.severity == Severity::High || finding.severity == Severity::Critical {
             match finding.confidence {
-                Confidence::Certain | Confidence::Strong => features.strong_high_severity += 1.0,
+                Confidence::Certain => features.certain_high_severity += 1.0,
+                Confidence::Strong => features.strong_high_severity += 1.0,
                 Confidence::Probable => features.probable_high_severity += 1.0,
-                Confidence::Tentative | Confidence::Weak | Confidence::Heuristic => {
-                    features.heuristic_high_severity += 1.0
-                }
+                Confidence::Tentative => features.tentative_high_severity += 1.0,
+                Confidence::Weak => features.weak_high_severity += 1.0,
+                Confidence::Heuristic => features.heuristic_high_severity += 1.0,
             }
         }
 
@@ -1617,9 +1637,10 @@ fn extract_confidence_features(findings: &[Finding]) -> ConfidenceFeatures {
         confidence_severity_weighted += confidence_score * severity_weight;
     }
 
-    features.strong_ratio = features.strong_count / findings.len() as f32;
-    features.avg_confidence_score = confidence_sum / findings.len() as f32;
-    features.weighted_confidence = confidence_severity_weighted / findings.len() as f32;
+    let total = findings.len() as f32;
+    features.strong_ratio = features.strong_count / total;
+    features.avg_confidence_score = confidence_sum / total;
+    features.weighted_confidence = confidence_severity_weighted / total;
 
     features
 }
@@ -2914,8 +2935,8 @@ mod tests {
         // 76 (legacy) + 13 (attack surfaces) + 15 (severity) + 9 (confidence) +
         // 71 (presence) + 71 (counts) + 30 (JS) + 20 (URI) + 15 (content) +
         // 10 (supply chain) + 20 (structural) + 10 (crypto) + 15 (embedded)
-        // + 3 (correlation metadata) = 76 + 311 + 3 = 390
-        assert_eq!(vec.len(), 390, "Expected 390 features, got {}", vec.len());
+        // + 3 (correlation metadata) = 76 + 317 + 3 = 396
+        assert_eq!(vec.len(), 396, "Expected 396 features, got {}", vec.len());
     }
 
     #[test]
@@ -2931,7 +2952,7 @@ mod tests {
             names.len(),
             values.len()
         );
-        assert_eq!(names.len(), 390, "Expected 390 feature names");
+        assert_eq!(names.len(), 396, "Expected 396 feature names");
     }
 
     #[test]
@@ -2939,7 +2960,7 @@ mod tests {
         let features = ExtendedFeatureVector::default();
         let map = features.to_named_map();
 
-        assert_eq!(map.len(), 390, "Named map should have 390 entries");
+        assert_eq!(map.len(), 396, "Named map should have 396 entries");
         assert!(map.contains_key("general.file_size"));
         assert!(map.contains_key("js_signals.max_obfuscation_score"));
         assert!(map.contains_key("uri_signals.total_count"));
@@ -3212,21 +3233,21 @@ mod tests {
                 kind: "js_polymorphic".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
-            impact: None,
+                impact: None,
                 title: "Polymorphic JS".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: meta.clone(),
-
-            reader_impacts: Vec::new(),
-            action_type: None,
-            action_target: None,
-            action_initiation: None,                yara: None,
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
                 position: None,
                 positions: Vec::new(),
-            ..Finding::default()
+                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3234,25 +3255,25 @@ mod tests {
                 kind: "js_time_evasion".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
-            impact: None,
+                impact: None,
                 title: "Time Evasion".to_string(),
                 description: "Test".to_string(),
                 objects: vec![],
                 evidence: vec![],
                 remediation: None,
                 meta: {
-
-            reader_impacts: Vec::new(),
-            action_type: None,
-            action_target: None,
-            action_initiation: None,                    let mut m = HashMap::new();
+                    let mut m = HashMap::new();
                     m.insert("js.time_evasion".to_string(), "true".to_string());
                     m
                 },
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-            ..Finding::default()
+                ..Finding::default()
             },
         ];
 
@@ -3443,18 +3464,18 @@ mod tests {
 
     #[test]
     fn test_extended_feature_vector_update_count() {
-        // This test verifies we have 390 features total
+        // This test verifies we have 396 features total
         let features = ExtendedFeatureVector::default();
         let vec = features.as_f32_vec();
 
         // 76 (legacy) + 13 (attack surfaces - added Images) + 15 (severity) + 9 (confidence) +
         // 71 (presence) + 71 (counts) + 30 (JS) + 28 (URI) + 15 (content) +
         // 10 (supply chain) + 20 (structural) + 10 (crypto) + 15 (embedded)
-        // + 3 (correlation metadata) = 76 + 311 + 3 = 390
+        // + 3 (correlation metadata) = 76 + 317 + 3 = 396
         assert_eq!(
             vec.len(),
-            390,
-            "Expected 390 features total, got {}",
+            396,
+            "Expected 396 features total, got {}",
             vec.len()
         );
     }

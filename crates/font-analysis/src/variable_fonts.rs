@@ -58,6 +58,10 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
             if glyph_count > font_glyphs {
                 let mut meta = HashMap::new();
                 meta.insert("cve".into(), "CVE-2025-27363".into());
+                meta.insert(
+                    "attack_surface".into(),
+                    "Font parsing / variable fonts".into(),
+                );
                 meta.insert("gvar.glyph_count".into(), glyph_count.to_string());
                 meta.insert("font.glyph_count".into(), font_glyphs.to_string());
                 meta.insert(
@@ -85,6 +89,10 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
             {
                 let mut meta = HashMap::new();
                 meta.insert("cve".into(), "CVE-2025-27363".into());
+                meta.insert(
+                    "attack_surface".into(),
+                    "Font parsing / variable fonts".into(),
+                );
                 meta.insert("gvar.ordering".into(), "nonstrict".into());
                 meta.insert(
                     "gvar.last_offset".into(),
@@ -120,6 +128,10 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
             meta.insert("table".to_string(), "gvar".to_string());
             meta.insert("size".to_string(), gvar_size.to_string());
             meta.insert("max_safe_size".to_string(), MAX_GVAR_SIZE.to_string());
+            meta.insert(
+                "attack_surface".into(),
+                "Font parsing / variable fonts".into(),
+            );
 
             findings.push(FontFinding {
                 kind: "font.anomalous_variation_table".to_string(),

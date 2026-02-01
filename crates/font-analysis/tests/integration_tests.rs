@@ -8,7 +8,8 @@ use font_analysis::{analyse_font, FontAnalysisConfig};
 #[test]
 fn test_blend_exploit_detection() {
     let data = include_bytes!("fixtures/exploits/blend_2015.pfa");
-    let config = FontAnalysisConfig::default();
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = false;
     let outcome = analyse_font(data, &config);
 
     // Should detect BLEND exploit pattern
@@ -104,8 +105,7 @@ fn test_benign_type1_no_findings() {
 #[test]
 fn test_cve_2025_27163_detection() {
     let data = include_bytes!("fixtures/cve/cve-2025-27163-hmtx-hhea-mismatch.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig::default();
 
     let outcome = analyse_font(data, &config);
 
@@ -127,8 +127,7 @@ fn test_cve_2025_27163_detection() {
 #[test]
 fn test_cve_2023_26369_detection() {
     let data = include_bytes!("fixtures/cve/cve-2023-26369-ebsc-oob.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig::default();
 
     let outcome = analyse_font(data, &config);
 
@@ -158,8 +157,7 @@ fn test_cve_2023_26369_detection() {
 #[test]
 fn test_gvar_anomalous_size() {
     let data = include_bytes!("fixtures/cve/gvar-anomalous-size.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig::default();
 
     let outcome = analyse_font(data, &config);
 
@@ -172,6 +170,31 @@ fn test_gvar_anomalous_size() {
         has_anomaly,
         "Anomalous gvar table should be detected. Findings: {:?}",
         outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+}
+
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_gvar_glyph_count_mismatch_metadata() {
+    let data = include_bytes!("fixtures/cve/gvar-glyph-count-mismatch.ttf");
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = false;
+
+    let outcome = analyse_font(data, &config);
+    let finding = outcome
+        .findings
+        .iter()
+        .find(|f| f.kind == "font.gvar_glyph_count_mismatch")
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected gvar glyph count mismatch finding, only had {:?}",
+                outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(finding.meta.get("cve"), Some(&"CVE-2025-27363".to_string()));
+    assert_eq!(
+        finding.meta.get("attack_surface"),
+        Some(&"Font parsing / variable fonts".to_string())
     );
 }
 
