@@ -6,7 +6,11 @@
 #[cfg(feature = "dynamic")]
 use std::collections::HashMap;
 #[cfg(feature = "dynamic")]
+use std::convert::TryInto;
+#[cfg(feature = "dynamic")]
 use tracing::{debug, instrument, warn};
+#[cfg(feature = "dynamic")]
+use ttf_parser::Tag;
 
 use crate::model::FontFinding;
 #[cfg(feature = "dynamic")]
@@ -46,6 +50,62 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
     }
 
     debug!("Analyzing variable font");
+
+    if let Some(gvar_data) = font.raw_face().table(Tag::from_bytes(b"gvar")) {
+        if let Some(header) = parse_gvar_header(gvar_data) {
+            let glyph_count = header.glyph_count as u32;
+            let font_glyphs = font.number_of_glyphs() as u32;
+            if glyph_count > font_glyphs {
+                let mut meta = HashMap::new();
+                meta.insert("cve".into(), "CVE-2025-27363".into());
+                meta.insert("gvar.glyph_count".into(), glyph_count.to_string());
+                meta.insert("font.glyph_count".into(), font_glyphs.to_string());
+                meta.insert(
+                    "gvar.last_offset".into(),
+                    header
+                        .offsets
+                        .last()
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                );
+                meta.insert("gvar.data_length".into(), header.glyph_data_len.to_string());
+                findings.push(FontFinding {
+                    kind: "font.gvar_glyph_count_mismatch".into(),
+                    severity: Severity::High,
+                    confidence: Confidence::Strong,
+                    title: "Gvar glyph count exceeds maxp glyph count".into(),
+                    description: "The gvar table advertises more glyphs than the face actually defines, which can trigger subglyph parsing issues (CVE-2025-27363).".into(),
+                    meta,
+                });
+            }
+            if header
+                .offsets
+                .windows(2)
+                .any(|window| window[0] > window[1])
+            {
+                let mut meta = HashMap::new();
+                meta.insert("cve".into(), "CVE-2025-27363".into());
+                meta.insert("gvar.ordering".into(), "nonstrict".into());
+                meta.insert(
+                    "gvar.last_offset".into(),
+                    header
+                        .offsets
+                        .last()
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                );
+                meta.insert("gvar.data_length".into(), header.glyph_data_len.to_string());
+                findings.push(FontFinding {
+                    kind: "font.gvar_offsets_disorder".into(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::Probable,
+                    title: "Gvar offsets appear out of order".into(),
+                    description: "Offset entries inside the gvar variation data are not monotonically increasing, which matches erroneous subglyph parsing primitives.".into(),
+                    meta,
+                });
+            }
+        }
+    }
 
     // Check gvar table size
     if let Some(gvar_size) = get_table_size(font_data, b"gvar") {
@@ -238,5 +298,71 @@ mod tests {
 
         let missing = get_table_size(&font_data, b"HVAR");
         assert_eq!(missing, None);
+    }
+}
+
+#[cfg(feature = "dynamic")]
+struct GvarHeader {
+    glyph_count: u16,
+    offsets: Vec<u32>,
+    glyph_data_len: usize,
+}
+
+#[cfg(feature = "dynamic")]
+fn parse_gvar_header(data: &[u8]) -> Option<GvarHeader> {
+    if data.len() < 20 {
+        return None;
+    }
+    let version = u32::from_be_bytes(data[0..4].try_into().ok()?);
+    if version != 0x00010000 {
+        return None;
+    }
+    let axis_count = u16::from_be_bytes(data[4..6].try_into().ok()?);
+    if axis_count == 0 {
+        return None;
+    }
+    let glyph_count = u16::from_be_bytes(data[12..14].try_into().ok()?);
+    let flags = u16::from_be_bytes(data[14..16].try_into().ok()?);
+    let glyph_data_offset = u32::from_be_bytes(data[16..20].try_into().ok()?) as usize;
+    let offsets_count = glyph_count as usize + 1;
+    let entry_size: usize = if flags & 1 == 1 { 4 } else { 2 };
+    let offsets_start: usize = 20;
+    let offsets_end = offsets_start.checked_add(offsets_count.checked_mul(entry_size)?)?;
+    if offsets_end > data.len() {
+        return None;
+    }
+    let offsets_slice = &data[offsets_start..offsets_end];
+    let offsets = parse_gvar_offsets(offsets_slice, entry_size == 4)?;
+    let glyph_data_len = data.len().checked_sub(glyph_data_offset)?;
+    Some(GvarHeader {
+        glyph_count,
+        offsets,
+        glyph_data_len,
+    })
+}
+
+#[cfg(feature = "dynamic")]
+fn parse_gvar_offsets(slice: &[u8], long_format: bool) -> Option<Vec<u32>> {
+    if long_format {
+        if slice.len() % 4 != 0 {
+            return None;
+        }
+        let mut out = Vec::with_capacity(slice.len() / 4);
+        for chunk in slice.chunks_exact(4) {
+            let arr: [u8; 4] = chunk.try_into().ok()?;
+            out.push(u32::from_be_bytes(arr));
+        }
+        Some(out)
+    } else {
+        if slice.len() % 2 != 0 {
+            return None;
+        }
+        let mut out = Vec::with_capacity(slice.len() / 2);
+        for chunk in slice.chunks_exact(2) {
+            let arr: [u8; 2] = chunk.try_into().ok()?;
+            let val = u16::from_be_bytes(arr);
+            out.push((val as u32) * 2);
+        }
+        Some(out)
     }
 }

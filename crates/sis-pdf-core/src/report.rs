@@ -6,6 +6,7 @@ use anyhow::Result;
 use crate::chain::{ChainTemplate, ExploitChain};
 use crate::intent::IntentSummary;
 use crate::model::{AttackSurface, Finding, Severity};
+use crate::reader_context;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Summary {
@@ -93,6 +94,10 @@ impl Report {
         structural_summary: Option<StructuralSummary>,
         ml_summary_override: Option<MlSummary>,
     ) -> Self {
+        for finding in &mut findings {
+            reader_context::annotate_reader_context(finding);
+        }
+
         let mut grouped: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
         for f in &findings {
             let surface = attack_surface_name(f.surface);

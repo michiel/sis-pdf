@@ -1,12 +1,12 @@
 use anyhow::Result;
 use std::collections::HashMap;
 
+use sis_pdf_core::canonical::{canonical_filter_chain, canonical_object_indices};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::filter_allowlist::default_filter_allowlist;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::timeout::TimeoutChecker;
-use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::object::PdfAtom;
 
 pub struct FilterChainAnomalyDetector;
@@ -38,18 +38,18 @@ impl Detector for FilterChainAnomalyDetector {
             .cloned()
             .unwrap_or_else(default_filter_allowlist);
         let strict = ctx.options.filter_allowlist_strict;
-        for entry in &ctx.graph.objects {
+        for idx in canonical_object_indices(&ctx.graph, true) {
+            let entry = &ctx.graph.objects[idx];
             if timeout.check().is_err() {
                 break;
             }
             let PdfAtom::Stream(stream) = &entry.atom else {
                 continue;
             };
-            let filters = stream_filters(&stream.dict);
-            if filters.is_empty() {
+            let normalised = canonical_filter_chain(stream);
+            if normalised.is_empty() {
                 continue;
             }
-            let normalised: Vec<String> = filters.iter().map(|f| normalise_filter(f)).collect();
             let allowlist_match = is_allowlisted_chain(&normalised, &allowlist);
             let image_with_compression = has_image_with_compression(&normalised);
             let mut meta = std::collections::HashMap::new();
@@ -130,6 +130,27 @@ impl Detector for FilterChainAnomalyDetector {
                     positions: Vec::new(),
                 });
             }
+            if is_jbig2_obfuscation(&normalised) {
+                let mut meta = meta.clone();
+                meta.insert("violation_type".into(), "jbig2_obfuscation".to_string());
+                meta.insert("jbig2.cves".into(), "CVE-2021-30860,CVE-2022-38171".into());
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: self.surface(),
+                    kind: "filter_chain_jbig2_obfuscation".into(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::Probable,
+                    title: "JBIG2 filter chain obfuscation".into(),
+                    description: "JBIG2 payloads wrapped with ASCII/Flate layers match known CVE obfuscations.".into(),
+                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                    evidence,
+                    remediation: Some("Decode payloads carefully to expose JBIG2 segments.".into()),
+                    meta,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+            }
         }
         Ok(findings)
     }
@@ -179,11 +200,7 @@ fn has_duplicate_filters(filters: &[String]) -> bool {
 }
 
 fn is_ascii_filter(filter: &str) -> bool {
-    matches!(filter, "ASCIIHexDecode" | "ASCII85Decode")
-}
-
-fn normalise_filter(filter: &str) -> String {
-    filter.trim_start_matches('/').to_string()
+    matches!(filter, "ASCIIHEXDECODE" | "ASCII85DECODE")
 }
 
 fn format_filter_list(filters: &[String]) -> String {
@@ -198,6 +215,10 @@ fn format_filter_list(filters: &[String]) -> String {
     }
     out.push(']');
     out
+}
+
+fn is_jbig2_obfuscation(filters: &[String]) -> bool {
+    filters.iter().any(|f| f == "JBIG2DECODE") && filters.iter().any(|f| is_ascii_filter(f))
 }
 
 const KNOWN_FILTERS: &[&str] = &[

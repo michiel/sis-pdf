@@ -9,7 +9,7 @@ use sis_pdf_pdf::classification::ClassificationMap;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr};
 use std::time::Duration;
 
-use crate::entry_dict;
+use crate::{action_type_from_obj, annotate_action_meta, entry_dict};
 
 pub struct ActionTriggerDetector;
 
@@ -54,6 +54,10 @@ impl Detector for ActionTriggerDetector {
                     "automatic",
                     &summary,
                 );
+                let action_type =
+                    action_type_from_obj(ctx, v).unwrap_or_else(|| "OpenAction".into());
+                let action_target = meta.get("action.chain_path").map(String::as_str);
+                annotate_action_meta(&mut meta, &action_type, action_target, "automatic");
                 let evidence = EvidenceBuilder::new()
                     .file_offset(dict.span.start, dict.span.len() as u32, "Catalog dict")
                     .file_offset(k.span.start, k.span.len() as u32, "OpenAction key")
@@ -117,6 +121,10 @@ impl Detector for ActionTriggerDetector {
                             trigger_type,
                             &summary,
                         );
+                        let action_type = action_type_from_obj(ctx, action_obj)
+                            .unwrap_or_else(|| event_label.clone());
+                        let action_target = meta.get("action.chain_path").map(String::as_str);
+                        annotate_action_meta(&mut meta, &action_type, action_target, trigger_type);
                         let evidence = EvidenceBuilder::new()
                             .file_offset(
                                 dict.span.start,
@@ -202,6 +210,12 @@ impl Detector for ActionTriggerDetector {
                         "hidden",
                         &summary,
                     );
+                    let action_type = action_obj
+                        .as_ref()
+                        .and_then(|obj| action_type_from_obj(ctx, obj))
+                        .unwrap_or_else(|| event_label.clone());
+                    let action_target = meta.get("action.chain_path").map(String::as_str);
+                    annotate_action_meta(&mut meta, &action_type, action_target, "hidden");
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -238,6 +252,11 @@ impl Detector for ActionTriggerDetector {
                     meta.insert("action.trigger".into(), "field".into());
                     meta.insert("action.field_name".into(), field_name.clone());
                     insert_chain_metadata(&mut meta, "field", field_name.clone(), "user", &summary);
+                    let action_type =
+                        action_type_from_obj(ctx, action_obj).unwrap_or_else(|| "field".into());
+                    let target = meta.get("action.chain_path").map(String::as_str);
+                    let initiation = if hidden_field { "hidden" } else { "user" };
+                    annotate_action_meta(&mut meta, &action_type, target, initiation);
                     let evidence = EvidenceBuilder::new()
                         .file_offset(dict.span.start, dict.span.len() as u32, "Field dict")
                         .file_offset(k.span.start, k.span.len() as u32, "/A key")
