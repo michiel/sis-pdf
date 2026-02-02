@@ -1245,9 +1245,10 @@ fn run_update(include_prerelease: bool) -> Result<()> {
     let temp_dir = tempdir()?;
     let archive_path = temp_dir.path().join(&asset.name);
     let mut reader = ureq::get(&asset.browser_download_url)
-        .set("User-Agent", UPDATE_USER_AGENT)
+        .header("User-Agent", UPDATE_USER_AGENT)
         .call()
         .map_err(|err| anyhow!("failed to download {}: {err}", asset.name))?
+        .into_body()
         .into_reader();
     let mut out = fs::File::create(&archive_path)?;
     std::io::copy(&mut reader, &mut out)?;
@@ -1294,18 +1295,18 @@ fn fetch_release_with_asset(
 
 fn fetch_release(url: &str) -> Result<Release> {
     let response = ureq::get(url)
-        .set("User-Agent", UPDATE_USER_AGENT)
+        .header("User-Agent", UPDATE_USER_AGENT)
         .call()
         .map_err(|err| anyhow!("failed to query GitHub releases: {err}"))?;
-    Ok(serde_json::from_reader(response.into_reader())?)
+    Ok(serde_json::from_reader(response.into_body().into_reader())?)
 }
 
 fn fetch_release_list(url: &str) -> Result<Vec<Release>> {
     let response = ureq::get(url)
-        .set("User-Agent", UPDATE_USER_AGENT)
+        .header("User-Agent", UPDATE_USER_AGENT)
         .call()
         .map_err(|err| anyhow!("failed to query GitHub releases: {err}"))?;
-    Ok(serde_json::from_reader(response.into_reader())?)
+    Ok(serde_json::from_reader(response.into_body().into_reader())?)
 }
 
 fn find_release_asset(release: &Release, suffix: &str) -> Option<ReleaseAsset> {
@@ -1335,9 +1336,10 @@ fn verify_release_checksum(
         return Ok(());
     };
     let mut reader = ureq::get(&checksum_asset.browser_download_url)
-        .set("User-Agent", UPDATE_USER_AGENT)
+        .header("User-Agent", UPDATE_USER_AGENT)
         .call()
         .map_err(|err| anyhow!("failed to download {}: {err}", checksum_asset.name))?
+        .into_body()
         .into_reader();
     let mut contents = String::new();
     reader.read_to_string(&mut contents)?;
@@ -1654,9 +1656,10 @@ fn run_ml_ort_download(
     let temp_dir = tempdir()?;
     let archive_path = temp_dir.path().join(&archive_name);
     let mut reader = ureq::get(&url)
-        .set("User-Agent", ORT_USER_AGENT)
+        .header("User-Agent", ORT_USER_AGENT)
         .call()
         .map_err(|err| anyhow!("failed to download {archive_name}: {err}"))?
+        .into_body()
         .into_reader();
     let mut out = fs::File::create(&archive_path)?;
     std::io::copy(&mut reader, &mut out)?;
@@ -2303,9 +2306,10 @@ fn fetch_checksum_contents(
 
 fn download_text(url: &str, user_agent: &str) -> Result<String> {
     let mut reader = ureq::get(url)
-        .set("User-Agent", user_agent)
+        .header("User-Agent", user_agent)
         .call()
         .map_err(|err| anyhow!("failed to download {url}: {err}"))?
+        .into_body()
         .into_reader();
     let mut contents = String::new();
     reader.read_to_string(&mut contents)?;
@@ -2313,14 +2317,15 @@ fn download_text(url: &str, user_agent: &str) -> Result<String> {
 }
 
 fn download_text_optional(url: &str, user_agent: &str) -> Result<Option<String>> {
-    let response = ureq::get(url).set("User-Agent", user_agent).call();
+    let response = ureq::get(url).header("User-Agent", user_agent).call();
     match response {
         Ok(response) => {
             let mut contents = String::new();
-            response.into_reader().read_to_string(&mut contents)?;
+            let mut reader = response.into_body().into_reader();
+            reader.read_to_string(&mut contents)?;
             Ok(Some(contents))
         }
-        Err(ureq::Error::Status(404, _)) => Ok(None),
+        Err(ureq::Error::StatusCode(404)) => Ok(None),
         Err(err) => Err(anyhow!("failed to download {url}: {err}")),
     }
 }
@@ -2329,10 +2334,10 @@ fn fetch_checksum_from_release(version: &str, archive_name: &str) -> Result<Stri
     let api_url =
         format!("https://api.github.com/repos/microsoft/onnxruntime/releases/tags/v{version}");
     let response = ureq::get(&api_url)
-        .set("User-Agent", ORT_USER_AGENT)
+        .header("User-Agent", ORT_USER_AGENT)
         .call()
         .map_err(|err| anyhow!("failed to query ORT release metadata: {err}"))?;
-    let release: Release = serde_json::from_reader(response.into_reader())?;
+    let release: Release = serde_json::from_reader(response.into_body().into_reader())?;
     let mut candidates = release
         .assets
         .iter()

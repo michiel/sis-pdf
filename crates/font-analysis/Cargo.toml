@@ -5,12 +5,12 @@ edition = "2021"
 
 [dependencies]
 skrifa = { version = "0.40", optional = true }
-ttf-parser = { version = "0.24", optional = true }
-allsorts = { version = "0.14", optional = true }
+ttf-parser = { version = "0.25", optional = true }
+allsorts = { version = "0.16", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-toml = "0.8"
+toml = "0.9"
 tracing = "0.1"
 
 [features]

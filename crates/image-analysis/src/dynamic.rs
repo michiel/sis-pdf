@@ -564,20 +564,23 @@ fn decode_jpx(
     let settings = hayro_jpeg2000::DecodeSettings {
         resolve_palette_indices: true,
         strict: true,
+        target_resolution: None,
     };
-    match hayro_jpeg2000::decode(bytes, &settings) {
-        Ok(bitmap) => {
-            let pixels = bitmap.width as u64 * bitmap.height as u64;
-            if pixels > opts.max_pixels {
-                DecodeStatus::Failed("pixel_limit_exceeded".into())
-            } else {
-                if let Some(status) = check_timeout(timeout) {
-                    return status;
-                }
-                DecodeStatus::Ok
-            }
+    let image = match hayro_jpeg2000::Image::new(bytes, &settings) {
+        Ok(image) => image,
+        Err(err) => return DecodeStatus::Failed(err.to_string()),
+    };
+    let pixels = image.width() as u64 * image.height() as u64;
+    if pixels > opts.max_pixels {
+        DecodeStatus::Failed("pixel_limit_exceeded".into())
+    } else {
+        if let Some(status) = check_timeout(timeout) {
+            return status;
         }
-        Err(err) => DecodeStatus::Failed(err.to_string()),
+        if let Err(err) = image.decode() {
+            return DecodeStatus::Failed(err.to_string());
+        }
+        DecodeStatus::Ok
     }
 }
 
