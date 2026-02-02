@@ -32,4 +32,4 @@ Coordinate the remaining schema, canonicalisation, CVE automation, and CLI/fixtu
 - [x] Step 1: Added `FindingBuilder`, serde-aware tests, and taught the filter-chain detector to consume the helper so metadata, impact, and reader-impact fields stay consistent.
 - [x] Step 2: Instrumented canonical view construction, added tracing around the computed metrics, and introduced `tools/perf-guard` to gate runtime-profile SLOs.
 - [x] Step 3: CVE automation now accepts multiple output directories, prints the resolved targets, and writes deterministic stubs into each path while placating the tracker.
-- [ ] Step 4: Predicate docs already describe the telemetry fields, but fixture linkage + canonical-diff transparency remain to be expanded in follow-up work.
+- [x] Step 4: Documented the canonical-diff workflow and action-type predicates, linked tracker entries to their fixtures/tests, and validated the CVE fixtures via targeted font (`test_gvar_glyph_count_mismatch_metadata`) and image (`cve_2021_30860_jbig2_dynamic`) test suites.

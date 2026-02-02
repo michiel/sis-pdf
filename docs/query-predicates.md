@@ -161,6 +161,14 @@ Predicates can use these fields:
 - `meta.<key>`: detector metadata entries such as `meta.cve`, `meta.attack_surface`, `meta.launch.target_path`, or `meta.reader.impact.summary`. Use `meta.cve` to focus on CVE-driven heuristics and `meta.attack_surface` to group detections by the taxonomy referenced in `docs/threat-intel-tracker.md`.
 - `evidence`: number of evidence spans
 
+### Canonical diff (`canonical-diff`)
+
+- `summary`: canonical object stats (`canonical_object_count`, `incremental_updates_removed`, `normalized_name_changes`)
+- `removed_objects`: array of shadowed object references dropped by the canonical view
+- `name_changes`: array of renamed dictionary keys after normalization
+
+Use `sis query canonical-diff file.pdf` to show exactly what the canonical view stripped or renamed before detectors run; this guarantees the same canonical indices appear in every report and predicate. 
+
 ### Encryption queries
 - `type`: `Finding`
 - `subtype`: `encryption_present`, `encryption_key_short`, or `crypto_weak_algo`
@@ -226,6 +234,12 @@ sis query filters.unusual file.pdf --where "violation_type == 'strict_mode'"
 
 # Image filters chained with compression
 sis query filters.unusual file.pdf --where "violation_type == 'image_with_compression'"
+
+# Action-type focused findings
+sis query findings file.pdf --where "action_type == 'Launch' AND filter == 'high'"
+
+# Canonical diff transparency
+sis query canonical-diff file.pdf
 
 ## Image predicate metadata
 
