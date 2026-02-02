@@ -1,256 +1,295 @@
-import os
+#!/usr/bin/env python3
+import argparse
+import csv
+import hashlib
 import json
-import datetime
+import statistics
 import subprocess
+import sys
 import time
+from datetime import date, timedelta
 from pathlib import Path
-from collections import defaultdict, Counter
+from typing import Dict, Iterable, List, Sequence
 
-# --- Configuration ---
-CORPUS_ROOT = Path.home() / "corpus"
-SIS_BINARY_PATH = "/usr/local/bin/sis"  # Assuming sis is in PATH or specify full path
-OUTPUT_DIR = Path.home() / "analysis_results"
-LOG_FILE = OUTPUT_DIR / "evaluation.log"
+DEFAULT_SIS = "sis"
+TREND_DIR = Path("reports/trends")
+DAILY_CSV = TREND_DIR / "daily.csv"
+WEEKLY_CSV = TREND_DIR / "weekly.csv"
+KIND_HISTORY = TREND_DIR / "kind_history.json"
+GRAFANA_DIR = TREND_DIR / "grafana"
 
-# Ensure output directory exists
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-def log_message(message: str):
-    """Logs a message to the console and the log file."""
-    print(message)
-    with open(LOG_FILE, "a") as f:
-        f.write(f"{datetime.datetime.now()}: {message}\n")
+def configure_output(path: Path):
+    global TREND_DIR, DAILY_CSV, WEEKLY_CSV, KIND_HISTORY, GRAFANA_DIR
+    TREND_DIR = path
+    DAILY_CSV = TREND_DIR / "daily.csv"
+    WEEKLY_CSV = TREND_DIR / "weekly.csv"
+    KIND_HISTORY = TREND_DIR / "kind_history.json"
+    GRAFANA_DIR = TREND_DIR / "grafana"
+    for target in [TREND_DIR, GRAFANA_DIR]:
+        target.mkdir(parents=True, exist_ok=True)
 
-def find_corpus_days(root_dir: Path) -> list[Path]:
-    """Finds all mwb-YYYY-MM-DD directories."""
-    log_message(f"Searching for corpus directories in {root_dir}...")
-    day_dirs = []
-    for item in root_dir.iterdir():
-        if item.is_dir() and item.name.startswith("mwb-") and len(item.name) == 14:
-            try:
-                datetime.datetime.strptime(item.name[4:], "%Y-%m-%d")
-                day_dirs.append(item)
-            except ValueError:
-                continue
-    day_dirs.sort()
-    log_message(f"Found {len(day_dirs)} corpus directories.")
-    return day_dirs
 
-def run_sis_scan(pdf_path: Path) -> dict:
-    """Runs sis scan --deep on a PDF and returns parsed results."""
-    log_message(f"Scanning {pdf_path}...")
-    command = [
-        "time", # Use time to measure execution duration
-        str(SIS_BINARY_PATH),
-        "scan",
-        "--deep",
-        str(pdf_path)
-    ]
-    
-    # Run sis scan and capture output
-    # Redirect stderr to stdout to capture warnings/errors from sis
-    process = subprocess.run(command, capture_output=True, text=True, errors='ignore')
-    
-    scan_output = process.stdout
-    scan_errors = process.stderr # This will contain the 'time' command's output
-    
-    # Extract real, user, sys time from stderr
-    real_time_str = ""
-    for line in scan_errors.splitlines():
-        if line.startswith("real"):
-            real_time_str = line.split("\t")[1]
-            break
-    
-    # Convert time string (e.g., "0m1.234s") to seconds
-    duration_seconds = 0.0
-    if real_time_str:
-        parts = real_time_str.replace('m', ' ').replace('s', '').split(' ')
-        if len(parts) == 2:
-            duration_seconds = float(parts[0]) * 60 + float(parts[1])
-        elif len(parts) == 1:
-            duration_seconds = float(parts[0])
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run sis --deep over MWB corpora and emit Grafana-ready trend CSVs."
+    )
+    parser.add_argument("--batch-dir", type=Path, help="Path to latest mwb-YYYY-MM-DD batch")
+    parser.add_argument("--corpus-dir", type=Path, help="Path to the master corpus root")
+    parser.add_argument("--output-dir", type=Path, default=TREND_DIR, help="Directory for trend CSVs")
+    parser.add_argument("--sis-binary", type=Path, default=Path(DEFAULT_SIS), help="sis binary path")
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        help="Manifest file describing the batch (defaults to manifest-<batchname>.json next to batch dir)",
+    )
+    return parser.parse_args()
 
-    # Run sis query to get findings in JSON format
-    query_command = [
-        str(SIS_BINARY_PATH),
-        "query",
-        str(pdf_path),
-        "findings",
-        "--json"
-    ]
-    query_process = subprocess.run(query_command, capture_output=True, text=True, errors='ignore')
-    
-    findings_data = []
-    if query_process.returncode == 0:
-        # Filter out WARN messages from stdout before parsing JSON
-        json_output_lines = [line for line in query_process.stdout.splitlines() if not line.startswith("2026-01-13T") and not line.startswith("WARN")]
-        json_output = "\n".join(json_output_lines)
-        try:
-            # Find the actual JSON object in the output
-            json_start = json_output.find('{')
-            json_end = json_output.rfind('}')
-            if json_start != -1 and json_end != -1:
-                findings_json_str = json_output[json_start : json_end + 1]
-                findings_result = json.loads(findings_json_str)
-                findings_data = findings_result.get('result', [])
-            else:
-                log_message(f"Warning: Could not find JSON in sis query output for {pdf_path}")
-        except json.JSONDecodeError as e:
-            log_message(f"Error parsing JSON from sis query for {pdf_path}: {e}")
-            log_message(f"Problematic JSON output: {json_output}")
-    else:
-        log_message(f"Error running sis query for {pdf_path}: {query_process.stderr}")
 
+def log(msg: str):
+    print(msg)
+    sys.stdout.flush()
+
+
+def load_manifest(manifest_path: Path) -> Sequence[Path]:
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"{manifest_path} missing")
+    with open(manifest_path, "r") as fp:
+        data = json.load(fp)
+    return [Path(entry["filename"]) for entry in data if "filename" in entry]
+
+
+def list_pdf_paths(root: Path) -> List[Path]:
+    return sorted(root.rglob("*.pdf"))
+
+
+def run_sis_scan(sis_binary: Path, pdf_path: Path) -> Dict:
+    start = time.monotonic()
+    command = [str(sis_binary), "scan", "--deep", str(pdf_path)]
+    process = subprocess.run(command, capture_output=True, text=True)
+    duration = time.monotonic() - start
+    findings = collect_findings(sis_binary, pdf_path)
+    errors = (process.stdout + process.stderr).count("ERROR")
+    warnings = (process.stdout + process.stderr).count("WARN")
     return {
-        "pdf_path": str(pdf_path),
-        "duration_seconds": duration_seconds,
+        "pdf": str(pdf_path),
+        "duration_seconds": duration,
         "returncode": process.returncode,
-        "stdout": scan_output,
-        "stderr": scan_errors,
-        "findings": findings_data,
-        "error_count": scan_output.count("ERROR") + scan_errors.count("ERROR") ,
-        "warning_count": scan_output.count("WARN") + scan_errors.count("WARN") ,
+        "errors": errors,
+        "warnings": warnings,
+        "findings": findings,
+        "size_bytes": pdf_path.stat().st_size if pdf_path.exists() else 0,
     }
 
-def process_day_corpus(day_dir: Path, results_dir: Path):
-    """Scans all PDFs in a day's corpus and saves results."""
-    day_str = day_dir.name[4:] # YYYY-MM-DD
-    day_results_path = results_dir / f"results-{day_str}.json"
 
-    if day_results_path.exists():
-        log_message(f"Results for {day_str} already exist. Skipping scan.")
-        return json.loads(day_results_path.read_text())
+def collect_findings(sis_binary: Path, pdf_path: Path) -> List[Dict]:
+    cmd = [str(sis_binary), "query", str(pdf_path), "findings", "--json"]
+    process = subprocess.run(cmd, capture_output=True, text=True)
+    if process.returncode != 0:
+        return []
+    # remove incidental logging lines
+    lines = [line for line in process.stdout.splitlines() if not line.startswith("WARN")]
+    data = "\n".join(lines)
+    try:
+        payload = json.loads(data)
+        return payload.get("result", [])
+    except json.JSONDecodeError:
+        return []
 
-    log_message(f"Processing corpus for {day_str}...")
-    manifest_path = day_dir.parent / f"manifest-{day_dir.name}.json"
-    
-    if not manifest_path.exists():
-        log_message(f"Warning: Manifest not found for {day_str}. Skipping.")
-        return None
 
-    with open(manifest_path, "r") as f:
-        manifest = json.load(f)
+def summarize_results(results: Sequence[Dict]) -> Dict:
+    severity_counts = {}
+    kind_counts = {}
+    total_findings = 0
+    for entry in results:
+        for finding in entry["findings"]:
+            severity = finding.get("severity", "unknown")
+            kind = finding.get("kind", "unknown")
+            severity_counts[severity] = severity_counts.get(severity, 0) + 1
+            kind_counts[kind] = kind_counts.get(kind, 0) + 1
+            total_findings += 1
+    avg_findings = (total_findings / len(results)) if results else 0
+    runtime_ms = sum(entry["duration_seconds"] * 1000 for entry in results)
+    return {
+        "total_findings": total_findings,
+        "info": severity_counts.get("Info", 0),
+        "low": severity_counts.get("Low", 0),
+        "medium": severity_counts.get("Medium", 0),
+        "high": severity_counts.get("High", 0),
+        "critical": severity_counts.get("Critical", 0),
+        "files_scanned": len(results),
+        "bytes_scanned": sum(entry["size_bytes"] for entry in results),
+        "avg_findings_per_file": round(avg_findings, 2),
+        "runtime_ms": round(runtime_ms, 2),
+        "errors": sum(entry["errors"] for entry in results),
+        "kind_counts": kind_counts,
+    }
 
-    day_scan_results = []
-    for sample in manifest:
-        pdf_filename = sample["filename"]
-        pdf_path = day_dir / pdf_filename
-        if pdf_path.exists():
-            scan_result = run_sis_scan(pdf_path)
-            day_scan_results.append(scan_result)
-        else:
-            log_message(f"Warning: PDF file not found: {pdf_path}")
-    
-    with open(day_results_path, "w") as f:
-        json.dump(day_scan_results, f, indent=4)
-    
-    log_message(f"Finished processing corpus for {day_str}.")
-    return day_scan_results
 
-def analyze_results(all_results: dict[str, list[dict]]):
-    """Performs day-over-day and week-over-week analysis."""
-    log_message("\n--- Analysis Report ---")
-    
-    dates = sorted(all_results.keys())
-    if not dates:
-        log_message("No data to analyze.")
+def compute_run_id(target: str, pdfs: Sequence[Path]) -> str:
+    hasher = hashlib.sha1()
+    hasher.update(target.encode())
+    for pdf in sorted(str(p) for p in pdfs):
+        hasher.update(pdf.encode())
+    return hasher.hexdigest()
+
+
+def upsert_csv(file_path: Path, headers: List[str], row: Dict[str, str], key_field: str):
+    rows = []
+    if file_path.exists():
+        with open(file_path, newline="") as csvfile:
+            reader = csv.DictReader(csvfile)
+            for existing in reader:
+                if existing.get(key_field) != row[key_field]:
+                    rows.append(existing)
+    rows.append({k: row.get(k, "") for k in headers})
+    with open(file_path, "w", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def update_weekly_csv(daily_rows: List[Dict[str, str]]):
+    weekly = {}
+    for row in daily_rows:
+        if not row.get("date"):
+            continue
+        d = date.fromisoformat(row["date"])
+        week_start = (d - timedelta(days=d.weekday())).isoformat()
+        target = row["target"]
+        key = (week_start, target)
+        entry = weekly.setdefault(key, {"runtime": [], "findings": 0, "files": 0, "errors": 0, "new_kinds": set()})
+        entry["runtime"].append(float(row.get("runtime_ms", 0)) if row.get("runtime_ms") else 0)
+        entry["findings"] += int(row.get("total_findings", "0"))
+        entry["files"] += int(row.get("files_scanned", "0"))
+        entry["errors"] += int(row.get("error_count", "0"))
+        kinds = row.get("new_kinds", "")
+        if kinds:
+            entry["new_kinds"].update(kinds.split("|"))
+    headers = ["week_start", "target", "total_findings", "median_runtime_ms", "avg_findings_per_file", "files_scanned", "errors", "new_kinds"]
+    weekly_rows = []
+    for (week_start, target), stats in sorted(weekly.items()):
+        median_runtime = statistics.median(stats["runtime"]) if stats["runtime"] else 0
+        avg_findings = stats["findings"] / 7 if stats["findings"] else 0
+        weekly_rows.append({
+            "week_start": week_start,
+            "target": target,
+            "total_findings": stats["findings"],
+            "median_runtime_ms": round(median_runtime, 2),
+            "avg_findings_per_file": round(avg_findings, 2),
+            "files_scanned": stats["files"],
+            "errors": stats["errors"],
+            "new_kinds": "|".join(sorted(stats["new_kinds"])),
+        })
+    with open(WEEKLY_CSV, "w", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(weekly_rows)
+
+
+def load_daily_rows() -> List[Dict[str, str]]:
+    if not DAILY_CSV.exists():
+        return []
+    with open(DAILY_CSV, newline="") as csvfile:
+        reader = csv.DictReader(csvfile)
+        return [row for row in reader]
+
+
+def write_grafana_csv(date_str: str, target: str, kind_counts: Dict[str, int]):
+    path = GRAFANA_DIR / f"findings_by_kind_{date_str}_{target}.csv"
+    headers = ["date", "target", "kind", "severity", "count"]
+    rows = []
+    for kind, count in sorted(kind_counts.items(), key=lambda kv: kv[1], reverse=True):
+        rows.append({
+            "date": date_str,
+            "target": target,
+            "kind": kind,
+            "severity": "",  # severity not captured per kind here
+            "count": count,
+        })
+    with open(path, "w", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def update_kind_history(current_kinds: Iterable[str]):
+    previous = set()
+    if KIND_HISTORY.exists():
+        with open(KIND_HISTORY) as fp:
+            previous = set(json.load(fp))
+    new_kinds = sorted(set(current_kinds) - previous)
+    with open(KIND_HISTORY, "w") as fp:
+        json.dump(sorted(set(current_kinds) | previous), fp)
+    return new_kinds
+
+
+def run_target(
+    sis_binary: Path,
+    target_name: str,
+    pdf_paths: Sequence[Path],
+    run_date: date,
+):
+    if not pdf_paths:
+        log(f"No PDF files for {target_name}, skipping trend row.")
         return
+    if not pdf_paths:
+        log(f"Skipping {target_name}: no PDF files found.")
+        return
+    run_id = compute_run_id(target_name, pdf_paths)
+    daily_row = {
+        "run_id": run_id,
+        "date": run_date.isoformat(),
+        "target": target_name,
+    }
+    results = []
+    for pdf in pdf_paths:
+        results.append(run_sis_scan(sis_binary, pdf))
+    summary = summarize_results(results)
+    daily_row.update({
+        "total_findings": summary["total_findings"],
+        "info": summary["info"],
+        "low": summary["low"],
+        "medium": summary["medium"],
+        "high": summary["high"],
+        "critical": summary["critical"],
+        "files_scanned": summary["files_scanned"],
+        "bytes_scanned": summary["bytes_scanned"],
+        "avg_findings_per_file": summary["avg_findings_per_file"],
+        "runtime_ms": summary["runtime_ms"],
+        "error_count": summary["errors"],
+        "new_kinds": "|".join(update_kind_history(summary["kind_counts"].keys())),
+    })
+    headers = [
+        "run_id", "date", "target", "total_findings", "info", "low", "medium", "high",
+        "critical", "files_scanned", "bytes_scanned", "avg_findings_per_file", "runtime_ms",
+        "error_count", "new_kinds"
+    ]
+    upsert_csv(DAILY_CSV, headers, daily_row, key_field="run_id")
+    write_grafana_csv(run_date.isoformat(), target_name, summary["kind_counts"])
+    log(f"Wrote daily trend row for {target_name}.")
 
-    # Day-over-day analysis
-    log_message("\n--- Day-over-Day Analysis ---")
-    for i in range(1, len(dates)):
-        current_date = dates[i]
-        previous_date = dates[i-1]
-        
-        current_day_results = all_results[current_date]
-        previous_day_results = all_results[previous_date]
-        
-        log_message(f"\nComparison: {previous_date} vs {current_date}")
-        compare_two_days(previous_day_results, current_day_results)
-
-    # Week-over-week analysis (compare last day of current week with last day of previous week)
-    log_message("\n--- Week-over-Week Analysis ---")
-    if len(dates) >= 7:
-        # Find the last day of each week
-        weekly_comparison_dates = []
-        current_week_end = None
-        for d_str in dates:
-            d = datetime.datetime.strptime(d_str, "%Y-%m-%d").date()
-            if current_week_end is None:
-                # Set current_week_end to the end of the week for the first date
-                current_week_end = d + datetime.timedelta(days=6 - d.weekday())
-            
-            if d <= current_week_end:
-                # If it's the end of the week or the last available day, add it
-                if d == current_week_end or d == dates[-1]: 
-                    weekly_comparison_dates.append(d_str)
-            else:
-                # Move to the next week
-                current_week_end = d + datetime.timedelta(days=6 - d.weekday())
-                weekly_comparison_dates.append(d_str)
-        
-        # Ensure we have at least two weeks to compare
-        if len(weekly_comparison_dates) >= 2:
-            for i in range(1, len(weekly_comparison_dates)):
-                current_week_last_day = weekly_comparison_dates[i]
-                previous_week_last_day = weekly_comparison_dates[i-1]
-                
-                log_message(f"\nComparison: Week ending {previous_week_last_day} vs Week ending {current_week_last_day}")
-                compare_two_days(all_results[previous_week_last_day], all_results[current_week_last_day])
-        else:
-            log_message("Not enough data for week-over-week analysis (need at least two weeks).")
-    else:
-        log_message("Not enough data for week-over-week analysis (need at least 7 days).")
-
-def compare_two_days(results1: list[dict], results2: list[dict]):
-    """Compares scan results between two sets of data."""
-    
-    # Robustness
-    errors1 = sum(r["error_count"] for r in results1)
-    warnings1 = sum(r["warning_count"] for r in results1)
-    scanned1 = len(results1)
-    
-    errors2 = sum(r["error_count"] for r in results2)
-    warnings2 = sum(r["warning_count"] for r in results2)
-    scanned2 = len(results2)
-
-    log_message(f"  Robustness (Errors/Warnings): {errors1}/{warnings1} (Day1) vs {errors2}/{warnings2} (Day2)")
-    
-    # Speed
-    total_time1 = sum(r["duration_seconds"] for r in results1)
-    avg_time1 = total_time1 / scanned1 if scanned1 > 0 else 0
-    
-    total_time2 = sum(r["duration_seconds"] for r in results2)
-    avg_time2 = total_time2 / scanned2 if scanned2 > 0 else 0
-
-    log_message(f"  Speed (Avg/Total Scan Time): {avg_time1:.2f}s/{total_time1:.2f}s (Day1) vs {avg_time2:.2f}s/{total_time2:.2f}s (Day2)")
-
-    # Top 25 Findings
-    findings1 = Counter(f["kind"] for r in results1 for f in r["findings"])
-    findings2 = Counter(f["kind"] for r in results2 for f in r["findings"])
-
-    log_message("  Top 25 Findings (Day2 vs Day1):")
-    top_findings2 = findings2.most_common(25)
-    for kind, count2 in top_findings2:
-        count1 = findings1.get(kind, 0)
-        diff = count2 - count1
-        log_message(f"    - {kind}: {count2} (Day2) vs {count1} (Day1) -> Diff: {diff}")
 
 def main():
-    log_message("Starting corpus evaluation script.")
-    
-    day_dirs = find_corpus_days(CORPUS_ROOT)
-    
-    all_results_by_date = {}
-    for day_dir in day_dirs:
-        day_str = day_dir.name[4:]
-        results = process_day_corpus(day_dir, OUTPUT_DIR)
-        if results:
-            all_results_by_date[day_str] = results
-            
-    analyze_results(all_results_by_date)
-    
-    log_message("Corpus evaluation script finished.")
+    args = parse_args()
+    configure_output(args.output_dir)
+    sis_binary = args.sis_binary
+    today = date.today()
+    if args.batch_dir:
+        batch_target = args.batch_dir.name
+        manifest = args.manifest or (args.batch_dir.parent / f"manifest-{args.batch_dir.name}.json")
+        try:
+            pdfs = [args.batch_dir / rel for rel in load_manifest(manifest)]
+        except FileNotFoundError:
+            log(f"manifest missing for {batch_target}, skipping batch run")
+            pdfs = []
+        run_target(sis_binary, batch_target, pdfs, today)
+    if args.corpus_dir:
+        pdfs = list_pdf_paths(args.corpus_dir)
+        run_target(sis_binary, args.corpus_dir.name, pdfs, today)
+    daily_rows = load_daily_rows()
+    update_weekly_csv(daily_rows)
+
 
 if __name__ == "__main__":
     main()
