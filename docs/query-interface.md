@@ -41,6 +41,14 @@ sis query sample.pdf encryption.weak
 sis query sample.pdf encryption.weak.count
 ```
 
+## Canonical diff
+
+```bash
+sis query sample.pdf canonical-diff
+```
+
+This command reports the canonical object view that detectors consume: how many incremental updates were stripped, which names were normalised, and a sampled list of the removed objects and renamed entries. The default text output formats the entire JSON blob, so use `--format json` or `--format yaml` for automated pipelines; `--where` predicates are not supported for this query.
+
 ## Image Queries
 
 Image queries report image XObjects and XFA images:

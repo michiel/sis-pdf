@@ -13,6 +13,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use walkdir::WalkDir;
 
+use sis_pdf_core::canonical::canonical_name;
 use sis_pdf_core::correlation;
 use sis_pdf_core::model::{
     AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
@@ -25,7 +26,7 @@ use sis_pdf_core::scan::{CorrelationOptions, ScanContext};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_detectors::polyglot::analyze_polyglot_signatures;
 use sis_pdf_detectors::xfa_forms::{collect_xfa_forms, XfaFormRecord};
-use sis_pdf_pdf::object::PdfAtom;
+use sis_pdf_pdf::object::{PdfAtom, PdfName};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, Theme, ThemeSet};
 use syntect::parsing::SyntaxSet;
@@ -148,6 +149,8 @@ struct PredicateContext {
     meta: HashMap<String, String>,
 }
 
+const CANONICAL_DIFF_SAMPLE_LIMIT: usize = 32;
+
 /// Query types supported by the interface
 #[derive(Debug, Clone)]
 pub enum Query {
@@ -211,6 +214,7 @@ pub enum Query {
     FindingsCompositeCount,
     Correlations,
     CorrelationsCount,
+    CanonicalDiff,
     Encryption,
     EncryptionWeak,
     EncryptionWeakCount,
@@ -551,6 +555,7 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "findings.composite.count" => Ok(Query::FindingsCompositeCount),
         "correlations" => Ok(Query::Correlations),
         "correlations.count" => Ok(Query::CorrelationsCount),
+        "canonical-diff" => Ok(Query::CanonicalDiff),
         "findings.high" => Ok(Query::FindingsBySeverity(Severity::High)),
         "findings.medium" => Ok(Query::FindingsBySeverity(Severity::Medium)),
         "findings.low" => Ok(Query::FindingsBySeverity(Severity::Low)),
@@ -1397,6 +1402,10 @@ pub fn execute_query_with_context(
                 let filtered = filter_findings(findings, predicate);
                 let composites = filtered.into_iter().filter(|f| is_composite(f)).count();
                 Ok(QueryResult::Scalar(ScalarValue::Number(composites as i64)))
+            }
+            Query::CanonicalDiff => {
+                let diff = canonical_diff_json(ctx);
+                Ok(QueryResult::Structure(diff))
             }
             Query::Encryption => {
                 let findings = run_detectors(ctx)?;
@@ -4090,6 +4099,96 @@ fn entry_dict<'a>(
         PdfAtom::Dict(d) => Some(d),
         PdfAtom::Stream(st) => Some(&st.dict),
         _ => None,
+    }
+}
+
+fn canonical_diff_json(ctx: &ScanContext) -> serde_json::Value {
+    let canonical = ctx.canonical_view();
+    let total_objects = ctx.graph.objects.len();
+    let mut kept = vec![false; total_objects];
+    for &idx in &canonical.indices {
+        if idx < total_objects {
+            kept[idx] = true;
+        }
+    }
+
+    let mut removed_entries = Vec::new();
+    for (idx, kept) in kept.iter().enumerate() {
+        if *kept {
+            continue;
+        }
+        if let Some(entry) = ctx.graph.objects.get(idx) {
+            removed_entries.push(json!({
+                "obj": entry.obj,
+                "gen": entry.gen,
+                "note": "Shadowed by a later incremental definition"
+            }));
+        }
+    }
+
+    let mut name_changes = Vec::new();
+    for entry in &ctx.graph.objects {
+        if let Some(dict) = entry_dict(entry) {
+            for (name, _) in &dict.entries {
+                let canonical_key = canonical_name(&name.decoded);
+                let raw_upper = raw_name_uppercase(name);
+                if canonical_key != raw_upper {
+                    name_changes.push(json!({
+                        "obj": entry.obj,
+                        "gen": entry.gen,
+                        "original": raw_name_string(name),
+                        "canonical": canonical_key,
+                    }));
+                }
+            }
+        }
+    }
+
+    let removed_total = removed_entries.len();
+    let name_change_total = name_changes.len();
+    let removed_sample = removed_entries
+        .iter()
+        .take(CANONICAL_DIFF_SAMPLE_LIMIT)
+        .cloned()
+        .collect::<Vec<_>>();
+    let name_sample = name_changes
+        .iter()
+        .take(CANONICAL_DIFF_SAMPLE_LIMIT)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    json!({
+        "summary": {
+            "total_objects": total_objects,
+            "canonical_object_count": canonical.indices.len(),
+            "incremental_updates_removed": canonical.incremental_removed,
+            "normalized_name_changes": name_change_total
+        },
+        "removed_objects": removed_sample,
+        "name_changes": name_sample,
+        "removed_total": removed_total,
+        "name_change_total": name_change_total,
+        "removed_sample_truncated": removed_total > CANONICAL_DIFF_SAMPLE_LIMIT,
+        "name_changes_truncated": name_change_total > CANONICAL_DIFF_SAMPLE_LIMIT,
+    })
+}
+
+fn raw_name_uppercase(name: &PdfName<'_>) -> String {
+    String::from_utf8_lossy(&name.decoded)
+        .trim_start_matches('/')
+        .trim()
+        .to_ascii_uppercase()
+        .to_string()
+}
+
+fn raw_name_string(name: &PdfName<'_>) -> String {
+    let raw = String::from_utf8_lossy(&name.decoded)
+        .trim_start_matches('/')
+        .trim();
+    if raw.is_empty() {
+        "-".into()
+    } else {
+        raw.to_string()
     }
 }
 

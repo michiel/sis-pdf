@@ -49,6 +49,8 @@ The profiler emits a JSON object with phases, precise detector timings, and docu
 
 Because the JSON is deterministic, it can be checked into the performance repo (`profile-launch-cve.json`) or compared against future runs with tools such as `jq` or pandas. The CLI also prints a human-readable summary to STDERR, so operators can glance at high-level timings even when they are not capturing the JSON file.
 
+The recorded JSON is stored at `docs/performance-data/profile-launch-cve.json`. The repository-level regression test `crates/sis-pdf-core/tests/runtime_profile.rs` reads this file and asserts that the `parse` and `detection` phases stay below the 10 ms / 50 ms SLO thresholds so the canonicalisation and reader-context changes stay within budget.
+
 ## Next steps
 
 1. Repeat the run with other CVE fixtures if you need evidence that the SLO table holds for filters, XFA forms, or rich media content.

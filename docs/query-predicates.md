@@ -200,6 +200,9 @@ sis query findings file.pdf --where "filter == 'high'"
 # CVE-specific detections (e.g., limit to the FreeType gvar heuristic)
 sis query findings file.pdf --where "meta.cve == 'CVE-2025-27363'"
 
+# CVE attack surface grouping
+sis query findings file.pdf --where "meta.attack_surface == 'Image codecs / zero-click JBIG2'"
+
 # Streams using FlateDecode
 sis query objects.with Stream file.pdf --where "filter == '/FlateDecode'"
 
