@@ -924,6 +924,7 @@ fn outcome_label(outcome: &DecodeOutcome) -> String {
         DecodeOutcome::Ok => "ok",
         DecodeOutcome::Truncated => "truncated",
         DecodeOutcome::Failed { .. } => "failed",
+        DecodeOutcome::Deferred { .. } => "deferred",
         DecodeOutcome::SuspectMismatch => "suspect_mismatch",
     }
     .to_string()

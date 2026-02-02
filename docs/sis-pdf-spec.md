@@ -34,6 +34,7 @@ Anything that forces the viewer to run complex decoders is attack surface:
 
 * Filters: `/FlateDecode`, `/LZWDecode`, `/ASCIIHexDecode`, `/ASCII85Decode`, `/RunLengthDecode`
 * Image-specific: `/DCTDecode` (JPEG), `/JPXDecode` (JPEG2000), `/JBIG2Decode` (notorious), `/CCITTFaxDecode`
+  * These filters are handled by the image-analysis pipeline; the generic stream decoder defers to those components instead of reporting “unsupported filter” failures.
 * Font programs and font parsing
 * Content stream operators (graphics/text), transparency, patterns, shadings
 * Embedded color spaces / ICC profiles
