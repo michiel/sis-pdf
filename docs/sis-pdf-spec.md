@@ -34,6 +34,7 @@ Anything that forces the viewer to run complex decoders is attack surface:
 
 * Filters: `/FlateDecode`, `/LZWDecode`, `/ASCIIHexDecode`, `/ASCII85Decode`, `/RunLengthDecode`
 * Image-specific: `/DCTDecode` (JPEG), `/JPXDecode` (JPEG2000), `/JBIG2Decode` (notorious), `/CCITTFaxDecode`
+  * These filters are handled by the image-analysis pipeline; the generic stream decoder defers to those components instead of reporting “unsupported filter” failures.
 * Font programs and font parsing
 * Content stream operators (graphics/text), transparency, patterns, shadings
 * Embedded color spaces / ICC profiles
@@ -354,7 +355,7 @@ Start with rules that are both actionable and fast:
 * `aa_present` (`/AA`)
 * `js_present` (`/JS` or `/JavaScript`) — but only when located in parsed objects (avoid naive byte scan false positives; naive keyword scans can false positive inside streams) ([Didier Stevens][7])
 * `launch_action_present` (`/Launch`)
-* `uri_present` (`/URI`) + extract destinations
+ * `uri_present` (`/URI`) + extract destinations (Info severity unless chained with higher-risk signals)
 * `submitform_present` (`/SubmitForm`) + destinations
 
 ### Embedded content
@@ -12553,6 +12554,13 @@ Then include in description:
 ```
 
 ---
+
+# 5.2 Chain reporting improvements
+
+- Chain paths now render `trigger.label`, `action.label`, and `payload.label` so analysts immediately see the findings that initiated each step (for example “Trigger: URI action -> https://…” instead of “unknown”). Payload summaries/previews are also surfaced directly under the path.
+- Narratives prioritise these labels and only fall back to canned sentences when insufficient context exists, which means the textual explanation mirrors the actual findings now driving the chain.
+- Node entries combine the canonical object reference with a compact summary drawn from the linked findings, so the “Nodes” list reads like “doc:... | Annotation Link (URI action)” rather than an opaque object path.
+- Score reasons still include the structural/taint heuristics, but we also append the top few findings names (e.g., `Finding uri_present: External URI action`), making it easy to trace a chain’s score back to concrete detections.
 
 # 7) What you get now
 

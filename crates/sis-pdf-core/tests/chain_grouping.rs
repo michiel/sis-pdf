@@ -70,9 +70,29 @@ fn classifies_action_and_payload_labels() {
         chain.notes.get("action.label").map(String::as_str),
         Some("JavaScript action")
     );
+    let payload_label = chain
+        .notes
+        .get("payload.label")
+        .expect("payload label")
+        .clone();
+    assert!(payload_label.contains("JavaScript payload"));
+}
+
+#[test]
+fn preserves_custom_action_labels() {
+    let mut finding = base_finding("f1", "uri_present", "4 0 obj");
+    finding
+        .meta
+        .insert("action.target".into(), "https://example.com".into());
+    finding.title = "URI present".into();
+    let (chains, _) = synthesise_chains(&[finding], true);
+    let chain = chains
+        .iter()
+        .find(|c| c.notes.get("action.label").is_some())
+        .expect("action label");
     assert_eq!(
-        chain.notes.get("payload.label").map(String::as_str),
-        Some("JavaScript payload")
+        chain.notes.get("action.label").map(String::as_str),
+        Some("URI present -> https://example.com")
     );
 }
 

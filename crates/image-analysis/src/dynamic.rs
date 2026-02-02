@@ -459,20 +459,24 @@ fn decode_png(bytes: &[u8], timeout: Option<&TimeoutChecker>) -> DecodeStatus {
     if let Some(status) = check_timeout(timeout) {
         return status;
     }
-    let decoder = png::Decoder::new(bytes);
+    let cursor = std::io::Cursor::new(bytes);
+    let decoder = png::Decoder::new(cursor);
     match decoder.read_info() {
-        Ok(mut reader) => {
-            let mut buf = vec![0; reader.output_buffer_size()];
-            match reader.next_frame(&mut buf) {
-                Ok(_) => {
-                    if let Some(status) = check_timeout(timeout) {
-                        return status;
+        Ok(mut reader) => match reader.output_buffer_size() {
+            Some(size) => {
+                let mut buf = vec![0; size];
+                match reader.next_frame(&mut buf) {
+                    Ok(_) => {
+                        if let Some(status) = check_timeout(timeout) {
+                            return status;
+                        }
+                        DecodeStatus::Ok
                     }
-                    DecodeStatus::Ok
+                    Err(err) => DecodeStatus::Failed(err.to_string()),
                 }
-                Err(err) => DecodeStatus::Failed(err.to_string()),
             }
-        }
+            None => DecodeStatus::Failed("png_buffer_size_unknown".into()),
+        },
         Err(err) => DecodeStatus::Failed(err.to_string()),
     }
 }

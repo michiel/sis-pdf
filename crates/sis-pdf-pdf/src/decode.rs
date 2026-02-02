@@ -1,6 +1,7 @@
 use std::io::Read;
 
 use anyhow::{anyhow, Result};
+use thiserror::Error;
 use tracing::warn;
 
 use crate::object::{PdfAtom, PdfDict, PdfName, PdfStream};
@@ -20,12 +21,35 @@ pub struct DecodeMismatch {
     pub reason: String,
 }
 
+#[derive(Debug, Error)]
+pub enum FilterDecodeError {
+    #[error("unsupported filter {filter}")]
+    UnsupportedFilter { filter: String },
+    #[error("deferred filter {filter} handled by {handler}")]
+    DeferredFilter {
+        filter: String,
+        handler: &'static str,
+        reason: &'static str,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DeferredFilterInfo {
+    handler: &'static str,
+    reason: &'static str,
+}
+
 #[derive(Debug, Clone)]
 pub enum DecodeOutcome {
     Ok,
     Truncated,
     Failed {
         filter: Option<String>,
+        reason: String,
+    },
+    Deferred {
+        filter: Option<String>,
+        handler: &'static str,
         reason: String,
     },
     SuspectMismatch,
@@ -200,10 +224,32 @@ pub fn decode_stream_with_meta(
                 data = Some(decoded.data);
             }
             Err(err) => {
-                outcome = DecodeOutcome::Failed {
-                    filter: filters.last().cloned(),
-                    reason: err.to_string(),
-                };
+                if let Some(filter_err) = err.downcast_ref::<FilterDecodeError>() {
+                    match filter_err {
+                        FilterDecodeError::DeferredFilter {
+                            filter,
+                            handler,
+                            reason,
+                        } => {
+                            outcome = DecodeOutcome::Deferred {
+                                filter: Some(filter.clone()),
+                                handler,
+                                reason: reason.to_string(),
+                            };
+                        }
+                        FilterDecodeError::UnsupportedFilter { filter } => {
+                            outcome = DecodeOutcome::Failed {
+                                filter: Some(filter.clone()),
+                                reason: err.to_string(),
+                            };
+                        }
+                    }
+                } else {
+                    outcome = DecodeOutcome::Failed {
+                        filter: filters.last().cloned(),
+                        reason: err.to_string(),
+                    };
+                }
             }
         }
     }
@@ -446,6 +492,14 @@ fn checked_row_len(parms: DecodeParms, bpp: usize) -> Result<usize> {
 }
 
 fn decode_filter(data: &[u8], filter: &str, max_out: usize) -> Result<(Vec<u8>, bool, bool)> {
+    if let Some(info) = deferred_filter_info(filter) {
+        return Err(FilterDecodeError::DeferredFilter {
+            filter: filter.to_string(),
+            handler: info.handler,
+            reason: info.reason,
+        }
+        .into());
+    }
     match filter {
         "/FlateDecode" | "/Fl" => decode_flate(data, max_out),
         "/ASCIIHexDecode" | "/AHx" => Ok((decode_ascii_hex(data), false, false)),
@@ -456,7 +510,32 @@ fn decode_filter(data: &[u8], filter: &str, max_out: usize) -> Result<(Vec<u8>, 
         "/LZWDecode" | "/LZW" => {
             decode_lzw(data, max_out).map(|(data, truncated)| (data, truncated, false))
         }
-        other => Err(anyhow!("unsupported filter {}", other)),
+        other => Err(FilterDecodeError::UnsupportedFilter {
+            filter: other.to_string(),
+        }
+        .into()),
+    }
+}
+
+fn deferred_filter_info(filter: &str) -> Option<DeferredFilterInfo> {
+    match filter {
+        "/DCTDecode" | "/DCT" => Some(DeferredFilterInfo {
+            handler: "image",
+            reason: "JPEG image data handled by image analysis",
+        }),
+        "/JPXDecode" | "/JPX" => Some(DeferredFilterInfo {
+            handler: "image",
+            reason: "JPEG2000 image data handled by image analysis",
+        }),
+        "/JBIG2Decode" | "/JBIG2" => Some(DeferredFilterInfo {
+            handler: "image",
+            reason: "JBIG2 image data handled by image analysis",
+        }),
+        "/CCITTFaxDecode" | "/CCITTFax" => Some(DeferredFilterInfo {
+            handler: "image",
+            reason: "CCITT fax image data handled by image analysis",
+        }),
+        _ => None,
     }
 }
 
@@ -538,10 +617,54 @@ fn decode_lzw(data: &[u8], max_out: usize) -> Result<(Vec<u8>, bool)> {
 
 #[cfg(test)]
 mod tests {
-    use super::decode_flate;
+    use super::*;
+    use crate::object::{PdfAtom, PdfDict, PdfName, PdfObj, PdfStream};
+    use crate::span::Span;
     use flate2::write::{DeflateEncoder, ZlibEncoder};
     use flate2::Compression;
+    use std::borrow::Cow;
     use std::io::Write;
+
+    fn make_pdf_name(decoded: &[u8]) -> PdfName<'static> {
+        PdfName {
+            span: Span {
+                start: 0,
+                end: decoded.len() as u64,
+            },
+            raw: Cow::Owned(decoded.to_vec()),
+            decoded: decoded.to_vec(),
+        }
+    }
+
+    fn make_stream(filters: &[&str], data_len: usize) -> PdfStream<'static> {
+        let filter_objs = filters
+            .iter()
+            .map(|filter| PdfObj {
+                span: Span {
+                    start: 0,
+                    end: filter.len() as u64,
+                },
+                atom: PdfAtom::Name(make_pdf_name(filter.as_bytes())),
+            })
+            .collect::<Vec<_>>();
+        let dict = PdfDict {
+            span: Span { start: 0, end: 0 },
+            entries: vec![(
+                make_pdf_name(b"/Filter"),
+                PdfObj {
+                    span: Span { start: 0, end: 0 },
+                    atom: PdfAtom::Array(filter_objs),
+                },
+            )],
+        };
+        PdfStream {
+            dict,
+            data_span: Span {
+                start: 0,
+                end: data_len as u64,
+            },
+        }
+    }
 
     #[test]
     fn decode_flate_recovers_raw_deflate() {
@@ -567,6 +690,34 @@ mod tests {
         assert!(!truncated);
         assert!(!recovered);
         assert_eq!(decoded, input);
+    }
+
+    #[test]
+    fn decode_filter_defers_jpeg_streams() {
+        let err = decode_filter(&[], "/DCTDecode", 0).expect_err("JPEG filter should defer");
+        let filter_err = err
+            .downcast_ref::<FilterDecodeError>()
+            .expect("error should be a FilterDecodeError");
+        if let FilterDecodeError::DeferredFilter {
+            handler, reason, ..
+        } = filter_err
+        {
+            assert_eq!(*handler, "image");
+            assert!(reason.contains("image"));
+        } else {
+            panic!("expected deferred filter error");
+        }
+    }
+
+    #[test]
+    fn decode_stream_with_deferred_outcome() {
+        let data = vec![0u8; 8];
+        let stream = make_stream(&["/DCTDecode"], data.len());
+        let result = decode_stream_with_meta(&data, &stream, DecodeLimits::default());
+        assert!(matches!(
+            result.meta.outcome,
+            DecodeOutcome::Deferred { handler, .. } if handler == "image"
+        ));
     }
 }
 

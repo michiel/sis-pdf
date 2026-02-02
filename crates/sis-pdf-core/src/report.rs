@@ -931,6 +931,71 @@ fn render_aligned_preview_lines(entries: &[(String, String)], preview_len: usize
         .collect()
 }
 
+fn node_summary(
+    node: &str,
+    position_previews: &BTreeMap<String, String>,
+    findings: &[Finding],
+    chain: &ExploitChain,
+) -> String {
+    if let Some(preview) = position_previews.get(node) {
+        return preview.clone();
+    }
+    let mut summaries = Vec::new();
+    for fid in &chain.findings {
+        if summaries.len() >= 3 {
+            break;
+        }
+        if let Some(f) = findings.iter().find(|f| &f.id == fid) {
+            if f.position.as_deref() == Some(node) || f.positions.iter().any(|pos| pos == node) {
+                summaries.push(summary_for_finding(f));
+            }
+        }
+    }
+    if summaries.is_empty() {
+        node.to_string()
+    } else {
+        summaries.join(" | ")
+    }
+}
+
+fn summary_for_finding(f: &Finding) -> String {
+    let mut summary = if !f.title.is_empty() {
+        f.title.clone()
+    } else {
+        f.kind.clone()
+    };
+    if let Some(target) = f.meta.get("action.target") {
+        if !target.trim().is_empty() {
+            summary = format!("{summary} -> {}", target.trim());
+        }
+    }
+    summary
+}
+
+fn chain_finding_reasons(
+    chain: &ExploitChain,
+    findings: &[Finding],
+    id_map: &BTreeMap<String, String>,
+    limit: usize,
+) -> Vec<String> {
+    let mut reasons = Vec::new();
+    for fid in &chain.findings {
+        if reasons.len() >= limit {
+            break;
+        }
+        if let Some(f) = findings.iter().find(|f| &f.id == fid) {
+            let mut text = format!("{}: {}", display_id(&f.id, id_map), f.title);
+            if let Some(target) = f.meta.get("action.target") {
+                if !target.trim().is_empty() {
+                    text = format!("{text} -> {}", target.trim());
+                }
+            }
+            reasons.push(text);
+        }
+    }
+    reasons
+}
+
 #[allow(dead_code)]
 fn render_position_tree(entries: &[(String, String)], preview_len: usize) -> Vec<String> {
     let mut parsed = Vec::new();
@@ -1458,7 +1523,26 @@ fn chain_sandbox_observations(
 }
 
 fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> String {
-    let mut lines: Vec<String> = Vec::new();
+    let mut lines = Vec::new();
+    if let Some(trigger_label) = chain.notes.get("trigger.label") {
+        lines.push(format!("Trigger: {}.", trigger_label));
+    }
+    if let Some(action_label) = chain.notes.get("action.label") {
+        lines.push(format!("Action: {}.", action_label));
+    }
+    if let Some(payload_label) = chain.notes.get("payload.label") {
+        lines.push(format!("Payload: {}.", payload_label));
+    }
+    if let Some(summary) = chain.notes.get("payload.summary") {
+        lines.push(format!("Payload summary: {}.", summary));
+    }
+    if let Some(preview) = chain.notes.get("payload.preview") {
+        lines.push(format!("Payload preview: {}.", preview));
+    }
+    if !lines.is_empty() {
+        return lines.join(" ");
+    }
+    let mut fallback_lines: Vec<String> = Vec::new();
     let trigger_key = chain_note(chain, "trigger.key").or(chain.trigger.as_deref());
     let action_key = chain_note(chain, "action.key").or(chain.action.as_deref());
     let action_type = chain_note(chain, "action.type");
@@ -1466,37 +1550,39 @@ fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> Stri
     let payload_type = chain_note(chain, "payload.type");
     if let Some(trigger) = trigger_key {
         if matches!(trigger, "open_action_present") {
-            lines.push("Execution starts automatically when the document opens.".into());
+            fallback_lines.push("Execution starts automatically when the document opens.".into());
         } else if matches!(trigger, "aa_present" | "aa_event_present") {
-            lines.push("Execution is tied to viewer events (Additional Actions).".into());
+            fallback_lines.push("Execution is tied to viewer events (Additional Actions).".into());
         }
     }
     if let Some(action) = action_type.or(action_key) {
         if action.contains("JavaScript") || matches!(action, "js_present") {
-            lines
+            fallback_lines
                 .push("JavaScript runs in the viewer context and can access document APIs.".into());
         } else if action.contains("URI") || matches!(action, "uri_present") {
-            lines.push("Viewer may navigate to an external URL or fetch remote content.".into());
+            fallback_lines
+                .push("Viewer may navigate to an external URL or fetch remote content.".into());
         } else if action.contains("Launch") || matches!(action, "launch_action_present") {
-            lines.push("Viewer may launch an external application or file.".into());
+            fallback_lines.push("Viewer may launch an external application or file.".into());
         } else if action.contains("SubmitForm") || matches!(action, "submitform_present") {
-            lines.push("Form data can be transmitted to external endpoints.".into());
+            fallback_lines.push("Form data can be transmitted to external endpoints.".into());
         }
     }
     if let Some(payload) = payload_type.or(payload_key) {
         let payload_lower = payload.to_ascii_lowercase();
         if payload_lower.contains("javascript") || payload_lower.contains("js") {
-            lines.push("Chain contains a script payload that can alter viewer behavior.".into());
+            fallback_lines
+                .push("Chain contains a script payload that can alter viewer behavior.".into());
         } else if payload_lower.contains("uri") {
-            lines.push("Chain references external URL payloads.".into());
+            fallback_lines.push("Chain references external URL payloads.".into());
         } else if payload_lower.contains("embedded") {
-            lines.push("Chain involves embedded file payloads.".into());
+            fallback_lines.push("Chain involves embedded file payloads.".into());
         } else if payload_lower.contains("stream") {
-            lines.push("Chain involves stream payloads.".into());
+            fallback_lines.push("Chain involves stream payloads.".into());
         }
     }
     if let Some(target) = chain.notes.get("action.target") {
-        lines.push(format!("Action target: {}.", target));
+        fallback_lines.push(format!("Action target: {}.", target));
     }
     let mut js_notes: Vec<String> = Vec::new();
     for fid in &chain.findings {
@@ -1522,13 +1608,82 @@ fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> Stri
         let mut uniq = js_notes;
         uniq.sort();
         uniq.dedup();
-        lines.push(format!("Observed behavior signals: {}.", uniq.join("; ")));
+        fallback_lines.push(format!("Observed behavior signals: {}.", uniq.join("; ")));
     }
-    if lines.is_empty() {
+    if fallback_lines.is_empty() {
         "Insufficient context for a detailed narrative; review chain findings and payload details."
             .into()
     } else {
-        lines.join(" ")
+        fallback_lines.join(" ")
+    }
+}
+
+#[cfg(test)]
+mod narrative_tests {
+    use super::*;
+    use crate::chain::ExploitChain;
+    use crate::model::Finding;
+    use std::collections::HashMap;
+
+    #[test]
+    fn custom_notes_drive_narrative() {
+        let mut notes = HashMap::new();
+        notes.insert(
+            "trigger.label".into(),
+            "TriggerLabel -> https://example.com".into(),
+        );
+        notes.insert("action.label".into(), "ActionLabel".into());
+        notes.insert("payload.label".into(), "PayloadLabel".into());
+        notes.insert(
+            "payload.summary".into(),
+            "filters=/DCTDecode decode=deferred".into(),
+        );
+        notes.insert("payload.preview".into(), "PreviewText".into());
+        let chain = ExploitChain {
+            id: "chain-test".into(),
+            group_id: None,
+            group_count: 1,
+            group_members: Vec::new(),
+            trigger: None,
+            action: None,
+            payload: None,
+            findings: Vec::new(),
+            score: 0.0,
+            reasons: Vec::new(),
+            path: String::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            notes,
+        };
+        let narrative = chain_execution_narrative(&chain, &[] as &[Finding]);
+        assert!(narrative.contains("Trigger: TriggerLabel -> https://example.com."));
+        assert!(narrative.contains("Action: ActionLabel."));
+        assert!(narrative.contains("Payload: PayloadLabel."));
+        assert!(narrative.contains("Payload summary: filters=/DCTDecode decode=deferred."));
+        assert!(narrative.contains("Payload preview: PreviewText."));
+    }
+
+    #[test]
+    fn fallback_narrative_hits_default_when_notes_missing() {
+        let chain = ExploitChain {
+            id: "chain-fallback".into(),
+            group_id: None,
+            group_count: 1,
+            group_members: Vec::new(),
+            trigger: Some("open_action_present".into()),
+            action: Some("uri_present".into()),
+            payload: Some("stream".into()),
+            findings: Vec::new(),
+            score: 0.0,
+            reasons: Vec::new(),
+            path: String::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            notes: HashMap::new(),
+        };
+        let narrative = chain_execution_narrative(&chain, &[] as &[Finding]);
+        assert!(narrative.starts_with("Execution starts automatically when the document opens."));
+        assert!(narrative.contains("Viewer may navigate to an external URL"));
     }
 }
 
@@ -2796,19 +2951,18 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 out.push_str("- Nodes:\n");
                 let mut entries = Vec::new();
                 for node in &chain.nodes {
-                    let preview = position_previews
-                        .get(node)
-                        .cloned()
-                        .unwrap_or_else(|| node.clone());
+                    let preview = node_summary(node, &position_previews, &report.findings, chain);
                     entries.push((node.clone(), preview));
                 }
                 for line in render_aligned_preview_lines(&entries, 40) {
                     out.push_str(&format!("  - `{}`\n", escape_markdown(&line)));
                 }
             }
-            if !chain.reasons.is_empty() {
+            let mut reason_lines = chain.reasons.clone();
+            reason_lines.extend(chain_finding_reasons(chain, &report.findings, &id_map, 3));
+            if !reason_lines.is_empty() {
                 out.push_str("- Score reasons:\n");
-                for reason in &chain.reasons {
+                for reason in &reason_lines {
                     out.push_str(&format!("  - {}\n", escape_markdown(reason)));
                 }
             }

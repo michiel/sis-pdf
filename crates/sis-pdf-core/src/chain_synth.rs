@@ -40,8 +40,12 @@ pub fn synthesise_chains(
     ));
     for f in findings {
         let single = [f];
-        let (trigger, action, payload) = chain_keys_from_findings(&single);
+        let roles = assign_chain_roles(&single);
+        let trigger = roles.trigger_key.clone();
+        let action = roles.action_key.clone();
+        let payload = roles.payload_key.clone();
         let mut notes = notes_from_findings(&single, structural_count, &taint);
+        apply_role_labels(&mut notes, &roles);
         apply_chain_labels(
             &mut notes,
             trigger.as_deref(),
@@ -117,7 +121,10 @@ fn build_object_chains(
         for f in &group {
             findings_ids.push(f.id.clone());
         }
-        let (trigger, action, payload) = chain_keys_from_findings(&group);
+        let roles = assign_chain_roles(&group);
+        let trigger = roles.trigger_key.clone();
+        let action = roles.action_key.clone();
+        let payload = roles.payload_key.clone();
         let categories = [trigger.is_some(), action.is_some(), payload.is_some()]
             .iter()
             .filter(|v| **v)
@@ -126,6 +133,7 @@ fn build_object_chains(
             continue;
         }
         let mut notes = notes_from_findings(&group, structural_count, taint);
+        apply_role_labels(&mut notes, &roles);
         notes.insert("correlation.object".into(), obj.clone());
         if action.is_some() && payload.is_some() {
             notes.insert("correlation.action_payload".into(), "true".into());
@@ -220,6 +228,47 @@ fn payload_from_finding(f: &Finding) -> Option<String> {
     }
 }
 
+struct ChainRoles<'a> {
+    trigger_key: Option<String>,
+    action_key: Option<String>,
+    payload_key: Option<String>,
+    trigger_finding: Option<&'a Finding>,
+    action_finding: Option<&'a Finding>,
+    payload_finding: Option<&'a Finding>,
+}
+
+fn assign_chain_roles<'a>(findings: &'a [&'a Finding]) -> ChainRoles<'a> {
+    let mut roles = ChainRoles {
+        trigger_key: None,
+        action_key: None,
+        payload_key: None,
+        trigger_finding: None,
+        action_finding: None,
+        payload_finding: None,
+    };
+    for f in findings {
+        if roles.trigger_key.is_none() {
+            if let Some(key) = trigger_from_kind(&f.kind) {
+                roles.trigger_key = Some(key.clone());
+                roles.trigger_finding = Some(f);
+            }
+        }
+        if roles.action_key.is_none() {
+            if let Some(key) = action_from_kind(&f.kind).or_else(|| action_from_meta(f)) {
+                roles.action_key = Some(key.clone());
+                roles.action_finding = Some(f);
+            }
+        }
+        if roles.payload_key.is_none() {
+            if let Some(key) = payload_from_finding(f) {
+                roles.payload_key = Some(key.clone());
+                roles.payload_finding = Some(f);
+            }
+        }
+    }
+    roles
+}
+
 fn chain_id(chain: &ExploitChain) -> String {
     let mut hasher = blake3::Hasher::new();
     if let Some(t) = &chain.trigger {
@@ -250,26 +299,6 @@ fn finalize_chain(chain: &mut ExploitChain, finding_positions: &HashMap<String, 
     chain.score = score;
     chain.reasons = reasons;
     chain.id = chain_id(chain);
-}
-
-fn chain_keys_from_findings(
-    findings: &[&Finding],
-) -> (Option<String>, Option<String>, Option<String>) {
-    let mut trigger = None;
-    let mut action = None;
-    let mut payload = None;
-    for f in findings {
-        if trigger.is_none() {
-            trigger = trigger_from_kind(&f.kind);
-        }
-        if action.is_none() {
-            action = action_from_kind(&f.kind).or_else(|| action_from_meta(f));
-        }
-        if payload.is_none() {
-            payload = payload_from_finding(f);
-        }
-    }
-    (trigger, action, payload)
 }
 
 fn notes_from_findings(
@@ -328,6 +357,83 @@ fn notes_from_findings(
     notes
 }
 
+enum ChainRole {
+    Trigger,
+    Action,
+    Payload,
+}
+
+fn apply_role_labels(notes: &mut HashMap<String, String>, roles: &ChainRoles<'_>) {
+    if let Some(f) = roles.trigger_finding {
+        set_note_if_missing(
+            notes,
+            "trigger.label",
+            label_for_finding(ChainRole::Trigger, f),
+        );
+        set_note_if_missing(notes, "trigger.summary", f.description.clone());
+    }
+    if let Some(f) = roles.action_finding {
+        set_note_if_missing(
+            notes,
+            "action.label",
+            label_for_finding(ChainRole::Action, f),
+        );
+        set_note_if_missing(notes, "action.summary", f.description.clone());
+    }
+    if let Some(f) = roles.payload_finding {
+        set_note_if_missing(
+            notes,
+            "payload.label",
+            label_for_finding(ChainRole::Payload, f),
+        );
+        let summary = f
+            .meta
+            .get("payload.summary")
+            .cloned()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| f.description.clone());
+        set_note_if_missing(notes, "payload.summary", summary);
+        if let Some(preview) = f.meta.get("payload.preview") {
+            set_note_if_missing(notes, "payload.preview", preview.clone());
+        }
+    }
+}
+
+fn label_for_finding(role: ChainRole, finding: &Finding) -> String {
+    let mut label = if !finding.title.is_empty() {
+        finding.title.clone()
+    } else {
+        finding.kind.clone()
+    };
+    match role {
+        ChainRole::Action => {
+            if let Some(target) = finding.meta.get("action.target") {
+                if !target.trim().is_empty() {
+                    label = format!("{label} -> {}", target.trim());
+                }
+            }
+        }
+        ChainRole::Payload => {
+            if let Some(summary) = finding.meta.get("payload.summary") {
+                if !summary.trim().is_empty() {
+                    label = format!("{label} [{summary}]");
+                }
+            } else if !finding.description.trim().is_empty() {
+                label = format!("{label} [{}]", finding.description.trim());
+            }
+        }
+        ChainRole::Trigger => {}
+    }
+    label
+}
+
+fn set_note_if_missing(notes: &mut HashMap<String, String>, key: &str, value: String) {
+    if value.trim().is_empty() {
+        return;
+    }
+    notes.entry(key.into()).or_insert(value);
+}
+
 fn apply_chain_labels(
     notes: &mut HashMap<String, String>,
     trigger_key: Option<&str>,
@@ -336,20 +442,21 @@ fn apply_chain_labels(
 ) {
     if let Some(key) = trigger_key {
         notes.insert("trigger.key".into(), key.to_string());
-        notes.insert("trigger.label".into(), trigger_label(key));
+        set_note_if_missing(notes, "trigger.label", trigger_label(key));
     }
     if let Some(key) = action_key {
         notes.insert("action.key".into(), key.to_string());
         let action_type = notes.get("action.type").map(String::as_str);
-        notes.insert("action.label".into(), action_label(key, action_type));
+        set_note_if_missing(notes, "action.label", action_label(key, action_type));
     }
     if let Some(key) = payload_key {
         notes.insert("payload.key".into(), key.to_string());
         let payload_type = notes.get("payload.type").map(String::as_str);
         let payload_source = notes.get("payload.source").map(String::as_str);
         let payload_summary = notes.get("payload.summary").map(String::as_str);
-        notes.insert(
-            "payload.label".into(),
+        set_note_if_missing(
+            notes,
+            "payload.label",
             payload_label(key, payload_type, payload_source, payload_summary),
         );
     }
