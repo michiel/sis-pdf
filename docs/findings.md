@@ -562,6 +562,27 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Example metadata: `filters = ["ASCII85Decode", "FlateDecode", "FlateDecode"]`, `stream.filter_chain = ASCII85Decode -> FlateDecode -> FlateDecode`.
   - Chain usage: evasion context for hidden payloads.
 
+## filter_chain_jbig2_obfuscation
+
+- ID: `filter_chain_jbig2_obfuscation`
+- Label: JBIG2 filter chain obfuscation
+- Description: JBIG2 streams are wrapped inside ASCII/binary filters, matching FORCEDENTRY-style padding of the JBIG2 decoder with 1×N strips.
+- Tags: decoder, evasion, cve
+- Metadata:
+  - `filters`: Filter list encoded as JSON array string.
+  - `filter_count`: Number of filters in the chain.
+  - `stream.filter_chain`: Human-readable filter chain.
+  - `stream.filter_depth`: Filter chain length.
+  - `violation_type`: `jbig2_obfuscation`.
+  - `cve`: `CVE-2021-30860,CVE-2022-38171`.
+  - `jbig2.cves`: Comma-separated CVE IDs matching `cve`.
+  - `attack_surface`: `Image codecs / filter obfuscation`.
+- Details:
+  - Relevance: JBIG2 obfuscation powers modern zero-click payloads.
+  - Meaning: stream decoding layers hide JBIG2Decode behind ASCII/Flate filters.
+  - Example chain: `ASCIIHexDecode -> ASCII85Decode -> JBIG2Decode`.
+  - Chain usage: high-confidence context for JBIG2 pipelines; metadata and fixtures (`crates/sis-pdf-core/tests/fixtures/filters/jbig2_ascii_obfuscation.pdf`) guide remediation.
+
 ## font_payload_present
 
 - ID: `font_payload_present`
@@ -999,6 +1020,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: zero-click decoder attack surface (CVE-2021-30860).
   - Meaning: JBIG2 payload encodes data in 1×N strips to drive virtual CPU logic.
   - Chain usage: used as a high-confidence zero-click exploit vector; meta includes `cve=CVE-2021-30860` and `attack_surface=Image codecs / zero-click JBIG2`.
+  - Fixture: `crates/sis-pdf-core/tests/fixtures/images/cve-2021-30860-jbig2.pdf`.
 
 ## image.xfa_decode_failed
 

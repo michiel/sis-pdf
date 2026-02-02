@@ -17,3 +17,4 @@ Use this tracker to record CVEs, research findings, and attack chains that requi
 2. Record sighted findings here, include detection owner and expected docs to update.
 3. After implementing detector/enhancement, update the `Notes` column and reference the docs that describe the change (e.g., `docs/js-detection-*.md`, `docs/findings.md`).
 4. Mention major updates in release notes and the sprint board so analysts know about the coverage shift.
+5. Each weekly `cve-update` run appends placeholder rows; review those rows before merging so you can assign the detector owner, severity, impact, and confidence (the automation leaves `Detector(s) = TBD` and `Confidence = Probable` by default).

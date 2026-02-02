@@ -15,9 +15,9 @@ Establish an ongoing workflow so CVEs, zero-click chains, and other emerging fin
  - Bake a reminder (calendar or task) for the weekly triage so the cadence stays consistent.
 
 ## CVE automation refresh
- - Re-evaluate the existing `.github/workflows/cve-update.yml` hook and the `tools/cve-update` binary so the automation fetches only the last seven days of CVEs, can be re-run without generating duplicate files/PRs, and broadens the keyword list beyond fonts to cover all project-relevant attack surfaces.
- - Ensure the workflow captures API failures (404, 429) in the log output and exposes the window (`--days`, `--since`, `--until`) so reviewers can adjust the date range without hunting through code.
- - Treat the automation as a feed for `docs/threat-intel-tracker.md` (or an equivalent tracker) so each CVE entry already carries the `severity/impact/confidence` metadata and the detector owner is referenced, keeping the triage, docs, and release notes in sync.
+- The `.github/workflows/cve-update.yml` job now calls `tools/cve-update` with `--days 7` and `--tracker docs/threat-intel-tracker.md`, so every run writes new rows into the tracker and keeps the signature directory in sync without duplicating YAML files.
+- The tool's keyword list now spans fonts, image codecs, JS, actions, structures, and filter chains; `404 Not Found` responses are treated as empty result sets so short windows do not abort the job, while `--since`/`--until` still let analysts expand the window if needed.
+- Treat the tracker rows as the automation feed: each generated row comes with placeholder `severity`, `impact`, `confidence = Probable`, `Detector(s) = TBD`, and a note linking to the NVD detail for rapid triage before assigning the owner.
 
 ## Ownership
 Each detector maintains ownership of the CVEs it covers. When new entries are added, the owner assigns `severity`, `impact`, and `confidence` inside the tracker and ensures tests (fixtures or unit tests) exist for the new primitives.
