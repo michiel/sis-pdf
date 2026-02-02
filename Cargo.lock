@@ -3947,7 +3947,7 @@ dependencies = [
  "flate2",
  "memchr",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tracing",
  "weezl",
 ]
