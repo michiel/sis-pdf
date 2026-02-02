@@ -84,13 +84,25 @@ Each finding carries `severity`, `confidence`, and `impact`, making it easy to s
 curl -fsSL https://raw.githubusercontent.com/michiel/sis-pdf/main/scripts/install.sh | sh
 ```
 
-Pass `SIS_INSTALL_DIR=/path/team/bin` to install elsewhere and use the PowerShell helper for Windows:
+Change the install destination by setting `SIS_INSTALL_DIR=/path/team/bin` before running the script:
+
+```bash
+SIS_INSTALL_DIR=/opt/bin curl -fsSL https://raw.githubusercontent.com/michiel/sis-pdf/main/scripts/install.sh | sh
+```
+
+On Windows (PowerShell), run:
 
 ```powershell
 irm https://raw.githubusercontent.com/michiel/sis-pdf/main/scripts/install.ps1 | iex
 ```
 
-`cis update` keeps your release current; include `--include-prerelease` when you need nightly builds.
+Binary releases are also available under [Releases](https://github.com/michiel/sis-pdf/releases). Keep the runtime current with:
+
+```
+sis update
+```
+
+Add `--include-prerelease` when you need nightly builds.
 
 ## Examples
 
@@ -132,66 +144,6 @@ sis query sample.pdf events # interactive REPL
 - `README-DEV.md` – development setup, cargo commands, and workspace tips.
 
 Also check `plans/` for long-lived project agendas (filters, chains, ML signals, etc.).
-
-## Install
-
-Linux (x86_64) and macOS (arm64):
-
-```
-curl -fsSL https://raw.githubusercontent.com/michiel/sis-pdf/main/scripts/install.sh | sh
-```
-
-Windows (PowerShell):
-
-```
-irm https://raw.githubusercontent.com/michiel/sis-pdf/main/scripts/install.ps1 | iex
-```
-
-Custom install directory:
-
-```
-SIS_INSTALL_DIR=/path/to/bin curl -fsSL https://raw.githubusercontent.com/michiel/sis-pdf/main/scripts/install.sh | sh
-```
-
-You can also download release binaries directly from GitHub releases.
-
-## Examples
-
-```
-# Triage scan
-sis scan path/to/file.pdf
-
-# Deep scan with Markdown report
-sis report path/to/file.pdf --deep -o report.md
-
-# JSON report
-sis scan path/to/file.pdf --json
-
-# Explain a finding
-sis explain path/to/file.pdf PDF.JS.OBFUSCATION.001
-
-# Extract JavaScript
-sis extract js path/to/file.pdf -o extracted.js
-
-# Validate ML runtime
-sis ml health --ml-provider auto --ml-provider-info
-
-# Print the installed sis version
-sis version
-sis --version
-
-# Query PDF metadata and structure
-sis query file.pdf pages
-sis query file.pdf "pages,creator,producer,version" --json
-
-# Extract content via queries
-sis query file.pdf js
-sis query file.pdf urls
-sis query file.pdf events
-
-# Interactive query mode (REPL)
-sis query file.pdf
-```
 
 ## Font Security Analysis
 
