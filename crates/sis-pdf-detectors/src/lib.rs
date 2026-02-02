@@ -1586,6 +1586,9 @@ impl Detector for UriDetector {
             "/URI",
             "user",
         )?;
+        for finding in &mut findings {
+            finding.severity = Severity::Info;
+        }
         for entry in &ctx.graph.objects {
             if let Some(dict) = entry_dict(entry) {
                 if let Some((k, v)) = dict.get_first(b"/URI") {
@@ -1602,7 +1605,7 @@ impl Detector for UriDetector {
                         id: String::new(),
                         surface: self.surface(),
                         kind: "uri_present".into(),
-                        severity: Severity::Medium,
+                        severity: Severity::Info,
                         confidence: Confidence::Strong,
                         impact: None,
                         title: "URI present".into(),
@@ -1705,7 +1708,7 @@ fn uri_finding_from_action(
         id: String::new(),
         surface: AttackSurface::Actions,
         kind: "uri_present".into(),
-        severity: Severity::Medium,
+        severity: Severity::Info,
         confidence: Confidence::Probable,
         impact: None,
         title: "URI present".into(),

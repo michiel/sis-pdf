@@ -2737,6 +2737,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 
 - ID: `uri_present`
 - Label: URI present
+- Severity: Info
 - Description: External URI action detected.
 - Tags: action, external
 - Details:
