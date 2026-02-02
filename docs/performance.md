@@ -56,6 +56,7 @@ The recorded JSON is stored at `docs/performance-data/profile-launch-cve.json`. 
 1. Repeat the run with other CVE fixtures if you need evidence that the SLO table holds for filters, XFA forms, or rich media content.
 2. Collect any deviations from the SLOs and log them in this doc (or `docs/analysis.md`) so that operators know whether a particular detector is approaching its budget.
 3. When packaging release notes, include the `profile-launch-cve.json` snippet or a similar JSONL export so the Stage 0.5 instrumentation effort remains reproducible.
+4. Run `cargo run -p perf-guard -- --profile <captured-profile>.json --baseline docs/performance-data/profile-launch-cve.json` after you generate a new `--runtime-profile` report (e.g., using the command above) so the parse/detection SLOs stay gated by an automated regression guard.
 
 ## Additional SLO validation runs
 

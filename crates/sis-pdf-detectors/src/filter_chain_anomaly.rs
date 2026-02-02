@@ -5,7 +5,7 @@ use sis_pdf_core::canonical::canonical_filter_chain;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::filter_allowlist::default_filter_allowlist;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, FindingBuilder, Impact, Severity};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::object::PdfAtom;
 
@@ -52,7 +52,7 @@ impl Detector for FilterChainAnomalyDetector {
             }
             let allowlist_match = is_allowlisted_chain(&normalised, &allowlist);
             let image_with_compression = has_image_with_compression(&normalised);
-            let mut meta = std::collections::HashMap::new();
+            let mut meta: HashMap<String, String> = std::collections::HashMap::new();
             meta.insert("stream.filter_chain".into(), normalised.join(" -> "));
             meta.insert("stream.filter_depth".into(), normalised.len().to_string());
             meta.insert("filters".into(), format_filter_list(&normalised));
@@ -69,100 +69,102 @@ impl Detector for FilterChainAnomalyDetector {
             if let Some(violation) =
                 unusual_violation(allowlist_match, &normalised, strict, image_with_compression)
             {
-                let mut meta = meta.clone();
-                meta.insert("violation_type".into(), violation.to_string());
-                findings.push(Finding {
-                    id: String::new(),
-                    surface: self.surface(),
-                    kind: "filter_chain_unusual".into(),
-                    severity: Severity::Low,
-                    confidence: Confidence::Probable,
-                    impact: None,
-                    title: "Unusual filter chain".into(),
-                    description: "Filter chain uses uncommon or unexpected combinations.".into(),
-                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                    evidence: evidence.clone(),
-                    remediation: Some("Inspect stream decoding for obfuscation.".into()),
-                    meta,
-                    yara: None,
-                    position: None,
-                    positions: Vec::new(),
-                    ..Finding::default()
-                });
+                let violation_meta = {
+                    let mut dup = meta.clone();
+                    dup.insert("violation_type".into(), violation.to_string());
+                    dup
+                };
+                findings.push(
+                    FindingBuilder::template(
+                        self.surface(),
+                        "filter_chain_unusual",
+                        Severity::Low,
+                        Confidence::Probable,
+                        "Unusual filter chain",
+                        "Filter chain uses uncommon or unexpected combinations.",
+                    )
+                    .objects(vec![format!("{} {} obj", entry.obj, entry.gen)])
+                    .evidence(evidence.clone())
+                    .remediation("Inspect stream decoding for obfuscation.")
+                    .extend_meta(violation_meta.into_iter())
+                    .build(),
+                );
             }
 
             if let Some(violation) = invalid_order_reason(&normalised) {
-                let mut meta = meta.clone();
-                meta.insert("violation_type".into(), violation.to_string());
-                findings.push(Finding {
-                    id: String::new(),
-                    surface: self.surface(),
-                    kind: "filter_order_invalid".into(),
-                    severity: Severity::Medium,
-                    confidence: Confidence::Probable,
-                    impact: None,
-                    title: "Invalid filter order".into(),
-                    description: "Filter order violates PDF decoding rules.".into(),
-                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                    evidence: evidence.clone(),
-                    remediation: Some("Review filter order for obfuscation.".into()),
-                    meta,
-                    yara: None,
-                    position: None,
-                    positions: Vec::new(),
-                    ..Finding::default()
-                });
+                let violation_meta = {
+                    let mut dup = meta.clone();
+                    dup.insert("violation_type".into(), violation.to_string());
+                    dup
+                };
+                findings.push(
+                    FindingBuilder::template(
+                        self.surface(),
+                        "filter_order_invalid",
+                        Severity::Medium,
+                        Confidence::Probable,
+                        "Invalid filter order",
+                        "Filter order violates PDF decoding rules.",
+                    )
+                    .objects(vec![format!("{} {} obj", entry.obj, entry.gen)])
+                    .evidence(evidence.clone())
+                    .remediation("Review filter order for obfuscation.")
+                    .extend_meta(violation_meta.into_iter())
+                    .build(),
+                );
             }
 
             if has_duplicate_filters(&normalised) {
-                let mut meta = meta.clone();
-                meta.insert("violation_type".into(), "duplicate_filters".to_string());
-                findings.push(Finding {
-                    id: String::new(),
-                    surface: self.surface(),
-                    kind: "filter_combination_unusual".into(),
-                    severity: Severity::Low,
-                    confidence: Confidence::Probable,
-                    impact: None,
-                    title: "Repeated filters in chain".into(),
-                    description: "Filter chain repeats the same filter multiple times.".into(),
-                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                    evidence: evidence.clone(),
-                    remediation: Some("Inspect for redundant or obfuscated decoding.".into()),
-                    meta,
-                    yara: None,
-                    position: None,
-                    positions: Vec::new(),
-                    ..Finding::default()
-                });
-            }
-            if is_jbig2_obfuscation(&normalised) {
-                let mut meta = meta.clone();
-                meta.insert("violation_type".into(), "jbig2_obfuscation".to_string());
-                meta.insert("jbig2.cves".into(), "CVE-2021-30860,CVE-2022-38171".into());
-                meta.insert("cve".into(), "CVE-2021-30860,CVE-2022-38171".into());
-                meta.insert(
-                    "attack_surface".into(),
-                    "Image codecs / filter obfuscation".into(),
+                let violation_meta = {
+                    let mut dup = meta.clone();
+                    dup.insert("violation_type".into(), "duplicate_filters".to_string());
+                    dup
+                };
+                findings.push(
+                    FindingBuilder::template(
+                        self.surface(),
+                        "filter_combination_unusual",
+                        Severity::Low,
+                        Confidence::Probable,
+                        "Repeated filters in chain",
+                        "Filter chain repeats the same filter multiple times.",
+                    )
+                    .objects(vec![format!("{} {} obj", entry.obj, entry.gen)])
+                    .evidence(evidence.clone())
+                    .remediation("Inspect for redundant or obfuscated decoding.")
+                    .extend_meta(violation_meta.into_iter())
+                    .build(),
                 );
-                findings.push(Finding {
-                    id: String::new(),
-                    surface: self.surface(),
-                    kind: "filter_chain_jbig2_obfuscation".into(),
-                    severity: Severity::High,
-                    confidence: Confidence::Probable,
-                    impact: Some(Impact::High),
-                    title: "JBIG2 filter chain obfuscation".into(),
-                    description: "JBIG2 payloads wrapped with ASCII/Flate layers match known CVE obfuscations.".into(),
-                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                    evidence: evidence.clone(),
-                    remediation: Some("Decode payloads carefully to expose JBIG2 segments.".into()),
-                    meta,
-                    yara: None,
-                    position: None,
-                    positions: Vec::new(),
-                    ..Finding::default()
-                });
+            }
+
+            if is_jbig2_obfuscation(&normalised) {
+                let violation_meta = {
+                    let mut dup = meta.clone();
+                    dup.insert("violation_type".into(), "jbig2_obfuscation".to_string());
+                    dup.insert("jbig2.cves".into(), "CVE-2021-30860,CVE-2022-38171".into());
+                    dup.insert("cve".into(), "CVE-2021-30860,CVE-2022-38171".into());
+                    dup.insert(
+                        "attack_surface".into(),
+                        "Image codecs / filter obfuscation".into(),
+                    );
+                    dup
+                };
+                findings.push(
+                    FindingBuilder::template(
+                        self.surface(),
+                        "filter_chain_jbig2_obfuscation",
+                        Severity::High,
+                        Confidence::Probable,
+                        "JBIG2 filter chain obfuscation",
+                        "JBIG2 payloads wrapped with ASCII/Flate layers match known CVE obfuscations.",
+                    )
+                    .impact(Impact::High)
+                    .objects(vec![format!("{} {} obj", entry.obj, entry.gen)])
+                    .evidence(evidence.clone())
+                    .remediation("Decode payloads carefully to expose JBIG2 segments.")
+                    .extend_meta(violation_meta.into_iter())
+                    .build(),
+                );
             }
         }
         Ok(findings)

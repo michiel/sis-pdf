@@ -204,3 +204,164 @@ impl Finding {
         base
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct FindingBuilder {
+    finding: Finding,
+}
+
+impl FindingBuilder {
+    pub fn template(
+        surface: AttackSurface,
+        kind: impl Into<String>,
+        severity: Severity,
+        confidence: Confidence,
+        title: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        Self {
+            finding: Finding::template(surface, kind, severity, confidence, title, description),
+        }
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.finding.id = id.into();
+        self
+    }
+
+    pub fn impact(mut self, impact: Impact) -> Self {
+        self.finding.impact = Some(impact);
+        self
+    }
+
+    pub fn meta<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.finding.meta.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn extend_meta<K, V, I>(mut self, entries: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        for (key, value) in entries {
+            self.finding.meta.insert(key.into(), value.into());
+        }
+        self
+    }
+
+    pub fn objects<I>(mut self, objects: I) -> Self
+    where
+        I: IntoIterator<Item = String>,
+    {
+        self.finding.objects.extend(objects);
+        self
+    }
+
+    pub fn evidence<I>(mut self, spans: I) -> Self
+    where
+        I: IntoIterator<Item = EvidenceSpan>,
+    {
+        self.finding.evidence.extend(spans);
+        self
+    }
+
+    pub fn reader_impact(mut self, impact: ReaderImpact) -> Self {
+        self.finding.reader_impacts.push(impact);
+        self
+    }
+
+    pub fn action_type(mut self, action_type: impl Into<String>) -> Self {
+        self.finding.action_type = Some(action_type.into());
+        self
+    }
+
+    pub fn action_target(mut self, action_target: impl Into<String>) -> Self {
+        self.finding.action_target = Some(action_target.into());
+        self
+    }
+
+    pub fn action_initiation(mut self, initiation: impl Into<String>) -> Self {
+        self.finding.action_initiation = Some(initiation.into());
+        self
+    }
+
+    pub fn remediation(mut self, remediation: impl Into<String>) -> Self {
+        self.finding.remediation = Some(remediation.into());
+        self
+    }
+
+    pub fn position(mut self, position: impl Into<String>) -> Self {
+        self.finding.position = Some(position.into());
+        self
+    }
+
+    pub fn positions<I>(mut self, positions: I) -> Self
+    where
+        I: IntoIterator<Item = String>,
+    {
+        self.finding.positions.extend(positions);
+        self
+    }
+
+    pub fn build(self) -> Finding {
+        self.finding
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::evidence::EvidenceBuilder;
+    use serde_json::json;
+
+    #[test]
+    fn builder_populates_metadata_and_reader_impact() {
+        let reader_impact = ReaderImpact {
+            profile: ReaderProfile::Acrobat,
+            surface: AttackSurface::Actions,
+            severity: Severity::High,
+            impact: Impact::High,
+            note: Some("Test note".into()),
+        };
+
+        let finding = FindingBuilder::template(
+            AttackSurface::Actions,
+            "test_kind",
+            Severity::High,
+            Confidence::Certain,
+            "Test",
+            "Test description",
+        )
+        .impact(Impact::High)
+        .objects(vec!["1 0 obj".into()])
+        .meta("meta.cve", "CVE-2025-27363")
+        .action_type("Launch")
+        .action_target("cmd.exe")
+        .action_initiation("automatic")
+        .reader_impact(reader_impact.clone())
+        .evidence(
+            EvidenceBuilder::new()
+                .file_offset(0, 4, "test")
+                .build()
+                .into_iter(),
+        )
+        .build();
+
+        let serialized = serde_json::to_value(&finding).unwrap();
+        assert_eq!(serialized["impact"], json!("High"));
+        assert_eq!(serialized["action_type"], json!("Launch"));
+        assert_eq!(serialized["reader_impacts"][0]["surface"], json!("Actions"));
+        assert_eq!(serialized["reader_impacts"][0]["profile"], json!("Acrobat"));
+        assert_eq!(
+            serialized["reader_impacts"][0]["note"],
+            json!(reader_impact.note)
+        );
+        assert_eq!(serialized["meta"]["meta.cve"], json!("CVE-2025-27363"));
+    }
+}

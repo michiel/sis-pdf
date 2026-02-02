@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::graph::ObjectGraph;
 use sis_pdf_pdf::object::{PdfAtom, PdfName, PdfStream};
+use tracing::info;
 
 /// Returns a canonical string representation of a PDF name.
 pub fn canonical_name(name_bytes: &[u8]) -> String {
@@ -59,11 +60,19 @@ impl CanonicalView {
         let indices = canonical_object_indices(graph, true);
         let incremental_removed = graph.objects.len().saturating_sub(indices.len());
         let normalized_name_changes = count_normalized_name_changes(graph);
-        Self {
+        let view = Self {
             indices,
             incremental_removed,
             normalized_name_changes,
-        }
+        };
+        info!(
+            canonical_objects = view.indices.len(),
+            total_objects = graph.objects.len(),
+            incremental_removed = view.incremental_removed,
+            normalized_name_changes = view.normalized_name_changes,
+            "Computed canonical object view"
+        );
+        view
     }
 }
 

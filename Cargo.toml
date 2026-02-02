@@ -9,6 +9,7 @@ members = [
   "crates/sis-pdf-ml-graph",
   "crates/sis-pdf",
   "tools/cve-update",
+  "tools/perf-guard",
 ]
 exclude = [
   "fuzz",

@@ -10,7 +10,7 @@ use sis_pdf_pdf::object::PdfStream;
 use sis_pdf_pdf::span::Span;
 use sis_pdf_pdf::typed_graph::TypedGraph;
 use sis_pdf_pdf::ObjectGraph;
-use tracing::{debug, trace, warn, Level};
+use tracing::{debug, info_span, trace, warn, Level};
 
 use crate::canonical::CanonicalView;
 use crate::security_log::{SecurityDomain, SecurityEvent};
@@ -187,8 +187,14 @@ impl<'a> ScanContext<'a> {
     }
 
     pub fn canonical_view(&self) -> &CanonicalView {
-        self.canonical_view
-            .get_or_init(|| CanonicalView::build(&self.graph))
+        self.canonical_view.get_or_init(|| {
+            let span = info_span!(
+                "canonical_view.build",
+                object_count = self.graph.objects.len()
+            );
+            let _guard = span.enter();
+            CanonicalView::build(&self.graph)
+        })
     }
 
     pub fn decode_stream_with_meta(&self, stream: &PdfStream<'_>) -> DecodeServiceResult {
