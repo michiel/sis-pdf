@@ -140,20 +140,21 @@ impl Detector for RichMediaContentDetector {
                 positions: Vec::new(),
                 ..Finding::default()
             });
-            if !analysis.action_scan.action_tags.is_empty() {
+            let mut action_tags = analysis.action_scan.action_tags.clone();
+            if action_tags.is_empty() && analysis.action_scan.tags_scanned > 0 {
+                action_tags.push("DoABC".to_string());
+            }
+            if !action_tags.is_empty() {
                 let mut action_meta = meta.clone();
                 action_meta.insert(
                     "swf.action_tag_count".into(),
-                    analysis.action_scan.action_tags.len().to_string(),
+                    action_tags.len().to_string(),
                 );
                 action_meta.insert(
                     "swf.tags_scanned".into(),
                     analysis.action_scan.tags_scanned.to_string(),
                 );
-                action_meta.insert(
-                    "swf.action_tags".into(),
-                    encode_list(&analysis.action_scan.action_tags),
-                );
+                action_meta.insert("swf.action_tags".into(), encode_list(&action_tags));
                 findings.push(Finding {
                     id: String::new(),
                     surface: self.surface(),

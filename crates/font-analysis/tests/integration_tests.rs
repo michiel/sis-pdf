@@ -105,7 +105,8 @@ fn test_benign_type1_no_findings() {
 #[test]
 fn test_cve_2025_27163_detection() {
     let data = include_bytes!("fixtures/cve/cve-2025-27163-hmtx-hhea-mismatch.ttf");
-    let config = FontAnalysisConfig::default();
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
 
     let outcome = analyse_font(data, &config);
 
@@ -127,7 +128,8 @@ fn test_cve_2025_27163_detection() {
 #[test]
 fn test_cve_2023_26369_detection() {
     let data = include_bytes!("fixtures/cve/cve-2023-26369-ebsc-oob.ttf");
-    let config = FontAnalysisConfig::default();
+    let mut config = FontAnalysisConfig::default();
+    config.dynamic_enabled = true;
 
     let outcome = analyse_font(data, &config);
 
