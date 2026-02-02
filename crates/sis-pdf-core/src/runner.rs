@@ -613,16 +613,16 @@ pub fn run_scan_with_detectors(
             }
         }
     }
-    for f in &mut findings {
-        if f.id.is_empty() {
-            f.id = stable_id(f);
-        }
-    }
     annotate_positions(&ctx, &mut findings);
     annotate_orphaned_page_context(&mut findings);
     correlate_font_js(&mut findings);
     let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
     findings.extend(composites);
+    for f in &mut findings {
+        if f.id.is_empty() {
+            f.id = stable_id(f);
+        }
+    }
     let intent_summary = Some(crate::intent::apply_intent(&mut findings));
     let yara_rules =
         crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());

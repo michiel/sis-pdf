@@ -256,16 +256,16 @@ mod tests {
 }
 
 const KNOWN_FILTERS: &[&str] = &[
-    "FlateDecode",
-    "DCTDecode",
-    "JPXDecode",
-    "LZWDecode",
-    "ASCII85Decode",
-    "ASCIIHexDecode",
-    "RunLengthDecode",
-    "CCITTFaxDecode",
-    "JBIG2Decode",
-    "Crypt",
+    "FLATEDECODE",
+    "DCTDECODE",
+    "JPXDECODE",
+    "LZWDECODE",
+    "ASCII85DECODE",
+    "ASCIIHEXDECODE",
+    "RUNLENGTHDECODE",
+    "CCITTFAXDECODE",
+    "JBIG2DECODE",
+    "CRYPT",
 ];
 
 fn is_allowlisted_chain(filters: &[String], allowlist: &[Vec<String>]) -> bool {
@@ -298,5 +298,5 @@ fn has_image_with_compression(filters: &[String]) -> bool {
     has_image && has_compression
 }
 
-const IMAGE_FILTERS: &[&str] = &["DCTDecode", "JPXDecode", "JBIG2Decode", "CCITTFaxDecode"];
-const COMPRESSION_FILTERS: &[&str] = &["FlateDecode", "LZWDecode", "RunLengthDecode"];
+const IMAGE_FILTERS: &[&str] = &["DCTDECODE", "JPXDECODE", "JBIG2DECODE", "CCITTFAXDECODE"];
+const COMPRESSION_FILTERS: &[&str] = &["FLATEDECODE", "LZWDECODE", "RUNLENGTHDECODE"];

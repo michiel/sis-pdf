@@ -4182,9 +4182,8 @@ fn raw_name_uppercase(name: &PdfName<'_>) -> String {
 }
 
 fn raw_name_string(name: &PdfName<'_>) -> String {
-    let raw = String::from_utf8_lossy(&name.decoded)
-        .trim_start_matches('/')
-        .trim();
+    let binding = String::from_utf8_lossy(&name.decoded);
+    let raw = binding.trim_start_matches('/').trim();
     if raw.is_empty() {
         "-".into()
     } else {

@@ -81,7 +81,11 @@ fn entry(filters: &[&str], description: &str) -> FilterAllowlistEntry {
 }
 
 fn normalise_filter_name(value: &str) -> String {
-    value.trim().trim_start_matches('/').to_string()
+    value
+        .trim()
+        .trim_start_matches('/')
+        .trim()
+        .to_ascii_uppercase()
 }
 
 #[cfg(test)]
@@ -96,7 +100,7 @@ mod tests {
             .expect("write allowlist");
         let allowlist = load_filter_allowlist(file.path()).expect("load allowlist");
         assert_eq!(allowlist.len(), 1);
-        assert_eq!(allowlist[0], vec!["FlateDecode".to_string()]);
+        assert_eq!(allowlist[0], vec!["FLATEDECODE".to_string()]);
         let defaults = default_filter_allowlist();
         assert!(!defaults.is_empty());
     }

@@ -9,6 +9,7 @@ use crate::util::{dict_u32, string_bytes};
 use crate::{ImageFinding, ImageStaticOptions, ImageStaticResult};
 
 const DEFAULT_HEADER_BYTES: usize = 4096;
+const ZERO_CLICK_PIXEL_THRESHOLD: u64 = 1_000_000;
 
 pub fn analyze_static_images(
     graph: &ObjectGraph<'_>,
@@ -59,7 +60,11 @@ pub fn analyze_static_images(
                     meta: meta.clone(),
                 });
             }
-            if (w == 1 || h == 1) && pixels > (opts.max_dimension as u64) {
+            let exceed_dimension = opts.max_dimension > 0
+                && (w == 1 || h == 1)
+                && pixels > (opts.max_dimension as u64);
+            let huge_pixels = pixels >= ZERO_CLICK_PIXEL_THRESHOLD;
+            if exceed_dimension || huge_pixels {
                 findings.push(ImageFinding {
                     kind: "image.suspect_strip_dimensions".into(),
                     obj: entry.obj,

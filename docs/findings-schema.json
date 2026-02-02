@@ -73,6 +73,31 @@
         "type": "string"
       }
     },
+    "impact": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/impact"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reader_impacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/reader_impact"
+      }
+    },
+    "action_type": {
+      "type": ["string", "null"]
+    },
+    "action_target": {
+      "type": ["string", "null"]
+    },
+    "action_initiation": {
+      "type": ["string", "null"]
+    },
     "yara": {
       "anyOf": [
         {
@@ -109,7 +134,37 @@
     },
     "confidence": {
       "type": "string",
-      "enum": ["Heuristic", "Probable", "Strong"]
+      "enum": ["Certain", "Strong", "Probable", "Tentative", "Weak", "Heuristic"]
+    },
+    "impact": {
+      "type": "string",
+      "enum": ["Critical", "High", "Medium", "Low", "None"]
+    },
+    "reader_profile": {
+      "type": "string",
+      "enum": ["Acrobat", "Pdfium", "Preview"]
+    },
+    "reader_impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "surface", "severity", "impact"],
+      "properties": {
+        "profile": {
+          "$ref": "#/$defs/reader_profile"
+        },
+        "surface": {
+          "$ref": "#/$defs/attack_surface"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "impact": {
+          "$ref": "#/$defs/impact"
+        },
+        "note": {
+          "type": ["string", "null"]
+        }
+      }
     },
     "span": {
       "type": "object",
