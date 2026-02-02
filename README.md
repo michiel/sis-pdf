@@ -99,7 +99,7 @@ irm https://raw.githubusercontent.com/michiel/sis-pdf/main/scripts/install.ps1 |
 sis scan sample.pdf
 
 # Deep scan with Markdown report
-sis report --deep sample.pdf -o report.md
+sis report sample.pdf --deep -o report.md
 
 # JSON/SARIF results for automation
 sis scan sample.pdf --json
@@ -116,11 +116,11 @@ sis extract embedded sample.pdf -o embedded/
 sis ml health --ml-provider auto
 
 # Query specific sections
-sis query pages sample.pdf
-sis query js sample.pdf --where "entropy > 7.5"
-sis query urls sample.pdf --json
-sis query filters sample.pdf --where "filter == '/FlateDecode'"
-sis query events sample.pdf # interactive REPL
+sis query sample.pdf pages
+sis query sample.pdf js --where "entropy > 7.5"
+sis query sample.pdf urls --json
+sis query sample.pdf filters --where "filter == '/FlateDecode'"
+sis query sample.pdf events # interactive REPL
 ```
 
 ## Documentation
@@ -162,7 +162,7 @@ You can also download release binaries directly from GitHub releases.
 sis scan path/to/file.pdf
 
 # Deep scan with Markdown report
-sis report --deep path/to/file.pdf -o report.md
+sis report path/to/file.pdf --deep -o report.md
 
 # JSON report
 sis scan path/to/file.pdf --json
@@ -181,13 +181,13 @@ sis version
 sis --version
 
 # Query PDF metadata and structure
-sis query pages file.pdf
-sis query "pages,creator,producer,version" file.pdf --json
+sis query file.pdf pages
+sis query file.pdf "pages,creator,producer,version" --json
 
 # Extract content via queries
-sis query js file.pdf
-sis query urls file.pdf
-sis query events file.pdf
+sis query file.pdf js
+sis query file.pdf urls
+sis query file.pdf events
 
 # Interactive query mode (REPL)
 sis query file.pdf
