@@ -377,6 +377,18 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: embedded scripts increase execution risk.
   - Chain usage: payload execution or staging stage.
 
+## vector_graphics_anomaly
+
+- ID: `vector_graphics_anomaly`
+- Label: Vector graphics anomaly
+- Severity: Medium
+- Description: Content stream contains an unusually dense mix of vector drawing operators, tiny clipping areas, or spot colors.
+- Tags: vector, graphics, images
+- Details:
+  - Relevance: vector-heavy paths can hide payloads, obfuscate data, or embed attack flows inside otherwise-normal drawings.
+  - Meaning: high operator counts, repeated rectangles, or spot-indexed colour spaces raise suspicion for manipulated Illustrator/EPS/SVG content.
+  - Chain usage: treated as an action/payload stage that may point to obfuscated delivery or triggering drawing code.
+
 ## embedded_archive_encrypted
 
 - ID: `embedded_archive_encrypted`

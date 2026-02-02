@@ -50,6 +50,7 @@ pub mod rich_media_analysis;
 pub mod strict;
 pub mod supply_chain;
 pub mod uri_classification;
+pub mod vector_graphics;
 pub mod xfa_forms;
 
 #[derive(Clone, Copy)]
@@ -110,6 +111,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(font_exploits::FontExploitDetector),
         Box::new(font_external_ref::FontExternalReferenceDetector),
         Box::new(image_analysis::ImageAnalysisDetector),
+        Box::new(vector_graphics::VectorGraphicsDetector),
         Box::new(EmbeddedFileDetector),
         Box::new(RichMediaDetector),
         Box::new(rich_media_analysis::RichMediaContentDetector),

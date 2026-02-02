@@ -363,6 +363,7 @@ Start with rules that are both actionable and fast:
 * `embedded_file_present` (`/EmbeddedFile`) + file name + size + magic
 * `richmedia_present` (`/RichMedia`)
 * `xfa_present` (`/XFA`)
+* `vector_graphics_anomaly` – suspicious path-heavy drawing operators or spot/indexed colour spaces uncover surprising Illustrator/EPS/SVG content.
 
 ### Decoder / DoS
 
