@@ -99,6 +99,10 @@ impl Detector for ContentFirstDetector {
                     let declared_type = name_value(&stream.dict, b"/Type");
                     let declared_subtype = name_value(&stream.dict, b"/Subtype");
                     let origin_label = blob_origin_label(&blob);
+                    let filter_expectations = blob
+                        .decode_meta
+                        .as_ref()
+                        .map(|meta| meta.filters.as_slice());
 
                     if let Some(finding) = label_mismatch_finding(
                         entry.obj,
@@ -155,6 +159,7 @@ impl Detector for ContentFirstDetector {
                         data,
                         origin_label,
                         "Stream data",
+                        filter_expectations,
                     ));
 
                     findings.extend(script_payload_findings(
@@ -209,6 +214,7 @@ impl Detector for ContentFirstDetector {
                         &bytes,
                         "string",
                         "String data",
+                        None,
                     ));
 
                     findings.extend(script_payload_findings(
@@ -265,6 +271,7 @@ impl Detector for ContentFirstDetector {
                             bytes,
                             "object",
                             "Object data",
+                            None,
                         ));
 
                         findings.extend(script_payload_findings(
@@ -937,6 +944,7 @@ fn carve_payloads(
     data: &[u8],
     origin: &str,
     label: &str,
+    filters: Option<&[String]>,
 ) -> Vec<Finding> {
     let max_scan_bytes = 512 * 1024;
     let max_hits = 3;
@@ -985,17 +993,44 @@ fn carve_payloads(
             let mut meta = HashMap::new();
             meta.insert("carve.kind".to_string(), kind.to_string());
             meta.insert("carve.offset".to_string(), offset.to_string());
+            let expectation = filters.and_then(|filters| {
+                filters.iter().find_map(|filter| {
+                    expected_kind_for_filter(filter.as_str())
+                        .map(|expected| (expected, filter.as_str()))
+                })
+            });
+            let mut description =
+                "Detected an embedded payload signature inside another object.".to_string();
+            let mut severity = Severity::High;
+            if let Some((expected_kind, filter_name)) = expectation {
+                let match_kind = expected_kind.eq_ignore_ascii_case(kind);
+                meta.insert("carve.filter".to_string(), filter_name.to_string());
+                meta.insert("carve.expected_kind".to_string(), expected_kind.to_string());
+                meta.insert("carve.match".to_string(), match_kind.to_string());
+                let actual_label = format_signature_kind(kind);
+                if match_kind {
+                    severity = Severity::Info;
+                    description = format!(
+                        "Embedded {} signature matches declared filter {}.",
+                        actual_label, filter_name
+                    );
+                } else {
+                    description = format!(
+                        "Found a {} signature in a stream where we expected {}.",
+                        actual_label, expected_kind
+                    );
+                }
+            }
             meta.insert("blob.origin".to_string(), origin.to_string());
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::StreamsAndFilters,
                 kind: "embedded_payload_carved".to_string(),
-                severity: Severity::High,
+                severity,
                 confidence: Confidence::Probable,
                 impact: None,
                 title: "Embedded payload carved".to_string(),
-                description: "Detected an embedded payload signature inside another object."
-                    .to_string(),
+                description,
                 objects: vec![format!("{} {} obj", obj, gen)],
                 evidence: vec![span_to_evidence(span, label)],
                 remediation: Some(
@@ -1022,6 +1057,94 @@ fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+fn expected_kind_for_filter(filter: &str) -> Option<&'static str> {
+    match filter.to_ascii_lowercase().as_str() {
+        "/dctdecode" | "/dct" => Some("JPEG"),
+        "/jpxdecode" | "/jpx" => Some("JPEG2000"),
+        "/jbig2decode" | "/jbig2" => Some("JBIG2"),
+        "/ccittfaxdecode" | "/ccittfax" => Some("TIFF/CCITT"),
+        _ => None,
+    }
+}
+
+fn format_signature_kind(kind: &str) -> String {
+    kind.to_ascii_uppercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sis_pdf_pdf::span::Span;
+
+    #[test]
+    fn embedded_payload_carved_info_when_filter_matches() {
+        let data = b"\xFF\xD8\xFF\xE0\x00\x10";
+        let filters = vec!["/DCTDecode".to_string()];
+        let span = Span {
+            start: 0,
+            end: data.len() as u64,
+        };
+        let findings = carve_payloads(
+            1,
+            0,
+            span,
+            data,
+            "stream",
+            "Stream data",
+            Some(filters.as_slice()),
+        );
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.severity, Severity::Info);
+        assert_eq!(
+            finding.description,
+            "Embedded JPEG signature matches declared filter /DCTDecode."
+        );
+        assert_eq!(
+            finding.meta.get("carve.match").map(|v| v.as_str()),
+            Some("true")
+        );
+        assert_eq!(
+            finding.meta.get("carve.expected_kind").map(|v| v.as_str()),
+            Some("JPEG")
+        );
+    }
+
+    #[test]
+    fn embedded_payload_carved_high_when_filter_mismatch() {
+        let data = b"\xFF\xD8\xFF\xE0\x00\x10";
+        let filters = vec!["/CCITTFaxDecode".to_string()];
+        let span = Span {
+            start: 0,
+            end: data.len() as u64,
+        };
+        let findings = carve_payloads(
+            1,
+            0,
+            span,
+            data,
+            "stream",
+            "Stream data",
+            Some(filters.as_slice()),
+        );
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.severity, Severity::High);
+        assert_eq!(
+            finding.description,
+            "Found a JPEG signature in a stream where we expected TIFF/CCITT."
+        );
+        assert_eq!(
+            finding.meta.get("carve.match").map(|v| v.as_str()),
+            Some("false")
+        );
+        assert_eq!(
+            finding.meta.get("carve.expected_kind").map(|v| v.as_str()),
+            Some("TIFF/CCITT")
+        );
+    }
 }
 
 fn script_payload_findings(

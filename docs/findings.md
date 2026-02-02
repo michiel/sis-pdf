@@ -2500,12 +2500,20 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 
 - ID: `embedded_payload_carved`
 - Label: Embedded payload carved
-- Description: Embedded payload signatures detected inside another object.
+- Description: Embedded payload signatures detected inside another object; the description varies depending on whether the declared filter matched the detected bytes.
 - Tags: evasion, stream
 - Details:
   - Relevance: embedded payloads suggest polyglot or hidden content.
   - Meaning: byte sequences indicate a secondary file signature within the object data.
+  - Meaning (match): when the declared filter matches the signature (for example, `/DCTDecode` and `carve.kind=jpeg`), the finding is informational and reads “Embedded JPEG signature matches declared filter /DCTDecode.”
+  - Meaning (mismatch): when the declared filter does not match, the description reads “Found a {carve.kind} signature in a stream where we expected {carve.expected_kind}.”
   - Chain usage: increases suspicion of hidden payload delivery.
+  - Metadata:
+    * `carve.kind` – detected signature (jpeg, zip, etc.).
+    * `carve.offset` – offset inside the stream where the signature was observed.
+    * `carve.filter` – the first filter that carried an expectation (e.g., `/DCTDecode` or `/CCITTFaxDecode`).
+    * `carve.expected_kind` – the format implied by the `carve.filter`.
+    * `carve.match` – `true` when the detected signature matches the expectation, `false` otherwise.
 
 ## nested_container_chain
 
