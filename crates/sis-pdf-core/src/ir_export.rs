@@ -193,6 +193,7 @@ mod tests {
             kind: kind.to_string(),
             severity,
             confidence: Confidence::Strong,
+            impact: None,
             surface: AttackSurface::JavaScript,
             title: format!("Test {}", kind),
             description: "Test finding".to_string(),
@@ -202,7 +203,13 @@ mod tests {
             position: None,
             positions: Vec::new(),
             meta: HashMap::new(),
+
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
+            ..Finding::default()
         }
     }
 

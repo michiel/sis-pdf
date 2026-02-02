@@ -9,6 +9,7 @@ use crate::util::{dict_u32, string_bytes};
 use crate::{ImageFinding, ImageStaticOptions, ImageStaticResult};
 
 const DEFAULT_HEADER_BYTES: usize = 4096;
+const ZERO_CLICK_PIXEL_THRESHOLD: u64 = 1_000_000;
 
 pub fn analyze_static_images(
     graph: &ObjectGraph<'_>,
@@ -59,13 +60,41 @@ pub fn analyze_static_images(
                     meta: meta.clone(),
                 });
             }
-            if (w == 1 || h == 1) && pixels > (opts.max_dimension as u64) {
+            let exceed_dimension = opts.max_dimension > 0
+                && (w == 1 || h == 1)
+                && pixels > (opts.max_dimension as u64);
+            let huge_pixels = pixels >= ZERO_CLICK_PIXEL_THRESHOLD;
+            if exceed_dimension || huge_pixels {
                 findings.push(ImageFinding {
                     kind: "image.suspect_strip_dimensions".into(),
                     obj: entry.obj,
                     gen: entry.gen,
                     meta: meta.clone(),
                 });
+                if filters.iter().any(|f| f == "JBIG2Decode") {
+                    let long_dim = std::cmp::max(w, h);
+                    let short_dim = std::cmp::min(w, h);
+                    let mut zero_meta = meta.clone();
+                    zero_meta.insert("cve".into(), "CVE-2021-30860".into());
+                    zero_meta.insert(
+                        "attack_surface".into(),
+                        "Image codecs / zero-click JBIG2".into(),
+                    );
+                    zero_meta.insert(
+                        "image.zero_click_long_dimension".into(),
+                        long_dim.to_string(),
+                    );
+                    zero_meta.insert(
+                        "image.zero_click_short_dimension".into(),
+                        short_dim.to_string(),
+                    );
+                    findings.push(ImageFinding {
+                        kind: "image.zero_click_jbig2".into(),
+                        obj: entry.obj,
+                        gen: entry.gen,
+                        meta: zero_meta,
+                    });
+                }
             }
         }
         if filters.iter().any(|f| f == "JBIG2Decode") {

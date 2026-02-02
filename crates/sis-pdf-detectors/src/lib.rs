@@ -226,6 +226,7 @@ impl Detector for XrefConflictDetector {
                 kind: "xref_conflict".into(),
                 severity,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Multiple startxref entries".into(),
                 description,
                 objects: vec!["xref".into()],
@@ -235,6 +236,7 @@ impl Detector for XrefConflictDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             }])
         } else {
             Ok(Vec::new())
@@ -266,6 +268,7 @@ impl Detector for IncrementalUpdateDetector {
                 kind: "incremental_update_chain".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Incremental update chain present".into(),
                 description: format!(
                     "PDF contains {} startxref markers suggesting incremental updates.",
@@ -275,9 +278,15 @@ impl Detector for IncrementalUpdateDetector {
                 evidence,
                 remediation: Some("Review changes between revisions for hidden content.".into()),
                 meta: Default::default(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             }])
         } else {
             Ok(Vec::new())
@@ -346,6 +355,7 @@ impl Detector for ObjectIdShadowingDetector {
                     kind: "object_id_shadowing".into(),
                     severity: base_severity,
                     confidence: Confidence::Probable,
+            impact: None,
                     title: "Duplicate object IDs detected".into(),
                     description: format!(
                         "Object {} {} appears {} times ({} total shadowed objects); later revisions may shadow earlier content.",
@@ -361,6 +371,7 @@ impl Detector for ObjectIdShadowingDetector {
                     yara: None,
         position: None,
         positions: Vec::new(),
+                ..Finding::default()
                 });
             }
         }
@@ -434,6 +445,7 @@ impl Detector for ShadowObjectDivergenceDetector {
                     kind: "shadow_object_payload_divergence".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Shadowed object payload divergence".into(),
                     description: format!(
                         "Object {} {} has multiple revisions with differing payload signatures.",
@@ -448,6 +460,7 @@ impl Detector for ShadowObjectDivergenceDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
 
@@ -462,6 +475,7 @@ impl Detector for ShadowObjectDivergenceDetector {
                     kind: "parse_disagreement".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Parser disagreement detected".into(),
                     description: format!(
                         "Carved objects disagree with parsed revisions for {} {}.",
@@ -476,6 +490,7 @@ impl Detector for ShadowObjectDivergenceDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }
@@ -527,6 +542,7 @@ impl Detector for ObjStmDensityDetector {
                     kind: "objstm_density_high".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "High object stream density".into(),
                     description: format!(
                         "{}/{} objects are /ObjStm (ratio {:.2}).",
@@ -538,9 +554,15 @@ impl Detector for ObjStmDensityDetector {
                     evidence,
                     remediation: Some("Inspect object streams in deep scan.".into()),
                     meta: Default::default(),
+
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 }]);
             }
         }
@@ -582,6 +604,7 @@ impl Detector for OpenActionDetector {
                         kind: "open_action_present".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Strong,
+                        impact: None,
                         title: "Document OpenAction present".into(),
                         description: "OpenAction triggers when the PDF opens.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -593,6 +616,7 @@ impl Detector for OpenActionDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -630,15 +654,22 @@ impl Detector for AAPresentDetector {
                         kind: "aa_present".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Strong,
+                        impact: None,
                         title: "Additional Actions present".into(),
                         description: "Additional Actions can execute on user events.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence,
                         remediation: Some("Review event actions for unsafe behavior.".into()),
                         meta: Default::default(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -704,6 +735,7 @@ impl Detector for AAEventDetector {
                                 kind: "aa_event_present".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
+                                impact: None,
                                 title: "AA event action present".into(),
                                 description: format!(
                                     "Additional Actions event {} present.",
@@ -716,6 +748,7 @@ impl Detector for AAEventDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
                     }
@@ -1347,6 +1380,7 @@ impl Detector for JavaScriptDetector {
                         kind: "js_present".into(),
                         severity: Severity::High,
                         confidence: Confidence::Strong,
+                        impact: None,
                         title: "JavaScript present".into(),
                         description: "Inline or referenced JavaScript detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -1356,6 +1390,7 @@ impl Detector for JavaScriptDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -1432,66 +1467,94 @@ impl Detector for LaunchActionDetector {
                 .as_deref()
                 .map(|s| s.to_string())
                 .or(payload_target);
-            annotate_action_meta(&mut meta, "/Launch", action_target.as_deref(), "automatic");
+            let action_telemetry =
+                annotate_action_meta(&mut meta, "/Launch", action_target.as_deref(), "automatic");
             let objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
             let base_meta = meta.clone();
-            findings.push(Finding {
+            let mut base_finding = Finding {
                 id: String::new(),
                 surface: AttackSurface::Actions,
                 kind: "launch_action_present".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Launch action present".into(),
                 description: "Action dictionary with /S /Launch.".into(),
                 objects: objects.clone(),
                 evidence: evidence.clone(),
                 remediation: Some("Review the action target.".into()),
                 meta: base_meta,
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-            });
+                ..Finding::default()
+            };
+            apply_action_telemetry(&mut base_finding, &action_telemetry);
+            findings.push(base_finding);
 
             if tracker.external {
                 let mut extra_meta = meta.clone();
                 extra_meta.insert("launch.target_type".into(), "external".into());
-                findings.push(Finding {
+                let mut extra_finding = Finding {
                     id: String::new(),
                     surface: AttackSurface::Actions,
                     kind: "launch_external_program".into(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Launch action targets external program".into(),
                     description: "Launch action targets an external program or file path.".into(),
                     objects: objects.clone(),
                     evidence: evidence.clone(),
                     remediation: Some("Review the launch target for unsafe execution.".into()),
                     meta: extra_meta,
+
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                });
+                    ..Finding::default()
+                };
+                apply_action_telemetry(&mut extra_finding, &action_telemetry);
+                findings.push(extra_finding);
             }
 
             if tracker.embedded {
                 let mut extra_meta = meta.clone();
                 extra_meta.insert("launch.target_type".into(), "embedded".into());
-                findings.push(Finding {
+                let mut embedded_finding = Finding {
                     id: String::new(),
                     surface: AttackSurface::Actions,
                     kind: "launch_embedded_file".into(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Launch action targets embedded file".into(),
                     description: "Launch action targets an embedded file specification.".into(),
                     objects,
                     evidence,
                     remediation: Some("Extract and inspect the embedded target.".into()),
                     meta: extra_meta,
+
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                });
+                    ..Finding::default()
+                };
+                apply_action_telemetry(&mut embedded_finding, &action_telemetry);
+                findings.push(embedded_finding);
             }
         }
         Ok(findings)
@@ -1541,6 +1604,7 @@ impl Detector for UriDetector {
                         kind: "uri_present".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Strong,
+                        impact: None,
                         title: "URI present".into(),
                         description: "External URI action detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -1550,6 +1614,7 @@ impl Detector for UriDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -1642,6 +1707,7 @@ fn uri_finding_from_action(
         kind: "uri_present".into(),
         severity: Severity::Medium,
         confidence: Confidence::Probable,
+        impact: None,
         title: "URI present".into(),
         description: "Annotation action contains a URI target.".into(),
         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -1651,6 +1717,7 @@ fn uri_finding_from_action(
         yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
     })
 }
 
@@ -1690,6 +1757,7 @@ impl Detector for FontMatrixDetector {
                             kind: "fontmatrix_payload_present".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
+            impact: None,
                             title: "Suspicious FontMatrix payload".into(),
                             description: "FontMatrix contains non-numeric entries, suggesting script injection.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -1699,6 +1767,7 @@ impl Detector for FontMatrixDetector {
                             yara: None,
         position: None,
         positions: Vec::new(),
+                        ..Finding::default()
                         });
                     }
                 }
@@ -1871,15 +1940,22 @@ impl Detector for EmbeddedFileDetector {
                         kind: "embedded_file_present".into(),
                         severity: Severity::High,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Embedded file stream present".into(),
                         description: "Embedded file detected inside PDF.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: evidence.clone(),
                         remediation: Some("Extract and scan the embedded file.".into()),
                         meta: meta.clone(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
 
                     let objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
@@ -1891,15 +1967,22 @@ impl Detector for EmbeddedFileDetector {
                                 kind: "embedded_executable_present".into(),
                                 severity: Severity::High,
                                 confidence: Confidence::Probable,
+                                impact: None,
                                 title: "Embedded executable present".into(),
                                 description: "Embedded file appears to be an executable.".into(),
                                 objects: objects.clone(),
                                 evidence: evidence.clone(),
                                 remediation: Some("Extract and scan the executable.".into()),
                                 meta: meta.clone(),
+
+                                reader_impacts: Vec::new(),
+                                action_type: None,
+                                action_target: None,
+                                action_initiation: None,
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
                         if magic == "script" {
@@ -1909,15 +1992,22 @@ impl Detector for EmbeddedFileDetector {
                                 kind: "embedded_script_present".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
+                                impact: None,
                                 title: "Embedded script present".into(),
                                 description: "Embedded file appears to be a script.".into(),
                                 objects: objects.clone(),
                                 evidence: evidence.clone(),
                                 remediation: Some("Review the script content.".into()),
                                 meta: meta.clone(),
+
+                                reader_impacts: Vec::new(),
+                                action_type: None,
+                                action_target: None,
+                                action_initiation: None,
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
                     }
@@ -1928,6 +2018,7 @@ impl Detector for EmbeddedFileDetector {
                             kind: "embedded_archive_encrypted".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
+                            impact: None,
                             title: "Embedded archive appears encrypted".into(),
                             description: "Embedded archive indicates encryption flags.".into(),
                             objects: objects.clone(),
@@ -1936,9 +2027,15 @@ impl Detector for EmbeddedFileDetector {
                                 "Extract and attempt to inspect archive contents.".into(),
                             ),
                             meta: meta.clone(),
+
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                            ..Finding::default()
                         });
                     }
                     if has_double {
@@ -1948,6 +2045,7 @@ impl Detector for EmbeddedFileDetector {
                             kind: "embedded_double_extension".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Probable,
+                            impact: None,
                             title: "Embedded file uses double extension".into(),
                             description: "Embedded filename uses multiple extensions.".into(),
                             objects,
@@ -1956,9 +2054,15 @@ impl Detector for EmbeddedFileDetector {
                                 "Treat the file as suspicious and inspect carefully.".into(),
                             ),
                             meta: meta.clone(),
+
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
                             yara: None,
                             position: None,
                             positions: Vec::new(),
+                            ..Finding::default()
                         });
                     }
                 }
@@ -1995,15 +2099,22 @@ impl Detector for RichMediaDetector {
                         kind: "richmedia_present".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "RichMedia content present".into(),
                         description: "RichMedia annotations or dictionaries detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(entry.full_span, "RichMedia object")],
                         remediation: Some("Inspect 3D or media assets.".into()),
                         meta: Default::default(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -2049,6 +2160,7 @@ impl Detector for ThreeDDetector {
                         kind: "3d_present".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "3D content present".into(),
                         description: "3D content or stream detected (U3D/PRC).".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -2058,6 +2170,7 @@ impl Detector for ThreeDDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -2102,6 +2215,7 @@ impl Detector for SoundMovieDetector {
                         kind: "sound_movie_present".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Sound or movie content present".into(),
                         description: "Sound/Movie/Rendition objects detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -2111,6 +2225,7 @@ impl Detector for SoundMovieDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -2148,15 +2263,22 @@ impl Detector for FileSpecDetector {
                         kind: "filespec_present".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "File specification present".into(),
                         description: "Filespec or associated files detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(entry.full_span, "Filespec/AF object")],
                         remediation: Some("Inspect file specification targets.".into()),
                         meta: Default::default(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -2211,9 +2333,15 @@ impl Detector for CryptoDetector {
                 evidence: encrypt_evidence,
                 remediation: Some("Decrypt with trusted tooling to inspect all objects.".into()),
                 meta: encrypt_meta,
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         }
 
@@ -2252,9 +2380,15 @@ impl Detector for CryptoDetector {
                 evidence: sig_evidence,
                 remediation: Some("Validate signature chain and inspect signed content.".into()),
                 meta: sig_meta,
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         }
 
@@ -2276,15 +2410,22 @@ impl Detector for CryptoDetector {
                 kind: "dss_present".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "DSS structures present".into(),
                 description: "Document Security Store (DSS) entries detected.".into(),
                 objects: vec!["dss".into()],
                 evidence: dss_evidence,
                 remediation: Some("Inspect DSS for embedded validation material.".into()),
                 meta: Default::default(),
+
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         }
 
@@ -2324,9 +2465,15 @@ impl Detector for XfaDetector {
                         evidence: vec![span_to_evidence(dict.span, "XFA dict")],
                         remediation: Some("Inspect XFA form data and scripts.".into()),
                         meta: Default::default(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -2367,9 +2514,15 @@ impl Detector for AcroFormDetector {
                         evidence: vec![span_to_evidence(dict.span, "AcroForm dict")],
                         remediation: Some("Inspect form fields and calculation scripts.".into()),
                         meta: Default::default(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -2404,6 +2557,7 @@ impl Detector for OCGDetector {
                         kind: "ocg_present".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Optional content group present".into(),
                         description: "OCG/OCProperties detected; may influence viewer behaviour."
                             .into(),
@@ -2411,9 +2565,15 @@ impl Detector for OCGDetector {
                         evidence: vec![span_to_evidence(entry.full_span, "OCG object")],
                         remediation: Some("Inspect optional content group settings.".into()),
                         meta: Default::default(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -2452,15 +2612,22 @@ impl Detector for DecoderRiskDetector {
                         kind: "decoder_risk_present".into(),
                         severity: Severity::High,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "High-risk decoder present".into(),
                         description: format!("Stream uses filters: {}", filters.join(", ")),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(st.dict.span, "Stream dict")],
                         remediation: Some("Treat JBIG2/JPX decoding as high risk.".into()),
                         meta: Default::default(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -2510,6 +2677,7 @@ impl Detector for DecompressionRatioDetector {
                                 kind: "decompression_ratio_suspicious".into(),
                                 severity: Severity::High,
                                 confidence: Confidence::Probable,
+                                impact: None,
                                 title: "Suspicious decompression ratio".into(),
                                 description: format!(
                                     "Decoded output {} bytes from {} input bytes (ratio {:.1}).",
@@ -2524,6 +2692,7 @@ impl Detector for DecompressionRatioDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
                     }
@@ -2564,6 +2733,7 @@ impl Detector for HugeImageDetector {
                                 kind: "huge_image_dimensions".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
+                                impact: None,
                                 title: "Huge image dimensions".into(),
                                 description: format!("Image dimensions {}x{}.", w, h),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -2572,9 +2742,15 @@ impl Detector for HugeImageDetector {
                                     "Inspect image payload for resource abuse.".into(),
                                 ),
                                 meta: Default::default(),
+
+                                reader_impacts: Vec::new(),
+                                action_type: None,
+                                action_target: None,
+                                action_initiation: None,
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
                     }
@@ -2680,6 +2856,7 @@ fn action_by_s(
                     kind: kind.into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: title.into(),
                     description: format!(
                         "Action dictionary with /S {}.",
@@ -2692,6 +2869,7 @@ fn action_by_s(
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }
@@ -3090,19 +3268,34 @@ fn payload_from_obj(
     Some(PayloadEnrichment { evidence, meta })
 }
 
+#[derive(Clone)]
+pub(crate) struct ActionTelemetry {
+    pub action_type: String,
+    pub action_target: Option<String>,
+    pub action_initiation: String,
+}
+
 pub(crate) fn annotate_action_meta(
     meta: &mut std::collections::HashMap<String, String>,
     action_type: &str,
     target: Option<&str>,
     initiation: &str,
-) {
+) -> ActionTelemetry {
     meta.insert("action.type".into(), action_type.to_string());
+    let mut recorded_target = None;
     if let Some(t) = target {
         if !t.trim().is_empty() {
-            meta.insert("action.target".into(), shorten_action_target(t));
+            let target_value = shorten_action_target(t);
+            meta.insert("action.target".into(), target_value.clone());
+            recorded_target = Some(target_value);
         }
     }
     meta.insert("action.initiation".into(), initiation.to_string());
+    ActionTelemetry {
+        action_type: action_type.to_string(),
+        action_target: recorded_target,
+        action_initiation: initiation.to_string(),
+    }
 }
 
 pub(crate) fn action_target_from_meta(
@@ -3118,6 +3311,12 @@ pub(crate) fn action_target_from_meta(
 
 fn shorten_action_target(value: &str) -> String {
     value.chars().take(256).collect()
+}
+
+pub(crate) fn apply_action_telemetry(finding: &mut Finding, telemetry: &ActionTelemetry) {
+    finding.action_type = Some(telemetry.action_type.clone());
+    finding.action_target = telemetry.action_target.clone();
+    finding.action_initiation = Some(telemetry.action_initiation.clone());
 }
 
 pub(crate) fn action_type_from_obj(

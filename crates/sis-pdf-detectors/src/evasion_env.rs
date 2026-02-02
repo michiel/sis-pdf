@@ -50,6 +50,7 @@ impl Detector for EnvProbeDetector {
                     kind: "js_env_probe".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Environment probe in JavaScript".into(),
                     description: "JavaScript queries viewer or environment properties.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -61,6 +62,7 @@ impl Detector for EnvProbeDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }

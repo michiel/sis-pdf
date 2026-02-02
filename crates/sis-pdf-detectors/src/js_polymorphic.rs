@@ -75,6 +75,7 @@ impl Detector for JsPolymorphicDetector {
                         kind: "js_polymorphic".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Polymorphic JavaScript patterns".into(),
                         description: "JavaScript shows traits of polymorphic or staged code."
                             .into(),
@@ -84,9 +85,15 @@ impl Detector for JsPolymorphicDetector {
                             "Deobfuscate JavaScript and inspect dynamic behavior.".into(),
                         ),
                         meta: meta.clone(),
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
                 if multi_stage {
@@ -101,15 +108,22 @@ impl Detector for JsPolymorphicDetector {
                         kind: "js_multi_stage_decode".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Multi-stage JavaScript decoding".into(),
                         description: "JavaScript contains multiple decoding layers.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: evidence.clone(),
                         remediation: Some("Inspect the deobfuscated payload.".into()),
                         meta: meta2,
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
                 if decoded.layers > 0 && decoded.bytes != info.bytes {
@@ -124,15 +138,22 @@ impl Detector for JsPolymorphicDetector {
                         kind: "js_obfuscation_deep".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Heuristic,
+                        impact: None,
                         title: "Deep JavaScript deobfuscation".into(),
                         description: "Deobfuscation produced a simplified payload variant.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence,
                         remediation: Some("Review decoded layers for hidden behavior.".into()),
                         meta: meta3,
+
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }

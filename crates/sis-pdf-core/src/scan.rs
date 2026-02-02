@@ -10,8 +10,9 @@ use sis_pdf_pdf::object::PdfStream;
 use sis_pdf_pdf::span::Span;
 use sis_pdf_pdf::typed_graph::TypedGraph;
 use sis_pdf_pdf::ObjectGraph;
-use tracing::{debug, trace, warn, Level};
+use tracing::{debug, info_span, trace, warn, Level};
 
+use crate::canonical::CanonicalView;
 use crate::security_log::{SecurityDomain, SecurityEvent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +149,7 @@ pub struct ScanContext<'a> {
 
     // Lazy-initialized graph infrastructure (Sprint 4)
     classifications: OnceLock<ClassificationMap>,
+    canonical_view: OnceLock<CanonicalView>,
 }
 
 impl<'a> ScanContext<'a> {
@@ -159,6 +161,7 @@ impl<'a> ScanContext<'a> {
             decoded: DecodedCache::new(options.max_decode_bytes, options.max_total_decoded_bytes),
             options,
             classifications: OnceLock::new(),
+            canonical_view: OnceLock::new(),
         }
     }
 
@@ -181,6 +184,17 @@ impl<'a> ScanContext<'a> {
     pub fn classifications(&self) -> &ClassificationMap {
         self.classifications
             .get_or_init(|| self.graph.classify_objects())
+    }
+
+    pub fn canonical_view(&self) -> &CanonicalView {
+        self.canonical_view.get_or_init(|| {
+            let span = info_span!(
+                "canonical_view.build",
+                object_count = self.graph.objects.len()
+            );
+            let _guard = span.enter();
+            CanonicalView::build(&self.graph)
+        })
     }
 
     pub fn decode_stream_with_meta(&self, stream: &PdfStream<'_>) -> DecodeServiceResult {

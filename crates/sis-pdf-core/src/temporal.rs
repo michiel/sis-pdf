@@ -297,15 +297,22 @@ mod tests {
             kind: "low_signal".to_string(),
             severity: Severity::Low,
             confidence: Confidence::Heuristic,
+            impact: None,
             title: "Low".to_string(),
             description: "test".to_string(),
             objects: vec![],
             evidence: vec![],
             remediation: None,
             meta: Default::default(),
+
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         }]);
 
         let report2 = empty_report(vec![Finding {
@@ -314,15 +321,22 @@ mod tests {
             kind: "high_signal".to_string(),
             severity: Severity::High,
             confidence: Confidence::Strong,
+            impact: None,
             title: "High".to_string(),
             description: "test".to_string(),
             objects: vec![],
             evidence: vec![],
             remediation: None,
             meta: Default::default(),
+
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         }]);
 
         let scans = vec![

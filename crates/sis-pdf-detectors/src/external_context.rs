@@ -103,6 +103,7 @@ impl Detector for ExternalActionContextDetector {
             kind: "external_action_risk_context".into(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
+            impact: None,
             title: "External action with obfuscation context".into(),
             description:
                 "External action targets are present alongside obfuscation markers (hex-encoded names or deep filter chains)."
@@ -116,6 +117,7 @@ impl Detector for ExternalActionContextDetector {
             yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
         }])
     }
 }

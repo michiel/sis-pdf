@@ -50,6 +50,7 @@ impl Detector for EncryptionObfuscationDetector {
                                 kind: "encryption_key_short".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
+                                impact: None,
                                 title: "Encryption key length short".into(),
                                 description:
                                     "Encryption key length is below recommended threshold.".into(),
@@ -66,6 +67,7 @@ impl Detector for EncryptionObfuscationDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
+                                ..Finding::default()
                             });
                         }
                     }
@@ -95,6 +97,7 @@ impl Detector for EncryptionObfuscationDetector {
                     kind: "stream_high_entropy".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "High entropy stream".into(),
                     description: "Stream entropy exceeds expected threshold.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -112,9 +115,15 @@ impl Detector for EncryptionObfuscationDetector {
                         .build(),
                     remediation: Some("Inspect stream content for hidden payloads.".into()),
                     meta: meta.clone(),
+
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
 
                 if stream.dict.has_name(b"/Type", b"/EmbeddedFile")
@@ -126,6 +135,7 @@ impl Detector for EncryptionObfuscationDetector {
                         kind: "embedded_encrypted".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Embedded file appears encrypted".into(),
                         description: "Embedded file has high entropy with unknown magic.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -148,6 +158,7 @@ impl Detector for EncryptionObfuscationDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }

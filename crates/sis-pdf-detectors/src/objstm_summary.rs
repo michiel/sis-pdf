@@ -102,6 +102,7 @@ impl Detector for ObjStmSummaryDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         }
         Ok(findings)

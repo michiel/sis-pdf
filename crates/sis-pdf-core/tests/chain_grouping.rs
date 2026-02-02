@@ -10,6 +10,7 @@ fn base_finding(id: &str, kind: &str, object_ref: &str) -> Finding {
         kind: kind.to_string(),
         severity: Severity::Low,
         confidence: Confidence::Strong,
+        impact: None,
         title: "test".to_string(),
         description: "test".to_string(),
         objects: vec![object_ref.to_string()],
@@ -18,6 +19,10 @@ fn base_finding(id: &str, kind: &str, object_ref: &str) -> Finding {
         position: None,
         positions: Vec::new(),
         meta: HashMap::new(),
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         yara: None,
     }
 }

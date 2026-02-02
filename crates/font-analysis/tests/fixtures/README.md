@@ -94,6 +94,17 @@ fixtures/
 
 **License:** Synthetic test data, public domain.
 
+### `cve/gvar-glyph-count-mismatch.ttf`
+**CVE:** CVE-2025-27363
+
+**Description:** Variable font where gvar glyphCount exceeds the declared glyph inventory, mimicking the subglyph parsing mismatch.
+
+**Vulnerability:** FreeType subglyph parser mismatch & row index overflow.
+
+**Detection:** Should trigger `font.gvar_glyph_count_mismatch` with `meta.cve=CVE-2025-27363` and `meta.attack_surface=Font parsing / variable fonts`.
+
+**License:** Synthetic test data, public domain.
+
 ## Benign Fixtures
 
 ### `benign/minimal-type1.pfa`

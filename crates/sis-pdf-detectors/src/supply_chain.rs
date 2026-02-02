@@ -115,6 +115,7 @@ impl Detector for SupplyChainDetector {
                         kind: "supply_chain_staged_payload".into(),
                         severity: Severity::High,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Staged payload delivery".into(),
                         description: "JavaScript indicates download or staged payload execution."
                             .into(),
@@ -125,6 +126,7 @@ impl Detector for SupplyChainDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
 
@@ -158,6 +160,7 @@ impl Detector for SupplyChainDetector {
                         kind: "supply_chain_update_vector".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Heuristic,
+                        impact: None,
                         title: "Update mechanism references".into(),
                         description: "JavaScript references update or installer logic.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -167,6 +170,7 @@ impl Detector for SupplyChainDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
 
@@ -200,6 +204,7 @@ impl Detector for SupplyChainDetector {
                         kind: "supply_chain_persistence".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Persistence-related JavaScript".into(),
                         description: "JavaScript references persistence-like viewer hooks.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -209,6 +214,7 @@ impl Detector for SupplyChainDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }
@@ -231,6 +237,7 @@ impl Detector for SupplyChainDetector {
                 kind: "supply_chain_staged_payload".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Heuristic,
+            impact: None,
                 title: "Action targets indicate staged payloads".into(),
                 description: "Action targets reference external resources or files without JavaScript payloads.".into(),
                 objects: vec!["action_targets".into()],
@@ -240,6 +247,7 @@ impl Detector for SupplyChainDetector {
                 yara: None,
         position: None,
         positions: Vec::new(),
+            ..Finding::default()
             });
         }
         Ok(findings)

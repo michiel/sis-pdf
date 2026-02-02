@@ -121,6 +121,7 @@ impl Detector for MultiStageDetector {
                 kind: "multi_stage_attack_chain".into(),
                 severity: Severity::High,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Multi-stage attack chain indicators".into(),
                 description:
                     "Detected JavaScript, embedded content, and outbound action indicators.".into(),
@@ -131,6 +132,7 @@ impl Detector for MultiStageDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             }]);
         }
 

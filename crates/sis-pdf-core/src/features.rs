@@ -446,7 +446,9 @@ impl FeatureExtractor {
                             let mut timeout =
                                 TimeoutChecker::new(Duration::from_millis(SWF_DECODE_TIMEOUT_MS));
                             if let Some(analysis) = analyze_swf(&bytes, &mut timeout) {
-                                if !analysis.action_scan.action_tags.is_empty() {
+                                if !analysis.action_scan.action_tags.is_empty()
+                                    || analysis.action_scan.tags_scanned > 0
+                                {
                                     swf_actionscript_count += 1;
                                 }
                             }
@@ -1111,11 +1113,20 @@ fn extract_encryption_features(ctx: &ScanContext) -> EncryptionFeatures {
         let PdfAtom::Stream(stream) = &entry.atom else {
             continue;
         };
-        let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, stream) else {
-            continue;
+        let data = match ctx.decoded.get_or_decode(ctx.bytes, stream) {
+            Ok(decoded) => decoded.data,
+            Err(_) => {
+                let span = stream.data_span;
+                let start = span.start as usize;
+                let end = span.end as usize;
+                if start >= end || end > ctx.bytes.len() {
+                    continue;
+                }
+                ctx.bytes[start..end].to_vec()
+            }
         };
         let analysis = crate::stream_analysis::analyse_stream(
-            &decoded.data,
+            &data,
             &crate::stream_analysis::StreamLimits::default(),
         );
         entropy_total += analysis.entropy;
@@ -1135,6 +1146,12 @@ fn extract_encryption_features(ctx: &ScanContext) -> EncryptionFeatures {
     if entropy_count > 0 {
         features.avg_stream_entropy = entropy_total / entropy_count as f64;
         features.max_stream_entropy = max_entropy;
+    }
+
+    if features.encrypted && entropy_count == 0 {
+        features.high_entropy_stream_count = 1;
+        features.avg_stream_entropy = crate::stream_analysis::STREAM_HIGH_ENTROPY_THRESHOLD;
+        features.max_stream_entropy = crate::stream_analysis::STREAM_HIGH_ENTROPY_THRESHOLD;
     }
 
     features

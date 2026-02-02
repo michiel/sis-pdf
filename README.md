@@ -97,6 +97,10 @@ sis extract js path/to/file.pdf -o extracted.js
 # Validate ML runtime
 sis ml health --ml-provider auto --ml-provider-info
 
+# Print the installed sis version
+sis version
+sis --version
+
 # Query PDF metadata and structure
 sis query pages file.pdf
 sis query "pages,creator,producer,version" file.pdf --json

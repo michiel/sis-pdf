@@ -1,0 +1,37 @@
+{
+  "total_duration_ms": 6,
+  "phases": [
+    {
+      "name": "parse",
+      "duration_ms": 0,
+      "percentage": 0.0
+    },
+    {
+      "name": "detection",
+      "duration_ms": 2,
+      "percentage": 33.3
+    }
+  ],
+  "detectors": [
+    {
+      "id": "content_first_stage1",
+      "cost": "Expensive",
+      "duration_ms": 1,
+      "findings_count": 1,
+      "percentage": 16.7
+    },
+    {
+      "id": "launch_action_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 2,
+      "percentage": 0.0
+    }
+  ],
+  "document": {
+    "file_size_bytes": 412,
+    "object_count": 4,
+    "stream_count": 0,
+    "page_count": 4
+  }
+}

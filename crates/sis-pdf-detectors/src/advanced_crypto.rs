@@ -57,6 +57,7 @@ impl Detector for AdvancedCryptoDetector {
                     kind: "crypto_weak_algo".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Weak cryptography settings".into(),
                     description: weak.issue,
                     objects: vec!["encrypt".into()],
@@ -66,6 +67,7 @@ impl Detector for AdvancedCryptoDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
             }
         }
@@ -80,6 +82,7 @@ impl Detector for AdvancedCryptoDetector {
                 kind: "crypto_cert_anomaly".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Heuristic,
+                impact: None,
                 title: "Signature chain anomaly".into(),
                 description: anomaly.issue,
                 objects: vec!["signature".into()],
@@ -89,6 +92,7 @@ impl Detector for AdvancedCryptoDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
         }
 
@@ -114,6 +118,7 @@ impl Detector for AdvancedCryptoDetector {
                         kind: "crypto_mining_js".into(),
                         severity: Severity::High,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Cryptomining JavaScript".into(),
                         description: "JavaScript includes cryptomining indicators.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -123,6 +128,7 @@ impl Detector for AdvancedCryptoDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }

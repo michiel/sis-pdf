@@ -61,6 +61,42 @@ As of 2026-01-08, sis-pdf includes enhanced payload reconstruction capabilities 
   - `array too large: 1234 elements (max 1000)` - Array size limit exceeded
   - `array payload reconstruction failed: ...` - Array reconstruction error
 
+### Action & Reader Telemetry Fields
+
+**impact**
+- Values: `critical`, `high`, `medium`, `low`, `none`.
+- Meaning: Coarse impact bucket describing the fallout if the finding is exploited; derived from the adjusted severity so downstream tools can rely on a stable impact label.
+- Example: `high` for an action that launches an external payload.
+
+**action_type**
+- Values: Strings such as `Launch`, `JavaScript`, `GoTo`, `RichMedia`, `EmbeddedFile`.
+- Meaning: The category of action path that produced the finding.
+- Example: `Launch` for a `/Launch` entry that starts a child process.
+
+**action_target**
+- Values: Convenient descriptors like `uri:http://example.com/malware.exe`, `file:payload.exe`, `object:15 0 R`.
+- Meaning: Where the action is attempting to go or what it is invoking.
+
+**action_initiation**
+- Values: `automatic`, `user`, `hidden`, `deep`.
+- Meaning: Describes whether the action fires automatically on open, requires user interaction, or is hidden.
+
+**reader_impacts**
+- Values: An array of reader-scored entries with keys `profile`, `surface`, `severity`, `impact`, and optional `note`.
+- Meaning: Details how severity and impact shift for each supported reader (`acrobat`, `pdfium`, `preview`).
+- Example: `[{ "profile": "preview", "surface": "Actions", "severity": "low", "impact": "low", "note": "Severity capped for preview limits" }]`.
+- Notes:
+  - `surface` is repeated for clarity even though the finding already declares it.
+  - `note` appears whenever the reader-specific score diverges from the base severity.
+
+**reader.impact.<profile>**
+- Values: `info`, `low`, `medium`, `high`, `critical`.
+- Meaning: Mirrors each reader's severity bucket and is populated for the same profiles above.
+
+**reader.impact.summary**
+- Values: A comma-separated string of `<profile>:<severity>/<impact>` pairs (e.g., `acrobat:critical/critical,pdfium:low/low`).
+- Meaning: Quick reference for analyst workflows that only need a textual summary of reader divergence.
+
 ### Evasion Techniques Detected
 
 The enhanced analysis now detects and reconstructs:
@@ -526,6 +562,27 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Example metadata: `filters = ["ASCII85Decode", "FlateDecode", "FlateDecode"]`, `stream.filter_chain = ASCII85Decode -> FlateDecode -> FlateDecode`.
   - Chain usage: evasion context for hidden payloads.
 
+## filter_chain_jbig2_obfuscation
+
+- ID: `filter_chain_jbig2_obfuscation`
+- Label: JBIG2 filter chain obfuscation
+- Description: JBIG2 streams are wrapped inside ASCII/binary filters, matching FORCEDENTRY-style padding of the JBIG2 decoder with 1×N strips.
+- Tags: decoder, evasion, cve
+- Metadata:
+  - `filters`: Filter list encoded as JSON array string.
+  - `filter_count`: Number of filters in the chain.
+  - `stream.filter_chain`: Human-readable filter chain.
+  - `stream.filter_depth`: Filter chain length.
+  - `violation_type`: `jbig2_obfuscation`.
+  - `cve`: `CVE-2021-30860,CVE-2022-38171`.
+  - `jbig2.cves`: Comma-separated CVE IDs matching `cve`.
+  - `attack_surface`: `Image codecs / filter obfuscation`.
+- Details:
+  - Relevance: JBIG2 obfuscation powers modern zero-click payloads.
+  - Meaning: stream decoding layers hide JBIG2Decode behind ASCII/Flate filters.
+  - Example chain: `ASCIIHexDecode -> ASCII85Decode -> JBIG2Decode`.
+  - Chain usage: high-confidence context for JBIG2 pipelines; metadata and fixtures (`crates/sis-pdf-core/tests/fixtures/filters/jbig2_ascii_obfuscation.pdf`) guide remediation.
+
 ## font_payload_present
 
 - ID: `font_payload_present`
@@ -952,6 +1009,18 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: steganography or payload concealment.
   - Meaning: extreme aspect ratios can hide data.
   - Chain usage: used as a payload obfuscation signal.
+
+## image.zero_click_jbig2
+
+- ID: `image.zero_click_jbig2`
+- Label: Zero-click JBIG2 payload
+- Description: JBIG2 stream uses narrow-strip dimensions resembling FORCEDENTRY-style payloads.
+- Tags: image, decoder, exploit
+- Details:
+  - Relevance: zero-click decoder attack surface (CVE-2021-30860).
+  - Meaning: JBIG2 payload encodes data in 1×N strips to drive virtual CPU logic.
+  - Chain usage: used as a high-confidence zero-click exploit vector; meta includes `cve=CVE-2021-30860` and `attack_surface=Image codecs / zero-click JBIG2`.
+  - Fixture: `crates/sis-pdf-core/tests/fixtures/images/cve-2021-30860-jbig2.pdf`.
 
 ## image.xfa_decode_failed
 

@@ -147,12 +147,27 @@ Predicates can use these fields:
 - `type`: `Finding`
 - `filter`: severity (`info`, `low`, `medium`, `high`, `critical`)
 - `subtype`: finding `kind`
-- `severity`: severity (`info`, `low`, `medium`, `high`, `critical`)
-- `confidence`: confidence (`heuristic`, `probable`, `strong`)
+  - `severity`: severity (`info`, `low`, `medium`, `high`, `critical`)
+  - `impact`: impact bucket (`critical`, `high`, `medium`, `low`, `none`)
+  - `confidence`: confidence (`certain`, `strong`, `probable`, `tentative`, `weak`, `heuristic`)
+  - `action_type`: action taxonomy (for example `Launch`, `JavaScript`, `GoTo`)
+- `action_target`: where the action is headed (for example `uri:http://example.com`)
+- `action_initiation`: how the action is triggered (`automatic`, `user`, `hidden`, `deep`)
+- `reader.impact.<profile>`: severity bucket seen by each reader profile (`acrobat`, `pdfium`, `preview`)
+- `reader.impact.summary`: comma-separated `<profile>:<severity>/<impact>` summary (for example `acrobat:critical/critical,pdfium:low/low`)
 - `surface`: attack surface (for example `embedded_files`, `actions`, `streams_and_filters`)
 - `kind`: finding kind (same as `subtype`)
 - `objects`: number of related objects
+- `meta.<key>`: detector metadata entries such as `meta.cve`, `meta.attack_surface`, `meta.launch.target_path`, or `meta.reader.impact.summary`. Use `meta.cve` to focus on CVE-driven heuristics and `meta.attack_surface` to group detections by the taxonomy referenced in `docs/threat-intel-tracker.md`.
 - `evidence`: number of evidence spans
+
+### Canonical diff (`canonical-diff`)
+
+- `summary`: canonical object stats (`canonical_object_count`, `incremental_updates_removed`, `normalized_name_changes`)
+- `removed_objects`: array of shadowed object references dropped by the canonical view
+- `name_changes`: array of renamed dictionary keys after normalization
+
+Use `sis query canonical-diff file.pdf` to show exactly what the canonical view stripped or renamed before detectors run; this guarantees the same canonical indices appear in every report and predicate. 
 
 ### Encryption queries
 - `type`: `Finding`
@@ -190,6 +205,12 @@ sis query events file.pdf --where "filter == 'document'"
 # High severity findings
 sis query findings file.pdf --where "filter == 'high'"
 
+# CVE-specific detections (e.g., limit to the FreeType gvar heuristic)
+sis query findings file.pdf --where "meta.cve == 'CVE-2025-27363'"
+
+# CVE attack surface grouping
+sis query findings file.pdf --where "meta.attack_surface == 'Image codecs / zero-click JBIG2'"
+
 # Streams using FlateDecode
 sis query objects.with Stream file.pdf --where "filter == '/FlateDecode'"
 
@@ -198,6 +219,9 @@ sis query images file.pdf --where "risky == true AND pixels > 1000000"
 
 # PNG images with high entropy
 sis query images file.pdf --where "format == 'PNG' AND entropy > 7.5"
+
+# Reader divergence example
+sis query findings file.pdf --where "reader.impact.preview == 'low'"
 
 # Filter chain findings with allowlist misses
 sis query filters.unusual file.pdf --where "violation_type == 'allowlist_miss'"
@@ -210,6 +234,12 @@ sis query filters.unusual file.pdf --where "violation_type == 'strict_mode'"
 
 # Image filters chained with compression
 sis query filters.unusual file.pdf --where "violation_type == 'image_with_compression'"
+
+# Action-type focused findings
+sis query findings file.pdf --where "action_type == 'Launch' AND filter == 'high'"
+
+# Canonical diff transparency
+sis query canonical-diff file.pdf
 
 ## Image predicate metadata
 

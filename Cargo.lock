@@ -850,7 +850,7 @@ dependencies = [
 
 [[package]]
 name = "cve-update"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1280,7 +1280,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "font-analysis"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "allsorts",
  "serde",
@@ -1953,7 +1953,7 @@ dependencies = [
 
 [[package]]
 name = "image-analysis"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "hayro-jbig2",
@@ -2121,7 +2121,7 @@ dependencies = [
 
 [[package]]
 name = "js-analysis"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "boa_ast",
@@ -2944,6 +2944,16 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "perf-guard"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "pest"
@@ -3885,7 +3895,7 @@ checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
 name = "sis-pdf"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3920,7 +3930,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "bitflags 2.10.0",
@@ -3946,7 +3956,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-detectors"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3965,7 +3975,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-ml-graph"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3980,7 +3990,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-pdf"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

@@ -669,6 +669,7 @@ fn label_mismatch_finding(
         kind: "label_mismatch_stream_type".to_string(),
         severity,
         confidence: Confidence::Strong,
+        impact: None,
         title: "Stream label mismatch".to_string(),
         description: "Stream subtype does not match observed content signature.".to_string(),
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -678,6 +679,7 @@ fn label_mismatch_finding(
         yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
     })
 }
 
@@ -707,6 +709,7 @@ fn validation_failure_finding(
         kind: "content_validation_failed".to_string(),
         severity: Severity::Medium,
         confidence: Confidence::Probable,
+        impact: None,
         title: "Content validation failed".to_string(),
         description: "Stream signature matched, but lightweight validation failed.".to_string(),
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -716,6 +719,7 @@ fn validation_failure_finding(
         yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
     })
 }
 
@@ -744,6 +748,7 @@ fn validation_failure_span_finding(
         kind: "content_validation_failed".to_string(),
         severity: Severity::Medium,
         confidence: Confidence::Probable,
+        impact: None,
         title: "Content validation failed".to_string(),
         description: "Content signature matched, but lightweight validation failed.".to_string(),
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -753,6 +758,7 @@ fn validation_failure_span_finding(
         yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
     })
 }
 
@@ -807,9 +813,15 @@ fn declared_filter_invalid_finding(
         evidence: vec![span_to_evidence(stream.data_span, "Stream data")],
         remediation: Some("Inspect stream data and reconcile declared filters.".to_string()),
         meta: finding_meta,
+
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
     })
 }
 
@@ -839,6 +851,7 @@ fn decode_recovered_finding(
         kind: "decode_recovery_used".to_string(),
         severity: Severity::Info,
         confidence: Confidence::Strong,
+        impact: None,
         title: "Decode recovery used".to_string(),
         description: "Recovered stream payload using fallback decoding.".to_string(),
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -847,9 +860,15 @@ fn decode_recovered_finding(
             "Treat stream data as suspect and verify filter declarations.".to_string(),
         ),
         meta: finding_meta,
+
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
     })
 }
 
@@ -886,6 +905,7 @@ fn undeclared_compression_finding(
         kind: "undeclared_compression_present".to_string(),
         severity: Severity::High,
         confidence: Confidence::Probable,
+        impact: None,
         title: "Undeclared compression detected".to_string(),
         description: "Stream data looks compressed despite no declared filters.".to_string(),
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -895,6 +915,7 @@ fn undeclared_compression_finding(
         yara: None,
         position: None,
         positions: Vec::new(),
+        ..Finding::default()
     })
 }
 
@@ -970,6 +991,7 @@ fn carve_payloads(
                 kind: "embedded_payload_carved".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Probable,
+                impact: None,
                 title: "Embedded payload carved".to_string(),
                 description: "Detected an embedded payload signature inside another object."
                     .to_string(),
@@ -982,6 +1004,7 @@ fn carve_payloads(
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+                ..Finding::default()
             });
             if findings.len() >= max_hits {
                 break;
@@ -1036,6 +1059,7 @@ fn script_payload_findings(
             kind: kind_str.to_string(),
             severity: actual_severity,
             confidence: Confidence::Probable,
+            impact: None,
             title: title.to_string(),
             description: description.to_string(),
             objects: vec![format!("{} {} obj", obj, gen)],
@@ -1045,6 +1069,7 @@ fn script_payload_findings(
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
     };
 
@@ -1150,6 +1175,7 @@ fn swf_findings(
             kind: "actionscript_present".to_string(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
+            impact: None,
             title: "ActionScript present".to_string(),
             description: "SWF tags indicate embedded ActionScript bytecode.".to_string(),
             objects: vec![format!("{} {} obj", obj, gen)],
@@ -1159,6 +1185,7 @@ fn swf_findings(
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
     }
 
@@ -1173,6 +1200,7 @@ fn swf_findings(
             kind: "swf_url_iocs".to_string(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
+            impact: None,
             title: "SWF URL indicators".to_string(),
             description: "Embedded URLs detected in SWF tag payloads.".to_string(),
             objects: vec![format!("{} {} obj", obj, gen)],
@@ -1182,6 +1210,7 @@ fn swf_findings(
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
     }
 
@@ -1395,6 +1424,7 @@ fn zip_container_findings(
                     kind: "nested_container_chain".to_string(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
+                    impact: None,
                     title: "Nested container chain detected".to_string(),
                     description: "ZIP entry contains a nested file signature.".to_string(),
                     objects: vec![format!("{} {} obj", obj, gen)],
@@ -1406,6 +1436,7 @@ fn zip_container_findings(
                     yara: None,
                     position: None,
                     positions: Vec::new(),
+                    ..Finding::default()
                 });
                 break;
             }

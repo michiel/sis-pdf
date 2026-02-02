@@ -36,6 +36,7 @@ impl Detector for FilterChainDepthDetector {
                         kind: "filter_chain_depth_high".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
+                        impact: None,
                         title: "Deep filter chain".into(),
                         description: format!(
                             "Stream uses {} filters: {}.",
@@ -50,6 +51,7 @@ impl Detector for FilterChainDepthDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
+                        ..Finding::default()
                     });
                 }
             }

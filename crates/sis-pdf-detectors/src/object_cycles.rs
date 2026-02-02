@@ -69,6 +69,7 @@ impl Detector for ObjectReferenceCycleDetector {
                     Severity::Medium
                 },
                 confidence: Confidence::Strong,
+            impact: None,
                 title: format!("Excessive reference depth: {} levels", max_depth),
                 description: format!(
                     "Object reference depth of {} exceeds reasonable threshold (20). May cause stack overflow.",
@@ -81,6 +82,7 @@ impl Detector for ObjectReferenceCycleDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
+            ..Finding::default()
             });
         }
 
@@ -265,6 +267,7 @@ fn detect_cycles_from(
             kind: "object_reference_cycle".into(),
             severity,
             confidence: Confidence::Strong,
+            impact: None,
             title,
             description,
             objects: cycle_objects,
@@ -274,6 +277,7 @@ fn detect_cycles_from(
             yara: None,
             position: None,
             positions: Vec::new(),
+            ..Finding::default()
         });
 
         // CRITICAL FIX: Mark this node as visited even when it's part of a cycle

@@ -275,6 +275,115 @@ def create_gvar_anomalous_size():
 
     return build_truetype_font(tables, 'cve/gvar-anomalous-size.ttf')
 
+def create_gvar_glyph_count_mismatch():
+    """
+    Create a variable font where the gvar glyphCount exceeds maxp.numGlyphs (CVE-2025-27363 signal).
+    """
+    tables = {}
+
+    # Head
+    head_data = bytearray()
+    write_u16(head_data, 1)
+    write_u16(head_data, 0)
+    write_fixed(head_data, 1.0)
+    write_u32(head_data, 0)
+    write_u32(head_data, 0x5F0F3CF5)
+    write_u16(head_data, 0)
+    write_u16(head_data, 1000)
+    write_u32(head_data, 0)
+    write_u32(head_data, 0)
+    write_u32(head_data, 0)
+    write_u32(head_data, 0)
+    write_u16(head_data, 0)
+    write_u16(head_data, 0)
+    write_u16(head_data, 1000)
+    write_u16(head_data, 1000)
+    write_u16(head_data, 0)
+    write_u16(head_data, 8)
+    write_u16(head_data, 2)
+    write_u16(head_data, 0)  # short loca
+    write_u16(head_data, 0)
+    tables[b'head'] = bytes(head_data)
+
+    # maxp (1 glyph)
+    maxp_data = bytearray()
+    write_u32(maxp_data, 0x00005000)
+    write_u16(maxp_data, 1)
+    tables[b'maxp'] = bytes(maxp_data)
+
+    # hhea
+    hhea_data = bytearray()
+    write_u32(hhea_data, 0x00010000)
+    write_i16(hhea_data, 750)
+    write_i16(hhea_data, -250)
+    write_i16(hhea_data, 0)
+    write_u16(hhea_data, 1000)
+    write_i16(hhea_data, 0)
+    write_i16(hhea_data, 0)
+    write_i16(hhea_data, 1000)
+    write_u16(hhea_data, 1)
+    write_u16(hhea_data, 0)
+    write_i16(hhea_data, 0)
+    for _ in range(4):
+        write_i16(hhea_data, 0)
+    write_i16(hhea_data, 0)
+    write_u16(hhea_data, 1)
+    tables[b'hhea'] = bytes(hhea_data)
+
+    # hmtx (1 metric)
+    hmtx_data = bytearray()
+    write_u16(hmtx_data, 500)
+    write_i16(hmtx_data, 0)
+    tables[b'hmtx'] = bytes(hmtx_data)
+
+    # loca (short format, 2 entries)
+    loca_data = bytearray()
+    write_u16(loca_data, 0)
+    write_u16(loca_data, 0)
+    tables[b'loca'] = bytes(loca_data)
+
+    # glyf (empty)
+    tables[b'glyf'] = b''
+
+    # fvar table (required for variable fonts)
+    fvar_data = bytearray()
+    write_u32(fvar_data, 0x00010000)
+    write_u16(fvar_data, 16)
+    write_u16(fvar_data, 2)
+    write_u16(fvar_data, 1)
+    write_u16(fvar_data, 20)
+    write_u16(fvar_data, 0)
+    write_u16(fvar_data, 0)
+    write_u32(fvar_data, 0x77676874)
+    write_fixed(fvar_data, 400.0)
+    write_fixed(fvar_data, 400.0)
+    write_fixed(fvar_data, 700.0)
+    write_u16(fvar_data, 0)
+    write_u16(fvar_data, 256)
+    tables[b'fvar'] = bytes(fvar_data)
+
+    # gvar table with glyphCount > maxp.numGlyphs
+    gvar_data = bytearray()
+    write_u32(gvar_data, 0x00010000)
+    write_u16(gvar_data, 1)  # axisCount
+    write_u16(gvar_data, 0)  # reserved
+    write_u32(gvar_data, 0)  # placeholder (shared tuple metadata)
+    glyph_count = 5
+    write_u16(gvar_data, glyph_count)  # glyphCount (mismatched)
+    write_u16(gvar_data, 0)  # flags (short offsets)
+    offsets_count = glyph_count + 1
+    entry_size = 2
+    offset_to_glyph_data = 20 + offsets_count * entry_size
+    write_u32(gvar_data, offset_to_glyph_data)
+    offset_values = [i * 2 for i in range(offsets_count)]
+    for value in offset_values:
+        write_u16(gvar_data, value)
+    padding = bytearray(offsets_count * entry_size + 32)
+    gvar_data.extend(padding)
+    tables[b'gvar'] = bytes(gvar_data)
+
+    return build_truetype_font(tables, 'cve/gvar-glyph-count-mismatch.ttf')
+
 def build_truetype_font(tables, output_path):
     """Build complete TrueType font from table dictionary"""
 
@@ -349,6 +458,7 @@ def main():
     create_cve_2025_27163_hmtx_hhea_mismatch()
     create_cve_2023_26369_ebsc_oob()
     create_gvar_anomalous_size()
+    create_gvar_glyph_count_mismatch()
 
     print()
     print("All CVE fixtures generated successfully!")

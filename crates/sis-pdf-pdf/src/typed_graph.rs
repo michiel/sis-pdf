@@ -159,7 +159,7 @@ impl EdgeType {
                 | EdgeType::AdditionalAction { .. }
                 | EdgeType::JavaScriptPayload
                 | EdgeType::FormFieldAction { .. }
-        )
+        ) || matches!(self, EdgeType::DictReference { key } if key == "/Next")
     }
 }
 

@@ -184,6 +184,12 @@ pub struct StructuralSummary {
     pub secondary_parser: Option<SecondaryParserSummary>,
     pub secondary_parser_error: Option<String>,
     pub ir_summary: Option<IrSummary>,
+    #[serde(default)]
+    pub canonical_object_count: usize,
+    #[serde(default)]
+    pub incremental_updates_removed: usize,
+    #[serde(default)]
+    pub normalized_name_changes: usize,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -1882,8 +1888,10 @@ fn severity_score(sev: Severity) -> u8 {
 
 fn confidence_score(conf: crate::model::Confidence) -> u8 {
     match conf {
-        crate::model::Confidence::Strong => 3,
+        crate::model::Confidence::Certain | crate::model::Confidence::Strong => 3,
         crate::model::Confidence::Probable => 2,
+        crate::model::Confidence::Tentative => 1,
+        crate::model::Confidence::Weak => 1,
         crate::model::Confidence::Heuristic => 1,
     }
 }

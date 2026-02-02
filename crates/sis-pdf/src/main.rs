@@ -668,10 +668,6 @@ fn main() -> Result<()> {
             MlCommand::ComputeBaseline { input, out } => run_compute_baseline(&input, &out),
         },
         Command::Update { include_prerelease } => run_update(include_prerelease),
-        Command::Version => {
-            println!("{}", env!("CARGO_PKG_VERSION"));
-            Ok(())
-        }
         Command::Query {
             query,
             pdf,
