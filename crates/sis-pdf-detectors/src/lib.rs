@@ -602,7 +602,7 @@ impl Detector for OpenActionDetector {
                         id: String::new(),
                         surface: self.surface(),
                         kind: "open_action_present".into(),
-                        severity: Severity::Medium,
+                        severity: Severity::Low,
                         confidence: Confidence::Strong,
                         impact: None,
                         title: "Document OpenAction present".into(),
