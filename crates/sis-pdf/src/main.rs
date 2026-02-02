@@ -22,6 +22,7 @@ use tar::Archive;
 use tempfile::tempdir;
 use toml_edit::{value, Array, DocumentMut, Item, Table, Value};
 use tracing::{debug, error, info, warn, Level};
+use ureq::Agent;
 use walkdir::WalkDir;
 use zip::ZipArchive;
 const MAX_REPORT_BYTES: u64 = 50 * 1024 * 1024;
@@ -1244,12 +1245,8 @@ fn run_update(include_prerelease: bool) -> Result<()> {
     eprintln!("Downloading {}", asset.name);
     let temp_dir = tempdir()?;
     let archive_path = temp_dir.path().join(&asset.name);
-    let mut reader = ureq::get(&asset.browser_download_url)
-        .header("User-Agent", UPDATE_USER_AGENT)
-        .call()
-        .map_err(|err| anyhow!("failed to download {}: {err}", asset.name))?
-        .into_body()
-        .into_reader();
+    let mut reader = http_get_reader(&asset.browser_download_url, UPDATE_USER_AGENT)
+        .map_err(|err| anyhow!("failed to download {}: {err}", asset.name))?;
     let mut out = fs::File::create(&archive_path)?;
     std::io::copy(&mut reader, &mut out)?;
     verify_release_checksum(&release, &asset, &archive_path)?;
@@ -1294,19 +1291,15 @@ fn fetch_release_with_asset(
 }
 
 fn fetch_release(url: &str) -> Result<Release> {
-    let response = ureq::get(url)
-        .header("User-Agent", UPDATE_USER_AGENT)
-        .call()
+    let reader = http_get_reader(url, UPDATE_USER_AGENT)
         .map_err(|err| anyhow!("failed to query GitHub releases: {err}"))?;
-    Ok(serde_json::from_reader(response.into_body().into_reader())?)
+    Ok(serde_json::from_reader(reader)?)
 }
 
 fn fetch_release_list(url: &str) -> Result<Vec<Release>> {
-    let response = ureq::get(url)
-        .header("User-Agent", UPDATE_USER_AGENT)
-        .call()
+    let reader = http_get_reader(url, UPDATE_USER_AGENT)
         .map_err(|err| anyhow!("failed to query GitHub releases: {err}"))?;
-    Ok(serde_json::from_reader(response.into_body().into_reader())?)
+    Ok(serde_json::from_reader(reader)?)
 }
 
 fn find_release_asset(release: &Release, suffix: &str) -> Option<ReleaseAsset> {
@@ -1335,12 +1328,8 @@ fn verify_release_checksum(
         );
         return Ok(());
     };
-    let mut reader = ureq::get(&checksum_asset.browser_download_url)
-        .header("User-Agent", UPDATE_USER_AGENT)
-        .call()
-        .map_err(|err| anyhow!("failed to download {}: {err}", checksum_asset.name))?
-        .into_body()
-        .into_reader();
+    let mut reader = http_get_reader(&checksum_asset.browser_download_url, UPDATE_USER_AGENT)
+        .map_err(|err| anyhow!("failed to download {}: {err}", checksum_asset.name))?;
     let mut contents = String::new();
     reader.read_to_string(&mut contents)?;
     let Some(expected) = parse_checksum(&contents, &asset.name) else {
@@ -1655,12 +1644,8 @@ fn run_ml_ort_download(
     );
     let temp_dir = tempdir()?;
     let archive_path = temp_dir.path().join(&archive_name);
-    let mut reader = ureq::get(&url)
-        .header("User-Agent", ORT_USER_AGENT)
-        .call()
-        .map_err(|err| anyhow!("failed to download {archive_name}: {err}"))?
-        .into_body()
-        .into_reader();
+    let mut reader = http_get_reader(&url, ORT_USER_AGENT)
+        .map_err(|err| anyhow!("failed to download {archive_name}: {err}"))?;
     let mut out = fs::File::create(&archive_path)?;
     std::io::copy(&mut reader, &mut out)?;
     if let Some(checksum) = checksum_sha256 {
@@ -2305,23 +2290,17 @@ fn fetch_checksum_contents(
 }
 
 fn download_text(url: &str, user_agent: &str) -> Result<String> {
-    let mut reader = ureq::get(url)
-        .header("User-Agent", user_agent)
-        .call()
-        .map_err(|err| anyhow!("failed to download {url}: {err}"))?
-        .into_body()
-        .into_reader();
+    let mut reader = http_get_reader(url, user_agent)
+        .map_err(|err| anyhow!("failed to download {url}: {err}"))?;
     let mut contents = String::new();
     reader.read_to_string(&mut contents)?;
     Ok(contents)
 }
 
 fn download_text_optional(url: &str, user_agent: &str) -> Result<Option<String>> {
-    let response = ureq::get(url).header("User-Agent", user_agent).call();
-    match response {
-        Ok(response) => {
+    match http_get_reader(url, user_agent) {
+        Ok(mut reader) => {
             let mut contents = String::new();
-            let mut reader = response.into_body().into_reader();
             reader.read_to_string(&mut contents)?;
             Ok(Some(contents))
         }
@@ -2330,14 +2309,23 @@ fn download_text_optional(url: &str, user_agent: &str) -> Result<Option<String>>
     }
 }
 
+fn http_get_reader(url: &str, user_agent: &str) -> Result<impl Read, ureq::Error> {
+    let agent: Agent = Agent::config_builder()
+        .user_agent(user_agent)
+        .build()
+        .into();
+    agent
+        .get(url)
+        .call()
+        .map(|res| res.into_body().into_reader())
+}
+
 fn fetch_checksum_from_release(version: &str, archive_name: &str) -> Result<String> {
     let api_url =
         format!("https://api.github.com/repos/microsoft/onnxruntime/releases/tags/v{version}");
-    let response = ureq::get(&api_url)
-        .header("User-Agent", ORT_USER_AGENT)
-        .call()
+    let release_reader = http_get_reader(&api_url, ORT_USER_AGENT)
         .map_err(|err| anyhow!("failed to query ORT release metadata: {err}"))?;
-    let release: Release = serde_json::from_reader(response.into_body().into_reader())?;
+    let release: Release = serde_json::from_reader(release_reader)?;
     let mut candidates = release
         .assets
         .iter()
@@ -2542,15 +2530,15 @@ struct MlRuntimeUpdate {
 
 fn write_ml_runtime_config(path: &std::path::Path, update: &MlRuntimeUpdate) -> Result<()> {
     let mut doc = load_or_create_config_document(path)?;
-    ensure_scan_table(&mut doc);
+    let scan = scan_table(&mut doc);
     if let Some(provider) = update.provider.as_ref() {
-        doc["scan"]["ml_provider"] = value(provider.clone());
+        scan["ml_provider"] = value(provider.clone());
     }
     if let Some(order) = update.provider_order.as_ref() {
-        doc["scan"]["ml_provider_order"] = Item::Value(Value::Array(toml_array(order)));
+        scan["ml_provider_order"] = Item::Value(Value::Array(toml_array(order)));
     }
     if let Some(path) = update.ort_dylib.as_ref() {
-        doc["scan"]["ml_ort_dylib"] = value(path.display().to_string());
+        scan["ml_ort_dylib"] = value(path.display().to_string());
     }
     write_config_document(path, &doc)?;
     Ok(())
@@ -2568,10 +2556,13 @@ fn load_or_create_config_document(path: &std::path::Path) -> Result<DocumentMut>
     Ok(doc)
 }
 
-fn ensure_scan_table(doc: &mut DocumentMut) {
+fn scan_table(doc: &mut DocumentMut) -> &mut Table {
     if doc.get("scan").is_none() {
         doc["scan"] = Item::Table(Table::new());
     }
+    doc["scan"]
+        .as_table_mut()
+        .expect("scan table should always be a table")
 }
 
 fn write_config_document(path: &std::path::Path, doc: &DocumentMut) -> Result<()> {

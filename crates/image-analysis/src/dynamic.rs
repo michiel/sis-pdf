@@ -564,7 +564,7 @@ fn decode_jpx(
     let settings = hayro_jpeg2000::DecodeSettings {
         resolve_palette_indices: true,
         strict: true,
-        target_resolution: None,
+        target_resolution: jpeg2000_target_resolution(opts),
     };
     let image = match hayro_jpeg2000::Image::new(bytes, &settings) {
         Ok(image) => image,
@@ -582,6 +582,20 @@ fn decode_jpx(
         }
         DecodeStatus::Ok
     }
+}
+
+fn jpeg2000_target_resolution(opts: &ImageDynamicOptions) -> Option<(u32, u32)> {
+    if opts.max_pixels == 0 {
+        return None;
+    }
+    let mut max_side = (opts.max_pixels as f64).sqrt();
+    if max_side < 1.0 {
+        max_side = 1.0;
+    }
+    if max_side > u32::MAX as f64 {
+        max_side = u32::MAX as f64;
+    }
+    Some((max_side as u32, max_side as u32))
 }
 
 #[cfg(not(feature = "jpx"))]

@@ -146,10 +146,7 @@ impl Detector for RichMediaContentDetector {
             }
             if !action_tags.is_empty() {
                 let mut action_meta = meta.clone();
-                action_meta.insert(
-                    "swf.action_tag_count".into(),
-                    action_tags.len().to_string(),
-                );
+                action_meta.insert("swf.action_tag_count".into(), action_tags.len().to_string());
                 action_meta.insert(
                     "swf.tags_scanned".into(),
                     analysis.action_scan.tags_scanned.to_string(),

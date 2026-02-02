@@ -12,7 +12,6 @@ use std::collections::HashMap;
 /// The hmtx table must have at least 4 * hhea.numberOfHMetrics bytes.
 /// A mismatch can lead to out-of-bounds reads.
 pub fn check_cve_2025_27163(context: &FontContext, findings: &mut Vec<FontFinding>) {
-
     if let (Some(num_h_metrics), Some(hmtx_length)) = (context.num_h_metrics, context.hmtx_length) {
         let required_length = (num_h_metrics as usize) * 4;
 
