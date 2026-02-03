@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import subprocess
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -217,6 +218,21 @@ def parse_jsonl_findings(
                 by_field["surface"][extract_surface(finding)] += 1
                 total_findings += 1
     return by_kind, by_field, total_findings, parse_errors
+
+
+def update_latest_symlink(corpus_root: Path, latest_dir: Path) -> None:
+    link_path = corpus_root / "mwb-latest"
+    if link_path.exists() or link_path.is_symlink():
+        if link_path.is_symlink() or link_path.is_file():
+            link_path.unlink()
+        else:
+            # remove directory if leftover
+            if link_path.is_dir():
+                for child in link_path.iterdir():
+                    if child.is_dir():
+                        os.rmdir(child)
+                link_path.rmdir()
+    os.symlink(latest_dir.resolve(), link_path)
 
 
 def count_errors(stderr_path: Path) -> Dict[str, int]:
@@ -560,6 +576,8 @@ def main() -> int:
                 args.deep,
                 args.glob,
             )
+        if day_dirs:
+            update_latest_symlink(corpus_root, day_dirs[-1])
 
     if args.scan_only:
         return 0
