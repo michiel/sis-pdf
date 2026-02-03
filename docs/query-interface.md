@@ -10,6 +10,8 @@ Run a one-shot query:
 sis query sample.pdf images
 ```
 
+Adjust the report verbosity with `--report-verbosity [compact|standard|verbose]` (default `standard`). `compact` drops info/low findings from the default tables while the JSON output still contains every finding.
+
 Start an interactive REPL:
 
 ```bash

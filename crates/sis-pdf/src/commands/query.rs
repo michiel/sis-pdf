@@ -1,6 +1,7 @@
 //! Query command implementation and output formatting helpers.
 
 use anyhow::{anyhow, Result};
+use clap::ValueEnum;
 use globset::Glob;
 use rayon::prelude::*;
 use serde::Serialize;
@@ -44,6 +45,13 @@ pub enum OutputFormat {
     Yaml,
     Csv,
     Dot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ReportVerbosity {
+    Compact,
+    Standard,
+    Verbose,
 }
 
 impl OutputFormat {
@@ -1234,6 +1242,50 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
     };
 
     Ok(resolved)
+}
+
+pub fn apply_report_verbosity(
+    query: &Query,
+    result: QueryResult,
+    verbosity: ReportVerbosity,
+) -> QueryResult {
+    if verbosity != ReportVerbosity::Compact {
+        return result;
+    }
+
+    if matches!(
+        query,
+        Query::Findings
+            | Query::FindingsBySeverity(_)
+            | Query::FindingsByKind(_)
+            | Query::FindingsComposite
+    ) {
+        if let QueryResult::Structure(value) = result {
+            QueryResult::Structure(filter_findings_by_severity(value))
+        } else {
+            result
+        }
+    } else {
+        result
+    }
+}
+
+fn filter_findings_by_severity(value: serde_json::Value) -> serde_json::Value {
+    let filtered = match value {
+        serde_json::Value::Array(entries) => serde_json::Value::Array(
+            entries
+                .into_iter()
+                .filter(|entry| match entry.get("severity").and_then(|v| v.as_str()) {
+                    Some("Info") | Some("Low") => false,
+                    Some(other) => !other.eq_ignore_ascii_case("info")
+                        && !other.eq_ignore_ascii_case("low"),
+                    None => true,
+                })
+                .collect(),
+        ),
+        other => other,
+    };
+    filtered
 }
 
 /// Build a scan context (public version for REPL caching)

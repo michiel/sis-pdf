@@ -129,6 +129,13 @@ enum Command {
         colour: bool,
         #[arg(long, short = 'c', help = "Compact output (numbers only)")]
         compact: bool,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = commands::query::ReportVerbosity::Standard,
+            help = "Report verbosity (compact, standard, verbose)"
+        )]
+        report_verbosity: commands::query::ReportVerbosity,
         #[arg(long, help = "Filter results with a predicate expression")]
         r#where: Option<String>,
         #[arg(long, help = "Deep scan mode")]
@@ -676,6 +683,7 @@ fn main() -> Result<()> {
             format,
             colour,
             compact,
+            report_verbosity,
             r#where,
             deep,
             max_decode_bytes,
@@ -811,6 +819,7 @@ fn main() -> Result<()> {
                     colour,
                     decode_mode,
                     predicate.as_ref(),
+                    report_verbosity,
                 )
             }
         }
@@ -2736,6 +2745,7 @@ fn run_query_oneshot(
     max_extract_bytes: usize,
     decode_mode: commands::query::DecodeMode,
     predicate: Option<&commands::query::PredicateExpr>,
+    report_verbosity: commands::query::ReportVerbosity,
 ) -> Result<()> {
     use commands::query;
 
@@ -2810,6 +2820,8 @@ fn run_query_oneshot(
         predicate,
     )
     .map_err(|e| anyhow!("Query execution failed: {}", e))?;
+
+    let result = query::apply_report_verbosity(&query, result, report_verbosity);
 
     // Format and print the result
     match output_format {
@@ -3059,6 +3071,8 @@ fn run_query_repl(
                             predicate_expr.as_ref(),
                         ) {
                             Ok(result) => {
+                                let result =
+                                    query::apply_report_verbosity(&q, result, report_verbosity);
                                 let formatted = if yaml_mode {
                                     match query::format_yaml(query_line, pdf_path, &result) {
                                         Ok(output) => maybe_colourise_output(
