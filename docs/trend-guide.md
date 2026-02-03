@@ -24,7 +24,7 @@ The Fedora VM already maintains a `corpus/` tree under `/home/sis-scanner`, with
 
 ```bash
 cd /home/sis-scanner/dev/sis-pdf
-scripts/run_trend_pipeline.sh /home/sis-scanner/corpus/mwb-2026-02-04 /home/sis-scanner/corpus
+scripts/run_trend_pipeline.sh /home/sis-scanner/corpus/mwb-2026-02-04 /home/sis-scanner/corpus --batch-parallel
 ```
 
 Set `SIS_BINARY` if you need the virtualenv copy:

@@ -55,6 +55,11 @@ def parse_args() -> argparse.Namespace:
         help="Enable deep scan mode.",
     )
     parser.add_argument(
+        "--batch-parallel",
+        action="store_true",
+        help="Forward --batch-parallel to sis scan for intra-run worker pools.",
+    )
+    parser.add_argument(
         "--date",
         help="Process a specific date (YYYY-MM-DD). Defaults to all days.",
     )
@@ -124,6 +129,7 @@ def run_sis_scan(
     glob: str,
     deep: bool,
     force: bool,
+    batch_parallel: bool,
 ) -> None:
     if jsonl_path.exists() and jsonl_path.stat().st_size > 0 and not force:
         return
@@ -139,6 +145,8 @@ def run_sis_scan(
     ]
     if deep:
         args.append("--deep")
+    if batch_parallel:
+        args.append("--batch-parallel")
     with jsonl_path.open("w", encoding="utf-8") as out, stderr_path.open(
         "w", encoding="utf-8"
     ) as err:
@@ -560,6 +568,7 @@ def main() -> int:
                 args.glob,
                 args.deep,
                 args.force,
+                args.batch_parallel,
             )
             by_kind, by_field, total_findings, parse_errors = parse_jsonl_findings(
                 artifacts.jsonl_path
