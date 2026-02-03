@@ -3327,6 +3327,10 @@ fn print_repl_help() {
     println!("  cycles.page        - Page tree cycles");
     println!("  ref OBJ GEN        - Incoming references for an object (generation optional)");
     println!();
+    println!("Graph exports:");
+    println!("  org                - Export ORG graph (dot/text output, use :json for JSON, :readable for dot)");
+    println!("  ir                 - Export intent graph (text output, use :json for JSON)");
+    println!();
     println!("REPL commands:");
     println!("  :json              - Toggle JSON output mode");
     println!("  :jsonl             - Toggle JSONL output mode");

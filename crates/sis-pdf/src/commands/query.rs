@@ -581,9 +581,15 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "cycles.page" => Ok(Query::CyclesPage),
 
         // Export queries
+        "org" => Ok(Query::ExportOrgDot),
+        "org.dot" => Ok(Query::ExportOrgDot),
+        "org.json" => Ok(Query::ExportOrgJson),
         "graph.org" => Ok(Query::ExportOrgDot),
         "graph.org.dot" => Ok(Query::ExportOrgDot),
         "graph.org.json" => Ok(Query::ExportOrgJson),
+        "ir" => Ok(Query::ExportIrText),
+        "ir.text" => Ok(Query::ExportIrText),
+        "ir.json" => Ok(Query::ExportIrJson),
         "graph.ir" => Ok(Query::ExportIrText),
         "graph.ir.text" => Ok(Query::ExportIrText),
         "graph.ir.json" => Ok(Query::ExportIrJson),
@@ -7418,6 +7424,18 @@ mod tests {
             query,
             Query::FindingsByKindCount(ref kind) if kind == "embedded_executable_present"
         ));
+    }
+
+    #[test]
+    fn parse_query_supports_org_and_ir_aliases() {
+        let query = parse_query("org").expect("org query");
+        assert!(matches!(query, Query::ExportOrgDot));
+        let query = parse_query("org.json").expect("org json query");
+        assert!(matches!(query, Query::ExportOrgJson));
+        let query = parse_query("ir").expect("ir query");
+        assert!(matches!(query, Query::ExportIrText));
+        let query = parse_query("ir.json").expect("ir json query");
+        assert!(matches!(query, Query::ExportIrJson));
     }
 
     #[test]
