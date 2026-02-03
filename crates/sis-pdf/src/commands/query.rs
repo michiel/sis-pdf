@@ -4213,6 +4213,9 @@ fn extract_action_details(
     if let Some(dict) = match &action_obj.atom {
         PdfAtom::Dict(d) => Some(d),
         PdfAtom::Stream(st) => Some(&st.dict),
+        PdfAtom::Ref { obj, gen } => graph
+            .get_object(*obj, *gen)
+            .and_then(|entry| entry_dict(entry)),
         _ => None,
     } {
         // Check action type
@@ -4371,6 +4374,18 @@ fn raw_name_string(name: &PdfName<'_>) -> String {
     }
 }
 
+fn format_name(name: &PdfName<'_>) -> String {
+    let binding = String::from_utf8_lossy(&name.decoded);
+    let trimmed = binding.trim();
+    if trimmed.is_empty() {
+        "/".to_string()
+    } else if trimmed.starts_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("/{}", trimmed)
+    }
+}
+
 fn extract_obj_text(
     graph: &sis_pdf_pdf::ObjectGraph<'_>,
     bytes: &[u8],
@@ -4386,6 +4401,7 @@ fn extract_obj_text(
         PdfAtom::Stream(st) => sis_pdf_pdf::decode::decode_stream(bytes, st, 32 * 1024 * 1024)
             .ok()
             .map(|d| String::from_utf8_lossy(&d.data).to_string()),
+        PdfAtom::Name(name) => Some(format_name(name)),
         PdfAtom::Ref { .. } => {
             let entry = graph.resolve_ref(obj)?;
             match &entry.atom {
@@ -4398,6 +4414,7 @@ fn extract_obj_text(
                         .ok()
                         .map(|d| String::from_utf8_lossy(&d.data).to_string())
                 }
+                PdfAtom::Name(name) => Some(format_name(name)),
                 _ => None,
             }
         }
