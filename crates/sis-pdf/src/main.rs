@@ -3288,28 +3288,22 @@ fn print_repl_help() {
     println!("  embedded.count     - Embedded file count");
     println!("  images             - List images");
     println!("  images.count       - Image count");
-    println!("  images.jbig2       - JBIG2 images");
-    println!("  images.jpx         - JPEG2000 images");
-    println!("  images.ccitt       - CCITT images");
+    println!("  images.<filter>    - JBIG2/JPEG2000/CCITT variants (options: [jbig2, jpx, ccitt])");
     println!("  images.risky       - Risky image formats");
     println!("  images.malformed   - Malformed image decodes (requires --deep)");
     println!();
     println!("Finding queries:");
     println!("  findings           - List all findings");
     println!("  findings.count     - Finding count");
-    println!("  findings.high      - High severity findings");
-    println!("  findings.medium    - Medium severity findings");
-    println!("  findings.low       - Low severity findings");
-    println!("  findings.info      - Info severity findings");
-    println!("  findings.critical  - Critical severity findings");
+    println!("  findings.<severity> - Findings of level [info, low, medium, high, critical]");
     println!("  findings.kind KIND - Findings of specific kind");
     println!();
     println!("Event trigger queries:");
     println!("  events             - List all event triggers");
     println!("  events.count       - Event trigger count");
-    println!("  events.document    - Document-level events (OpenAction, Doc/WillPrint, etc.)");
-    println!("  events.page        - Page-level events (Page/Open, Page/Close)");
-    println!("  events.field       - Field-level events (MouseDown, Validate, Keystroke, etc.)");
+    println!(
+        "  events.<level>     - Document/page/field events (options: [document, page, field])"
+    );
     println!();
     println!("Object inspection queries:");
     println!("  object N           - Show object N (generation 0)");
