@@ -2918,19 +2918,11 @@ fn run_query_repl(
                 // Add to history
                 let _ = rl.add_history_entry(line);
 
-                let (query_line, pipe_command) = split_repl_pipe(line);
+                let (query_line, destination) = split_repl_destination(line);
                 let query_line = query_line.trim();
                 if query_line.is_empty() {
                     continue;
                 }
-                let pipe_command = pipe_command.and_then(|cmd| {
-                    let trimmed = cmd.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        Some(trimmed)
-                    }
-                });
 
                 // Handle REPL commands
                 if let Some(rest) = query_line.strip_prefix(":where") {
@@ -3105,33 +3097,45 @@ fn run_query_repl(
                                     query::format_result(&result, compact_mode)
                                 };
 
-                                if let Some(cmd) = pipe_command {
-                                    match run_repl_pipeline(cmd, &formatted) {
-                                        Ok((stdout, stderr, status)) => {
-                                            if !stdout.is_empty() {
-                                                print!("{}", stdout);
+                                match destination {
+                                    ReplDestination::Stdout => println!("{}", formatted),
+                                    ReplDestination::Pipe(cmd) => {
+                                        match run_repl_pipeline(cmd.trim(), &formatted) {
+                                            Ok((stdout, stderr, status)) => {
+                                                if !stdout.is_empty() {
+                                                    print!("{}", stdout);
+                                                }
+                                                if !stderr.is_empty() {
+                                                    eprint!("{}", stderr);
+                                                }
+                                                if !status.success() {
+                                                    let status_code = status
+                                                        .code()
+                                                        .map(|code| code.to_string())
+                                                        .unwrap_or_else(|| "unknown".into());
+                                                    eprintln!(
+                                                        "[pipe] `{}` exited ({})",
+                                                        cmd, status_code
+                                                    );
+                                                }
                                             }
-                                            if !stderr.is_empty() {
-                                                eprint!("{}", stderr);
-                                            }
-                                            if !status.success() {
-                                                let status_code = status
-                                                    .code()
-                                                    .map(|code| code.to_string())
-                                                    .unwrap_or_else(|| "unknown".into());
+                                            Err(err) => {
                                                 eprintln!(
-                                                    "[pipe] `{}` exited ({})",
-                                                    cmd, status_code
+                                                    "[pipe] failed to run '{}': {}",
+                                                    cmd, err
                                                 );
+                                                println!("{}", formatted);
                                             }
-                                        }
-                                        Err(err) => {
-                                            eprintln!("[pipe] failed to run '{}': {}", cmd, err);
-                                            println!("{}", formatted);
                                         }
                                     }
-                                } else {
-                                    println!("{}", formatted);
+                                    ReplDestination::Redirect(path) => {
+                                        if let Err(err) = std::fs::write(path.trim(), &formatted) {
+                                            eprintln!(
+                                                "[redirect] failed to write '{}': {}",
+                                                path, err
+                                            );
+                                        }
+                                    }
                                 }
                             }
                             Err(e) => eprintln!("Query failed: {}", e),
@@ -3197,20 +3201,27 @@ fn run_query_repl(
     Ok(())
 }
 
-fn split_repl_pipe(line: &str) -> (&str, Option<&str>) {
-    if let Some(idx) = line.find('|') {
+enum ReplDestination<'a> {
+    Stdout,
+    Pipe(&'a str),
+    Redirect(&'a str),
+}
+
+fn split_repl_destination(line: &str) -> (&str, ReplDestination<'_>) {
+    if let Some(idx) = line.find(|c| c == '|' || c == '>') {
         let (primary, rest) = line.split_at(idx);
         let command = rest[1..].trim();
         let query = primary.trim_end();
-        let pipe = if command.is_empty() {
-            None
-        } else {
-            Some(command)
+        if command.is_empty() {
+            return (query, ReplDestination::Stdout);
+        }
+        return match rest.chars().next().unwrap_or(' ') {
+            '|' => (query, ReplDestination::Pipe(command)),
+            '>' => (query, ReplDestination::Redirect(command)),
+            _ => (line, ReplDestination::Stdout),
         };
-        (query, pipe)
-    } else {
-        (line, None)
     }
+    (line, ReplDestination::Stdout)
 }
 
 fn run_repl_pipeline(command: &str, input: &str) -> Result<(String, String, ExitStatus)> {
@@ -3242,18 +3253,34 @@ mod repl_tests {
 
     #[test]
     fn split_repl_pipe_detects_command() {
-        let (query, pipe) = split_repl_pipe("findings | jq .");
+        let (query, dest) = split_repl_destination("findings | jq .");
         assert_eq!(query, "findings");
-        assert_eq!(pipe, Some("jq ."));
+        if let ReplDestination::Pipe(cmd) = dest {
+            assert_eq!(cmd, "jq .");
+        } else {
+            panic!("expected pipe destination");
+        }
     }
 
     #[test]
     fn split_repl_pipe_without_command() {
-        let (query, pipe) = split_repl_pipe("findings");
+        let (query, dest) = split_repl_destination("findings");
         assert_eq!(query, "findings");
-        assert!(pipe.is_none());
+        assert!(matches!(dest, ReplDestination::Stdout));
     }
 
+    #[test]
+    fn split_repl_destination_redirect() {
+        let (query, dest) = split_repl_destination("org > graph.dot");
+        assert_eq!(query, "org");
+        if let ReplDestination::Redirect(path) = dest {
+            assert_eq!(path, "graph.dot");
+        } else {
+            panic!("expected redirect destination");
+        }
+    }
+
+    #[cfg(unix)]
     #[cfg(unix)]
     #[test]
     fn run_repl_pipeline_invokes_shell() {
@@ -3332,7 +3359,7 @@ fn print_repl_help() {
     println!("  :colour            - Toggle colourised JSON/YAML output");
     println!("  :compact           - Toggle compact output mode");
     println!("  :readable          - Toggle readable output mode (default)");
-    println!("  queries can append '| command' to pipe current output to the shell (e.g., findings | jq .)");
+    println!("  queries can append '| command' to pipe current output to the shell or '> file' to save it (e.g., findings | jq . or org > graph.dot)");
     println!("  :where EXPR        - Set predicate filter (blank clears)");
     println!("  help / ?           - Show this help");
     println!("  exit / quit / :q   - Exit REPL");
