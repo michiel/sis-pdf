@@ -32,9 +32,13 @@ use syntect::highlighting::{Style, Theme, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::as_24_bit_terminal_escaped;
 
+mod readable;
+pub use readable::format_readable_result;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
     Text,
+    Readable,
     Json,
     Jsonl,
     Yaml,
@@ -46,6 +50,7 @@ impl OutputFormat {
     pub fn parse(input: &str) -> Result<Self> {
         match input {
             "text" => Ok(OutputFormat::Text),
+            "readable" => Ok(OutputFormat::Readable),
             "json" => Ok(OutputFormat::Json),
             "jsonl" => Ok(OutputFormat::Jsonl),
             "yaml" | "yml" => Ok(OutputFormat::Yaml),
@@ -611,7 +616,11 @@ pub fn parse_query(input: &str) -> Result<Query> {
             }
 
             // Try to parse object queries
-            if let Some(rest) = input.strip_prefix("object ").or(input.strip_prefix("obj ")) {
+            if let Some(rest) = input
+                .strip_prefix("object ")
+                .or(input.strip_prefix("obj "))
+                .or(input.strip_prefix("o "))
+            {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if parts.len() == 1 {
                     let obj = parts[0]
@@ -1210,7 +1219,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
                 ))
             }
         },
-        OutputFormat::Text => match query {
+        OutputFormat::Text | OutputFormat::Readable => match query {
             Query::ExportOrgJson => Query::ExportOrgDot,
             Query::ExportIrJson => Query::ExportIrText,
             Query::ExportFeaturesJson => Query::ExportFeatures,
@@ -2522,8 +2531,6 @@ fn extract_embedded_files(
     decode_mode: DecodeMode,
     predicate: Option<&PredicateExpr>,
 ) -> Result<Vec<String>> {
-    use sis_pdf_pdf::object::PdfAtom;
-
     let mut embedded = Vec::new();
 
     for entry in &ctx.graph.objects {
@@ -2591,8 +2598,6 @@ struct XfaScriptPayload {
 
 fn collect_xfa_script_payloads(ctx: &ScanContext) -> Vec<XfaScriptPayload> {
     use sis_pdf_pdf::decode::DecodeLimits;
-    use sis_pdf_pdf::object::PdfAtom;
-
     let limits = DecodeLimits {
         max_decoded_bytes: ctx.options.image_analysis.max_xfa_decode_bytes,
         max_filter_chain_depth: ctx.options.image_analysis.max_filter_chain_depth,
@@ -3817,50 +3822,35 @@ fn extract_event_triggers(
     filter_level: Option<&str>,
     predicate: Option<&PredicateExpr>,
 ) -> Result<serde_json::Value> {
-    use sis_pdf_pdf::object::PdfAtom;
-
     let mut events = Vec::new();
 
     // 1. Document-level events (from Catalog and document actions)
-    // Find catalog from trailer /Root entry
-    if let Some(trailer) = ctx.graph.trailers.first() {
-        for (key, value) in &trailer.entries {
-            let key_bytes = &key.decoded;
-            if key_bytes == b"/Root" {
-                if let PdfAtom::Ref { obj, gen } = &value.atom {
-                    if let Some(catalog_entry) = ctx.graph.get_object(*obj, *gen) {
-                        if let Some(dict) = entry_dict(catalog_entry) {
-                            // OpenAction (automatic execution on document open)
-                            if let Some((_, action_obj)) = dict.get_first(b"/OpenAction") {
-                                if filter_level.is_none() || filter_level == Some("document") {
-                                    let action_details =
-                                        extract_action_details(&ctx.graph, ctx.bytes, action_obj);
-                                    events.push(json!({
-                                        "level": "document",
-                                        "event_type": "OpenAction",
-                                        "location": format!("obj {}:{} (Catalog)", obj, gen),
-                                        "trigger_config": "Triggered on document open",
-                                        "action_details": action_details
-                                    }));
-                                }
-                            }
+    if let Some((dict, obj, gen)) = find_latest_catalog(ctx) {
+        // OpenAction (automatic execution on document open)
+        if let Some((_, action_obj)) = dict.get_first(b"/OpenAction") {
+            if filter_level.is_none() || filter_level == Some("document") {
+                let action_details = extract_action_details(&ctx.graph, ctx.bytes, action_obj);
+                events.push(json!({
+                    "level": "document",
+                    "event_type": "OpenAction",
+                    "location": format!("obj {}:{} (Catalog)", obj, gen),
+                    "trigger_config": "Triggered on document open",
+                    "action_details": action_details
+                }));
+            }
+        }
 
-                            // Additional actions (AA dictionary)
-                            if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
-                                if filter_level.is_none() || filter_level == Some("document") {
-                                    extract_aa_events(
-                                        &ctx.graph,
-                                        ctx.bytes,
-                                        aa_obj,
-                                        "document",
-                                        &format!("obj {}:{} (Catalog)", obj, gen),
-                                        &mut events,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
+        // Additional actions (AA dictionary)
+        if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
+            if filter_level.is_none() || filter_level == Some("document") {
+                extract_aa_events(
+                    &ctx.graph,
+                    ctx.bytes,
+                    aa_obj,
+                    "document",
+                    &format!("obj {}:{} (Catalog)", obj, gen),
+                    &mut events,
+                );
             }
         }
     }
@@ -4019,6 +4009,196 @@ fn extract_aa_events(
                 }));
             }
         }
+    }
+}
+
+fn find_latest_catalog<'a>(
+    ctx: &'a ScanContext<'a>,
+) -> Option<(&'a sis_pdf_pdf::object::PdfDict<'a>, u32, u16)> {
+    for trailer in &ctx.graph.trailers {
+        if let Some((_, root_obj)) = trailer.get_first(b"/Root") {
+            if let PdfAtom::Ref { obj, gen } = &root_obj.atom {
+                if let Some(catalog_entry) = ctx.graph.get_object(*obj, *gen) {
+                    if let Some(dict) = entry_dict(catalog_entry) {
+                        return Some((dict, *obj, *gen));
+                    }
+                }
+            }
+        }
+    }
+
+    for entry in ctx.graph.objects.iter().rev() {
+        if let Some(dict) = entry_dict(entry) {
+            if dict.has_name(b"/Type", b"/Catalog") {
+                return Some((dict, entry.obj, entry.gen));
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod event_tests {
+    use super::*;
+    use sis_pdf_core::scan::{
+        CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat, ScanContext,
+        ScanOptions,
+    };
+    use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance, ObjectGraph};
+    use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj};
+    use sis_pdf_pdf::span::Span;
+    use std::borrow::Cow;
+    use std::collections::HashMap;
+
+    fn span() -> Span {
+        Span { start: 0, end: 0 }
+    }
+
+    fn pdf_name(name: &'static [u8]) -> PdfName<'static> {
+        PdfName {
+            span: span(),
+            raw: Cow::Borrowed(name),
+            decoded: name.to_vec(),
+        }
+    }
+
+    fn pdf_ref(obj: u32, gen: u16) -> PdfObj<'static> {
+        PdfObj {
+            span: span(),
+            atom: PdfAtom::Ref { obj, gen },
+        }
+    }
+
+    fn pdf_name_obj(name: &'static [u8]) -> PdfObj<'static> {
+        PdfObj {
+            span: span(),
+            atom: PdfAtom::Name(pdf_name(name)),
+        }
+    }
+
+    fn pdf_dict(entries: Vec<(PdfName<'static>, PdfObj<'static>)>) -> PdfDict<'static> {
+        PdfDict {
+            span: span(),
+            entries,
+        }
+    }
+
+    fn obj_entry(obj: u32, gen: u16) -> ObjEntry<'static> {
+        ObjEntry {
+            obj,
+            gen,
+            atom: PdfAtom::Dict(pdf_dict(vec![])),
+            header_span: span(),
+            body_span: span(),
+            full_span: span(),
+            provenance: ObjProvenance::Indirect,
+        }
+    }
+
+    fn obj_entry_with_dict(obj: u32, gen: u16, dict: PdfDict<'static>) -> ObjEntry<'static> {
+        ObjEntry {
+            obj,
+            gen,
+            atom: PdfAtom::Dict(dict),
+            header_span: span(),
+            body_span: span(),
+            full_span: span(),
+            provenance: ObjProvenance::Indirect,
+        }
+    }
+
+    fn scan_options() -> ScanOptions {
+        ScanOptions {
+            deep: false,
+            max_decode_bytes: 0,
+            max_total_decoded_bytes: 0,
+            recover_xref: false,
+            parallel: false,
+            batch_parallel: false,
+            diff_parser: false,
+            max_objects: 0,
+            max_recursion_depth: 0,
+            fast: false,
+            focus_trigger: None,
+            yara_scope: None,
+            focus_depth: 0,
+            strict: false,
+            strict_summary: false,
+            ir: false,
+            ml_config: None,
+            font_analysis: FontAnalysisOptions::default(),
+            image_analysis: ImageAnalysisOptions::default(),
+            filter_allowlist: None,
+            filter_allowlist_strict: false,
+            profile: false,
+            profile_format: ProfileFormat::default(),
+            group_chains: false,
+            correlation: CorrelationOptions::default(),
+        }
+    }
+
+    fn build_graph(
+        trailers: Vec<PdfDict<'static>>,
+        objects: Vec<ObjEntry<'static>>,
+    ) -> ObjectGraph<'static> {
+        let mut index: HashMap<(u32, u16), Vec<usize>> = HashMap::new();
+        for (idx, entry) in objects.iter().enumerate() {
+            index.entry((entry.obj, entry.gen)).or_default().push(idx);
+        }
+        ObjectGraph {
+            bytes: &[],
+            objects,
+            index,
+            trailers,
+            startxrefs: Vec::new(),
+            deviations: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn find_latest_catalog_prefers_newest_trailer() {
+        let newest_root = pdf_dict(vec![(pdf_name(b"/Root"), pdf_ref(2, 0))]);
+        let older_root = pdf_dict(vec![(pdf_name(b"/Root"), pdf_ref(1, 0))]);
+        let graph = build_graph(
+            vec![newest_root.clone(), older_root],
+            vec![obj_entry(2, 0), obj_entry(1, 0)],
+        );
+        let ctx = ScanContext::new(&[], graph, scan_options());
+        let catalog = find_latest_catalog(&ctx).expect("expected catalog");
+        assert_eq!((catalog.1, catalog.2), (2, 0));
+    }
+
+    #[test]
+    fn find_latest_catalog_falls_back_to_objects_when_no_trailer() {
+        let catalog = pdf_dict(vec![(pdf_name(b"/Type"), pdf_name_obj(b"/Catalog"))]);
+        let graph = build_graph(vec![], vec![obj_entry_with_dict(1, 0, catalog)]);
+        let ctx = ScanContext::new(&[], graph, scan_options());
+        let fallback = find_latest_catalog(&ctx).expect("expected fallback catalog");
+        assert_eq!((fallback.1, fallback.2), (1, 0));
+    }
+
+    #[test]
+    fn extract_event_triggers_includes_open_action_from_fallback_catalog() {
+        let catalog_dict = pdf_dict(vec![
+            (pdf_name(b"/Type"), pdf_name_obj(b"/Catalog")),
+            (pdf_name(b"/OpenAction"), pdf_ref(2, 0)),
+        ]);
+        let action_dict = pdf_dict(vec![(pdf_name(b"/Type"), pdf_name_obj(b"/Action"))]);
+        let graph = build_graph(
+            vec![],
+            vec![
+                obj_entry_with_dict(1, 0, catalog_dict),
+                obj_entry_with_dict(2, 0, action_dict),
+            ],
+        );
+        let ctx = ScanContext::new(&[], graph, scan_options());
+        let events = extract_event_triggers(&ctx, None, None).expect("events should be extracted");
+        let arr = events.as_array().expect("array expected");
+        let has_open_action = arr
+            .iter()
+            .any(|event| event.get("event_type").and_then(|v| v.as_str()) == Some("OpenAction"));
+        assert!(has_open_action, "expected OpenAction event");
     }
 }
 
@@ -6491,7 +6671,7 @@ pub fn run_query_batch(
                 println!("{}", output);
             }
         }
-        OutputFormat::Text | OutputFormat::Csv | OutputFormat::Dot => {
+        OutputFormat::Text | OutputFormat::Readable | OutputFormat::Csv | OutputFormat::Dot => {
             for (_, batch_result) in sorted_results {
                 match batch_result.result {
                     QueryResult::Scalar(ScalarValue::Number(n)) => {
