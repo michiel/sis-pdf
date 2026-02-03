@@ -20,29 +20,38 @@ This guide explains how to collect daily/weekly statistics from the MWB corpus u
 
 ## Running the trend pipeline
 
-Use the helper script to process the latest `mwb-YYYY-MM-DD` batch and the full corpus:
+The Fedora VM already maintains a `corpus/` tree under `/home/sis-scanner`, with manifests alongside each `mwb-YYYY-MM-DD` directory. After the daily download (see `scripts/run_daily.sh` triggered from cron), run the trend pipeline from the repo checkout:
 
 ```bash
-scripts/run_trend_pipeline.sh /path/to/mwb-2026-02-04 /path/to/corpus-master
+cd /home/sis-scanner/dev/sis-pdf
+scripts/run_trend_pipeline.sh /home/sis-scanner/corpus/mwb-2026-02-04 /home/sis-scanner/corpus
 ```
 
-Set `SIS_BINARY` if you need a non-default binary:
+Set `SIS_BINARY` if you need the virtualenv copy:
 
 ```bash
-SIS_BINARY=/opt/sis/bin/sis scripts/run_trend_pipeline.sh ... 
+SIS_BINARY=/home/sis-scanner/.venv/bin/sis scripts/run_trend_pipeline.sh ...
 ```
 
-### Cron example
+### Cron + corpus maintenance
 
-Run nightly (3:00 AM) via cron to keep stats up to date:
+Daily fetches already run via `/home/sis-scanner/scripts/run_daily.sh`, which sources `/home/sis-scanner/.env.prod`, activates `/home/sis-scanner/.venv`, downloads the day’s files into `/home/sis-scanner/corpus/mwb-YYYY-MM-DD`, and logs to `/home/sis-scanner/scripts/download.log`.
+
+Use cron entry:
 
 ```
-0 3 * * * cd /home/runner/dev/sis-pdf && \
-  /home/runner/dev/sis-pdf/scripts/run_trend_pipeline.sh /data/corpus/mwb-latest /data/corpus/master \
-  >> /var/log/sis/trend_pipeline.log 2>&1
+0 03 * * * /home/sis-scanner/scripts/run_daily.sh
 ```
 
-Rotate logs per month and ensure `reports/trends/` is persisted or uploaded to Grafana SaaS.
+Then (at e.g. 04:00) run the trend pipeline over the newest batch and entire corpus:
+
+```
+0 04 * * * cd /home/sis-scanner/dev/sis-pdf && \
+  scripts/run_trend_pipeline.sh /home/sis-scanner/corpus/mwb-latest /home/sis-scanner/corpus \
+  >> /home/sis-scanner/logs/trend_pipeline.log 2>&1
+```
+
+This pipeline writes CSVs to `/home/sis-scanner/dev/sis-pdf/reports/trends`. Copy (or symlink) `daily.csv` into `/var/www/html/daily.csv` so Grafana SaaS can scrape it, and keep the Grafana directory in sync (`reports/trends/grafana/`). Rotate both logs monthly and upload archived CSV snapshots if needed.
 
 ## CSV outputs
 
