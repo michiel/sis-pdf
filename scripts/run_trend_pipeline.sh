@@ -11,8 +11,37 @@ fi
 
 BATCH_DIR="$1"
 CORPUS_DIR="$2"
+OUTPUT_DIR="${3:-reports/trends}"
 
-python "${SCRIPT_DIR}/evaluate-mwb-corpus.py" \
-  --batch-dir "${BATCH_DIR}" \
-  --corpus-dir "${CORPUS_DIR}" \
-  --sis-binary "${SIS_BINARY}"
+run_evaluate() {
+  target="$1"
+  shift
+  python "${SCRIPT_DIR}/evaluate-mwb-corpus.py" \
+    --batch-dir "${target}" \
+    --sis-binary "${SIS_BINARY}" \
+    --output-dir "${OUTPUT_DIR}" \
+    "$@"
+}
+
+# Run both batch and corpus evaluations in parallel to reduce total runtime.
+run_batch() {
+  python "${SCRIPT_DIR}/evaluate-mwb-corpus.py" \
+    --batch-dir "${BATCH_DIR}" \
+    --sis-binary "${SIS_BINARY}" \
+    --output-dir "${OUTPUT_DIR}"
+}
+
+run_corpus() {
+  python "${SCRIPT_DIR}/evaluate-mwb-corpus.py" \
+    --corpus-dir "${CORPUS_DIR}" \
+    --sis-binary "${SIS_BINARY}" \
+    --output-dir "${OUTPUT_DIR}"
+}
+
+run_batch &
+BATCH_PID=$!
+
+run_corpus &
+CORPUS_PID=$!
+
+wait "${BATCH_PID}" "${CORPUS_PID}"
