@@ -16,6 +16,8 @@ Start an interactive REPL:
 sis query sample.pdf
 ```
 
+By default the REPL uses the new `:readable` formatter so lists render as ASCII tables and objects show simple trees. Use `:json`, `:yaml`, `:readable`, etc., to switch formats, and append `| <shell command>` to any query (for example `findings | jq .`) to pipe the formatter output into a shell pipeline.
+
 ## Common Queries
 
 ```bash

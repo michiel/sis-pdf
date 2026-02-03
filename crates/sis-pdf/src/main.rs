@@ -16,7 +16,7 @@ use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
 use std::fs;
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
-use std::process::Command as ProcessCommand;
+use std::process::{Command as ProcessCommand, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 use tar::Archive;
 use tempfile::tempdir;
@@ -750,6 +750,14 @@ fn main() -> Result<()> {
                 (pdf.clone(), query.clone())
             };
 
+            let format_flag_present = std::env::args_os().any(|arg| {
+                if let Some(arg) = arg.to_str() {
+                    arg == "--format" || arg.starts_with("--format=")
+                } else {
+                    false
+                }
+            });
+
             if let Some(query_str) = actual_query {
                 // One-shot query mode
                 run_query_oneshot(
@@ -784,6 +792,11 @@ fn main() -> Result<()> {
                         "REPL mode supports text, json, jsonl, or yaml output formats only"
                     ));
                 }
+                let repl_output_format = if !format_flag_present && !json {
+                    commands::query::OutputFormat::Readable
+                } else {
+                    output_format
+                };
                 run_query_repl(
                     actual_pdf.as_deref().unwrap(), // Safe because we validated above
                     deep,
@@ -794,7 +807,7 @@ fn main() -> Result<()> {
                     !ungroup_chains,
                     extract_to.as_deref(),
                     max_extract_bytes,
-                    output_format,
+                    repl_output_format,
                     colour,
                     decode_mode,
                     predicate.as_ref(),
@@ -2816,6 +2829,10 @@ fn run_query_oneshot(
             let output = query::format_result(&result, compact);
             println!("{}", output);
         }
+        query::OutputFormat::Readable => {
+            let output = query::format_readable_result(&result, compact);
+            println!("{}", output);
+        }
     }
 
     Ok(())
@@ -2882,6 +2899,7 @@ fn run_query_repl(
     let mut yaml_mode = output_format == query::OutputFormat::Yaml;
     let mut colour_mode = colour;
     let mut compact_mode = false;
+    let mut readable_mode = output_format == query::OutputFormat::Readable;
     let mut predicate_expr = predicate.cloned();
 
     loop {
@@ -2900,8 +2918,22 @@ fn run_query_repl(
                 // Add to history
                 let _ = rl.add_history_entry(line);
 
+                let (query_line, pipe_command) = split_repl_pipe(line);
+                let query_line = query_line.trim();
+                if query_line.is_empty() {
+                    continue;
+                }
+                let pipe_command = pipe_command.and_then(|cmd| {
+                    let trimmed = cmd.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed)
+                    }
+                });
+
                 // Handle REPL commands
-                if let Some(rest) = line.strip_prefix(":where") {
+                if let Some(rest) = query_line.strip_prefix(":where") {
                     let expr = rest.trim();
                     if expr.is_empty() {
                         predicate_expr = None;
@@ -2918,7 +2950,7 @@ fn run_query_repl(
                     continue;
                 }
 
-                match line {
+                match query_line {
                     "exit" | "quit" | ":q" => {
                         eprintln!("Goodbye!");
                         break;
@@ -2932,6 +2964,10 @@ fn run_query_repl(
                         if json_mode {
                             jsonl_mode = false;
                             yaml_mode = false;
+                            readable_mode = false;
+                        }
+                        if !json_mode && !jsonl_mode && !yaml_mode {
+                            readable_mode = true;
                         }
                         eprintln!(
                             "JSON mode: {}",
@@ -2944,6 +2980,10 @@ fn run_query_repl(
                         if jsonl_mode {
                             json_mode = true;
                             yaml_mode = false;
+                            readable_mode = false;
+                        }
+                        if !jsonl_mode && !json_mode && !yaml_mode {
+                            readable_mode = true;
                         }
                         eprintln!(
                             "JSONL mode: {}",
@@ -2956,10 +2996,27 @@ fn run_query_repl(
                         if yaml_mode {
                             json_mode = false;
                             jsonl_mode = false;
+                            readable_mode = false;
+                        }
+                        if !yaml_mode && !json_mode && !jsonl_mode {
+                            readable_mode = true;
                         }
                         eprintln!(
                             "YAML mode: {}",
                             if yaml_mode { "enabled" } else { "disabled" }
+                        );
+                        continue;
+                    }
+                    ":readable" => {
+                        readable_mode = !readable_mode;
+                        if readable_mode {
+                            json_mode = false;
+                            jsonl_mode = false;
+                            yaml_mode = false;
+                        }
+                        eprintln!(
+                            "Readable mode: {}",
+                            if readable_mode { "enabled" } else { "disabled" }
                         );
                         continue;
                     }
@@ -2983,7 +3040,7 @@ fn run_query_repl(
                 }
 
                 // Parse and execute query
-                match query::parse_query(line) {
+                match query::parse_query(query_line) {
                     Ok(q) => {
                         let output_format = if yaml_mode {
                             query::OutputFormat::Yaml
@@ -3010,39 +3067,71 @@ fn run_query_repl(
                             predicate_expr.as_ref(),
                         ) {
                             Ok(result) => {
-                                // Format and print result
-                                if yaml_mode {
-                                    match query::format_yaml(line, pdf_path, &result) {
-                                        Ok(output) => println!(
-                                            "{}",
-                                            maybe_colourise_output(
-                                                output,
-                                                query::OutputFormat::Yaml,
-                                                colour_mode
-                                            )
+                                let formatted = if yaml_mode {
+                                    match query::format_yaml(query_line, pdf_path, &result) {
+                                        Ok(output) => maybe_colourise_output(
+                                            output,
+                                            query::OutputFormat::Yaml,
+                                            colour_mode,
                                         ),
-                                        Err(e) => eprintln!("Error formatting result: {}", e),
+                                        Err(e) => {
+                                            eprintln!("Error formatting result: {}", e);
+                                            continue;
+                                        }
                                     }
                                 } else if jsonl_mode {
-                                    match query::format_jsonl(line, pdf_path, &result) {
-                                        Ok(output) => println!("{}", output),
-                                        Err(e) => eprintln!("Error formatting result: {}", e),
+                                    match query::format_jsonl(query_line, pdf_path, &result) {
+                                        Ok(output) => output,
+                                        Err(e) => {
+                                            eprintln!("Error formatting result: {}", e);
+                                            continue;
+                                        }
                                     }
                                 } else if json_mode {
-                                    match query::format_json(line, pdf_path, &result) {
-                                        Ok(output) => println!(
-                                            "{}",
-                                            maybe_colourise_output(
-                                                output,
-                                                query::OutputFormat::Json,
-                                                colour_mode
-                                            )
+                                    match query::format_json(query_line, pdf_path, &result) {
+                                        Ok(output) => maybe_colourise_output(
+                                            output,
+                                            query::OutputFormat::Json,
+                                            colour_mode,
                                         ),
-                                        Err(e) => eprintln!("Error formatting result: {}", e),
+                                        Err(e) => {
+                                            eprintln!("Error formatting result: {}", e);
+                                            continue;
+                                        }
+                                    }
+                                } else if readable_mode {
+                                    query::format_readable_result(&result, compact_mode)
+                                } else {
+                                    query::format_result(&result, compact_mode)
+                                };
+
+                                if let Some(cmd) = pipe_command {
+                                    match run_repl_pipeline(cmd, &formatted) {
+                                        Ok((stdout, stderr, status)) => {
+                                            if !stdout.is_empty() {
+                                                print!("{}", stdout);
+                                            }
+                                            if !stderr.is_empty() {
+                                                eprint!("{}", stderr);
+                                            }
+                                            if !status.success() {
+                                                let status_code = status
+                                                    .code()
+                                                    .map(|code| code.to_string())
+                                                    .unwrap_or_else(|| "unknown".into());
+                                                eprintln!(
+                                                    "[pipe] `{}` exited ({})",
+                                                    cmd, status_code
+                                                );
+                                            }
+                                        }
+                                        Err(err) => {
+                                            eprintln!("[pipe] failed to run '{}': {}", cmd, err);
+                                            println!("{}", formatted);
+                                        }
                                     }
                                 } else {
-                                    let output = query::format_result(&result, compact_mode);
-                                    println!("{}", output);
+                                    println!("{}", formatted);
                                 }
                             }
                             Err(e) => eprintln!("Query failed: {}", e),
@@ -3051,7 +3140,7 @@ fn run_query_repl(
                     Err(e) => {
                         let error = query::query_syntax_error(format!("Invalid query: {}", e));
                         if yaml_mode {
-                            match query::format_yaml(line, pdf_path, &error) {
+                            match query::format_yaml(query_line, pdf_path, &error) {
                                 Ok(output) => println!(
                                     "{}",
                                     maybe_colourise_output(
@@ -3063,12 +3152,12 @@ fn run_query_repl(
                                 Err(err) => eprintln!("Error formatting result: {}", err),
                             }
                         } else if jsonl_mode {
-                            match query::format_jsonl(line, pdf_path, &error) {
+                            match query::format_jsonl(query_line, pdf_path, &error) {
                                 Ok(output) => println!("{}", output),
                                 Err(err) => eprintln!("Error formatting result: {}", err),
                             }
                         } else if json_mode {
-                            match query::format_json(line, pdf_path, &error) {
+                            match query::format_json(query_line, pdf_path, &error) {
                                 Ok(output) => println!(
                                     "{}",
                                     maybe_colourise_output(
@@ -3106,6 +3195,73 @@ fn run_query_repl(
     let _ = rl.save_history(&history_file);
 
     Ok(())
+}
+
+fn split_repl_pipe(line: &str) -> (&str, Option<&str>) {
+    if let Some(idx) = line.find('|') {
+        let (primary, rest) = line.split_at(idx);
+        let command = rest[1..].trim();
+        let query = primary.trim_end();
+        let pipe = if command.is_empty() {
+            None
+        } else {
+            Some(command)
+        };
+        (query, pipe)
+    } else {
+        (line, None)
+    }
+}
+
+fn run_repl_pipeline(command: &str, input: &str) -> Result<(String, String, ExitStatus)> {
+    let mut child = ProcessCommand::new("sh")
+        .arg("-c")
+        .arg(command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| anyhow!("failed to run pipeline '{}': {}", command, e))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(input.as_bytes())?;
+        stdin.write_all(b"\n")?;
+    }
+
+    let output = child.wait_with_output()?;
+    Ok((
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        output.status,
+    ))
+}
+
+#[cfg(test)]
+mod repl_tests {
+    use super::*;
+
+    #[test]
+    fn split_repl_pipe_detects_command() {
+        let (query, pipe) = split_repl_pipe("findings | jq .");
+        assert_eq!(query, "findings");
+        assert_eq!(pipe, Some("jq ."));
+    }
+
+    #[test]
+    fn split_repl_pipe_without_command() {
+        let (query, pipe) = split_repl_pipe("findings");
+        assert_eq!(query, "findings");
+        assert!(pipe.is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_repl_pipeline_invokes_shell() {
+        let (stdout, stderr, status) = run_repl_pipeline("cat", "hello").unwrap();
+        assert_eq!(stdout.trim(), "hello");
+        assert!(stderr.is_empty());
+        assert!(status.success());
+    }
 }
 
 fn print_repl_help() {
@@ -3177,6 +3333,8 @@ fn print_repl_help() {
     println!("  :yaml              - Toggle YAML output mode");
     println!("  :colour            - Toggle colourised JSON/YAML output");
     println!("  :compact           - Toggle compact output mode");
+    println!("  :readable          - Toggle readable output mode (default)");
+    println!("  queries can append '| command' to pipe current output to the shell (e.g., findings | jq .)");
     println!("  :where EXPR        - Set predicate filter (blank clears)");
     println!("  help / ?           - Show this help");
     println!("  exit / quit / :q   - Exit REPL");

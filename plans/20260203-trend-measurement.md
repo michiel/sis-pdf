@@ -89,3 +89,4 @@ date,kind,severity,count,target
 1. Update `scripts/evaluate-mwb-corpus.py` per above.
 2. Create doc `docs/trend-guide.md` with schemas and Grafana hints.
 3. Add a helper orchestration script to `scripts/` that reuses `evaluate-mwb-corpus.py` outputs.
+`reports/trends/json/daily_<date>_<target>.json` (contains the same fields as `daily.csv` plus derived metrics such as `duration_stats`, `parse_errors`, `warning_count`, `filter_usage`, `surface_counts`, `avg_severity_rank`, `error_ratio`, and `new_kind_flags`). Grafana can ingest these via HTTP.
