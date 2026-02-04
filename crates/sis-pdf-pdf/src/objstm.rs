@@ -62,11 +62,17 @@ pub fn expand_objstm<'a>(
             break;
         }
         let n = match dict_int(&st.dict, b"/N") {
-            Some(v) => v as usize,
+            Some(v) => match usize::try_from(v) {
+                Ok(val) => val,
+                Err(_) => continue,
+            },
             None => continue,
         };
         let first = match dict_int(&st.dict, b"/First") {
-            Some(v) => v as usize,
+            Some(v) => match usize::try_from(v) {
+                Ok(val) => val,
+                Err(_) => continue,
+            },
             None => continue,
         };
         if max_total_decoded_bytes > 0 {

@@ -1,5 +1,1 @@
-warn = [
-    "clippy::unwrap_used",
-    "clippy::expect_used",
-    "clippy::todo",
-]
+# Clippy configuration lives here; leave blank until specific overrides are required.

@@ -272,15 +272,15 @@ The `unsafe` in `NativeFunction::from_closure` exists because Boa's GC cannot tr
 ### Stage 5: Remaining Improvements
 
 **Goal**: Address remaining review findings
-**Status**: Not Started
+**Status**: In Progress (most items addressed)
 
-- [ ] Review 4 "this operation has no effect" clippy warnings for possible bugs
-- [ ] Refactor functions with >7 arguments (3 occurrences) to use option/config structs
-- [ ] Replace manual `div_ceil` implementations (3 occurrences) with `usize::div_ceil` (stabilised in Rust 1.73)
-- [ ] Address TODO in `crates/sis-pdf-core/src/explainability.rs:1484` (`// TODO: extract from metadata`)
-- [ ] Track `ort` crate for stable 2.0 release and update when available
-- [ ] Audit `js-analysis/src/static_analysis.rs` `String::from_utf8_lossy` usage for cases where malicious unicode sequences could evade detection
-- [ ] Add explicit `usize::try_from(u64_val)?` in `crates/sis-pdf-pdf/src/objstm.rs:64-65` for 32-bit platform safety (currently safe due to downstream validation, but explicit is better)
+- [x] Review 4 "this operation has no effect" clippy warnings for possible bugs (verified by running `cargo clippy --all-targets -- -W clippy::no_effect` and confirming no such warnings remain)
+- [x] Refactor functions with >7 arguments (3 occurrences) to use option/config structs
+- [x] Replace manual `div_ceil` implementations (3 occurrences) with `usize::div_ceil` (stabilised in Rust 1.73)
+- [x] Address TODO in `crates/sis-pdf-core/src/explainability.rs:1484` (`// TODO: extract from metadata`)
+- [ ] Track `ort` crate for stable 2.0 release and update when available (still on `2.0.0-rc.11` because no stable release exists on crates.io)
+- [x] Audit `js-analysis/src/static_analysis.rs` `String::from_utf8_lossy` usage for cases where malicious unicode sequences could evade detection
+- [x] Add explicit `usize::try_from(u64_val)?` in `crates/sis-pdf-pdf/src/objstm.rs:64-65` for 32-bit platform safety (currently safe due to downstream validation, but explicit is better)
 
 **Success Criteria**: All items addressed or explicitly deferred with justification
 
