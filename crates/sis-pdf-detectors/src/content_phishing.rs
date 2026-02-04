@@ -82,7 +82,6 @@ impl Detector for ContentPhishingDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             }]);
         }
         let mut out = Vec::new();
@@ -123,7 +122,6 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                    ..Finding::default()
                 });
             }
         }
@@ -179,10 +177,13 @@ impl Detector for ContentDeceptionDetector {
                     evidence: evidence.clone(),
                     remediation: Some("Review for deceptive overlays or lures.".into()),
                     meta,
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                    ..Finding::default()
                 });
             }
             if page.invisible_text {
@@ -204,10 +205,13 @@ impl Detector for ContentDeceptionDetector {
                     evidence: evidence.clone(),
                     remediation: Some("Inspect for hidden text or overlays.".into()),
                     meta,
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                    ..Finding::default()
                 });
             }
             if has_image && page_has_uri_annot(ctx, dict) {
@@ -229,10 +233,13 @@ impl Detector for ContentDeceptionDetector {
                     evidence,
                     remediation: Some("Inspect annotation overlays and link targets.".into()),
                     meta,
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                    ..Finding::default()
                 });
             }
         }

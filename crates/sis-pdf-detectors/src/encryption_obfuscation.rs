@@ -123,7 +123,6 @@ impl Detector for EncryptionObfuscationDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                    ..Finding::default()
                 });
 
                 if stream.dict.has_name(b"/Type", b"/EmbeddedFile")

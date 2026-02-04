@@ -312,7 +312,6 @@ mod tests {
             yara: None,
             position: None,
             positions: Vec::new(),
-            ..Finding::default()
         }]);
 
         let report2 = empty_report(vec![Finding {
@@ -336,7 +335,6 @@ mod tests {
             yara: None,
             position: None,
             positions: Vec::new(),
-            ..Finding::default()
         }]);
 
         let scans = vec![

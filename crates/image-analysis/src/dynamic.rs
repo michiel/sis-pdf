@@ -242,8 +242,8 @@ fn image_exceeds_limits(
     }
     let width = dict_u32(&stream.dict, b"/Width");
     let height = dict_u32(&stream.dict, b"/Height");
-    let Some(width) = width else { return None };
-    let Some(height) = height else { return None };
+    let width = width?;
+    let height = height?;
     let pixels = width as u64 * height as u64;
     if opts.max_pixels > 0 && pixels > opts.max_pixels {
         Some("pixels")

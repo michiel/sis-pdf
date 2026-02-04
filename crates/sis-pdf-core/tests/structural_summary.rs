@@ -45,5 +45,5 @@ fn canonical_summary_counts_incremental_versions() {
         summary.canonical_object_count + summary.incremental_updates_removed,
         summary.object_count
     );
-    assert!(summary.normalized_name_changes >= 0);
+
 }

@@ -448,8 +448,7 @@ mod sandbox_impl {
 
             // Track variable timeline for special functions
             if name == "eval" {
-                let eval_content = args
-                    .get(0)
+                let eval_content = args.first()
                     .map(|arg| js_value_summary(arg, ctx, 100))
                     .unwrap_or_else(|| "unknown".to_string());
 
@@ -546,7 +545,7 @@ mod sandbox_impl {
         });
 
         match rx.recv_timeout(Duration::from_millis(options.timeout_ms as u64)) {
-            Ok(log) => DynamicOutcome::Executed(DynamicSignals {
+            Ok(log) => DynamicOutcome::Executed(Box::new(DynamicSignals {
                 calls: log.calls.clone(),
                 call_args: log.call_args.clone(),
                 urls: log.urls.clone(),
@@ -591,7 +590,7 @@ mod sandbox_impl {
                         .max()
                         .unwrap_or(0),
                 },
-            }),
+            })),
             Err(RecvTimeoutError::Timeout) => DynamicOutcome::TimedOut {
                 timeout_ms: options.timeout_ms,
             },
@@ -1892,7 +1891,7 @@ mod sandbox_impl {
                 let mut result = String::new();
                 for arg in args {
                     if let Ok(num) = arg.to_i32(ctx) {
-                        if num >= 0 && num <= 255 {
+                        if (0..=255).contains(&num) {
                             result.push(num as u8 as char);
                         }
                     }
@@ -2385,7 +2384,7 @@ mod sandbox_impl {
             && (
                 var_name.chars().any(|c| c.is_uppercase()) || // Mixed case
             var_name.contains('_') || // Underscore naming
-            var_name.chars().last().map_or(false, |c| c.is_numeric())
+            var_name.chars().last().is_some_and(|c| c.is_numeric())
                 // Ends with number
             )
     }
@@ -2722,8 +2721,7 @@ mod sandbox_impl {
                 && i + 2 < words.len()
                 && words[i + 1] == "not"
                 && words[i + 2] == "defined"
-            {
-                if i > 0 {
+                && i > 0 {
                     let candidate = words[i - 1]
                         .trim_end_matches(',')
                         .trim_matches('"')
@@ -2732,7 +2730,6 @@ mod sandbox_impl {
                         return Some(candidate.to_string());
                     }
                 }
-            }
         }
 
         None
@@ -2883,7 +2880,7 @@ mod sandbox_impl {
     }
 
     fn is_hex(byte: u8) -> bool {
-        matches!(byte, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F')
+        byte.is_ascii_hexdigit()
     }
 
     fn make_native(log: Rc<RefCell<SandboxLog>>, name: &'static str) -> NativeFunction {

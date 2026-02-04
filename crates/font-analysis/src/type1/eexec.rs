@@ -2,7 +2,6 @@
 ///
 /// The eexec encryption is a simple XOR-based encryption with a rolling key.
 /// The algorithm uses a 16-bit unsigned integer as the cipher key.
-
 const EEXEC_KEY_C1: u16 = 52845;
 const EEXEC_KEY_C2: u16 = 22719;
 const EEXEC_INITIAL_KEY: u16 = 55665;
@@ -21,8 +20,7 @@ pub fn decrypt_eexec(encrypted: &[u8]) -> Vec<u8> {
         key = key
             .wrapping_add(byte as u16)
             .wrapping_mul(EEXEC_KEY_C1)
-            .wrapping_add(EEXEC_KEY_C2)
-            & 0xFFFF;
+            .wrapping_add(EEXEC_KEY_C2);
     }
 
     result
@@ -128,8 +126,7 @@ mod tests {
             key = key
                 .wrapping_add(cipher as u16)
                 .wrapping_mul(EEXEC_KEY_C1)
-                .wrapping_add(EEXEC_KEY_C2)
-                & 0xFFFF;
+                .wrapping_add(EEXEC_KEY_C2);
         }
 
         // Decrypt and verify

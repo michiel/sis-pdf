@@ -15,16 +15,11 @@ use tracing::{debug, info_span, trace, warn, Level};
 use crate::canonical::CanonicalView;
 use crate::security_log::{SecurityDomain, SecurityEvent};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ProfileFormat {
+    #[default]
     Text,
     Json,
-}
-
-impl Default for ProfileFormat {
-    fn default() -> Self {
-        Self::Text
-    }
 }
 
 #[derive(Debug, Clone)]

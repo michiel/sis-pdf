@@ -65,7 +65,6 @@ impl Detector for LinearizationDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             });
         }
         if let Some(entry) = linearized.first() {

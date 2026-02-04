@@ -7,7 +7,7 @@ fn parse_simple_object() {
     let (entry, end) = res.unwrap();
     assert_eq!(entry.obj, 1);
     assert_eq!(entry.gen, 0);
-    assert!(end as usize <= data.len());
+    assert!(end <= data.len());
 }
 
 #[test]

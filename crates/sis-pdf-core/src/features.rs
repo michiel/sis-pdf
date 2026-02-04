@@ -1346,7 +1346,7 @@ fn binary_ratio(data: &[u8]) -> f64 {
     }
     let binary = data
         .iter()
-        .filter(|&&b| !(b == b'\n' || b == b'\r' || b == b'\t' || (b >= 0x20 && b <= 0x7e)))
+        .filter(|&&b| !(b == b'\n' || b == b'\r' || b == b'\t' || (0x20..=0x7e).contains(&b)))
         .count();
     binary as f64 / data.len() as f64
 }

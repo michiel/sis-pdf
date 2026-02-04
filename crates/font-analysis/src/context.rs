@@ -6,6 +6,7 @@ use tracing::{debug, instrument};
 
 /// Analysis context describing the source and environment
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum AnalysisContext {
     /// Font from a trusted source (e.g., system fonts, signed PDFs)
     TrustedSource,
@@ -14,6 +15,7 @@ pub enum AnalysisContext {
     SignedPDF,
 
     /// Font from untrusted user input
+    #[default]
     UntrustedInput,
 
     /// Server-side processing (stricter rules)
@@ -23,12 +25,6 @@ pub enum AnalysisContext {
     Desktop,
 }
 
-impl Default for AnalysisContext {
-    fn default() -> Self {
-        // Default to most strict context
-        Self::UntrustedInput
-    }
-}
 
 impl AnalysisContext {
     /// Adjust severity based on context

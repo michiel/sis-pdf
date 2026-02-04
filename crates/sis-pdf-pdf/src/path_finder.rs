@@ -197,13 +197,12 @@ impl<'a> PathFinder<'a> {
             }
 
             for edge in self.graph.outgoing_edges(current.0, current.1) {
-                if edge_types.iter().any(|et| et == &edge.edge_type) {
-                    if !visited.contains(&edge.dst) {
+                if edge_types.iter().any(|et| et == &edge.edge_type)
+                    && !visited.contains(&edge.dst) {
                         visited.insert(edge.dst);
                         reachable.insert(edge.dst);
                         queue.push_back((edge.dst, depth + 1));
                     }
-                }
             }
         }
 
@@ -395,8 +394,8 @@ impl<'a> PathFinder<'a> {
 
         while let Some((current, depth)) = queue.pop_front() {
             for edge in self.graph.outgoing_edges(current.0, current.1) {
-                if !depths.contains_key(&edge.dst) {
-                    depths.insert(edge.dst, depth + 1);
+                if let std::collections::hash_map::Entry::Vacant(e) = depths.entry(edge.dst) {
+                    e.insert(depth + 1);
                     queue.push_back((edge.dst, depth + 1));
                 }
             }

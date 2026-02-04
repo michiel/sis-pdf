@@ -325,10 +325,8 @@ fn notes_from_findings(
         }
         for (k, v) in &f.meta {
             if k.starts_with("js.") || k.starts_with("payload.") {
-                if k == "js.sandbox_exec" {
-                    if matches!(notes.get(k).map(String::as_str), Some("true")) {
-                        continue;
-                    }
+                if k == "js.sandbox_exec" && matches!(notes.get(k).map(String::as_str), Some("true")) {
+                    continue;
                 }
                 notes.entry(k.clone()).or_insert_with(|| v.clone());
             }
@@ -373,19 +371,29 @@ fn apply_role_labels(notes: &mut HashMap<String, String>, roles: &ChainRoles<'_>
         set_note_if_missing(notes, "trigger.summary", f.description.clone());
     }
     if let Some(f) = roles.action_finding {
-        set_note_if_missing(
-            notes,
-            "action.label",
-            label_for_finding(ChainRole::Action, f),
-        );
+        // Only set finding-specific action label when the finding has
+        // enrichment (action.target); otherwise let chain classification
+        // labels provide the default via apply_chain_labels.
+        if f.meta.contains_key("action.target") {
+            set_note_if_missing(
+                notes,
+                "action.label",
+                label_for_finding(ChainRole::Action, f),
+            );
+        }
         set_note_if_missing(notes, "action.summary", f.description.clone());
     }
     if let Some(f) = roles.payload_finding {
-        set_note_if_missing(
-            notes,
-            "payload.label",
-            label_for_finding(ChainRole::Payload, f),
-        );
+        // Only set finding-specific payload label when the finding has
+        // enrichment metadata; otherwise let chain classification labels
+        // provide the default.
+        if f.meta.contains_key("payload.summary") || f.meta.contains_key("payload.preview") {
+            set_note_if_missing(
+                notes,
+                "payload.label",
+                label_for_finding(ChainRole::Payload, f),
+            );
+        }
         let summary = f
             .meta
             .get("payload.summary")

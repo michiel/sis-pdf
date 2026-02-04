@@ -41,7 +41,7 @@ impl TimeoutChecker {
 
     pub fn check(&self) -> Result<(), TimeoutError> {
         let ops = self.ops.fetch_add(1, Ordering::Relaxed);
-        if ops % self.checkpoint_interval == 0 {
+        if ops.is_multiple_of(self.checkpoint_interval) {
             let elapsed = self.start.elapsed();
             if elapsed > self.budget {
                 return Err(TimeoutError {

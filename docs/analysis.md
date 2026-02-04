@@ -160,6 +160,11 @@ Focus: textual cues and overlay links.
 - File-backed evidence: absolute byte offsets in the PDF.
 - Decoded evidence: includes `origin` to map back to raw bytes.
 
+### Report Verbosity
+- Use `--report-verbosity [compact|standard|verbose]` to control how findings are presented in the CLI/REPL tables. `compact` drops `Info`/`Low` severity entries from the textual/readable outputs while JSON, JSONL, and YAML outputs retain the full set of findings so your dashboards and automations continue to see every record.
+- `--chain-summary [minimal|events|full]` shrinks textual action-chain output when you only care about suspicious triggers/payloads. JSON/JSONL/YAML outputs always emit the full chain, but text/readable tables show the filtered edges plus a small `edges_summary` digest.
+- JSON-based `findings` exports now add a `summary` object with severity/surface counts so dashboards ingest a digest without scanning every finding.
+
 ### Structural Summary
 - `structural_summary` includes xref counts, ObjStm ratios, header/EOF offsets,
   and polyglot risk.

@@ -54,8 +54,10 @@ fn ir_string_preview_truncates_on_char_boundary() {
         },
     )
     .expect("parse pdf");
-    let mut opts = IrOptions::default();
-    opts.max_string_len = 2;
+    let opts = IrOptions {
+        max_string_len: 2,
+        ..IrOptions::default()
+    };
     let ir = ir_for_graph(&graph.objects, &opts);
     let mut found = false;
     for obj in ir {

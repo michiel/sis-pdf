@@ -176,7 +176,6 @@ fn fallback_pages_root<'a>(
             action_initiation: None,        yara: None,
         position: None,
         positions: Vec::new(),
-    ..Finding::default()
     });
     Some(PdfObj {
         span: entry.body_span,

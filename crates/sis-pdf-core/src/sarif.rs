@@ -182,7 +182,7 @@ fn sarif_locations(f: &Finding, input_path: Option<&str>) -> Vec<serde_json::Val
                             "artifactLocation": { "uri": uri },
                             "region": {
                                 "byteOffset": origin.start,
-                                "byteLength": (origin.end - origin.start) as u64
+                                "byteLength": (origin.end - origin.start)
                             }
                         },
                         "properties": {

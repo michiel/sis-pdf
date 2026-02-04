@@ -41,7 +41,7 @@ fn profile_json_honours_slo() {
 
     let detectors = json["detectors"].as_array().expect("detectors array");
     assert!(
-        detectors.len() >= 1,
+        !detectors.is_empty(),
         "expected at least one detector in profile"
     );
 }

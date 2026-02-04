@@ -36,8 +36,9 @@ pub fn export_ir_text(ir_objects: &[PdfIrObject]) -> String {
         out.push_str(&format!("# {} {}\n", obj.obj_ref.0, obj.obj_ref.1));
         for line in &obj.lines {
             out.push_str(&format!(
-                "{}, {}, {}, {}\n",
-                format!("{}-{}", line.obj_ref.0, line.obj_ref.1),
+                "{}-{}, {}, {}, {}\n",
+                line.obj_ref.0,
+                line.obj_ref.1,
                 line.path,
                 line.value_type,
                 line.value
@@ -209,7 +210,6 @@ mod tests {
             action_target: None,
             action_initiation: None,
             yara: None,
-            ..Finding::default()
         }
     }
 

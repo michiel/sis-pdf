@@ -62,7 +62,7 @@ impl Detector for JsPolymorphicDetector {
                     .unwrap_or(false);
                 let multi_stage = decoded.layers >= 2;
                 let polymorphic =
-                    (has_eval && (has_fcc || has_unescape)) || (base64_like && has_eval);
+                    has_eval && (has_fcc || has_unescape || base64_like);
 
                 let mut evidence = candidate.evidence;
                 if evidence.is_empty() {
@@ -93,7 +93,6 @@ impl Detector for JsPolymorphicDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
-                        ..Finding::default()
                     });
                 }
                 if multi_stage {
@@ -123,7 +122,6 @@ impl Detector for JsPolymorphicDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
-                        ..Finding::default()
                     });
                 }
                 if decoded.layers > 0 && decoded.bytes != info.bytes {
@@ -153,7 +151,6 @@ impl Detector for JsPolymorphicDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
-                        ..Finding::default()
                     });
                 }
             }

@@ -378,6 +378,67 @@ fn analyze_profile(report: &ProfileReport) -> Vec<Recommendation> {
     recommendations
 }
 
+// Implement Serialize/Deserialize for ProfileReport
+impl serde::Serialize for ProfileReport {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("ProfileReport", 4)?;
+        state.serialize_field("total_duration_ms", &self.total_duration_ms)?;
+        state.serialize_field("phases", &self.phases)?;
+        state.serialize_field("detectors", &self.detectors)?;
+        state.serialize_field("document", &self.document)?;
+        state.end()
+    }
+}
+
+impl serde::Serialize for PhaseInfo {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("PhaseInfo", 3)?;
+        state.serialize_field("name", &self.name)?;
+        state.serialize_field("duration_ms", &self.duration_ms)?;
+        state.serialize_field("percentage", &self.percentage)?;
+        state.end()
+    }
+}
+
+impl serde::Serialize for DetectorInfo {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("DetectorInfo", 5)?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("cost", &self.cost)?;
+        state.serialize_field("duration_ms", &self.duration_ms)?;
+        state.serialize_field("findings_count", &self.findings_count)?;
+        state.serialize_field("percentage", &self.percentage)?;
+        state.end()
+    }
+}
+
+impl serde::Serialize for DocumentInfo {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("DocumentInfo", 4)?;
+        state.serialize_field("file_size_bytes", &self.file_size_bytes)?;
+        state.serialize_field("object_count", &self.object_count)?;
+        state.serialize_field("stream_count", &self.stream_count)?;
+        state.serialize_field("page_count", &self.page_count)?;
+        state.end()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,66 +524,5 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
         assert_eq!(parsed["total_duration_ms"], 120);
         assert!(parsed["phases"].is_array());
-    }
-}
-
-// Implement Serialize/Deserialize for ProfileReport
-impl serde::Serialize for ProfileReport {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("ProfileReport", 4)?;
-        state.serialize_field("total_duration_ms", &self.total_duration_ms)?;
-        state.serialize_field("phases", &self.phases)?;
-        state.serialize_field("detectors", &self.detectors)?;
-        state.serialize_field("document", &self.document)?;
-        state.end()
-    }
-}
-
-impl serde::Serialize for PhaseInfo {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("PhaseInfo", 3)?;
-        state.serialize_field("name", &self.name)?;
-        state.serialize_field("duration_ms", &self.duration_ms)?;
-        state.serialize_field("percentage", &self.percentage)?;
-        state.end()
-    }
-}
-
-impl serde::Serialize for DetectorInfo {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("DetectorInfo", 5)?;
-        state.serialize_field("id", &self.id)?;
-        state.serialize_field("cost", &self.cost)?;
-        state.serialize_field("duration_ms", &self.duration_ms)?;
-        state.serialize_field("findings_count", &self.findings_count)?;
-        state.serialize_field("percentage", &self.percentage)?;
-        state.end()
-    }
-}
-
-impl serde::Serialize for DocumentInfo {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("DocumentInfo", 4)?;
-        state.serialize_field("file_size_bytes", &self.file_size_bytes)?;
-        state.serialize_field("object_count", &self.object_count)?;
-        state.serialize_field("stream_count", &self.stream_count)?;
-        state.serialize_field("page_count", &self.page_count)?;
-        state.end()
     }
 }

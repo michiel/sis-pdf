@@ -250,8 +250,10 @@ network_access: false
     #[test]
     #[cfg(feature = "dynamic")]
     fn test_load_signatures_disabled() {
-        let mut config = FontAnalysisConfig::default();
-        config.signature_matching_enabled = false;
+        let config = FontAnalysisConfig {
+            signature_matching_enabled: false,
+            ..Default::default()
+        };
 
         let result = config.load_signatures();
         assert!(result.is_ok());

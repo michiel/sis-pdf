@@ -136,6 +136,13 @@ enum Command {
             help = "Report verbosity (compact, standard, verbose)"
         )]
         report_verbosity: commands::query::ReportVerbosity,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = commands::query::ChainSummaryLevel::Events,
+            help = "Chain summary level (minimal, events, full)"
+        )]
+        chain_summary: commands::query::ChainSummaryLevel,
         #[arg(long, help = "Filter results with a predicate expression")]
         r#where: Option<String>,
         #[arg(long, help = "Deep scan mode")]
@@ -344,6 +351,20 @@ enum Command {
         strict: bool,
         #[arg(long)]
         ir: bool,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = commands::query::ChainSummaryLevel::Events,
+            help = "Chain summary level for report output (minimal, events, full)"
+        )]
+        report_chain_summary: commands::query::ChainSummaryLevel,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = commands::query::ReportVerbosity::Standard,
+            help = "Report verbosity for Markdown output (compact, standard, verbose)"
+        )]
+        report_verbosity: commands::query::ReportVerbosity,
         #[arg(long, help = "Disable image analysis (static and dynamic)")]
         no_image_analysis: bool,
         #[arg(long, help = "Disable dynamic image decoding (deep scan)")]
@@ -684,6 +705,7 @@ fn main() -> Result<()> {
             colour,
             compact,
             report_verbosity,
+            chain_summary,
             r#where,
             deep,
             max_decode_bytes,
@@ -786,6 +808,8 @@ fn main() -> Result<()> {
                     max_extract_bytes,
                     decode_mode,
                     predicate.as_ref(),
+                    report_verbosity,
+                    chain_summary,
                 )
             } else {
                 // Interactive REPL mode requires a single PDF file
@@ -820,6 +844,7 @@ fn main() -> Result<()> {
                     decode_mode,
                     predicate.as_ref(),
                     report_verbosity,
+                    chain_summary,
                 )
             }
         }
@@ -992,6 +1017,8 @@ fn main() -> Result<()> {
             no_js_sandbox,
             no_image_analysis,
             no_image_dynamic,
+            report_chain_summary,
+            report_verbosity,
         } => run_report(
             &pdf,
             deep,
@@ -1026,6 +1053,8 @@ fn main() -> Result<()> {
             !no_js_sandbox,
             !no_image_analysis,
             !no_image_dynamic,
+            report_chain_summary,
+            report_verbosity,
         ),
         Command::Explain {
             pdf, finding_id, ..
@@ -2746,6 +2775,7 @@ fn run_query_oneshot(
     decode_mode: commands::query::DecodeMode,
     predicate: Option<&commands::query::PredicateExpr>,
     report_verbosity: commands::query::ReportVerbosity,
+    chain_summary: commands::query::ChainSummaryLevel,
 ) -> Result<()> {
     use commands::query;
 
@@ -2821,7 +2851,8 @@ fn run_query_oneshot(
     )
     .map_err(|e| anyhow!("Query execution failed: {}", e))?;
 
-    let result = query::apply_report_verbosity(&query, result, report_verbosity);
+    let result = query::apply_report_verbosity(&query, result, report_verbosity, output_format);
+    let result = query::apply_chain_summary(&query, result, chain_summary, output_format);
 
     // Format and print the result
     match output_format {
@@ -2864,6 +2895,8 @@ fn run_query_repl(
     colour: bool,
     decode_mode: commands::query::DecodeMode,
     predicate: Option<&commands::query::PredicateExpr>,
+    report_verbosity: commands::query::ReportVerbosity,
+    chain_summary: commands::query::ChainSummaryLevel,
 ) -> Result<()> {
     use commands::query;
     use rustyline::error::ReadlineError;
@@ -3052,6 +3085,8 @@ fn run_query_repl(
                             query::OutputFormat::Jsonl
                         } else if json_mode {
                             query::OutputFormat::Json
+                        } else if readable_mode {
+                            query::OutputFormat::Readable
                         } else {
                             query::OutputFormat::Text
                         };
@@ -3071,44 +3106,62 @@ fn run_query_repl(
                             predicate_expr.as_ref(),
                         ) {
                             Ok(result) => {
-                                let result =
-                                    query::apply_report_verbosity(&q, result, report_verbosity);
-                                let formatted = if yaml_mode {
-                                    match query::format_yaml(query_line, pdf_path, &result) {
-                                        Ok(output) => maybe_colourise_output(
-                                            output,
-                                            query::OutputFormat::Yaml,
-                                            colour_mode,
-                                        ),
-                                        Err(e) => {
-                                            eprintln!("Error formatting result: {}", e);
-                                            continue;
+                                let result = query::apply_report_verbosity(
+                                    &q,
+                                    result,
+                                    report_verbosity,
+                                    output_format,
+                                );
+                                let result = query::apply_chain_summary(
+                                    &q,
+                                    result,
+                                    chain_summary,
+                                    output_format,
+                                );
+                                let formatted = match output_format {
+                                    query::OutputFormat::Yaml => {
+                                        match query::format_yaml(query_line, pdf_path, &result) {
+                                            Ok(output) => maybe_colourise_output(
+                                                output,
+                                                query::OutputFormat::Yaml,
+                                                colour_mode,
+                                            ),
+                                            Err(e) => {
+                                                eprintln!("Error formatting result: {}", e);
+                                                continue;
+                                            }
                                         }
                                     }
-                                } else if jsonl_mode {
-                                    match query::format_jsonl(query_line, pdf_path, &result) {
-                                        Ok(output) => output,
-                                        Err(e) => {
-                                            eprintln!("Error formatting result: {}", e);
-                                            continue;
+                                    query::OutputFormat::Jsonl => {
+                                        match query::format_jsonl(query_line, pdf_path, &result) {
+                                            Ok(output) => output,
+                                            Err(e) => {
+                                                eprintln!("Error formatting result: {}", e);
+                                                continue;
+                                            }
                                         }
                                     }
-                                } else if json_mode {
-                                    match query::format_json(query_line, pdf_path, &result) {
-                                        Ok(output) => maybe_colourise_output(
-                                            output,
-                                            query::OutputFormat::Json,
-                                            colour_mode,
-                                        ),
-                                        Err(e) => {
-                                            eprintln!("Error formatting result: {}", e);
-                                            continue;
+                                    query::OutputFormat::Json => {
+                                        match query::format_json(query_line, pdf_path, &result) {
+                                            Ok(output) => maybe_colourise_output(
+                                                output,
+                                                query::OutputFormat::Json,
+                                                colour_mode,
+                                            ),
+                                            Err(e) => {
+                                                eprintln!("Error formatting result: {}", e);
+                                                continue;
+                                            }
                                         }
                                     }
-                                } else if readable_mode {
-                                    query::format_readable_result(&result, compact_mode)
-                                } else {
-                                    query::format_result(&result, compact_mode)
+                                    query::OutputFormat::Readable => {
+                                        query::format_readable_result(&result, compact_mode)
+                                    }
+                                    query::OutputFormat::Text
+                                    | query::OutputFormat::Csv
+                                    | query::OutputFormat::Dot => {
+                                        query::format_result(&result, compact_mode)
+                                    }
                                 };
 
                                 match destination {
@@ -3222,7 +3275,7 @@ enum ReplDestination<'a> {
 }
 
 fn split_repl_destination(line: &str) -> (&str, ReplDestination<'_>) {
-    if let Some(idx) = line.find(|c| c == '|' || c == '>') {
+    if let Some(idx) = line.find(['|', '>']) {
         let (primary, rest) = line.split_at(idx);
         let command = rest[1..].trim();
         let query = primary.trim_end();
@@ -3294,7 +3347,6 @@ mod repl_tests {
         }
     }
 
-    #[cfg(unix)]
     #[cfg(unix)]
     #[test]
     fn run_repl_pipeline_invokes_shell() {
@@ -3832,7 +3884,7 @@ fn run_scan_single(
     opts: &sis_pdf_core::scan::ScanOptions,
     detectors: &[Box<dyn sis_pdf_core::detect::Detector>],
 ) -> Result<sis_pdf_core::report::Report> {
-    let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), detectors)?
+    let report = sis_pdf_core::runner::run_scan_with_detectors(mmap, opts.clone(), detectors)?
         .with_input_path(Some(pdf.to_string()));
     Ok(report)
 }
@@ -4001,7 +4053,7 @@ fn run_scan_batch(
                 sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), detectors)?
                     .with_input_path(Some(path_str.clone())),
             );
-            if let (Some(cache), Some(ref report)) = (&cache, report.as_ref()) {
+            if let (Some(cache), Some(report)) = (&cache, report.as_ref()) {
                 let _ = cache.store(&hash, report);
             }
         } else if let Some(rep) = report.take() {
@@ -4229,6 +4281,8 @@ fn run_report(
     js_sandbox: bool,
     image_analysis_enabled: bool,
     image_dynamic_enabled: bool,
+    _report_chain_summary: commands::query::ChainSummaryLevel,
+    _report_verbosity: commands::query::ReportVerbosity,
 ) -> Result<()> {
     let mmap = mmap_file(pdf)?;
     let diff_parser = diff_parser || strict;

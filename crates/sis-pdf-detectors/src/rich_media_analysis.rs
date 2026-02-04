@@ -42,7 +42,7 @@ impl Detector for RichMediaContentDetector {
             .graph
             .objects
             .iter()
-            .any(|entry| entry_dict(entry).map_or(false, |dict| is_rich_media_dict(dict)));
+            .any(|entry| entry_dict(entry).is_some_and(|dict| is_rich_media_dict(dict)));
         if !has_rich_media {
             return Ok(findings);
         }
@@ -138,7 +138,6 @@ impl Detector for RichMediaContentDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             });
             let mut action_tags = analysis.action_scan.action_tags.clone();
             if action_tags.is_empty() && analysis.action_scan.tags_scanned > 0 {
@@ -175,7 +174,6 @@ impl Detector for RichMediaContentDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                    ..Finding::default()
                 });
             }
         }
@@ -207,8 +205,7 @@ fn encode_list(values: &[String]) -> String {
                 value
                     .replace('\\', "\\\\")
                     .replace('"', "\\\"")
-                    .replace('\n', " ")
-                    .replace('\r', " ")
+                    .replace(['\n', '\r'], " ")
             )
         })
         .collect();

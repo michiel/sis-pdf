@@ -351,10 +351,10 @@ fn apply_predictor(data: &[u8], parms: DecodeParms) -> Result<Vec<u8>> {
         return Ok(data.to_vec());
     }
     if parms.predictor == 2 {
-        return Ok(apply_tiff_predictor(data, parms)?);
+        return apply_tiff_predictor(data, parms);
     }
     if (10..=15).contains(&parms.predictor) {
-        return Ok(apply_png_predictor(data, parms)?);
+        return apply_png_predictor(data, parms);
     }
     Ok(data.to_vec())
 }
@@ -615,6 +615,133 @@ fn decode_lzw(data: &[u8], max_out: usize) -> Result<(Vec<u8>, bool)> {
     Ok((out, truncated))
 }
 
+pub fn decode_ascii_hex(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut buf = Vec::new();
+    for &b in data {
+        if b == b'>' {
+            break;
+        }
+        if b.is_ascii_whitespace() {
+            continue;
+        }
+        buf.push(b);
+    }
+    let mut i = 0;
+    while i < buf.len() {
+        let hi = hex_val(buf[i]);
+        let lo = if i + 1 < buf.len() {
+            hex_val(buf[i + 1])
+        } else {
+            Some(0)
+        };
+        if let (Some(h), Some(l)) = (hi, lo) {
+            out.push((h << 4) | l);
+        }
+        i += 2;
+    }
+    out
+}
+
+fn decode_ascii85(data: &[u8]) -> Result<(Vec<u8>, bool)> {
+    let mut out = Vec::new();
+    let mut tuple = Vec::new();
+    let mut i = 0usize;
+    while i < data.len() {
+        let b = data[i];
+        if b == b'~' && i + 1 < data.len() && data[i + 1] == b'>' {
+            break;
+        }
+        if b.is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        if b == b'z' && tuple.is_empty() {
+            out.extend_from_slice(&[0, 0, 0, 0]);
+            i += 1;
+            continue;
+        }
+        if !(b'!'..=b'u').contains(&b) {
+            i += 1;
+            continue;
+        }
+        tuple.push(b);
+        if tuple.len() == 5 {
+            let mut value: u32 = 0;
+            for &c in &tuple {
+                value = value * 85 + (c - 33) as u32;
+            }
+            out.extend_from_slice(&value.to_be_bytes());
+            tuple.clear();
+        }
+        i += 1;
+    }
+    if !tuple.is_empty() {
+        let mut value: u32 = 0;
+        let padding = 5 - tuple.len();
+        for &c in &tuple {
+            value = value * 85 + (c - 33) as u32;
+        }
+        for _ in 0..padding {
+            value = value * 85 + 84;
+        }
+        let bytes = value.to_be_bytes();
+        out.extend_from_slice(&bytes[..4 - padding]);
+    }
+    Ok((out, false))
+}
+
+fn decode_run_length(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < data.len() {
+        let n = data[i];
+        i += 1;
+        if n == 128 {
+            break;
+        } else if n <= 127 {
+            let count = (n as usize) + 1;
+            if i + count > data.len() {
+                break;
+            }
+            out.extend_from_slice(&data[i..i + count]);
+            i += count;
+        } else {
+            let count = 257 - (n as usize);
+            if i >= data.len() {
+                break;
+            }
+            let b = data[i];
+            out.extend(std::iter::repeat_n(b, count));
+            i += 1;
+        }
+    }
+    out
+}
+
+fn looks_like_jpeg(data: &[u8]) -> bool {
+    data.len() > 2 && data[0] == 0xFF && data[1] == 0xD8
+}
+
+pub fn looks_like_zlib(data: &[u8]) -> bool {
+    if data.len() < 2 {
+        return false;
+    }
+    if data[0] != 0x78 {
+        return false;
+    }
+    matches!(data[1], 0x01 | 0x5E | 0x9C | 0xDA)
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(10 + b - b'a'),
+        b'A'..=b'F' => Some(10 + b - b'A'),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,132 +845,5 @@ mod tests {
             result.meta.outcome,
             DecodeOutcome::Deferred { handler, .. } if handler == "image"
         ));
-    }
-}
-
-pub fn decode_ascii_hex(data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut buf = Vec::new();
-    for &b in data {
-        if b == b'>' {
-            break;
-        }
-        if b.is_ascii_whitespace() {
-            continue;
-        }
-        buf.push(b);
-    }
-    let mut i = 0;
-    while i < buf.len() {
-        let hi = hex_val(buf[i]);
-        let lo = if i + 1 < buf.len() {
-            hex_val(buf[i + 1])
-        } else {
-            Some(0)
-        };
-        if let (Some(h), Some(l)) = (hi, lo) {
-            out.push((h << 4) | l);
-        }
-        i += 2;
-    }
-    out
-}
-
-fn decode_ascii85(data: &[u8]) -> Result<(Vec<u8>, bool)> {
-    let mut out = Vec::new();
-    let mut tuple = Vec::new();
-    let mut i = 0usize;
-    while i < data.len() {
-        let b = data[i];
-        if b == b'~' && i + 1 < data.len() && data[i + 1] == b'>' {
-            break;
-        }
-        if b.is_ascii_whitespace() {
-            i += 1;
-            continue;
-        }
-        if b == b'z' && tuple.is_empty() {
-            out.extend_from_slice(&[0, 0, 0, 0]);
-            i += 1;
-            continue;
-        }
-        if b < b'!' || b > b'u' {
-            i += 1;
-            continue;
-        }
-        tuple.push(b);
-        if tuple.len() == 5 {
-            let mut value: u32 = 0;
-            for &c in &tuple {
-                value = value * 85 + (c - 33) as u32;
-            }
-            out.extend_from_slice(&value.to_be_bytes());
-            tuple.clear();
-        }
-        i += 1;
-    }
-    if !tuple.is_empty() {
-        let mut value: u32 = 0;
-        let padding = 5 - tuple.len();
-        for &c in &tuple {
-            value = value * 85 + (c - 33) as u32;
-        }
-        for _ in 0..padding {
-            value = value * 85 + 84;
-        }
-        let bytes = value.to_be_bytes();
-        out.extend_from_slice(&bytes[..4 - padding]);
-    }
-    Ok((out, false))
-}
-
-fn decode_run_length(data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut i = 0usize;
-    while i < data.len() {
-        let n = data[i];
-        i += 1;
-        if n == 128 {
-            break;
-        } else if n <= 127 {
-            let count = (n as usize) + 1;
-            if i + count > data.len() {
-                break;
-            }
-            out.extend_from_slice(&data[i..i + count]);
-            i += count;
-        } else {
-            let count = 257 - (n as usize);
-            if i >= data.len() {
-                break;
-            }
-            let b = data[i];
-            out.extend(std::iter::repeat(b).take(count));
-            i += 1;
-        }
-    }
-    out
-}
-
-fn looks_like_jpeg(data: &[u8]) -> bool {
-    data.len() > 2 && data[0] == 0xFF && data[1] == 0xD8
-}
-
-pub fn looks_like_zlib(data: &[u8]) -> bool {
-    if data.len() < 2 {
-        return false;
-    }
-    if data[0] != 0x78 {
-        return false;
-    }
-    matches!(data[1], 0x01 | 0x5E | 0x9C | 0xDA)
-}
-
-fn hex_val(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(10 + b - b'a'),
-        b'A'..=b'F' => Some(10 + b - b'A'),
-        _ => None,
     }
 }

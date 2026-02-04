@@ -183,7 +183,7 @@ fn correlate_encrypted_payload_delivery(
 
     for archive in &archives {
         if targets.iter().any(|target| shares_object(archive, target)) || !targets.is_empty() {
-            let mut sources: Vec<&Finding> = targets.iter().copied().collect();
+            let mut sources: Vec<&Finding> = targets.to_vec();
             sources.push(*archive);
             composites.push(build_composite(
                 "encrypted_payload_delivery",
@@ -245,6 +245,7 @@ fn correlate_obfuscated_payload(findings: &[Finding], config: &CorrelationOption
     composites
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_composite(
     kind: &'static str,
     title: &'static str,
@@ -301,7 +302,6 @@ fn build_composite(
         action_type: None,
         action_target: None,
         action_initiation: None,
-        ..Finding::default()
     }
 }
 

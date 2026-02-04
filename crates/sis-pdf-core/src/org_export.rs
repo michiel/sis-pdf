@@ -85,7 +85,7 @@ pub fn export_org_dot(org: &OrgGraph) -> String {
 
         // Export edges with type information
         for edge in enhanced_edges {
-            let edge_label = edge.edge_type.as_ref().map(|t| t.as_str()).unwrap_or("ref");
+            let edge_label = edge.edge_type.as_deref().unwrap_or("ref");
             let style = if edge.suspicious {
                 "color=red, style=bold"
             } else {
@@ -228,7 +228,7 @@ fn collect_action_edges<'a>(typed_graph: &'a TypedGraph<'a>) -> Vec<ActionEdgeIn
     typed_graph
         .edges
         .iter()
-        .filter_map(|edge| classify_action_edge(edge))
+        .filter_map(classify_action_edge)
         .collect()
 }
 

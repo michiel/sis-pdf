@@ -56,7 +56,7 @@ impl Detector for ActionTriggerDetector {
                 );
                 let action_type =
                     action_type_from_obj(ctx, v).unwrap_or_else(|| "OpenAction".into());
-                let target_value = meta.get("action.chain_path").map(|v| v.clone());
+                let target_value = meta.get("action.chain_path").cloned();
                 annotate_action_meta(
                     &mut meta,
                     &action_type,
@@ -88,7 +88,6 @@ impl Detector for ActionTriggerDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                    ..Finding::default()
                 });
                 if summary.depth >= ACTION_CHAIN_COMPLEX_DEPTH {
                     findings.push(Finding {
@@ -106,10 +105,13 @@ impl Detector for ActionTriggerDetector {
                             .build(),
                         remediation: Some("Inspect action chains for hidden payloads.".into()),
                         meta,
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
-                        ..Finding::default()
                     });
                 }
             }
@@ -137,7 +139,7 @@ impl Detector for ActionTriggerDetector {
                         );
                         let action_type = action_type_from_obj(ctx, action_obj)
                             .unwrap_or_else(|| event_label.clone());
-                        let target_value = meta.get("action.chain_path").map(|v| v.clone());
+                        let target_value = meta.get("action.chain_path").cloned();
                         annotate_action_meta(
                             &mut meta,
                             &action_type,
@@ -182,7 +184,6 @@ impl Detector for ActionTriggerDetector {
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
-                                ..Finding::default()
                             });
                         }
 
@@ -209,10 +210,13 @@ impl Detector for ActionTriggerDetector {
                                     "Inspect action chains for hidden payloads.".into(),
                                 ),
                                 meta,
+                                reader_impacts: Vec::new(),
+                                action_type: None,
+                                action_target: None,
+                                action_initiation: None,
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
-                                ..Finding::default()
                             });
                         }
                     }
@@ -242,7 +246,7 @@ impl Detector for ActionTriggerDetector {
                         .as_ref()
                         .and_then(|obj| action_type_from_obj(ctx, obj))
                         .unwrap_or_else(|| event_label.clone());
-                    let target_value = meta.get("action.chain_path").map(|v| v.clone());
+                    let target_value = meta.get("action.chain_path").cloned();
                     annotate_action_meta(
                         &mut meta,
                         &action_type,
@@ -275,7 +279,6 @@ impl Detector for ActionTriggerDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
-                        ..Finding::default()
                     });
                 }
             }
@@ -294,7 +297,7 @@ impl Detector for ActionTriggerDetector {
                     insert_chain_metadata(&mut meta, "field", field_name.clone(), "user", &summary);
                     let action_type =
                         action_type_from_obj(ctx, action_obj).unwrap_or_else(|| "field".into());
-                    let target = meta.get("action.chain_path").map(|v| v.clone());
+                    let target = meta.get("action.chain_path").cloned();
                     let initiation = if hidden_field { "hidden" } else { "user" };
                     annotate_action_meta(&mut meta, &action_type, target.as_deref(), initiation);
                     let evidence = EvidenceBuilder::new()
@@ -330,7 +333,6 @@ impl Detector for ActionTriggerDetector {
                             yara: None,
                             position: None,
                             positions: Vec::new(),
-                            ..Finding::default()
                         });
                     }
 
@@ -358,7 +360,6 @@ impl Detector for ActionTriggerDetector {
                             yara: None,
                             position: None,
                             positions: Vec::new(),
-                            ..Finding::default()
                         });
                     }
                 }
@@ -428,7 +429,6 @@ impl Detector for ActionTriggerDetector {
                                     yara: None,
                                     position: None,
                                     positions: Vec::new(),
-                                    ..Finding::default()
                                 });
                             }
 
@@ -460,7 +460,6 @@ impl Detector for ActionTriggerDetector {
                                     yara: None,
                                     position: None,
                                     positions: Vec::new(),
-                                    ..Finding::default()
                                 });
                             }
 
@@ -495,7 +494,6 @@ impl Detector for ActionTriggerDetector {
                                     yara: None,
                                     position: None,
                                     positions: Vec::new(),
-                                    ..Finding::default()
                                 });
                             }
                         }
@@ -588,9 +586,7 @@ fn action_chain_summary(
 }
 
 fn best_chain_summary(a: ChainSummary, b: ChainSummary) -> ChainSummary {
-    if b.depth > a.depth {
-        b
-    } else if b.depth == a.depth && b.path.len() > a.path.len() {
+    if b.depth > a.depth || (b.depth == a.depth && b.path.len() > a.path.len()) {
         b
     } else {
         a
@@ -729,8 +725,8 @@ fn extract_field_name(dict: &PdfDict<'_>) -> String {
 fn pdf_obj_to_string(obj: &PdfObj<'_>) -> Option<String> {
     if let PdfAtom::Str(s) = &obj.atom {
         return Some(match s {
-            PdfStr::Literal { decoded, .. } => String::from_utf8_lossy(&decoded).to_string(),
-            PdfStr::Hex { decoded, .. } => String::from_utf8_lossy(&decoded).to_string(),
+            PdfStr::Literal { decoded, .. } => String::from_utf8_lossy(decoded).to_string(),
+            PdfStr::Hex { decoded, .. } => String::from_utf8_lossy(decoded).to_string(),
         });
     }
     None

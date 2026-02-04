@@ -324,11 +324,11 @@ fn rect_area(operands: &[ContentOperand]) -> Option<f32> {
 
 fn color_space_name(op: &ContentOp) -> Option<String> {
     match op.op.as_str() {
-        "CS" | "cs" | "SC" | "sc" => op.operands.get(0).and_then(|operand| match operand {
+        "CS" | "cs" | "SC" | "sc" => op.operands.first().and_then(|operand| match operand {
             ContentOperand::Name(name) => Some(name.clone()),
             _ => None,
         }),
-        "SCN" | "scn" => op.operands.get(0).and_then(|operand| match operand {
+        "SCN" | "scn" => op.operands.first().and_then(|operand| match operand {
             ContentOperand::Name(name) => Some(name.clone()),
             _ => None,
         }),

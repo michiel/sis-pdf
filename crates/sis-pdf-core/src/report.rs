@@ -81,6 +81,7 @@ fn chain_note<'a>(chain: &'a ExploitChain, key: &str) -> Option<&'a str> {
 }
 
 impl Report {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_findings(
         mut findings: Vec<Finding>,
         chains: Vec<ExploitChain>,
@@ -1325,8 +1326,6 @@ fn impact_rating_for_finding(f: &Finding) -> &'static str {
             "High"
         } else if r.eq_ignore_ascii_case("medium") {
             "Medium"
-        } else if r.eq_ignore_ascii_case("low") {
-            "Low"
         } else {
             "Low"
         };
@@ -2082,7 +2081,7 @@ fn keyword_match(f: &Finding, keywords: &[&str]) -> bool {
     keywords.iter().any(|kw| text.contains(kw))
 }
 
-fn top_findings<'a>(findings: &'a [Finding], limit: usize) -> Vec<&'a Finding> {
+fn top_findings(findings: &[Finding], limit: usize) -> Vec<&Finding> {
     let mut ranked: Vec<&Finding> = findings.iter().collect();
     ranked.sort_by(|a, b| {
         severity_score(b.severity)

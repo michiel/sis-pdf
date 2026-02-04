@@ -35,7 +35,7 @@ pub struct ExecutionStats {
 
 #[derive(Debug, Clone)]
 pub enum DynamicOutcome {
-    Executed(DynamicSignals),
+    Executed(Box<DynamicSignals>),
     TimedOut {
         timeout_ms: u128,
     },

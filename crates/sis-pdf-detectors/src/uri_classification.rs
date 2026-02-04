@@ -188,21 +188,21 @@ pub fn analyze_uri_content(uri: &[u8]) -> UriContentAnalysis {
     let suspicious_patterns = detect_suspicious_patterns(&url, &domain, &query_params);
 
     // Check if domain is IP address
-    let is_ip_address = domain.as_ref().map_or(false, |d| is_ip_address_domain(d));
+    let is_ip_address = domain.as_ref().is_some_and(|d| is_ip_address_domain(d));
 
     // Check for suspicious TLD
-    let suspicious_tld = domain.as_ref().map_or(false, |d| has_suspicious_tld(d));
+    let suspicious_tld = domain.as_ref().is_some_and(|d| has_suspicious_tld(d));
 
     // Detect data exfiltration pattern
     let has_data_exfil_pattern = detect_data_exfil_pattern(&query_params);
     let has_non_standard_port = port.map(|p| p != 80 && p != 443).unwrap_or(false);
-    let has_shortener_domain = domain.as_ref().map_or(false, |d| is_shortener_domain(d));
-    let has_suspicious_extension = path.as_ref().map_or(false, |p| has_suspicious_extension(p));
+    let has_shortener_domain = domain.as_ref().is_some_and(|d| is_shortener_domain(d));
+    let has_suspicious_extension = path.as_ref().is_some_and(|p| has_suspicious_extension(p));
     let has_suspicious_scheme = is_suspicious_scheme(&scheme);
-    let has_embedded_ip_host = domain.as_ref().map_or(false, |d| has_embedded_ip(d));
+    let has_embedded_ip_host = domain.as_ref().is_some_and(|d| has_embedded_ip(d));
     let has_idn_lookalike = domain
         .as_ref()
-        .map_or(false, |d| has_idn_lookalike_domain(d));
+        .is_some_and(|d| has_idn_lookalike_domain(d));
     let (data_mime, data_is_base64, data_length) = if is_data_uri {
         parse_data_uri(rest.as_str())
     } else {
@@ -320,13 +320,13 @@ fn parse_query_params(query: &str) -> Vec<(String, String)> {
 
     query
         .split('&')
-        .filter_map(|pair| {
+        .map(|pair| {
             if let Some(idx) = pair.find('=') {
                 let key = pair[..idx].to_string();
                 let value = pair[idx + 1..].to_string();
-                Some((key, value))
+                (key, value)
             } else {
-                Some((pair.to_string(), String::new()))
+                (pair.to_string(), String::new())
             }
         })
         .collect()
@@ -524,6 +524,7 @@ fn detect_data_exfil_pattern(params: &[(String, String)]) -> bool {
     long_value_count > 3 || (params.len() > 5 && long_value_count > 1)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn detect_phishing_indicators(
     url: &str,
     domain: &Option<String>,
@@ -676,7 +677,7 @@ fn has_embedded_ip(domain: &str) -> bool {
 }
 
 fn has_idn_lookalike_domain(domain: &str) -> bool {
-    if domain.chars().any(|c| !c.is_ascii()) {
+    if !domain.is_ascii() {
         let has_ascii_alpha = domain.chars().any(|c| c.is_ascii_alphabetic());
         return has_ascii_alpha;
     }
@@ -1348,7 +1349,7 @@ impl Detector for UriPresenceDetector {
             };
 
             if !unique_domains.is_empty() {
-                let domains: Vec<String> = unique_domains.iter().cloned().take(10).collect();
+                let domains: Vec<String> = unique_domains.iter().take(10).cloned().collect();
                 meta.insert("uri.domains_sample".to_string(), domains.join(", "));
             }
 

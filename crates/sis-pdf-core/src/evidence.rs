@@ -24,13 +24,14 @@ pub fn preview_ascii(data: &[u8], max_len: usize) -> String {
     out
 }
 
+#[derive(Default)]
 pub struct EvidenceBuilder {
     spans: Vec<EvidenceSpan>,
 }
 
 impl EvidenceBuilder {
     pub fn new() -> Self {
-        Self { spans: Vec::new() }
+        Self::default()
     }
 
     pub fn file_offset(mut self, offset: u64, length: u32, note: &str) -> Self {

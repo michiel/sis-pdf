@@ -65,5 +65,5 @@ fn rect_byte_len(data: &[u8]) -> Option<usize> {
     let first = *data.first()?;
     let nbits = first >> 3;
     let rect_bits = 5u32 + 4u32 * nbits as u32;
-    Some(((rect_bits + 7) / 8) as usize)
+    Some(rect_bits.div_ceil(8) as usize)
 }

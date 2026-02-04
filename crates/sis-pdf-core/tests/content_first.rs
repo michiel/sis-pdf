@@ -60,7 +60,7 @@ fn detects_content_first_phase1_findings() {
         .iter()
         .find(|f| f.kind == "content_validation_failed");
     assert!(validation.is_some());
-    assert!(validation.unwrap().meta.get("validation.reason").is_some());
+    assert!(validation.unwrap().meta.contains_key("validation.reason"));
     assert!(report.findings.iter().any(|f| {
         f.meta
             .get("blob.origin")

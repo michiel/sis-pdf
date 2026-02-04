@@ -349,8 +349,8 @@ impl ObjectClassifier {
             }
 
             // Suspicious fonts
-            if classified.obj_type == PdfObjectType::Font {
-                if dict.get_first(b"/FontMatrix").is_some() {
+            if classified.obj_type == PdfObjectType::Font
+                && dict.get_first(b"/FontMatrix").is_some() {
                     // FontMatrix with non-numeric values is suspicious
                     if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
                         if let PdfAtom::Array(arr) = &obj.atom {
@@ -363,7 +363,6 @@ impl ObjectClassifier {
                         }
                     }
                 }
-            }
         }
 
         // Compressed object (in ObjStm)

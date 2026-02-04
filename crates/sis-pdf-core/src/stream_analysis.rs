@@ -197,9 +197,11 @@ mod tests {
                 data.push(byte);
             }
         }
-        let mut limits = StreamLimits::default();
-        limits.max_sample_bytes = data.len();
-        limits.sample_window_bytes = 1024 * 1024;
+        let limits = StreamLimits {
+            max_sample_bytes: data.len(),
+            sample_window_bytes: 1024 * 1024,
+            ..Default::default()
+        };
         let res = analyse_stream(&data, &limits);
         assert!(res.entropy > 7.8);
         assert_eq!(res.sample_bytes, data.len());
@@ -207,8 +209,10 @@ mod tests {
 
     #[test]
     fn entropy_timeout_breaks_early() {
-        let mut limits = StreamLimits::default();
-        limits.timeout_ms = Some(0);
+        let limits = StreamLimits {
+            timeout_ms: Some(0),
+            ..Default::default()
+        };
         let data = vec![0u8; 1024 * 1024];
         let res = analyse_stream(&data, &limits);
         assert!(res.timed_out);

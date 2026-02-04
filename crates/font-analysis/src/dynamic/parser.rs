@@ -1,5 +1,4 @@
 /// Dynamic font parser using ttf-parser for comprehensive analysis
-
 #[cfg(feature = "dynamic")]
 use std::collections::HashMap;
 #[cfg(feature = "dynamic")]
@@ -223,12 +222,12 @@ fn extract_table_references(data: &[u8], context: &mut FontContext) {
         context
             .table_references
             .entry("GSUB".to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push("GPOS".to_string());
         context
             .table_references
             .entry("GPOS".to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push("GSUB".to_string());
     }
 
@@ -239,7 +238,7 @@ fn extract_table_references(data: &[u8], context: &mut FontContext) {
         context
             .table_references
             .entry("CFF ".to_string())
-            .or_insert_with(Vec::new);
+            .or_default();
     }
 }
 
@@ -310,7 +309,7 @@ fn extract_glyf_references(data: &[u8], glyf_table: &TableInfo, context: &mut Fo
             context
                 .table_references
                 .entry(glyf_key)
-                .or_insert_with(Vec::new);
+                .or_default();
             // Note: Full component parsing would require more complex logic
             // For now we just mark that this glyph has references
         }

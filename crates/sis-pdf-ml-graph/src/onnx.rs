@@ -121,8 +121,8 @@ impl OnnxEmbedder {
                         }
                     }
                     if count > 0.0 {
-                        for d in 0..dim {
-                            row[d] /= count;
+                        for item in row.iter_mut().take(dim) {
+                            *item /= count;
                         }
                     }
                 }

@@ -255,7 +255,7 @@ fn value_summary_for_column(column: &str, value: &Value) -> String {
             let ids: Vec<_> = arr
                 .iter()
                 .filter_map(|item| item.as_str())
-                .map(|s| format_object_ref(s))
+                .map(format_object_ref)
                 .collect();
             if !ids.is_empty() {
                 return ids.join(" ");

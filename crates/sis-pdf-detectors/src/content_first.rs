@@ -338,7 +338,7 @@ fn string_span(value: &PdfStr<'_>) -> sis_pdf_pdf::span::Span {
     }
 }
 
-fn object_bytes<'a>(bytes: &'a [u8], span: sis_pdf_pdf::span::Span) -> Option<&'a [u8]> {
+fn object_bytes(bytes: &[u8], span: sis_pdf_pdf::span::Span) -> Option<&[u8]> {
     let start = span.start as usize;
     let end = span.end as usize;
     if start >= end || end > bytes.len() {
@@ -683,10 +683,13 @@ fn label_mismatch_finding(
         evidence: vec![span_to_evidence(stream.data_span, "Stream data")],
         remediation: Some("Verify stream subtype and inspect embedded content.".to_string()),
         meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         yara: None,
         position: None,
         positions: Vec::new(),
-        ..Finding::default()
     })
 }
 
@@ -723,10 +726,13 @@ fn validation_failure_finding(
         evidence: vec![span_to_evidence(stream.data_span, "Stream data")],
         remediation: Some("Review stream structure and decode behaviour.".to_string()),
         meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         yara: None,
         position: None,
         positions: Vec::new(),
-        ..Finding::default()
     })
 }
 
@@ -762,10 +768,13 @@ fn validation_failure_span_finding(
         evidence: vec![span_to_evidence(span, "Object data")],
         remediation: Some("Review object bytes for malformed or hidden content.".to_string()),
         meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         yara: None,
         position: None,
         positions: Vec::new(),
-        ..Finding::default()
     })
 }
 
@@ -814,6 +823,7 @@ fn declared_filter_invalid_finding(
         kind: "declared_filter_invalid".to_string(),
         severity: Severity::High,
         confidence,
+        impact: None,
         title: title.to_string(),
         description,
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -828,7 +838,6 @@ fn declared_filter_invalid_finding(
         yara: None,
         position: None,
         positions: Vec::new(),
-        ..Finding::default()
     })
 }
 
@@ -875,7 +884,6 @@ fn decode_recovered_finding(
         yara: None,
         position: None,
         positions: Vec::new(),
-        ..Finding::default()
     })
 }
 
@@ -919,10 +927,13 @@ fn undeclared_compression_finding(
         evidence: vec![span_to_evidence(stream.data_span, "Stream data")],
         remediation: Some("Review stream for hidden compression or evasion.".to_string()),
         meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
         yara: None,
         position: None,
         positions: Vec::new(),
-        ..Finding::default()
     })
 }
 
@@ -1037,10 +1048,13 @@ fn carve_payloads(
                     "Inspect the object for embedded payloads or polyglot content.".to_string(),
                 ),
                 meta,
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             });
             if findings.len() >= max_hits {
                 break;
@@ -1071,80 +1085,6 @@ fn expected_kind_for_filter(filter: &str) -> Option<&'static str> {
 
 fn format_signature_kind(kind: &str) -> String {
     kind.to_ascii_uppercase()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use sis_pdf_pdf::span::Span;
-
-    #[test]
-    fn embedded_payload_carved_info_when_filter_matches() {
-        let data = b"\xFF\xD8\xFF\xE0\x00\x10";
-        let filters = vec!["/DCTDecode".to_string()];
-        let span = Span {
-            start: 0,
-            end: data.len() as u64,
-        };
-        let findings = carve_payloads(
-            1,
-            0,
-            span,
-            data,
-            "stream",
-            "Stream data",
-            Some(filters.as_slice()),
-        );
-        assert_eq!(findings.len(), 1);
-        let finding = &findings[0];
-        assert_eq!(finding.severity, Severity::Info);
-        assert_eq!(
-            finding.description,
-            "Embedded JPEG signature matches declared filter /DCTDecode."
-        );
-        assert_eq!(
-            finding.meta.get("carve.match").map(|v| v.as_str()),
-            Some("true")
-        );
-        assert_eq!(
-            finding.meta.get("carve.expected_kind").map(|v| v.as_str()),
-            Some("JPEG")
-        );
-    }
-
-    #[test]
-    fn embedded_payload_carved_high_when_filter_mismatch() {
-        let data = b"\xFF\xD8\xFF\xE0\x00\x10";
-        let filters = vec!["/CCITTFaxDecode".to_string()];
-        let span = Span {
-            start: 0,
-            end: data.len() as u64,
-        };
-        let findings = carve_payloads(
-            1,
-            0,
-            span,
-            data,
-            "stream",
-            "Stream data",
-            Some(filters.as_slice()),
-        );
-        assert_eq!(findings.len(), 1);
-        let finding = &findings[0];
-        assert_eq!(finding.severity, Severity::High);
-        assert_eq!(
-            finding.description,
-            "Found a JPEG signature in a stream where we expected TIFF/CCITT."
-        );
-        assert_eq!(
-            finding.meta.get("carve.match").map(|v| v.as_str()),
-            Some("false")
-        );
-        assert_eq!(
-            finding.meta.get("carve.expected_kind").map(|v| v.as_str()),
-            Some("TIFF/CCITT")
-        );
-    }
 }
 
 fn script_payload_findings(
@@ -1391,7 +1331,7 @@ fn parse_swf_tags(data: &[u8]) -> SwfTagScan {
     }
     let nbits = data[8] >> 3;
     let rect_bits = 5u32 + 4u32 * nbits as u32;
-    let rect_bytes = ((rect_bits + 7) / 8) as usize;
+    let rect_bytes = rect_bits.div_ceil(8) as usize;
     let mut offset = 8 + rect_bytes + 4;
     if offset >= data.len() {
         return scan;
@@ -1571,4 +1511,78 @@ fn zip_container_findings(
     }
 
     findings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sis_pdf_pdf::span::Span;
+
+    #[test]
+    fn embedded_payload_carved_info_when_filter_matches() {
+        let data = b"\xFF\xD8\xFF\xE0\x00\x10";
+        let filters = vec!["/DCTDecode".to_string()];
+        let span = Span {
+            start: 0,
+            end: data.len() as u64,
+        };
+        let findings = carve_payloads(
+            1,
+            0,
+            span,
+            data,
+            "stream",
+            "Stream data",
+            Some(filters.as_slice()),
+        );
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.severity, Severity::Info);
+        assert_eq!(
+            finding.description,
+            "Embedded JPEG signature matches declared filter /DCTDecode."
+        );
+        assert_eq!(
+            finding.meta.get("carve.match").map(|v| v.as_str()),
+            Some("true")
+        );
+        assert_eq!(
+            finding.meta.get("carve.expected_kind").map(|v| v.as_str()),
+            Some("JPEG")
+        );
+    }
+
+    #[test]
+    fn embedded_payload_carved_high_when_filter_mismatch() {
+        let data = b"\xFF\xD8\xFF\xE0\x00\x10";
+        let filters = vec!["/CCITTFaxDecode".to_string()];
+        let span = Span {
+            start: 0,
+            end: data.len() as u64,
+        };
+        let findings = carve_payloads(
+            1,
+            0,
+            span,
+            data,
+            "stream",
+            "Stream data",
+            Some(filters.as_slice()),
+        );
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.severity, Severity::High);
+        assert_eq!(
+            finding.description,
+            "Found a JPEG signature in a stream where we expected TIFF/CCITT."
+        );
+        assert_eq!(
+            finding.meta.get("carve.match").map(|v| v.as_str()),
+            Some("false")
+        );
+        assert_eq!(
+            finding.meta.get("carve.expected_kind").map(|v| v.as_str()),
+            Some("TIFF/CCITT")
+        );
+    }
 }

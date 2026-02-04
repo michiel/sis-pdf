@@ -236,27 +236,6 @@ fn is_jbig2_obfuscation(filters: &[String]) -> bool {
     filters.iter().any(|f| f == "JBIG2DECODE") && filters.iter().any(|f| is_ascii_filter(f))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn jbig2_obfuscation_detects_ascii_wrapper() {
-        let filters = vec![
-            "ASCIIHEXDECODE".into(),
-            "FlateDecode".into(),
-            "JBIG2DECODE".into(),
-        ];
-        assert!(is_jbig2_obfuscation(&filters));
-    }
-
-    #[test]
-    fn jbig2_obfuscation_requires_both_filters() {
-        let filters = vec!["FlateDecode".into(), "JBIG2Decode".into()];
-        assert!(!is_jbig2_obfuscation(&filters));
-    }
-}
-
 const KNOWN_FILTERS: &[&str] = &[
     "FLATEDECODE",
     "DCTDECODE",
@@ -302,3 +281,24 @@ fn has_image_with_compression(filters: &[String]) -> bool {
 
 const IMAGE_FILTERS: &[&str] = &["DCTDECODE", "JPXDECODE", "JBIG2DECODE", "CCITTFAXDECODE"];
 const COMPRESSION_FILTERS: &[&str] = &["FLATEDECODE", "LZWDECODE", "RUNLENGTHDECODE"];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jbig2_obfuscation_detects_ascii_wrapper() {
+        let filters = vec![
+            "ASCIIHEXDECODE".into(),
+            "FlateDecode".into(),
+            "JBIG2DECODE".into(),
+        ];
+        assert!(is_jbig2_obfuscation(&filters));
+    }
+
+    #[test]
+    fn jbig2_obfuscation_requires_both_filters() {
+        let filters = vec!["FlateDecode".into(), "JBIG2Decode".into()];
+        assert!(!is_jbig2_obfuscation(&filters));
+    }
+}

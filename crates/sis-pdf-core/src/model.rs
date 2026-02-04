@@ -194,14 +194,15 @@ impl Finding {
         title: impl Into<String>,
         description: impl Into<String>,
     ) -> Self {
-        let mut base = Finding::default();
-        base.surface = surface;
-        base.kind = kind.into();
-        base.severity = severity;
-        base.confidence = confidence;
-        base.title = title.into();
-        base.description = description.into();
-        base
+        Finding {
+            surface,
+            kind: kind.into(),
+            severity,
+            confidence,
+            title: title.into(),
+            description: description.into(),
+            ..Default::default()
+        }
     }
 }
 
@@ -263,10 +264,7 @@ impl FindingBuilder {
         self
     }
 
-    pub fn evidence<I>(mut self, spans: I) -> Self
-    where
-        I: IntoIterator<Item = EvidenceSpan>,
-    {
+    pub fn evidence(mut self, spans: impl IntoIterator<Item = EvidenceSpan>) -> Self {
         self.finding.evidence.extend(spans);
         self
     }
@@ -348,8 +346,7 @@ mod tests {
         .evidence(
             EvidenceBuilder::new()
                 .file_offset(0, 4, "test")
-                .build()
-                .into_iter(),
+                .build(),
         )
         .build();
 

@@ -945,7 +945,7 @@ fn reconstruct_payloads(data: &[u8]) -> Option<ReconstructedPayloads> {
                 // Convert the expression to a string and try to parse as number
                 let arg_str = arg.to_interned_string(self.interner);
                 if let Ok(code) = arg_str.parse::<i64>() {
-                    if code >= 0 && code <= 0x10FFFF {
+                    if (0..=0x10FFFF).contains(&code) {
                         if let Some(ch) = char::from_u32(code as u32) {
                             result.push(ch);
                         } else {
@@ -1396,16 +1396,18 @@ fn detect_identifier_mangling(data: &[u8]) -> bool {
     let mut total_identifiers = 0;
 
     for word in s.split(|c: char| !c.is_alphanumeric() && c != '_') {
-        if word.len() > 0 && (word.chars().next().unwrap().is_alphabetic() || word.starts_with('_'))
+        if !word.is_empty()
+            && word
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_')
         {
             total_identifiers += 1;
 
-            // Single letter variables (excluding common ones like i, j, k)
-            if word.len() == 1 && !matches!(word, "i" | "j" | "k" | "x" | "y" | "z") {
-                obfuscated_count += 1;
-            }
-            // Hex-like identifiers (e.g., _0x1234, var_a1b2c3)
-            else if word.contains("0x")
+            // Single letter variables (excluding common loop vars) or
+            // hex-like identifiers (e.g., _0x1234, var_a1b2c3)
+            if (word.len() == 1 && !matches!(word, "i" | "j" | "k" | "x" | "y" | "z"))
+                || word.contains("0x")
                 || (word.len() > 5
                     && word.chars().filter(|c| c.is_numeric()).count() > word.len() / 2)
             {
@@ -1550,7 +1552,7 @@ fn detect_unicode_obfuscation(data: &[u8]) -> bool {
 
 fn detect_rtl_override(data: &[u8]) -> bool {
     // Check for RTL override character (U+202E)
-    data.windows(3).any(|w| w == &[0xE2, 0x80, 0xAE])
+    data.windows(3).any(|w| w == [0xE2, 0x80, 0xAE])
 }
 
 fn detect_homoglyph_attack(data: &[u8]) -> bool {
@@ -1908,8 +1910,8 @@ fn detect_bitcoin_address(data: &[u8]) -> bool {
     // Bitcoin address regex pattern (simplified)
     // Starts with 1, 3, or bc1, length 26-90
     for word in s.split_whitespace() {
-        if word.len() >= 26 && word.len() <= 90 {
-            if word.starts_with('1') || word.starts_with('3') || word.starts_with("bc1") {
+        if word.len() >= 26 && word.len() <= 90
+            && (word.starts_with('1') || word.starts_with('3') || word.starts_with("bc1")) {
                 // Check if alphanumeric (excluding 0, O, I, l)
                 if word.chars().all(|c| {
                     c.is_ascii_alphanumeric() && c != '0' && c != 'O' && c != 'I' && c != 'l'
@@ -1917,7 +1919,6 @@ fn detect_bitcoin_address(data: &[u8]) -> bool {
                     return true;
                 }
             }
-        }
     }
 
     // Monero address (starts with 4)
@@ -1945,10 +1946,9 @@ fn detect_jit_spray(data: &[u8]) -> bool {
     }
 
     // Function generation in loops
-    let has_func_gen =
-        (find_token(data, b"eval(") || find_token(data, b"Function(")) && find_token(data, b"for(");
+    
 
-    has_func_gen
+    (find_token(data, b"eval(") || find_token(data, b"Function(")) && find_token(data, b"for(")
 }
 
 fn detect_unicode_shellcode(data: &[u8]) -> bool {

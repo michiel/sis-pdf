@@ -71,3 +71,8 @@ object 13 0
 4. Add regression tests (query unit/integration tests) covering default readable output, toggling formats via `:json/:yaml/:readable`, and executing pipes to dummy commands (`cat`, `wc -l`) to ensure behavior remains stable.
 5. Update `docs/query-interface.md` (and USAGE/README if needed) with the new default format, pipe syntax, and examples of tables/trees.
 6. Run `cargo fmt` / `cargo test` / `cargo clippy` (if configured) before the next commit to demonstrate regressions are caught, then capture the new behavior in the plan notes for review.
+
+## Current status
+
+- Interactive query grammar has been reviewed; plan is active.
+- No code changes committed yet; preparing to implement the formatter and pipe handling next.
