@@ -130,10 +130,7 @@ fn analyze_info_dict(
     }
 
     if !suspicious_keys.is_empty() {
-        meta.insert(
-            "info.suspicious_keys_count".into(),
-            suspicious_keys.len().to_string(),
-        );
+        meta.insert("info.suspicious_keys_count".into(), suspicious_keys.len().to_string());
         meta.insert("info.suspicious_keys".into(), suspicious_keys.join("; "));
 
         findings.push(Finding {
@@ -220,18 +217,8 @@ fn is_suspicious_producer(s: &str) -> bool {
 }
 
 fn is_suspicious_creator(s: &str) -> bool {
-    let suspicious_patterns = [
-        "script",
-        "python",
-        "perl",
-        "ruby",
-        "php",
-        "powershell",
-        "cmd",
-        "bash",
-        "unknown",
-        "null",
-    ];
+    let suspicious_patterns =
+        ["script", "python", "perl", "ruby", "php", "powershell", "cmd", "bash", "unknown", "null"];
 
     let lower = s.to_lowercase();
     suspicious_patterns.iter().any(|p| lower.contains(p))

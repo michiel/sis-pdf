@@ -173,22 +173,10 @@ fn stream_entropy_meta(
     let mut meta = std::collections::HashMap::new();
     meta.insert("entropy".into(), format!("{:.3}", analysis.entropy));
     meta.insert("stream.entropy".into(), format!("{:.3}", analysis.entropy));
-    meta.insert(
-        "entropy_threshold".into(),
-        format!("{:.1}", STREAM_HIGH_ENTROPY_THRESHOLD),
-    );
-    meta.insert(
-        "sample_size_bytes".into(),
-        analysis.sample_bytes.to_string(),
-    );
-    meta.insert(
-        "stream.sample_size_bytes".into(),
-        analysis.sample_bytes.to_string(),
-    );
-    meta.insert(
-        "stream.sample_timed_out".into(),
-        analysis.timed_out.to_string(),
-    );
+    meta.insert("entropy_threshold".into(), format!("{:.1}", STREAM_HIGH_ENTROPY_THRESHOLD));
+    meta.insert("sample_size_bytes".into(), analysis.sample_bytes.to_string());
+    meta.insert("stream.sample_size_bytes".into(), analysis.sample_bytes.to_string());
+    meta.insert("stream.sample_timed_out".into(), analysis.timed_out.to_string());
     meta.insert("stream.size_bytes".into(), analysis.size_bytes.to_string());
     meta.insert("stream.magic".into(), analysis.magic_type.clone());
     meta.insert("stream.magic_type".into(), analysis.magic_type.clone());
@@ -202,12 +190,10 @@ pub(crate) fn resolve_encrypt_dict<'a>(
     match &obj.atom {
         PdfAtom::Dict(dict) => Some(dict.clone()),
         PdfAtom::Ref { obj, gen } => {
-            ctx.graph
-                .get_object(*obj, *gen)
-                .and_then(|entry| match &entry.atom {
-                    PdfAtom::Dict(dict) => Some(dict.clone()),
-                    _ => None,
-                })
+            ctx.graph.get_object(*obj, *gen).and_then(|entry| match &entry.atom {
+                PdfAtom::Dict(dict) => Some(dict.clone()),
+                _ => None,
+            })
         }
         _ => None,
     }
@@ -232,10 +218,7 @@ pub(crate) fn encryption_meta_from_dict(
     }
     if let Some((_, obj)) = dict.get_first(b"/Filter") {
         if let PdfAtom::Name(name) = &obj.atom {
-            meta.insert(
-                "crypto.filter".into(),
-                String::from_utf8_lossy(&name.decoded).to_string(),
-            );
+            meta.insert("crypto.filter".into(), String::from_utf8_lossy(&name.decoded).to_string());
         }
     }
     if let Some(algorithm) = classify_encryption_algorithm(version, key_len) {

@@ -29,19 +29,10 @@ fn profile_json_honours_slo() {
         .expect("detection phase missing");
 
     let parse_ms = parse_phase["duration_ms"].as_u64().expect("parse duration");
-    let detection_ms = detection_phase["duration_ms"]
-        .as_u64()
-        .expect("detection duration");
+    let detection_ms = detection_phase["duration_ms"].as_u64().expect("detection duration");
     assert!(parse_ms < 10, "parse duration {}ms exceeds 10ms", parse_ms);
-    assert!(
-        detection_ms < 50,
-        "detection duration {}ms exceeds 50ms",
-        detection_ms
-    );
+    assert!(detection_ms < 50, "detection duration {}ms exceeds 50ms", detection_ms);
 
     let detectors = json["detectors"].as_array().expect("detectors array");
-    assert!(
-        !detectors.is_empty(),
-        "expected at least one detector in profile"
-    );
+    assert!(!detectors.is_empty(), "expected at least one detector in profile");
 }

@@ -57,12 +57,7 @@ impl Detector for ActionTriggerDetector {
                 let action_type =
                     action_type_from_obj(ctx, v).unwrap_or_else(|| "OpenAction".into());
                 let target_value = meta.get("action.chain_path").cloned();
-                annotate_action_meta(
-                    &mut meta,
-                    &action_type,
-                    target_value.as_deref(),
-                    "automatic",
-                );
+                annotate_action_meta(&mut meta, &action_type, target_value.as_deref(), "automatic");
                 let evidence = EvidenceBuilder::new()
                     .file_offset(dict.span.start, dict.span.len() as u32, "Catalog dict")
                     .file_offset(k.span.start, k.span.len() as u32, "OpenAction key")
@@ -516,10 +511,7 @@ struct ChainSummary {
 
 impl ChainSummary {
     fn new(depth: usize) -> Self {
-        Self {
-            depth,
-            path: Vec::new(),
-        }
+        Self { depth, path: Vec::new() }
     }
 }
 
@@ -538,22 +530,15 @@ fn action_chain_summary(
         PdfAtom::Ref { obj, gen } => {
             if !visited.insert((*obj, *gen)) {
                 let mut summary = ChainSummary::new(depth);
-                summary
-                    .path
-                    .push(describe_object(classifications, *obj, *gen));
+                summary.path.push(describe_object(classifications, *obj, *gen));
                 return summary;
             }
             let Some(entry) = ctx.graph.get_object(*obj, *gen) else {
                 return ChainSummary::new(depth);
             };
-            let resolved = PdfObj {
-                span: entry.body_span,
-                atom: entry.atom.clone(),
-            };
+            let resolved = PdfObj { span: entry.body_span, atom: entry.atom.clone() };
             let mut summary = action_chain_summary(ctx, classifications, &resolved, depth, visited);
-            summary
-                .path
-                .insert(0, describe_object(classifications, *obj, *gen));
+            summary.path.insert(0, describe_object(classifications, *obj, *gen));
             summary
         }
         PdfAtom::Dict(dict) => {
@@ -598,12 +583,8 @@ fn describe_object(classifications: &ClassificationMap, obj: u32, gen: u16) -> S
     if let Some(classified) = classifications.get(&(obj, gen)) {
         let mut label = classified.obj_type.as_str().to_string();
         if !classified.roles.is_empty() {
-            let roles = classified
-                .roles
-                .iter()
-                .map(|role| role.as_str())
-                .collect::<Vec<_>>()
-                .join(",");
+            let roles =
+                classified.roles.iter().map(|role| role.as_str()).collect::<Vec<_>>().join(",");
             label.push_str(&format!(" [{}]", roles));
         }
         format!("{label} ({base})")
@@ -622,10 +603,7 @@ fn insert_chain_metadata(
     meta.insert("action.chain_depth".into(), summary.depth.to_string());
     meta.insert("action.trigger_event".into(), trigger_event.clone());
     meta.insert("action.trigger_type".into(), trigger_type.into());
-    meta.insert(
-        "action.chain_path".into(),
-        build_chain_path(trigger_label, summary),
-    );
+    meta.insert("action.chain_path".into(), build_chain_path(trigger_label, summary));
 }
 
 fn build_chain_path(trigger_label: &str, summary: &ChainSummary) -> String {

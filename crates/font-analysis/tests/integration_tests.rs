@@ -8,22 +8,13 @@ use font_analysis::{analyse_font, FontAnalysisConfig};
 #[test]
 fn test_blend_exploit_detection() {
     let data = include_bytes!("fixtures/exploits/blend_2015.pfa");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: false,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: false, ..Default::default() };
     let outcome = analyse_font(data, &config);
 
     // Should detect BLEND exploit pattern
-    let has_blend_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.type1_blend_exploit");
+    let has_blend_finding = outcome.findings.iter().any(|f| f.kind == "font.type1_blend_exploit");
 
-    assert!(
-        has_blend_finding,
-        "BLEND exploit pattern should be detected"
-    );
+    assert!(has_blend_finding, "BLEND exploit pattern should be detected");
 }
 
 /// Test that Type 1 fonts with dangerous operators are flagged
@@ -34,10 +25,8 @@ fn test_type1_dangerous_operators() {
     let outcome = analyse_font(data, &config);
 
     // Should detect dangerous operators
-    let has_dangerous_ops = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.type1_dangerous_operator");
+    let has_dangerous_ops =
+        outcome.findings.iter().any(|f| f.kind == "font.type1_dangerous_operator");
 
     assert!(has_dangerous_ops, "Dangerous operators should be detected");
 }
@@ -50,15 +39,9 @@ fn test_type1_excessive_stack() {
     let outcome = analyse_font(data, &config);
 
     // Should detect excessive stack depth
-    let has_stack_finding = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.type1_excessive_stack");
+    let has_stack_finding = outcome.findings.iter().any(|f| f.kind == "font.type1_excessive_stack");
 
-    assert!(
-        has_stack_finding,
-        "Excessive stack depth should be detected"
-    );
+    assert!(has_stack_finding, "Excessive stack depth should be detected");
 }
 
 /// Test that large charstring programs are flagged
@@ -69,10 +52,8 @@ fn test_type1_large_charstring() {
     let outcome = analyse_font(data, &config);
 
     // Should detect large charstring
-    let has_large_charstring = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.type1_large_charstring");
+    let has_large_charstring =
+        outcome.findings.iter().any(|f| f.kind == "font.type1_large_charstring");
 
     assert!(has_large_charstring, "Large charstring should be detected");
 }
@@ -85,10 +66,7 @@ fn test_benign_type1_no_findings() {
     let outcome = analyse_font(data, &config);
 
     // Should not produce any Type 1 specific findings
-    let has_type1_findings = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind.starts_with("font.type1_"));
+    let has_type1_findings = outcome.findings.iter().any(|f| f.kind.starts_with("font.type1_"));
 
     assert!(
         !has_type1_findings,
@@ -107,18 +85,12 @@ fn test_benign_type1_no_findings() {
 #[test]
 fn test_cve_2025_27163_detection() {
     let data = include_bytes!("fixtures/cve/cve-2025-27163-hmtx-hhea-mismatch.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
     // Should detect CVE-2025-27163
-    let has_cve = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.cve_2025_27163");
+    let has_cve = outcome.findings.iter().any(|f| f.kind == "font.cve_2025_27163");
 
     assert!(
         has_cve,
@@ -132,10 +104,7 @@ fn test_cve_2025_27163_detection() {
 #[test]
 fn test_cve_2023_26369_detection() {
     let data = include_bytes!("fixtures/cve/cve-2023-26369-ebsc-oob.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -154,10 +123,7 @@ fn test_cve_2023_26369_detection() {
     );
 
     // Should have at least one finding since the font is malformed
-    assert!(
-        !outcome.findings.is_empty(),
-        "Malformed font should generate findings"
-    );
+    assert!(!outcome.findings.is_empty(), "Malformed font should generate findings");
 }
 
 /// Test anomalous gvar table detection
@@ -185,10 +151,7 @@ fn test_gvar_anomalous_size() {
 #[test]
 fn test_gvar_glyph_count_mismatch_metadata() {
     let data = include_bytes!("fixtures/cve/gvar-glyph-count-mismatch.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: false,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: false, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
     let finding = outcome
@@ -238,10 +201,7 @@ fn test_benign_variable_no_findings() {
     let outcome = analyse_font(data, &config);
 
     // Should not produce anomaly findings
-    let has_anomaly_findings = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind.contains("anomalous"));
+    let has_anomaly_findings = outcome.findings.iter().any(|f| f.kind.contains("anomalous"));
 
     assert!(
         !has_anomaly_findings,
@@ -259,17 +219,11 @@ fn test_benign_variable_no_findings() {
 #[test]
 fn test_disabled_analysis() {
     let data = include_bytes!("fixtures/exploits/blend_2015.pfa");
-    let config = FontAnalysisConfig {
-        enabled: false,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { enabled: false, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
-    assert!(
-        outcome.findings.is_empty(),
-        "Disabled analysis should produce no findings"
-    );
+    assert!(outcome.findings.is_empty(), "Disabled analysis should produce no findings");
 }
 
 /// Test TrueType VM detects excessive instructions
@@ -277,18 +231,13 @@ fn test_disabled_analysis() {
 #[test]
 fn test_ttf_excessive_instructions() {
     let data = include_bytes!("fixtures/exploits/ttf_excessive_instructions.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
     // Should detect excessive instructions in hinting program
-    let has_hinting_issue = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.ttf_hinting_suspicious");
+    let has_hinting_issue =
+        outcome.findings.iter().any(|f| f.kind == "font.ttf_hinting_suspicious");
 
     assert!(
         has_hinting_issue,
@@ -302,18 +251,13 @@ fn test_ttf_excessive_instructions() {
 #[test]
 fn test_ttf_stack_overflow() {
     let data = include_bytes!("fixtures/exploits/ttf_stack_overflow.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
     // Should detect stack overflow in hinting program
-    let has_hinting_issue = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.ttf_hinting_suspicious");
+    let has_hinting_issue =
+        outcome.findings.iter().any(|f| f.kind == "font.ttf_hinting_suspicious");
 
     assert!(
         has_hinting_issue,
@@ -327,18 +271,13 @@ fn test_ttf_stack_overflow() {
 #[test]
 fn test_ttf_division_by_zero() {
     let data = include_bytes!("fixtures/exploits/ttf_division_by_zero.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
     // Should detect division by zero in hinting program
-    let has_hinting_issue = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.ttf_hinting_suspicious");
+    let has_hinting_issue =
+        outcome.findings.iter().any(|f| f.kind == "font.ttf_hinting_suspicious");
 
     assert!(
         has_hinting_issue,
@@ -355,21 +294,12 @@ fn test_multiple_vulnerability_signals() {
     let outcome = analyse_font(data, &config);
 
     // BLEND exploit should trigger multiple findings
-    assert!(
-        outcome.findings.len() >= 2,
-        "BLEND exploit should trigger multiple findings"
-    );
+    assert!(outcome.findings.len() >= 2, "BLEND exploit should trigger multiple findings");
 
     // Should trigger aggregate finding
-    let has_multiple_vuln = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.multiple_vuln_signals");
+    let has_multiple_vuln = outcome.findings.iter().any(|f| f.kind == "font.multiple_vuln_signals");
 
-    assert!(
-        has_multiple_vuln,
-        "Multiple vulnerability signals should be detected"
-    );
+    assert!(has_multiple_vuln, "Multiple vulnerability signals should be detected");
 }
 
 /// Test that color font with inconsistent COLR/CPAL tables is detected
@@ -377,10 +307,7 @@ fn test_multiple_vulnerability_signals() {
 #[test]
 fn test_color_font_inconsistent_tables() {
     let data = include_bytes!("fixtures/color/colr-without-cpal.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -398,10 +325,7 @@ fn test_color_font_inconsistent_tables() {
     );
 
     // Should have at least one finding
-    assert!(
-        !outcome.findings.is_empty(),
-        "Should generate security findings"
-    );
+    assert!(!outcome.findings.is_empty(), "Should generate security findings");
 }
 
 /// Test that color font with excessive palettes is detected
@@ -409,10 +333,7 @@ fn test_color_font_inconsistent_tables() {
 #[test]
 fn test_color_font_excessive_palettes() {
     let data = include_bytes!("fixtures/color/excessive-palettes.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -436,10 +357,7 @@ fn test_color_font_excessive_palettes() {
 #[test]
 fn test_color_font_glyph_mismatch() {
     let data = include_bytes!("fixtures/color/glyph-count-mismatch.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -463,10 +381,7 @@ fn test_color_font_glyph_mismatch() {
 #[test]
 fn test_benign_color_font() {
     let data = include_bytes!("fixtures/benign/valid-color.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -490,10 +405,7 @@ fn test_benign_color_font() {
 #[test]
 fn test_woff_decompression_bomb() {
     let data = include_bytes!("fixtures/woff/decompression-bomb.woff");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -509,10 +421,7 @@ fn test_woff_decompression_bomb() {
         "WOFF decompression bomb or failure should be detected. Findings: {:?}",
         outcome.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
     );
-    assert!(
-        !outcome.findings.is_empty(),
-        "Should generate security findings"
-    );
+    assert!(!outcome.findings.is_empty(), "Should generate security findings");
 }
 
 /// Test that WOFF2 decompression bomb is detected
@@ -520,10 +429,7 @@ fn test_woff_decompression_bomb() {
 #[test]
 fn test_woff2_decompression_bomb() {
     let data = include_bytes!("fixtures/woff/decompression-bomb.woff2");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -547,10 +453,7 @@ fn test_woff2_decompression_bomb() {
 #[test]
 fn test_woff_excessive_size() {
     let data = include_bytes!("fixtures/woff/excessive-size.woff");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -574,10 +477,7 @@ fn test_woff_excessive_size() {
 #[test]
 fn test_benign_woff_font() {
     let data = include_bytes!("fixtures/benign/valid.woff");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -601,10 +501,7 @@ fn test_benign_woff_font() {
 #[test]
 fn test_variable_font_excessive_axes() {
     let data = include_bytes!("fixtures/variable/excessive-axes.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -628,10 +525,7 @@ fn test_variable_font_excessive_axes() {
 #[test]
 fn test_variable_font_excessive_hvar() {
     let data = include_bytes!("fixtures/variable/excessive-hvar.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -655,10 +549,7 @@ fn test_variable_font_excessive_hvar() {
 #[test]
 fn test_variable_font_excessive_mvar() {
     let data = include_bytes!("fixtures/variable/excessive-mvar.ttf");
-    let config = FontAnalysisConfig {
-        dynamic_enabled: true,
-        ..Default::default()
-    };
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
 
     let outcome = analyse_font(data, &config);
 
@@ -698,10 +589,7 @@ fn test_load_embedded_signatures() {
 
     assert!(result.is_ok(), "Should load embedded signatures");
     let signatures = result.unwrap();
-    assert!(
-        signatures.len() >= 3,
-        "Should have at least 3 active signatures"
-    );
+    assert!(signatures.len() >= 3, "Should have at least 3 active signatures");
 }
 
 /// Test that signature matching can be disabled
@@ -724,11 +612,7 @@ fn test_signature_matching_disabled() {
     assert!(
         !has_cve_findings,
         "Should not detect CVE signatures when disabled. Found: {:?}",
-        outcome
-            .findings
-            .iter()
-            .filter(|f| f.kind.starts_with("cve."))
-            .collect::<Vec<_>>()
+        outcome.findings.iter().filter(|f| f.kind.starts_with("cve.")).collect::<Vec<_>>()
     );
 }
 
@@ -747,24 +631,14 @@ fn test_cve_2025_27163_signature_match() {
     let outcome = analyse_font(&malformed_font, &config);
 
     // Should detect CVE-2025-27163 via signature matching
-    let has_cve = outcome
-        .findings
-        .iter()
-        .any(|f| f.kind.contains("2025-27163") || f.kind.contains("hmtx"));
+    let has_cve =
+        outcome.findings.iter().any(|f| f.kind.contains("2025-27163") || f.kind.contains("hmtx"));
 
     // May also have legacy hardcoded check finding
     assert!(
-        has_cve
-            || outcome
-                .findings
-                .iter()
-                .any(|f| f.description.contains("hmtx")),
+        has_cve || outcome.findings.iter().any(|f| f.description.contains("hmtx")),
         "Should detect hmtx length mismatch. Findings: {:?}",
-        outcome
-            .findings
-            .iter()
-            .map(|f| (&f.kind, &f.description))
-            .collect::<Vec<_>>()
+        outcome.findings.iter().map(|f| (&f.kind, &f.description)).collect::<Vec<_>>()
     );
 }
 
@@ -795,11 +669,7 @@ fn test_cve_2025_27164_signature_match() {
     assert!(
         has_security_finding,
         "Should detect glyph mismatch or parse failure. Findings: {:?}",
-        outcome
-            .findings
-            .iter()
-            .map(|f| (&f.kind, &f.description))
-            .collect::<Vec<_>>()
+        outcome.findings.iter().map(|f| (&f.kind, &f.description)).collect::<Vec<_>>()
     );
 }
 
@@ -823,11 +693,7 @@ fn test_benign_font_no_signature_matches() {
     assert!(
         !has_cve_findings,
         "Benign font should not trigger CVE signatures. Found: {:?}",
-        outcome
-            .findings
-            .iter()
-            .filter(|f| f.kind.starts_with("cve."))
-            .collect::<Vec<_>>()
+        outcome.findings.iter().filter(|f| f.kind.starts_with("cve.")).collect::<Vec<_>>()
     );
 }
 
@@ -841,10 +707,7 @@ fn test_signature_loading_invalid_directory() {
     };
 
     let result = config.load_signatures();
-    assert!(
-        result.is_err(),
-        "Should fail to load from nonexistent directory"
-    );
+    assert!(result.is_err(), "Should fail to load from nonexistent directory");
 }
 
 /// Test that multiple signatures can match on the same font
@@ -862,10 +725,7 @@ fn test_multiple_signature_matches() {
     let outcome = analyse_font(&multi_issue_font, &config);
 
     // Should detect multiple findings (at least parse failure or structure issues)
-    assert!(
-        !outcome.findings.is_empty(),
-        "Multi-issue font should trigger multiple findings"
-    );
+    assert!(!outcome.findings.is_empty(), "Multi-issue font should trigger multiple findings");
 }
 
 // ============================================================================

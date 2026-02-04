@@ -9,15 +9,9 @@ fn parses_authority_and_flags_phishing_indicators() {
     assert!(content.userinfo_present);
     assert!(content.suspicious_tld);
     assert!(content.has_non_standard_port);
-    assert!(content
-        .phishing_indicators
-        .contains(&"credential_keyword".to_string()));
-    assert!(content
-        .phishing_indicators
-        .contains(&"userinfo_in_url".to_string()));
-    assert!(content
-        .phishing_indicators
-        .contains(&"non_standard_port".to_string()));
+    assert!(content.phishing_indicators.contains(&"credential_keyword".to_string()));
+    assert!(content.phishing_indicators.contains(&"userinfo_in_url".to_string()));
+    assert!(content.phishing_indicators.contains(&"non_standard_port".to_string()));
 }
 
 #[test]
@@ -33,9 +27,7 @@ fn detects_tracking_params_and_ip_addresses() {
     let content = analyze_uri_content(b"http://192.168.0.1/update?utm_source=pdf");
     assert!(content.is_ip_address);
     assert!(content.tracking_params.iter().any(|p| p == "utm_source"));
-    assert!(content
-        .phishing_indicators
-        .contains(&"ip_address".to_string()));
+    assert!(content.phishing_indicators.contains(&"ip_address".to_string()));
 }
 
 #[test]

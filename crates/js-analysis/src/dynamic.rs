@@ -236,11 +236,8 @@ mod sandbox_impl {
             let mut observations = Vec::new();
 
             // Count String.fromCharCode usage
-            let char_code_calls = log
-                .calls
-                .iter()
-                .filter(|call| *call == "String.fromCharCode")
-                .count();
+            let char_code_calls =
+                log.calls.iter().filter(|call| *call == "String.fromCharCode").count();
 
             if char_code_calls > 5 {
                 let confidence = (char_code_calls as f64 * 0.1).min(0.95);
@@ -352,10 +349,7 @@ mod sandbox_impl {
                 let confidence = (fingerprint_count as f64 * 0.15).min(0.85);
 
                 let mut metadata = std::collections::HashMap::new();
-                metadata.insert(
-                    "fingerprint_reads".to_string(),
-                    fingerprint_count.to_string(),
-                );
+                metadata.insert("fingerprint_reads".to_string(), fingerprint_count.to_string());
 
                 observations.push(BehaviorObservation {
                     pattern_name: self.name().to_string(),
@@ -384,21 +378,15 @@ mod sandbox_impl {
             let mut observations = Vec::new();
 
             let error_count = log.errors.len();
-            let recovery_attempts = flow
-                .exception_handling
-                .iter()
-                .filter(|ex| ex.recovery_attempted)
-                .count();
+            let recovery_attempts =
+                flow.exception_handling.iter().filter(|ex| ex.recovery_attempted).count();
 
             if error_count > 0 && recovery_attempts > 0 {
                 let confidence = 0.8; // High confidence when we see error recovery
 
                 let mut metadata = std::collections::HashMap::new();
                 metadata.insert("total_errors".to_string(), error_count.to_string());
-                metadata.insert(
-                    "recovery_attempts".to_string(),
-                    recovery_attempts.to_string(),
-                );
+                metadata.insert("recovery_attempts".to_string(), recovery_attempts.to_string());
 
                 observations.push(BehaviorObservation {
                     pattern_name: self.name().to_string(),
@@ -436,10 +424,7 @@ mod sandbox_impl {
                 let confidence = 0.9; // High confidence when we see our promotion system working
 
                 let mut metadata = std::collections::HashMap::new();
-                metadata.insert(
-                    "promoted_variables".to_string(),
-                    promotion_count.to_string(),
-                );
+                metadata.insert("promoted_variables".to_string(), promotion_count.to_string());
 
                 observations.push(BehaviorObservation {
                     pattern_name: self.name().to_string(),
@@ -495,10 +480,7 @@ mod sandbox_impl {
 
             let function_call = FunctionCall {
                 name: name.to_string(),
-                args: args
-                    .iter()
-                    .map(|arg| js_value_summary(arg, ctx, 50))
-                    .collect(),
+                args: args.iter().map(|arg| js_value_summary(arg, ctx, 50)).collect(),
                 return_value: None, // Could be enhanced to capture return values
                 execution_time,
                 scope_id: "global".to_string(), // Could be enhanced with actual scope tracking
@@ -525,16 +507,13 @@ mod sandbox_impl {
                     .map(|start| start.elapsed())
                     .unwrap_or_else(|| std::time::Duration::from_millis(0));
 
-                log_ref
-                    .execution_flow
-                    .variable_timeline
-                    .push(VariableEvent {
-                        variable: "eval_execution".to_string(),
-                        event_type: VariableEventType::Assignment,
-                        value: eval_content,
-                        scope: "global".to_string(),
-                        timestamp,
-                    });
+                log_ref.execution_flow.variable_timeline.push(VariableEvent {
+                    variable: "eval_execution".to_string(),
+                    event_type: VariableEventType::Assignment,
+                    value: eval_content,
+                    scope: "global".to_string(),
+                    timestamp,
+                });
             }
         }
     }
@@ -551,10 +530,7 @@ mod sandbox_impl {
         let bytes = bytes.to_vec();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let mut initial_log = SandboxLog {
-                options: opts,
-                ..SandboxLog::default()
-            };
+            let mut initial_log = SandboxLog { options: opts, ..SandboxLog::default() };
             // Initialize execution flow tracking
             initial_log.execution_flow.start_time = Some(std::time::Instant::now());
             let log = Rc::new(RefCell::new(initial_log));
@@ -658,12 +634,10 @@ mod sandbox_impl {
                         .unwrap_or(0),
                 },
             })),
-            Err(RecvTimeoutError::Timeout) => DynamicOutcome::TimedOut {
-                timeout_ms: options.timeout_ms,
-            },
-            Err(_) => DynamicOutcome::TimedOut {
-                timeout_ms: options.timeout_ms,
-            },
+            Err(RecvTimeoutError::Timeout) => {
+                DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms }
+            }
+            Err(_) => DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms },
         }
     }
 
@@ -758,11 +732,7 @@ mod sandbox_impl {
     ) -> JsObject {
         let value_for_call = value.clone();
         let log_call = log.clone();
-        let call_capture = CallableCapture {
-            log: log_call,
-            name,
-            value: value_for_call,
-        };
+        let call_capture = CallableCapture { log: log_call, name, value: value_for_call };
         let call_fn = unsafe {
             NativeFunction::from_closure_with_captures(
                 move |_this, args, captures, ctx| {
@@ -783,9 +753,7 @@ mod sandbox_impl {
         let value_of_fn = unsafe {
             NativeFunction::from_closure_with_captures(
                 move |_this, _args, captures, _ctx| Ok(captures.value.clone()),
-                ValueCapture {
-                    value: value_for_valueof,
-                },
+                ValueCapture { value: value_for_valueof },
             )
         };
         let value_of = FunctionObjectBuilder::new(context.realm(), value_of_fn)
@@ -802,9 +770,7 @@ mod sandbox_impl {
                     let as_string = captures.value.to_string(ctx)?;
                     Ok(JsValue::from(as_string))
                 },
-                ValueCapture {
-                    value: value_for_string,
-                },
+                ValueCapture { value: value_for_string },
             )
         };
         let to_string = FunctionObjectBuilder::new(context.realm(), to_string_fn)
@@ -825,11 +791,7 @@ mod sandbox_impl {
 
         let plugins_value = {
             let plugin = ObjectInitializer::new(context)
-                .property(
-                    JsString::from("name"),
-                    JsString::from("PlugIn"),
-                    Attribute::all(),
-                )
+                .property(JsString::from("name"), JsString::from("PlugIn"), Attribute::all())
                 .build();
             let plugins = ObjectInitializer::new(context)
                 .property(JsString::from("0"), plugin.clone(), Attribute::all())
@@ -850,10 +812,7 @@ mod sandbox_impl {
                         record_prop(&captures.log, "app.plugIns");
                         Ok(captures.value.clone())
                     },
-                    LogValueCapture {
-                        log: log_clone,
-                        value: plugins_clone,
-                    },
+                    LogValueCapture { log: log_clone, value: plugins_clone },
                 )
             };
             FunctionObjectBuilder::new(context.realm(), getter)
@@ -864,12 +823,8 @@ mod sandbox_impl {
         };
 
         let viewer_version_value = JsValue::from(9);
-        let viewer_version_callable = build_callable_value(
-            context,
-            log.clone(),
-            "app.viewerVersion",
-            viewer_version_value,
-        );
+        let viewer_version_callable =
+            build_callable_value(context, log.clone(), "app.viewerVersion", viewer_version_value);
         let viewer_type_value = JsValue::from(JsString::from("Reader"));
         let viewer_type_callable =
             build_callable_value(context, log.clone(), "app.viewerType", viewer_type_value);
@@ -883,10 +838,7 @@ mod sandbox_impl {
                         record_prop(&captures.log, "app.doc");
                         Ok(captures.value.clone())
                     },
-                    LogValueCapture {
-                        log: log_clone,
-                        value: doc_clone,
-                    },
+                    LogValueCapture { log: log_clone, value: doc_clone },
                 )
             };
             FunctionObjectBuilder::new(context.realm(), getter)
@@ -908,36 +860,16 @@ mod sandbox_impl {
         app.function(make_fn("execMenuItem"), JsString::from("execMenuItem"), 1);
         app.function(make_fn("execDialog"), JsString::from("execDialog"), 1);
         app.function(make_fn("addMenuItem"), JsString::from("addMenuItem"), 1);
-        app.function(
-            make_fn("removeMenuItem"),
-            JsString::from("removeMenuItem"),
-            1,
-        );
+        app.function(make_fn("removeMenuItem"), JsString::from("removeMenuItem"), 1);
         app.function(make_fn("setTimeOut"), JsString::from("setTimeOut"), 1);
         app.function(make_fn("setInterval"), JsString::from("setInterval"), 1);
         app.function(make_fn("submitForm"), JsString::from("submitForm"), 1);
         app.function(make_fn("browseForDoc"), JsString::from("browseForDoc"), 0);
         app.function(make_fn("saveAs"), JsString::from("saveAs"), 1);
-        app.function(
-            make_fn("exportDataObject"),
-            JsString::from("exportDataObject"),
-            1,
-        );
-        app.function(
-            make_fn("importDataObject"),
-            JsString::from("importDataObject"),
-            1,
-        );
-        app.function(
-            make_fn("createDataObject"),
-            JsString::from("createDataObject"),
-            1,
-        );
-        app.function(
-            make_fn("removeDataObject"),
-            JsString::from("removeDataObject"),
-            1,
-        );
+        app.function(make_fn("exportDataObject"), JsString::from("exportDataObject"), 1);
+        app.function(make_fn("importDataObject"), JsString::from("importDataObject"), 1);
+        app.function(make_fn("createDataObject"), JsString::from("createDataObject"), 1);
+        app.function(make_fn("removeDataObject"), JsString::from("removeDataObject"), 1);
         app.function(make_fn("mailMsg"), JsString::from("mailMsg"), 1);
         app.function(make_fn("mailDoc"), JsString::from("mailDoc"), 0);
         app.property(
@@ -950,31 +882,13 @@ mod sandbox_impl {
             JsValue::from(viewer_type_callable),
             Attribute::all(),
         );
-        app.property(
-            JsString::from("platform"),
-            JsString::from("WIN"),
-            Attribute::all(),
-        );
-        app.property(
-            JsString::from("language"),
-            JsString::from("en-AU"),
-            Attribute::all(),
-        );
+        app.property(JsString::from("platform"), JsString::from("WIN"), Attribute::all());
+        app.property(JsString::from("language"), JsString::from("en-AU"), Attribute::all());
 
-        app.accessor(
-            JsString::from("plugIns"),
-            Some(plugins_accessor),
-            None,
-            Attribute::all(),
-        );
+        app.accessor(JsString::from("plugIns"), Some(plugins_accessor), None, Attribute::all());
 
         if let Some(getter_fn) = doc_accessor {
-            app.accessor(
-                JsString::from("doc"),
-                Some(getter_fn),
-                None,
-                Attribute::all(),
-            );
+            app.accessor(JsString::from("doc"), Some(getter_fn), None, Attribute::all());
         }
 
         let app = app.build();
@@ -1002,11 +916,7 @@ mod sandbox_impl {
         };
         let collab = ObjectInitializer::new(context)
             .function(make_fn("Collab.getIcon"), JsString::from("getIcon"), 1)
-            .function(
-                make_fn("Collab.collectEmailInfo"),
-                JsString::from("collectEmailInfo"),
-                0,
-            )
+            .function(make_fn("Collab.collectEmailInfo"), JsString::from("collectEmailInfo"), 0)
             .build();
         let _ =
             context.register_global_property(JsString::from("Collab"), collab, Attribute::all());
@@ -1062,25 +972,13 @@ mod sandbox_impl {
             .build();
         let _ = context.register_global_property(JsString::from("WebSocket"), ws, Attribute::all());
         let beacon = ObjectInitializer::new(context)
-            .function(
-                make_fn("navigator.sendBeacon"),
-                JsString::from("sendBeacon"),
-                2,
-            )
+            .function(make_fn("navigator.sendBeacon"), JsString::from("sendBeacon"), 2)
             .build();
         let _ =
             context.register_global_property(JsString::from("navigator"), beacon, Attribute::all());
         let storage = ObjectInitializer::new(context)
-            .function(
-                make_fn("localStorage.getItem"),
-                JsString::from("getItem"),
-                1,
-            )
-            .function(
-                make_fn("localStorage.setItem"),
-                JsString::from("setItem"),
-                2,
-            )
+            .function(make_fn("localStorage.getItem"), JsString::from("getItem"), 1)
+            .function(make_fn("localStorage.setItem"), JsString::from("setItem"), 2)
             .build();
         let _ = context.register_global_property(
             JsString::from("localStorage"),
@@ -1111,11 +1009,7 @@ mod sandbox_impl {
         );
         let wscript = ObjectInitializer::new(context)
             .function(make_fn("WScript.Shell"), JsString::from("Shell"), 0)
-            .function(
-                make_fn("WScript.CreateObject"),
-                JsString::from("CreateObject"),
-                1,
-            )
+            .function(make_fn("WScript.CreateObject"), JsString::from("CreateObject"), 1)
             .function(make_fn("WScript.RegRead"), JsString::from("RegRead"), 1)
             .function(make_fn("WScript.RegWrite"), JsString::from("RegWrite"), 2)
             .build();
@@ -1162,11 +1056,7 @@ mod sandbox_impl {
         let adodb_stream = ObjectInitializer::new(context)
             .function(make_fn("ADODB.Stream.Open"), JsString::from("Open"), 0)
             .function(make_fn("ADODB.Stream.Write"), JsString::from("Write"), 1)
-            .function(
-                make_fn("ADODB.Stream.SaveToFile"),
-                JsString::from("SaveToFile"),
-                1,
-            )
+            .function(make_fn("ADODB.Stream.SaveToFile"), JsString::from("SaveToFile"), 1)
             .build();
         let adodb = ObjectInitializer::new(context)
             .property(JsString::from("Stream"), adodb_stream, Attribute::all())
@@ -1189,16 +1079,8 @@ mod sandbox_impl {
             context.register_global_property(JsString::from("MSXML2"), msxml2, Attribute::all());
 
         let server_xmlhttp = ObjectInitializer::new(context)
-            .function(
-                make_fn("MSXML2.ServerXMLHTTP.open"),
-                JsString::from("open"),
-                2,
-            )
-            .function(
-                make_fn("MSXML2.ServerXMLHTTP.send"),
-                JsString::from("send"),
-                1,
-            )
+            .function(make_fn("MSXML2.ServerXMLHTTP.open"), JsString::from("open"), 2)
+            .function(make_fn("MSXML2.ServerXMLHTTP.send"), JsString::from("send"), 1)
             .function(
                 make_fn("MSXML2.ServerXMLHTTP.setRequestHeader"),
                 JsString::from("setRequestHeader"),
@@ -1212,16 +1094,8 @@ mod sandbox_impl {
         );
 
         let domdoc = ObjectInitializer::new(context)
-            .function(
-                make_fn("MSXML2.DOMDocument.load"),
-                JsString::from("load"),
-                1,
-            )
-            .function(
-                make_fn("MSXML2.DOMDocument.loadXML"),
-                JsString::from("loadXML"),
-                1,
-            )
+            .function(make_fn("MSXML2.DOMDocument.load"), JsString::from("load"), 1)
+            .function(make_fn("MSXML2.DOMDocument.loadXML"), JsString::from("loadXML"), 1)
             .build();
         let _ = context.register_global_property(
             JsString::from("DOMDocument"),
@@ -1230,16 +1104,8 @@ mod sandbox_impl {
         );
 
         let winhttp = ObjectInitializer::new(context)
-            .function(
-                make_fn("WinHTTP.WinHTTPRequest.open"),
-                JsString::from("Open"),
-                2,
-            )
-            .function(
-                make_fn("WinHTTP.WinHTTPRequest.send"),
-                JsString::from("Send"),
-                1,
-            )
+            .function(make_fn("WinHTTP.WinHTTPRequest.open"), JsString::from("Open"), 2)
+            .function(make_fn("WinHTTP.WinHTTPRequest.send"), JsString::from("Send"), 1)
             .build();
         let winhttp_root = ObjectInitializer::new(context)
             .property(JsString::from("WinHTTPRequest"), winhttp, Attribute::all())
@@ -1251,11 +1117,7 @@ mod sandbox_impl {
         );
 
         let shell_app = ObjectInitializer::new(context)
-            .function(
-                make_fn("Shell.Application.ShellExecute"),
-                JsString::from("ShellExecute"),
-                1,
-            )
+            .function(make_fn("Shell.Application.ShellExecute"), JsString::from("ShellExecute"), 1)
             .function(
                 make_fn("Shell.Application.BrowseForFolder"),
                 JsString::from("BrowseForFolder"),
@@ -1269,18 +1131,10 @@ mod sandbox_impl {
 
         let adodb_conn = ObjectInitializer::new(context)
             .function(make_fn("ADODB.Connection.Open"), JsString::from("Open"), 1)
-            .function(
-                make_fn("ADODB.Connection.Execute"),
-                JsString::from("Execute"),
-                1,
-            )
+            .function(make_fn("ADODB.Connection.Execute"), JsString::from("Execute"), 1)
             .build();
         let adodb_cmd = ObjectInitializer::new(context)
-            .function(
-                make_fn("ADODB.Command.Execute"),
-                JsString::from("Execute"),
-                1,
-            )
+            .function(make_fn("ADODB.Command.Execute"), JsString::from("Execute"), 1)
             .build();
         let adodb_extra = ObjectInitializer::new(context)
             .property(JsString::from("Connection"), adodb_conn, Attribute::all())
@@ -1293,21 +1147,13 @@ mod sandbox_impl {
         );
 
         let urlmon = ObjectInitializer::new(context)
-            .function(
-                make_fn("URLDownloadToFile"),
-                JsString::from("URLDownloadToFile"),
-                2,
-            )
+            .function(make_fn("URLDownloadToFile"), JsString::from("URLDownloadToFile"), 2)
             .build();
         let _ =
             context.register_global_property(JsString::from("URLMON"), urlmon, Attribute::all());
 
         let powershell = ObjectInitializer::new(context)
-            .function(
-                make_fn("PowerShell.AddScript"),
-                JsString::from("AddScript"),
-                1,
-            )
+            .function(make_fn("PowerShell.AddScript"), JsString::from("AddScript"), 1)
             .function(make_fn("PowerShell.Invoke"), JsString::from("Invoke"), 0)
             .build();
         let _ = context.register_global_property(
@@ -1422,16 +1268,8 @@ mod sandbox_impl {
         );
 
         let adbe = ObjectInitializer::new(context)
-            .property(
-                JsString::from("Reader_Value_Asked"),
-                JsValue::from(false),
-                Attribute::all(),
-            )
-            .property(
-                JsString::from("Viewer_Value_Asked"),
-                JsValue::from(false),
-                Attribute::all(),
-            )
+            .property(JsString::from("Reader_Value_Asked"), JsValue::from(false), Attribute::all())
+            .property(JsString::from("Viewer_Value_Asked"), JsValue::from(false), Attribute::all())
             .property(
                 JsString::from("Viewer_Form_string_Reader_5x"),
                 JsString::from(""),
@@ -1467,11 +1305,7 @@ mod sandbox_impl {
                 JsString::from(""),
                 Attribute::all(),
             )
-            .property(
-                JsString::from("Viewer_string_Title"),
-                JsString::from(""),
-                Attribute::all(),
-            )
+            .property(JsString::from("Viewer_string_Title"), JsString::from(""), Attribute::all())
             .property(
                 JsString::from("Reader_Value_New_Version_URL"),
                 JsString::from(""),
@@ -1482,11 +1316,7 @@ mod sandbox_impl {
                 JsString::from(""),
                 Attribute::all(),
             )
-            .property(
-                JsString::from("SYSINFO"),
-                JsString::from(""),
-                Attribute::all(),
-            )
+            .property(JsString::from("SYSINFO"), JsString::from(""), Attribute::all())
             .build();
         let _ = context.register_global_property(JsString::from("ADBE"), adbe, Attribute::all());
     }
@@ -1506,9 +1336,8 @@ mod sandbox_impl {
 
         // Get the global parseInt function to add to target
         let global_obj = context.global_object().clone();
-        let parse_int_fn = global_obj
-            .get(JsString::from("parseInt"), context)
-            .unwrap_or(JsValue::undefined());
+        let parse_int_fn =
+            global_obj.get(JsString::from("parseInt"), context).unwrap_or(JsValue::undefined());
 
         // Create eval function for target with tracking
         let target_eval_fn = unsafe {
@@ -1549,10 +1378,7 @@ mod sandbox_impl {
                         }
                     }
                 },
-                LogScopeCapture {
-                    log: log.clone(),
-                    scope: scope.clone(),
-                },
+                LogScopeCapture { log: log.clone(), scope: scope.clone() },
             )
         };
 
@@ -1602,11 +1428,7 @@ mod sandbox_impl {
             )
             .function(target_get_annot_fn, JsString::from("getAnnot"), 2)
             .function(target_get_annots_fn, JsString::from("getAnnots"), 1)
-            .function(
-                target_methods("event.target.getField"),
-                JsString::from("getField"),
-                1,
-            )
+            .function(target_methods("event.target.getField"), JsString::from("getField"), 1)
             .function(
                 target_methods("event.target.getPageNumWords"),
                 JsString::from("getPageNumWords"),
@@ -1617,46 +1439,18 @@ mod sandbox_impl {
                 JsString::from("getPageNthWord"),
                 3,
             )
-            .function(
-                target_methods("event.target.print"),
-                JsString::from("print"),
-                0,
-            )
-            .property(
-                JsString::from("value"),
-                JsString::from(""),
-                Attribute::all(),
-            )
-            .property(
-                JsString::from("name"),
-                JsString::from("TextField"),
-                Attribute::all(),
-            )
+            .function(target_methods("event.target.print"), JsString::from("print"), 0)
+            .property(JsString::from("value"), JsString::from(""), Attribute::all())
+            .property(JsString::from("name"), JsString::from("TextField"), Attribute::all())
             .build();
 
         // Create the event object with common PDF event properties
         let event_obj = ObjectInitializer::new(context)
             .property(JsString::from("target"), target, Attribute::all())
-            .property(
-                JsString::from("name"),
-                JsString::from("Open"),
-                Attribute::all(),
-            )
-            .property(
-                JsString::from("type"),
-                JsString::from("Page"),
-                Attribute::all(),
-            )
-            .property(
-                JsString::from("value"),
-                JsString::from(""),
-                Attribute::all(),
-            )
-            .property(
-                JsString::from("willCommit"),
-                JsValue::from(false),
-                Attribute::all(),
-            )
+            .property(JsString::from("name"), JsString::from("Open"), Attribute::all())
+            .property(JsString::from("type"), JsString::from("Page"), Attribute::all())
+            .property(JsString::from("value"), JsString::from(""), Attribute::all())
+            .property(JsString::from("willCommit"), JsValue::from(false), Attribute::all())
             .property(JsString::from("rc"), JsValue::from(true), Attribute::all())
             .build();
 
@@ -1671,21 +1465,9 @@ mod sandbox_impl {
 
         // Also create 'this' context for PDF scripts (often refers to doc or field)
         let this_obj = ObjectInitializer::new(context)
-            .property(
-                JsString::from("pageNum"),
-                JsValue::from(0),
-                Attribute::all(),
-            )
-            .property(
-                JsString::from("numPages"),
-                JsValue::from(1),
-                Attribute::all(),
-            )
-            .function(
-                target_methods("this.getField"),
-                JsString::from("getField"),
-                1,
-            )
+            .property(JsString::from("pageNum"), JsValue::from(0), Attribute::all())
+            .property(JsString::from("numPages"), JsValue::from(1), Attribute::all())
+            .function(target_methods("this.getField"), JsString::from("getField"), 1)
             .function(target_methods("this.print"), JsString::from("print"), 0)
             .build();
 
@@ -1703,12 +1485,8 @@ mod sandbox_impl {
         let producer_getter = make_getter(context, log.clone(), "info.producer", "sis-pdf");
         let gkds_getter = make_getter(context, log.clone(), "info.gkds", TITLE_PAYLOAD);
         let gggsd_getter = make_getter(context, log.clone(), "info.gggsd", "ev");
-        let creation_date_getter = make_getter(
-            context,
-            log.clone(),
-            "info.creationDate",
-            "D:19700101000000Z",
-        );
+        let creation_date_getter =
+            make_getter(context, log.clone(), "info.creationDate", "D:19700101000000Z");
         let mod_date_getter =
             make_getter(context, log.clone(), "info.modDate", "D:19700101000000Z");
         let creator_payload_getter =
@@ -1718,66 +1496,21 @@ mod sandbox_impl {
 
         // Create info object with accessor properties for tracking
         let info = ObjectInitializer::new(context)
-            .accessor(
-                JsString::from("title"),
-                Some(title_getter),
-                None,
-                Attribute::all(),
-            )
-            .accessor(
-                JsString::from("author"),
-                Some(author_getter),
-                None,
-                Attribute::all(),
-            )
-            .accessor(
-                JsString::from("subject"),
-                Some(subject_getter),
-                None,
-                Attribute::all(),
-            )
-            .accessor(
-                JsString::from("keywords"),
-                Some(keywords_getter),
-                None,
-                Attribute::all(),
-            )
-            .accessor(
-                JsString::from("creator"),
-                Some(creator_getter),
-                None,
-                Attribute::all(),
-            )
-            .accessor(
-                JsString::from("producer"),
-                Some(producer_getter),
-                None,
-                Attribute::all(),
-            )
-            .accessor(
-                JsString::from("gkds"),
-                Some(gkds_getter),
-                None,
-                Attribute::all(),
-            )
-            .accessor(
-                JsString::from("gggsd"),
-                Some(gggsd_getter),
-                None,
-                Attribute::all(),
-            )
+            .accessor(JsString::from("title"), Some(title_getter), None, Attribute::all())
+            .accessor(JsString::from("author"), Some(author_getter), None, Attribute::all())
+            .accessor(JsString::from("subject"), Some(subject_getter), None, Attribute::all())
+            .accessor(JsString::from("keywords"), Some(keywords_getter), None, Attribute::all())
+            .accessor(JsString::from("creator"), Some(creator_getter), None, Attribute::all())
+            .accessor(JsString::from("producer"), Some(producer_getter), None, Attribute::all())
+            .accessor(JsString::from("gkds"), Some(gkds_getter), None, Attribute::all())
+            .accessor(JsString::from("gggsd"), Some(gggsd_getter), None, Attribute::all())
             .accessor(
                 JsString::from("creationDate"),
                 Some(creation_date_getter),
                 None,
                 Attribute::all(),
             )
-            .accessor(
-                JsString::from("modDate"),
-                Some(mod_date_getter),
-                None,
-                Attribute::all(),
-            )
+            .accessor(JsString::from("modDate"), Some(mod_date_getter), None, Attribute::all())
             .build();
         let _ = context.register_global_property(
             JsString::from("info"),
@@ -1803,11 +1536,7 @@ mod sandbox_impl {
             )
         };
         let collab = ObjectInitializer::new(context)
-            .function(
-                make_native(log.clone(), "Collab.getIcon"),
-                JsString::from("getIcon"),
-                1,
-            )
+            .function(make_native(log.clone(), "Collab.getIcon"), JsString::from("getIcon"), 1)
             .function(
                 make_native(log.clone(), "Collab.collectEmailInfo"),
                 JsString::from("collectEmailInfo"),
@@ -1815,11 +1544,7 @@ mod sandbox_impl {
             )
             .build();
         let media = ObjectInitializer::new(context)
-            .function(
-                make_native(log.clone(), "media.newPlayer"),
-                JsString::from("newPlayer"),
-                1,
-            )
+            .function(make_native(log.clone(), "media.newPlayer"), JsString::from("newPlayer"), 1)
             .build();
         let doc = ObjectInitializer::new(context)
             .property(JsString::from("info"), info, Attribute::all())
@@ -1842,16 +1567,8 @@ mod sandbox_impl {
                 JsString::from("syncAnnotScan"),
                 0,
             )
-            .function(
-                make_native(log.clone(), "doc.eval"),
-                JsString::from("eval"),
-                1,
-            )
-            .function(
-                make_native(log.clone(), "doc.unescape"),
-                JsString::from("unescape"),
-                1,
-            )
+            .function(make_native(log.clone(), "doc.eval"), JsString::from("eval"), 1)
+            .function(make_native(log.clone(), "doc.unescape"), JsString::from("unescape"), 1)
             .function(
                 make_native(log.clone(), "doc.getPageNumWords"),
                 JsString::from("getPageNumWords"),
@@ -1917,11 +1634,7 @@ mod sandbox_impl {
     }
 
     fn build_annot(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsValue {
-        build_annot_with_subject(
-            context,
-            log,
-            "z61z70z70z2Ez61z6Cz65z72z74z28z27z68z69z27z29",
-        )
+        build_annot_with_subject(context, log, "z61z70z70z2Ez61z6Cz65z72z74z28z27z68z69z27z29")
     }
 
     fn build_annot_with_subject(
@@ -1931,12 +1644,7 @@ mod sandbox_impl {
     ) -> JsValue {
         let subject_getter = make_getter(context, log, "annot.subject", subject_value);
         let annot = ObjectInitializer::new(context)
-            .accessor(
-                JsString::from("subject"),
-                Some(subject_getter),
-                None,
-                Attribute::all(),
-            )
+            .accessor(JsString::from("subject"), Some(subject_getter), None, Attribute::all())
             .build();
         JsValue::from(annot)
     }
@@ -2071,17 +1779,10 @@ mod sandbox_impl {
             .constructor(false)
             .build();
 
-        if let Ok(string_value) = context
-            .global_object()
-            .get(JsString::from("String"), context)
-        {
+        if let Ok(string_value) = context.global_object().get(JsString::from("String"), context) {
             if let Some(string_obj) = string_value.as_object() {
-                let _ = string_obj.set(
-                    JsString::from("fromCharCode"),
-                    from_char_code,
-                    false,
-                    context,
-                );
+                let _ =
+                    string_obj.set(JsString::from("fromCharCode"), from_char_code, false, context);
                 if let Ok(proto_value) = string_obj.get(JsString::from("prototype"), context) {
                     if let Some(proto_obj) = proto_value.as_object() {
                         let _ = proto_obj.set(JsString::from("substr"), substr, false, context);
@@ -2388,10 +2089,7 @@ mod sandbox_impl {
                         }
                     }
                 },
-                LogScopeCapture {
-                    log: log.clone(),
-                    scope: scope.clone(),
-                },
+                LogScopeCapture { log: log.clone(), scope: scope.clone() },
             )
         };
 
@@ -2447,10 +2145,7 @@ mod sandbox_impl {
         }
 
         // Pattern 2: Add error handling wrapper
-        format!(
-            "try {{ {} }} catch(e) {{ /* Eval error suppressed */ }}",
-            result
-        )
+        format!("try {{ {} }} catch(e) {{ /* Eval error suppressed */ }}", result)
     }
 
     fn execute_with_variable_promotion(
@@ -2561,17 +2256,14 @@ mod sandbox_impl {
                 .map(|start| start.elapsed())
                 .unwrap_or_else(|| std::time::Duration::from_millis(0));
 
-            log_ref
-                .execution_flow
-                .exception_handling
-                .push(ExceptionEvent {
-                    error_type: error_type.to_string(),
-                    message: error_msg.clone(),
-                    recovery_attempted: true,
-                    recovery_successful: false, // Will be updated if recovery succeeds
-                    context: "error_recovery".to_string(),
-                    timestamp,
-                });
+            log_ref.execution_flow.exception_handling.push(ExceptionEvent {
+                error_type: error_type.to_string(),
+                message: error_msg.clone(),
+                recovery_attempted: true,
+                recovery_successful: false, // Will be updated if recovery succeeds
+                context: "error_recovery".to_string(),
+                timestamp,
+            });
         }
 
         // Recovery strategy 1: Undefined variable errors
@@ -2745,16 +2437,8 @@ mod sandbox_impl {
             "while",
             "with",
         ];
-        let skip = [
-            "eval",
-            "unescape",
-            "escape",
-            "alert",
-            "parseInt",
-            "parseFloat",
-            "isNaN",
-            "isFinite",
-        ];
+        let skip =
+            ["eval", "unescape", "escape", "alert", "parseInt", "parseFloat", "isNaN", "isFinite"];
         let chars: Vec<char> = code.chars().collect();
         let mut i = 0;
         while i < chars.len() {
@@ -2870,10 +2554,8 @@ mod sandbox_impl {
                 && words[i + 2] == "defined"
                 && i > 0
             {
-                let candidate = words[i - 1]
-                    .trim_end_matches(',')
-                    .trim_matches('"')
-                    .trim_matches('\'');
+                let candidate =
+                    words[i - 1].trim_end_matches(',').trim_matches('"').trim_matches('\'');
                 if !candidate.is_empty() {
                     return Some(candidate.to_string());
                 }
@@ -3056,10 +2738,7 @@ mod sandbox_impl {
                     record_prop(&captures.log, name);
                     Ok(captures.value.clone())
                 },
-                LogValueCapture {
-                    log,
-                    value: getter_value,
-                },
+                LogValueCapture { log, value: getter_value },
             )
         };
         FunctionObjectBuilder::new(context.realm(), function)
@@ -3179,10 +2858,7 @@ mod sandbox_impl {
         let lower = value.to_ascii_lowercase();
         if lower.starts_with("mailto:") {
             let rest = &value[7..];
-            return rest
-                .split('@')
-                .nth(1)
-                .map(|s| s.split('?').next().unwrap_or(s).to_string());
+            return rest.split('@').nth(1).map(|s| s.split('?').next().unwrap_or(s).to_string());
         }
         if lower.starts_with("http://") || lower.starts_with("https://") {
             let trimmed = value.split("://").nth(1)?;
@@ -3216,14 +2892,8 @@ mod sandbox_impl {
             assert!(looks_like_url("http://example.com/path"));
             assert!(looks_like_url("mailto:user@example.com"));
             assert!(looks_like_url("file:///tmp/test"));
-            assert_eq!(
-                domain_from_url("http://example.com/a/b").as_deref(),
-                Some("example.com")
-            );
-            assert_eq!(
-                domain_from_url("mailto:user@example.com").as_deref(),
-                Some("example.com")
-            );
+            assert_eq!(domain_from_url("http://example.com/a/b").as_deref(), Some("example.com"));
+            assert_eq!(domain_from_url("mailto:user@example.com").as_deref(), Some("example.com"));
             assert_eq!(domain_from_url("file:///tmp/test"), None);
         }
 

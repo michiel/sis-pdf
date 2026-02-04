@@ -49,9 +49,7 @@ impl Detector for QuantumRiskDetector {
             return Ok(Vec::new());
         }
         let analyzer = QuantumThreatAnalyzer;
-        let usage = CryptoUsage {
-            algorithms: algos.clone(),
-        };
+        let usage = CryptoUsage { algorithms: algos.clone() };
         let risk = analyzer.assess_quantum_vulnerability(&usage);
         if risk.score < 0.5 {
             return Ok(Vec::new());

@@ -46,56 +46,22 @@ fn embedded_exe_reports_magic_and_double_extension() {
         .find(|f| f.kind == "embedded_file_present")
         .expect("embedded file finding");
 
-    assert_eq!(
-        finding.meta.get("embedded.filename").map(String::as_str),
-        Some("invoice.pdf.exe")
-    );
-    assert_eq!(
-        finding.meta.get("embedded.magic").map(String::as_str),
-        Some("pe")
-    );
-    assert_eq!(
-        finding
-            .meta
-            .get("embedded.double_extension")
-            .map(String::as_str),
-        Some("true")
-    );
-    assert_eq!(
-        finding.meta.get("embedded.sha256").map(String::len),
-        Some(64)
-    );
+    assert_eq!(finding.meta.get("embedded.filename").map(String::as_str), Some("invoice.pdf.exe"));
+    assert_eq!(finding.meta.get("embedded.magic").map(String::as_str), Some("pe"));
+    assert_eq!(finding.meta.get("embedded.double_extension").map(String::as_str), Some("true"));
+    assert_eq!(finding.meta.get("embedded.sha256").map(String::len), Some(64));
     assert_eq!(finding.meta.get("hash.sha256").map(String::len), Some(64));
-    assert_eq!(
-        finding.meta.get("filename").map(String::as_str),
-        Some("invoice.pdf.exe")
-    );
-    assert!(finding
-        .meta
-        .get("size_bytes")
-        .and_then(|v| v.parse::<usize>().ok())
-        .is_some());
-    assert_eq!(
-        finding.meta.get("magic_type").map(String::as_str),
-        Some("pe")
-    );
-    assert_eq!(
-        finding.meta.get("encrypted").map(String::as_str),
-        Some("false")
-    );
+    assert_eq!(finding.meta.get("filename").map(String::as_str), Some("invoice.pdf.exe"));
+    assert!(finding.meta.get("size_bytes").and_then(|v| v.parse::<usize>().ok()).is_some());
+    assert_eq!(finding.meta.get("magic_type").map(String::as_str), Some("pe"));
+    assert_eq!(finding.meta.get("encrypted").map(String::as_str), Some("false"));
 
     assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.kind == "embedded_executable_present"),
+        report.findings.iter().any(|f| f.kind == "embedded_executable_present"),
         "expected embedded_executable_present finding"
     );
     assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.kind == "embedded_double_extension"),
+        report.findings.iter().any(|f| f.kind == "embedded_double_extension"),
         "expected embedded_double_extension finding"
     );
 }
@@ -113,30 +79,15 @@ fn embedded_zip_reports_encrypted_container() {
         .find(|f| f.kind == "embedded_file_present")
         .expect("embedded file finding");
 
-    assert_eq!(
-        finding.meta.get("embedded.magic").map(String::as_str),
-        Some("zip")
-    );
-    assert_eq!(
-        finding
-            .meta
-            .get("embedded.encrypted_container")
-            .map(String::as_str),
-        Some("true")
-    );
+    assert_eq!(finding.meta.get("embedded.magic").map(String::as_str), Some("zip"));
+    assert_eq!(finding.meta.get("embedded.encrypted_container").map(String::as_str), Some("true"));
 
     assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.kind == "embedded_archive_encrypted"),
+        report.findings.iter().any(|f| f.kind == "embedded_archive_encrypted"),
         "expected embedded_archive_encrypted finding"
     );
     assert_eq!(finding.meta.get("hash.sha256").map(String::len), Some(64));
-    assert_eq!(
-        finding.meta.get("encrypted").map(String::as_str),
-        Some("true")
-    );
+    assert_eq!(finding.meta.get("encrypted").map(String::as_str), Some("true"));
 }
 
 #[test]
@@ -152,16 +103,10 @@ fn embedded_script_reports_magic() {
         .find(|f| f.kind == "embedded_file_present")
         .expect("embedded file finding");
 
-    assert_eq!(
-        finding.meta.get("embedded.magic").map(String::as_str),
-        Some("script")
-    );
+    assert_eq!(finding.meta.get("embedded.magic").map(String::as_str), Some("script"));
     assert_eq!(finding.meta.get("hash.sha256").map(String::len), Some(64));
     assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.kind == "embedded_script_present"),
+        report.findings.iter().any(|f| f.kind == "embedded_script_present"),
         "expected embedded_script_present finding"
     );
 }
@@ -179,43 +124,24 @@ fn launch_action_reports_payload_target() {
         .find(|f| f.kind == "launch_action_present")
         .expect("launch action finding");
 
-    assert_eq!(
-        finding.meta.get("payload.key").map(String::as_str),
-        Some("/F")
-    );
+    assert_eq!(finding.meta.get("payload.key").map(String::as_str), Some("/F"));
     assert!(
-        finding
-            .meta
-            .get("payload.preview")
-            .map(|v| v.contains("calc.exe"))
-            .unwrap_or(false),
+        finding.meta.get("payload.preview").map(|v| v.contains("calc.exe")).unwrap_or(false),
         "expected payload preview to include launch target"
     );
     assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.kind == "launch_external_program"),
+        report.findings.iter().any(|f| f.kind == "launch_external_program"),
         "expected launch_external_program finding"
     );
-    assert_eq!(
-        finding.meta.get("launch.target_path").map(String::as_str),
-        Some("calc.exe")
-    );
-    assert_eq!(
-        finding.meta.get("launch.target_type").map(String::as_str),
-        Some("external")
-    );
+    assert_eq!(finding.meta.get("launch.target_path").map(String::as_str), Some("calc.exe"));
+    assert_eq!(finding.meta.get("launch.target_type").map(String::as_str), Some("external"));
 
     let external = report
         .findings
         .iter()
         .find(|f| f.kind == "launch_external_program")
         .expect("launch external finding");
-    assert_eq!(
-        external.meta.get("launch.target_path").map(String::as_str),
-        Some("calc.exe")
-    );
+    assert_eq!(external.meta.get("launch.target_path").map(String::as_str), Some("calc.exe"));
 }
 
 const LAUNCH_EMBEDDED_PAYLOAD: &[u8] = b"SPWN";
@@ -233,20 +159,11 @@ fn launch_embedded_reports_correlation() {
         .find(|f| f.kind == "launch_embedded_file")
         .expect("expected launch_embedded_file");
 
-    assert_eq!(
-        finding.meta.get("launch.target_path").map(String::as_str),
-        Some("payload.exe")
-    );
-    assert_eq!(
-        finding.meta.get("launch.target_type").map(String::as_str),
-        Some("embedded")
-    );
+    assert_eq!(finding.meta.get("launch.target_path").map(String::as_str), Some("payload.exe"));
+    assert_eq!(finding.meta.get("launch.target_type").map(String::as_str), Some("embedded"));
     let expected_hash = sha256_hex_bytes(LAUNCH_EMBEDDED_PAYLOAD);
     assert_eq!(
-        finding
-            .meta
-            .get("launch.embedded_file_hash")
-            .map(String::as_str),
+        finding.meta.get("launch.embedded_file_hash").map(String::as_str),
         Some(expected_hash.as_str())
     );
 }

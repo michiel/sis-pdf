@@ -44,12 +44,5 @@ fn detects_xfa_script_as_javascript_payload() {
 
     let js_present = report.findings.iter().find(|f| f.kind == "js_present");
     assert!(js_present.is_some());
-    assert_eq!(
-        js_present
-            .unwrap()
-            .meta
-            .get("js.source")
-            .map(String::as_str),
-        Some("xfa")
-    );
+    assert_eq!(js_present.unwrap().meta.get("js.source").map(String::as_str), Some("xfa"));
 }

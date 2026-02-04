@@ -3,18 +3,11 @@ use js_analysis::{DynamicOptions, DynamicOutcome};
 #[cfg(feature = "js-sandbox")]
 #[test]
 fn sandbox_skips_large_payload() {
-    let options = DynamicOptions {
-        max_bytes: 8,
-        ..DynamicOptions::default()
-    };
+    let options = DynamicOptions { max_bytes: 8, ..DynamicOptions::default() };
     let data = b"this is too large";
     let outcome = js_analysis::run_sandbox(data, &options);
     match outcome {
-        DynamicOutcome::Skipped {
-            reason,
-            limit,
-            actual,
-        } => {
+        DynamicOutcome::Skipped { reason, limit, actual } => {
             assert_eq!(reason, "payload_too_large");
             assert_eq!(limit, 8);
             assert_eq!(actual, data.len());
@@ -76,10 +69,7 @@ fn sandbox_handles_app_plugins_eval_payloads() {
                 .errors
                 .iter()
                 .any(|e| e.contains("cannot convert 'null' or 'undefined' to object")));
-            assert!(!signals
-                .errors
-                .iter()
-                .any(|e| e.contains("not a callable function")));
+            assert!(!signals.errors.iter().any(|e| e.contains("not a callable function")));
         }
         _ => panic!("expected executed"),
     }
@@ -93,10 +83,7 @@ fn sandbox_handles_event_target_unescape_payload() {
     let outcome = js_analysis::run_sandbox(payload, &options);
     match outcome {
         DynamicOutcome::Executed(signals) => {
-            assert!(signals
-                .calls
-                .iter()
-                .any(|c| c == "event.target.syncAnnotScan"));
+            assert!(signals.calls.iter().any(|c| c == "event.target.syncAnnotScan"));
             assert!(signals.calls.iter().any(|c| c == "event.target.getAnnots"));
             assert!(signals.calls.iter().any(|c| c == "event.target.unescape"));
             assert!(signals.calls.iter().any(|c| c == "event.target.eval"));
@@ -104,10 +91,7 @@ fn sandbox_handles_event_target_unescape_payload() {
                 .errors
                 .iter()
                 .any(|e| e.contains("cannot convert 'null' or 'undefined' to object")));
-            assert!(!signals
-                .errors
-                .iter()
-                .any(|e| e.contains("not a callable function")));
+            assert!(!signals.errors.iter().any(|e| e.contains("not a callable function")));
         }
         _ => panic!("expected executed"),
     }
@@ -139,10 +123,7 @@ fn sandbox_handles_callable_app_properties() {
         DynamicOutcome::Executed(signals) => {
             assert!(signals.calls.iter().any(|c| c == "app.viewerVersion"));
             assert!(signals.calls.iter().any(|c| c == "app.viewerType"));
-            assert!(!signals
-                .errors
-                .iter()
-                .any(|e| e.contains("not a callable function")));
+            assert!(!signals.errors.iter().any(|e| e.contains("not a callable function")));
         }
         _ => panic!("expected executed"),
     }
@@ -157,10 +138,7 @@ fn sandbox_handles_adbe_reader_payload() {
     match outcome {
         DynamicOutcome::Executed(signals) => {
             assert!(signals.calls.iter().any(|c| c == "alert"));
-            assert!(!signals
-                .errors
-                .iter()
-                .any(|e| e.contains("ADBE is not defined")));
+            assert!(!signals.errors.iter().any(|e| e.contains("ADBE is not defined")));
         }
         _ => panic!("expected executed"),
     }
@@ -269,10 +247,7 @@ fn sandbox_handles_media_run_guard() {
         DynamicOutcome::Executed(signals) => {
             assert!(signals.calls.iter().any(|c| c == "run"));
             assert!(signals.calls.iter().any(|c| c == "media.newPlayer"));
-            assert!(!signals
-                .errors
-                .iter()
-                .any(|e| e.contains("not a callable function")));
+            assert!(!signals.errors.iter().any(|e| e.contains("not a callable function")));
         }
         _ => panic!("expected executed"),
     }

@@ -41,10 +41,7 @@ mod tests {
                 assert!(signals.calls.iter().any(|call| call == "eval"));
 
                 // Check that String.fromCharCode was called
-                assert!(signals
-                    .calls
-                    .iter()
-                    .any(|call| call == "String.fromCharCode"));
+                assert!(signals.calls.iter().any(|call| call == "String.fromCharCode"));
 
                 // Should have minimal errors (or recovered errors)
                 println!("Errors (should be minimal): {:?}", signals.errors);
@@ -64,11 +61,7 @@ mod tests {
             DynamicOutcome::TimedOut { timeout_ms } => {
                 panic!("❌ Sandbox execution timed out after {}ms", timeout_ms);
             }
-            DynamicOutcome::Skipped {
-                reason,
-                limit: _,
-                actual: _,
-            } => {
+            DynamicOutcome::Skipped { reason, limit: _, actual: _ } => {
                 panic!("⚠️  Sandbox execution skipped: {}", reason);
             }
         }
@@ -94,10 +87,7 @@ mod tests {
                 assert!(signals.elapsed_ms.is_some());
             }
             other => {
-                panic!(
-                    "Expected successful execution with error recovery, got: {:?}",
-                    other
-                );
+                panic!("Expected successful execution with error recovery, got: {:?}", other);
             }
         }
     }
@@ -138,10 +128,7 @@ mod tests {
                 println!("✅ Behavioral pattern detection test completed!");
 
                 // Check behavioral patterns
-                println!(
-                    "🔍 Behavioral patterns detected: {}",
-                    signals.behavioral_patterns.len()
-                );
+                println!("🔍 Behavioral patterns detected: {}", signals.behavioral_patterns.len());
                 for pattern in &signals.behavioral_patterns {
                     println!(
                         "   - {}: {} (confidence: {:.2})",
@@ -159,14 +146,8 @@ mod tests {
                     "   - Variable promotions: {}",
                     signals.execution_stats.variable_promotions
                 );
-                println!(
-                    "   - Error recoveries: {}",
-                    signals.execution_stats.error_recoveries
-                );
-                println!(
-                    "   - Execution depth: {}",
-                    signals.execution_stats.execution_depth
-                );
+                println!("   - Error recoveries: {}", signals.execution_stats.error_recoveries);
+                println!("   - Execution depth: {}", signals.execution_stats.execution_depth);
 
                 // Should detect String.fromCharCode pattern
                 assert!(signals
@@ -192,10 +173,7 @@ mod tests {
                 println!("✅ All behavioral patterns detected correctly!");
             }
             other => {
-                panic!(
-                    "Expected successful execution with behavioral analysis, got: {:?}",
-                    other
-                );
+                panic!("Expected successful execution with behavioral analysis, got: {:?}", other);
             }
         }
     }
@@ -238,14 +216,8 @@ mod tests {
                     "   - Total calls tracked: {}",
                     signals.execution_stats.total_function_calls
                 );
-                println!(
-                    "   - Unique calls: {}",
-                    signals.execution_stats.unique_function_calls
-                );
-                println!(
-                    "   - Max execution depth: {}",
-                    signals.execution_stats.execution_depth
-                );
+                println!("   - Unique calls: {}", signals.execution_stats.unique_function_calls);
+                println!("   - Max execution depth: {}", signals.execution_stats.execution_depth);
 
                 // Should have tracked multiple calls
                 assert!(signals.execution_stats.total_function_calls >= 2);
@@ -253,10 +225,7 @@ mod tests {
                 println!("✅ Execution flow tracking working correctly!");
             }
             other => {
-                panic!(
-                    "Expected successful execution with flow tracking, got: {:?}",
-                    other
-                );
+                panic!("Expected successful execution with flow tracking, got: {:?}", other);
             }
         }
     }

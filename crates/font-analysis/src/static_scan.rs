@@ -101,12 +101,7 @@ pub fn analyse_static(data: &[u8]) -> StaticAnalysisOutcome {
 
     for i in 0..num_tables as usize {
         let start = SFNT_HEADER_LEN + i * TABLE_RECORD_LEN;
-        let tag = [
-            data[start],
-            data[start + 1],
-            data[start + 2],
-            data[start + 3],
-        ];
+        let tag = [data[start], data[start + 1], data[start + 2], data[start + 3]];
         let offset = u32::from_be_bytes([
             data[start + 8],
             data[start + 9],
@@ -135,11 +130,7 @@ pub fn analyse_static(data: &[u8]) -> StaticAnalysisOutcome {
             hinting_tables.push(format!("{}:{}", tag_to_string(tag), length));
         }
 
-        records.push(TableRecord {
-            tag,
-            offset,
-            length,
-        });
+        records.push(TableRecord { tag, offset, length });
     }
 
     if !invalid_tables.is_empty() {
@@ -228,22 +219,11 @@ pub fn analyse_static(data: &[u8]) -> StaticAnalysisOutcome {
 }
 
 fn looks_like_sfnt(data: &[u8]) -> bool {
-    matches!(
-        &data[0..4],
-        b"\x00\x01\x00\x00" | b"OTTO" | b"true" | b"typ1"
-    )
+    matches!(&data[0..4], b"\x00\x01\x00\x00" | b"OTTO" | b"true" | b"typ1")
 }
 
 fn tag_to_string(tag: [u8; 4]) -> String {
-    tag.iter()
-        .map(|b| {
-            if b.is_ascii_graphic() {
-                *b as char
-            } else {
-                '?'
-            }
-        })
-        .collect()
+    tag.iter().map(|b| if b.is_ascii_graphic() { *b as char } else { '?' }).collect()
 }
 
 fn is_hinting_table(tag: [u8; 4]) -> bool {

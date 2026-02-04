@@ -13,11 +13,8 @@ pub fn analyze_type1(data: &[u8]) -> Vec<FontFinding> {
     let mut findings = Vec::new();
 
     // Try to decrypt eexec section if present
-    let decrypted_data = if has_eexec_section(data) {
-        extract_and_decrypt_eexec(data)
-    } else {
-        data.to_vec()
-    };
+    let decrypted_data =
+        if has_eexec_section(data) { extract_and_decrypt_eexec(data) } else { data.to_vec() };
 
     // Analyze charstrings
     let analysis = analyze_charstring(&decrypted_data);
@@ -46,9 +43,7 @@ fn extract_and_decrypt_eexec(data: &[u8]) -> Vec<u8> {
             return data.to_vec();
         }
 
-        let end = find_eexec_end(&data[start..])
-            .map(|offset| start + offset)
-            .unwrap_or(data.len());
+        let end = find_eexec_end(&data[start..]).map(|offset| start + offset).unwrap_or(data.len());
 
         if end <= start {
             return data.to_vec();
@@ -97,9 +92,7 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 /// Generate findings from charstring analysis
@@ -107,10 +100,7 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
     // Check for dangerous operators
     if !analysis.dangerous_ops.is_empty() {
         let mut meta = HashMap::new();
-        meta.insert(
-            "operator_count".to_string(),
-            analysis.dangerous_ops.len().to_string(),
-        );
+        meta.insert("operator_count".to_string(), analysis.dangerous_ops.len().to_string());
 
         let operators: Vec<String> = analysis
             .dangerous_ops
@@ -135,10 +125,7 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
     // Check for excessive stack depth
     if analysis.max_stack_depth > MAX_SAFE_STACK_DEPTH {
         let mut meta = HashMap::new();
-        meta.insert(
-            "max_stack_depth".to_string(),
-            analysis.max_stack_depth.to_string(),
-        );
+        meta.insert("max_stack_depth".to_string(), analysis.max_stack_depth.to_string());
         meta.insert("threshold".to_string(), MAX_SAFE_STACK_DEPTH.to_string());
 
         findings.push(FontFinding {
@@ -157,10 +144,7 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
     // Check for large charstring programs
     if analysis.total_operators > MAX_SAFE_OPERATORS {
         let mut meta = HashMap::new();
-        meta.insert(
-            "total_operators".to_string(),
-            analysis.total_operators.to_string(),
-        );
+        meta.insert("total_operators".to_string(), analysis.total_operators.to_string());
         meta.insert("threshold".to_string(), MAX_SAFE_OPERATORS.to_string());
 
         findings.push(FontFinding {
@@ -223,9 +207,7 @@ mod tests {
 
         // Should generate findings for dangerous operators
         assert!(!findings.is_empty());
-        assert!(findings
-            .iter()
-            .any(|f| f.kind == "font.type1_dangerous_operator"));
+        assert!(findings.iter().any(|f| f.kind == "font.type1_dangerous_operator"));
     }
 
     #[test]
@@ -235,9 +217,7 @@ mod tests {
         let findings = analyze_type1(data);
 
         // Should detect BLEND pattern
-        assert!(findings
-            .iter()
-            .any(|f| f.kind == "font.type1_blend_exploit"));
+        assert!(findings.iter().any(|f| f.kind == "font.type1_blend_exploit"));
     }
 
     #[test]

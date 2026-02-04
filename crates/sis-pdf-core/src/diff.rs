@@ -56,11 +56,7 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             finding.remediation =
                 Some("Compare with a stricter parser or inspect file integrity.".into());
             findings.push(finding);
-            return DiffResult {
-                findings,
-                summary: None,
-                error: Some(err.to_string()),
-            };
+            return DiffResult { findings, summary: None, error: Some(err.to_string()) };
         }
     };
     if summary.primary_objects != summary.secondary_objects {
@@ -117,14 +113,8 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
     }
     if summary.missing_in_secondary > 0 || summary.missing_in_primary > 0 {
         let mut meta = std::collections::HashMap::new();
-        meta.insert(
-            "diff.missing_in_secondary".into(),
-            summary.missing_in_secondary.to_string(),
-        );
-        meta.insert(
-            "diff.missing_in_primary".into(),
-            summary.missing_in_primary.to_string(),
-        );
+        meta.insert("diff.missing_in_secondary".into(), summary.missing_in_secondary.to_string());
+        meta.insert("diff.missing_in_primary".into(), summary.missing_in_primary.to_string());
         findings.push(Finding {
             id: String::new(),
             surface: AttackSurface::FileStructure,
@@ -150,14 +140,8 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             positions: Vec::new(),
         });
         let mut meta = std::collections::HashMap::new();
-        meta.insert(
-            "shadow.missing_in_secondary".into(),
-            summary.missing_in_secondary.to_string(),
-        );
-        meta.insert(
-            "shadow.missing_in_primary".into(),
-            summary.missing_in_primary.to_string(),
-        );
+        meta.insert("shadow.missing_in_secondary".into(), summary.missing_in_secondary.to_string());
+        meta.insert("shadow.missing_in_primary".into(), summary.missing_in_primary.to_string());
         findings.push(Finding {
             id: String::new(),
             surface: AttackSurface::FileStructure,
@@ -183,11 +167,7 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             positions: Vec::new(),
         });
     }
-    DiffResult {
-        findings,
-        summary: Some(summary),
-        error: None,
-    }
+    DiffResult { findings, summary: Some(summary), error: None }
 }
 
 fn keyword_evidence(bytes: &[u8], keyword: &[u8], note: &str, limit: usize) -> Vec<EvidenceSpan> {

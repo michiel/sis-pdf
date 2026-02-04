@@ -24,10 +24,7 @@ impl<'a> Cursor<'a> {
     }
 
     pub fn span_from(&self, start: usize, end: usize) -> Span {
-        Span {
-            start: start as u64,
-            end: end as u64,
-        }
+        Span { start: start as u64, end: end as u64 }
     }
 
     pub fn peek(&self) -> Option<u8> {
@@ -101,8 +98,5 @@ pub fn is_whitespace(b: u8) -> bool {
 }
 
 pub fn is_delim(b: u8) -> bool {
-    matches!(
-        b,
-        b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%'
-    )
+    matches!(b, b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%')
 }

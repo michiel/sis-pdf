@@ -33,10 +33,7 @@ impl Detector for MultiStageDetector {
 
         // Check for JavaScript edges
         let mut has_js = typed_graph.edges.iter().any(|e| {
-            matches!(
-                e.edge_type,
-                EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames
-            )
+            matches!(e.edge_type, EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames)
         });
         let mut js_uri_count = 0usize;
         for entry in &ctx.graph.objects {
@@ -70,20 +67,14 @@ impl Detector for MultiStageDetector {
             let mut meta = std::collections::HashMap::new();
             meta.insert("multi_stage.js".into(), has_js.to_string());
             meta.insert("multi_stage.embedded".into(), has_embedded.to_string());
-            meta.insert(
-                "multi_stage.external_action".into(),
-                has_external_action.to_string(),
-            );
+            meta.insert("multi_stage.external_action".into(), has_external_action.to_string());
 
             // Count each component for better visibility
             let js_count = typed_graph
                 .edges
                 .iter()
                 .filter(|e| {
-                    matches!(
-                        e.edge_type,
-                        EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames
-                    )
+                    matches!(e.edge_type, EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames)
                 })
                 .count()
                 + js_uri_count;
@@ -109,10 +100,7 @@ impl Detector for MultiStageDetector {
             if js_uri_count > 0 {
                 meta.insert("multi_stage.js_uri_count".into(), js_uri_count.to_string());
             }
-            meta.insert(
-                "multi_stage.embedded_count".into(),
-                embedded_count.to_string(),
-            );
+            meta.insert("multi_stage.embedded_count".into(), embedded_count.to_string());
             meta.insert("multi_stage.action_count".into(), action_count.to_string());
 
             return Ok(vec![Finding {

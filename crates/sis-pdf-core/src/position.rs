@@ -46,10 +46,7 @@ pub fn build_path_map(graph: &ObjectGraph<'_>) -> HashMap<(u32, u16), String> {
         return out;
     };
     let adjacency = build_labeled_adjacency(&graph.objects);
-    let root = ObjRef {
-        obj: root_obj,
-        gen: root_gen,
-    };
+    let root = ObjRef { obj: root_obj, gen: root_gen };
     let paths = reachable_paths(&adjacency, &[root], 64);
     for (obj_ref, labels) in paths {
         let mut segments = Vec::with_capacity(labels.len() + 1);
@@ -132,17 +129,9 @@ fn normalise_path_segment(label: &str) -> String {
 }
 
 fn is_catalog_root(graph: &ObjectGraph<'_>, obj: u32, gen: u16) -> bool {
-    let root = graph
-        .trailers
-        .last()
-        .and_then(|t| t.get_first(b"/Root"))
-        .map(|(_, v)| v.clone());
+    let root = graph.trailers.last().and_then(|t| t.get_first(b"/Root")).map(|(_, v)| v.clone());
     if let Some(root) = root {
-        if let PdfAtom::Ref {
-            obj: root_obj,
-            gen: root_gen,
-        } = root.atom
-        {
+        if let PdfAtom::Ref { obj: root_obj, gen: root_gen } = root.atom {
             return root_obj == obj && root_gen == gen;
         }
     }
@@ -150,16 +139,8 @@ fn is_catalog_root(graph: &ObjectGraph<'_>, obj: u32, gen: u16) -> bool {
 }
 
 fn catalog_root_ref(graph: &ObjectGraph<'_>) -> Option<(u32, u16)> {
-    let root = graph
-        .trailers
-        .last()
-        .and_then(|t| t.get_first(b"/Root"))
-        .map(|(_, v)| v.clone())?;
-    if let PdfAtom::Ref {
-        obj: root_obj,
-        gen: root_gen,
-    } = root.atom
-    {
+    let root = graph.trailers.last().and_then(|t| t.get_first(b"/Root")).map(|(_, v)| v.clone())?;
+    if let PdfAtom::Ref { obj: root_obj, gen: root_gen } = root.atom {
         return Some((root_obj, root_gen));
     }
     None

@@ -44,22 +44,13 @@ impl Detector for JsPolymorphicDetector {
                 if let Some(label) = candidate.source.meta_value() {
                     meta.insert("js.source".into(), label.into());
                 }
-                let base64_like = meta
-                    .get("js.has_base64_like")
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
-                let has_eval = meta
-                    .get("js.contains_eval")
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
-                let has_fcc = meta
-                    .get("js.contains_fromcharcode")
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
-                let has_unescape = meta
-                    .get("js.contains_unescape")
-                    .map(|v| v == "true")
-                    .unwrap_or(false);
+                let base64_like =
+                    meta.get("js.has_base64_like").map(|v| v == "true").unwrap_or(false);
+                let has_eval = meta.get("js.contains_eval").map(|v| v == "true").unwrap_or(false);
+                let has_fcc =
+                    meta.get("js.contains_fromcharcode").map(|v| v == "true").unwrap_or(false);
+                let has_unescape =
+                    meta.get("js.contains_unescape").map(|v| v == "true").unwrap_or(false);
                 let multi_stage = decoded.layers >= 2;
                 let polymorphic = has_eval && (has_fcc || has_unescape || base64_like);
 

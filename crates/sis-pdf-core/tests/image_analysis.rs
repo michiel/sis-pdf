@@ -81,10 +81,7 @@ fn cve_2021_30860_jbig2_dynamic() {
         .iter()
         .find(|f| f.kind == "image.zero_click_jbig2")
         .expect("image.zero_click_jbig2 finding");
-    assert_eq!(
-        zero_click.meta.get("cve"),
-        Some(&"CVE-2021-30860".to_string())
-    );
+    assert_eq!(zero_click.meta.get("cve"), Some(&"CVE-2021-30860".to_string()));
     assert_eq!(
         zero_click.meta.get("attack_surface"),
         Some(&"Image codecs / zero-click JBIG2".to_string())

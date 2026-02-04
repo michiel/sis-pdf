@@ -88,14 +88,8 @@ impl Detector for PageTreeManipulationDetector {
                 }
             }
             let page_tree = build_page_tree(&ctx.graph);
-            let tree_pages: HashSet<ObjRef> = page_tree
-                .pages
-                .iter()
-                .map(|p| ObjRef {
-                    obj: p.obj,
-                    gen: p.gen,
-                })
-                .collect();
+            let tree_pages: HashSet<ObjRef> =
+                page_tree.pages.iter().map(|p| ObjRef { obj: p.obj, gen: p.gen }).collect();
             let all_pages: HashSet<ObjRef> = ctx
                 .graph
                 .objects
@@ -103,10 +97,7 @@ impl Detector for PageTreeManipulationDetector {
                 .filter_map(|e| {
                     let dict = entry_dict(e)?;
                     if dict.has_name(b"/Type", b"/Page") {
-                        Some(ObjRef {
-                            obj: e.obj,
-                            gen: e.gen,
-                        })
+                        Some(ObjRef { obj: e.obj, gen: e.gen })
                     } else {
                         None
                     }
@@ -115,10 +106,7 @@ impl Detector for PageTreeManipulationDetector {
             let orphaned_pages: Vec<ObjRef> = all_pages.difference(&tree_pages).copied().collect();
             if !orphaned_pages.is_empty() {
                 let mut meta = std::collections::HashMap::new();
-                meta.insert(
-                    "page_tree.orphaned".into(),
-                    orphaned_pages.len().to_string(),
-                );
+                meta.insert("page_tree.orphaned".into(), orphaned_pages.len().to_string());
                 let mut objects = Vec::with_capacity(orphaned_pages.len() + 1);
                 objects.push("page_tree".into());
                 for orphaned in &orphaned_pages {
@@ -152,9 +140,7 @@ fn fallback_pages_root<'a>(
     findings: &mut Vec<Finding>,
 ) -> Option<PdfObj<'a>> {
     let entry = ctx.graph.objects.iter().find(|entry| {
-        entry_dict(entry)
-            .map(|d| d.has_name(b"/Type", b"/Pages"))
-            .unwrap_or(false)
+        entry_dict(entry).map(|d| d.has_name(b"/Type", b"/Pages")).unwrap_or(false)
     })?;
     findings.push(Finding {
         id: String::new(),
@@ -177,19 +163,12 @@ fn fallback_pages_root<'a>(
         position: None,
         positions: Vec::new(),
     });
-    Some(PdfObj {
-        span: entry.body_span,
-        atom: entry.atom.clone(),
-    })
+    Some(PdfObj { span: entry.body_span, atom: entry.atom.clone() })
 }
 
 fn root_pages_obj<'a>(ctx: &'a sis_pdf_core::scan::ScanContext<'a>) -> Option<PdfObj<'a>> {
-    let root = ctx
-        .graph
-        .trailers
-        .last()
-        .and_then(|t| t.get_first(b"/Root"))
-        .map(|(_, v)| v.clone())?;
+    let root =
+        ctx.graph.trailers.last().and_then(|t| t.get_first(b"/Root")).map(|(_, v)| v.clone())?;
     let catalog = resolve_dict(&ctx.graph, &root)?;
     catalog.get_first(b"/Pages").map(|(_, v)| v.clone())
 }
@@ -316,10 +295,7 @@ fn object_ref(graph: &sis_pdf_pdf::ObjectGraph<'_>, obj: &PdfObj<'_>) -> Option<
                 .objects
                 .iter()
                 .find(|e| e.body_span.start == span_start)
-                .map(|e| ObjRef {
-                    obj: e.obj,
-                    gen: e.gen,
-                })
+                .map(|e| ObjRef { obj: e.obj, gen: e.gen })
         }
         _ => None,
     }

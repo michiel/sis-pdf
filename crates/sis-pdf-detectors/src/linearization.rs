@@ -50,10 +50,7 @@ impl Detector for LinearizationDetector {
                 impact: None,
                 title: "Multiple linearization dictionaries".into(),
                 description: format!("Found {} linearization dictionaries.", linearized.len()),
-                objects: linearized
-                    .iter()
-                    .map(|e| format!("{} {} obj", e.obj, e.gen))
-                    .collect(),
+                objects: linearized.iter().map(|e| format!("{} {} obj", e.obj, e.gen)).collect(),
                 evidence,
                 remediation: Some("Validate linearization with a strict parser.".into()),
                 meta: Default::default(),

@@ -11,11 +11,7 @@ pub struct TimeoutError {
 
 impl fmt::Display for TimeoutError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "timeout exceeded: budget {:?}, elapsed {:?}",
-            self.budget, self.elapsed
-        )
+        write!(f, "timeout exceeded: budget {:?}, elapsed {:?}", self.budget, self.elapsed)
     }
 }
 
@@ -44,10 +40,7 @@ impl TimeoutChecker {
         if ops.is_multiple_of(self.checkpoint_interval) {
             let elapsed = self.start.elapsed();
             if elapsed > self.budget {
-                return Err(TimeoutError {
-                    budget: self.budget,
-                    elapsed,
-                });
+                return Err(TimeoutError { budget: self.budget, elapsed });
             }
         }
         Ok(())

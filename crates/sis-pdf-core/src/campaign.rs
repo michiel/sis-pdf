@@ -31,10 +31,7 @@ impl MultiStageCorrelator {
             let pid = pdf.path.clone().unwrap_or_else(|| pdf.id.clone());
             for intent in &pdf.network_intents {
                 if let Some(domain) = &intent.domain {
-                    by_domain
-                        .entry(domain.clone())
-                        .or_default()
-                        .insert(pid.clone());
+                    by_domain.entry(domain.clone()).or_default().insert(pid.clone());
                 }
             }
         }
@@ -74,10 +71,7 @@ pub struct IntentExtractionOptions {
 
 pub fn extract_domain(url: &str) -> Option<String> {
     let url = url.trim();
-    let url = url
-        .strip_prefix("http://")
-        .or_else(|| url.strip_prefix("https://"))
-        .unwrap_or(url);
+    let url = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://")).unwrap_or(url);
     let mut end = url.len();
     for (idx, ch) in url.char_indices() {
         if ch == '/' || ch == ':' {
@@ -127,13 +121,11 @@ fn extract_intents_from_value(
     options: &IntentExtractionOptions,
 ) -> Vec<NetworkIntent> {
     let mut out = Vec::new();
-    for raw in input
-        .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
-        .filter(|s| !s.is_empty())
+    for raw in
+        input.split(|c: char| c.is_whitespace() || c == ',' || c == ';').filter(|s| !s.is_empty())
     {
-        let trimmed = raw.trim_matches([
-            '"', '\'', '(', ')', '[', ']', '{', '}', '<', '>', '.', ';', ':',
-        ]);
+        let trimmed =
+            raw.trim_matches(['"', '\'', '(', ')', '[', ']', '{', '}', '<', '>', '.', ';', ':']);
         if trimmed.is_empty() {
             continue;
         }
@@ -154,21 +146,16 @@ fn extract_intents_from_value(
 
 fn extract_domain_intents(input: &str) -> Vec<NetworkIntent> {
     let mut out = Vec::new();
-    for raw in input
-        .split(|c: char| c.is_whitespace() || c == ',' || c == ';')
-        .filter(|s| !s.is_empty())
+    for raw in
+        input.split(|c: char| c.is_whitespace() || c == ',' || c == ';').filter(|s| !s.is_empty())
     {
-        let trimmed = raw.trim_matches([
-            '"', '\'', '(', ')', '[', ']', '{', '}', '<', '>', '.', ';', ':',
-        ]);
+        let trimmed =
+            raw.trim_matches(['"', '\'', '(', ')', '[', ']', '{', '}', '<', '>', '.', ';', ':']);
         if trimmed.is_empty() {
             continue;
         }
         if let Some(domain) = extract_domain_loose(trimmed) {
-            out.push(NetworkIntent {
-                url: trimmed.to_string(),
-                domain: Some(domain),
-            });
+            out.push(NetworkIntent { url: trimmed.to_string(), domain: Some(domain) });
         }
     }
     out
@@ -323,10 +310,8 @@ fn is_suspicious_tld(tld: &str) -> bool {
 fn is_probable_js_member(object: &str, method: &str) -> bool {
     let object = object.to_ascii_lowercase();
     let method = method.to_ascii_lowercase();
-    let object_is_jsy = matches!(
-        object.as_str(),
-        "this" | "app" | "creator" | "tmp" | "h" | "s" | "y" | "z"
-    );
+    let object_is_jsy =
+        matches!(object.as_str(), "this" | "app" | "creator" | "tmp" | "h" | "s" | "y" | "z");
     let method_is_jsy = is_suspicious_tld(&method);
     object_is_jsy && method_is_jsy
 }

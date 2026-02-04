@@ -16,9 +16,7 @@ use std::collections::HashMap;
 pub fn analyse(data: &[u8]) -> Result<(), String> {
     // Try parsing with skrifa first (original behavior)
     use skrifa::FontRef;
-    FontRef::new(data)
-        .map(|_| ())
-        .map_err(|err| err.to_string())?;
+    FontRef::new(data).map(|_| ()).map_err(|err| err.to_string())?;
 
     // Also try ttf-parser for more detailed analysis
     let _context = parser::parse_font(data)?;

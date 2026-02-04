@@ -39,10 +39,7 @@ impl Detector for VectorGraphicsDetector {
         let mut findings = Vec::new();
         let tree = build_page_tree(&ctx.graph);
         for page in &tree.pages {
-            let page_ref = ObjRef {
-                obj: page.obj,
-                gen: page.gen,
-            };
+            let page_ref = ObjRef { obj: page.obj, gen: page.gen };
             let entry = ctx.graph.get_object(page.obj, page.gen);
             let dict = entry.and_then(entry_dict);
             if let Some(dict) = dict {
@@ -145,10 +142,9 @@ fn collect_page_streams<'a>(
     let mut out = Vec::new();
     if let Some((_, obj)) = dict.get_first(b"/Contents") {
         match &obj.atom {
-            PdfAtom::Stream(st) => out.push(StreamCandidate {
-                stream: st.clone(),
-                obj_ref: page_ref,
-            }),
+            PdfAtom::Stream(st) => {
+                out.push(StreamCandidate { stream: st.clone(), obj_ref: page_ref })
+            }
             PdfAtom::Array(arr) => {
                 for o in arr {
                     if let Some(candidate) = resolve_stream(ctx, o, page_ref) {
@@ -172,23 +168,15 @@ fn resolve_stream<'a>(
     fallback: ObjRef,
 ) -> Option<StreamCandidate<'a>> {
     match &obj.atom {
-        PdfAtom::Stream(st) => Some(StreamCandidate {
-            stream: st.clone(),
-            obj_ref: fallback,
-        }),
+        PdfAtom::Stream(st) => Some(StreamCandidate { stream: st.clone(), obj_ref: fallback }),
         PdfAtom::Ref { obj, gen } => {
-            ctx.graph
-                .get_object(*obj, *gen)
-                .and_then(|entry| match &entry.atom {
-                    PdfAtom::Stream(st) => Some(StreamCandidate {
-                        stream: st.clone(),
-                        obj_ref: ObjRef {
-                            obj: *obj,
-                            gen: *gen,
-                        },
-                    }),
-                    _ => None,
-                })
+            ctx.graph.get_object(*obj, *gen).and_then(|entry| match &entry.atom {
+                PdfAtom::Stream(st) => Some(StreamCandidate {
+                    stream: st.clone(),
+                    obj_ref: ObjRef { obj: *obj, gen: *gen },
+                }),
+                _ => None,
+            })
         }
         _ => None,
     }
@@ -222,15 +210,8 @@ impl VectorStats {
         }
         let ratio = self.path_ratio();
         if self.path_ops >= 250 && ratio > 0.6 {
-            let severity = if self.path_ops >= 500 {
-                Severity::High
-            } else {
-                Severity::Medium
-            };
-            return Some(VectorSignal {
-                severity,
-                reason: "heavy density of path operators",
-            });
+            let severity = if self.path_ops >= 500 { Severity::High } else { Severity::Medium };
+            return Some(VectorSignal { severity, reason: "heavy density of path operators" });
         }
         if self.small_rect_count >= 6 {
             return Some(VectorSignal {
@@ -380,10 +361,7 @@ mod tests {
         ops.push(make_op("cs", vec![ContentOperand::Name("SpotRed".into())]));
         let stats = summarize_ops(&ops);
         let signal = stats.should_report();
-        assert!(
-            signal.is_some(),
-            "expected a vector graphics signal for spot colors"
-        );
+        assert!(signal.is_some(), "expected a vector graphics signal for spot colors");
         if let Some(signal) = signal {
             assert_eq!(signal.reason, "spot/indexed colors used with vector paths");
         }

@@ -84,21 +84,15 @@ impl Detector for SupplyChainDetector {
 
                 let staged = analyzer.detect_staged_payload(&info.bytes);
                 if !staged.is_empty() {
-                    let indicators = staged
-                        .iter()
-                        .map(|s| s.indicator.clone())
-                        .collect::<Vec<_>>()
-                        .join(",");
+                    let indicators =
+                        staged.iter().map(|s| s.indicator.clone()).collect::<Vec<_>>().join(",");
                     let mut meta = std::collections::HashMap::new();
                     meta.insert("supply_chain.indicators".into(), indicators);
                     if has_embedded {
                         meta.insert("supply_chain.embedded_present".into(), "true".into());
                     }
                     if !embedded_names.is_empty() {
-                        meta.insert(
-                            "supply_chain.embedded_names".into(),
-                            embedded_names.join(","),
-                        );
+                        meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
                     }
                     if !local_action_targets.is_empty() {
                         meta.insert(
@@ -132,18 +126,12 @@ impl Detector for SupplyChainDetector {
 
                 let updates = analyzer.analyze_update_mechanisms(&info.bytes);
                 if !updates.is_empty() {
-                    let indicators = updates
-                        .iter()
-                        .map(|s| s.indicator.clone())
-                        .collect::<Vec<_>>()
-                        .join(",");
+                    let indicators =
+                        updates.iter().map(|s| s.indicator.clone()).collect::<Vec<_>>().join(",");
                     let mut meta = std::collections::HashMap::new();
                     meta.insert("supply_chain.update_indicators".into(), indicators);
                     if !embedded_names.is_empty() {
-                        meta.insert(
-                            "supply_chain.embedded_names".into(),
-                            embedded_names.join(","),
-                        );
+                        meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
                     }
                     if !local_action_targets.is_empty() {
                         meta.insert(
@@ -184,10 +172,7 @@ impl Detector for SupplyChainDetector {
                     let mut meta = std::collections::HashMap::new();
                     meta.insert("supply_chain.persistence_indicators".into(), indicators);
                     if !embedded_names.is_empty() {
-                        meta.insert(
-                            "supply_chain.embedded_names".into(),
-                            embedded_names.join(","),
-                        );
+                        meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
                     }
                     if !local_action_targets.is_empty() {
                         meta.insert(
@@ -226,10 +211,7 @@ impl Detector for SupplyChainDetector {
             let mut meta = std::collections::HashMap::new();
             meta.insert("supply_chain.action_targets".into(), targets_vec.join(","));
             if !embedded_names.is_empty() {
-                meta.insert(
-                    "supply_chain.embedded_names".into(),
-                    embedded_names.join(","),
-                );
+                meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
             }
             findings.push(Finding {
                 id: String::new(),

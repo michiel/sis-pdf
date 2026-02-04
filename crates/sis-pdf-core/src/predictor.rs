@@ -15,15 +15,9 @@ impl BehavioralPredictor {
             if pattern.kinds.iter().any(|k| k.contains("js"))
                 && pattern.kinds.iter().any(|k| k.contains("embedded"))
             {
-                out.push(FutureThreat {
-                    label: "payload_dropper".into(),
-                    confidence: 0.7,
-                });
+                out.push(FutureThreat { label: "payload_dropper".into(), confidence: 0.7 });
             } else if pattern.kinds.iter().any(|k| k.contains("launch")) {
-                out.push(FutureThreat {
-                    label: "external_execution".into(),
-                    confidence: 0.6,
-                });
+                out.push(FutureThreat { label: "external_execution".into(), confidence: 0.6 });
             }
         }
         out

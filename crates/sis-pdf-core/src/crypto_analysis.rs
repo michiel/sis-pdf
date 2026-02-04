@@ -30,19 +30,13 @@ impl CryptoAnalyzer {
         let r = dict_int(encrypt, b"/R");
         let length = dict_int(encrypt, b"/Length");
         if matches!(v, Some(v) if v <= 2) {
-            out.push(WeakCrypto {
-                issue: "Encryption version <= 2".into(),
-            });
+            out.push(WeakCrypto { issue: "Encryption version <= 2".into() });
         }
         if matches!(r, Some(r) if r <= 3) {
-            out.push(WeakCrypto {
-                issue: "Encryption revision <= 3".into(),
-            });
+            out.push(WeakCrypto { issue: "Encryption revision <= 3".into() });
         }
         if matches!(length, Some(l) if l < 128) {
-            out.push(WeakCrypto {
-                issue: "Encryption key length below 128 bits".into(),
-            });
+            out.push(WeakCrypto { issue: "Encryption key length below 128 bits".into() });
         }
         out
     }
@@ -52,15 +46,11 @@ impl CryptoAnalyzer {
         for sig in sigs {
             if let Some(sub) = &sig.subfilter {
                 if sub.contains("adbe.pkcs7") {
-                    out.push(CertAnomaly {
-                        issue: format!("Legacy subfilter {}", sub),
-                    });
+                    out.push(CertAnomaly { issue: format!("Legacy subfilter {}", sub) });
                 }
             }
             if sig.filter.as_deref() == Some("Adobe.PPKLite") {
-                out.push(CertAnomaly {
-                    issue: "Legacy filter Adobe.PPKLite".into(),
-                });
+                out.push(CertAnomaly { issue: "Legacy filter Adobe.PPKLite".into() });
             }
         }
         out
@@ -75,10 +65,7 @@ impl CryptoAnalyzer {
             b"mining".as_slice(),
             b"coinhive".as_slice(),
         ] {
-            if js
-                .windows(needle.len())
-                .any(|w| w.eq_ignore_ascii_case(needle))
-            {
+            if js.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle)) {
                 return Some(CryptoMiner {
                     indicator: String::from_utf8_lossy(needle).to_string(),
                 });

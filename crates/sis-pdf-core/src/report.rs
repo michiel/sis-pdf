@@ -253,11 +253,7 @@ pub fn print_human(report: &Report) {
         report.summary.high, report.summary.medium, report.summary.low, report.summary.info
     );
     if let Some((risk, sigs)) = polyglot_summary(&report.findings) {
-        let line = if sigs.is_empty() {
-            risk
-        } else {
-            format!("{} ({})", risk, sigs.join(", "))
-        };
+        let line = if sigs.is_empty() { risk } else { format!("{} ({})", risk, sigs.join(", ")) };
         println!("Polyglot risk: {}", line);
     }
     if let Some(summary) = &report.structural_summary {
@@ -267,14 +263,8 @@ pub fn print_human(report: &Report) {
             "  Objects: {}  ObjStm: {} (ratio {:.3})",
             summary.object_count, summary.objstm_count, summary.objstm_ratio
         );
-        println!(
-            "  startxref: {}  trailers: {}",
-            summary.startxref_count, summary.trailer_count
-        );
-        println!(
-            "  Recover xref: {}  Deep scan: {}",
-            summary.recover_xref, summary.deep_scan
-        );
+        println!("  startxref: {}  trailers: {}", summary.startxref_count, summary.trailer_count);
+        println!("  Recover xref: {}  Deep scan: {}", summary.recover_xref, summary.deep_scan);
         match summary.header_offset {
             Some(offset) => println!("  Header offset: {}", offset),
             None => println!("  Header offset: not found"),
@@ -441,16 +431,10 @@ pub fn print_human(report: &Report) {
         println!("Temporal signals");
         println!("  Revisions: {}", signals.revisions);
         if signals.new_high_severity > 0 {
-            println!(
-                "  New high-severity findings: {}",
-                signals.new_high_severity
-            );
+            println!("  New high-severity findings: {}", signals.new_high_severity);
         }
         if !signals.new_attack_surfaces.is_empty() {
-            println!(
-                "  New attack surfaces: {}",
-                signals.new_attack_surfaces.join(", ")
-            );
+            println!("  New attack surfaces: {}", signals.new_attack_surfaces.join(", "));
         }
         if !signals.new_findings.is_empty() {
             println!("  New findings: {}", signals.new_findings.len());
@@ -483,10 +467,8 @@ pub fn print_human(report: &Report) {
     }
     let mut printed = false;
     for f in &report.findings {
-        if let Some(payload) = f
-            .meta
-            .get("payload.decoded_preview")
-            .or_else(|| f.meta.get("payload.preview"))
+        if let Some(payload) =
+            f.meta.get("payload.decoded_preview").or_else(|| f.meta.get("payload.preview"))
         {
             if !printed {
                 println!();
@@ -618,9 +600,7 @@ fn polyglot_summary(findings: &[Finding]) -> Option<(String, Vec<String>)> {
             found = true;
             if let Some(list) = f.meta.get("polyglot.signatures") {
                 sigs.extend(
-                    list.split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty()),
+                    list.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
                 );
             }
         }
@@ -677,16 +657,10 @@ fn ml_summary_from_findings(findings: &[Finding]) -> Option<MlSummary> {
     let mut traditional = None;
     for f in findings {
         if f.kind == "ml_graph_score_high" {
-            let score = f
-                .meta
-                .get("ml.graph.score")
-                .and_then(|v| v.parse::<f32>().ok())
-                .unwrap_or(0.0);
-            let threshold = f
-                .meta
-                .get("ml.graph.threshold")
-                .and_then(|v| v.parse::<f32>().ok())
-                .unwrap_or(0.0);
+            let score =
+                f.meta.get("ml.graph.score").and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
+            let threshold =
+                f.meta.get("ml.graph.threshold").and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
             graph = Some(MlRunSummary {
                 score,
                 threshold,
@@ -695,16 +669,9 @@ fn ml_summary_from_findings(findings: &[Finding]) -> Option<MlSummary> {
                 top_nodes: None,
             });
         } else if f.kind == "ml_malware_score_high" {
-            let score = f
-                .meta
-                .get("ml.score")
-                .and_then(|v| v.parse::<f32>().ok())
-                .unwrap_or(0.0);
-            let threshold = f
-                .meta
-                .get("ml.threshold")
-                .and_then(|v| v.parse::<f32>().ok())
-                .unwrap_or(0.0);
+            let score = f.meta.get("ml.score").and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
+            let threshold =
+                f.meta.get("ml.threshold").and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
             traditional = Some(MlRunSummary {
                 score,
                 threshold,
@@ -726,11 +693,7 @@ fn ml_summary_from_findings(findings: &[Finding]) -> Option<MlSummary> {
         } else {
             None
         };
-        Some(MlSummary {
-            mode,
-            graph,
-            traditional,
-        })
+        Some(MlSummary { mode, graph, traditional })
     }
 }
 
@@ -828,11 +791,7 @@ fn build_link_edges(report: &Report) -> Vec<LinkEdge> {
                     _ => format!("shared {}", value),
                 };
                 if seen.insert((a.clone(), b.clone(), reason.clone())) {
-                    out.push(LinkEdge {
-                        from: a,
-                        to: b,
-                        reason,
-                    });
+                    out.push(LinkEdge { from: a, to: b, reason });
                 }
             }
         }
@@ -850,9 +809,7 @@ fn add_link_key(
     if value.is_empty() {
         return;
     }
-    keys.entry((kind.to_string(), value.to_string()))
-        .or_default()
-        .push(finding_id.to_string());
+    keys.entry((kind.to_string(), value.to_string())).or_default().push(finding_id.to_string());
 }
 
 fn split_values(input: &str) -> Vec<String> {
@@ -960,11 +917,7 @@ fn node_summary(
 }
 
 fn summary_for_finding(f: &Finding) -> String {
-    let mut summary = if !f.title.is_empty() {
-        f.title.clone()
-    } else {
-        f.kind.clone()
-    };
+    let mut summary = if !f.title.is_empty() { f.title.clone() } else { f.kind.clone() };
     if let Some(target) = f.meta.get("action.target") {
         if !target.trim().is_empty() {
             summary = format!("{summary} -> {}", target.trim());
@@ -1022,11 +975,7 @@ fn render_position_tree(entries: &[(String, String)], preview_len: usize) -> Vec
     }
     let mut lines = Vec::new();
     root.render(0, &mut lines);
-    let width = lines
-        .iter()
-        .map(|(label, _)| label.len())
-        .max()
-        .unwrap_or(0);
+    let width = lines.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
     lines
         .into_iter()
         .map(|(label, preview)| {
@@ -1049,11 +998,8 @@ fn sanitise_preview(preview: &str, max_len: usize) -> String {
             cleaned.push('?');
         }
     }
-    let mut out = cleaned
-        .split_whitespace()
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let mut out =
+        cleaned.split_whitespace().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" ");
     if max_len == 0 {
         return String::new();
     }
@@ -1114,15 +1060,12 @@ impl PositionTreeNode {
         }
         let mut node = self;
         for segment in segments {
-            node = node
-                .children
-                .entry(segment.clone())
-                .or_insert_with(|| PositionTreeNode {
-                    label: segment.clone(),
-                    obj_ref: None,
-                    preview: None,
-                    children: BTreeMap::new(),
-                });
+            node = node.children.entry(segment.clone()).or_insert_with(|| PositionTreeNode {
+                label: segment.clone(),
+                obj_ref: None,
+                preview: None,
+                children: BTreeMap::new(),
+            });
         }
         if node.obj_ref.is_none() {
             node.obj_ref = Some(obj_ref);
@@ -1139,10 +1082,7 @@ impl PositionTreeNode {
                 Some(obj_ref) => format!("{}{}@{}", indent, child.label, obj_ref),
                 None => format!("{}{}@?", indent, child.label),
             };
-            let preview = child
-                .preview
-                .clone()
-                .unwrap_or_else(|| segment_preview(&child.label));
+            let preview = child.preview.clone().unwrap_or_else(|| segment_preview(&child.label));
             out.push((label, preview));
             child.render(depth + 1, out);
         }
@@ -1265,46 +1205,22 @@ fn render_payload_behaviour(f: &Finding) -> Option<String> {
         return None;
     }
     let mut notes = Vec::new();
-    if f.meta
-        .get("js.contains_eval")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if f.meta.get("js.contains_eval").map(|v| v == "true").unwrap_or(false) {
         notes.push("Uses eval()".into());
     }
-    if f.meta
-        .get("js.has_base64_like")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if f.meta.get("js.has_base64_like").map(|v| v == "true").unwrap_or(false) {
         notes.push("Contains base64-like runs".into());
     }
-    if f.meta
-        .get("js.contains_unescape")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if f.meta.get("js.contains_unescape").map(|v| v == "true").unwrap_or(false) {
         notes.push("Uses unescape()".into());
     }
-    if f.meta
-        .get("js.contains_fromcharcode")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if f.meta.get("js.contains_fromcharcode").map(|v| v == "true").unwrap_or(false) {
         notes.push("Uses fromCharCode()".into());
     }
-    if f.meta
-        .get("js.suspicious_apis")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if f.meta.get("js.suspicious_apis").map(|v| v == "true").unwrap_or(false) {
         notes.push("Calls suspicious Acrobat APIs".into());
     }
-    if f.meta
-        .get("js.obfuscation_suspected")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if f.meta.get("js.obfuscation_suspected").map(|v| v == "true").unwrap_or(false) {
         notes.push("Obfuscation suspected".into());
     }
     if let Some(summary) = f.meta.get("js.behaviour_summary") {
@@ -1589,11 +1505,7 @@ fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> Stri
             if let Some(summary) = f.meta.get("js.behaviour_summary") {
                 js_notes.push(summary.clone());
             }
-            if f.meta
-                .get("js.obfuscation_suspected")
-                .map(|v| v == "true")
-                .unwrap_or(false)
-            {
+            if f.meta.get("js.obfuscation_suspected").map(|v| v == "true").unwrap_or(false) {
                 js_notes.push("Obfuscation suspected in script payloads.".into());
             }
             if f.kind == "uri_present" {
@@ -1627,16 +1539,10 @@ mod narrative_tests {
     #[test]
     fn custom_notes_drive_narrative() {
         let mut notes = HashMap::new();
-        notes.insert(
-            "trigger.label".into(),
-            "TriggerLabel -> https://example.com".into(),
-        );
+        notes.insert("trigger.label".into(), "TriggerLabel -> https://example.com".into());
         notes.insert("action.label".into(), "ActionLabel".into());
         notes.insert("payload.label".into(), "PayloadLabel".into());
-        notes.insert(
-            "payload.summary".into(),
-            "filters=/DCTDecode decode=deferred".into(),
-        );
+        notes.insert("payload.summary".into(), "filters=/DCTDecode decode=deferred".into());
         notes.insert("payload.preview".into(), "PreviewText".into());
         let chain = ExploitChain {
             id: "chain-test".into(),
@@ -2100,34 +2006,20 @@ fn verdict_label(report: &Report) -> (String, String) {
     let ml_signal = report
         .ml_inference
         .as_ref()
-        .map(|ml| {
-            (
-                ml.prediction.label,
-                ml.prediction.calibrated_score,
-                ml.prediction.threshold,
-            )
-        })
+        .map(|ml| (ml.prediction.label, ml.prediction.calibrated_score, ml.prediction.threshold))
         .or_else(|| {
             report.ml_summary.as_ref().and_then(|ml| {
-                ml.graph
-                    .as_ref()
-                    .map(|run| (run.label, run.score, run.threshold))
-                    .or_else(|| {
-                        ml.traditional
-                            .as_ref()
-                            .map(|run| (run.label, run.score, run.threshold))
-                    })
+                ml.graph.as_ref().map(|run| (run.label, run.score, run.threshold)).or_else(|| {
+                    ml.traditional.as_ref().map(|run| (run.label, run.score, run.threshold))
+                })
             })
         });
 
     if let Some((label, score, threshold)) = ml_signal {
         if label {
             verdict = "Malicious".to_string();
-            confidence = if score - threshold >= 0.15 {
-                "high".to_string()
-            } else {
-                "medium".to_string()
-            };
+            confidence =
+                if score - threshold >= 0.15 { "high".to_string() } else { "medium".to_string() };
             return (verdict, confidence);
         }
     }
@@ -2148,26 +2040,14 @@ fn verdict_label(report: &Report) -> (String, String) {
 
 fn build_recommendations(report: &Report) -> Vec<String> {
     let mut steps = Vec::new();
-    let has_js = report
-        .findings
-        .iter()
-        .any(|f| f.surface == AttackSurface::JavaScript);
-    let has_images = report
-        .findings
-        .iter()
-        .any(|f| f.surface == AttackSurface::Images);
+    let has_js = report.findings.iter().any(|f| f.surface == AttackSurface::JavaScript);
+    let has_images = report.findings.iter().any(|f| f.surface == AttackSurface::Images);
     let has_embedded = report.findings.iter().any(|f| {
         f.surface == AttackSurface::EmbeddedFiles || f.surface == AttackSurface::RichMedia3D
     });
-    let polyglot_flag = report
-        .structural_summary
-        .as_ref()
-        .map(|s| s.polyglot_risk)
-        .unwrap_or(false)
-        || report
-            .findings
-            .iter()
-            .any(|f| keyword_match(f, &["polyglot"]));
+    let polyglot_flag =
+        report.structural_summary.as_ref().map(|s| s.polyglot_risk).unwrap_or(false)
+            || report.findings.iter().any(|f| keyword_match(f, &["polyglot"]));
 
     if has_js {
         if let Some(summary) = report.sandbox_summary.as_ref() {
@@ -2195,12 +2075,7 @@ fn build_recommendations(report: &Report) -> Vec<String> {
     if has_images {
         steps.push("Review image payloads and decoder findings for malformed content.".to_string());
     }
-    if report
-        .structural_summary
-        .as_ref()
-        .map(|s| !s.deep_scan)
-        .unwrap_or(false)
-    {
+    if report.structural_summary.as_ref().map(|s| !s.deep_scan).unwrap_or(false) {
         steps.push("Re-run with `sis scan --deep` to reconcile object structure.".to_string());
     }
     if polyglot_flag {
@@ -2308,10 +2183,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     let id_map = build_id_map(report);
     out.push_str("# Summary\n\n");
     let (verdict, verdict_confidence) = verdict_label(report);
-    out.push_str(&format!(
-        "- Verdict: {} (confidence {})\n",
-        verdict, verdict_confidence
-    ));
+    out.push_str(&format!("- Verdict: {} (confidence {})\n", verdict, verdict_confidence));
     if report.summary.total > 0 {
         let mut domains = BTreeSet::new();
         for f in &report.findings {
@@ -2371,20 +2243,13 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         }
         let mut impacts = Vec::new();
         for f in key_findings {
-            let impact = f
-                .meta
-                .get("impact")
-                .cloned()
-                .unwrap_or_else(|| impact_for_finding(f));
+            let impact = f.meta.get("impact").cloned().unwrap_or_else(|| impact_for_finding(f));
             if !impacts.contains(&impact) {
                 impacts.push(impact);
             }
         }
         if !impacts.is_empty() {
-            out.push_str(&format!(
-                "- Impact: {}\n",
-                escape_markdown(&impacts.join("; "))
-            ));
+            out.push_str(&format!("- Impact: {}\n", escape_markdown(&impacts.join("; "))));
         }
     } else {
         out.push_str("- Findings: no findings recorded\n");
@@ -2400,10 +2265,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         out.push_str(&format!("- Input: `{}`\n", escape_markdown(path)));
     }
     if let Some(line) = sandbox_summary_line(report) {
-        out.push_str(&format!(
-            "- Sandbox observations: {}\n",
-            escape_markdown(&line)
-        ));
+        out.push_str(&format!("- Sandbox observations: {}\n", escape_markdown(&line)));
     }
     out.push('\n');
 
@@ -2422,19 +2284,11 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             )
         })
         .collect();
-    let sizing_keywords = [
-        "size", "length", "truncat", "overlap", "gap", "boundary", "offset",
-    ];
-    let sizing_findings: Vec<&Finding> = surface_findings
-        .iter()
-        .copied()
-        .filter(|f| keyword_match(f, &sizing_keywords))
-        .collect();
-    let polyglot_findings: Vec<&Finding> = surface_findings
-        .iter()
-        .copied()
-        .filter(|f| keyword_match(f, &["polyglot"]))
-        .collect();
+    let sizing_keywords = ["size", "length", "truncat", "overlap", "gap", "boundary", "offset"];
+    let sizing_findings: Vec<&Finding> =
+        surface_findings.iter().copied().filter(|f| keyword_match(f, &sizing_keywords)).collect();
+    let polyglot_findings: Vec<&Finding> =
+        surface_findings.iter().copied().filter(|f| keyword_match(f, &["polyglot"])).collect();
     let sizing_ids: BTreeSet<String> = sizing_findings.iter().map(|f| f.id.clone()).collect();
     let polyglot_ids: BTreeSet<String> = polyglot_findings.iter().map(|f| f.id.clone()).collect();
     let other_surface: Vec<&Finding> = surface_findings
@@ -2487,10 +2341,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         }
         if let Some(offset) = summary.eof_offset {
             let distance = summary.eof_distance_to_end.unwrap_or(0);
-            out.push_str(&format!(
-                "- EOF offset: {} (distance to end {})\n",
-                offset, distance
-            ));
+            out.push_str(&format!("- EOF offset: {} (distance to end {})\n", offset, distance));
         }
         if let Some(ir) = &summary.ir_summary {
             out.push_str(&format!(
@@ -2512,10 +2363,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 sec.missing_in_primary
             ));
         } else if let Some(err) = &summary.secondary_parser_error {
-            out.push_str(&format!(
-                "- Secondary parser: failed ({})\n",
-                escape_markdown(err)
-            ));
+            out.push_str(&format!("- Secondary parser: failed ({})\n", escape_markdown(err)));
         } else {
             out.push_str("- Secondary parser: not run\n");
         }
@@ -2527,9 +2375,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     out.push_str("### Content inventory\n\n");
     let mut inventory: BTreeMap<&'static str, usize> = BTreeMap::new();
     for f in &report.findings {
-        *inventory
-            .entry(attack_surface_label(f.surface))
-            .or_insert(0) += 1;
+        *inventory.entry(attack_surface_label(f.surface)).or_insert(0) += 1;
     }
     if inventory.is_empty() {
         out.push_str("- No content inventory findings recorded\n\n");
@@ -2542,23 +2388,14 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
 
     out.push_str("## Content details and analysis\n\n");
     out.push_str("### JavaScript analysis\n\n");
-    let js_findings: Vec<&Finding> = report
-        .findings
-        .iter()
-        .filter(|f| f.surface == AttackSurface::JavaScript)
-        .collect();
+    let js_findings: Vec<&Finding> =
+        report.findings.iter().filter(|f| f.surface == AttackSurface::JavaScript).collect();
     if js_findings.is_empty() {
         out.push_str("- No JavaScript findings recorded\n\n");
     } else {
         out.push_str(&format!("- Findings: {}\n", js_findings.len()));
         let severity_summary = js_findings.iter().fold(
-            Summary {
-                total: 0,
-                high: 0,
-                medium: 0,
-                low: 0,
-                info: 0,
-            },
+            Summary { total: 0, high: 0, medium: 0, low: 0, info: 0 },
             |mut acc, f| {
                 acc.total += 1;
                 match f.severity {
@@ -2668,23 +2505,15 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     render_finding_list(&mut out, &font_findings, 6, &id_map);
 
     out.push_str("### Images\n\n");
-    let image_findings: Vec<&Finding> = report
-        .findings
-        .iter()
-        .filter(|f| f.surface == AttackSurface::Images)
-        .collect();
+    let image_findings: Vec<&Finding> =
+        report.findings.iter().filter(|f| f.surface == AttackSurface::Images).collect();
     render_finding_list(&mut out, &image_findings, 6, &id_map);
 
     out.push_str("### Embedded media\n\n");
     let embedded_findings: Vec<&Finding> = report
         .findings
         .iter()
-        .filter(|f| {
-            matches!(
-                f.surface,
-                AttackSurface::EmbeddedFiles | AttackSurface::RichMedia3D
-            )
-        })
+        .filter(|f| matches!(f.surface, AttackSurface::EmbeddedFiles | AttackSurface::RichMedia3D))
         .collect();
     render_finding_list(&mut out, &embedded_findings, 6, &id_map);
 
@@ -2732,10 +2561,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         }
     }
     if !report.network_intents.is_empty() {
-        interactions.push(format!(
-            "Network intents observed: {}",
-            report.network_intents.len()
-        ));
+        interactions.push(format!("Network intents observed: {}", report.network_intents.len()));
     }
     if let Some(signals) = &report.temporal_signals {
         interactions.push(format!(
@@ -2759,12 +2585,8 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         }
     }
     if !report.future_threats.is_empty() {
-        let labels = report
-            .future_threats
-            .iter()
-            .take(3)
-            .map(|t| t.label.clone())
-            .collect::<Vec<_>>();
+        let labels =
+            report.future_threats.iter().take(3).map(|t| t.label.clone()).collect::<Vec<_>>();
         interactions.push(format!("Predicted threat evolution: {}", labels.join(", ")));
     }
     if interactions.is_empty() {
@@ -2881,10 +2703,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         }
     }
     if let Some(ml) = &report.ml_inference {
-        out.push_str(&format_ml_explanation_for_report(
-            ml.explanation.as_ref(),
-            &ml.prediction,
-        ));
+        out.push_str(&format_ml_explanation_for_report(ml.explanation.as_ref(), &ml.prediction));
     } else if report.ml_summary.is_none() {
         out.push_str("- No ML details recorded\n\n");
     }
@@ -2908,10 +2727,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             if chain.group_count > 1 {
                 out.push_str(&format!("- Instances: {}\n", chain.group_count));
             }
-            out.push_str(&format!(
-                "- Effect: {}\n",
-                escape_markdown(&chain_effect_summary(chain))
-            ));
+            out.push_str(&format!("- Effect: {}\n", escape_markdown(&chain_effect_summary(chain))));
             if let Some(trigger) = chain_note(chain, "trigger.label").or(chain.trigger.as_deref()) {
                 out.push_str(&format!("- Trigger: `{}`\n", escape_markdown(trigger)));
             }
@@ -2928,16 +2744,10 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 out.push_str(&format!("- Payload: `{}`\n", escape_markdown(payload)));
             }
             if let Some(summary) = chain_note(chain, "payload.summary") {
-                out.push_str(&format!(
-                    "- Payload summary: `{}`\n",
-                    escape_markdown(summary)
-                ));
+                out.push_str(&format!("- Payload summary: `{}`\n", escape_markdown(summary)));
             }
             if let Some(preview) = chain_note(chain, "payload.preview") {
-                out.push_str(&format!(
-                    "- Payload preview: `{}`\n",
-                    escape_markdown(preview)
-                ));
+                out.push_str(&format!("- Payload preview: `{}`\n", escape_markdown(preview)));
             }
             out.push_str(&format!(
                 "- Narrative: {}\n",
@@ -2968,10 +2778,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             let linked_findings: BTreeSet<String> = link_edges
                 .iter()
                 .filter(|edge| {
-                    chain
-                        .findings
-                        .iter()
-                        .any(|fid| fid == &edge.from || fid == &edge.to)
+                    chain.findings.iter().any(|fid| fid == &edge.from || fid == &edge.to)
                 })
                 .flat_map(|edge| [edge.from.clone(), edge.to.clone()])
                 .collect();
@@ -3003,16 +2810,10 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             out.push_str(&format!("- Surface: `{:?}`\n", f.surface));
             out.push_str(&format!("- Kind: `{}`\n", escape_markdown(&f.kind)));
             out.push_str(&format!("- Severity: `{:?}`\n", f.severity));
-            out.push_str(&format!(
-                "- Impact rating: `{}`\n",
-                impact_rating_for_finding(f)
-            ));
+            out.push_str(&format!("- Impact rating: `{}`\n", impact_rating_for_finding(f)));
             out.push_str(&format!("- Confidence: `{:?}`\n", f.confidence));
             if !f.objects.is_empty() {
-                out.push_str(&format!(
-                    "- Objects: {}\n",
-                    escape_markdown(&f.objects.join(", "))
-                ));
+                out.push_str(&format!("- Objects: {}\n", escape_markdown(&f.objects.join(", "))));
             }
             if let Some(position) = &f.position {
                 out.push_str(&format!("- Position: `{}`\n", escape_markdown(position)));
@@ -3023,11 +2824,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                     escape_markdown(&f.positions.join(", "))
                 ));
             }
-            if f.meta
-                .get("page_tree.orphaned_has_payload")
-                .map(|v| v == "true")
-                .unwrap_or(false)
-            {
+            if f.meta.get("page_tree.orphaned_has_payload").map(|v| v == "true").unwrap_or(false) {
                 out.push_str("- Orphaned page contains suspicious content; likely concealment.\n");
                 if let Some(ids) = f.meta.get("page_tree.orphaned_payload_findings") {
                     out.push_str(&format!(
@@ -3045,10 +2842,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             out.push_str("\n**Description**\n\n");
             out.push_str(&format!("{}\n\n", escape_markdown(&f.description)));
             out.push_str("**Runtime effect**\n\n");
-            out.push_str(&format!(
-                "{}\n\n",
-                escape_markdown(&runtime_effect_for_finding(f))
-            ));
+            out.push_str(&format!("{}\n\n", escape_markdown(&runtime_effect_for_finding(f))));
             if let Some(s) = f.meta.get("action.s") {
                 out.push_str("**Action details**\n\n");
                 out.push_str(&format!("- Action type: `{}`\n", escape_markdown(s)));
@@ -3057,10 +2851,8 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 }
                 out.push('\n');
             }
-            if let Some(payload) = f
-                .meta
-                .get("payload.decoded_preview")
-                .or_else(|| f.meta.get("payload.preview"))
+            if let Some(payload) =
+                f.meta.get("payload.decoded_preview").or_else(|| f.meta.get("payload.preview"))
             {
                 out.push_str("**Payload**\n\n");
                 out.push_str("```\n");
@@ -3069,10 +2861,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             }
             if let Some(chain) = render_action_chain(f) {
                 out.push_str("**Action chain**\n\n");
-                out.push_str(&format!(
-                    "{}\n\n",
-                    escape_markdown(&replace_ids(&chain, &id_map))
-                ));
+                out.push_str(&format!("{}\n\n", escape_markdown(&replace_ids(&chain, &id_map))));
             }
             if let Some(behaviour) = render_payload_behaviour(f) {
                 out.push_str("**Payload behaviour**\n\n");
@@ -3081,21 +2870,14 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                     escape_markdown(&replace_ids(&behaviour, &id_map))
                 ));
             }
-            let impact = f
-                .meta
-                .get("impact")
-                .cloned()
-                .unwrap_or_else(|| impact_for_finding(f));
+            let impact = f.meta.get("impact").cloned().unwrap_or_else(|| impact_for_finding(f));
             out.push_str("**Impact**\n\n");
             out.push_str(&format!("{}\n\n", escape_markdown(&impact)));
             if let Some(y) = &f.yara {
                 out.push_str("**YARA**\n\n");
                 out.push_str(&format!("- Rule: `{}`\n", escape_markdown(&y.rule_name)));
                 if !y.tags.is_empty() {
-                    out.push_str(&format!(
-                        "- Tags: {}\n",
-                        escape_markdown(&y.tags.join(", "))
-                    ));
+                    out.push_str(&format!("- Tags: {}\n", escape_markdown(&y.tags.join(", "))));
                 }
                 if !y.strings.is_empty() {
                     out.push_str(&format!(
@@ -3134,17 +2916,11 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 out.push('\n');
             }
             if !f.meta.is_empty() {
-                let mut js_meta: Vec<(&String, &String)> = f
-                    .meta
-                    .iter()
-                    .filter(|(k, _)| k.starts_with("js."))
-                    .collect();
+                let mut js_meta: Vec<(&String, &String)> =
+                    f.meta.iter().filter(|(k, _)| k.starts_with("js.")).collect();
                 js_meta.sort_by(|a, b| a.0.cmp(b.0));
-                let mut other_meta: Vec<(&String, &String)> = f
-                    .meta
-                    .iter()
-                    .filter(|(k, _)| !k.starts_with("js."))
-                    .collect();
+                let mut other_meta: Vec<(&String, &String)> =
+                    f.meta.iter().filter(|(k, _)| !k.starts_with("js.")).collect();
                 other_meta.sort_by(|a, b| a.0.cmp(b.0));
 
                 if !other_meta.is_empty() {
@@ -3161,10 +2937,8 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                     out.push('\n');
                 }
                 if !js_meta.is_empty() {
-                    let js_meta: Vec<(&String, &String)> = js_meta
-                        .into_iter()
-                        .filter(|(_, v)| v.trim() != "false")
-                        .collect();
+                    let js_meta: Vec<(&String, &String)> =
+                        js_meta.into_iter().filter(|(_, v)| v.trim() != "false").collect();
                     if !js_meta.is_empty() {
                         out.push_str("**JavaScript metadata**\n\n");
                         out.push_str("| Key | Value |\n");
@@ -3184,10 +2958,8 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     }
 
     out.push_str("## Identifier lookup\n\n");
-    let mut id_pairs: Vec<(&String, &String)> = id_map
-        .iter()
-        .filter(|(long, short)| long != short)
-        .collect();
+    let mut id_pairs: Vec<(&String, &String)> =
+        id_map.iter().filter(|(long, short)| long != short).collect();
     id_pairs.sort_by(|a, b| a.1.cmp(b.1).then_with(|| a.0.cmp(b.0)));
     if id_pairs.is_empty() {
         out.push_str("- No identifiers were shortened\n\n");
@@ -3195,20 +2967,13 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         out.push_str("| Short | Long |\n");
         out.push_str("| --- | --- |\n");
         for (long, short) in id_pairs {
-            out.push_str(&format!(
-                "| {} | {} |\n",
-                escape_markdown(short),
-                escape_markdown(long)
-            ));
+            out.push_str(&format!("| {} | {} |\n", escape_markdown(short), escape_markdown(long)));
         }
         out.push('\n');
     }
 
-    let strict_findings: Vec<&Finding> = report
-        .findings
-        .iter()
-        .filter(|f| f.kind == "strict_parse_deviation")
-        .collect();
+    let strict_findings: Vec<&Finding> =
+        report.findings.iter().filter(|f| f.kind == "strict_parse_deviation").collect();
     if !strict_findings.is_empty() {
         out.push_str("## Strict parse deviations\n\n");
         out.push_str(&format!("- Count: {}\n\n", strict_findings.len()));
@@ -3233,11 +2998,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         out.push_str("## YARA\n\n");
         out.push_str(&format!("- Rules: {}\n\n", report.yara_rules.len()));
         for rule in &report.yara_rules {
-            let tags = if rule.tags.is_empty() {
-                "-".into()
-            } else {
-                rule.tags.join(", ")
-            };
+            let tags = if rule.tags.is_empty() { "-".into() } else { rule.tags.join(", ") };
             out.push_str(&format!(
                 "- {} (tags: {})\n",
                 escape_markdown(&rule.name),
@@ -3248,17 +3009,10 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     }
 
     out.push_str("## Sis scanner details\n\n");
-    out.push_str(&format!(
-        "- sis-pdf-core version: {}\n",
-        env!("CARGO_PKG_VERSION")
-    ));
+    out.push_str(&format!("- sis-pdf-core version: {}\n", env!("CARGO_PKG_VERSION")));
     out.push_str(&format!(
         "- ML graph feature enabled: {}\n",
-        if cfg!(feature = "ml-graph") {
-            "yes"
-        } else {
-            "no"
-        }
+        if cfg!(feature = "ml-graph") { "yes" } else { "no" }
     ));
     if let Some(summary) = &report.structural_summary {
         out.push_str(&format!(
@@ -3301,10 +3055,7 @@ fn format_ml_explanation_for_report(
         escape_markdown(&prediction.calibration_method)
     ));
     if let Some((low, high)) = prediction.confidence_interval {
-        report.push_str(&format!(
-            "- Confidence interval (95%): {:.4}-{:.4}\n",
-            low, high
-        ));
+        report.push_str(&format!("- Confidence interval (95%): {:.4}-{:.4}\n", low, high));
     }
     report.push('\n');
 
@@ -3330,9 +3081,7 @@ fn format_ml_explanation_for_report(
         for attr in explanation.feature_attribution.iter().take(10) {
             report.push_str(&format!(
                 "| {} | {:.2} | {:+.2} | {:.2} |\n",
-                escape_markdown(&crate::explainability::humanize_feature_name(
-                    &attr.feature_name
-                )),
+                escape_markdown(&crate::explainability::humanize_feature_name(&attr.feature_name)),
                 attr.value,
                 attr.contribution,
                 attr.baseline
@@ -3346,9 +3095,7 @@ fn format_ml_explanation_for_report(
         for comp in explanation.comparative_analysis.iter().take(5) {
             report.push_str(&format!(
                 "- **{}**: {:.2} (benign mean {:.2}, z-score {:.1}) — {}\n",
-                escape_markdown(&crate::explainability::humanize_feature_name(
-                    &comp.feature_name
-                )),
+                escape_markdown(&crate::explainability::humanize_feature_name(&comp.feature_name)),
                 comp.value,
                 comp.benign_mean,
                 comp.z_score,
@@ -3363,9 +3110,7 @@ fn format_ml_explanation_for_report(
         for chain in explanation.evidence_chains.iter().take(5) {
             report.push_str(&format!(
                 "- **{}** -> findings [{}] (spans {})\n",
-                escape_markdown(&crate::explainability::humanize_feature_name(
-                    &chain.feature_name
-                )),
+                escape_markdown(&crate::explainability::humanize_feature_name(&chain.feature_name)),
                 escape_markdown(&chain.derived_from_findings.join(", ")),
                 chain.evidence_spans.len()
             ));
@@ -3478,13 +3223,7 @@ mod tests {
 }
 
 fn summary_from_findings(findings: &[Finding]) -> Summary {
-    let mut summary = Summary {
-        total: findings.len(),
-        high: 0,
-        medium: 0,
-        low: 0,
-        info: 0,
-    };
+    let mut summary = Summary { total: findings.len(), high: 0, medium: 0, low: 0, info: 0 };
     for f in findings {
         match f.severity {
             Severity::High | Severity::Critical => summary.high += 1,

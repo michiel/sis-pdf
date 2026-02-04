@@ -29,23 +29,13 @@ pub struct PageTree {
 pub fn build_page_tree(graph: &ObjectGraph<'_>) -> PageTree {
     let mut pages = Vec::new();
     let mut annot_parent = HashMap::new();
-    let root = graph
-        .trailers
-        .last()
-        .and_then(|t| t.get_first(b"/Root"))
-        .map(|(_, v)| v.clone());
+    let root = graph.trailers.last().and_then(|t| t.get_first(b"/Root")).map(|(_, v)| v.clone());
     let catalog = root.as_ref().and_then(|o| resolve_dict(graph, o));
-    let pages_ref = catalog
-        .as_ref()
-        .and_then(|d| d.get_first(b"/Pages"))
-        .map(|(_, v)| v.clone());
+    let pages_ref = catalog.as_ref().and_then(|d| d.get_first(b"/Pages")).map(|(_, v)| v.clone());
     if let Some(pages_obj) = pages_ref {
         walk_pages(graph, &pages_obj, None, &mut pages, &mut annot_parent);
     }
-    PageTree {
-        pages,
-        annot_parent,
-    }
+    PageTree { pages, annot_parent }
 }
 
 pub fn build_annotation_parent_map(graph: &ObjectGraph<'_>) -> HashMap<ObjRef, PageRefInfo> {
@@ -77,34 +67,21 @@ fn walk_pages(
     if dict.has_name(b"/Type", b"/Page") {
         let (obj_id, gen_id) = object_id_from_obj(graph, obj).unwrap_or((0, 0));
         let number = pages.len() + 1;
-        pages.push(PageInfo {
-            obj: obj_id,
-            gen: gen_id,
-            number,
-            media_box,
-        });
+        pages.push(PageInfo { obj: obj_id, gen: gen_id, number, media_box });
         if let Some((_, annots)) = dict.get_first(b"/Annots") {
             if let PdfAtom::Array(arr) = &annots.atom {
                 for annot in arr {
                     if let Some((ao, ag)) = object_id_from_obj(graph, annot) {
                         annot_parent.insert(
                             ObjRef { obj: ao, gen: ag },
-                            PageRefInfo {
-                                obj: obj_id,
-                                gen: gen_id,
-                                number,
-                            },
+                            PageRefInfo { obj: obj_id, gen: gen_id, number },
                         );
                     }
                 }
             } else if let Some((ao, ag)) = object_id_from_obj(graph, annots) {
                 annot_parent.insert(
                     ObjRef { obj: ao, gen: ag },
-                    PageRefInfo {
-                        obj: obj_id,
-                        gen: gen_id,
-                        number,
-                    },
+                    PageRefInfo { obj: obj_id, gen: gen_id, number },
                 );
             }
         }
@@ -129,11 +106,7 @@ fn object_id_from_obj(graph: &ObjectGraph<'_>, obj: &PdfObj<'_>) -> Option<(u32,
         PdfAtom::Ref { obj, gen } => Some((obj, gen)),
         PdfAtom::Dict(_) | PdfAtom::Stream(_) => {
             let span_start = obj.span.start;
-            graph
-                .objects
-                .iter()
-                .find(|e| e.body_span.start == span_start)
-                .map(|e| (e.obj, e.gen))
+            graph.objects.iter().find(|e| e.body_span.start == span_start).map(|e| (e.obj, e.gen))
         }
         _ => None,
     }

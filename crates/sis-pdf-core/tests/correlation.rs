@@ -52,18 +52,13 @@ fn correlate_launch_obfuscated_executable() {
     let launch = make_finding(
         "launch_embedded_file",
         &["4 0 obj"],
-        &[
-            ("launch.embedded_file_hash", "deadbeef"),
-            ("launch.target_path", "payload.exe"),
-        ],
+        &[("launch.embedded_file_hash", "deadbeef"), ("launch.target_path", "payload.exe")],
         AttackSurface::Actions,
     );
 
     let config = CorrelationOptions::default();
     let composites = correlation::correlate_findings(&[embedded.clone(), launch.clone()], &config);
-    assert!(composites
-        .iter()
-        .any(|f| f.kind == "launch_obfuscated_executable"));
+    assert!(composites.iter().any(|f| f.kind == "launch_obfuscated_executable"));
 }
 
 #[test]
@@ -71,10 +66,7 @@ fn correlate_action_chain_malicious() {
     let chain = make_finding(
         "action_chain_complex",
         &["10 0 obj"],
-        &[
-            ("action.chain_depth", "4"),
-            ("action.trigger", "OpenAction"),
-        ],
+        &[("action.chain_depth", "4"), ("action.trigger", "OpenAction")],
         AttackSurface::Actions,
     );
     let automatic = make_finding(
@@ -93,9 +85,7 @@ fn correlate_action_chain_malicious() {
     let config = CorrelationOptions::default();
     let composites =
         correlation::correlate_findings(&[chain.clone(), automatic.clone(), js.clone()], &config);
-    assert!(composites
-        .iter()
-        .any(|f| f.kind == "action_chain_malicious"));
+    assert!(composites.iter().any(|f| f.kind == "action_chain_malicious"));
 }
 
 #[test]
@@ -115,9 +105,7 @@ fn correlate_xfa_data_exfiltration_risk() {
 
     let config = CorrelationOptions::default();
     let composites = correlation::correlate_findings(&[submit.clone(), sensitive.clone()], &config);
-    assert!(composites
-        .iter()
-        .any(|f| f.kind == "xfa_data_exfiltration_risk"));
+    assert!(composites.iter().any(|f| f.kind == "xfa_data_exfiltration_risk"));
 }
 
 #[test]
@@ -137,9 +125,7 @@ fn correlate_encrypted_payload_delivery() {
 
     let config = CorrelationOptions::default();
     let composites = correlation::correlate_findings(&[archive.clone(), launch.clone()], &config);
-    assert!(composites
-        .iter()
-        .any(|f| f.kind == "encrypted_payload_delivery"));
+    assert!(composites.iter().any(|f| f.kind == "encrypted_payload_delivery"));
 }
 
 #[test]
@@ -172,10 +158,7 @@ fn correlation_launch_obfuscated_integration() {
     )
     .expect("scan should succeed");
 
-    assert!(report
-        .findings
-        .iter()
-        .any(|f| f.kind == "launch_obfuscated_executable"));
+    assert!(report.findings.iter().any(|f| f.kind == "launch_obfuscated_executable"));
 }
 
 #[test]
@@ -188,10 +171,7 @@ fn correlation_xfa_data_exfiltration_integration() {
     )
     .expect("scan should succeed");
 
-    assert!(report
-        .findings
-        .iter()
-        .any(|f| f.kind == "xfa_data_exfiltration_risk"));
+    assert!(report.findings.iter().any(|f| f.kind == "xfa_data_exfiltration_risk"));
 }
 
 #[test]
@@ -293,24 +273,9 @@ fn build_launch_obfuscated_pdf(payload: &[u8]) -> Vec<u8> {
         1,
         b"<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\n",
     );
-    append_text_object(
-        &mut doc,
-        &mut offsets,
-        2,
-        b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>\n",
-    );
-    append_text_object(
-        &mut doc,
-        &mut offsets,
-        3,
-        b"<< /Type /Page /Parent 2 0 R >>\n",
-    );
-    append_text_object(
-        &mut doc,
-        &mut offsets,
-        4,
-        b"<< /Type /Action /S /Launch /F 5 0 R >>\n",
-    );
+    append_text_object(&mut doc, &mut offsets, 2, b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>\n");
+    append_text_object(&mut doc, &mut offsets, 3, b"<< /Type /Page /Parent 2 0 R >>\n");
+    append_text_object(&mut doc, &mut offsets, 4, b"<< /Type /Action /S /Launch /F 5 0 R >>\n");
     append_text_object(
         &mut doc,
         &mut offsets,

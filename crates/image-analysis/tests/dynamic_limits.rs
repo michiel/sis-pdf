@@ -22,17 +22,11 @@ fn pdf_name(name: &'static str) -> PdfName<'static> {
 }
 
 fn pdf_obj_name(name: &'static str) -> PdfObj<'static> {
-    PdfObj {
-        span: zero_span(),
-        atom: PdfAtom::Name(pdf_name(name)),
-    }
+    PdfObj { span: zero_span(), atom: PdfAtom::Name(pdf_name(name)) }
 }
 
 fn pdf_obj_int(value: i64) -> PdfObj<'static> {
-    PdfObj {
-        span: zero_span(),
-        atom: PdfAtom::Int(value),
-    }
+    PdfObj { span: zero_span(), atom: PdfAtom::Int(value) }
 }
 
 fn make_image_entry(
@@ -52,25 +46,14 @@ fn make_image_entry(
     if let Some(filter_name) = filter {
         entries.push((
             pdf_name("/Filter"),
-            PdfObj {
-                span: zero_span(),
-                atom: PdfAtom::Name(pdf_name(filter_name)),
-            },
+            PdfObj { span: zero_span(), atom: PdfAtom::Name(pdf_name(filter_name)) },
         ));
     }
 
-    let dict = PdfDict {
-        span: zero_span(),
-        entries,
-    };
+    let dict = PdfDict { span: zero_span(), entries };
 
-    let stream = PdfStream {
-        dict,
-        data_span: Span {
-            start: start as u64,
-            end: (start + len) as u64,
-        },
-    };
+    let stream =
+        PdfStream { dict, data_span: Span { start: start as u64, end: (start + len) as u64 } };
 
     ObjEntry {
         obj: obj_id,
@@ -106,10 +89,7 @@ fn append_image_entries(
 fn find_skip_reason(findings: &[ImageFinding], reason: &str) -> bool {
     findings.iter().any(|f| {
         f.kind == "image.decode_skipped"
-            && f.meta
-                .get("image.decode_skipped")
-                .map(|v| v == reason)
-                .unwrap_or(false)
+            && f.meta.get("image.decode_skipped").map(|v| v == reason).unwrap_or(false)
     })
 }
 
@@ -149,10 +129,7 @@ fn timeout_enforced() {
     };
 
     let result = analyze_dynamic_images(&graph, &opts);
-    assert!(
-        find_skip_reason(&result.findings, "timeout"),
-        "expected timeout skip"
-    );
+    assert!(find_skip_reason(&result.findings, "timeout"), "expected timeout skip");
 }
 
 #[test]
@@ -177,24 +154,15 @@ fn total_budget_enforced() {
     };
 
     let result = analyze_dynamic_images(&graph, &opts);
-    assert!(
-        find_skip_reason(&result.findings, "budget_exceeded"),
-        "expected budget skip"
-    );
+    assert!(find_skip_reason(&result.findings, "budget_exceeded"), "expected budget skip");
 }
 
 #[test]
 fn skip_threshold_enforced() {
     let images = 60;
     let mut bytes = Vec::new();
-    let (objects, index) = append_image_entries(
-        &mut bytes,
-        images,
-        b"jpegdata",
-        100,
-        100,
-        Some("/DCTDecode"),
-    );
+    let (objects, index) =
+        append_image_entries(&mut bytes, images, b"jpegdata", 100, 100, Some("/DCTDecode"));
     let graph = ObjectGraph {
         bytes: bytes.as_slice(),
         objects,
@@ -220,10 +188,7 @@ fn skip_threshold_enforced() {
         Some("too_many_images")
     );
     assert_eq!(
-        finding
-            .meta
-            .get("image.count")
-            .and_then(|v: &String| v.parse::<usize>().ok()),
+        finding.meta.get("image.count").and_then(|v: &String| v.parse::<usize>().ok()),
         Some(images)
     );
 }
@@ -251,16 +216,10 @@ fn size_limit_enforced() {
     };
 
     let result = analyze_dynamic_images(&graph, &opts);
-    assert!(result
-        .findings
-        .iter()
-        .any(|f| f.kind == "image.decode_too_large"));
+    assert!(result.findings.iter().any(|f| f.kind == "image.decode_too_large"));
     assert!(result.findings.iter().any(|f| {
         f.kind == "image.decode_too_large"
-            && f.meta
-                .get("image.decode_too_large")
-                .map(|v| v == "true")
-                .unwrap_or(false)
+            && f.meta.get("image.decode_too_large").map(|v| v == "true").unwrap_or(false)
     }));
 }
 
@@ -288,10 +247,7 @@ fn malformed_jpeg_detected() {
     };
 
     let result = analyze_dynamic_images(&graph, &opts);
-    assert!(result
-        .findings
-        .iter()
-        .any(|f| f.kind == "image.jpeg_malformed"));
+    assert!(result.findings.iter().any(|f| f.kind == "image.jpeg_malformed"));
 }
 
 #[cfg(feature = "png")]

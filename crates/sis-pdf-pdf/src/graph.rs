@@ -131,19 +131,11 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
                 trailers.push(t.clone());
             }
         }
-        debug!(
-            startxrefs = startxrefs.len(),
-            sections = chain.sections.len(),
-            "Parsed xref chain"
-        );
+        debug!(startxrefs = startxrefs.len(), sections = chain.sections.len(), "Parsed xref chain");
     }
     let (mut objects, deviations) =
         scan_indirect_objects(bytes, options.strict, options.max_objects);
-    debug!(
-        objects = objects.len(),
-        deviations = deviations.len(),
-        "Scanned indirect objects"
-    );
+    debug!(objects = objects.len(), deviations = deviations.len(), "Scanned indirect objects");
 
     // Always expand object streams to detect hidden JavaScript and other content
     // Resource limits (max 100 ObjStm, byte limits) prevent DoS
@@ -170,14 +162,7 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
         trailers = trailers.len(),
         "Parsed PDF object graph"
     );
-    Ok(ObjectGraph {
-        bytes,
-        objects,
-        index,
-        trailers,
-        startxrefs,
-        deviations,
-    })
+    Ok(ObjectGraph { bytes, objects, index, trailers, startxrefs, deviations })
 }
 
 fn carve_stream_objects<'a>(
@@ -224,16 +209,8 @@ fn carve_stream_objects<'a>(
                 carved.body_span.end += offset;
                 carved.full_span.start += offset;
                 carved.full_span.end += offset;
-                carved.provenance = ObjProvenance::CarvedStream {
-                    obj: entry.obj,
-                    gen: entry.gen,
-                };
-                let key = (
-                    carved.obj,
-                    carved.gen,
-                    carved.full_span.start,
-                    carved.full_span.end,
-                );
+                carved.provenance = ObjProvenance::CarvedStream { obj: entry.obj, gen: entry.gen };
+                let key = (carved.obj, carved.gen, carved.full_span.start, carved.full_span.end);
                 if seen.insert(key) {
                     out.push(carved);
                     total += 1;

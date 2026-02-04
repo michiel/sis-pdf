@@ -38,12 +38,8 @@ impl Detector for ContentFirstDetector {
             ..DecodeLimits::default()
         };
 
-        let obj_map: HashMap<(u32, u16), &PdfAtom<'_>> = ctx
-            .graph
-            .objects
-            .iter()
-            .map(|entry| ((entry.obj, entry.gen), &entry.atom))
-            .collect();
+        let obj_map: HashMap<(u32, u16), &PdfAtom<'_>> =
+            ctx.graph.objects.iter().map(|entry| ((entry.obj, entry.gen), &entry.atom)).collect();
         let embedded_map = embedded_file_map(ctx, &obj_map);
         let xfa_map = xfa_stream_map(ctx, &obj_map);
 
@@ -99,10 +95,8 @@ impl Detector for ContentFirstDetector {
                     let declared_type = name_value(&stream.dict, b"/Type");
                     let declared_subtype = name_value(&stream.dict, b"/Subtype");
                     let origin_label = blob_origin_label(&blob);
-                    let filter_expectations = blob
-                        .decode_meta
-                        .as_ref()
-                        .map(|meta| meta.filters.as_slice());
+                    let filter_expectations =
+                        blob.decode_meta.as_ref().map(|meta| meta.filters.as_slice());
 
                     if let Some(finding) = label_mismatch_finding(
                         entry.obj,
@@ -517,9 +511,9 @@ fn dict_from_obj<'a>(
     obj: &'a PdfObj<'a>,
 ) -> Option<&'a PdfDict<'a>> {
     match &obj.atom {
-        PdfAtom::Ref { obj, gen } => obj_map
-            .get(&(*obj, *gen))
-            .and_then(|atom| dict_from_atom(atom)),
+        PdfAtom::Ref { obj, gen } => {
+            obj_map.get(&(*obj, *gen)).and_then(|atom| dict_from_atom(atom))
+        }
         _ => dict_from_atom(&obj.atom),
     }
 }
@@ -552,16 +546,10 @@ fn collect_xfa_refs<'a>(
         return;
     }
     match &obj.atom {
-        PdfAtom::Ref {
-            obj: ref_obj,
-            gen: ref_gen,
-        } => {
+        PdfAtom::Ref { obj: ref_obj, gen: ref_gen } => {
             out.insert((*ref_obj, *ref_gen), container);
             if let Some(atom) = obj_map.get(&(*ref_obj, *ref_gen)) {
-                let child = PdfObj {
-                    span: obj.span,
-                    atom: (*atom).clone(),
-                };
+                let child = PdfObj { span: obj.span, atom: (*atom).clone() };
                 collect_xfa_refs(obj_map, &child, container, out, depth + 1);
             }
         }
@@ -855,10 +843,7 @@ fn decode_recovered_finding(
 
     let mut finding_meta = HashMap::new();
     finding_meta.insert("stream.filters".to_string(), meta.filters.join(","));
-    finding_meta.insert(
-        "decode.recovered_filters".to_string(),
-        meta.recovered_filters.join(","),
-    );
+    finding_meta.insert("decode.recovered_filters".to_string(), meta.recovered_filters.join(","));
     finding_meta.insert("blob.origin".to_string(), origin.to_string());
 
     Some(Finding {
@@ -959,11 +944,7 @@ fn carve_payloads(
 ) -> Vec<Finding> {
     let max_scan_bytes = 512 * 1024;
     let max_hits = 3;
-    let slice = if data.len() > max_scan_bytes {
-        &data[..max_scan_bytes]
-    } else {
-        data
-    };
+    let slice = if data.len() > max_scan_bytes { &data[..max_scan_bytes] } else { data };
 
     // Only flag signatures at stream start (0-100 bytes) to avoid false positives
     // from random bytes in compressed data (like SWF magic in image streams)
@@ -1068,9 +1049,7 @@ fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 fn expected_kind_for_filter(filter: &str) -> Option<&'static str> {
@@ -1097,11 +1076,7 @@ fn script_payload_findings(
     label: &str,
 ) -> Vec<Finding> {
     let max_scan_bytes = 512 * 1024;
-    let slice = if data.len() > max_scan_bytes {
-        &data[..max_scan_bytes]
-    } else {
-        data
-    };
+    let slice = if data.len() > max_scan_bytes { &data[..max_scan_bytes] } else { data };
 
     let mut findings = Vec::new();
     let mut push = |kind_str: &str, title: &str, description: &str, default_severity: Severity| {
@@ -1190,9 +1165,7 @@ fn script_payload_findings(
 }
 
 fn contains_any_ci(haystack: &[u8], needles: &[&[u8]]) -> bool {
-    needles
-        .iter()
-        .any(|needle| find_ci(haystack, needle).is_some())
+    needles.iter().any(|needle| find_ci(haystack, needle).is_some())
 }
 
 fn find_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -1201,10 +1174,7 @@ fn find_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     }
     let needle_lower: Vec<u8> = needle.iter().map(|b| b.to_ascii_lowercase()).collect();
     haystack.windows(needle_lower.len()).position(|window| {
-        window
-            .iter()
-            .zip(&needle_lower)
-            .all(|(a, b)| a.to_ascii_lowercase() == *b)
+        window.iter().zip(&needle_lower).all(|(a, b)| a.to_ascii_lowercase() == *b)
     })
 }
 
@@ -1322,16 +1292,13 @@ struct SwfTagScan {
 }
 
 fn parse_swf_tags(data: &[u8]) -> SwfTagScan {
-    let mut scan = SwfTagScan {
-        actionscript_present: false,
-        url_iocs: Vec::new(),
-    };
+    let mut scan = SwfTagScan { actionscript_present: false, url_iocs: Vec::new() };
     if data.len() < 12 {
         return scan;
     }
     let nbits = data[8] >> 3;
     let rect_bits = 5u32 + 4u32 * nbits as u32;
-    let rect_bytes = rect_bits.div_ceil(8) as usize;
+    let rect_bytes = usize::div_ceil(rect_bits as usize, 8);
     let mut offset = 8 + rect_bytes + 4;
     if offset >= data.len() {
         return scan;
@@ -1427,11 +1394,7 @@ fn zip_container_findings(
     let max_entry_bytes = 128 * 1024;
     let max_entries = 10;
     let max_hits = 3;
-    let slice = if data.len() > max_scan_bytes {
-        &data[..max_scan_bytes]
-    } else {
-        data
-    };
+    let slice = if data.len() > max_scan_bytes { &data[..max_scan_bytes] } else { data };
 
     let signatures = [
         ("pdf", b"%PDF-".as_slice()),
@@ -1522,19 +1485,9 @@ mod tests {
     fn embedded_payload_carved_info_when_filter_matches() {
         let data = b"\xFF\xD8\xFF\xE0\x00\x10";
         let filters = vec!["/DCTDecode".to_string()];
-        let span = Span {
-            start: 0,
-            end: data.len() as u64,
-        };
-        let findings = carve_payloads(
-            1,
-            0,
-            span,
-            data,
-            "stream",
-            "Stream data",
-            Some(filters.as_slice()),
-        );
+        let span = Span { start: 0, end: data.len() as u64 };
+        let findings =
+            carve_payloads(1, 0, span, data, "stream", "Stream data", Some(filters.as_slice()));
         assert_eq!(findings.len(), 1);
         let finding = &findings[0];
         assert_eq!(finding.severity, Severity::Info);
@@ -1542,33 +1495,17 @@ mod tests {
             finding.description,
             "Embedded JPEG signature matches declared filter /DCTDecode."
         );
-        assert_eq!(
-            finding.meta.get("carve.match").map(|v| v.as_str()),
-            Some("true")
-        );
-        assert_eq!(
-            finding.meta.get("carve.expected_kind").map(|v| v.as_str()),
-            Some("JPEG")
-        );
+        assert_eq!(finding.meta.get("carve.match").map(|v| v.as_str()), Some("true"));
+        assert_eq!(finding.meta.get("carve.expected_kind").map(|v| v.as_str()), Some("JPEG"));
     }
 
     #[test]
     fn embedded_payload_carved_high_when_filter_mismatch() {
         let data = b"\xFF\xD8\xFF\xE0\x00\x10";
         let filters = vec!["/CCITTFaxDecode".to_string()];
-        let span = Span {
-            start: 0,
-            end: data.len() as u64,
-        };
-        let findings = carve_payloads(
-            1,
-            0,
-            span,
-            data,
-            "stream",
-            "Stream data",
-            Some(filters.as_slice()),
-        );
+        let span = Span { start: 0, end: data.len() as u64 };
+        let findings =
+            carve_payloads(1, 0, span, data, "stream", "Stream data", Some(filters.as_slice()));
         assert_eq!(findings.len(), 1);
         let finding = &findings[0];
         assert_eq!(finding.severity, Severity::High);
@@ -1576,13 +1513,7 @@ mod tests {
             finding.description,
             "Found a JPEG signature in a stream where we expected TIFF/CCITT."
         );
-        assert_eq!(
-            finding.meta.get("carve.match").map(|v| v.as_str()),
-            Some("false")
-        );
-        assert_eq!(
-            finding.meta.get("carve.expected_kind").map(|v| v.as_str()),
-            Some("TIFF/CCITT")
-        );
+        assert_eq!(finding.meta.get("carve.match").map(|v| v.as_str()), Some("false"));
+        assert_eq!(finding.meta.get("carve.expected_kind").map(|v| v.as_str()), Some("TIFF/CCITT"));
     }
 }

@@ -24,18 +24,12 @@ fn detects_media_signatures() {
     assert_eq!(classify_blob(b"RIFF\x24\x00\x00\x00AVI "), BlobKind::Avi);
     assert_eq!(classify_blob(b"RIFF\x24\x00\x00\x00WAVE"), BlobKind::Wav);
     assert_eq!(classify_blob(b"ID3\x03\x00\x00"), BlobKind::Mp3);
-    assert_eq!(
-        classify_blob(b"\x1A\x45\xDF\xA3\x93\x42\x82\x88"),
-        BlobKind::Mkv
-    );
+    assert_eq!(classify_blob(b"\x1A\x45\xDF\xA3\x93\x42\x82\x88"), BlobKind::Mkv);
 }
 
 #[test]
 fn detects_font_signatures() {
-    assert_eq!(
-        classify_blob(b"\x00\x01\x00\x00\x00\x10"),
-        BlobKind::FontTrueType
-    );
+    assert_eq!(classify_blob(b"\x00\x01\x00\x00\x00\x10"), BlobKind::FontTrueType);
     assert_eq!(classify_blob(b"OTTO\x00\x01"), BlobKind::FontOpenType);
     assert_eq!(classify_blob(b"%!PS-AdobeFont-1.0"), BlobKind::FontType1);
     assert_eq!(classify_blob(b"wOFF\x00\x01"), BlobKind::FontWoff);
@@ -45,10 +39,7 @@ fn detects_font_signatures() {
 #[test]
 fn detects_additional_image_signatures() {
     assert_eq!(classify_blob(b"RIFF\x24\x00\x00\x00WEBP"), BlobKind::Webp);
-    assert_eq!(
-        classify_blob(b"\x00\x00\x00\x0CjP  \x0D\x0A\x87\x0A"),
-        BlobKind::Jp2
-    );
+    assert_eq!(classify_blob(b"\x00\x00\x00\x0CjP  \x0D\x0A\x87\x0A"), BlobKind::Jp2);
 }
 
 #[test]

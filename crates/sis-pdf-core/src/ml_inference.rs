@@ -70,14 +70,8 @@ pub struct CalibrationModel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "method")]
 pub enum CalibrationMethod {
-    PlattScaling {
-        coef: Vec<f32>,
-        intercept: Vec<f32>,
-    },
-    IsotonicRegression {
-        x_thresholds: Vec<f32>,
-        y_thresholds: Vec<f32>,
-    },
+    PlattScaling { coef: Vec<f32>, intercept: Vec<f32> },
+    IsotonicRegression { x_thresholds: Vec<f32>, y_thresholds: Vec<f32> },
 }
 
 impl CalibrationModel {
@@ -96,10 +90,7 @@ impl CalibrationModel {
                 let logit = coef[0] * raw_score + intercept[0];
                 1.0 / (1.0 + (-logit).exp())
             }
-            CalibrationMethod::IsotonicRegression {
-                x_thresholds,
-                y_thresholds,
-            } => {
+            CalibrationMethod::IsotonicRegression { x_thresholds, y_thresholds } => {
                 // Piecewise constant interpolation
                 if x_thresholds.is_empty() || y_thresholds.is_empty() {
                     return raw_score;
@@ -174,10 +165,8 @@ pub fn run_ml_inference(
 
         // Estimate confidence interval (simplified)
         let ci_width = 0.1 * (1.0 - calibrated_score) * calibrated_score;
-        let confidence_interval = Some((
-            (calibrated_score - ci_width).max(0.0),
-            (calibrated_score + ci_width).min(1.0),
-        ));
+        let confidence_interval =
+            Some(((calibrated_score - ci_width).max(0.0), (calibrated_score + ci_width).min(1.0)));
 
         let interpretation = if let Some(interval) = confidence_interval {
             format!(
@@ -187,10 +176,7 @@ pub fn run_ml_inference(
                 interval.1 * 100.0
             )
         } else {
-            format!(
-                "{:.0}% probability of being malicious",
-                calibrated_score * 100.0
-            )
+            format!("{:.0}% probability of being malicious", calibrated_score * 100.0)
         };
 
         CalibratedPrediction {
@@ -235,10 +221,7 @@ pub fn run_ml_inference(
         None
     };
 
-    Ok(MlInferenceResult {
-        prediction: calibrated,
-        explanation,
-    })
+    Ok(MlInferenceResult { prediction: calibrated, explanation })
 }
 
 /// Generate comprehensive explanation
@@ -263,21 +246,13 @@ fn generate_comprehensive_explanation(
     // Feature group importance
     let mut group_importance = HashMap::new();
     for attr in &attribution {
-        let group = attr
-            .feature_name
-            .split('.')
-            .next()
-            .unwrap_or("other")
-            .to_string();
+        let group = attr.feature_name.split('.').next().unwrap_or("other").to_string();
         *group_importance.entry(group).or_insert(0.0) += attr.contribution.abs();
     }
 
     // Comparative analysis
-    let feature_map: HashMap<String, f32> = feature_names
-        .iter()
-        .zip(&feature_vec)
-        .map(|(name, &val)| (name.clone(), val))
-        .collect();
+    let feature_map: HashMap<String, f32> =
+        feature_names.iter().zip(&feature_vec).map(|(name, &val)| (name.clone(), val)).collect();
     let comparative = compute_comparative_explanation(&feature_map, baseline, 10);
 
     // Evidence chains
@@ -350,10 +325,7 @@ fn generate_decision_factors(
     let high_count = findings
         .iter()
         .filter(|f| {
-            matches!(
-                f.severity,
-                crate::model::Severity::High | crate::model::Severity::Critical
-            )
+            matches!(f.severity, crate::model::Severity::High | crate::model::Severity::Critical)
         })
         .count();
     if high_count > 0 {
@@ -361,15 +333,10 @@ fn generate_decision_factors(
     }
 
     // Attack surface diversity
-    let surfaces: std::collections::HashSet<_> = findings
-        .iter()
-        .map(|f| format!("{:?}", f.surface))
-        .collect();
+    let surfaces: std::collections::HashSet<_> =
+        findings.iter().map(|f| format!("{:?}", f.surface)).collect();
     if surfaces.len() >= 3 {
-        factors.push(format!(
-            "Multiple attack surfaces detected: {}",
-            surfaces.len()
-        ));
+        factors.push(format!("Multiple attack surfaces detected: {}", surfaces.len()));
     }
 
     factors
@@ -389,10 +356,7 @@ mod tests {
     #[test]
     fn test_platt_scaling_calibration() {
         let cal = CalibrationModel {
-            method: CalibrationMethod::PlattScaling {
-                coef: vec![2.0],
-                intercept: vec![-1.0],
-            },
+            method: CalibrationMethod::PlattScaling { coef: vec![2.0], intercept: vec![-1.0] },
         };
 
         let calibrated = cal.calibrate(0.5);

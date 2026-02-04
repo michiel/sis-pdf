@@ -86,7 +86,5 @@ fn has_env_probes(data: &[u8]) -> bool {
 }
 
 fn contains_any(data: &[u8], needles: &[&[u8]]) -> bool {
-    needles
-        .iter()
-        .any(|n| data.windows(n.len()).any(|w| w == *n))
+    needles.iter().any(|n| data.windows(n.len()).any(|w| w == *n))
 }

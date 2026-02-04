@@ -105,10 +105,8 @@ impl ExtendedFeatureVector {
 
     /// Get feature names (388 names)
     pub fn feature_names() -> Vec<String> {
-        let mut names = crate::features::feature_names()
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>();
+        let mut names =
+            crate::features::feature_names().into_iter().map(|s| s.to_string()).collect::<Vec<_>>();
         names.extend(AttackSurfaceFeatures::feature_names());
         names.extend(SeverityFeatures::feature_names());
         names.extend(ConfidenceFeatures::feature_names());
@@ -126,10 +124,7 @@ impl ExtendedFeatureVector {
 
     /// Convert to named map (feature_name -> value)
     pub fn to_named_map(&self) -> HashMap<String, f32> {
-        Self::feature_names()
-            .into_iter()
-            .zip(self.as_f32_vec())
-            .collect()
+        Self::feature_names().into_iter().zip(self.as_f32_vec()).collect()
     }
 }
 
@@ -1413,10 +1408,8 @@ use crate::scan::ScanContext;
 
 /// Get extended feature names (388 names)
 pub fn extended_feature_names() -> Vec<String> {
-    let mut names = crate::features::feature_names()
-        .into_iter()
-        .map(|s| s.to_string())
-        .collect::<Vec<_>>();
+    let mut names =
+        crate::features::feature_names().into_iter().map(|s| s.to_string()).collect::<Vec<_>>();
     names.extend(AttackSurfaceFeatures::feature_names());
     names.extend(SeverityFeatures::feature_names());
     names.extend(ConfidenceFeatures::feature_names());
@@ -1536,10 +1529,7 @@ fn extract_severity_features(findings: &[Finding]) -> SeverityFeatures {
         severity_confidence_weighted += severity_score * confidence_weight;
 
         // Track max severity per surface
-        let current_max = per_surface_severity
-            .get(&finding.surface)
-            .copied()
-            .unwrap_or(0.0);
+        let current_max = per_surface_severity.get(&finding.surface).copied().unwrap_or(0.0);
         if severity_score > current_max {
             per_surface_severity.insert(finding.surface, severity_score);
         }
@@ -1550,34 +1540,20 @@ fn extract_severity_features(findings: &[Finding]) -> SeverityFeatures {
     features.weighted_severity = severity_confidence_weighted / findings.len() as f32;
 
     // Per-surface max severity
-    features.max_severity_actions = per_surface_severity
-        .get(&AttackSurface::Actions)
-        .copied()
-        .unwrap_or(0.0);
-    features.max_severity_javascript = per_surface_severity
-        .get(&AttackSurface::JavaScript)
-        .copied()
-        .unwrap_or(0.0);
-    features.max_severity_streams = per_surface_severity
-        .get(&AttackSurface::StreamsAndFilters)
-        .copied()
-        .unwrap_or(0.0);
-    features.max_severity_embedded = per_surface_severity
-        .get(&AttackSurface::EmbeddedFiles)
-        .copied()
-        .unwrap_or(0.0);
-    features.max_severity_structural = per_surface_severity
-        .get(&AttackSurface::FileStructure)
-        .copied()
-        .unwrap_or(0.0);
-    features.max_severity_forms = per_surface_severity
-        .get(&AttackSurface::Forms)
-        .copied()
-        .unwrap_or(0.0);
-    features.max_severity_crypto = per_surface_severity
-        .get(&AttackSurface::CryptoSignatures)
-        .copied()
-        .unwrap_or(0.0);
+    features.max_severity_actions =
+        per_surface_severity.get(&AttackSurface::Actions).copied().unwrap_or(0.0);
+    features.max_severity_javascript =
+        per_surface_severity.get(&AttackSurface::JavaScript).copied().unwrap_or(0.0);
+    features.max_severity_streams =
+        per_surface_severity.get(&AttackSurface::StreamsAndFilters).copied().unwrap_or(0.0);
+    features.max_severity_embedded =
+        per_surface_severity.get(&AttackSurface::EmbeddedFiles).copied().unwrap_or(0.0);
+    features.max_severity_structural =
+        per_surface_severity.get(&AttackSurface::FileStructure).copied().unwrap_or(0.0);
+    features.max_severity_forms =
+        per_surface_severity.get(&AttackSurface::Forms).copied().unwrap_or(0.0);
+    features.max_severity_crypto =
+        per_surface_severity.get(&AttackSurface::CryptoSignatures).copied().unwrap_or(0.0);
 
     features
 }
@@ -1675,126 +1651,46 @@ fn extract_finding_features(
         incremental_update_chain,
         incremental_update_chain_count
     );
-    set_finding!(
-        "object_id_shadowing",
-        object_id_shadowing,
-        object_id_shadowing_count
-    );
+    set_finding!("object_id_shadowing", object_id_shadowing, object_id_shadowing_count);
     set_finding!(
         "polyglot_signature_conflict",
         polyglot_signature_conflict,
         polyglot_signature_conflict_count
     );
-    set_finding!(
-        "missing_pdf_header",
-        missing_pdf_header,
-        missing_pdf_header_count
-    );
-    set_finding!(
-        "missing_eof_marker",
-        missing_eof_marker,
-        missing_eof_marker_count
-    );
-    set_finding!(
-        "eof_offset_unusual",
-        eof_offset_unusual,
-        eof_offset_unusual_count
-    );
-    set_finding!(
-        "header_offset_unusual",
-        header_offset_unusual,
-        header_offset_unusual_count
-    );
-    set_finding!(
-        "linearization_invalid",
-        linearization_invalid,
-        linearization_invalid_count
-    );
-    set_finding!(
-        "linearization_multiple",
-        linearization_multiple,
-        linearization_multiple_count
-    );
+    set_finding!("missing_pdf_header", missing_pdf_header, missing_pdf_header_count);
+    set_finding!("missing_eof_marker", missing_eof_marker, missing_eof_marker_count);
+    set_finding!("eof_offset_unusual", eof_offset_unusual, eof_offset_unusual_count);
+    set_finding!("header_offset_unusual", header_offset_unusual, header_offset_unusual_count);
+    set_finding!("linearization_invalid", linearization_invalid, linearization_invalid_count);
+    set_finding!("linearization_multiple", linearization_multiple, linearization_multiple_count);
 
     // Object streams (5)
-    set_finding!(
-        "objstm_density_high",
-        objstm_density_high,
-        objstm_density_high_count
-    );
-    set_finding!(
-        "objstm_embedded_summary",
-        objstm_embedded_summary,
-        objstm_embedded_summary_count
-    );
-    set_finding!(
-        "objstm_action_chain",
-        objstm_action_chain,
-        objstm_action_chain_count
-    );
-    set_finding!(
-        "orphan_payload_object",
-        orphan_payload_object,
-        orphan_payload_object_count
-    );
-    set_finding!(
-        "shadow_payload_chain",
-        shadow_payload_chain,
-        shadow_payload_chain_count
-    );
+    set_finding!("objstm_density_high", objstm_density_high, objstm_density_high_count);
+    set_finding!("objstm_embedded_summary", objstm_embedded_summary, objstm_embedded_summary_count);
+    set_finding!("objstm_action_chain", objstm_action_chain, objstm_action_chain_count);
+    set_finding!("orphan_payload_object", orphan_payload_object, orphan_payload_object_count);
+    set_finding!("shadow_payload_chain", shadow_payload_chain, shadow_payload_chain_count);
 
     // Streams/filters (6)
-    set_finding!(
-        "decoder_risk_present",
-        decoder_risk_present,
-        decoder_risk_present_count
-    );
+    set_finding!("decoder_risk_present", decoder_risk_present, decoder_risk_present_count);
     set_finding!(
         "decompression_ratio_suspicious",
         decompression_ratio_suspicious,
         decompression_ratio_suspicious_count
     );
-    set_finding!(
-        "filter_chain_depth_high",
-        filter_chain_depth_high,
-        filter_chain_depth_high_count
-    );
-    set_finding!(
-        "huge_image_dimensions",
-        huge_image_dimensions,
-        huge_image_dimensions_count
-    );
-    set_finding!(
-        "stream_length_mismatch",
-        stream_length_mismatch,
-        stream_length_mismatch_count
-    );
-    set_finding!(
-        "icc_profile_oversized",
-        icc_profile_oversized,
-        icc_profile_oversized_count
-    );
+    set_finding!("filter_chain_depth_high", filter_chain_depth_high, filter_chain_depth_high_count);
+    set_finding!("huge_image_dimensions", huge_image_dimensions, huge_image_dimensions_count);
+    set_finding!("stream_length_mismatch", stream_length_mismatch, stream_length_mismatch_count);
+    set_finding!("icc_profile_oversized", icc_profile_oversized, icc_profile_oversized_count);
 
     // Actions (8)
-    set_finding!(
-        "open_action_present",
-        open_action_present,
-        open_action_present_count
-    );
+    set_finding!("open_action_present", open_action_present, open_action_present_count);
     set_finding!("aa_present", aa_present, aa_present_count);
     set_finding!("aa_event_present", aa_event_present, aa_event_present_count);
-    set_finding!(
-        "launch_action_present",
-        launch_action_present,
-        launch_action_present_count
-    );
+    set_finding!("launch_action_present", launch_action_present, launch_action_present_count);
     set_finding!("gotor_present", gotor_present, gotor_present_count);
     set_finding!("uri_present", uri_present, uri_present_count);
-    set_finding!(
-        "submitform_present",
-        submitform_present,
-        submitform_present_count
-    );
+    set_finding!("submitform_present", submitform_present, submitform_present_count);
     set_finding!(
         "external_action_risk_context",
         external_action_risk_context,
@@ -1804,23 +1700,11 @@ fn extract_finding_features(
     // JavaScript (10)
     set_finding!("js_present", js_present, js_present_count);
     set_finding!("js_polymorphic", js_polymorphic, js_polymorphic_count);
-    set_finding!(
-        "js_obfuscation_deep",
-        js_obfuscation_deep,
-        js_obfuscation_deep_count
-    );
+    set_finding!("js_obfuscation_deep", js_obfuscation_deep, js_obfuscation_deep_count);
     set_finding!("js_time_evasion", js_time_evasion, js_time_evasion_count);
     set_finding!("js_env_probe", js_env_probe, js_env_probe_count);
-    set_finding!(
-        "js_multi_stage_decode",
-        js_multi_stage_decode,
-        js_multi_stage_decode_count
-    );
-    set_finding!(
-        "js_runtime_file_probe",
-        js_runtime_file_probe,
-        js_runtime_file_probe_count
-    );
+    set_finding!("js_multi_stage_decode", js_multi_stage_decode, js_multi_stage_decode_count);
+    set_finding!("js_runtime_file_probe", js_runtime_file_probe, js_runtime_file_probe_count);
     set_finding!(
         "js_runtime_network_intent",
         js_runtime_network_intent,
@@ -1834,64 +1718,28 @@ fn extract_finding_features(
         || finding_counts_map.contains_key("js_sandbox_skipped")
     {
         presence.js_sandbox_result = 1.0;
-        counts.js_sandbox_result_count = finding_counts_map
-            .get("js_sandbox_exec")
-            .copied()
-            .unwrap_or(0) as f32
-            + finding_counts_map
-                .get("js_sandbox_timeout")
-                .copied()
-                .unwrap_or(0) as f32
-            + finding_counts_map
-                .get("js_sandbox_skipped")
-                .copied()
-                .unwrap_or(0) as f32;
+        counts.js_sandbox_result_count =
+            finding_counts_map.get("js_sandbox_exec").copied().unwrap_or(0) as f32
+                + finding_counts_map.get("js_sandbox_timeout").copied().unwrap_or(0) as f32
+                + finding_counts_map.get("js_sandbox_skipped").copied().unwrap_or(0) as f32;
     }
 
     // URI classification (3)
-    set_finding!(
-        "uri_content_analysis",
-        uri_content_analysis,
-        uri_content_analysis_count
-    );
-    set_finding!(
-        "uri_presence_summary",
-        uri_presence_summary,
-        uri_presence_summary_count
-    );
-    set_finding!(
-        "action_payload_path",
-        action_payload_path,
-        action_payload_path_count
-    );
+    set_finding!("uri_content_analysis", uri_content_analysis, uri_content_analysis_count);
+    set_finding!("uri_presence_summary", uri_presence_summary, uri_presence_summary_count);
+    set_finding!("action_payload_path", action_payload_path, action_payload_path_count);
 
     // Forms (2)
     set_finding!("acroform_present", acroform_present, acroform_present_count);
     set_finding!("xfa_present", xfa_present, xfa_present_count);
 
     // Embedded content (7)
-    set_finding!(
-        "embedded_file_present",
-        embedded_file_present,
-        embedded_file_present_count
-    );
-    set_finding!(
-        "richmedia_present",
-        richmedia_present,
-        richmedia_present_count
-    );
+    set_finding!("embedded_file_present", embedded_file_present, embedded_file_present_count);
+    set_finding!("richmedia_present", richmedia_present, richmedia_present_count);
     set_finding!("3d_present", three_d_present, three_d_present_count);
-    set_finding!(
-        "sound_movie_present",
-        sound_movie_present,
-        sound_movie_present_count
-    );
+    set_finding!("sound_movie_present", sound_movie_present, sound_movie_present_count);
     set_finding!("filespec_present", filespec_present, filespec_present_count);
-    set_finding!(
-        "font_payload_present",
-        font_payload_present,
-        font_payload_present_count
-    );
+    set_finding!("font_payload_present", font_payload_present, font_payload_present_count);
     set_finding!(
         "fontmatrix_payload_present",
         fontmatrix_payload_present,
@@ -1899,16 +1747,8 @@ fn extract_finding_features(
     );
 
     // Crypto/signatures (5)
-    set_finding!(
-        "encryption_present",
-        encryption_present,
-        encryption_present_count
-    );
-    set_finding!(
-        "signature_present",
-        signature_present,
-        signature_present_count
-    );
+    set_finding!("encryption_present", encryption_present, encryption_present_count);
+    set_finding!("signature_present", signature_present, signature_present_count);
     set_finding!("dss_present", dss_present, dss_present_count);
     set_finding!("crypto_weak_algo", crypto_weak_algo, crypto_weak_algo_count);
     set_finding!(
@@ -1919,57 +1759,21 @@ fn extract_finding_features(
 
     // Content analysis (6)
     set_finding!("content_phishing", content_phishing, content_phishing_count);
-    set_finding!(
-        "content_html_payload",
-        content_html_payload,
-        content_html_payload_count
-    );
-    set_finding!(
-        "content_invisible_text",
-        content_invisible_text,
-        content_invisible_text_count
-    );
-    set_finding!(
-        "content_overlay_link",
-        content_overlay_link,
-        content_overlay_link_count
-    );
-    set_finding!(
-        "content_image_only_page",
-        content_image_only_page,
-        content_image_only_page_count
-    );
-    set_finding!(
-        "annotation_hidden",
-        annotation_hidden,
-        annotation_hidden_count
-    );
+    set_finding!("content_html_payload", content_html_payload, content_html_payload_count);
+    set_finding!("content_invisible_text", content_invisible_text, content_invisible_text_count);
+    set_finding!("content_overlay_link", content_overlay_link, content_overlay_link_count);
+    set_finding!("content_image_only_page", content_image_only_page, content_image_only_page_count);
+    set_finding!("annotation_hidden", annotation_hidden, annotation_hidden_count);
 
     // Annotations (3)
-    set_finding!(
-        "annotation_action_chain",
-        annotation_action_chain,
-        annotation_action_chain_count
-    );
-    set_finding!(
-        "annotation_attack",
-        annotation_attack,
-        annotation_attack_count
-    );
+    set_finding!("annotation_action_chain", annotation_action_chain, annotation_action_chain_count);
+    set_finding!("annotation_attack", annotation_attack, annotation_attack_count);
     set_finding!("ocg_present", ocg_present, ocg_present_count);
 
     // Page tree (3)
     set_finding!("page_tree_cycle", page_tree_cycle, page_tree_cycle_count);
-    set_finding!(
-        "page_tree_mismatch",
-        page_tree_mismatch,
-        page_tree_mismatch_count
-    );
-    set_finding!(
-        "page_tree_manipulation",
-        page_tree_manipulation,
-        page_tree_manipulation_count
-    );
+    set_finding!("page_tree_mismatch", page_tree_mismatch, page_tree_mismatch_count);
+    set_finding!("page_tree_manipulation", page_tree_manipulation, page_tree_manipulation_count);
 
     // Supply chain (3)
     set_finding!(
@@ -2010,10 +1814,8 @@ fn meta_equals(meta: &HashMap<String, String>, key: &str, value: &str) -> bool {
 fn extract_js_features(findings: &[Finding]) -> JsSignalFeatures {
     let mut features = JsSignalFeatures::default();
 
-    let js_findings: Vec<_> = findings
-        .iter()
-        .filter(|f| f.surface == AttackSurface::JavaScript)
-        .collect();
+    let js_findings: Vec<_> =
+        findings.iter().filter(|f| f.surface == AttackSurface::JavaScript).collect();
 
     if js_findings.is_empty() {
         return features;
@@ -2239,11 +2041,7 @@ fn extract_uri_features(findings: &[Finding]) -> UriSignalFeatures {
         }
 
         // Suspicious TLD
-        if meta
-            .get("uri.suspicious_tld")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.suspicious_tld").map(|s| s == "true").unwrap_or(false) {
             features.suspicious_tld_count += 1.0;
         }
 
@@ -2255,122 +2053,66 @@ fn extract_uri_features(findings: &[Finding]) -> UriSignalFeatures {
         }
 
         // Data exfiltration patterns
-        if meta
-            .get("uri.data_exfil_pattern")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.data_exfil_pattern").map(|s| s == "true").unwrap_or(false) {
             features.data_exfil_pattern_count += 1.0;
         }
 
         // Data URI base64 payloads
-        if meta
-            .get("uri.data_is_base64")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.data_is_base64").map(|s| s == "true").unwrap_or(false) {
             features.data_base64_count += 1.0;
         }
 
         // Hidden annotations
-        if meta
-            .get("uri.hidden_annotation")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.hidden_annotation").map(|s| s == "true").unwrap_or(false) {
             features.hidden_annotation_count += 1.0;
         }
 
         // Automatic triggers
-        if meta
-            .get("uri.automatic")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.automatic").map(|s| s == "true").unwrap_or(false) {
             features.automatic_trigger_count += 1.0;
         }
 
         // JS-triggered URIs
-        if meta
-            .get("uri.js_involved")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.js_involved").map(|s| s == "true").unwrap_or(false) {
             features.js_triggered_count += 1.0;
         }
 
         // Tracking parameters
-        if meta
-            .get("uri.tracking_params")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.tracking_params").map(|s| s == "true").unwrap_or(false) {
             features.tracking_params_count += 1.0;
         }
 
         // Phishing indicators
-        if meta
-            .get("uri.phishing_indicators")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.phishing_indicators").map(|s| s == "true").unwrap_or(false) {
             features.phishing_indicators += 1.0;
         }
 
-        if meta
-            .get("uri.shortener_domain")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.shortener_domain").map(|s| s == "true").unwrap_or(false) {
             features.shortener_domain_count += 1.0;
         }
 
-        if meta
-            .get("uri.suspicious_extension")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.suspicious_extension").map(|s| s == "true").unwrap_or(false) {
             features.suspicious_extension_count += 1.0;
         }
 
-        if meta
-            .get("uri.suspicious_scheme")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.suspicious_scheme").map(|s| s == "true").unwrap_or(false) {
             features.suspicious_scheme_count += 1.0;
         }
 
-        if meta
-            .get("uri.embedded_ip_host")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.embedded_ip_host").map(|s| s == "true").unwrap_or(false) {
             features.embedded_ip_host_count += 1.0;
         }
 
-        if meta
-            .get("uri.idn_lookalike")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.idn_lookalike").map(|s| s == "true").unwrap_or(false) {
             features.idn_lookalike_count += 1.0;
         }
 
-        if meta
-            .get("uri.non_standard_port")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.non_standard_port").map(|s| s == "true").unwrap_or(false) {
             features.non_standard_port_count += 1.0;
         }
 
         // Mixed content
-        if meta
-            .get("uri.mixed_content")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("uri.mixed_content").map(|s| s == "true").unwrap_or(false) {
             features.mixed_content_present = 1.0;
         }
     }
@@ -2407,10 +2149,7 @@ fn extract_content_features(findings: &[Finding]) -> ContentSignalFeatures {
 
         // Invisible text pages
         if finding.kind == "invisible_text"
-            || meta
-                .get("content.invisible_text")
-                .map(|s| s == "true")
-                .unwrap_or(false)
+            || meta.get("content.invisible_text").map(|s| s == "true").unwrap_or(false)
         {
             features.invisible_text_pages += 1.0;
         }
@@ -2422,10 +2161,7 @@ fn extract_content_features(findings: &[Finding]) -> ContentSignalFeatures {
 
         // Image-only pages
         if finding.kind == "image_only_page"
-            || meta
-                .get("content.image_only")
-                .map(|s| s == "true")
-                .unwrap_or(false)
+            || meta.get("content.image_only").map(|s| s == "true").unwrap_or(false)
         {
             features.image_only_pages += 1.0;
         }
@@ -2437,10 +2173,7 @@ fn extract_content_features(findings: &[Finding]) -> ContentSignalFeatures {
 
         // Hidden annotations
         if finding.kind == "hidden_annotation"
-            || meta
-                .get("annotation.hidden")
-                .map(|s| s == "true")
-                .unwrap_or(false)
+            || meta.get("annotation.hidden").map(|s| s == "true").unwrap_or(false)
         {
             features.hidden_annotation_count += 1.0;
         }
@@ -2674,11 +2407,7 @@ fn extract_structural_features(findings: &[Finding]) -> StructuralAnomalyFeature
         }
 
         // Unusual object sizes
-        if meta
-            .get("object.unusual_size")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("object.unusual_size").map(|s| s == "true").unwrap_or(false) {
             features.unusual_object_sizes += 1.0;
         }
 
@@ -2726,20 +2455,14 @@ fn extract_crypto_features(findings: &[Finding]) -> CryptoFeatures {
 
         // Weak algorithms
         if finding.kind.contains("weak_algo")
-            || meta
-                .get("crypto.weak_algorithm")
-                .map(|s| s == "true")
-                .unwrap_or(false)
+            || meta.get("crypto.weak_algorithm").map(|s| s == "true").unwrap_or(false)
         {
             features.weak_algo_count += 1.0;
         }
 
         // Quantum vulnerability
         if finding.kind.contains("quantum")
-            || meta
-                .get("crypto.quantum_vulnerable")
-                .map(|s| s == "true")
-                .unwrap_or(false)
+            || meta.get("crypto.quantum_vulnerable").map(|s| s == "true").unwrap_or(false)
         {
             features.quantum_vulnerable = 1.0;
         }
@@ -2819,20 +2542,14 @@ fn extract_embedded_features(findings: &[Finding]) -> EmbeddedContentFeatures {
 
         // PE executables
         if finding.kind.contains("pe_executable")
-            || meta
-                .get("embedded.type")
-                .map(|s| s == "pe")
-                .unwrap_or(false)
+            || meta.get("embedded.type").map(|s| s == "pe").unwrap_or(false)
         {
             features.pe_executable_count += 1.0;
         }
 
         // Encrypted containers
         if finding.kind.contains("encrypted")
-            || meta
-                .get("embedded.encrypted")
-                .map(|s| s == "true")
-                .unwrap_or(false)
+            || meta.get("embedded.encrypted").map(|s| s == "true").unwrap_or(false)
         {
             features.encrypted_container_count += 1.0;
         }
@@ -2861,11 +2578,7 @@ fn extract_embedded_features(findings: &[Finding]) -> EmbeddedContentFeatures {
         }
 
         // Suspicious MIME types
-        if meta
-            .get("embedded.suspicious_mime")
-            .map(|s| s == "true")
-            .unwrap_or(false)
-        {
+        if meta.get("embedded.suspicious_mime").map(|s| s == "true").unwrap_or(false) {
             features.suspicious_mime_types += 1.0;
         }
 
@@ -2876,10 +2589,7 @@ fn extract_embedded_features(findings: &[Finding]) -> EmbeddedContentFeatures {
 
         // Archives
         if finding.kind.contains("archive")
-            || meta
-                .get("embedded.is_archive")
-                .map(|s| s == "true")
-                .unwrap_or(false)
+            || meta.get("embedded.is_archive").map(|s| s == "true").unwrap_or(false)
         {
             features.archive_count += 1.0;
         }
@@ -2898,10 +2608,7 @@ fn extract_embedded_features(findings: &[Finding]) -> EmbeddedContentFeatures {
 
         // Macro-enabled files
         if finding.kind.contains("macro")
-            || meta
-                .get("embedded.has_macros")
-                .map(|s| s == "true")
-                .unwrap_or(false)
+            || meta.get("embedded.has_macros").map(|s| s == "true").unwrap_or(false)
         {
             features.macro_enabled_count += 1.0;
         }
@@ -3213,10 +2920,7 @@ mod tests {
         meta.insert("js.eval_count".to_string(), "5".to_string());
         meta.insert("js.entropy".to_string(), "7.2".to_string());
         meta.insert("js.decode_ratio".to_string(), "3.5".to_string());
-        meta.insert(
-            "js.suspicious_apis".to_string(),
-            "eval,unescape".to_string(),
-        );
+        meta.insert("js.suspicious_apis".to_string(), "eval,unescape".to_string());
 
         let findings = vec![
             Finding {
@@ -3457,11 +3161,6 @@ mod tests {
         // 71 (presence) + 71 (counts) + 30 (JS) + 28 (URI) + 15 (content) +
         // 10 (supply chain) + 20 (structural) + 10 (crypto) + 15 (embedded)
         // + 3 (correlation metadata) = 76 + 317 + 3 = 396
-        assert_eq!(
-            vec.len(),
-            396,
-            "Expected 396 features total, got {}",
-            vec.len()
-        );
+        assert_eq!(vec.len(), 396, "Expected 396 features total, got {}", vec.len());
     }
 }

@@ -17,12 +17,6 @@ fn crypto_weak_algo_includes_algorithm_meta() {
         .iter()
         .find(|f| f.kind == "crypto_weak_algo")
         .expect("expected crypto_weak_algo finding");
-    assert_eq!(
-        finding.meta.get("crypto.algorithm").map(String::as_str),
-        Some("RC4-40")
-    );
-    assert_eq!(
-        finding.meta.get("crypto.key_length").map(String::as_str),
-        Some("40")
-    );
+    assert_eq!(finding.meta.get("crypto.algorithm").map(String::as_str), Some("RC4-40"));
+    assert_eq!(finding.meta.get("crypto.key_length").map(String::as_str), Some("40"));
 }

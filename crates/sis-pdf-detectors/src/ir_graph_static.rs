@@ -33,12 +33,7 @@ impl Detector for IrGraphStaticDetector {
         let adjacency = build_adjacency(&ctx.graph.objects);
         let mut findings = Vec::new();
 
-        findings.extend(find_action_payload_paths(
-            ctx,
-            &ir_graph.org.nodes,
-            &adjacency,
-            &flags,
-        ));
+        findings.extend(find_action_payload_paths(ctx, &ir_graph.org.nodes, &adjacency, &flags));
         findings.extend(find_orphan_payloads(ctx, &adjacency, &flags));
         findings.extend(find_shadow_payloads(ctx, &flags));
         findings.extend(find_objstm_payloads(ctx, &flags));
@@ -82,10 +77,7 @@ fn classify_nodes(
             }
         }
         flags.has_payload = flags.has_payload || flags.has_js || flags.has_external;
-        let key = ObjRef {
-            obj: obj.obj_ref.0,
-            gen: obj.obj_ref.1,
-        };
+        let key = ObjRef { obj: obj.obj_ref.0, gen: obj.obj_ref.1 };
         map.insert(key, flags);
     }
     map
@@ -207,10 +199,7 @@ fn find_shadow_payloads(
         if idxs.len() <= 1 {
             continue;
         }
-        let key = ObjRef {
-            obj: *obj,
-            gen: *gen,
-        };
+        let key = ObjRef { obj: *obj, gen: *gen };
         if flags.get(&key).map(|f| f.has_payload).unwrap_or(false) {
             let mut evidence = Vec::new();
             for idx in idxs {

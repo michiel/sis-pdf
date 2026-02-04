@@ -23,19 +23,9 @@ fn diff_summary_matches_findings() {
     let diff_result = diff_with_lopdf(bytes, &graph);
     let findings = diff_result.findings;
 
-    let object_diff = findings
-        .iter()
-        .any(|f| f.kind == "parser_object_count_diff");
-    let trailer_diff = findings
-        .iter()
-        .any(|f| f.kind == "parser_trailer_count_diff");
+    let object_diff = findings.iter().any(|f| f.kind == "parser_object_count_diff");
+    let trailer_diff = findings.iter().any(|f| f.kind == "parser_trailer_count_diff");
 
-    assert_eq!(
-        summary.primary_objects != summary.secondary_objects,
-        object_diff
-    );
-    assert_eq!(
-        summary.primary_trailers != summary.secondary_trailers,
-        trailer_diff
-    );
+    assert_eq!(summary.primary_objects != summary.secondary_objects, object_diff);
+    assert_eq!(summary.primary_trailers != summary.secondary_trailers, trailer_diff);
 }

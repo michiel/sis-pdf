@@ -52,31 +52,19 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
         }
         if bytes[offset..].starts_with(b"xref") {
             if let Ok((trailer, prev)) = parse_xref_table(bytes, offset) {
-                sections.push(XrefSection {
-                    offset: off,
-                    trailer,
-                    kind: XrefKind::Table,
-                });
+                sections.push(XrefSection { offset: off, trailer, kind: XrefKind::Table });
                 debug!(offset = off, kind = ?XrefKind::Table, "Parsed xref table");
                 next = prev;
                 continue;
             }
         }
         if let Ok((trailer, prev)) = parse_xref_stream(bytes, offset) {
-            sections.push(XrefSection {
-                offset: off,
-                trailer,
-                kind: XrefKind::Stream,
-            });
+            sections.push(XrefSection { offset: off, trailer, kind: XrefKind::Stream });
             debug!(offset = off, kind = ?XrefKind::Stream, "Parsed xref stream");
             next = prev;
             continue;
         }
-        sections.push(XrefSection {
-            offset: off,
-            trailer: None,
-            kind: XrefKind::Unknown,
-        });
+        sections.push(XrefSection { offset: off, trailer: None, kind: XrefKind::Unknown });
         debug!(offset = off, kind = ?XrefKind::Unknown, "Parsed xref with unknown type");
         break;
     }

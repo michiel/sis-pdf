@@ -26,11 +26,7 @@ pub enum FilterDecodeError {
     #[error("unsupported filter {filter}")]
     UnsupportedFilter { filter: String },
     #[error("deferred filter {filter} handled by {handler}")]
-    DeferredFilter {
-        filter: String,
-        handler: &'static str,
-        reason: &'static str,
-    },
+    DeferredFilter { filter: String, handler: &'static str, reason: &'static str },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -43,15 +39,8 @@ struct DeferredFilterInfo {
 pub enum DecodeOutcome {
     Ok,
     Truncated,
-    Failed {
-        filter: Option<String>,
-        reason: String,
-    },
-    Deferred {
-        filter: Option<String>,
-        handler: &'static str,
-        reason: String,
-    },
+    Failed { filter: Option<String>, reason: String },
+    Deferred { filter: Option<String>, handler: &'static str, reason: String },
     SuspectMismatch,
 }
 
@@ -73,10 +62,7 @@ pub struct DecodeLimits {
 
 impl Default for DecodeLimits {
     fn default() -> Self {
-        Self {
-            max_decoded_bytes: 8 * 1024 * 1024,
-            max_filter_chain_depth: 8,
-        }
+        Self { max_decoded_bytes: 8 * 1024 * 1024, max_filter_chain_depth: 8 }
     }
 }
 
@@ -132,13 +118,7 @@ pub fn decode_stream(
         data.truncate(max_out);
         truncated = true;
     }
-    Ok(DecodedStream {
-        data,
-        truncated,
-        filters,
-        input_len: end - start,
-        recovered_filters,
-    })
+    Ok(DecodedStream { data, truncated, filters, input_len: end - start, recovered_filters })
 }
 
 pub fn decode_stream_with_meta(
@@ -226,11 +206,7 @@ pub fn decode_stream_with_meta(
             Err(err) => {
                 if let Some(filter_err) = err.downcast_ref::<FilterDecodeError>() {
                     match filter_err {
-                        FilterDecodeError::DeferredFilter {
-                            filter,
-                            handler,
-                            reason,
-                        } => {
+                        FilterDecodeError::DeferredFilter { filter, handler, reason } => {
                             outcome = DecodeOutcome::Deferred {
                                 filter: Some(filter.clone()),
                                 handler,
@@ -262,14 +238,7 @@ pub fn decode_stream_with_meta(
 
     DecodeServiceResult {
         data,
-        meta: DecodeMeta {
-            filters,
-            mismatches,
-            outcome,
-            input_len,
-            output_len,
-            recovered_filters,
-        },
+        meta: DecodeMeta { filters, mismatches, outcome, input_len, output_len, recovered_filters },
     }
 }
 
@@ -325,12 +294,7 @@ fn decode_parms_from_dict(dict: &PdfDict<'_>) -> Option<DecodeParms> {
     let colors = dict_int(dict, b"/Colors").unwrap_or(1);
     let bits = dict_int(dict, b"/BitsPerComponent").unwrap_or(8);
     let columns = dict_int(dict, b"/Columns").unwrap_or(1);
-    Some(DecodeParms {
-        predictor,
-        colors,
-        bits_per_component: bits,
-        columns,
-    })
+    Some(DecodeParms { predictor, colors, bits_per_component: bits, columns })
 }
 
 fn dict_int(dict: &PdfDict<'_>, key: &[u8]) -> Option<u32> {
@@ -477,10 +441,7 @@ fn checked_bpp(parms: DecodeParms) -> Result<usize> {
     let bpp_bits = (parms.colors as u64)
         .checked_mul(parms.bits_per_component as u64)
         .ok_or_else(|| anyhow!("decode parms overflow"))?;
-    let bpp = bpp_bits
-        .checked_add(7)
-        .ok_or_else(|| anyhow!("decode parms overflow"))?
-        / 8;
+    let bpp = bpp_bits.checked_add(7).ok_or_else(|| anyhow!("decode parms overflow"))? / 8;
     usize::try_from(bpp).map_err(|_| anyhow!("decode parms overflow"))
 }
 
@@ -510,10 +471,7 @@ fn decode_filter(data: &[u8], filter: &str, max_out: usize) -> Result<(Vec<u8>, 
         "/LZWDecode" | "/LZW" => {
             decode_lzw(data, max_out).map(|(data, truncated)| (data, truncated, false))
         }
-        other => Err(FilterDecodeError::UnsupportedFilter {
-            filter: other.to_string(),
-        }
-        .into()),
+        other => Err(FilterDecodeError::UnsupportedFilter { filter: other.to_string() }.into()),
     }
 }
 
@@ -556,14 +514,8 @@ fn decode_flate(data: &[u8], max_out: usize) -> Result<(Vec<u8>, bool, bool)> {
     }
     Err(anyhow!(
         "flate decode failed: zlib={}, deflate={}",
-        primary
-            .err()
-            .map(|err| err.to_string())
-            .unwrap_or_else(|| "unknown".to_string()),
-        fallback
-            .err()
-            .map(|err| err.to_string())
-            .unwrap_or_else(|| "unknown".to_string())
+        primary.err().map(|err| err.to_string()).unwrap_or_else(|| "unknown".to_string()),
+        fallback.err().map(|err| err.to_string()).unwrap_or_else(|| "unknown".to_string())
     ))
 }
 
@@ -630,11 +582,7 @@ pub fn decode_ascii_hex(data: &[u8]) -> Vec<u8> {
     let mut i = 0;
     while i < buf.len() {
         let hi = hex_val(buf[i]);
-        let lo = if i + 1 < buf.len() {
-            hex_val(buf[i + 1])
-        } else {
-            Some(0)
-        };
+        let lo = if i + 1 < buf.len() { hex_val(buf[i + 1]) } else { Some(0) };
         if let (Some(h), Some(l)) = (hi, lo) {
             out.push((h << 4) | l);
         }
@@ -754,10 +702,7 @@ mod tests {
 
     fn make_pdf_name(decoded: &[u8]) -> PdfName<'static> {
         PdfName {
-            span: Span {
-                start: 0,
-                end: decoded.len() as u64,
-            },
+            span: Span { start: 0, end: decoded.len() as u64 },
             raw: Cow::Owned(decoded.to_vec()),
             decoded: decoded.to_vec(),
         }
@@ -767,10 +712,7 @@ mod tests {
         let filter_objs = filters
             .iter()
             .map(|filter| PdfObj {
-                span: Span {
-                    start: 0,
-                    end: filter.len() as u64,
-                },
+                span: Span { start: 0, end: filter.len() as u64 },
                 atom: PdfAtom::Name(make_pdf_name(filter.as_bytes())),
             })
             .collect::<Vec<_>>();
@@ -778,19 +720,10 @@ mod tests {
             span: Span { start: 0, end: 0 },
             entries: vec![(
                 make_pdf_name(b"/Filter"),
-                PdfObj {
-                    span: Span { start: 0, end: 0 },
-                    atom: PdfAtom::Array(filter_objs),
-                },
+                PdfObj { span: Span { start: 0, end: 0 }, atom: PdfAtom::Array(filter_objs) },
             )],
         };
-        PdfStream {
-            dict,
-            data_span: Span {
-                start: 0,
-                end: data_len as u64,
-            },
-        }
+        PdfStream { dict, data_span: Span { start: 0, end: data_len as u64 } }
     }
 
     #[test]
@@ -822,13 +755,9 @@ mod tests {
     #[test]
     fn decode_filter_defers_jpeg_streams() {
         let err = decode_filter(&[], "/DCTDecode", 0).expect_err("JPEG filter should defer");
-        let filter_err = err
-            .downcast_ref::<FilterDecodeError>()
-            .expect("error should be a FilterDecodeError");
-        if let FilterDecodeError::DeferredFilter {
-            handler, reason, ..
-        } = filter_err
-        {
+        let filter_err =
+            err.downcast_ref::<FilterDecodeError>().expect("error should be a FilterDecodeError");
+        if let FilterDecodeError::DeferredFilter { handler, reason, .. } = filter_err {
             assert_eq!(*handler, "image");
             assert!(reason.contains("image"));
         } else {

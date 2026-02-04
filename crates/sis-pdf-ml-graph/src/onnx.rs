@@ -62,18 +62,14 @@ impl OnnxEmbedder {
     pub fn embed_batch(&self, batch: &TokenizedBatch) -> Result<Vec<Vec<f32>>> {
         let start = Instant::now();
         let inputs = self.build_inputs(batch)?;
-        let mut guard = self
-            .session
-            .lock()
-            .map_err(|_| anyhow!("embedding session lock poisoned"))?;
+        let mut guard =
+            self.session.lock().map_err(|_| anyhow!("embedding session lock poisoned"))?;
         let outputs = guard.run(inputs)?;
         if start.elapsed() > self.timeout {
             return Err(anyhow!("embedding timeout exceeded"));
         }
         let output = match self.output_name.as_deref() {
-            Some(name) => outputs
-                .get(name)
-                .ok_or_else(|| anyhow!("output {} not found", name))?,
+            Some(name) => outputs.get(name).ok_or_else(|| anyhow!("output {} not found", name))?,
             None => {
                 if outputs.len() == 0 {
                     return Err(anyhow!("no outputs found"));
@@ -135,12 +131,7 @@ impl OnnxEmbedder {
     fn build_inputs(
         &self,
         batch: &TokenizedBatch,
-    ) -> Result<
-        Vec<(
-            std::borrow::Cow<'static, str>,
-            ort::session::SessionInputValue<'_>,
-        )>,
-    > {
+    ) -> Result<Vec<(std::borrow::Cow<'static, str>, ort::session::SessionInputValue<'_>)>> {
         let shape = vec![batch.batch, batch.seq_len];
         let mut inputs = Vec::new();
         if let Some(name) = &self.input_names.input_ids {
@@ -199,18 +190,13 @@ impl OnnxGnn {
     ) -> Result<GraphInference> {
         let start = Instant::now();
         let inputs = self.build_inputs(node_features, edge_index)?;
-        let mut guard = self
-            .session
-            .lock()
-            .map_err(|_| anyhow!("gnn session lock poisoned"))?;
+        let mut guard = self.session.lock().map_err(|_| anyhow!("gnn session lock poisoned"))?;
         let outputs = guard.run(inputs)?;
         if start.elapsed() > self.timeout {
             return Err(anyhow!("gnn inference timeout exceeded"));
         }
         let output = match self.output_name.as_deref() {
-            Some(name) => outputs
-                .get(name)
-                .ok_or_else(|| anyhow!("output {} not found", name))?,
+            Some(name) => outputs.get(name).ok_or_else(|| anyhow!("output {} not found", name))?,
             None => {
                 if outputs.len() == 0 {
                     return Err(anyhow!("no outputs found"));
@@ -220,10 +206,8 @@ impl OnnxGnn {
         };
         let (shape, data) = output.try_extract_tensor::<f32>()?;
         let shape = &shape[..];
-        let score = data
-            .first()
-            .copied()
-            .ok_or_else(|| anyhow!("empty gnn output (shape={:?})", shape))?;
+        let score =
+            data.first().copied().ok_or_else(|| anyhow!("empty gnn output (shape={:?})", shape))?;
         let mut out = match self.output_kind {
             OutputKind::Logit => score,
             OutputKind::Probability => score,
@@ -232,41 +216,27 @@ impl OnnxGnn {
             out = 1.0 / (1.0 + (-out).exp());
         }
         let node_scores = if let Some(name) = &self.node_scores_name {
-            let node_tensor = outputs
-                .get(name)
-                .ok_or_else(|| anyhow!("output {} not found", name))?;
+            let node_tensor =
+                outputs.get(name).ok_or_else(|| anyhow!("output {} not found", name))?;
             Some(extract_node_scores(node_tensor)?)
         } else {
             None
         };
-        Ok(GraphInference {
-            score: out,
-            node_scores,
-        })
+        Ok(GraphInference { score: out, node_scores })
     }
 
     fn build_inputs(
         &self,
         node_features: &[Vec<f32>],
         edge_index: &[(usize, usize)],
-    ) -> Result<
-        Vec<(
-            std::borrow::Cow<'static, str>,
-            ort::session::SessionInputValue<'_>,
-        )>,
-    > {
+    ) -> Result<Vec<(std::borrow::Cow<'static, str>, ort::session::SessionInputValue<'_>)>> {
         if node_features.is_empty() {
             return Err(anyhow!("empty graph: no nodes"));
         }
         let feat_dim = node_features[0].len();
         for (idx, n) in node_features.iter().enumerate() {
             if n.len() != feat_dim {
-                return Err(anyhow!(
-                    "node {} feature dim {} != {}",
-                    idx,
-                    n.len(),
-                    feat_dim
-                ));
+                return Err(anyhow!("node {} feature dim {} != {}", idx, n.len(), feat_dim));
             }
         }
         let mut features_flat = Vec::with_capacity(node_features.len() * feat_dim);
@@ -305,9 +275,7 @@ fn build_session(path: &std::path::Path, runtime: &RuntimeSettings) -> Result<Se
     if !providers.is_empty() {
         builder = builder.with_execution_providers(providers)?;
     }
-    builder
-        .commit_from_file(path)
-        .map_err(|e| anyhow!("failed to load {}: {}", path.display(), e))
+    builder.commit_from_file(path).map_err(|e| anyhow!("failed to load {}: {}", path.display(), e))
 }
 
 fn extract_node_scores(output: &ort::value::DynValue) -> Result<Vec<f32>> {

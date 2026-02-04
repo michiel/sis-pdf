@@ -10,11 +10,7 @@ pub struct XfaPayload {
 
 pub fn extract_xfa_script_payloads(bytes: &[u8]) -> Vec<Vec<u8>> {
     let max_scan_bytes = 512 * 1024;
-    let slice = if bytes.len() > max_scan_bytes {
-        &bytes[..max_scan_bytes]
-    } else {
-        bytes
-    };
+    let slice = if bytes.len() > max_scan_bytes { &bytes[..max_scan_bytes] } else { bytes };
     let lower: Vec<u8> = slice.iter().map(|b| b.to_ascii_lowercase()).collect();
     let mut out = Vec::new();
     for (start_tag, end_tag) in [
@@ -50,11 +46,7 @@ pub fn extract_xfa_script_payloads(bytes: &[u8]) -> Vec<Vec<u8>> {
 
 pub fn extract_xfa_image_payloads(bytes: &[u8]) -> Vec<XfaPayload> {
     let max_scan_bytes = 512 * 1024;
-    let slice = if bytes.len() > max_scan_bytes {
-        &bytes[..max_scan_bytes]
-    } else {
-        bytes
-    };
+    let slice = if bytes.len() > max_scan_bytes { &bytes[..max_scan_bytes] } else { bytes };
     let lower: Vec<u8> = slice.iter().map(|b| b.to_ascii_lowercase()).collect();
     let mut out = Vec::new();
     for (start_tag, end_tag) in [
@@ -118,10 +110,8 @@ fn extract_data_uri_from_tag(tag_lower: &[u8], tag_raw: &[u8]) -> Option<XfaPayl
     }
     let meta = parts[0];
     let data = parts[1];
-    let content_type = meta
-        .strip_prefix("data:")
-        .and_then(|v| v.split(';').next())
-        .map(|v| v.to_string());
+    let content_type =
+        meta.strip_prefix("data:").and_then(|v| v.split(';').next()).map(|v| v.to_string());
     let decoded = STANDARD.decode(data.as_bytes()).ok()?;
     Some(XfaPayload {
         bytes: decoded,
@@ -137,11 +127,7 @@ fn decode_base64_content(content: &[u8]) -> Option<XfaPayload> {
         return None;
     }
     let decoded = STANDARD.decode(trimmed).ok()?;
-    Some(XfaPayload {
-        bytes: decoded,
-        content_type: None,
-        source: "xfa:image-body".into(),
-    })
+    Some(XfaPayload { bytes: decoded, content_type: None, source: "xfa:image-body".into() })
 }
 
 fn extract_attr_value(tag: &str, attr: &str) -> Option<String> {
@@ -171,9 +157,7 @@ fn strip_cdata(bytes: &[u8]) -> &[u8] {
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {

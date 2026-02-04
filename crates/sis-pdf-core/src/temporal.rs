@@ -60,12 +60,7 @@ pub fn build_versioned_scans<'a>(
             )?,
             opts.clone(),
         );
-        scans.push(VersionedScan {
-            label,
-            bytes: slice,
-            report,
-            context,
-        });
+        scans.push(VersionedScan { label, bytes: slice, report, context });
     }
 
     Ok(scans)
@@ -142,11 +137,8 @@ fn build_version_slices<'a>(bytes: &'a [u8], startxrefs: &[u64]) -> Vec<&'a [u8]
     }
     let mut out = Vec::new();
     for (idx, startxref) in startxrefs.iter().enumerate() {
-        let end = if idx + 1 < startxrefs.len() {
-            startxrefs[idx + 1] as usize
-        } else {
-            bytes.len()
-        };
+        let end =
+            if idx + 1 < startxrefs.len() { startxrefs[idx + 1] as usize } else { bytes.len() };
         let end = end.min(bytes.len());
         if end == 0 {
             continue;
@@ -355,14 +347,8 @@ mod tests {
         let summary = build_temporal_signal_summary(&scans);
         assert_eq!(summary.revisions, 2);
         assert_eq!(summary.new_high_severity, 1);
-        assert!(summary
-            .new_findings
-            .iter()
-            .any(|v| v.contains("high_signal")));
-        assert!(summary
-            .new_attack_surfaces
-            .iter()
-            .any(|v| v.contains("Actions")));
+        assert!(summary.new_findings.iter().any(|v| v.contains("high_signal")));
+        assert!(summary.new_attack_surfaces.iter().any(|v| v.contains("Actions")));
         Ok(())
     }
 }

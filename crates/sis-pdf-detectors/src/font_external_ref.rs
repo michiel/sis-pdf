@@ -63,14 +63,9 @@ impl Detector for FontExternalReferenceDetector {
 
             // Check if any values in the dictionary point to external objects
             let mut referenced_external = Vec::new();
-            for font_key in [
-                b"/FontFile" as &[u8],
-                b"/FontFile2",
-                b"/FontFile3",
-                b"/URI",
-                b"/F",
-                b"/UF",
-            ] {
+            for font_key in
+                [b"/FontFile" as &[u8], b"/FontFile2", b"/FontFile3", b"/URI", b"/F", b"/UF"]
+            {
                 // Check if the referenced object has external references
                 if let Some((_, obj_ref)) = dict.get_first(font_key) {
                     if let PdfAtom::Ref { obj, gen } = &obj_ref.atom {
@@ -95,10 +90,7 @@ impl Detector for FontExternalReferenceDetector {
 
             if !referenced_external.is_empty() {
                 let mut meta = std::collections::HashMap::new();
-                meta.insert(
-                    "font.object_id".into(),
-                    format!("{} {} obj", entry.obj, entry.gen),
-                );
+                meta.insert("font.object_id".into(), format!("{} {} obj", entry.obj, entry.gen));
                 meta.insert(
                     "font.external_ref_count".into(),
                     referenced_external.len().to_string(),
@@ -183,46 +175,25 @@ mod tests {
 
     fn name(value: &'static str) -> PdfName<'static> {
         let bytes = value.as_bytes();
-        PdfName {
-            span: span(),
-            raw: Cow::Borrowed(bytes),
-            decoded: bytes.to_vec(),
-        }
+        PdfName { span: span(), raw: Cow::Borrowed(bytes), decoded: bytes.to_vec() }
     }
 
     #[test]
     fn test_is_font_dict() {
-        let mut dict = PdfDict {
-            span: span(),
-            entries: Vec::new(),
-        };
+        let mut dict = PdfDict { span: span(), entries: Vec::new() };
         assert!(!is_font_dict(&dict));
 
-        dict.entries.push((
-            name("/Type"),
-            PdfObj {
-                span: span(),
-                atom: PdfAtom::Name(name("/Font")),
-            },
-        ));
+        dict.entries
+            .push((name("/Type"), PdfObj { span: span(), atom: PdfAtom::Name(name("/Font")) }));
         assert!(is_font_dict(&dict));
     }
 
     #[test]
     fn test_is_font_descriptor() {
-        let mut dict = PdfDict {
-            span: span(),
-            entries: Vec::new(),
-        };
+        let mut dict = PdfDict { span: span(), entries: Vec::new() };
         assert!(!is_font_descriptor(&dict));
 
-        dict.entries.push((
-            name("/FontFile"),
-            PdfObj {
-                span: span(),
-                atom: PdfAtom::Null,
-            },
-        ));
+        dict.entries.push((name("/FontFile"), PdfObj { span: span(), atom: PdfAtom::Null }));
         assert!(is_font_descriptor(&dict));
     }
 }

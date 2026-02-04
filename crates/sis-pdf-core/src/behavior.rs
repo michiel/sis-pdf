@@ -74,9 +74,7 @@ pub fn correlate_findings(findings: &[Finding]) -> BehaviorSummary {
     }
 
     patterns.sort_by(|a, b| {
-        severity_rank(b.severity)
-            .cmp(&severity_rank(a.severity))
-            .then_with(|| a.id.cmp(&b.id))
+        severity_rank(b.severity).cmp(&severity_rank(a.severity)).then_with(|| a.id.cmp(&b.id))
     });
     BehaviorSummary { patterns }
 }

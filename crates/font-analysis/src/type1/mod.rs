@@ -23,11 +23,7 @@ pub fn is_type1_font(data: &[u8]) -> bool {
 
 /// Check for %!PS-AdobeFont marker
 fn has_ps_adobe_font_marker(data: &[u8]) -> bool {
-    let markers: &[&[u8]] = &[
-        b"%!PS-AdobeFont",
-        b"%!FontType1",
-        b"%!PS-Adobe-3.0 Resource-Font",
-    ];
+    let markers: &[&[u8]] = &[b"%!PS-AdobeFont", b"%!FontType1", b"%!PS-Adobe-3.0 Resource-Font"];
 
     for marker in markers {
         if data.len() >= marker.len() {

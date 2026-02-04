@@ -193,11 +193,7 @@ fn extract_tables(data: &[u8], context: &mut FontContext) -> Result<(), String> 
             context.hmtx_length = Some(table_length);
         }
 
-        context.tables.push(TableInfo {
-            tag,
-            offset: table_offset,
-            length: table_length,
-        });
+        context.tables.push(TableInfo { tag, offset: table_offset, length: table_length });
     }
 
     Ok(())
@@ -219,26 +215,15 @@ fn extract_table_references(data: &[u8], context: &mut FontContext) {
     let has_gpos = context.table_map.contains_key("GPOS");
     if has_gsub && has_gpos {
         // GSUB and GPOS can reference each other through feature tables
-        context
-            .table_references
-            .entry("GSUB".to_string())
-            .or_default()
-            .push("GPOS".to_string());
-        context
-            .table_references
-            .entry("GPOS".to_string())
-            .or_default()
-            .push("GSUB".to_string());
+        context.table_references.entry("GSUB".to_string()).or_default().push("GPOS".to_string());
+        context.table_references.entry("GPOS".to_string()).or_default().push("GSUB".to_string());
     }
 
     // 3. CFF can reference Private DICT
     if let Some(_cff_table) = context.table_map.get("CFF ") {
         // CFF internal structure has references, but these are within the table
         // We track this as self-reference for recursion depth tracking
-        context
-            .table_references
-            .entry("CFF ".to_string())
-            .or_default();
+        context.table_references.entry("CFF ".to_string()).or_default();
     }
 }
 
@@ -320,9 +305,7 @@ fn extract_recursion_depths(data: &[u8], context: &mut FontContext) {
     if let Some(glyf_table) = context.table_map.get("glyf").cloned() {
         let max_depth = calculate_glyf_recursion_depth(data, &glyf_table, context);
         if max_depth > 0 {
-            context
-                .recursion_depths
-                .insert("glyf".to_string(), max_depth);
+            context.recursion_depths.insert("glyf".to_string(), max_depth);
         }
     }
 
@@ -551,10 +534,7 @@ fn is_dangerous_sequence(opcode1: u8, opcode2: u8) -> bool {
     const LOOPCALL: u8 = 0x2A;
 
     // Consecutive CALL/LOOPCALL can be dangerous
-    matches!(
-        (opcode1, opcode2),
-        (CALL, CALL) | (CALL, LOOPCALL) | (LOOPCALL, CALL)
-    )
+    matches!((opcode1, opcode2), (CALL, CALL) | (CALL, LOOPCALL) | (LOOPCALL, CALL))
 }
 
 #[cfg(not(feature = "dynamic"))]

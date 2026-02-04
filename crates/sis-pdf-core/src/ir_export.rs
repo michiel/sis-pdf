@@ -74,10 +74,8 @@ pub fn generate_enhanced_ir_export(
     basic_ir_objects: &[PdfIrObject],
     findings: &[Finding],
 ) -> EnhancedIrExport {
-    let enhanced_objects: Vec<EnhancedPdfIrObject> = basic_ir_objects
-        .iter()
-        .map(|obj| convert_to_enhanced_ir(obj, findings))
-        .collect();
+    let enhanced_objects: Vec<EnhancedPdfIrObject> =
+        basic_ir_objects.iter().map(|obj| convert_to_enhanced_ir(obj, findings)).collect();
 
     EnhancedIrExport::new(enhanced_objects)
 }
@@ -98,10 +96,7 @@ pub fn export_enhanced_ir_text(enhanced_ir: &EnhancedIrExport) -> String {
 
     // Document summary
     out.push_str("=== DOCUMENT SUMMARY ===\n");
-    out.push_str(&format!(
-        "Total objects: {}\n",
-        enhanced_ir.document_summary.total_objects
-    ));
+    out.push_str(&format!("Total objects: {}\n", enhanced_ir.document_summary.total_objects));
     out.push_str(&format!(
         "Objects with findings: {}\n",
         enhanced_ir.document_summary.objects_with_findings
@@ -114,10 +109,7 @@ pub fn export_enhanced_ir_text(enhanced_ir: &EnhancedIrExport) -> String {
         "Attack surface diversity: {}\n",
         enhanced_ir.document_summary.attack_surface_diversity
     ));
-    out.push_str(&format!(
-        "\nExplanation: {}\n",
-        enhanced_ir.document_summary.explanation
-    ));
+    out.push_str(&format!("\nExplanation: {}\n", enhanced_ir.document_summary.explanation));
 
     // Severity breakdown
     out.push_str("\n--- Severity Breakdown ---\n");
@@ -145,10 +137,7 @@ pub fn export_enhanced_ir_text(enhanced_ir: &EnhancedIrExport) -> String {
             out.push_str(&format!("Max Severity: {}\n", severity));
         }
 
-        out.push_str(&format!(
-            "Attack Surfaces: {}\n",
-            obj.attack_surfaces.join(", ")
-        ));
+        out.push_str(&format!("Attack Surfaces: {}\n", obj.attack_surfaces.join(", ")));
 
         if let Some(explanation) = &obj.explanation {
             out.push_str(&format!("Explanation: {}\n", explanation));

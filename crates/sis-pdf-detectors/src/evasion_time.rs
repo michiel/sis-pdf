@@ -72,18 +72,10 @@ impl Detector for TimingEvasionDetector {
 fn has_time_evasion(data: &[u8]) -> bool {
     contains_any(
         data,
-        &[
-            b"setTimeout",
-            b"setInterval",
-            b"Date(",
-            b"performance.now",
-            b"app.setTimeOut",
-        ],
+        &[b"setTimeout", b"setInterval", b"Date(", b"performance.now", b"app.setTimeOut"],
     )
 }
 
 fn contains_any(data: &[u8], needles: &[&[u8]]) -> bool {
-    needles
-        .iter()
-        .any(|n| data.windows(n.len()).any(|w| w == *n))
+    needles.iter().any(|n| data.windows(n.len()).any(|w| w == *n))
 }

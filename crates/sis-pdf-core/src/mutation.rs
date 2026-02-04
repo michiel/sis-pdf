@@ -11,24 +11,15 @@ impl MutationTester {
         let mut out = Vec::new();
         let mut appended = pdf.to_vec();
         appended.extend_from_slice(b"\n%mutation\n");
-        out.push(MutatedPDF {
-            bytes: appended,
-            note: "append_comment".into(),
-        });
+        out.push(MutatedPDF { bytes: appended, note: "append_comment".into() });
 
         let mut dup_eof = pdf.to_vec();
         dup_eof.extend_from_slice(b"\n%%EOF\n");
-        out.push(MutatedPDF {
-            bytes: dup_eof,
-            note: "duplicate_eof".into(),
-        });
+        out.push(MutatedPDF { bytes: dup_eof, note: "duplicate_eof".into() });
 
         let mut insert_null = pdf.to_vec();
         insert_null.push(0);
-        out.push(MutatedPDF {
-            bytes: insert_null,
-            note: "append_null".into(),
-        });
+        out.push(MutatedPDF { bytes: insert_null, note: "append_null".into() });
         out
     }
 
@@ -38,10 +29,7 @@ impl MutationTester {
         mutants: &[MutatedPDF],
     ) -> (usize, usize) {
         let total = mutants.len();
-        let unchanged = mutants
-            .iter()
-            .filter(|m| m.bytes.starts_with(original))
-            .count();
+        let unchanged = mutants.iter().filter(|m| m.bytes.starts_with(original)).count();
         (total, unchanged)
     }
 }

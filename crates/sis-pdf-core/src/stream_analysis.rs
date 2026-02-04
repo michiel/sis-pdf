@@ -209,10 +209,7 @@ mod tests {
 
     #[test]
     fn entropy_timeout_breaks_early() {
-        let limits = StreamLimits {
-            timeout_ms: Some(0),
-            ..Default::default()
-        };
+        let limits = StreamLimits { timeout_ms: Some(0), ..Default::default() };
         let data = vec![0u8; 1024 * 1024];
         let res = analyse_stream(&data, &limits);
         assert!(res.timed_out);

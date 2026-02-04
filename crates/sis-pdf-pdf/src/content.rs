@@ -34,15 +34,10 @@ pub fn parse_content_ops(bytes: &[u8]) -> Vec<ContentOp> {
             ops.push(ContentOp {
                 op,
                 operands: std::mem::take(&mut operands),
-                span: Span {
-                    start: start as u64,
-                    end: i as u64,
-                },
+                span: Span { start: start as u64, end: i as u64 },
             });
         } else if tok.starts_with(b"/") {
-            operands.push(ContentOperand::Name(
-                String::from_utf8_lossy(tok).to_string(),
-            ));
+            operands.push(ContentOperand::Name(String::from_utf8_lossy(tok).to_string()));
         } else if let Some(val) = parse_number(tok) {
             operands.push(ContentOperand::Number(val));
         }

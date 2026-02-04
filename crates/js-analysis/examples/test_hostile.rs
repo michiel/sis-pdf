@@ -109,17 +109,10 @@ fn main() {
         }
         DynamicOutcome::TimedOut { timeout_ms } => {
             eprintln!("⏱️  TIMED OUT after {}ms", timeout_ms);
-            println!(
-                "{{\"outcome\":\"timed_out\",\"timeout_ms\":{}}}",
-                timeout_ms
-            );
+            println!("{{\"outcome\":\"timed_out\",\"timeout_ms\":{}}}", timeout_ms);
             std::process::exit(0); // Exit 0 so we can collect stats
         }
-        DynamicOutcome::Skipped {
-            reason,
-            limit,
-            actual,
-        } => {
+        DynamicOutcome::Skipped { reason, limit, actual } => {
             eprintln!("⏭️  SKIPPED: {}", reason);
             eprintln!("Limit: {}, Actual: {}", limit, actual);
             println!(

@@ -42,14 +42,8 @@ fn detects_encryption_key_short() {
         .iter()
         .find(|f| f.kind == "encryption_key_short")
         .expect("encryption_key_short finding");
-    assert_eq!(
-        finding.meta.get("crypto.key_length"),
-        Some(&"40".to_string())
-    );
-    assert_eq!(
-        finding.meta.get("crypto.algorithm"),
-        Some(&"RC4-40".to_string())
-    );
+    assert_eq!(finding.meta.get("crypto.key_length"), Some(&"40".to_string()));
+    assert_eq!(finding.meta.get("crypto.algorithm"), Some(&"RC4-40".to_string()));
 }
 
 #[test]
@@ -64,19 +58,10 @@ fn detects_aes_256_alignment() {
         .iter()
         .find(|f| f.kind == "encryption_present")
         .expect("encryption_present finding");
-    assert_eq!(
-        finding.meta.get("crypto.algorithm"),
-        Some(&"AES-256".to_string())
-    );
-    assert_eq!(
-        finding.meta.get("crypto.key_length"),
-        Some(&"256".to_string())
-    );
+    assert_eq!(finding.meta.get("crypto.algorithm"), Some(&"AES-256".to_string()));
+    assert_eq!(finding.meta.get("crypto.key_length"), Some(&"256".to_string()));
     assert!(
-        !report
-            .findings
-            .iter()
-            .any(|f| f.kind == "encryption_key_short"),
+        !report.findings.iter().any(|f| f.kind == "encryption_key_short"),
         "AES-256 should not trigger short key detections"
     );
 }

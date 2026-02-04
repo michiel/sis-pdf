@@ -39,10 +39,7 @@ pub fn analyze_dynamic_images(
             meta.insert("image.decode_skipped".into(), "too_many_images".into());
             meta.insert("image.decode".into(), "skipped".into());
             meta.insert("image.count".into(), image_count.to_string());
-            meta.insert(
-                "image.skip_threshold".into(),
-                opts.skip_threshold.to_string(),
-            );
+            meta.insert("image.skip_threshold".into(), opts.skip_threshold.to_string());
             findings.push(ImageFinding {
                 kind: "image.decode_skipped".into(),
                 obj: entry.obj,
@@ -105,19 +102,15 @@ pub fn analyze_dynamic_images(
         }
 
         let timeout = if opts.timeout_ms > 0 {
-            Some(TimeoutChecker::new(
-                Duration::from_millis(opts.timeout_ms),
-                1024,
-            ))
+            Some(TimeoutChecker::new(Duration::from_millis(opts.timeout_ms), 1024))
         } else {
             None
         };
         let timeout_ref = timeout.as_ref();
         let start = Instant::now();
         let decode_result = decode_image_data(graph, data, stream, &filters, opts, timeout_ref);
-        let elapsed = timeout_ref
-            .map(|checker| checker.elapsed())
-            .unwrap_or_else(|| start.elapsed());
+        let elapsed =
+            timeout_ref.map(|checker| checker.elapsed()).unwrap_or_else(|| start.elapsed());
         let mut elapsed_ms = elapsed.as_millis();
         if elapsed_ms == 0 {
             elapsed_ms = 1;
@@ -194,10 +187,8 @@ fn stream_filters(stream: &PdfStream<'_>) -> (Vec<String>, String) {
     };
     match &filter.atom {
         PdfAtom::Name(name) => {
-            let label = String::from_utf8_lossy(&name.decoded)
-                .trim()
-                .trim_start_matches('/')
-                .to_string();
+            let label =
+                String::from_utf8_lossy(&name.decoded).trim().trim_start_matches('/').to_string();
             (vec![label.clone()], label)
         }
         PdfAtom::Array(arr) => {
@@ -211,11 +202,7 @@ fn stream_filters(stream: &PdfStream<'_>) -> (Vec<String>, String) {
                     out.push(label);
                 }
             }
-            let label = if out.is_empty() {
-                "-".into()
-            } else {
-                out.join(",")
-            };
+            let label = if out.is_empty() { "-".into() } else { out.join(",") };
             (out, label)
         }
         _ => (Vec::new(), "-".into()),

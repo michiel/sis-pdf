@@ -38,9 +38,7 @@ fn canonical_summary_counts_incremental_versions() {
     let detectors = sis_pdf_detectors::default_detectors();
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
         .expect("scan succeeds");
-    let summary = report
-        .structural_summary
-        .expect("should include structural summary");
+    let summary = report.structural_summary.expect("should include structural summary");
     assert_eq!(
         summary.canonical_object_count + summary.incremental_updates_removed,
         summary.object_count

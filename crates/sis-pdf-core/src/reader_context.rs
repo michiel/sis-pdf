@@ -64,10 +64,9 @@ pub fn annotate_reader_context(finding: &mut Finding) {
                 note: None,
             });
         }
-        finding.meta.insert(
-            format!("reader.impact.{}", profile.name()),
-            severity.as_str().to_string(),
-        );
+        finding
+            .meta
+            .insert(format!("reader.impact.{}", profile.name()), severity.as_str().to_string());
     }
     finding.meta.insert(
         "reader.impact.summary".into(),

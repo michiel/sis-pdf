@@ -176,11 +176,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 message: "Invalid max_decode_bytes in config",
             }
             .emit();
-            warn!(
-                value = v,
-                limit = MAX_DECODE_BYTES,
-                "Invalid max_decode_bytes in config"
-            );
+            warn!(value = v, limit = MAX_DECODE_BYTES, "Invalid max_decode_bytes in config");
         } else {
             info!(value = v, "Config override max_decode_bytes");
             opts.max_decode_bytes = v;
@@ -240,11 +236,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 message: "Invalid max_objects in config",
             }
             .emit();
-            warn!(
-                value = v,
-                limit = MAX_OBJECTS,
-                "Invalid max_objects in config"
-            );
+            warn!(value = v, limit = MAX_OBJECTS, "Invalid max_objects in config");
         } else {
             info!(value = v, "Config override max_objects");
             opts.max_objects = v;
@@ -266,11 +258,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 message: "Invalid max_recursion_depth in config",
             }
             .emit();
-            warn!(
-                value = v,
-                limit = MAX_RECURSION_DEPTH,
-                "Invalid max_recursion_depth in config"
-            );
+            warn!(value = v, limit = MAX_RECURSION_DEPTH, "Invalid max_recursion_depth in config");
         } else {
             info!(value = v, "Config override max_recursion_depth");
             opts.max_recursion_depth = v;
@@ -298,11 +286,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 message: "Invalid focus_depth in config",
             }
             .emit();
-            warn!(
-                value = v,
-                limit = MAX_FOCUS_DEPTH,
-                "Invalid focus_depth in config"
-            );
+            warn!(value = v, limit = MAX_FOCUS_DEPTH, "Invalid focus_depth in config");
         } else {
             opts.focus_depth = v;
         }
@@ -336,16 +320,10 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 message: "Invalid ML threshold in config",
             }
             .emit();
-            warn!(
-                value = threshold,
-                "Invalid ml_threshold in config (expected 0.0..=1.0)"
-            );
+            warn!(value = threshold, "Invalid ml_threshold in config (expected 0.0..=1.0)");
         }
-        let mode = scan
-            .ml_mode
-            .as_deref()
-            .map(parse_ml_mode)
-            .unwrap_or(crate::ml::MlMode::Traditional);
+        let mode =
+            scan.ml_mode.as_deref().map(parse_ml_mode).unwrap_or(crate::ml::MlMode::Traditional);
         opts.ml_config = Some(crate::ml::MlConfig {
             model_path: model.into(),
             threshold,
@@ -368,10 +346,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 message: "Invalid ML threshold in config",
             }
             .emit();
-            warn!(
-                value = v,
-                "Invalid ml_threshold in config (expected 0.0..=1.0)"
-            );
+            warn!(value = v, "Invalid ml_threshold in config (expected 0.0..=1.0)");
         } else if let Some(cfg) = &mut opts.ml_config {
             cfg.threshold = v;
         }
@@ -465,11 +440,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                     message: "Invalid max_fonts in config",
                 }
                 .emit();
-                warn!(
-                    value = max_fonts,
-                    limit = MAX_FONTS,
-                    "Invalid max_fonts in config"
-                );
+                warn!(value = max_fonts, limit = MAX_FONTS, "Invalid max_fonts in config");
             } else {
                 opts.font_analysis.max_fonts = max_fonts;
             }

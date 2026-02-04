@@ -10,10 +10,7 @@ fn detectors_flag_launch_external_program() {
             .expect("scan");
 
     assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.kind == "launch_action_present"),
+        report.findings.iter().any(|f| f.kind == "launch_action_present"),
         "expected launch_action_present finding"
     );
     let external = report
@@ -21,16 +18,9 @@ fn detectors_flag_launch_external_program() {
         .iter()
         .find(|f| f.kind == "launch_external_program")
         .expect("generic external launch finding");
-    assert_eq!(
-        external.meta.get("launch.target_type").map(String::as_str),
-        Some("external")
-    );
+    assert_eq!(external.meta.get("launch.target_type").map(String::as_str), Some("external"));
     assert!(
-        external
-            .meta
-            .get("launch.target_path")
-            .map(|v| v.contains("calc.exe"))
-            .unwrap_or(false),
+        external.meta.get("launch.target_path").map(|v| v.contains("calc.exe")).unwrap_or(false),
         "expected launch target to include calc.exe"
     );
 }

@@ -31,12 +31,8 @@ impl Detector for FilterChainAnomalyDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         let timeout = TimeoutChecker::new(std::time::Duration::from_millis(100));
-        let allowlist = ctx
-            .options
-            .filter_allowlist
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(default_filter_allowlist);
+        let allowlist =
+            ctx.options.filter_allowlist.as_ref().cloned().unwrap_or_else(default_filter_allowlist);
         let strict = ctx.options.filter_allowlist_strict;
         for &idx in &ctx.canonical_view().indices {
             let entry = &ctx.graph.objects[idx];
@@ -59,11 +55,7 @@ impl Detector for FilterChainAnomalyDetector {
             meta.insert("filter_count".into(), normalised.len().to_string());
             meta.insert("allowlist_match".into(), allowlist_match.to_string());
             let evidence = EvidenceBuilder::new()
-                .file_offset(
-                    stream.dict.span.start,
-                    stream.dict.span.len() as u32,
-                    "Stream dict",
-                )
+                .file_offset(stream.dict.span.start, stream.dict.span.len() as u32, "Stream dict")
                 .build();
 
             if let Some(violation) =
@@ -143,10 +135,7 @@ impl Detector for FilterChainAnomalyDetector {
                     dup.insert("violation_type".into(), "jbig2_obfuscation".to_string());
                     dup.insert("jbig2.cves".into(), "CVE-2021-30860,CVE-2022-38171".into());
                     dup.insert("cve".into(), "CVE-2021-30860,CVE-2022-38171".into());
-                    dup.insert(
-                        "attack_surface".into(),
-                        "Image codecs / filter obfuscation".into(),
-                    );
+                    dup.insert("attack_surface".into(), "Image codecs / filter obfuscation".into());
                     dup
                 };
                 findings.push(
@@ -260,10 +249,7 @@ fn is_allowlisted_chain(filters: &[String], allowlist: &[Vec<String>]) -> bool {
         if allowed.len() != filters.len() {
             return false;
         }
-        allowed
-            .iter()
-            .zip(filters.iter())
-            .all(|(a, f)| *a == f.as_str())
+        allowed.iter().zip(filters.iter()).all(|(a, f)| *a == f.as_str())
     })
 }
 
@@ -273,9 +259,7 @@ fn has_unknown_filter(filters: &[String]) -> bool {
 
 fn has_image_with_compression(filters: &[String]) -> bool {
     let has_image = filters.iter().any(|f| IMAGE_FILTERS.contains(&f.as_str()));
-    let has_compression = filters
-        .iter()
-        .any(|f| COMPRESSION_FILTERS.contains(&f.as_str()));
+    let has_compression = filters.iter().any(|f| COMPRESSION_FILTERS.contains(&f.as_str()));
     has_image && has_compression
 }
 
@@ -288,11 +272,7 @@ mod tests {
 
     #[test]
     fn jbig2_obfuscation_detects_ascii_wrapper() {
-        let filters = vec![
-            "ASCIIHEXDECODE".into(),
-            "FlateDecode".into(),
-            "JBIG2DECODE".into(),
-        ];
+        let filters = vec!["ASCIIHEXDECODE".into(), "FlateDecode".into(), "JBIG2DECODE".into()];
         assert!(is_jbig2_obfuscation(&filters));
     }
 

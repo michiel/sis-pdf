@@ -201,22 +201,19 @@ pub fn analyze_uri_content(uri: &[u8]) -> UriContentAnalysis {
     let has_suspicious_scheme = is_suspicious_scheme(&scheme);
     let has_embedded_ip_host = domain.as_ref().is_some_and(|d| has_embedded_ip(d));
     let has_idn_lookalike = domain.as_ref().is_some_and(|d| has_idn_lookalike_domain(d));
-    let (data_mime, data_is_base64, data_length) = if is_data_uri {
-        parse_data_uri(rest.as_str())
-    } else {
-        (None, false, None)
-    };
-    let phishing_indicators = detect_phishing_indicators(
-        &url,
-        &domain,
-        &path,
-        &query_params,
+    let (data_mime, data_is_base64, data_length) =
+        if is_data_uri { parse_data_uri(rest.as_str()) } else { (None, false, None) };
+    let phishing_indicators = detect_phishing_indicators(PhishingIndicatorContext {
+        url: &url,
+        domain: &domain,
+        path: &path,
+        params: &query_params,
         suspicious_tld,
         is_ip_address,
         userinfo_present,
         has_non_standard_port,
-        &suspicious_patterns,
-    );
+        suspicious_patterns: &suspicious_patterns,
+    });
 
     UriContentAnalysis {
         url,
@@ -334,11 +331,8 @@ fn detect_obfuscation(url: &str, params: &[(String, String)]) -> ObfuscationLeve
     // Count percent-encoded characters
     let percent_count = url.matches('%').count();
     let total_chars = url.len();
-    let percent_ratio = if total_chars > 0 {
-        percent_count as f64 / total_chars as f64
-    } else {
-        0.0
-    };
+    let percent_ratio =
+        if total_chars > 0 { percent_count as f64 / total_chars as f64 } else { 0.0 };
 
     // Check for base64 in params
     let has_base64 = params.iter().any(|(_, v)| looks_like_base64(v));
@@ -363,10 +357,8 @@ fn looks_like_base64(s: &str) -> bool {
         return false;
     }
 
-    let alphanumeric_plus = s
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == '+' || *c == '/' || *c == '=')
-        .count();
+    let alphanumeric_plus =
+        s.chars().filter(|c| c.is_alphanumeric() || *c == '+' || *c == '/' || *c == '=').count();
 
     let ratio = alphanumeric_plus as f64 / s.len() as f64;
     ratio > 0.9 && s.len() > 30
@@ -390,11 +382,7 @@ fn detect_tracking_params(params: &[(String, String)]) -> Vec<String> {
 
     params
         .iter()
-        .filter(|(k, _)| {
-            tracking_keywords
-                .iter()
-                .any(|&tk| k.eq_ignore_ascii_case(tk))
-        })
+        .filter(|(k, _)| tracking_keywords.iter().any(|&tk| k.eq_ignore_ascii_case(tk)))
         .map(|(k, _)| k.clone())
         .collect()
 }
@@ -418,10 +406,7 @@ fn detect_suspicious_patterns(
 
     // Check for suspicious parameter names
     let exfil_params = ["data", "payload", "info", "d", "p", "content"];
-    if params
-        .iter()
-        .any(|(k, _)| exfil_params.iter().any(|&ep| k.eq_ignore_ascii_case(ep)))
-    {
+    if params.iter().any(|(k, _)| exfil_params.iter().any(|&ep| k.eq_ignore_ascii_case(ep))) {
         patterns.push("suspicious_param_names".to_string());
     }
 
@@ -506,9 +491,7 @@ fn has_suspicious_tld(domain: &str) -> bool {
         ".zip", ".mov", // New confusing TLDs
     ];
 
-    suspicious_tlds
-        .iter()
-        .any(|&tld| domain.to_lowercase().ends_with(tld))
+    suspicious_tlds.iter().any(|&tld| domain.to_lowercase().ends_with(tld))
 }
 
 fn detect_data_exfil_pattern(params: &[(String, String)]) -> bool {
@@ -522,72 +505,72 @@ fn detect_data_exfil_pattern(params: &[(String, String)]) -> bool {
     long_value_count > 3 || (params.len() > 5 && long_value_count > 1)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn detect_phishing_indicators(
-    url: &str,
-    domain: &Option<String>,
-    path: &Option<String>,
-    params: &[(String, String)],
+struct PhishingIndicatorContext<'a> {
+    url: &'a str,
+    domain: &'a Option<String>,
+    path: &'a Option<String>,
+    params: &'a [(String, String)],
     suspicious_tld: bool,
     is_ip_address: bool,
     userinfo_present: bool,
     has_non_standard_port: bool,
-    suspicious_patterns: &[String],
-) -> Vec<String> {
+    suspicious_patterns: &'a [String],
+}
+
+fn detect_phishing_indicators(ctx: PhishingIndicatorContext<'_>) -> Vec<String> {
     let mut indicators = Vec::new();
 
-    if userinfo_present {
+    if ctx.userinfo_present {
         indicators.push("userinfo_in_url".to_string());
     }
-    if is_ip_address {
+    if ctx.is_ip_address {
         indicators.push("ip_address".to_string());
     }
-    if suspicious_tld {
+    if ctx.suspicious_tld {
         indicators.push("suspicious_tld".to_string());
     }
-    if has_non_standard_port {
+    if ctx.has_non_standard_port {
         indicators.push("non_standard_port".to_string());
     }
 
-    let keyword_hits = [
-        "login", "signin", "verify", "update", "secure", "account", "billing", "password",
-    ];
+    let keyword_hits =
+        ["login", "signin", "verify", "update", "secure", "account", "billing", "password"];
 
-    if let Some(d) = domain {
+    if let Some(d) = ctx.domain {
         let lower = d.to_ascii_lowercase();
         if keyword_hits.iter().any(|&kw| lower.contains(kw)) {
             indicators.push("credential_keyword".to_string());
         }
     }
 
-    if let Some(p) = path {
+    if let Some(p) = ctx.path {
         let lower = p.to_ascii_lowercase();
         if keyword_hits.iter().any(|&kw| lower.contains(kw)) {
             indicators.push("credential_keyword".to_string());
         }
     }
 
-    if params.iter().any(|(k, _)| {
+    if ctx.params.iter().any(|(k, _)| {
         let lower = k.to_ascii_lowercase();
         matches!(lower.as_str(), "email" | "user" | "username" | "password")
     }) {
         indicators.push("credential_param".to_string());
     }
 
-    if suspicious_patterns.iter().any(|p| p == "punycode_domain") {
+    if ctx.suspicious_patterns.iter().any(|p| p == "punycode_domain") {
         indicators.push("punycode_domain".to_string());
     }
-    if suspicious_patterns.iter().any(|p| p == "many_subdomains") {
+    if ctx.suspicious_patterns.iter().any(|p| p == "many_subdomains") {
         indicators.push("many_subdomains".to_string());
     }
-    if suspicious_patterns.iter().any(|p| p == "embedded_ip") {
+    if ctx.suspicious_patterns.iter().any(|p| p == "embedded_ip") {
         indicators.push("embedded_ip".to_string());
     }
-    if suspicious_patterns.iter().any(|p| p == "idn_lookalike") {
+    if ctx.suspicious_patterns.iter().any(|p| p == "idn_lookalike") {
         indicators.push("idn_lookalike".to_string());
     }
 
-    if url.contains('@') {
+    if ctx.url.contains('@') {
         indicators.push("at_symbol".to_string());
     }
 
@@ -687,11 +670,8 @@ fn parse_data_uri(rest: &str) -> (Option<String>, bool, Option<usize>) {
     let mut is_base64 = false;
     let mut data_len = None;
 
-    let (meta, data) = if let Some(idx) = rest.find(',') {
-        (&rest[..idx], &rest[idx + 1..])
-    } else {
-        (rest, "")
-    };
+    let (meta, data) =
+        if let Some(idx) = rest.find(',') { (&rest[..idx], &rest[idx + 1..]) } else { (rest, "") };
 
     if !meta.is_empty() {
         let mut parts = meta.split(';');
@@ -762,13 +742,7 @@ pub fn analyze_uri_context(
         UriVisibility::NoAnnot
     };
 
-    Some(UriContext {
-        visibility,
-        placement,
-        rect,
-        page_bounds,
-        flags,
-    })
+    Some(UriContext { visibility, placement, rect, page_bounds, flags })
 }
 
 fn extract_rect(dict: &PdfDict<'_>) -> Option<[f32; 4]> {
@@ -829,12 +803,7 @@ pub fn analyze_uri_trigger(
         || dict.get_first(b"/JS").is_some()
         || dict.get_first(b"/JavaScript").is_some();
 
-    UriTrigger {
-        mechanism,
-        event,
-        automatic,
-        js_involved,
-    }
+    UriTrigger { mechanism, event, automatic, js_involved }
 }
 
 /// Calculate composite risk score for a URI
@@ -1121,10 +1090,7 @@ impl Detector for UriContentDetector {
                             trigger.mechanism.as_str().to_string(),
                         );
                         meta.insert("uri.automatic".to_string(), trigger.automatic.to_string());
-                        meta.insert(
-                            "uri.js_involved".to_string(),
-                            trigger.js_involved.to_string(),
-                        );
+                        meta.insert("uri.js_involved".to_string(), trigger.js_involved.to_string());
 
                         let evidence = vec![
                             span_to_evidence(k.span, "URI key"),
@@ -1316,23 +1282,16 @@ impl Detector for UriPresenceDetector {
 
         let uri_count = uri_objects.len();
         let has_http = scheme_counts.keys().any(|k| k.eq_ignore_ascii_case("http"));
-        let has_https = scheme_counts
-            .keys()
-            .any(|k| k.eq_ignore_ascii_case("https"));
+        let has_https = scheme_counts.keys().any(|k| k.eq_ignore_ascii_case("https"));
 
         // Only create finding if URIs are present
         if uri_count > 0 {
             let mut meta = HashMap::new();
             meta.insert("uri.count_total".to_string(), uri_count.to_string());
-            meta.insert(
-                "uri.count_unique_domains".to_string(),
-                unique_domains.len().to_string(),
-            );
+            meta.insert("uri.count_unique_domains".to_string(), unique_domains.len().to_string());
 
-            let schemes: Vec<String> = scheme_counts
-                .iter()
-                .map(|(k, v)| format!("{}:{}", k, v))
-                .collect();
+            let schemes: Vec<String> =
+                scheme_counts.iter().map(|(k, v)| format!("{}:{}", k, v)).collect();
             meta.insert("uri.schemes".to_string(), schemes.join(", "));
 
             let unique_domain_count = unique_domains.len();
@@ -1359,9 +1318,7 @@ impl Detector for UriPresenceDetector {
                 format!(
                     "Found {} URIs pointing to {} unique domains.",
                     uri_count,
-                    meta.get("uri.count_unique_domains")
-                        .map(String::as_str)
-                        .unwrap_or("0")
+                    meta.get("uri.count_unique_domains").map(String::as_str).unwrap_or("0")
                 )
             } else {
                 format!(

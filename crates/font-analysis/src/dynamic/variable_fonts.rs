@@ -54,10 +54,7 @@ pub fn check_cve_2025_27164(context: &FontContext, findings: &mut Vec<FontFindin
         if glyph_count_maxp as usize > glyph_count_cff {
             let mut meta = HashMap::new();
             meta.insert("maxp_glyph_count".to_string(), glyph_count_maxp.to_string());
-            meta.insert(
-                "cff2_charstring_count".to_string(),
-                glyph_count_cff.to_string(),
-            );
+            meta.insert("cff2_charstring_count".to_string(), glyph_count_cff.to_string());
             meta.insert("cve".to_string(), "CVE-2025-27164".to_string());
 
             findings.push(FontFinding {

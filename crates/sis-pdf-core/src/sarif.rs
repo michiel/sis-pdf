@@ -109,11 +109,8 @@ fn chain_group_metadata(report: &crate::report::Report) -> serde_json::Value {
         .chains
         .iter()
         .map(|chain| {
-            let trigger = chain
-                .notes
-                .get("trigger.label")
-                .cloned()
-                .or_else(|| chain.trigger.clone());
+            let trigger =
+                chain.notes.get("trigger.label").cloned().or_else(|| chain.trigger.clone());
             let action = chain
                 .notes
                 .get("action.label")

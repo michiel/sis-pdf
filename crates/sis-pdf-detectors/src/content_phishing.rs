@@ -23,22 +23,13 @@ impl Detector for ContentPhishingDetector {
         Cost::Moderate
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let keywords: &[&[u8]] = &[
-            b"invoice",
-            b"secure",
-            b"view document",
-            b"account",
-            b"verify",
-        ];
+        let keywords: &[&[u8]] = &[b"invoice", b"secure", b"view document", b"account", b"verify"];
         let mut has_keyword = false;
         let mut evidence = Vec::new();
         for entry in &ctx.graph.objects {
             for (bytes, span) in extract_strings_with_span(entry) {
                 let lower = bytes.to_ascii_lowercase();
-                if keywords
-                    .iter()
-                    .any(|k| lower.windows(k.len()).any(|w| w == *k))
-                {
+                if keywords.iter().any(|k| lower.windows(k.len()).any(|w| w == *k)) {
                     has_keyword = true;
                     evidence.push(span_to_evidence(span, "Phishing-like keyword"));
                     break;
@@ -97,10 +88,7 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
     for entry in &ctx.graph.objects {
         for (bytes, span) in extract_strings_with_span(entry) {
             let lower = bytes.to_ascii_lowercase();
-            if patterns
-                .iter()
-                .any(|p| lower.windows(p.len()).any(|w| w == *p))
-            {
+            if patterns.iter().any(|p| lower.windows(p.len()).any(|w| w == *p)) {
                 return Some(Finding {
                     id: String::new(),
                     surface: AttackSurface::ContentPhishing,

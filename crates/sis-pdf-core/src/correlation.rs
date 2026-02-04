@@ -34,15 +34,15 @@ fn correlate_launch_obfuscated_executable(
         if let Some(hash) = get_meta(launch, "launch.embedded_file_hash") {
             if let Some(exe) = exe_map.get(hash) {
                 if has_high_entropy(exe, config.high_entropy_threshold) {
-                    composites.push(build_composite(
-                        "launch_obfuscated_executable",
-                        "Obfuscated embedded executable launch",
-                        "Launch action targets an embedded executable with high entropy, indicating obfuscated delivery.",
-                        AttackSurface::Actions,
-                        Severity::Critical,
-                        Confidence::Strong,
-                        &[launch, *exe],
-                        vec![
+                    composites.push(build_composite(CompositeConfig {
+                        kind: "launch_obfuscated_executable",
+                        title: "Obfuscated embedded executable launch",
+                        description: "Launch action targets an embedded executable with high entropy, indicating obfuscated delivery.",
+                        surface: AttackSurface::Actions,
+                        severity: Severity::Critical,
+                        confidence: Confidence::Strong,
+                        sources: &[launch, *exe],
+                        extra_meta: vec![
                             (
                                 "launch.target_path",
                                 get_meta(launch, "launch.target_path").map(str::to_string),
@@ -53,7 +53,7 @@ fn correlate_launch_obfuscated_executable(
                                 get_meta(exe, "entropy").map(str::to_string),
                             ),
                         ],
-                    ));
+                    }));
                 }
             }
         }
@@ -70,14 +70,9 @@ fn correlate_action_chain_malicious(
     if !config.action_chain_malicious_enabled {
         return composites;
     }
-    let complex = findings
-        .iter()
-        .filter(|f| f.kind == "action_chain_complex")
-        .collect::<Vec<_>>();
-    let automatic = findings
-        .iter()
-        .filter(|f| f.kind == "action_automatic_trigger")
-        .collect::<Vec<_>>();
+    let complex = findings.iter().filter(|f| f.kind == "action_chain_complex").collect::<Vec<_>>();
+    let automatic =
+        findings.iter().filter(|f| f.kind == "action_automatic_trigger").collect::<Vec<_>>();
     let js_candidates = findings
         .iter()
         .filter(|f| {
@@ -93,25 +88,20 @@ fn correlate_action_chain_malicious(
         if automatic.iter().any(|a| shares_object(chain, a))
             && js_candidates.iter().any(|js| shares_object(chain, js))
         {
-            composites.push(build_composite(
-                "action_chain_malicious",
-                "Malicious action chain",
-                "Complex action chain runs automatically and involves JavaScript payloads.",
-                AttackSurface::Actions,
-                Severity::High,
-                Confidence::Strong,
-                &[chain],
-                vec![
-                    (
-                        "chain.depth",
-                        get_meta(chain, "action.chain_depth").map(str::to_string),
-                    ),
-                    (
-                        "chain.trigger",
-                        get_meta(chain, "action.trigger").map(str::to_string),
-                    ),
+            composites.push(build_composite(CompositeConfig {
+                kind: "action_chain_malicious",
+                title: "Malicious action chain",
+                description:
+                    "Complex action chain runs automatically and involves JavaScript payloads.",
+                surface: AttackSurface::Actions,
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                sources: &[chain],
+                extra_meta: vec![
+                    ("chain.depth", get_meta(chain, "action.chain_depth").map(str::to_string)),
+                    ("chain.trigger", get_meta(chain, "action.trigger").map(str::to_string)),
                 ],
-            ));
+            }));
         }
     }
 
@@ -130,9 +120,7 @@ fn correlate_xfa_data_exfiltration(
         .iter()
         .filter(|f| f.kind == "xfa_submit")
         .filter_map(|f| {
-            get_meta(f, "xfa.submit.url")
-                .filter(|url| is_external_url(url))
-                .map(str::to_string)
+            get_meta(f, "xfa.submit.url").filter(|url| is_external_url(url)).map(str::to_string)
         })
         .collect();
     let sensitive_fields: Vec<String> = findings
@@ -143,22 +131,24 @@ fn correlate_xfa_data_exfiltration(
         .collect();
 
     if !submit_urls.is_empty() && sensitive_fields.len() >= config.xfa_sensitive_field_threshold {
-        composites.push(build_composite(
-            "xfa_data_exfiltration_risk",
-            "Potential XFA data exfiltration",
-            "XFA form combines submit actions and sensitive fields targeting external servers.",
-            AttackSurface::Forms,
-            Severity::High,
-            Confidence::Probable,
-            &findings
-                .iter()
-                .filter(|f| f.kind == "xfa_submit" || f.kind == "xfa_sensitive_field")
-                .collect::<Vec<_>>(),
-            vec![
+        let relevant_findings: Vec<&Finding> = findings
+            .iter()
+            .filter(|f| f.kind == "xfa_submit" || f.kind == "xfa_sensitive_field")
+            .collect();
+        composites.push(build_composite(CompositeConfig {
+            kind: "xfa_data_exfiltration_risk",
+            title: "Potential XFA data exfiltration",
+            description:
+                "XFA form combines submit actions and sensitive fields targeting external servers.",
+            surface: AttackSurface::Forms,
+            severity: Severity::High,
+            confidence: Confidence::Probable,
+            sources: &relevant_findings,
+            extra_meta: vec![
                 ("xfa.submit_urls", Some(submit_urls.join(","))),
                 ("xfa.sensitive_fields", Some(sensitive_fields.join(","))),
             ],
-        ));
+        }));
     }
 
     composites
@@ -172,10 +162,8 @@ fn correlate_encrypted_payload_delivery(
     if !config.encrypted_payload_delivery_enabled {
         return composites;
     }
-    let archives = findings
-        .iter()
-        .filter(|f| f.kind == "embedded_archive_encrypted")
-        .collect::<Vec<_>>();
+    let archives =
+        findings.iter().filter(|f| f.kind == "embedded_archive_encrypted").collect::<Vec<_>>();
     let targets = findings
         .iter()
         .filter(|f| f.kind == "launch_embedded_file" || f.kind == "swf_embedded")
@@ -185,16 +173,17 @@ fn correlate_encrypted_payload_delivery(
         if targets.iter().any(|target| shares_object(archive, target)) || !targets.is_empty() {
             let mut sources: Vec<&Finding> = targets.to_vec();
             sources.push(*archive);
-            composites.push(build_composite(
-                "encrypted_payload_delivery",
-                "Encrypted payload delivery",
-                "Encrypted archive delivery links to launch actions or embedded SWF payloads.",
-                AttackSurface::EmbeddedFiles,
-                Severity::Medium,
-                Confidence::Probable,
-                &sources,
-                vec![("archive.encrypted", Some("true".into()))],
-            ));
+            composites.push(build_composite(CompositeConfig {
+                kind: "encrypted_payload_delivery",
+                title: "Encrypted payload delivery",
+                description:
+                    "Encrypted archive delivery links to launch actions or embedded SWF payloads.",
+                surface: AttackSurface::EmbeddedFiles,
+                severity: Severity::Medium,
+                confidence: Confidence::Probable,
+                sources: &sources,
+                extra_meta: vec![("archive.encrypted", Some("true".into()))],
+            }));
         }
     }
 
@@ -209,35 +198,28 @@ fn correlate_obfuscated_payload(findings: &[Finding], config: &CorrelationOption
     let filters = findings
         .iter()
         .filter(|f| {
-            [
-                "filter_chain_unusual",
-                "filter_order_invalid",
-                "filter_combination_unusual",
-            ]
-            .contains(&f.kind.as_str())
+            ["filter_chain_unusual", "filter_order_invalid", "filter_combination_unusual"]
+                .contains(&f.kind.as_str())
         })
         .collect::<Vec<_>>();
-    let entropic = findings
-        .iter()
-        .filter(|f| f.kind == "stream_high_entropy")
-        .collect::<Vec<_>>();
+    let entropic = findings.iter().filter(|f| f.kind == "stream_high_entropy").collect::<Vec<_>>();
 
     for filter in &filters {
         for stream in &entropic {
             if shares_object(filter, stream) {
-                composites.push(build_composite(
-                    "obfuscated_payload",
-                    "Obfuscated payload detected",
-                    "Unusual filter chain coincides with a high entropy stream.",
-                    AttackSurface::StreamsAndFilters,
-                    Severity::Medium,
-                    Confidence::Probable,
-                    &[filter, stream],
-                    vec![(
+                composites.push(build_composite(CompositeConfig {
+                    kind: "obfuscated_payload",
+                    title: "Obfuscated payload detected",
+                    description: "Unusual filter chain coincides with a high entropy stream.",
+                    surface: AttackSurface::StreamsAndFilters,
+                    severity: Severity::Medium,
+                    confidence: Confidence::Probable,
+                    sources: &[filter, stream],
+                    extra_meta: vec![(
                         "filter.violations",
                         get_meta(filter, "violation_type").map(str::to_string),
                     )],
-                ));
+                }));
             }
         }
     }
@@ -245,17 +227,28 @@ fn correlate_obfuscated_payload(findings: &[Finding], config: &CorrelationOption
     composites
 }
 
-#[allow(clippy::too_many_arguments)]
-fn build_composite(
+struct CompositeConfig<'a> {
     kind: &'static str,
     title: &'static str,
     description: &'static str,
     surface: AttackSurface,
     severity: Severity,
     confidence: Confidence,
-    sources: &[&Finding],
+    sources: &'a [&'a Finding],
     extra_meta: Vec<(&'static str, Option<String>)>,
-) -> Finding {
+}
+
+fn build_composite(config: CompositeConfig<'_>) -> Finding {
+    let CompositeConfig {
+        kind,
+        title,
+        description,
+        surface,
+        severity,
+        confidence,
+        sources,
+        extra_meta,
+    } = config;
     let mut objects = Vec::new();
     let mut evidence = Vec::new();
     let mut meta = HashMap::new();
@@ -269,11 +262,7 @@ fn build_composite(
     meta.insert("composite.pattern".into(), kind.into());
     meta.insert(
         "composite.sources".into(),
-        sources
-            .iter()
-            .map(|f| f.kind.as_str())
-            .collect::<Vec<_>>()
-            .join(","),
+        sources.iter().map(|f| f.kind.as_str()).collect::<Vec<_>>().join(","),
     );
 
     for (key, value) in extra_meta {
@@ -320,9 +309,7 @@ fn parse_float(value: Option<&str>) -> Option<f64> {
 }
 
 fn has_high_entropy(finding: &Finding, threshold: f64) -> bool {
-    parse_float(get_meta(finding, "entropy"))
-        .map(|entropy| entropy >= threshold)
-        .unwrap_or(false)
+    parse_float(get_meta(finding, "entropy")).map(|entropy| entropy >= threshold).unwrap_or(false)
 }
 
 fn shares_object(a: &Finding, b: &Finding) -> bool {

@@ -182,24 +182,12 @@ impl TypedEdge {
     /// Creates a new typed edge
     pub fn new(src: (u32, u16), dst: (u32, u16), edge_type: EdgeType) -> Self {
         let suspicious = edge_type.is_suspicious();
-        Self {
-            src,
-            dst,
-            edge_type,
-            suspicious,
-            weight: 1.0,
-        }
+        Self { src, dst, edge_type, suspicious, weight: 1.0 }
     }
 
     /// Creates a suspicious edge
     pub fn new_suspicious(src: (u32, u16), dst: (u32, u16), edge_type: EdgeType) -> Self {
-        Self {
-            src,
-            dst,
-            edge_type,
-            suspicious: true,
-            weight: 1.0,
-        }
+        Self { src, dst, edge_type, suspicious: true, weight: 1.0 }
     }
 }
 
@@ -219,11 +207,7 @@ impl<'a> TypedGraph<'a> {
     /// Builds a typed graph from an ObjectGraph
     pub fn build(graph: &'a ObjectGraph<'a>, classifications: &ClassificationMap) -> Self {
         let mut edges = Vec::new();
-        let mut edge_extractor = EdgeExtractor {
-            graph,
-            classifications,
-            edges: &mut edges,
-        };
+        let mut edge_extractor = EdgeExtractor { graph, classifications, edges: &mut edges };
 
         // Extract edges from all objects
         for entry in &graph.objects {
@@ -239,12 +223,7 @@ impl<'a> TypedGraph<'a> {
             reverse_index.entry(edge.dst).or_default().push(idx);
         }
 
-        Self {
-            graph,
-            edges,
-            forward_index,
-            reverse_index,
-        }
+        Self { graph, edges, forward_index, reverse_index }
     }
 
     /// Returns all outgoing edges from an object
@@ -265,10 +244,7 @@ impl<'a> TypedGraph<'a> {
 
     /// Returns all edges of a specific type
     pub fn edges_of_type(&self, edge_type: &EdgeType) -> Vec<&TypedEdge> {
-        self.edges
-            .iter()
-            .filter(|e| &e.edge_type == edge_type)
-            .collect()
+        self.edges.iter().filter(|e| &e.edge_type == edge_type).collect()
     }
 
     /// Returns all suspicious edges
@@ -393,13 +369,11 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
             let names_dict_opt = match &names_obj.atom {
                 PdfAtom::Dict(d) => Some(d),
                 PdfAtom::Ref { obj, gen } => {
-                    self.graph
-                        .get_object(*obj, *gen)
-                        .and_then(|entry| match &entry.atom {
-                            PdfAtom::Dict(d) => Some(d),
-                            PdfAtom::Stream(st) => Some(&st.dict),
-                            _ => None,
-                        })
+                    self.graph.get_object(*obj, *gen).and_then(|entry| match &entry.atom {
+                        PdfAtom::Dict(d) => Some(d),
+                        PdfAtom::Stream(st) => Some(&st.dict),
+                        _ => None,
+                    })
                 }
                 _ => None,
             };
@@ -564,13 +538,11 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
             let aa_dict_opt = match &aa_obj.atom {
                 PdfAtom::Dict(d) => Some(d),
                 PdfAtom::Ref { obj, gen } => {
-                    self.graph
-                        .get_object(*obj, *gen)
-                        .and_then(|entry| match &entry.atom {
-                            PdfAtom::Dict(d) => Some(d),
-                            PdfAtom::Stream(st) => Some(&st.dict),
-                            _ => None,
-                        })
+                    self.graph.get_object(*obj, *gen).and_then(|entry| match &entry.atom {
+                        PdfAtom::Dict(d) => Some(d),
+                        PdfAtom::Stream(st) => Some(&st.dict),
+                        _ => None,
+                    })
                 }
                 _ => None,
             };
@@ -584,9 +556,7 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
                             let edge = TypedEdge::new_suspicious(
                                 src,
                                 dst,
-                                EdgeType::AdditionalAction {
-                                    event: event.to_string(),
-                                },
+                                EdgeType::AdditionalAction { event: event.to_string() },
                             );
                             self.edges.push(edge);
                         }

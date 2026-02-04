@@ -110,11 +110,7 @@ pub fn provider_info(settings: &RuntimeSettings) -> Result<ProviderInfo> {
         }
     }
     let selected = available.first().cloned();
-    Ok(ProviderInfo {
-        requested,
-        available,
-        selected,
-    })
+    Ok(ProviderInfo { requested, available, selected })
 }
 
 fn resolve_dylib_path(settings: &RuntimeSettings) -> Result<Option<PathBuf>> {
@@ -134,10 +130,7 @@ fn provider_order(settings: &RuntimeSettings) -> Vec<String> {
         return ensure_cpu(sanitise_provider_list(list));
     }
     if let Some(pref) = settings.provider.as_deref() {
-        return ensure_cpu(sanitise_provider_list(&[
-            pref.to_string(),
-            "cpu".to_string(),
-        ]));
+        return ensure_cpu(sanitise_provider_list(&[pref.to_string(), "cpu".to_string()]));
     }
     let mut out = Vec::new();
     if cfg!(target_os = "windows") {
@@ -193,30 +186,14 @@ fn provider_from_name(name: &str) -> Option<ExecutionProviderDispatch> {
 
 fn is_provider_available(name: &str) -> Result<bool> {
     match name {
-        "cpu" => ep::CPU::default()
-            .is_available()
-            .map_err(anyhow::Error::from),
-        "cuda" => ep::CUDA::default()
-            .is_available()
-            .map_err(anyhow::Error::from),
-        "rocm" => ep::ROCm::default()
-            .is_available()
-            .map_err(anyhow::Error::from),
-        "migraphx" => ep::MIGraphX::default()
-            .is_available()
-            .map_err(anyhow::Error::from),
-        "directml" => ep::DirectML::default()
-            .is_available()
-            .map_err(anyhow::Error::from),
-        "coreml" => ep::CoreML::default()
-            .is_available()
-            .map_err(anyhow::Error::from),
-        "onednn" => ep::OneDNN::default()
-            .is_available()
-            .map_err(anyhow::Error::from),
-        "openvino" => ep::OpenVINO::default()
-            .is_available()
-            .map_err(anyhow::Error::from),
+        "cpu" => ep::CPU::default().is_available().map_err(anyhow::Error::from),
+        "cuda" => ep::CUDA::default().is_available().map_err(anyhow::Error::from),
+        "rocm" => ep::ROCm::default().is_available().map_err(anyhow::Error::from),
+        "migraphx" => ep::MIGraphX::default().is_available().map_err(anyhow::Error::from),
+        "directml" => ep::DirectML::default().is_available().map_err(anyhow::Error::from),
+        "coreml" => ep::CoreML::default().is_available().map_err(anyhow::Error::from),
+        "onednn" => ep::OneDNN::default().is_available().map_err(anyhow::Error::from),
+        "openvino" => ep::OpenVINO::default().is_available().map_err(anyhow::Error::from),
         _ => Ok(false),
     }
 }

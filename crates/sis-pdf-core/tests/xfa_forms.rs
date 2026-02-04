@@ -89,11 +89,8 @@ fn xfa_submit_finding_reports_metadata() {
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
         .expect("scan should succeed");
 
-    let finding = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "xfa_submit")
-        .expect("xfa_submit finding");
+    let finding =
+        report.findings.iter().find(|f| f.kind == "xfa_submit").expect("xfa_submit finding");
 
     let script_count = finding
         .meta
@@ -105,15 +102,8 @@ fn xfa_submit_finding_reports_metadata() {
         finding.meta.get("xfa.submit.url").map(String::as_str),
         Some("https://example.com/submit")
     );
-    let sensitive = finding
-        .meta
-        .get("xfa.sensitive_fields")
-        .expect("sensitive field metadata");
-    assert!(
-        sensitive.contains("user.password"),
-        "expected password field in {}",
-        sensitive
-    );
+    let sensitive = finding.meta.get("xfa.sensitive_fields").expect("sensitive field metadata");
+    assert!(sensitive.contains("user.password"), "expected password field in {}", sensitive);
 }
 
 #[test]
@@ -124,10 +114,7 @@ fn xfa_cve_2013_2729_reports_script_presence() {
         .expect("scan should succeed");
 
     assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.kind == "xfa_script_present"),
+        report.findings.iter().any(|f| f.kind == "xfa_script_present"),
         "expected xfa_script_present finding"
     );
 }

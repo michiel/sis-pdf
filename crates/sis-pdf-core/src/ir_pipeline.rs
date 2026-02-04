@@ -27,10 +27,7 @@ pub fn build_ir_graph(graph: &ObjectGraph<'_>, opts: &IrOptions) -> IrGraphArtif
     let org = OrgGraph::from_object_graph(graph);
     let mut ir_map: HashMap<ObjRef, &PdfIrObject> = HashMap::new();
     for obj in &ir_objects {
-        let key = ObjRef {
-            obj: obj.obj_ref.0,
-            gen: obj.obj_ref.1,
-        };
+        let key = ObjRef { obj: obj.obj_ref.0, gen: obj.obj_ref.1 };
         ir_map.insert(key, obj);
     }
     let mut node_texts = Vec::new();
@@ -41,11 +38,7 @@ pub fn build_ir_graph(graph: &ObjectGraph<'_>, opts: &IrOptions) -> IrGraphArtif
             node_texts.push("<missing_object>".into());
         }
     }
-    IrGraphArtifacts {
-        ir_objects,
-        org,
-        node_texts,
-    }
+    IrGraphArtifacts { ir_objects, org, node_texts }
 }
 
 pub fn summarize_ir_graph(ir: &IrGraphArtifacts) -> IrGraphSummary {

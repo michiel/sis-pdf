@@ -81,12 +81,7 @@ impl StackingClassifier {
     pub fn predict(&self, fv: &FeatureVector, threshold: f32) -> MalwarePrediction {
         let base_scores: Vec<f32> = self.base.iter().map(|b| b.predict(fv)).collect();
         let score = self.meta.predict_from_base(&base_scores);
-        MalwarePrediction {
-            score,
-            label: score >= threshold,
-            threshold,
-            base_scores,
-        }
+        MalwarePrediction { score, label: score >= threshold, threshold, base_scores }
     }
 }
 

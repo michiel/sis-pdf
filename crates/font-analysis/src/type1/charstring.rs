@@ -37,10 +37,7 @@ pub fn analyze_charstring(data: &[u8]) -> CharstringAnalysis {
 
     // Try to parse charstrings from the data
     let charstrings = extract_charstrings(data);
-    debug!(
-        charstring_count = charstrings.len(),
-        "Extracted charstrings"
-    );
+    debug!(charstring_count = charstrings.len(), "Extracted charstrings");
 
     for (name, cs_data) in charstrings {
         analyze_single_charstring(&mut analysis, &name, cs_data);

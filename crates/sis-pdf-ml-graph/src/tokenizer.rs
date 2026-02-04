@@ -32,10 +32,7 @@ impl TokenizerWrapper {
                 path.display()
             ));
         };
-        Ok(Self {
-            tokenizer,
-            max_length,
-        })
+        Ok(Self { tokenizer, max_length })
     }
 
     pub fn max_length(&self) -> usize {
@@ -67,27 +64,15 @@ impl TokenizerWrapper {
             }
         }
 
-        Ok(TokenizedBatch {
-            input_ids,
-            attention_mask,
-            token_type_ids,
-            batch,
-            seq_len,
-        })
+        Ok(TokenizedBatch { input_ids, attention_mask, token_type_ids, batch, seq_len })
     }
 }
 
 fn load_bpe_from_vocab(path: &Path) -> Result<Tokenizer> {
-    let vocab = path
-        .to_str()
-        .ok_or_else(|| anyhow!("tokenizer path is not valid UTF-8"))?;
-    let merges = path
-        .parent()
-        .ok_or_else(|| anyhow!("tokenizer path missing parent"))?
-        .join("merges.txt");
-    let merges = merges
-        .to_str()
-        .ok_or_else(|| anyhow!("merges path is not valid UTF-8"))?;
+    let vocab = path.to_str().ok_or_else(|| anyhow!("tokenizer path is not valid UTF-8"))?;
+    let merges =
+        path.parent().ok_or_else(|| anyhow!("tokenizer path missing parent"))?.join("merges.txt");
+    let merges = merges.to_str().ok_or_else(|| anyhow!("merges path is not valid UTF-8"))?;
     let model = BPE::from_file(vocab, merges)
         .build()
         .map_err(|e| anyhow!("failed to build BPE tokenizer: {}", e))?;

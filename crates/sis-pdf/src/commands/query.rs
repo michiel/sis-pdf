@@ -88,11 +88,7 @@ pub enum PredicateExpr {
     And(Box<PredicateExpr>, Box<PredicateExpr>),
     Or(Box<PredicateExpr>, Box<PredicateExpr>),
     Not(Box<PredicateExpr>),
-    Compare {
-        field: PredicateField,
-        op: PredicateOp,
-        value: PredicateValue,
-    },
+    Compare { field: PredicateField, op: PredicateOp, value: PredicateValue },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -315,12 +311,7 @@ pub fn query_error_with_context(
     message: impl Into<String>,
     context: Option<serde_json::Value>,
 ) -> QueryResult {
-    QueryResult::Error(QueryError {
-        status: "error",
-        error_code,
-        message: message.into(),
-        context,
-    })
+    QueryResult::Error(QueryError { status: "error", error_code, message: message.into(), context })
 }
 
 fn build_invalid_pdf_result(pdf_path: &Path, bytes: &[u8], reason: &str) -> QueryResult {
@@ -374,16 +365,8 @@ fn build_polyglot_finding(
     }
 
     let strong_conflict = summary.hits.iter().any(|hit| hit.offset == 0);
-    let severity = if strong_conflict {
-        Severity::Medium
-    } else {
-        Severity::Low
-    };
-    let confidence = if strong_conflict {
-        Confidence::Probable
-    } else {
-        Confidence::Heuristic
-    };
+    let severity = if strong_conflict { Severity::Medium } else { Severity::Low };
+    let confidence = if strong_conflict { Confidence::Probable } else { Confidence::Heuristic };
 
     let sig_list = summary
         .hits
@@ -405,15 +388,10 @@ fn build_polyglot_finding(
     }
 
     let mut meta = HashMap::new();
-    let header_offset = summary
-        .pdf_header_offset
-        .map(|off| off.to_string())
-        .unwrap_or_else(|| "missing".into());
+    let header_offset =
+        summary.pdf_header_offset.map(|off| off.to_string()).unwrap_or_else(|| "missing".into());
     meta.insert("polyglot.pdf_header_offset".into(), header_offset);
-    meta.insert(
-        "polyglot.pdf_header_at_zero".into(),
-        summary.pdf_header_at_zero.to_string(),
-    );
+    meta.insert("polyglot.pdf_header_at_zero".into(), summary.pdf_header_at_zero.to_string());
     meta.insert("polyglot.signatures".into(), sig_list.clone());
 
     Some(Finding {
@@ -482,9 +460,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "swf.extract" => Ok(Query::SwfStreams),
         "swf.extract.count" => Ok(Query::SwfStreamsCount),
         "embedded.executables" => Ok(Query::FindingsByKind("embedded_executable_present".into())),
-        "embedded.executables.count" => Ok(Query::FindingsByKindCount(
-            "embedded_executable_present".into(),
-        )),
+        "embedded.executables.count" => {
+            Ok(Query::FindingsByKindCount("embedded_executable_present".into()))
+        }
         "embedded.scripts" => Ok(Query::FindingsByKind("embedded_script_present".into())),
         "embedded.scripts.count" => {
             Ok(Query::FindingsByKindCount("embedded_script_present".into()))
@@ -492,15 +470,15 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "embedded.archives.encrypted" => {
             Ok(Query::FindingsByKind("embedded_archive_encrypted".into()))
         }
-        "embedded.archives.encrypted.count" => Ok(Query::FindingsByKindCount(
-            "embedded_archive_encrypted".into(),
-        )),
+        "embedded.archives.encrypted.count" => {
+            Ok(Query::FindingsByKindCount("embedded_archive_encrypted".into()))
+        }
         "embedded.double-extension" => {
             Ok(Query::FindingsByKind("embedded_double_extension".into()))
         }
-        "embedded.double-extension.count" => Ok(Query::FindingsByKindCount(
-            "embedded_double_extension".into(),
-        )),
+        "embedded.double-extension.count" => {
+            Ok(Query::FindingsByKindCount("embedded_double_extension".into()))
+        }
         "embedded.encrypted" => Ok(Query::FindingsByKind("embedded_encrypted".into())),
         "embedded.encrypted.count" => Ok(Query::FindingsByKindCount("embedded_encrypted".into())),
         "images" => Ok(Query::Images),
@@ -534,9 +512,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "actions.triggers.automatic" => {
             Ok(Query::FindingsByKind("action_automatic_trigger".into()))
         }
-        "actions.triggers.automatic.count" => Ok(Query::FindingsByKindCount(
-            "action_automatic_trigger".into(),
-        )),
+        "actions.triggers.automatic.count" => {
+            Ok(Query::FindingsByKindCount("action_automatic_trigger".into()))
+        }
         "actions.triggers.hidden" => Ok(Query::FindingsByKind("action_hidden_trigger".into())),
         "actions.triggers.hidden.count" => {
             Ok(Query::FindingsByKindCount("action_hidden_trigger".into()))
@@ -564,9 +542,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "filters.invalid" => Ok(Query::FindingsByKind("filter_order_invalid".into())),
         "filters.invalid.count" => Ok(Query::FindingsByKindCount("filter_order_invalid".into())),
         "filters.repeated" => Ok(Query::FindingsByKind("filter_combination_unusual".into())),
-        "filters.repeated.count" => Ok(Query::FindingsByKindCount(
-            "filter_combination_unusual".into(),
-        )),
+        "filters.repeated.count" => {
+            Ok(Query::FindingsByKindCount("filter_combination_unusual".into()))
+        }
 
         // Findings
         "findings" => Ok(Query::Findings),
@@ -614,10 +592,7 @@ pub fn parse_query(input: &str) -> Result<Query> {
 
         _ => {
             // Try to parse ref/references query
-            if let Some(rest) = input
-                .strip_prefix("ref ")
-                .or(input.strip_prefix("references "))
-            {
+            if let Some(rest) = input.strip_prefix("ref ").or(input.strip_prefix("references ")) {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if parts.len() == 1 {
                     let obj = parts[0]
@@ -712,10 +687,7 @@ struct PredicateParser<'a> {
 
 impl<'a> PredicateParser<'a> {
     fn new(input: &'a str) -> Self {
-        Self {
-            lexer: PredicateLexer::new(input),
-            lookahead: None,
-        }
+        Self { lexer: PredicateLexer::new(input), lookahead: None }
     }
 
     fn parse_expr(&mut self) -> Result<PredicateExpr> {
@@ -780,20 +752,14 @@ impl<'a> PredicateParser<'a> {
     }
 
     fn expect_op(&mut self) -> Result<PredicateOp> {
-        match self
-            .next_token()
-            .ok_or_else(|| anyhow!("Expected operator"))?
-        {
+        match self.next_token().ok_or_else(|| anyhow!("Expected operator"))? {
             PredicateToken::Op(op) => Ok(op),
             token => Err(anyhow!("Unexpected token in operator: {:?}", token)),
         }
     }
 
     fn expect_ident(&mut self) -> Result<String> {
-        match self
-            .next_token()
-            .ok_or_else(|| anyhow!("Expected identifier"))?
-        {
+        match self.next_token().ok_or_else(|| anyhow!("Expected identifier"))? {
             PredicateToken::Ident(value) => Ok(value),
             token => Err(anyhow!("Unexpected token in identifier: {:?}", token)),
         }
@@ -859,11 +825,7 @@ struct PredicateLexer<'a> {
 
 impl<'a> PredicateLexer<'a> {
     fn new(input: &'a str) -> Self {
-        Self {
-            input,
-            bytes: input.as_bytes(),
-            index: 0,
-        }
+        Self { input, bytes: input.as_bytes(), index: 0 }
     }
 
     fn next_token(&mut self) -> Option<PredicateToken> {
@@ -1127,25 +1089,16 @@ impl PredicateExpr {
                     compare_number(lhs, *op, value)
                 }
                 PredicateField::Url => {
-                    let candidate = ctx
-                        .meta
-                        .get("url")
-                        .or_else(|| ctx.meta.get("xfa.submit.url"));
+                    let candidate = ctx.meta.get("url").or_else(|| ctx.meta.get("xfa.submit.url"));
                     compare_string(candidate.map(|s| s.as_str()), *op, value)
                 }
                 PredicateField::Field => {
-                    let candidate = ctx
-                        .meta
-                        .get("field")
-                        .or_else(|| ctx.meta.get("xfa.field.name"));
+                    let candidate =
+                        ctx.meta.get("field").or_else(|| ctx.meta.get("xfa.field.name"));
                     compare_string(candidate.map(|s| s.as_str()), *op, value)
                 }
                 PredicateField::HasDoctype => {
-                    let actual = ctx
-                        .meta
-                        .get("has_doctype")
-                        .map(|v| v == "true")
-                        .unwrap_or(false);
+                    let actual = ctx.meta.get("has_doctype").map(|v| v == "true").unwrap_or(false);
                     compare_bool(actual, *op, value)
                 }
                 PredicateField::Meta(key) => compare_meta(ctx.meta.get(key), *op, value),
@@ -1228,19 +1181,11 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         },
         OutputFormat::Dot => match query {
             Query::ExportOrgJson | Query::ExportOrgDot => Query::ExportOrgDot,
-            _ => {
-                return Err(anyhow!(
-                    "--format dot is only supported for graph.org queries"
-                ))
-            }
+            _ => return Err(anyhow!("--format dot is only supported for graph.org queries")),
         },
         OutputFormat::Csv => match query {
             Query::ExportFeatures | Query::ExportFeaturesJson => Query::ExportFeatures,
-            _ => {
-                return Err(anyhow!(
-                    "--format csv is only supported for features queries"
-                ))
-            }
+            _ => return Err(anyhow!("--format csv is only supported for features queries")),
         },
         OutputFormat::Text | OutputFormat::Readable => match query {
             Query::ExportOrgJson => Query::ExportOrgDot,
@@ -1289,16 +1234,13 @@ fn filter_findings_by_severity(value: serde_json::Value) -> serde_json::Value {
         serde_json::Value::Array(entries) => serde_json::Value::Array(
             entries
                 .into_iter()
-                .filter(
-                    |entry| match entry.get("severity").and_then(|v| v.as_str()) {
-                        Some("Info") | Some("Low") => false,
-                        Some(other) => {
-                            !other.eq_ignore_ascii_case("info")
-                                && !other.eq_ignore_ascii_case("low")
-                        }
-                        None => true,
-                    },
-                )
+                .filter(|entry| match entry.get("severity").and_then(|v| v.as_str()) {
+                    Some("Info") | Some("Low") => false,
+                    Some(other) => {
+                        !other.eq_ignore_ascii_case("info") && !other.eq_ignore_ascii_case("low")
+                    }
+                    None => true,
+                })
                 .collect(),
         ),
         other => other,
@@ -1341,16 +1283,9 @@ fn summarize_chain_edges(chain: &mut serde_json::Value, level: ChainSummaryLevel
     let original_count = chain
         .get("edges")
         .and_then(|v| v.as_array().map(|arr| arr.len()))
-        .or_else(|| {
-            chain
-                .get("length")
-                .and_then(|v| v.as_u64().map(|n| n as usize))
-        })
+        .or_else(|| chain.get("length").and_then(|v| v.as_u64().map(|n| n as usize)))
         .unwrap_or(0);
-    let risk_score = chain
-        .get("risk_score")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
+    let risk_score = chain.get("risk_score").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let threshold = (risk_score * 0.4).max(0.25);
 
     let mut summary_entry = None;
@@ -1385,11 +1320,7 @@ fn summarize_chain_edges(chain: &mut serde_json::Value, level: ChainSummaryLevel
 }
 
 fn should_keep_edge(edge: &serde_json::Value, threshold: f64) -> bool {
-    if edge
-        .get("suspicious")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
+    if edge.get("suspicious").and_then(|v| v.as_bool()).unwrap_or(false) {
         return true;
     }
     if let Some(weight) = edge.get("weight").and_then(|v| v.as_f64()) {
@@ -1510,22 +1441,16 @@ pub fn execute_query_with_context(
                 let encrypted = is_encrypted(ctx)?;
                 Ok(QueryResult::Scalar(ScalarValue::Boolean(encrypted)))
             }
-            Query::Filesize => Ok(QueryResult::Scalar(ScalarValue::Number(
-                ctx.bytes.len() as i64
-            ))),
+            Query::Filesize => Ok(QueryResult::Scalar(ScalarValue::Number(ctx.bytes.len() as i64))),
             Query::FindingsCount => {
                 let findings = run_detectors(ctx)?;
                 let filtered = filter_findings(findings, predicate);
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    filtered.len() as i64
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(filtered.len() as i64)))
             }
             Query::FindingsBySeverity(severity) => {
                 let findings = run_detectors(ctx)?;
-                let filtered: Vec<sis_pdf_core::model::Finding> = findings
-                    .into_iter()
-                    .filter(|f| &f.severity == severity)
-                    .collect();
+                let filtered: Vec<sis_pdf_core::model::Finding> =
+                    findings.into_iter().filter(|f| &f.severity == severity).collect();
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
@@ -1541,9 +1466,7 @@ pub fn execute_query_with_context(
                 let filtered: Vec<sis_pdf_core::model::Finding> =
                     findings.into_iter().filter(|f| f.kind == *kind).collect();
                 let filtered = filter_findings(filtered, predicate);
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    filtered.len() as i64
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(filtered.len() as i64)))
             }
             Query::Findings => {
                 let findings = run_detectors(ctx)?;
@@ -1603,23 +1526,17 @@ pub fn execute_query_with_context(
             }
             Query::EncryptionWeak => {
                 let findings = run_detectors(ctx)?;
-                let filtered: Vec<_> = findings
-                    .into_iter()
-                    .filter(|f| f.kind == "crypto_weak_algo")
-                    .collect();
+                let filtered: Vec<_> =
+                    findings.into_iter().filter(|f| f.kind == "crypto_weak_algo").collect();
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
             Query::EncryptionWeakCount => {
                 let findings = run_detectors(ctx)?;
-                let filtered: Vec<_> = findings
-                    .into_iter()
-                    .filter(|f| f.kind == "crypto_weak_algo")
-                    .collect();
+                let filtered: Vec<_> =
+                    findings.into_iter().filter(|f| f.kind == "crypto_weak_algo").collect();
                 let filtered = filter_findings(filtered, predicate);
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    filtered.len() as i64
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(filtered.len() as i64)))
             }
             Query::JavaScript => {
                 if predicate.is_some() {
@@ -1646,9 +1563,7 @@ pub fn execute_query_with_context(
                     ensure_predicate_supported(query)?;
                 }
                 let js_code = extract_javascript(ctx, decode_mode, predicate)?;
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    js_code.len() as i64
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(js_code.len() as i64)))
             }
             Query::Urls => {
                 let urls = extract_urls(ctx, predicate)?;
@@ -1683,9 +1598,7 @@ pub fn execute_query_with_context(
                     ensure_predicate_supported(query)?;
                 }
                 let embedded = extract_embedded_files(ctx, decode_mode, predicate)?;
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    embedded.len() as i64
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(embedded.len() as i64)))
             }
             Query::XfaForms => {
                 if predicate.is_some() {
@@ -1719,9 +1632,7 @@ pub fn execute_query_with_context(
                     ensure_predicate_supported(query)?;
                 }
                 let scripts = extract_xfa_scripts(ctx, predicate)?;
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    scripts.len() as i64
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(scripts.len() as i64)))
             }
             Query::SwfContent => {
                 if predicate.is_some() {
@@ -1748,19 +1659,15 @@ pub fn execute_query_with_context(
                     ensure_predicate_supported(query)?;
                 }
                 let entries = collect_swf_content(ctx, max_extract_bytes, decode_mode, predicate)?;
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    entries.len() as i64
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(entries.len() as i64)))
             }
             Query::SwfActionScript => {
                 if predicate.is_some() {
                     ensure_predicate_supported(query)?;
                 }
                 let entries = collect_swf_content(ctx, max_extract_bytes, decode_mode, predicate)?;
-                let scripts: Vec<_> = entries
-                    .into_iter()
-                    .filter(|entry| !entry.action_tags.is_empty())
-                    .collect();
+                let scripts: Vec<_> =
+                    entries.into_iter().filter(|entry| !entry.action_tags.is_empty()).collect();
                 let lines = scripts.iter().map(format_swf_summary).collect();
                 Ok(QueryResult::List(lines))
             }
@@ -1769,13 +1676,9 @@ pub fn execute_query_with_context(
                     ensure_predicate_supported(query)?;
                 }
                 let entries = collect_swf_content(ctx, max_extract_bytes, decode_mode, predicate)?;
-                let script_count = entries
-                    .into_iter()
-                    .filter(|entry| !entry.action_tags.is_empty())
-                    .count();
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    script_count as i64,
-                )))
+                let script_count =
+                    entries.into_iter().filter(|entry| !entry.action_tags.is_empty()).count();
+                Ok(QueryResult::Scalar(ScalarValue::Number(script_count as i64)))
             }
             Query::SwfStreams => {
                 if predicate.is_some() {
@@ -1801,9 +1704,7 @@ pub fn execute_query_with_context(
                     ensure_predicate_supported(query)?;
                 }
                 let streams = extract_swf_streams(ctx, max_extract_bytes, decode_mode, predicate)?;
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    streams.len() as i64
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(streams.len() as i64)))
             }
             Query::Images => {
                 if predicate.is_some() {
@@ -1828,9 +1729,7 @@ pub fn execute_query_with_context(
                     ensure_predicate_supported(query)?;
                 }
                 let images = extract_images(ctx, decode_mode, max_extract_bytes, predicate)?;
-                Ok(QueryResult::Scalar(
-                    ScalarValue::Number(images.len() as i64),
-                ))
+                Ok(QueryResult::Scalar(ScalarValue::Number(images.len() as i64)))
             }
             Query::Stream(obj, gen) => {
                 if predicate.is_some() {
@@ -1871,17 +1770,13 @@ pub fn execute_query_with_context(
                     let filter_label = filter_name(&stream.dict).unwrap_or_default();
                     let subtype = subtype_name(&stream.dict);
                     let mut predicate_meta = HashMap::new();
-                    predicate_meta.insert(
-                        "sample_size_bytes".into(),
-                        analysis.sample_bytes.to_string(),
-                    );
+                    predicate_meta
+                        .insert("sample_size_bytes".into(), analysis.sample_bytes.to_string());
                     predicate_meta
                         .insert("stream.size_bytes".into(), analysis.size_bytes.to_string());
                     predicate_meta.insert("stream.magic_type".into(), analysis.magic_type.clone());
-                    predicate_meta.insert(
-                        "stream.sample_timed_out".into(),
-                        analysis.timed_out.to_string(),
-                    );
+                    predicate_meta
+                        .insert("stream.sample_timed_out".into(), analysis.timed_out.to_string());
                     let predicate_context = PredicateContext {
                         length: decoded.data.len(),
                         filter: Some(filter_label.clone()),
@@ -1907,10 +1802,7 @@ pub fn execute_query_with_context(
                         action_initiation: None,
                         meta: predicate_meta,
                     };
-                    if predicate
-                        .map(|pred| pred.evaluate(&predicate_context))
-                        .unwrap_or(true)
-                    {
+                    if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
                         let filter_display = if filter_label.is_empty() {
                             "none".to_string()
                         } else {
@@ -1955,9 +1847,7 @@ pub fn execute_query_with_context(
                     max_extract_bytes,
                     predicate,
                 )?;
-                Ok(QueryResult::Scalar(
-                    ScalarValue::Number(images.len() as i64),
-                ))
+                Ok(QueryResult::Scalar(ScalarValue::Number(images.len() as i64)))
             }
             Query::ImagesJpx => {
                 if predicate.is_some() {
@@ -1983,9 +1873,7 @@ pub fn execute_query_with_context(
                     max_extract_bytes,
                     predicate,
                 )?;
-                Ok(QueryResult::Scalar(
-                    ScalarValue::Number(images.len() as i64),
-                ))
+                Ok(QueryResult::Scalar(ScalarValue::Number(images.len() as i64)))
             }
             Query::ImagesCcitt => {
                 if predicate.is_some() {
@@ -2011,9 +1899,7 @@ pub fn execute_query_with_context(
                     max_extract_bytes,
                     predicate,
                 )?;
-                Ok(QueryResult::Scalar(
-                    ScalarValue::Number(images.len() as i64),
-                ))
+                Ok(QueryResult::Scalar(ScalarValue::Number(images.len() as i64)))
             }
             Query::ImagesRisky => {
                 if predicate.is_some() {
@@ -2027,9 +1913,7 @@ pub fn execute_query_with_context(
                     ensure_predicate_supported(query)?;
                 }
                 let images = extract_images_risky(ctx, decode_mode, max_extract_bytes, predicate)?;
-                Ok(QueryResult::Scalar(
-                    ScalarValue::Number(images.len() as i64),
-                ))
+                Ok(QueryResult::Scalar(ScalarValue::Number(images.len() as i64)))
             }
             Query::ImagesMalformed => {
                 if predicate.is_some() {
@@ -2045,19 +1929,14 @@ pub fn execute_query_with_context(
                 }
                 let images =
                     extract_images_malformed(ctx, decode_mode, max_extract_bytes, predicate)?;
-                Ok(QueryResult::Scalar(
-                    ScalarValue::Number(images.len() as i64),
-                ))
+                Ok(QueryResult::Scalar(ScalarValue::Number(images.len() as i64)))
             }
             Query::Media3D => {
                 if predicate.is_some() {
                     ensure_predicate_supported(query)?;
                 }
                 let entries = collect_media_3d_entries(ctx, predicate)?;
-                let lines = entries
-                    .iter()
-                    .map(|entry| format_media_summary("3D", entry))
-                    .collect();
+                let lines = entries.iter().map(|entry| format_media_summary("3D", entry)).collect();
                 Ok(QueryResult::List(lines))
             }
             Query::Media3DCount => {
@@ -2065,19 +1944,15 @@ pub fn execute_query_with_context(
                     ensure_predicate_supported(query)?;
                 }
                 let entries = collect_media_3d_entries(ctx, predicate)?;
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    entries.len() as i64
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(entries.len() as i64)))
             }
             Query::MediaAudio => {
                 if predicate.is_some() {
                     ensure_predicate_supported(query)?;
                 }
                 let entries = collect_media_audio_entries(ctx, predicate)?;
-                let lines = entries
-                    .iter()
-                    .map(|entry| format_media_summary("MediaAudio", entry))
-                    .collect();
+                let lines =
+                    entries.iter().map(|entry| format_media_summary("MediaAudio", entry)).collect();
                 Ok(QueryResult::List(lines))
             }
             Query::MediaAudioCount => {
@@ -2085,9 +1960,7 @@ pub fn execute_query_with_context(
                     ensure_predicate_supported(query)?;
                 }
                 let entries = collect_media_audio_entries(ctx, predicate)?;
-                Ok(QueryResult::Scalar(ScalarValue::Number(
-                    entries.len() as i64
-                )))
+                Ok(QueryResult::Scalar(ScalarValue::Number(entries.len() as i64)))
             }
             Query::Created => {
                 let created = get_metadata_field(ctx, "CreationDate")?;
@@ -2129,10 +2002,7 @@ pub fn execute_query_with_context(
             }
             Query::ChainsCount => {
                 let chains = list_action_chains(ctx, predicate)?;
-                let count = chains
-                    .get("count")
-                    .and_then(|value| value.as_u64())
-                    .unwrap_or(0);
+                let count = chains.get("count").and_then(|value| value.as_u64()).unwrap_or(0);
                 Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
             }
             Query::ChainsJs => {
@@ -2273,14 +2143,7 @@ pub fn execute_query(
     };
 
     // Delegate to execute_query_with_context
-    execute_query_with_context(
-        query,
-        &ctx,
-        extract_to,
-        max_extract_bytes,
-        decode_mode,
-        predicate,
-    )
+    execute_query_with_context(query, &ctx, extract_to, max_extract_bytes, decode_mode, predicate)
 }
 
 /// Scan options for query execution
@@ -2369,11 +2232,7 @@ fn build_scan_context<'a>(
         },
     )?;
 
-    Ok(sis_pdf_core::scan::ScanContext::new(
-        bytes,
-        graph,
-        scan_options,
-    ))
+    Ok(sis_pdf_core::scan::ScanContext::new(bytes, graph, scan_options))
 }
 
 fn count_pages(ctx: &ScanContext) -> Result<usize> {
@@ -2627,17 +2486,13 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
         let mut severity_counts: HashMap<String, usize> = HashMap::new();
         let mut surface_counts: HashMap<String, usize> = HashMap::new();
         for entry in entries.iter().filter_map(|value| value.as_object()) {
-            if let Some(severity) = entry
-                .get("severity")
-                .and_then(|value| value.as_str())
-                .map(|s| s.to_string())
+            if let Some(severity) =
+                entry.get("severity").and_then(|value| value.as_str()).map(|s| s.to_string())
             {
                 *severity_counts.entry(severity).or_insert(0) += 1;
             }
-            if let Some(surface) = entry
-                .get("surface")
-                .and_then(|value| value.as_str())
-                .map(|s| s.to_string())
+            if let Some(surface) =
+                entry.get("surface").and_then(|value| value.as_str()).map(|s| s.to_string())
             {
                 *surface_counts.entry(surface).or_insert(0) += 1;
             }
@@ -2647,16 +2502,10 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
         }
         let mut summary_map = serde_json::Map::new();
         if !severity_counts.is_empty() {
-            summary_map.insert(
-                "findings_by_severity".into(),
-                serde_json::json!(severity_counts),
-            );
+            summary_map.insert("findings_by_severity".into(), serde_json::json!(severity_counts));
         }
         if !surface_counts.is_empty() {
-            summary_map.insert(
-                "findings_by_surface".into(),
-                serde_json::json!(surface_counts),
-            );
+            summary_map.insert("findings_by_surface".into(), serde_json::json!(surface_counts));
         }
         return Some(serde_json::Value::Object(summary_map));
     }
@@ -2734,10 +2583,8 @@ fn extract_urls(ctx: &ScanContext, predicate: Option<&PredicateExpr>) -> Result<
     urls.dedup();
 
     if let Some(pred) = predicate {
-        let filtered = urls
-            .into_iter()
-            .filter(|url| pred.evaluate(&predicate_context_for_url(url)))
-            .collect();
+        let filtered =
+            urls.into_iter().filter(|url| pred.evaluate(&predicate_context_for_url(url))).collect();
         Ok(filtered)
     } else {
         Ok(urls)
@@ -3046,14 +2893,8 @@ fn collect_swf_content(
             decompressed_bytes = analysis.decompressed_body_len;
             action_tags = analysis.action_scan.action_tags.clone();
             meta.insert("swf.version".into(), detected_version.to_string());
-            meta.insert(
-                "swf.decompressed_bytes".into(),
-                decompressed_bytes.to_string(),
-            );
-            meta.insert(
-                "swf.declared_length".into(),
-                analysis.header.file_length.to_string(),
-            );
+            meta.insert("swf.decompressed_bytes".into(), decompressed_bytes.to_string());
+            meta.insert("swf.declared_length".into(), analysis.header.file_length.to_string());
             meta.insert("swf.action_tag_count".into(), action_tags.len().to_string());
             if !action_tags.is_empty() {
                 meta.insert("swf.action_tags".into(), action_tags.join(","));
@@ -3086,10 +2927,7 @@ fn collect_swf_content(
             meta: meta.clone(),
         };
 
-        if predicate
-            .map(|pred| pred.evaluate(&predicate_context))
-            .unwrap_or(true)
-        {
+        if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
             entries.push(SwfContentEntry {
                 name,
                 filter,
@@ -3118,11 +2956,8 @@ fn format_swf_summary(entry: &SwfContentEntry) -> String {
         parts.push(format!("declared={}", declared));
     }
     parts.push(format!("decompressed={}", entry.decompressed_bytes));
-    let actions = if entry.action_tags.is_empty() {
-        "none".to_string()
-    } else {
-        entry.action_tags.join(",")
-    };
+    let actions =
+        if entry.action_tags.is_empty() { "none".to_string() } else { entry.action_tags.join(",") };
     parts.push(format!("actions=[{}]", actions));
     parts.join(", ")
 }
@@ -3201,16 +3036,8 @@ fn collect_media_3d_entries(
             action_initiation: None,
             meta,
         };
-        if predicate
-            .map(|pred| pred.evaluate(&predicate_context))
-            .unwrap_or(true)
-        {
-            entries.push(MediaContentEntry {
-                name,
-                media_type,
-                size_bytes,
-                filter,
-            });
+        if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
+            entries.push(MediaContentEntry { name, media_type, size_bytes, filter });
         }
     }
     Ok(entries)
@@ -3281,16 +3108,8 @@ fn collect_media_audio_entries(
             action_initiation: None,
             meta,
         };
-        if predicate
-            .map(|pred| pred.evaluate(&predicate_context))
-            .unwrap_or(true)
-        {
-            entries.push(MediaContentEntry {
-                name,
-                media_type,
-                size_bytes,
-                filter,
-            });
+        if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
+            entries.push(MediaContentEntry { name, media_type, size_bytes, filter });
         }
     }
     Ok(entries)
@@ -3457,25 +3276,17 @@ fn write_stream_object(
     let (filename, output_bytes, mode_label) = match decode_mode {
         DecodeMode::Decode => (format!("{base_name}.bin"), data.clone(), "decode"),
         DecodeMode::Raw => (format!("{base_name}.raw"), data.clone(), "raw"),
-        DecodeMode::Hexdump => (
-            format!("{base_name}.hex"),
-            format_hexdump(&data).into_bytes(),
-            "hexdump",
-        ),
+        DecodeMode::Hexdump => {
+            (format!("{base_name}.hex"), format_hexdump(&data).into_bytes(), "hexdump")
+        }
     };
     let filepath = extract_to.join(&filename);
     let hash = sha256_hex(&data);
 
     fs::write(&filepath, &output_bytes)?;
 
-    let mut info = format!(
-        "{}: {} bytes, sha256={}, object={}_{}",
-        filename,
-        data.len(),
-        hash,
-        obj,
-        gen
-    );
+    let mut info =
+        format!("{}: {} bytes, sha256={}, object={}_{}", filename, data.len(), hash, obj, gen);
     info.push_str(&format!(", mode={}", mode_label));
     if decode_mode == DecodeMode::Hexdump {
         info.push_str(&format!(", hexdump_bytes={}", output_bytes.len()));
@@ -3502,13 +3313,7 @@ fn preview_stream_object(
 
     let data = stream_bytes_for_mode(ctx.bytes, stream, max_bytes, decode_mode)?;
     let hash = sha256_hex(&data);
-    let mut info = format!(
-        "stream {}_{}: {} bytes, sha256={}",
-        obj,
-        gen,
-        data.len(),
-        hash
-    );
+    let mut info = format!("stream {}_{}: {} bytes, sha256={}", obj, gen, data.len(), hash);
 
     match decode_mode {
         DecodeMode::Decode | DecodeMode::Raw => {
@@ -3577,10 +3382,7 @@ impl ImageFormat {
     }
 
     fn risky(self) -> bool {
-        matches!(
-            self,
-            ImageFormat::Jbig2 | ImageFormat::Jpx | ImageFormat::Ccitt
-        )
+        matches!(self, ImageFormat::Jbig2 | ImageFormat::Jpx | ImageFormat::Ccitt)
     }
 }
 
@@ -3648,11 +3450,7 @@ fn collect_images(
         };
         let entropy = entropy_score(&data);
         let (width, height) = image_dimensions(&stream.dict);
-        let pixels = if width > 0 && height > 0 {
-            width as u64 * height as u64
-        } else {
-            0
-        };
+        let pixels = if width > 0 && height > 0 { width as u64 * height as u64 } else { 0 };
         let format = detect_image_format(&stream.dict, &raw_data);
         let filter = image_filter_label(&stream.dict);
         let ctx_meta = PredicateContext {
@@ -3680,10 +3478,7 @@ fn collect_images(
             action_initiation: None,
             meta: HashMap::new(),
         };
-        if predicate
-            .map(|pred| pred.evaluate(&ctx_meta))
-            .unwrap_or(true)
-        {
+        if predicate.map(|pred| pred.evaluate(&ctx_meta)).unwrap_or(true) {
             images.push(ImageInfo {
                 obj: entry.obj,
                 gen: entry.gen,
@@ -3842,11 +3637,9 @@ fn write_image_files(
                 "decode",
             ),
             DecodeMode::Raw => (format!("{base_name}.raw"), image.raw_data.clone(), "raw"),
-            DecodeMode::Hexdump => (
-                format!("{base_name}.hex"),
-                format_hexdump(&image.data).into_bytes(),
-                "hexdump",
-            ),
+            DecodeMode::Hexdump => {
+                (format!("{base_name}.hex"), format_hexdump(&image.data).into_bytes(), "hexdump")
+            }
         };
         let filepath = extract_to.join(&filename);
         fs::write(&filepath, &output_bytes)?;
@@ -3951,12 +3744,9 @@ fn image_filter_names(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> Option<Vec<Vec
 fn image_filter_label(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> Option<String> {
     let (_, filter) = dict.get_first(b"/Filter")?;
     match &filter.atom {
-        sis_pdf_pdf::object::PdfAtom::Name(name) => Some(
-            String::from_utf8_lossy(&name.decoded)
-                .trim()
-                .trim_start_matches('/')
-                .to_string(),
-        ),
+        sis_pdf_pdf::object::PdfAtom::Name(name) => {
+            Some(String::from_utf8_lossy(&name.decoded).trim().trim_start_matches('/').to_string())
+        }
         sis_pdf_pdf::object::PdfAtom::Array(items) => {
             let mut out = Vec::new();
             for item in items {
@@ -4162,22 +3952,8 @@ fn extract_aa_events(
 
     if let PdfAtom::Dict(ref aa_dict) = aa_obj.atom {
         let event_types = vec![
-            (
-                b"/O" as &[u8],
-                if level == "page" {
-                    "Page/Open"
-                } else {
-                    "OnFocus"
-                },
-            ),
-            (
-                b"/C",
-                if level == "page" {
-                    "Page/Close"
-                } else {
-                    "OnBlur"
-                },
-            ),
+            (b"/O" as &[u8], if level == "page" { "Page/Open" } else { "OnFocus" }),
+            (b"/C", if level == "page" { "Page/Close" } else { "OnBlur" }),
             (b"/WC", "Doc/WillClose"),
             (b"/WS", "Doc/WillSave"),
             (b"/DS", "Doc/DidSave"),
@@ -4275,32 +4051,19 @@ mod event_tests {
     }
 
     fn pdf_name(name: &'static [u8]) -> PdfName<'static> {
-        PdfName {
-            span: span(),
-            raw: Cow::Borrowed(name),
-            decoded: name.to_vec(),
-        }
+        PdfName { span: span(), raw: Cow::Borrowed(name), decoded: name.to_vec() }
     }
 
     fn pdf_ref(obj: u32, gen: u16) -> PdfObj<'static> {
-        PdfObj {
-            span: span(),
-            atom: PdfAtom::Ref { obj, gen },
-        }
+        PdfObj { span: span(), atom: PdfAtom::Ref { obj, gen } }
     }
 
     fn pdf_name_obj(name: &'static [u8]) -> PdfObj<'static> {
-        PdfObj {
-            span: span(),
-            atom: PdfAtom::Name(pdf_name(name)),
-        }
+        PdfObj { span: span(), atom: PdfAtom::Name(pdf_name(name)) }
     }
 
     fn pdf_dict(entries: Vec<(PdfName<'static>, PdfObj<'static>)>) -> PdfDict<'static> {
-        PdfDict {
-            span: span(),
-            entries,
-        }
+        PdfDict { span: span(), entries }
     }
 
     fn obj_entry(obj: u32, gen: u16) -> ObjEntry<'static> {
@@ -4406,10 +4169,7 @@ mod event_tests {
         let action_dict = pdf_dict(vec![(pdf_name(b"/Type"), pdf_name_obj(b"/Action"))]);
         let graph = build_graph(
             vec![],
-            vec![
-                obj_entry_with_dict(1, 0, catalog_dict),
-                obj_entry_with_dict(2, 0, action_dict),
-            ],
+            vec![obj_entry_with_dict(1, 0, catalog_dict), obj_entry_with_dict(2, 0, action_dict)],
         );
         let ctx = ScanContext::new(&[], graph, scan_options());
         let events = extract_event_triggers(&ctx, None, None).expect("events should be extracted");
@@ -4432,9 +4192,9 @@ fn extract_action_details(
     if let Some(dict) = match &action_obj.atom {
         PdfAtom::Dict(d) => Some(d),
         PdfAtom::Stream(st) => Some(&st.dict),
-        PdfAtom::Ref { obj, gen } => graph
-            .get_object(*obj, *gen)
-            .and_then(|entry| entry_dict(entry)),
+        PdfAtom::Ref { obj, gen } => {
+            graph.get_object(*obj, *gen).and_then(|entry| entry_dict(entry))
+        }
         _ => None,
     } {
         // Check action type
@@ -4548,16 +4308,10 @@ fn canonical_diff_json(ctx: &ScanContext) -> serde_json::Value {
 
     let removed_total = removed_entries.len();
     let name_change_total = name_changes.len();
-    let removed_sample = removed_entries
-        .iter()
-        .take(CANONICAL_DIFF_SAMPLE_LIMIT)
-        .cloned()
-        .collect::<Vec<_>>();
-    let name_sample = name_changes
-        .iter()
-        .take(CANONICAL_DIFF_SAMPLE_LIMIT)
-        .cloned()
-        .collect::<Vec<_>>();
+    let removed_sample =
+        removed_entries.iter().take(CANONICAL_DIFF_SAMPLE_LIMIT).cloned().collect::<Vec<_>>();
+    let name_sample =
+        name_changes.iter().take(CANONICAL_DIFF_SAMPLE_LIMIT).cloned().collect::<Vec<_>>();
 
     json!({
         "summary": {
@@ -4707,10 +4461,7 @@ fn resolve_xfa_payload(
         PdfAtom::Stream(stream) => {
             let result = decode_stream_with_meta(graph.bytes, stream, limits);
             if let Some(data) = result.data {
-                out.push(XfaPayloadMeta {
-                    bytes: data,
-                    ref_chain: format_ref_chain(&ref_chain),
-                });
+                out.push(XfaPayloadMeta { bytes: data, ref_chain: format_ref_chain(&ref_chain) });
             }
         }
         PdfAtom::Ref { .. } => {
@@ -5005,10 +4756,7 @@ fn predicate_context_for_url(url: &str) -> PredicateContext {
 fn predicate_context_for_event(event: &serde_json::Value) -> Option<PredicateContext> {
     let level = event.get("level")?.as_str()?;
     let event_type = event.get("event_type")?.as_str()?;
-    let details = event
-        .get("action_details")
-        .and_then(|value| value.as_str())
-        .unwrap_or_default();
+    let details = event.get("action_details").and_then(|value| value.as_str()).unwrap_or_default();
     let bytes = details.as_bytes();
     Some(PredicateContext {
         length: bytes.len(),
@@ -5147,21 +4895,13 @@ fn surface_to_string(surface: &sis_pdf_core::model::AttackSurface) -> String {
 fn build_query_error(err: anyhow::Error) -> QueryError {
     let message = err.to_string();
     let (error_code, context) = classify_query_error(&message);
-    QueryError {
-        status: "error",
-        error_code,
-        message,
-        context,
-    }
+    QueryError { status: "error", error_code, message, context }
 }
 
 fn classify_query_error(message: &str) -> (&'static str, Option<serde_json::Value>) {
     let lower = message.to_ascii_lowercase();
     if let Some((obj, gen)) = parse_object_not_found(message) {
-        return (
-            "OBJ_NOT_FOUND",
-            Some(json!({ "requested": format!("{obj} {gen}") })),
-        );
+        return ("OBJ_NOT_FOUND", Some(json!({ "requested": format!("{obj} {gen}") })));
     }
     if lower.contains("invalid query")
         || lower.contains("failed to parse query")
@@ -5211,11 +4951,7 @@ fn filter_findings(
 }
 
 fn is_composite(finding: &sis_pdf_core::model::Finding) -> bool {
-    finding
-        .meta
-        .get("is_composite")
-        .map(|value| value == "true")
-        .unwrap_or(false)
+    finding.meta.get("is_composite").map(|value| value == "true").unwrap_or(false)
 }
 
 fn embedded_filename(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> Option<String> {
@@ -5420,10 +5156,7 @@ fn sanitize_embedded_filename(name: &str) -> String {
     use std::path::Path;
 
     // Extract just the filename, removing any path components
-    let leaf = Path::new(name)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("embedded.bin");
+    let leaf = Path::new(name).file_name().and_then(|s| s.to_str()).unwrap_or("embedded.bin");
 
     // Filter to safe characters only
     let mut out = String::new();
@@ -5534,11 +5267,7 @@ fn write_js_files(
         }
     }
 
-    eprintln!(
-        "Extracted {} JavaScript file(s) to {}",
-        count,
-        extract_to.display()
-    );
+    eprintln!("Extracted {} JavaScript file(s) to {}", count, extract_to.display());
     Ok(written_files)
 }
 
@@ -5684,11 +5413,7 @@ fn format_hexdump(data: &[u8]) -> String {
         }
         output.push_str(" |");
         for &byte in chunk {
-            let ch = if byte.is_ascii_graphic() || byte == b' ' {
-                byte as char
-            } else {
-                '.'
-            };
+            let ch = if byte.is_ascii_graphic() || byte == b' ' { byte as char } else { '.' };
             output.push(ch);
         }
         output.push_str("|\n");
@@ -5800,11 +5525,8 @@ fn list_objects_with_type(
     use sis_pdf_pdf::object::PdfAtom;
 
     let mut objects = Vec::new();
-    let search_type = if obj_type.starts_with('/') {
-        obj_type.to_string()
-    } else {
-        format!("/{}", obj_type)
-    };
+    let search_type =
+        if obj_type.starts_with('/') { obj_type.to_string() } else { format!("/{}", obj_type) };
 
     for entry in &ctx.graph.objects {
         if let Some(pred) = predicate {
@@ -5952,10 +5674,7 @@ fn list_xfa_forms(
         .enumerate()
         .filter(|(_, record)| xfa_form_matches_predicate(record, predicate))
         .collect();
-    let forms: Vec<_> = filtered
-        .iter()
-        .map(|(_, record)| format_xfa_record(record))
-        .collect();
+    let forms: Vec<_> = filtered.iter().map(|(_, record)| format_xfa_record(record)).collect();
     Ok(json!({
         "type": "xfa",
         "count": forms.len(),
@@ -5965,9 +5684,7 @@ fn list_xfa_forms(
 }
 
 fn xfa_form_matches_predicate(record: &XfaFormRecord, predicate: Option<&PredicateExpr>) -> bool {
-    predicate
-        .map(|pred| pred.evaluate(&predicate_context_for_xfa_form(record)))
-        .unwrap_or(true)
+    predicate.map(|pred| pred.evaluate(&predicate_context_for_xfa_form(record))).unwrap_or(true)
 }
 
 fn predicate_context_for_xfa_form(record: &XfaFormRecord) -> PredicateContext {
@@ -5980,10 +5697,7 @@ fn predicate_context_for_xfa_form(record: &XfaFormRecord) -> PredicateContext {
         meta.insert("submit_urls".into(), encode_array(&record.submit_urls));
     }
     if !record.sensitive_fields.is_empty() {
-        meta.insert(
-            "sensitive_fields".into(),
-            encode_array(&record.sensitive_fields),
-        );
+        meta.insert("sensitive_fields".into(), encode_array(&record.sensitive_fields));
     }
     if let Some(preview) = &record.script_preview {
         meta.insert("script_preview".into(), preview.clone());
@@ -6101,14 +5815,7 @@ fn list_page_cycles(ctx: &ScanContext) -> Result<serde_json::Value> {
     let mut path_set = HashSet::new();
 
     for node in page_nodes {
-        dfs_page_cycles(
-            node,
-            &typed_graph,
-            &mut path,
-            &mut path_set,
-            &mut cycles,
-            &mut seen,
-        );
+        dfs_page_cycles(node, &typed_graph, &mut path, &mut path_set, &mut cycles, &mut seen);
         path.clear();
         path_set.clear();
     }
@@ -6241,11 +5948,7 @@ fn normalize_cycle(cycle: &[(u32, u16)]) -> Vec<(u32, u16)> {
 }
 
 fn cycle_key(cycle: &[(u32, u16)]) -> String {
-    cycle
-        .iter()
-        .map(|(obj, gen)| format!("{obj}:{gen}"))
-        .collect::<Vec<_>>()
-        .join("->")
+    cycle.iter().map(|(obj, gen)| format!("{obj}:{gen}")).collect::<Vec<_>>().join("->")
 }
 
 /// Helper function for DFS cycle detection
@@ -6345,18 +6048,11 @@ where
                 group_count: group.group_count,
                 group_members: group.group_members.clone(),
             };
-            values.push(chain_to_json(
-                group.representative.0,
-                group.representative.1,
-                Some(&meta),
-            ));
+            values.push(chain_to_json(group.representative.0, group.representative.1, Some(&meta)));
         }
         values
     } else {
-        items
-            .iter()
-            .map(|(idx, chain)| chain_to_json(*idx, chain, None))
-            .collect()
+        items.iter().map(|(idx, chain)| chain_to_json(*idx, chain, None)).collect()
     };
 
     json!({
@@ -6371,9 +6067,7 @@ fn chain_matches_predicate(
     chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
     predicate: Option<&PredicateExpr>,
 ) -> bool {
-    predicate
-        .map(|pred| pred.evaluate(&predicate_context_for_chain(chain)))
-        .unwrap_or(true)
+    predicate.map(|pred| pred.evaluate(&predicate_context_for_chain(chain))).unwrap_or(true)
 }
 
 fn predicate_context_for_chain(
@@ -6382,29 +6076,11 @@ fn predicate_context_for_chain(
     let mut meta = HashMap::new();
     meta.insert("depth".into(), chain.length().to_string());
     meta.insert("trigger".into(), chain.trigger.as_str().to_string());
-    meta.insert(
-        "automatic".into(),
-        if chain.automatic {
-            "true".into()
-        } else {
-            "false".into()
-        },
-    );
-    meta.insert(
-        "has_js".into(),
-        if chain.involves_js {
-            "true".into()
-        } else {
-            "false".into()
-        },
-    );
+    meta.insert("automatic".into(), if chain.automatic { "true".into() } else { "false".into() });
+    meta.insert("has_js".into(), if chain.involves_js { "true".into() } else { "false".into() });
     meta.insert(
         "has_external".into(),
-        if chain.involves_external {
-            "true".into()
-        } else {
-            "false".into()
-        },
+        if chain.involves_external { "true".into() } else { "false".into() },
     );
 
     PredicateContext {
@@ -6442,11 +6118,7 @@ fn chain_to_json(
     let edges: Vec<_> = chain.edges.iter().map(|edge| edge_to_json(edge)).collect();
     let payload = chain.payload.map(|(obj, gen)| ref_to_json((obj, gen)));
     let (group_id, group_count, group_members) = if let Some(meta) = group_meta {
-        (
-            Some(meta.group_id.clone()),
-            meta.group_count,
-            meta.group_members.clone(),
-        )
+        (Some(meta.group_id.clone()), meta.group_count, meta.group_members.clone())
     } else {
         (Some(format!("chain-{}", idx)), 1, vec![idx])
     };
@@ -6601,11 +6273,8 @@ fn ref_to_json(obj: (u32, u16)) -> serde_json::Value {
 }
 
 fn build_cycles_result(label: &str, cycles: &[Vec<(u32, u16)>]) -> serde_json::Value {
-    let cycle_values: Vec<_> = cycles
-        .iter()
-        .enumerate()
-        .map(|(idx, cycle)| cycle_to_json(idx, cycle))
-        .collect();
+    let cycle_values: Vec<_> =
+        cycles.iter().enumerate().map(|(idx, cycle)| cycle_to_json(idx, cycle)).collect();
 
     json!({
         "type": label,
@@ -6615,10 +6284,7 @@ fn build_cycles_result(label: &str, cycles: &[Vec<(u32, u16)>]) -> serde_json::V
 }
 
 fn cycle_to_json(idx: usize, cycle: &[(u32, u16)]) -> serde_json::Value {
-    let path: Vec<_> = cycle
-        .iter()
-        .map(|&(obj, gen)| ref_to_json((obj, gen)))
-        .collect();
+    let path: Vec<_> = cycle.iter().map(|&(obj, gen)| ref_to_json((obj, gen))).collect();
     json!({
         "id": idx,
         "length": cycle.len(),
@@ -6689,13 +6355,9 @@ pub fn run_query_batch(
 
     // Walk directory and collect matching files
     let iter = if path.is_file() {
-        WalkDir::new(path.parent().unwrap_or(path))
-            .follow_links(false)
-            .max_depth(max_walk_depth)
+        WalkDir::new(path.parent().unwrap_or(path)).follow_links(false).max_depth(max_walk_depth)
     } else {
-        WalkDir::new(path)
-            .follow_links(false)
-            .max_depth(max_walk_depth)
+        WalkDir::new(path).follow_links(false).max_depth(max_walk_depth)
     };
 
     let mut total_bytes = 0u64;
@@ -6727,10 +6389,7 @@ pub fn run_query_batch(
                 message: "Batch query file count exceeded",
             }
             .emit();
-            error!(
-                max_files = max_batch_files,
-                "Batch query file count exceeded"
-            );
+            error!(max_files = max_batch_files, "Batch query file count exceeded");
             return Err(anyhow!("batch file count exceeds limit"));
         }
 
@@ -6771,9 +6430,7 @@ pub fn run_query_batch(
     }
 
     // Process files in parallel using rayon
-    let thread_count = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+    let thread_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
     let use_parallel = thread_count > 1 && paths.len() > 1;
 
     let indexed_paths: Vec<(usize, PathBuf)> = paths.into_iter().enumerate().collect();
@@ -6806,12 +6463,7 @@ pub fn run_query_batch(
             Ok(ctx) => ctx,
             Err(err) => {
                 let detail = err.to_string();
-                log_batch_file_issue(
-                    path_buf,
-                    "batch_invalid_pdf",
-                    SecuritySeverity::Low,
-                    &detail,
-                );
+                log_batch_file_issue(path_buf, "batch_invalid_pdf", SecuritySeverity::Low, &detail);
                 return Ok(None);
             }
         };
@@ -6839,17 +6491,12 @@ pub fn run_query_batch(
         if is_empty {
             Ok(None)
         } else {
-            Ok(Some(BatchResult {
-                path: path_str,
-                result,
-            }))
+            Ok(Some(BatchResult { path: path_str, result }))
         }
     };
 
     let results: Vec<(usize, Option<BatchResult>)> = if use_parallel {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(thread_count)
-            .build();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(thread_count).build();
         match pool {
             Ok(pool) => pool.install(|| {
                 indexed_paths
@@ -6873,10 +6520,8 @@ pub fn run_query_batch(
     };
 
     // Sort by original index to preserve order
-    let mut sorted_results: Vec<_> = results
-        .into_iter()
-        .filter_map(|(idx, res)| res.map(|r| (idx, r)))
-        .collect();
+    let mut sorted_results: Vec<_> =
+        results.into_iter().filter_map(|(idx, res)| res.map(|r| (idx, r))).collect();
     sorted_results.sort_by_key(|(idx, _)| *idx);
 
     // Output results
@@ -6922,11 +6567,7 @@ pub fn run_query_batch(
                         }
                     }
                     QueryResult::Structure(j) => {
-                        println!(
-                            "{}: {}",
-                            batch_result.path,
-                            serde_json::to_string_pretty(&j)?
-                        );
+                        println!("{}: {}", batch_result.path, serde_json::to_string_pretty(&j)?);
                     }
                     QueryResult::Error(err) => {
                         println!("{}: {}", batch_result.path, err.message);
@@ -6959,9 +6600,7 @@ mod tests {
             .parent()
             .and_then(|p| p.parent())
             .expect("workspace root is two levels above crate manifest");
-        let fixture_path = workspace_root
-            .join("crates/sis-pdf-core/tests/fixtures")
-            .join(fixture);
+        let fixture_path = workspace_root.join("crates/sis-pdf-core/tests/fixtures").join(fixture);
         let bytes = std::fs::read(&fixture_path).expect("fixture read");
         let options = ScanOptions::default();
         let ctx = build_scan_context(&bytes, &options).expect("build context");
@@ -6977,9 +6616,7 @@ mod tests {
             .parent()
             .and_then(|p| p.parent())
             .expect("workspace root is two levels above crate manifest");
-        let fixture_path = workspace_root
-            .join("crates/sis-pdf-core/tests/fixtures")
-            .join(fixture);
+        let fixture_path = workspace_root.join("crates/sis-pdf-core/tests/fixtures").join(fixture);
         let bytes = std::fs::read(&fixture_path).expect("fixture read");
         let ctx = build_scan_context(&bytes, &options).expect("build context");
         test(&ctx);
@@ -7216,10 +6853,7 @@ mod tests {
         };
         let edges = body["chains"][0]["edges"].as_array().unwrap();
         assert!(edges.is_empty());
-        assert_eq!(
-            body["chains"][0]["edges_summary"]["level"],
-            json!("minimal")
-        );
+        assert_eq!(body["chains"][0]["edges_summary"]["level"], json!("minimal"));
     }
 
     #[test]
@@ -7428,10 +7062,7 @@ mod tests {
 
     #[test]
     fn images_malformed_query_mentions_jbig2_fixture() {
-        let options = ScanOptions {
-            deep: true,
-            ..Default::default()
-        };
+        let options = ScanOptions { deep: true, ..Default::default() };
         with_fixture_context_opts("images/malformed_jbig2.pdf", options, |ctx| {
             let result = execute_query_with_context(
                 &Query::ImagesMalformed,
@@ -7457,10 +7088,7 @@ mod tests {
 
     #[test]
     fn images_malformed_requires_deep() {
-        let options = ScanOptions {
-            deep: false,
-            ..Default::default()
-        };
+        let options = ScanOptions { deep: false, ..Default::default() };
         with_fixture_context_opts("images/cve-2018-4990-jpx.pdf", options, |ctx| {
             let err = extract_images_malformed(ctx, DecodeMode::Decode, 1024 * 1024, None)
                 .expect_err("malformed requires deep");
@@ -7581,10 +7209,7 @@ mod tests {
             match result {
                 QueryResult::Structure(value) => {
                     let list = value.as_array().expect("array result");
-                    assert!(
-                        !list.is_empty(),
-                        "expected findings after filtering by depth"
-                    );
+                    assert!(!list.is_empty(), "expected findings after filtering by depth");
                 }
                 other => panic!("Unexpected result type: {:?}", other),
             }
@@ -7609,10 +7234,7 @@ mod tests {
             match result {
                 QueryResult::Structure(value) => {
                     let list = value.as_array().expect("array result");
-                    assert!(
-                        !list.is_empty(),
-                        "expected findings after filtering by trigger type"
-                    );
+                    assert!(!list.is_empty(), "expected findings after filtering by trigger type");
                 }
                 other => panic!("Unexpected result type: {:?}", other),
             }
@@ -7693,9 +7315,8 @@ mod tests {
                     );
                     let forms = value["forms"].as_array().expect("forms array");
                     assert!(!forms.is_empty(), "expected non-empty forms list");
-                    let has_scripts = forms
-                        .iter()
-                        .any(|form| form["script_count"].as_u64().unwrap_or(0) > 0);
+                    let has_scripts =
+                        forms.iter().any(|form| form["script_count"].as_u64().unwrap_or(0) > 0);
                     assert!(has_scripts, "expected some forms to report scripts");
                 }
                 other => panic!("Unexpected result type: {:?}", other),
@@ -7992,17 +7613,12 @@ mod tests {
                     let data = std::fs::read(&manifest).expect("read manifest");
                     let entries: Vec<serde_json::Value> =
                         serde_json::from_slice(&data).expect("parse manifest");
-                    let script_entries = list
-                        .iter()
-                        .filter(|line| !line.starts_with("manifest.json"))
-                        .count();
+                    let script_entries =
+                        list.iter().filter(|line| !line.starts_with("manifest.json")).count();
                     assert_eq!(entries.len(), script_entries);
                     let first = &entries[0];
                     assert!(
-                        first["sha256"]
-                            .as_str()
-                            .map(|s| s.len() == 64)
-                            .unwrap_or(false),
+                        first["sha256"].as_str().map(|s| s.len() == 64).unwrap_or(false),
                         "sha256 length"
                     );
                     assert!(
@@ -8056,11 +7672,8 @@ mod tests {
             temp.path().join("sample-xfa.pdf"),
         )
         .expect("copy xfa");
-        std::fs::copy(
-            root.join("media/swf_cve_2011_0611.pdf"),
-            temp.path().join("sample-swf.pdf"),
-        )
-        .expect("copy swf");
+        std::fs::copy(root.join("media/swf_cve_2011_0611.pdf"), temp.path().join("sample-swf.pdf"))
+            .expect("copy swf");
 
         let scan_options = ScanOptions::default();
         let query = parse_query("xfa.scripts.count").expect("query");
@@ -8149,11 +7762,9 @@ mod tests {
                     panic!("unexpected structure result: {}", value);
                 }
             }
-            QueryResult::Scalar(ScalarValue::Number(n)) => assert!(
-                n > 0,
-                "expected scalar number result to be positive (got {})",
-                n
-            ),
+            QueryResult::Scalar(ScalarValue::Number(n)) => {
+                assert!(n > 0, "expected scalar number result to be positive (got {})", n)
+            }
             QueryResult::Scalar(ScalarValue::String(s)) => {
                 assert!(!s.is_empty(), "expected scalar string result")
             }
@@ -8187,9 +7798,7 @@ mod tests {
         .iter()
         .for_each(|rel| {
             let src = root.join(rel);
-            let dst = temp
-                .path()
-                .join(std::path::Path::new(rel).file_name().expect("filename"));
+            let dst = temp.path().join(std::path::Path::new(rel).file_name().expect("filename"));
             std::fs::copy(&src, &dst).unwrap_or_else(|err| panic!("unable to copy {}: {err}", rel));
         });
 
@@ -8227,20 +7836,14 @@ mod tests {
     #[test]
     fn execute_query_supports_new_shortcuts() {
         for (query_str, fixture) in &[
-            (
-                "embedded.executables",
-                "embedded/embedded_exe_cve_2018_4990.pdf",
-            ),
+            ("embedded.executables", "embedded/embedded_exe_cve_2018_4990.pdf"),
             ("launch.external", "launch_action.pdf"),
             ("launch.embedded", "embedded/embedded_exe_cve_2018_4990.pdf"),
             ("actions.chains.complex", "action_chain_complex.pdf"),
             ("actions.triggers.hidden", "action_hidden_trigger.pdf"),
             ("xfa.submit", "xfa/xfa_submit_sensitive.pdf"),
             ("swf", "media/swf_cve_2011_0611.pdf"),
-            (
-                "streams.high-entropy",
-                "encryption/weak_encryption_cve_2019_7089.pdf",
-            ),
+            ("streams.high-entropy", "encryption/weak_encryption_cve_2019_7089.pdf"),
             ("filters.unusual", "filters/filter_unusual_chain.pdf"),
         ] {
             with_fixture_context(fixture, |ctx| {
@@ -8263,11 +7866,8 @@ mod tests {
     fn batch_query_supports_findings_composite_predicate() {
         let temp = tempdir().expect("tempdir");
         let pdf_path = temp.path().join("launch_obfuscated.pdf");
-        fs::write(
-            &pdf_path,
-            build_launch_obfuscated_pdf(&high_entropy_payload()),
-        )
-        .expect("write pdf");
+        fs::write(&pdf_path, build_launch_obfuscated_pdf(&high_entropy_payload()))
+            .expect("write pdf");
 
         let scan_options = ScanOptions::default();
         let query = parse_query("findings.composite").expect("query");
@@ -8428,9 +8028,8 @@ mod tests {
         match result {
             QueryResult::Structure(value) => {
                 let obj = value.as_object().expect("expected object");
-                let entry = obj
-                    .get("launch_obfuscated_executable")
-                    .expect("expected composite summary");
+                let entry =
+                    obj.get("launch_obfuscated_executable").expect("expected composite summary");
                 let count = entry.get("count").and_then(Value::as_u64).expect("count");
                 assert!(count > 0, "expected positive composite count");
             }
@@ -8454,13 +8053,10 @@ mod tests {
             match result {
                 QueryResult::Structure(value) => {
                     let obj = value.as_object().expect("expected object");
-                    let entry = obj
-                        .get("xfa_data_exfiltration_risk")
-                        .expect("expected xfa composite");
-                    let count = entry
-                        .get("count")
-                        .and_then(Value::as_u64)
-                        .expect("count as number");
+                    let entry =
+                        obj.get("xfa_data_exfiltration_risk").expect("expected xfa composite");
+                    let count =
+                        entry.get("count").and_then(Value::as_u64).expect("count as number");
                     assert!(count > 0, "expected positive composite count");
                 }
                 other => panic!("unexpected query result: {:?}", other),
@@ -8573,17 +8169,11 @@ mod tests {
                 format_jsonl("features", "content_first_phase1.pdf", &result).expect("jsonl line");
             let parsed: serde_json::Value =
                 serde_json::from_str(&output).expect("parse jsonl features");
-            let result_map = parsed["result"]
-                .as_object()
-                .expect("expected result object");
+            let result_map = parsed["result"].as_object().expect("expected result object");
             let feature_names = sis_pdf_core::features::feature_names();
             assert_eq!(result_map.len(), feature_names.len());
             for name in feature_names {
-                assert!(
-                    result_map.contains_key(name),
-                    "jsonl output missing feature {}",
-                    name
-                );
+                assert!(result_map.contains_key(name), "jsonl output missing feature {}", name);
             }
         });
     }
@@ -8592,10 +8182,7 @@ mod tests {
     fn batch_query_features_jsonl_streaming() {
         let temp = tempdir().expect("tempdir");
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let root = manifest_dir
-            .parent()
-            .and_then(|p| p.parent())
-            .expect("workspace root");
+        let root = manifest_dir.parent().and_then(|p| p.parent()).expect("workspace root");
         let fixture_root = root.join("crates/sis-pdf-core/tests/fixtures");
         let fixture = fixture_root.join("content_first_phase1.pdf");
         let dest = temp.path().join("content_first_phase1.pdf");
@@ -8740,10 +8327,7 @@ mod tests {
         assert_eq!(invalid.severity, Severity::High);
         assert_eq!(invalid.surface, AttackSurface::FileStructure);
         assert!(invalid.meta["path"].ends_with("invalid_header.pdf"));
-        if let Some(polyglot) = findings
-            .iter()
-            .find(|f| f.kind == "polyglot_signature_conflict")
-        {
+        if let Some(polyglot) = findings.iter().find(|f| f.kind == "polyglot_signature_conflict") {
             assert!(!polyglot.meta["polyglot.signatures"].is_empty());
         }
     }
@@ -8822,18 +8406,8 @@ mod tests {
             2,
             b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>\n",
         );
-        append_text_object(
-            &mut doc,
-            &mut offsets,
-            3,
-            b"<< /Type /Page /Parent 2 0 R >>\n",
-        );
-        append_text_object(
-            &mut doc,
-            &mut offsets,
-            4,
-            b"<< /Type /Action /S /Launch /F 5 0 R >>\n",
-        );
+        append_text_object(&mut doc, &mut offsets, 3, b"<< /Type /Page /Parent 2 0 R >>\n");
+        append_text_object(&mut doc, &mut offsets, 4, b"<< /Type /Action /S /Launch /F 5 0 R >>\n");
         append_text_object(
             &mut doc,
             &mut offsets,

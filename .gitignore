@@ -4,6 +4,7 @@ tmp/
 extracted_js/
 
 **/__pycache__
+.rustup*
 
 # Test artifacts
 test_direct

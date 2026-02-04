@@ -28,9 +28,7 @@ impl SupplyChainDetector {
             b"OpenURL".as_slice(),
         ] {
             if bytes.windows(needle.len()).any(|w| w == needle) {
-                out.push(StagedPayload {
-                    indicator: String::from_utf8_lossy(needle).to_string(),
-                });
+                out.push(StagedPayload { indicator: String::from_utf8_lossy(needle).to_string() });
             }
         }
         out
@@ -45,13 +43,8 @@ impl SupplyChainDetector {
             b"version".as_slice(),
             b"patch".as_slice(),
         ] {
-            if bytes
-                .windows(needle.len())
-                .any(|w| w.eq_ignore_ascii_case(needle))
-            {
-                out.push(UpdateVector {
-                    indicator: String::from_utf8_lossy(needle).to_string(),
-                });
+            if bytes.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle)) {
+                out.push(UpdateVector { indicator: String::from_utf8_lossy(needle).to_string() });
             }
         }
         out
@@ -66,9 +59,7 @@ impl SupplyChainDetector {
             b"setInterval".as_slice(),
         ] {
             if bytes.windows(needle.len()).any(|w| w == needle) {
-                out.push(Persistence {
-                    indicator: String::from_utf8_lossy(needle).to_string(),
-                });
+                out.push(Persistence { indicator: String::from_utf8_lossy(needle).to_string() });
             }
         }
         out

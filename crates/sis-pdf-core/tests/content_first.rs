@@ -55,24 +55,16 @@ fn detects_content_first_phase1_findings() {
     assert!(kinds.contains("actionscript_present"));
     assert!(kinds.contains("swf_url_iocs"));
 
-    let validation = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "content_validation_failed");
+    let validation = report.findings.iter().find(|f| f.kind == "content_validation_failed");
     assert!(validation.is_some());
     assert!(validation.unwrap().meta.contains_key("validation.reason"));
     assert!(report.findings.iter().any(|f| {
-        f.meta
-            .get("blob.origin")
-            .map(|v| v == "embedded_file_name_tree")
-            .unwrap_or(false)
+        f.meta.get("blob.origin").map(|v| v == "embedded_file_name_tree").unwrap_or(false)
     }));
-    assert!(report.findings.iter().any(|f| {
-        f.meta
-            .get("blob.origin")
-            .map(|v| v == "xfa_package")
-            .unwrap_or(false)
-    }));
+    assert!(report
+        .findings
+        .iter()
+        .any(|f| { f.meta.get("blob.origin").map(|v| v == "xfa_package").unwrap_or(false) }));
 }
 
 #[test]

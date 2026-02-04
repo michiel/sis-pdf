@@ -40,13 +40,7 @@ fn flags_decode_recovery_used() {
         report.findings.iter().map(|f| f.kind.as_str()).collect();
 
     assert!(kinds.contains("decode_recovery_used"));
-    let recovery = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "decode_recovery_used");
+    let recovery = report.findings.iter().find(|f| f.kind == "decode_recovery_used");
     assert!(recovery.is_some());
-    assert!(recovery
-        .unwrap()
-        .meta
-        .contains_key("decode.recovered_filters"));
+    assert!(recovery.unwrap().meta.contains_key("decode.recovered_filters"));
 }

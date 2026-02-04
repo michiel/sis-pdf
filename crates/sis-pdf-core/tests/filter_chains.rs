@@ -95,14 +95,8 @@ fn detects_image_filter_with_compression() {
         .iter()
         .find(|f| f.kind == "filter_chain_unusual")
         .expect("filter_chain_unusual");
-    assert_eq!(
-        finding.meta.get("violation_type"),
-        Some(&"image_with_compression".to_string())
-    );
-    assert_eq!(
-        finding.meta.get("allowlist_match"),
-        Some(&"true".to_string())
-    );
+    assert_eq!(finding.meta.get("violation_type"), Some(&"image_with_compression".to_string()));
+    assert_eq!(finding.meta.get("allowlist_match"), Some(&"true".to_string()));
 }
 
 #[test]
@@ -131,12 +125,6 @@ fn detects_jbig2_filter_chain_obfuscation() {
         .iter()
         .find(|f| f.kind == "filter_chain_jbig2_obfuscation")
         .expect("filter_chain_jbig2_obfuscation");
-    assert_eq!(
-        finding.meta.get("jbig2.cves"),
-        Some(&"CVE-2021-30860,CVE-2022-38171".to_string())
-    );
-    assert_eq!(
-        finding.meta.get("violation_type"),
-        Some(&"jbig2_obfuscation".to_string())
-    );
+    assert_eq!(finding.meta.get("jbig2.cves"), Some(&"CVE-2021-30860,CVE-2022-38171".to_string()));
+    assert_eq!(finding.meta.get("violation_type"), Some(&"jbig2_obfuscation".to_string()));
 }

@@ -7,10 +7,8 @@ use tracing::info;
 
 /// Returns a canonical string representation of a PDF name.
 pub fn canonical_name(name_bytes: &[u8]) -> String {
-    let normalized = String::from_utf8_lossy(name_bytes)
-        .trim_start_matches('/')
-        .trim()
-        .to_ascii_uppercase();
+    let normalized =
+        String::from_utf8_lossy(name_bytes).trim_start_matches('/').trim().to_ascii_uppercase();
     if normalized.is_empty() {
         "-".into()
     } else {
@@ -20,10 +18,7 @@ pub fn canonical_name(name_bytes: &[u8]) -> String {
 
 /// Produces a normalized filter chain for a stream.
 pub fn canonical_filter_chain(stream: &PdfStream<'_>) -> Vec<String> {
-    stream_filters(&stream.dict)
-        .into_iter()
-        .map(|filter| canonical_filter_name(&filter))
-        .collect()
+    stream_filters(&stream.dict).into_iter().map(|filter| canonical_filter_name(&filter)).collect()
 }
 
 fn canonical_filter_name(filter: &str) -> String {
@@ -60,11 +55,7 @@ impl CanonicalView {
         let indices = canonical_object_indices(graph, true);
         let incremental_removed = graph.objects.len().saturating_sub(indices.len());
         let normalized_name_changes = count_normalized_name_changes(graph);
-        let view = Self {
-            indices,
-            incremental_removed,
-            normalized_name_changes,
-        };
+        let view = Self { indices, incremental_removed, normalized_name_changes };
         info!(
             canonical_objects = view.indices.len(),
             total_objects = graph.objects.len(),
@@ -92,9 +83,7 @@ fn count_normalized_name_changes(graph: &ObjectGraph<'_>) -> usize {
 
 fn normalized_name_differs(name: &PdfName<'_>) -> bool {
     let canonical = canonical_name(&name.decoded);
-    let raw = String::from_utf8_lossy(&name.decoded)
-        .trim_start_matches('/')
-        .trim()
-        .to_ascii_uppercase();
+    let raw =
+        String::from_utf8_lossy(&name.decoded).trim_start_matches('/').trim().to_ascii_uppercase();
     canonical != raw
 }

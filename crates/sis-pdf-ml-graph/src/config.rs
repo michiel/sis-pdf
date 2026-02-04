@@ -146,10 +146,7 @@ impl GraphModelConfig {
 
     fn validate(&self) -> Result<()> {
         if self.schema_version != 1 {
-            return Err(anyhow!(
-                "unsupported schema version {} (expected 1)",
-                self.schema_version
-            ));
+            return Err(anyhow!("unsupported schema version {} (expected 1)", self.schema_version));
         }
         if self.embedding.output_dim != self.graph.input_dim {
             return Err(anyhow!(
@@ -159,25 +156,16 @@ impl GraphModelConfig {
             ));
         }
         if self.embedding.backend != "onnx" {
-            return Err(anyhow!(
-                "unsupported embedding backend {}",
-                self.embedding.backend
-            ));
+            return Err(anyhow!("unsupported embedding backend {}", self.embedding.backend));
         }
         if self.graph.backend != "onnx" {
             return Err(anyhow!("unsupported graph backend {}", self.graph.backend));
         }
         if self.embedding.pooling != "cls" && self.embedding.pooling != "mean" {
-            return Err(anyhow!(
-                "unsupported embedding pooling {}",
-                self.embedding.pooling
-            ));
+            return Err(anyhow!("unsupported embedding pooling {}", self.embedding.pooling));
         }
         if self.graph.output.kind != "logit" && self.graph.output.kind != "probability" {
-            return Err(anyhow!(
-                "unsupported graph output kind {}",
-                self.graph.output.kind
-            ));
+            return Err(anyhow!("unsupported graph output kind {}", self.graph.output.kind));
         }
         Ok(())
     }
@@ -201,10 +189,7 @@ fn resolve_model_path(base_dir: &Path, relative: &str) -> Result<PathBuf> {
 }
 
 pub fn max_batch_size(cfg: &GraphModelConfig) -> usize {
-    cfg.limits
-        .as_ref()
-        .and_then(|l| l.max_embedding_batch_size)
-        .unwrap_or(32)
+    cfg.limits.as_ref().and_then(|l| l.max_embedding_batch_size).unwrap_or(32)
 }
 
 pub fn max_ir_string_len(cfg: &GraphModelConfig) -> Option<usize> {
@@ -212,38 +197,26 @@ pub fn max_ir_string_len(cfg: &GraphModelConfig) -> Option<usize> {
 }
 
 pub fn embedding_timeout_ms(cfg: &GraphModelConfig) -> u64 {
-    cfg.limits
-        .as_ref()
-        .and_then(|l| l.embedding_timeout_ms)
-        .unwrap_or(30_000)
+    cfg.limits.as_ref().and_then(|l| l.embedding_timeout_ms).unwrap_or(30_000)
 }
 
 pub fn inference_timeout_ms(cfg: &GraphModelConfig) -> u64 {
-    cfg.limits
-        .as_ref()
-        .and_then(|l| l.inference_timeout_ms)
-        .unwrap_or(30_000)
+    cfg.limits.as_ref().and_then(|l| l.inference_timeout_ms).unwrap_or(30_000)
 }
 
 pub fn embedding_input_names(cfg: &GraphModelConfig) -> EmbeddingInputNames {
-    cfg.embedding
-        .input_names
-        .clone()
-        .unwrap_or_else(|| EmbeddingInputNames {
-            input_ids: Some("input_ids".into()),
-            attention_mask: Some("attention_mask".into()),
-            token_type_ids: Some("token_type_ids".into()),
-        })
+    cfg.embedding.input_names.clone().unwrap_or_else(|| EmbeddingInputNames {
+        input_ids: Some("input_ids".into()),
+        attention_mask: Some("attention_mask".into()),
+        token_type_ids: Some("token_type_ids".into()),
+    })
 }
 
 pub fn graph_input_names(cfg: &GraphModelConfig) -> GraphInputNames {
-    cfg.graph
-        .input_names
-        .clone()
-        .unwrap_or_else(|| GraphInputNames {
-            node_features: Some("node_features".into()),
-            edge_index: Some("edge_index".into()),
-        })
+    cfg.graph.input_names.clone().unwrap_or_else(|| GraphInputNames {
+        node_features: Some("node_features".into()),
+        edge_index: Some("edge_index".into()),
+    })
 }
 
 pub fn validate_onnx_safety(path: &Path) -> Result<()> {
@@ -254,11 +227,7 @@ pub fn validate_onnx_safety(path: &Path) -> Result<()> {
     for opset in &model.opset_import {
         let domain = opset.domain.as_str();
         if !domain.is_empty() && domain != "ai.onnx" {
-            return Err(anyhow!(
-                "unsupported ONNX domain in {}: {}",
-                path.display(),
-                domain
-            ));
+            return Err(anyhow!("unsupported ONNX domain in {}: {}", path.display(), domain));
         }
     }
     if let Some(graph) = &model.graph {

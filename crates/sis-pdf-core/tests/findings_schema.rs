@@ -57,14 +57,7 @@ fn findings_schema_validation() {
 
             let value = serde_json::to_value(finding).expect("finding serialise");
             let obj = value.as_object().expect("finding json object");
-            for key in [
-                "kind",
-                "title",
-                "description",
-                "severity",
-                "confidence",
-                "objects",
-            ] {
+            for key in ["kind", "title", "description", "severity", "confidence", "objects"] {
                 assert!(obj.contains_key(key), "missing key {}", key);
             }
             let validation = compiled.validate(&value);
@@ -104,10 +97,7 @@ fn findings_jsonl_schema_validation() {
                 let validation = compiled.validate(finding);
                 if let Err(errors) = validation {
                     let messages: Vec<String> = errors.map(|err| err.to_string()).collect();
-                    panic!(
-                        "finding jsonl schema validation failed: {}",
-                        messages.join("; ")
-                    );
+                    panic!("finding jsonl schema validation failed: {}", messages.join("; "));
                 }
             }
         }

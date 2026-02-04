@@ -17,11 +17,7 @@ const MAX_DICT_ENTRIES: usize = 10_000;
 
 impl<'a> Parser<'a> {
     pub fn new(bytes: &'a [u8], pos: usize, strict: bool) -> Self {
-        Self {
-            cur: Cursor { bytes, pos },
-            strict,
-            deviations: Vec::new(),
-        }
+        Self { cur: Cursor { bytes, pos }, strict, deviations: Vec::new() }
     }
 
     pub fn position(&self) -> usize {
@@ -56,11 +52,7 @@ impl<'a> Parser<'a> {
                 note = note_preview,
                 "Strict parser deviation"
             );
-            self.deviations.push(Deviation {
-                kind: kind.to_string(),
-                span,
-                note,
-            });
+            self.deviations.push(Deviation { kind: kind.to_string(), span, note });
         }
     }
 
@@ -117,23 +109,14 @@ impl<'a> Parser<'a> {
             _ => {
                 self.record_deviation(
                     "unexpected_token",
-                    Span {
-                        start: self.cur.pos as u64,
-                        end: (self.cur.pos + 1) as u64,
-                    },
+                    Span { start: self.cur.pos as u64, end: (self.cur.pos + 1) as u64 },
                     Some(format!("byte=0x{:02x}", b)),
                 );
                 return Err(anyhow!("unexpected byte {:x}", b));
             }
         };
         let end = self.cur.pos;
-        Ok(PdfObj {
-            span: Span {
-                start: start as u64,
-                end: end as u64,
-            },
-            atom: obj,
-        })
+        Ok(PdfObj { span: Span { start: start as u64, end: end as u64 }, atom: obj })
     }
 
     fn parse_number_or_ref(&mut self) -> Result<PdfAtom<'a>> {
@@ -154,10 +137,7 @@ impl<'a> Parser<'a> {
             if self.cur.consume_keyword(b"R") {
                 if let (Some(obj), Some(gen)) = (num1.as_i64(), parse_number(&num2_str)?.as_i64()) {
                     if obj >= 0 && gen >= 0 {
-                        return Ok(PdfAtom::Ref {
-                            obj: obj as u32,
-                            gen: gen as u16,
-                        });
+                        return Ok(PdfAtom::Ref { obj: obj as u32, gen: gen as u16 });
                     }
                 }
             }
@@ -185,10 +165,7 @@ impl<'a> Parser<'a> {
             if self.cur.eof() {
                 self.record_deviation(
                     "unterminated_array",
-                    Span {
-                        start: self.cur.pos as u64,
-                        end: self.cur.pos as u64,
-                    },
+                    Span { start: self.cur.pos as u64, end: self.cur.pos as u64 },
                     None,
                 );
                 break;
@@ -196,10 +173,7 @@ impl<'a> Parser<'a> {
             if out.len() >= MAX_ARRAY_ELEMENTS {
                 self.record_deviation(
                     "array_size_limit_exceeded",
-                    Span {
-                        start: self.cur.pos as u64,
-                        end: self.cur.pos as u64,
-                    },
+                    Span { start: self.cur.pos as u64, end: self.cur.pos as u64 },
                     Some(format!("max_elements={}", MAX_ARRAY_ELEMENTS)),
                 );
                 warn!(
@@ -228,10 +202,7 @@ impl<'a> Parser<'a> {
             if self.cur.eof() {
                 self.record_deviation(
                     "unterminated_dict",
-                    Span {
-                        start: start as u64,
-                        end: self.cur.pos as u64,
-                    },
+                    Span { start: start as u64, end: self.cur.pos as u64 },
                     None,
                 );
                 break;
@@ -247,10 +218,7 @@ impl<'a> Parser<'a> {
                 entries.push((
                     name,
                     PdfObj {
-                        span: Span {
-                            start: self.cur.pos as u64,
-                            end: self.cur.pos as u64,
-                        },
+                        span: Span { start: self.cur.pos as u64, end: self.cur.pos as u64 },
                         atom: PdfAtom::Null,
                     },
                 ));
@@ -258,10 +226,7 @@ impl<'a> Parser<'a> {
             if entries.len() >= MAX_DICT_ENTRIES {
                 self.record_deviation(
                     "dict_size_limit_exceeded",
-                    Span {
-                        start: start as u64,
-                        end: self.cur.pos as u64,
-                    },
+                    Span { start: start as u64, end: self.cur.pos as u64 },
                     Some(format!("max_entries={}", MAX_DICT_ENTRIES)),
                 );
                 warn!(
@@ -275,13 +240,7 @@ impl<'a> Parser<'a> {
             }
         }
         let end = self.cur.pos;
-        Ok(PdfDict {
-            span: Span {
-                start: start as u64,
-                end: end as u64,
-            },
-            entries,
-        })
+        Ok(PdfDict { span: Span { start: start as u64, end: end as u64 }, entries })
     }
 
     fn parse_name(&mut self) -> Result<PdfName<'a>> {
@@ -322,10 +281,7 @@ impl<'a> Parser<'a> {
         let raw = &self.cur.bytes[start..raw_end];
         let decoded = decode_name(&self.cur.bytes[raw_start..raw_end]);
         Ok(PdfName {
-            span: Span {
-                start: start as u64,
-                end: raw_end as u64,
-            },
+            span: Span { start: start as u64, end: raw_end as u64 },
             raw: std::borrow::Cow::Borrowed(raw),
             decoded,
         })
@@ -404,18 +360,12 @@ impl<'a> Parser<'a> {
         if unterminated {
             self.record_deviation(
                 "unterminated_literal_string",
-                Span {
-                    start: start as u64,
-                    end: end as u64,
-                },
+                Span { start: start as u64, end: end as u64 },
                 None,
             );
         }
         Ok(PdfStr::Literal {
-            span: Span {
-                start: start as u64,
-                end: end as u64,
-            },
+            span: Span { start: start as u64, end: end as u64 },
             raw: std::borrow::Cow::Borrowed(&self.cur.bytes[start..end]),
             decoded: out,
         })
@@ -454,38 +404,26 @@ impl<'a> Parser<'a> {
         if !saw_end {
             self.record_deviation(
                 "unterminated_hex_string",
-                Span {
-                    start: start as u64,
-                    end: end as u64,
-                },
+                Span { start: start as u64, end: end as u64 },
                 None,
             );
         }
         if invalid {
             self.record_deviation(
                 "invalid_hex_string",
-                Span {
-                    start: start as u64,
-                    end: end as u64,
-                },
+                Span { start: start as u64, end: end as u64 },
                 None,
             );
         }
         if buf.len() % 2 == 1 {
             self.record_deviation(
                 "odd_length_hex_string",
-                Span {
-                    start: start as u64,
-                    end: end as u64,
-                },
+                Span { start: start as u64, end: end as u64 },
                 None,
             );
         }
         Ok(PdfStr::Hex {
-            span: Span {
-                start: start as u64,
-                end: end as u64,
-            },
+            span: Span { start: start as u64, end: end as u64 },
             raw: std::borrow::Cow::Borrowed(&self.cur.bytes[start..end]),
             decoded: out,
         })
@@ -505,10 +443,7 @@ impl<'a> Parser<'a> {
             } else {
                 self.record_deviation(
                     "invalid_number_token",
-                    Span {
-                        start: start as u64,
-                        end: (start + 1) as u64,
-                    },
+                    Span { start: start as u64, end: (start + 1) as u64 },
                     None,
                 );
                 return Err(anyhow!("not a number"));
@@ -529,18 +464,12 @@ impl<'a> Parser<'a> {
         if dot_count > 1 {
             self.record_deviation(
                 "invalid_number_format",
-                Span {
-                    start: start as u64,
-                    end: end as u64,
-                },
+                Span { start: start as u64, end: end as u64 },
                 None,
             );
         }
         Ok((
-            Span {
-                start: start as u64,
-                end: end as u64,
-            },
+            Span { start: start as u64, end: end as u64 },
             String::from_utf8_lossy(&out).to_string(),
         ))
     }
@@ -575,10 +504,7 @@ impl<'a> Parser<'a> {
                 None => {
                     self.record_deviation(
                         "stream_length_overflow",
-                        Span {
-                            start: data_start as u64,
-                            end: data_start as u64,
-                        },
+                        Span { start: data_start as u64, end: data_start as u64 },
                         None,
                     );
                     warn!(
@@ -595,10 +521,7 @@ impl<'a> Parser<'a> {
             if end > self.cur.bytes.len() {
                 self.record_deviation(
                     "truncated_stream_data",
-                    Span {
-                        start: data_start as u64,
-                        end: self.cur.bytes.len() as u64,
-                    },
+                    Span { start: data_start as u64, end: self.cur.bytes.len() as u64 },
                     None,
                 );
             }
@@ -610,20 +533,11 @@ impl<'a> Parser<'a> {
         if !consume_endstream(self.cur.bytes, &mut self.cur.pos) {
             self.record_deviation(
                 "missing_endstream",
-                Span {
-                    start: data_end as u64,
-                    end: data_end as u64,
-                },
+                Span { start: data_end as u64, end: data_end as u64 },
                 None,
             );
         }
-        Ok(PdfStream {
-            dict,
-            data_span: Span {
-                start: data_start as u64,
-                end: data_end as u64,
-            },
-        })
+        Ok(PdfStream { dict, data_span: Span { start: data_start as u64, end: data_end as u64 } })
     }
 }
 
@@ -723,10 +637,7 @@ pub fn parse_indirect_object_at<'a>(
         if !p.cur.consume_keyword(b"obj") {
             p.record_deviation(
                 "missing_obj_keyword",
-                Span {
-                    start: header_start as u64,
-                    end: p.cur.pos as u64,
-                },
+                Span { start: header_start as u64, end: p.cur.pos as u64 },
                 None,
             );
             return Err(anyhow!("missing obj keyword"));
@@ -742,10 +653,7 @@ pub fn parse_indirect_object_at<'a>(
         if !p.cur.consume_keyword(b"endobj") {
             p.record_deviation(
                 "missing_endobj",
-                Span {
-                    start: p.cur.pos as u64,
-                    end: p.cur.pos as u64,
-                },
+                Span { start: p.cur.pos as u64, end: p.cur.pos as u64 },
                 None,
             );
             if let Some(pos) = memchr::memmem::find(&bytes[p.cur.pos..], b"endobj") {
@@ -757,18 +665,9 @@ pub fn parse_indirect_object_at<'a>(
             obj: obj_num,
             gen: gen_num,
             atom: obj.atom,
-            header_span: Span {
-                start: header_start as u64,
-                end: header_end as u64,
-            },
-            body_span: Span {
-                start: body_start as u64,
-                end: body_end as u64,
-            },
-            full_span: Span {
-                start: header_start as u64,
-                end: full_end as u64,
-            },
+            header_span: Span { start: header_start as u64, end: header_end as u64 },
+            body_span: Span { start: body_start as u64, end: body_end as u64 },
+            full_span: Span { start: header_start as u64, end: full_end as u64 },
             provenance: crate::graph::ObjProvenance::Indirect,
         };
         Ok((entry, full_end))
@@ -790,10 +689,7 @@ pub fn scan_indirect_objects<'a>(
             if strict {
                 deviations.push(Deviation {
                     kind: "max_objects_reached".into(),
-                    span: Span {
-                        start: i as u64,
-                        end: (i + 1) as u64,
-                    },
+                    span: Span { start: i as u64, end: (i + 1) as u64 },
                     note: None,
                 });
             }
@@ -831,10 +727,7 @@ pub fn scan_indirect_objects<'a>(
             if strict {
                 deviations.push(Deviation {
                     kind: "indirect_object_parse_error".into(),
-                    span: Span {
-                        start: mark as u64,
-                        end: (mark + 1) as u64,
-                    },
+                    span: Span { start: mark as u64, end: (mark + 1) as u64 },
                     note: None,
                 });
             }

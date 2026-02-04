@@ -54,20 +54,14 @@ fn ir_string_preview_truncates_on_char_boundary() {
         },
     )
     .expect("parse pdf");
-    let opts = IrOptions {
-        max_string_len: 2,
-        ..IrOptions::default()
-    };
+    let opts = IrOptions { max_string_len: 2, ..IrOptions::default() };
     let ir = ir_for_graph(&graph.objects, &opts);
     let mut found = false;
     for obj in ir {
         for line in obj.lines {
             if line.value_type == "str" {
                 found = true;
-                assert_eq!(
-                    line.value,
-                    "len_bytes=4 hex=41c3 ascii=A\\xc3 truncated=true"
-                );
+                assert_eq!(line.value, "len_bytes=4 hex=41c3 ascii=A\\xc3 truncated=true");
             }
         }
     }

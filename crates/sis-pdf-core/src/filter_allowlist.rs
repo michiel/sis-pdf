@@ -18,13 +18,7 @@ impl FilterAllowlistConfig {
     pub fn to_chain_list(&self) -> Vec<Vec<String>> {
         self.allowed_chains
             .iter()
-            .map(|entry| {
-                entry
-                    .filters
-                    .iter()
-                    .map(|f| normalise_filter_name(f))
-                    .collect()
-            })
+            .map(|entry| entry.filters.iter().map(|f| normalise_filter_name(f)).collect())
             .collect()
     }
 }
@@ -32,18 +26,9 @@ impl FilterAllowlistConfig {
 pub fn default_filter_allowlist_config() -> FilterAllowlistConfig {
     FilterAllowlistConfig {
         allowed_chains: vec![
-            entry(
-                &["ASCIIHexDecode", "FlateDecode"],
-                "Hex-encoded compressed stream",
-            ),
-            entry(
-                &["ASCII85Decode", "FlateDecode"],
-                "Base85-encoded compressed stream",
-            ),
-            entry(
-                &["FlateDecode", "DCTDecode"],
-                "Compressed JPEG image (unusual but valid)",
-            ),
+            entry(&["ASCIIHexDecode", "FlateDecode"], "Hex-encoded compressed stream"),
+            entry(&["ASCII85Decode", "FlateDecode"], "Base85-encoded compressed stream"),
+            entry(&["FlateDecode", "DCTDecode"], "Compressed JPEG image (unusual but valid)"),
             entry(&["DCTDecode"], "JPEG image (uncompressed stream)"),
             entry(&["CCITTFaxDecode"], "Fax-encoded image"),
             entry(&["JBIG2Decode"], "JBIG2-encoded image"),
@@ -81,11 +66,7 @@ fn entry(filters: &[&str], description: &str) -> FilterAllowlistEntry {
 }
 
 fn normalise_filter_name(value: &str) -> String {
-    value
-        .trim()
-        .trim_start_matches('/')
-        .trim()
-        .to_ascii_uppercase()
+    value.trim().trim_start_matches('/').trim().to_ascii_uppercase()
 }
 
 #[cfg(test)]

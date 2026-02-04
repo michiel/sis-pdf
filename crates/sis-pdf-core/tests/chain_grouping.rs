@@ -43,16 +43,12 @@ fn groups_identical_chains() {
 #[test]
 fn adds_payload_summary_from_decode_meta() {
     let mut finding = base_finding("f1", "declared_filter_invalid", "7 0 obj");
-    finding
-        .meta
-        .insert("stream.filters".into(), "/FlateDecode".into());
+    finding.meta.insert("stream.filters".into(), "/FlateDecode".into());
     finding.meta.insert("decode.outcome".into(), "error".into());
     let findings = vec![finding];
     let (chains, _) = synthesise_chains(&findings, true);
-    let chain = chains
-        .iter()
-        .find(|c| c.notes.contains_key("payload.summary"))
-        .expect("payload summary");
+    let chain =
+        chains.iter().find(|c| c.notes.contains_key("payload.summary")).expect("payload summary");
     let summary = chain.notes.get("payload.summary").unwrap();
     assert!(summary.contains("filters=/FlateDecode"));
     assert!(summary.contains("decode=error"));
@@ -62,34 +58,19 @@ fn adds_payload_summary_from_decode_meta() {
 fn classifies_action_and_payload_labels() {
     let findings = vec![base_finding("f1", "js_present", "4 0 obj")];
     let (chains, _) = synthesise_chains(&findings, true);
-    let chain = chains
-        .iter()
-        .find(|c| c.notes.contains_key("action.label"))
-        .expect("action label");
-    assert_eq!(
-        chain.notes.get("action.label").map(String::as_str),
-        Some("JavaScript action")
-    );
-    let payload_label = chain
-        .notes
-        .get("payload.label")
-        .expect("payload label")
-        .clone();
+    let chain = chains.iter().find(|c| c.notes.contains_key("action.label")).expect("action label");
+    assert_eq!(chain.notes.get("action.label").map(String::as_str), Some("JavaScript action"));
+    let payload_label = chain.notes.get("payload.label").expect("payload label").clone();
     assert!(payload_label.contains("JavaScript payload"));
 }
 
 #[test]
 fn preserves_custom_action_labels() {
     let mut finding = base_finding("f1", "uri_present", "4 0 obj");
-    finding
-        .meta
-        .insert("action.target".into(), "https://example.com".into());
+    finding.meta.insert("action.target".into(), "https://example.com".into());
     finding.title = "URI present".into();
     let (chains, _) = synthesise_chains(&[finding], true);
-    let chain = chains
-        .iter()
-        .find(|c| c.notes.contains_key("action.label"))
-        .expect("action label");
+    let chain = chains.iter().find(|c| c.notes.contains_key("action.label")).expect("action label");
     assert_eq!(
         chain.notes.get("action.label").map(String::as_str),
         Some("URI present -> https://example.com")
@@ -99,15 +80,11 @@ fn preserves_custom_action_labels() {
 #[test]
 fn records_recovered_payload_summary() {
     let mut finding = base_finding("f1", "decode_recovery_used", "9 0 obj");
-    finding
-        .meta
-        .insert("decode.recovered_filters".into(), "/FlateDecode".into());
+    finding.meta.insert("decode.recovered_filters".into(), "/FlateDecode".into());
     let findings = vec![finding];
     let (chains, _) = synthesise_chains(&findings, true);
-    let chain = chains
-        .iter()
-        .find(|c| c.notes.contains_key("payload.summary"))
-        .expect("payload summary");
+    let chain =
+        chains.iter().find(|c| c.notes.contains_key("payload.summary")).expect("payload summary");
     let summary = chain.notes.get("payload.summary").unwrap();
     assert!(summary.contains("recovered=/FlateDecode"));
 }

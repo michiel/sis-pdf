@@ -216,17 +216,11 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     fn ok() -> Self {
-        Self {
-            valid: true,
-            reason: None,
-        }
+        Self { valid: true, reason: None }
     }
 
     fn fail(reason: &str) -> Self {
-        Self {
-            valid: false,
-            reason: Some(reason.to_string()),
-        }
+        Self { valid: false, reason: Some(reason.to_string()) }
     }
 }
 
@@ -457,19 +451,14 @@ fn looks_like_html(data: &[u8]) -> bool {
 }
 
 fn lower_ascii_prefix(data: &[u8], max_len: usize) -> Vec<u8> {
-    data.iter()
-        .take(max_len)
-        .map(|b| b.to_ascii_lowercase())
-        .collect()
+    data.iter().take(max_len).map(|b| b.to_ascii_lowercase()).collect()
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> bool {
     if needle.is_empty() || haystack.len() < needle.len() {
         return false;
     }
-    haystack
-        .windows(needle.len())
-        .any(|window| window == needle)
+    haystack.windows(needle.len()).any(|window| window == needle)
 }
 fn validate_mp4(bytes: &[u8]) -> ValidationResult {
     if !looks_like_mp4(bytes) {

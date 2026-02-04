@@ -38,10 +38,9 @@ impl Detector for AnnotationAttackDetector {
                 continue;
             }
             let mut meta = std::collections::HashMap::new();
-            if let Some(parent) = annot_parent.get(&sis_pdf_core::graph_walk::ObjRef {
-                obj: entry.obj,
-                gen: entry.gen,
-            }) {
+            if let Some(parent) = annot_parent
+                .get(&sis_pdf_core::graph_walk::ObjRef { obj: entry.obj, gen: entry.gen })
+            {
                 meta.insert("page.number".into(), parent.number.to_string());
             }
             if let Some(rect) = dict.get_first(b"/Rect").map(|(_, v)| v) {

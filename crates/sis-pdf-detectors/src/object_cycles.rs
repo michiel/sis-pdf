@@ -34,10 +34,7 @@ impl Detector for ObjectReferenceCycleDetector {
 
         // Check all objects for circular references and track depth
         for entry in &ctx.graph.objects {
-            let obj_ref = ObjRef {
-                obj: entry.obj,
-                gen: entry.gen,
-            };
+            let obj_ref = ObjRef { obj: entry.obj, gen: entry.gen };
             if !visited.contains(&obj_ref) {
                 let depth = detect_cycles_from(
                     ctx,
@@ -108,14 +105,8 @@ fn classify_cycle(
         let obj2 = cycle_refs[1];
 
         if let (Some(entry1), Some(entry2)) = (
-            ctx.graph
-                .objects
-                .iter()
-                .find(|e| e.obj == obj1.obj && e.gen == obj1.gen),
-            ctx.graph
-                .objects
-                .iter()
-                .find(|e| e.obj == obj2.obj && e.gen == obj2.gen),
+            ctx.graph.objects.iter().find(|e| e.obj == obj1.obj && e.gen == obj1.gen),
+            ctx.graph.objects.iter().find(|e| e.obj == obj2.obj && e.gen == obj2.gen),
         ) {
             let type1 = get_dict_type(&entry1.atom);
             let type2 = get_dict_type(&entry2.atom);
@@ -135,11 +126,8 @@ fn classify_cycle(
         // Check if all objects are page-related
         let mut all_page_related = true;
         for obj_ref in cycle_refs {
-            if let Some(entry) = ctx
-                .graph
-                .objects
-                .iter()
-                .find(|e| e.obj == obj_ref.obj && e.gen == obj_ref.gen)
+            if let Some(entry) =
+                ctx.graph.objects.iter().find(|e| e.obj == obj_ref.obj && e.gen == obj_ref.gen)
             {
                 let obj_type = get_dict_type(&entry.atom);
                 if obj_type != Some("/Page") && obj_type != Some("/Pages") {
@@ -207,10 +195,8 @@ fn detect_cycles_from(
     // Check if we've found a cycle
     if let Some(cycle_start) = stack.iter().position(|r| r == obj_ref) {
         let cycle_refs: Vec<ObjRef> = stack[cycle_start..].to_vec();
-        let cycle_objects: Vec<String> = cycle_refs
-            .iter()
-            .map(|r| format!("{} {} obj", r.obj, r.gen))
-            .collect();
+        let cycle_objects: Vec<String> =
+            cycle_refs.iter().map(|r| format!("{} {} obj", r.obj, r.gen)).collect();
 
         let cycle_length = cycle_refs.len();
 
@@ -293,11 +279,8 @@ fn detect_cycles_from(
     let mut max_child_depth = depth;
 
     // Find the object entry
-    if let Some(entry) = ctx
-        .graph
-        .objects
-        .iter()
-        .find(|e| e.obj == obj_ref.obj && e.gen == obj_ref.gen)
+    if let Some(entry) =
+        ctx.graph.objects.iter().find(|e| e.obj == obj_ref.obj && e.gen == obj_ref.gen)
     {
         // Collect all references in this object
         let mut refs = Vec::new();
@@ -321,10 +304,7 @@ fn detect_cycles_from(
 fn collect_refs(atom: &PdfAtom, refs: &mut Vec<ObjRef>) {
     match atom {
         PdfAtom::Ref { obj, gen } => {
-            refs.push(ObjRef {
-                obj: *obj,
-                gen: *gen,
-            });
+            refs.push(ObjRef { obj: *obj, gen: *gen });
         }
         PdfAtom::Dict(dict) => {
             for (_, value) in &dict.entries {

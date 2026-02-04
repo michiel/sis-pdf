@@ -99,16 +99,16 @@ impl Detector for XfaFormDetector {
                 let stats = inspect_xfa_payload(&payload.bytes);
 
                 if payload.bytes.len() > XFA_MAX_BYTES {
-                    let meta = base_xfa_meta(
-                        &format!("{} {} obj", entry.obj, entry.gen),
-                        &payload.ref_chain,
-                        payload.bytes.len(),
-                        0,
-                        &[],
-                        &[],
-                        None,
-                        stats.has_doctype,
-                    );
+                    let meta = base_xfa_meta(XfaMeta {
+                        object_ref: &format!("{} {} obj", entry.obj, entry.gen),
+                        ref_chain: &payload.ref_chain,
+                        size: payload.bytes.len(),
+                        script_count: 0,
+                        submit_urls: &[],
+                        sensitive_fields: &[],
+                        script_preview: None,
+                        has_doctype: stats.has_doctype,
+                    });
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -135,16 +135,16 @@ impl Detector for XfaFormDetector {
 
                 let submit_list = &stats.submit_urls;
                 let field_list = &stats.sensitive_fields;
-                let base_meta = base_xfa_meta(
-                    &format!("{} {} obj", entry.obj, entry.gen),
-                    &payload.ref_chain,
-                    payload.bytes.len(),
-                    stats.script_count,
-                    submit_list,
-                    field_list,
-                    stats.script_preview.as_deref(),
-                    stats.has_doctype,
-                );
+                let base_meta = base_xfa_meta(XfaMeta {
+                    object_ref: &format!("{} {} obj", entry.obj, entry.gen),
+                    ref_chain: &payload.ref_chain,
+                    size: payload.bytes.len(),
+                    script_count: stats.script_count,
+                    submit_urls: submit_list,
+                    sensitive_fields: field_list,
+                    script_preview: stats.script_preview.as_deref(),
+                    has_doctype: stats.has_doctype,
+                });
 
                 for url in submit_list.iter().take(XFA_SUBMIT_URL_LIMIT) {
                     let mut meta = base_meta.clone();
@@ -420,9 +420,7 @@ fn gather_xfa_doc_info(
 }
 
 fn tag_matches(name: &str, candidates: &[&str]) -> bool {
-    candidates
-        .iter()
-        .any(|candidate| name.eq_ignore_ascii_case(candidate))
+    candidates.iter().any(|candidate| name.eq_ignore_ascii_case(candidate))
 }
 
 fn attribute_ci(node: &roxmltree::Node, name: &str) -> Option<String> {
@@ -446,17 +444,28 @@ fn sorted_strings(set: &HashSet<String>) -> Vec<String> {
     values
 }
 
-#[allow(clippy::too_many_arguments)]
-fn base_xfa_meta(
-    object_ref: &str,
-    ref_chain: &str,
+struct XfaMeta<'a> {
+    object_ref: &'a str,
+    ref_chain: &'a str,
     size: usize,
     script_count: usize,
-    submit_urls: &[String],
-    sensitive_fields: &[String],
-    script_preview: Option<&str>,
+    submit_urls: &'a [String],
+    sensitive_fields: &'a [String],
+    script_preview: Option<&'a str>,
     has_doctype: bool,
-) -> HashMap<String, String> {
+}
+
+fn base_xfa_meta(meta_config: XfaMeta<'_>) -> HashMap<String, String> {
+    let XfaMeta {
+        object_ref,
+        ref_chain,
+        size,
+        script_count,
+        submit_urls,
+        sensitive_fields,
+        script_preview,
+        has_doctype,
+    } = meta_config;
     let mut meta = HashMap::new();
     meta.insert("xfa.size_bytes".into(), size.to_string());
     meta.insert("xfa.script_count".into(), script_count.to_string());
@@ -464,10 +473,7 @@ fn base_xfa_meta(
         meta.insert("xfa.submit_urls".into(), encode_array(submit_urls));
     }
     if !sensitive_fields.is_empty() {
-        meta.insert(
-            "xfa.sensitive_fields".into(),
-            encode_array(sensitive_fields),
-        );
+        meta.insert("xfa.sensitive_fields".into(), encode_array(sensitive_fields));
     }
     if let Some(preview) = script_preview {
         meta.insert("xfa.script.preview".into(), preview.to_string());
@@ -527,14 +533,8 @@ mod tests {
 
         let stats = inspect_xfa_payload(payload);
         assert!(stats.script_count >= 1);
-        assert_eq!(
-            stats.submit_urls,
-            vec!["https://evil.com/submit".to_string()]
-        );
-        assert!(stats
-            .sensitive_fields
-            .iter()
-            .any(|value| value.eq_ignore_ascii_case("Password")));
+        assert_eq!(stats.submit_urls, vec!["https://evil.com/submit".to_string()]);
+        assert!(stats.sensitive_fields.iter().any(|value| value.eq_ignore_ascii_case("Password")));
         assert!(stats
             .script_preview
             .as_deref()

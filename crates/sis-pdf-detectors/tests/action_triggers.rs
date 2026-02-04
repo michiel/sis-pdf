@@ -20,10 +20,7 @@ fn complex_action_reports_chain_metadata() {
         .and_then(|v| v.parse::<usize>().ok())
         .expect("chain depth");
     assert!(depth >= 3, "expected depth >= threshold");
-    assert_eq!(
-        finding.meta.get("action.trigger_type").map(String::as_str),
-        Some("automatic")
-    );
+    assert_eq!(finding.meta.get("action.trigger_type").map(String::as_str), Some("automatic"));
     assert!(finding
         .meta
         .get("action.chain_path")
@@ -44,10 +41,7 @@ fn hidden_action_reports_trigger_type() {
         .iter()
         .find(|f| f.kind == "action_hidden_trigger")
         .expect("hidden trigger finding");
-    assert_eq!(
-        finding.meta.get("action.trigger_type").map(String::as_str),
-        Some("hidden")
-    );
+    assert_eq!(finding.meta.get("action.trigger_type").map(String::as_str), Some("hidden"));
     assert!(finding
         .meta
         .get("action.chain_path")

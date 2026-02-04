@@ -66,9 +66,7 @@ fn map_findings(
     src: Vec<AnalysisFinding>,
     dynamic: bool,
 ) -> Vec<Finding> {
-    src.into_iter()
-        .filter_map(|finding| map_finding(ctx, &finding, dynamic))
-        .collect()
+    src.into_iter().filter_map(|finding| map_finding(ctx, &finding, dynamic)).collect()
 }
 
 fn map_finding(
@@ -77,11 +75,8 @@ fn map_finding(
     dynamic: bool,
 ) -> Option<Finding> {
     let entry = ctx.graph.get_object(finding.obj, finding.gen);
-    let mut meta: HashMap<String, String> = finding
-        .meta
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let mut meta: HashMap<String, String> =
+        finding.meta.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     if dynamic {
         meta.insert("image.dynamic".into(), "true".into());
     }
@@ -156,18 +151,10 @@ fn payload_format(meta: &HashMap<String, String>) -> Option<String> {
     if filters.iter().any(|f| *f == "DCTDecode" || *f == "DCT") {
         return Some("JPEG".into());
     }
-    if meta
-        .get("image.header.png")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if meta.get("image.header.png").map(|v| v == "true").unwrap_or(false) {
         return Some("PNG".into());
     }
-    if meta
-        .get("image.header.tiff")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if meta.get("image.header.tiff").map(|v| v == "true").unwrap_or(false) {
         return Some("TIFF".into());
     }
     None

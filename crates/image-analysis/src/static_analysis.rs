@@ -15,11 +15,8 @@ pub fn analyze_static_images(
     graph: &ObjectGraph<'_>,
     opts: &ImageStaticOptions,
 ) -> ImageStaticResult {
-    let max_header_bytes = if opts.max_header_bytes == 0 {
-        DEFAULT_HEADER_BYTES
-    } else {
-        opts.max_header_bytes
-    };
+    let max_header_bytes =
+        if opts.max_header_bytes == 0 { DEFAULT_HEADER_BYTES } else { opts.max_header_bytes };
     let mut findings = Vec::new();
     for entry in &graph.objects {
         let PdfAtom::Stream(stream) = &entry.atom else {
@@ -76,18 +73,12 @@ pub fn analyze_static_images(
                     let short_dim = std::cmp::min(w, h);
                     let mut zero_meta = meta.clone();
                     zero_meta.insert("cve".into(), "CVE-2021-30860".into());
-                    zero_meta.insert(
-                        "attack_surface".into(),
-                        "Image codecs / zero-click JBIG2".into(),
-                    );
-                    zero_meta.insert(
-                        "image.zero_click_long_dimension".into(),
-                        long_dim.to_string(),
-                    );
-                    zero_meta.insert(
-                        "image.zero_click_short_dimension".into(),
-                        short_dim.to_string(),
-                    );
+                    zero_meta
+                        .insert("attack_surface".into(), "Image codecs / zero-click JBIG2".into());
+                    zero_meta
+                        .insert("image.zero_click_long_dimension".into(), long_dim.to_string());
+                    zero_meta
+                        .insert("image.zero_click_short_dimension".into(), short_dim.to_string());
                     findings.push(ImageFinding {
                         kind: "image.zero_click_jbig2".into(),
                         obj: entry.obj,
@@ -165,10 +156,8 @@ fn stream_filters(stream: &PdfStream<'_>) -> (Vec<String>, String) {
     };
     match &filter.atom {
         PdfAtom::Name(name) => {
-            let label = String::from_utf8_lossy(&name.decoded)
-                .trim()
-                .trim_start_matches('/')
-                .to_string();
+            let label =
+                String::from_utf8_lossy(&name.decoded).trim().trim_start_matches('/').to_string();
             (vec![label.clone()], label)
         }
         PdfAtom::Array(arr) => {
@@ -182,11 +171,7 @@ fn stream_filters(stream: &PdfStream<'_>) -> (Vec<String>, String) {
                     out.push(label);
                 }
             }
-            let label = if out.is_empty() {
-                "-".into()
-            } else {
-                out.join(",")
-            };
+            let label = if out.is_empty() { "-".into() } else { out.join(",") };
             (out, label)
         }
         _ => (Vec::new(), "-".into()),

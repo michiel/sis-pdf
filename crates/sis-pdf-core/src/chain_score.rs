@@ -4,11 +4,8 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
     let mut score: f64 = 0.2;
     let mut reasons = Vec::new();
 
-    let trigger_key = chain
-        .notes
-        .get("trigger.key")
-        .map(String::as_str)
-        .or(chain.trigger.as_deref());
+    let trigger_key =
+        chain.notes.get("trigger.key").map(String::as_str).or(chain.trigger.as_deref());
     if let Some(trigger) = trigger_key {
         if trigger == "open_action_present" || trigger == "aa_event_present" {
             score = score.max(0.7);
@@ -16,11 +13,7 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
         }
     }
 
-    let action_key = chain
-        .notes
-        .get("action.key")
-        .map(String::as_str)
-        .or(chain.action.as_deref());
+    let action_key = chain.notes.get("action.key").map(String::as_str).or(chain.action.as_deref());
     if let Some(action) = action_key {
         match action {
             "launch_action_present" => {
@@ -43,11 +36,8 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
         }
     }
 
-    let payload_key = chain
-        .notes
-        .get("payload.key")
-        .map(String::as_str)
-        .or(chain.payload.as_deref());
+    let payload_key =
+        chain.notes.get("payload.key").map(String::as_str).or(chain.payload.as_deref());
     if let Some(payload) = payload_key {
         if payload.contains("stream") {
             score = score.max(0.65);
@@ -58,22 +48,12 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
             reasons.push("Payload: image data".into());
         }
     }
-    if chain
-        .notes
-        .get("payload.risky")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if chain.notes.get("payload.risky").map(|v| v == "true").unwrap_or(false) {
         score = score.max(0.7);
         reasons.push("Payload: risky image format".into());
     }
 
-    if chain
-        .notes
-        .get("js.obfuscation_suspected")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if chain.notes.get("js.obfuscation_suspected").map(|v| v == "true").unwrap_or(false) {
         score = score.max(0.85);
         reasons.push("Payload: JS obfuscation suspected".into());
     }
@@ -85,38 +65,22 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
         .unwrap_or(0.0);
     if concat_density > 0.03 {
         score = score.max(0.7);
-        reasons.push(format!(
-            "Payload: string concat density {:.3}",
-            concat_density
-        ));
+        reasons.push(format!("Payload: string concat density {:.3}", concat_density));
     }
 
-    let escape_density = chain
-        .notes
-        .get("js.escape_density")
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(0.0);
+    let escape_density =
+        chain.notes.get("js.escape_density").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
     if escape_density > 0.05 {
         score = score.max(0.7);
         reasons.push(format!("Payload: escape density {:.3}", escape_density));
     }
 
-    if chain
-        .notes
-        .get("js.regex_packing")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if chain.notes.get("js.regex_packing").map(|v| v == "true").unwrap_or(false) {
         score = score.max(0.75);
         reasons.push("Payload: regex packing patterns".into());
     }
 
-    if chain
-        .notes
-        .get("js.suspicious_apis")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if chain.notes.get("js.suspicious_apis").map(|v| v == "true").unwrap_or(false) {
         score = score.max(0.8);
         reasons.push("Payload: suspicious JavaScript APIs".into());
     }
@@ -131,12 +95,7 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
         reasons.push(format!("Structure: {} suspicious finding(s)", structural));
     }
 
-    if chain
-        .notes
-        .get("taint.flagged")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if chain.notes.get("taint.flagged").map(|v| v == "true").unwrap_or(false) {
         score = score.max(0.8);
         reasons.push("Taint: suspicious constructs present".into());
     }

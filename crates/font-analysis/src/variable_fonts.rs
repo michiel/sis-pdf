@@ -57,19 +57,12 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
             if glyph_count > font_glyphs {
                 let mut meta = HashMap::new();
                 meta.insert("cve".into(), "CVE-2025-27363".into());
-                meta.insert(
-                    "attack_surface".into(),
-                    "Font parsing / variable fonts".into(),
-                );
+                meta.insert("attack_surface".into(), "Font parsing / variable fonts".into());
                 meta.insert("gvar.glyph_count".into(), glyph_count.to_string());
                 meta.insert("font.glyph_count".into(), font_glyphs.to_string());
                 meta.insert(
                     "gvar.last_offset".into(),
-                    header
-                        .offsets
-                        .last()
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
+                    header.offsets.last().map(|v| v.to_string()).unwrap_or_default(),
                 );
                 meta.insert("gvar.data_length".into(), header.glyph_data_len.to_string());
                 findings.push(FontFinding {
@@ -81,25 +74,14 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
                     meta,
                 });
             }
-            if header
-                .offsets
-                .windows(2)
-                .any(|window| window[0] > window[1])
-            {
+            if header.offsets.windows(2).any(|window| window[0] > window[1]) {
                 let mut meta = HashMap::new();
                 meta.insert("cve".into(), "CVE-2025-27363".into());
-                meta.insert(
-                    "attack_surface".into(),
-                    "Font parsing / variable fonts".into(),
-                );
+                meta.insert("attack_surface".into(), "Font parsing / variable fonts".into());
                 meta.insert("gvar.ordering".into(), "nonstrict".into());
                 meta.insert(
                     "gvar.last_offset".into(),
-                    header
-                        .offsets
-                        .last()
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
+                    header.offsets.last().map(|v| v.to_string()).unwrap_or_default(),
                 );
                 meta.insert("gvar.data_length".into(), header.glyph_data_len.to_string());
                 findings.push(FontFinding {
@@ -127,10 +109,7 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
             meta.insert("table".to_string(), "gvar".to_string());
             meta.insert("size".to_string(), gvar_size.to_string());
             meta.insert("max_safe_size".to_string(), MAX_GVAR_SIZE.to_string());
-            meta.insert(
-                "attack_surface".into(),
-                "Font parsing / variable fonts".into(),
-            );
+            meta.insert("attack_surface".into(), "Font parsing / variable fonts".into());
 
             findings.push(FontFinding {
                 kind: "font.anomalous_variation_table".to_string(),
@@ -300,11 +279,7 @@ fn parse_gvar_header(data: &[u8]) -> Option<GvarHeader> {
     let offsets_slice = &data[offsets_start..offsets_end];
     let offsets = parse_gvar_offsets(offsets_slice, entry_size == 4)?;
     let glyph_data_len = data.len().checked_sub(glyph_data_offset)?;
-    Some(GvarHeader {
-        glyph_count,
-        offsets,
-        glyph_data_len,
-    })
+    Some(GvarHeader { glyph_count, offsets, glyph_data_len })
 }
 
 #[cfg(feature = "dynamic")]

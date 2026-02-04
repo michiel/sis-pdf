@@ -289,8 +289,6 @@ startxref
     assert!(filespec.has_role(ObjectRole::EmbeddedFile));
 
     // Object 6 should be Stream
-    let embedded = classifications
-        .get(&(6, 0))
-        .expect("Embedded file not found");
+    let embedded = classifications.get(&(6, 0)).expect("Embedded file not found");
     assert_eq!(embedded.obj_type, PdfObjectType::Stream);
 }

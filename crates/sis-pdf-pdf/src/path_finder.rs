@@ -25,10 +25,7 @@ pub enum TriggerType {
 impl TriggerType {
     /// Returns true if this trigger is automatic (no user action required)
     pub fn is_automatic(&self) -> bool {
-        matches!(
-            self,
-            TriggerType::OpenAction | TriggerType::PageOpen | TriggerType::PageClose
-        )
+        matches!(self, TriggerType::OpenAction | TriggerType::PageOpen | TriggerType::PageClose)
     }
 
     /// Returns string representation
@@ -126,14 +123,7 @@ impl<'a> PathFinder<'a> {
         let mut current_path = Vec::new();
         let mut visited = HashSet::new();
 
-        self.dfs_paths(
-            from,
-            to,
-            max_depth,
-            &mut current_path,
-            &mut visited,
-            &mut paths,
-        );
+        self.dfs_paths(from, to, max_depth, &mut current_path, &mut visited, &mut paths);
 
         paths
     }
@@ -162,14 +152,7 @@ impl<'a> PathFinder<'a> {
         for edge in self.graph.outgoing_edges(current.0, current.1) {
             if !visited.contains(&edge.dst) {
                 current_path.push(edge);
-                self.dfs_paths(
-                    edge.dst,
-                    target,
-                    depth_remaining - 1,
-                    current_path,
-                    visited,
-                    paths,
-                );
+                self.dfs_paths(edge.dst, target, depth_remaining - 1, current_path, visited, paths);
                 current_path.pop();
             }
         }
@@ -215,10 +198,7 @@ impl<'a> PathFinder<'a> {
 
         // Find all edges that lead to JavaScript
         for edge in &self.graph.edges {
-            if matches!(
-                edge.edge_type,
-                EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames
-            ) {
+            if matches!(edge.edge_type, EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames) {
                 sources.push(edge.src);
             }
         }
@@ -317,10 +297,7 @@ impl<'a> PathFinder<'a> {
         // Analyze chain characteristics
         let automatic = trigger_type.is_automatic();
         let involves_js = edges.iter().any(|e| {
-            matches!(
-                e.edge_type,
-                EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames
-            )
+            matches!(e.edge_type, EdgeType::JavaScriptPayload | EdgeType::JavaScriptNames)
         });
         let involves_external = edges.iter().any(|e| {
             matches!(
@@ -434,10 +411,8 @@ impl<'a> PathFinder<'a> {
         }
 
         // Normalize to 0-1 range
-        if let Some(&max_score) = scores
-            .values()
-            .filter(|score| score.is_finite())
-            .max_by(|a, b| a.total_cmp(b))
+        if let Some(&max_score) =
+            scores.values().filter(|score| score.is_finite()).max_by(|a, b| a.total_cmp(b))
         {
             if max_score > 1.0 {
                 for score in scores.values_mut() {

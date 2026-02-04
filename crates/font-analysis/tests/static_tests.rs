@@ -17,18 +17,12 @@ fn build_sfnt(records: &[(&[u8; 4], u32, u32)], length: usize) -> Vec<u8> {
 #[test]
 fn flags_short_font() {
     let outcome = analyse_static(&[0u8; 4]);
-    assert!(outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.invalid_structure"));
+    assert!(outcome.findings.iter().any(|f| f.kind == "font.invalid_structure"));
 }
 
 #[test]
 fn flags_overlapping_tables() {
     let data = build_sfnt(&[(b"head", 40, 12), (b"glyf", 45, 12)], 80);
     let outcome = analyse_static(&data);
-    assert!(outcome
-        .findings
-        .iter()
-        .any(|f| f.kind == "font.inconsistent_table_layout"));
+    assert!(outcome.findings.iter().any(|f| f.kind == "font.inconsistent_table_layout"));
 }

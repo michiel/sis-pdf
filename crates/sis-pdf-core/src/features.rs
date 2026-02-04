@@ -341,18 +341,13 @@ impl FeatureExtractor {
         let objstm_count = graph
             .objects
             .iter()
-            .filter(|e| {
-                entry_dict(e)
-                    .map(|d| d.has_name(b"/Type", b"/ObjStm"))
-                    .unwrap_or(false)
-            })
+            .filter(|e| entry_dict(e).map(|d| d.has_name(b"/Type", b"/ObjStm")).unwrap_or(false))
             .count();
 
-        let linearized_present = graph.objects.iter().any(|e| {
-            entry_dict(e)
-                .and_then(|d| d.get_first(b"/Linearized"))
-                .is_some()
-        });
+        let linearized_present = graph
+            .objects
+            .iter()
+            .any(|e| entry_dict(e).and_then(|d| d.get_first(b"/Linearized")).is_some());
 
         let mut action_count = 0usize;
         let mut js_object_count = 0usize;
@@ -603,9 +598,7 @@ fn has_double_extension(name: &str) -> bool {
     let last = parts[parts.len() - 1];
     let prev = parts[parts.len() - 2];
     let suspicious = ["exe", "scr", "js", "vbs", "bat", "cmd", "com", "ps1"];
-    let common = [
-        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "zip",
-    ];
+    let common = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "zip"];
     suspicious.contains(&last) && common.contains(&prev)
 }
 
@@ -709,21 +702,10 @@ fn summarize_js_payloads(payloads: &[Vec<u8>]) -> (f64, usize, usize, usize, usi
         if contains_token(data, b"eval") {
             eval_count += 1;
         }
-        if contains_any(
-            data,
-            &[
-                b"app.launchURL",
-                b"submitForm",
-                b"getURL",
-                b"app.execMenuItem",
-            ],
-        ) {
+        if contains_any(data, &[b"app.launchURL", b"submitForm", b"getURL", b"app.execMenuItem"]) {
             suspicious_api_count += 1;
         }
-        if contains_any(
-            data,
-            &[b"setTimeout", b"setInterval", b"Date(", b"performance.now"],
-        ) {
+        if contains_any(data, &[b"setTimeout", b"setInterval", b"Date(", b"performance.now"]) {
             time_api_count += 1;
         }
         if contains_any(
@@ -742,13 +724,7 @@ fn summarize_js_payloads(payloads: &[Vec<u8>]) -> (f64, usize, usize, usize, usi
     }
 
     let avg_entropy = ent_total / payloads.len() as f64;
-    (
-        avg_entropy,
-        eval_count,
-        suspicious_api_count,
-        time_api_count,
-        env_probe_count,
-    )
+    (avg_entropy, eval_count, suspicious_api_count, time_api_count, env_probe_count)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1170,10 +1146,8 @@ fn extract_filter_features(ctx: &ScanContext) -> FilterFeatures {
             continue;
         }
         features.filter_chain_count += 1;
-        let normalised: Vec<String> = filters
-            .iter()
-            .map(|f| f.trim_start_matches('/').to_string())
-            .collect();
+        let normalised: Vec<String> =
+            filters.iter().map(|f| f.trim_start_matches('/').to_string()).collect();
         features.max_filter_chain_depth = features.max_filter_chain_depth.max(normalised.len());
         if is_unusual_chain(&normalised) {
             features.unusual_chain_count += 1;
@@ -1195,12 +1169,10 @@ fn resolve_encrypt_dict<'a>(
     match &obj.atom {
         PdfAtom::Dict(dict) => Some(dict.clone()),
         PdfAtom::Ref { obj, gen } => {
-            graph
-                .get_object(*obj, *gen)
-                .and_then(|entry| match &entry.atom {
-                    PdfAtom::Dict(dict) => Some(dict.clone()),
-                    _ => None,
-                })
+            graph.get_object(*obj, *gen).and_then(|entry| match &entry.atom {
+                PdfAtom::Dict(dict) => Some(dict.clone()),
+                _ => None,
+            })
         }
         _ => None,
     }
@@ -1414,22 +1386,14 @@ fn extract_graph_features(ctx: &ScanContext) -> GraphFeatures {
 
     // Count paths from catalog to JavaScript objects
     let js_sources = path_finder.find_javascript_sources();
-    let catalog_to_js_paths = js_sources
-        .iter()
-        .filter(|src| path_finder.is_reachable_from_catalog(**src))
-        .count();
+    let catalog_to_js_paths =
+        js_sources.iter().filter(|src| path_finder.is_reachable_from_catalog(**src)).count();
 
     // Detect multi-stage attack indicators (JS + embedded + external)
     let has_js = js_payload_edges > 0;
-    let has_embedded = classifications
-        .iter()
-        .any(|(_, c)| c.has_role(ObjectRole::EmbeddedFile));
+    let has_embedded = classifications.iter().any(|(_, c)| c.has_role(ObjectRole::EmbeddedFile));
     let has_external = uri_target_edges > 0 || launch_target_edges > 0;
-    let multi_stage_indicators = if has_js && has_embedded && has_external {
-        1
-    } else {
-        0
-    };
+    let multi_stage_indicators = if has_js && has_embedded && has_external { 1 } else { 0 };
 
     GraphFeatures {
         total_edges,
@@ -1459,78 +1423,32 @@ fn build_feature_map(fv: &FeatureVector) -> HashMap<String, f64> {
     out.insert("general.file_size".into(), fv.general.file_size as f64);
     out.insert("general.file_entropy".into(), fv.general.file_entropy);
     out.insert("general.binary_ratio".into(), fv.general.binary_ratio);
-    out.insert(
-        "general.object_count".into(),
-        fv.general.object_count as f64,
-    );
-    out.insert(
-        "structural.startxref_count".into(),
-        fv.structural.startxref_count as f64,
-    );
-    out.insert(
-        "structural.trailer_count".into(),
-        fv.structural.trailer_count as f64,
-    );
-    out.insert(
-        "structural.objstm_count".into(),
-        fv.structural.objstm_count as f64,
-    );
+    out.insert("general.object_count".into(), fv.general.object_count as f64);
+    out.insert("structural.startxref_count".into(), fv.structural.startxref_count as f64);
+    out.insert("structural.trailer_count".into(), fv.structural.trailer_count as f64);
+    out.insert("structural.objstm_count".into(), fv.structural.objstm_count as f64);
     out.insert(
         "structural.linearized_present".into(),
-        if fv.structural.linearized_present {
-            1.0
-        } else {
-            0.0
-        },
+        if fv.structural.linearized_present { 1.0 } else { 0.0 },
     );
-    out.insert(
-        "structural.max_object_id".into(),
-        fv.structural.max_object_id as f64,
-    );
-    out.insert(
-        "behavior.action_count".into(),
-        fv.behavioral.action_count as f64,
-    );
-    out.insert(
-        "behavior.js_object_count".into(),
-        fv.behavioral.js_object_count as f64,
-    );
-    out.insert(
-        "behavior.js_entropy_avg".into(),
-        fv.behavioral.js_entropy_avg,
-    );
-    out.insert(
-        "behavior.js_eval_count".into(),
-        fv.behavioral.js_eval_count as f64,
-    );
+    out.insert("structural.max_object_id".into(), fv.structural.max_object_id as f64);
+    out.insert("behavior.action_count".into(), fv.behavioral.action_count as f64);
+    out.insert("behavior.js_object_count".into(), fv.behavioral.js_object_count as f64);
+    out.insert("behavior.js_entropy_avg".into(), fv.behavioral.js_entropy_avg);
+    out.insert("behavior.js_eval_count".into(), fv.behavioral.js_eval_count as f64);
     out.insert(
         "behavior.js_suspicious_api_count".into(),
         fv.behavioral.js_suspicious_api_count as f64,
     );
-    out.insert(
-        "behavior.time_api_count".into(),
-        fv.behavioral.time_api_count as f64,
-    );
-    out.insert(
-        "behavior.env_probe_count".into(),
-        fv.behavioral.env_probe_count as f64,
-    );
-    out.insert(
-        "content.embedded_file_count".into(),
-        fv.content.embedded_file_count as f64,
-    );
+    out.insert("behavior.time_api_count".into(), fv.behavioral.time_api_count as f64);
+    out.insert("behavior.env_probe_count".into(), fv.behavioral.env_probe_count as f64);
+    out.insert("content.embedded_file_count".into(), fv.content.embedded_file_count as f64);
     out.insert(
         "content.embedded_executable_count".into(),
         fv.content.embedded_executable_count as f64,
     );
-    out.insert(
-        "content.embedded_script_count".into(),
-        fv.content.embedded_script_count as f64,
-    );
-    out.insert(
-        "content.embedded_archive_count".into(),
-        fv.content.embedded_archive_count as f64,
-    );
+    out.insert("content.embedded_script_count".into(), fv.content.embedded_script_count as f64);
+    out.insert("content.embedded_archive_count".into(), fv.content.embedded_archive_count as f64);
     out.insert(
         "content.embedded_double_extension_count".into(),
         fv.content.embedded_double_extension_count as f64,
@@ -1539,42 +1457,18 @@ fn build_feature_map(fv: &FeatureVector) -> HashMap<String, f64> {
         "content.embedded_encrypted_count".into(),
         fv.content.embedded_encrypted_count as f64,
     );
-    out.insert(
-        "content.rich_media_count".into(),
-        fv.content.rich_media_count as f64,
-    );
-    out.insert(
-        "content.rich_media_swf_count".into(),
-        fv.content.rich_media_swf_count as f64,
-    );
-    out.insert(
-        "content.rich_media_3d_count".into(),
-        fv.content.rich_media_3d_count as f64,
-    );
-    out.insert(
-        "content.annotation_count".into(),
-        fv.content.annotation_count as f64,
-    );
+    out.insert("content.rich_media_count".into(), fv.content.rich_media_count as f64);
+    out.insert("content.rich_media_swf_count".into(), fv.content.rich_media_swf_count as f64);
+    out.insert("content.rich_media_3d_count".into(), fv.content.rich_media_3d_count as f64);
+    out.insert("content.annotation_count".into(), fv.content.annotation_count as f64);
     out.insert("content.page_count".into(), fv.content.page_count as f64);
     out.insert("xfa.present".into(), if fv.xfa.present { 1.0 } else { 0.0 });
     out.insert("xfa.payload_count".into(), fv.xfa.payload_count as f64);
     out.insert("xfa.script_count".into(), fv.xfa.script_count as f64);
-    out.insert(
-        "xfa.submit_url_count".into(),
-        fv.xfa.submit_url_count as f64,
-    );
-    out.insert(
-        "xfa.sensitive_field_count".into(),
-        fv.xfa.sensitive_field_count as f64,
-    );
-    out.insert(
-        "xfa.max_payload_bytes".into(),
-        fv.xfa.max_payload_bytes as f64,
-    );
-    out.insert(
-        "encryption.encrypted".into(),
-        if fv.encryption.encrypted { 1.0 } else { 0.0 },
-    );
+    out.insert("xfa.submit_url_count".into(), fv.xfa.submit_url_count as f64);
+    out.insert("xfa.sensitive_field_count".into(), fv.xfa.sensitive_field_count as f64);
+    out.insert("xfa.max_payload_bytes".into(), fv.xfa.max_payload_bytes as f64);
+    out.insert("encryption.encrypted".into(), if fv.encryption.encrypted { 1.0 } else { 0.0 });
     out.insert(
         "encryption.encryption_key_length".into(),
         fv.encryption.encryption_key_length as f64,
@@ -1583,38 +1477,17 @@ fn build_feature_map(fv: &FeatureVector) -> HashMap<String, f64> {
         "encryption.high_entropy_stream_count".into(),
         fv.encryption.high_entropy_stream_count as f64,
     );
-    out.insert(
-        "encryption.avg_stream_entropy".into(),
-        fv.encryption.avg_stream_entropy,
-    );
-    out.insert(
-        "encryption.max_stream_entropy".into(),
-        fv.encryption.max_stream_entropy,
-    );
+    out.insert("encryption.avg_stream_entropy".into(), fv.encryption.avg_stream_entropy);
+    out.insert("encryption.max_stream_entropy".into(), fv.encryption.max_stream_entropy);
     out.insert(
         "encryption.encrypted_embedded_file_count".into(),
         fv.encryption.encrypted_embedded_file_count as f64,
     );
-    out.insert(
-        "filters.filter_chain_count".into(),
-        fv.filters.filter_chain_count as f64,
-    );
-    out.insert(
-        "filters.max_filter_chain_depth".into(),
-        fv.filters.max_filter_chain_depth as f64,
-    );
-    out.insert(
-        "filters.unusual_chain_count".into(),
-        fv.filters.unusual_chain_count as f64,
-    );
-    out.insert(
-        "filters.invalid_order_count".into(),
-        fv.filters.invalid_order_count as f64,
-    );
-    out.insert(
-        "filters.duplicate_filter_count".into(),
-        fv.filters.duplicate_filter_count as f64,
-    );
+    out.insert("filters.filter_chain_count".into(), fv.filters.filter_chain_count as f64);
+    out.insert("filters.max_filter_chain_depth".into(), fv.filters.max_filter_chain_depth as f64);
+    out.insert("filters.unusual_chain_count".into(), fv.filters.unusual_chain_count as f64);
+    out.insert("filters.invalid_order_count".into(), fv.filters.invalid_order_count as f64);
+    out.insert("filters.duplicate_filter_count".into(), fv.filters.duplicate_filter_count as f64);
     out
 }
 

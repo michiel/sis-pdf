@@ -53,11 +53,7 @@ impl Detector for JavaScriptSandboxDetector {
                 };
 
                 match run_sandbox(&info.bytes, &options) {
-                    DynamicOutcome::Skipped {
-                        reason,
-                        limit,
-                        actual,
-                    } => {
+                    DynamicOutcome::Skipped { reason, limit, actual } => {
                         let mut meta = std::collections::HashMap::new();
                         meta.insert("js.sandbox_exec".into(), "false".into());
                         meta.insert("js.sandbox_skip_reason".into(), reason);
@@ -167,10 +163,8 @@ impl Detector for JavaScriptSandboxDetector {
 
                         let mut base_meta = std::collections::HashMap::new();
                         base_meta.insert("js.runtime.calls".into(), signals.calls.join(","));
-                        base_meta.insert(
-                            "js.runtime.call_count".into(),
-                            signals.call_count.to_string(),
-                        );
+                        base_meta
+                            .insert("js.runtime.call_count".into(), signals.call_count.to_string());
                         base_meta.insert(
                             "js.runtime.unique_calls".into(),
                             signals.unique_calls.to_string(),
@@ -211,11 +205,7 @@ impl Detector for JavaScriptSandboxDetector {
                         if signals.calls.iter().any(|c| c.eq_ignore_ascii_case("eval")) {
                             risky_calls.push("eval");
                         }
-                        if signals
-                            .calls
-                            .iter()
-                            .any(|c| c.eq_ignore_ascii_case("unescape"))
-                        {
+                        if signals.calls.iter().any(|c| c.eq_ignore_ascii_case("unescape")) {
                             risky_calls.push("unescape");
                         }
                         let risky_call_label = if risky_calls.is_empty() {

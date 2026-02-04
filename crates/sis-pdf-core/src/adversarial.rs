@@ -30,10 +30,7 @@ impl AdversarialDefense {
             reasons.push("excessive object streams".into());
         }
         if score >= 0.6 {
-            return Some(AdversarialAttempt {
-                score,
-                reason: reasons.join("; "),
-            });
+            return Some(AdversarialAttempt { score, reason: reasons.join("; ") });
         }
         None
     }
@@ -50,8 +47,6 @@ impl AdversarialDefense {
         if features.structural.max_object_id > 500_000 {
             penalty += 0.2;
         }
-        StabilityScore {
-            score: (1.0 - penalty).max(0.0),
-        }
+        StabilityScore { score: (1.0 - penalty).max(0.0) }
     }
 }

@@ -80,15 +80,9 @@ impl<'a> Blob<'a> {
         Ok(Self {
             origin,
             pdf_path: vec![
-                BlobPathStep::Obj {
-                    obj: file_spec.0,
-                    gen: file_spec.1,
-                },
+                BlobPathStep::Obj { obj: file_spec.0, gen: file_spec.1 },
                 BlobPathStep::Key("EF".to_string()),
-                BlobPathStep::Ref {
-                    obj: stream_ref.0,
-                    gen: stream_ref.1,
-                },
+                BlobPathStep::Ref { obj: stream_ref.0, gen: stream_ref.1 },
                 BlobPathStep::Stream,
             ],
             raw,
@@ -115,20 +109,11 @@ impl<'a> Blob<'a> {
         let result = decode_stream_with_meta(bytes, stream, limits);
 
         Ok(Self {
-            origin: BlobOrigin::XfaPackage {
-                obj: stream_ref.0,
-                gen: stream_ref.1,
-            },
+            origin: BlobOrigin::XfaPackage { obj: stream_ref.0, gen: stream_ref.1 },
             pdf_path: vec![
-                BlobPathStep::Obj {
-                    obj: container.0,
-                    gen: container.1,
-                },
+                BlobPathStep::Obj { obj: container.0, gen: container.1 },
                 BlobPathStep::Key("XFA".to_string()),
-                BlobPathStep::Ref {
-                    obj: stream_ref.0,
-                    gen: stream_ref.1,
-                },
+                BlobPathStep::Ref { obj: stream_ref.0, gen: stream_ref.1 },
                 BlobPathStep::Stream,
             ],
             raw,

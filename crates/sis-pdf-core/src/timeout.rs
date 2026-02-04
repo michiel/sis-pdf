@@ -10,11 +10,7 @@ pub struct TimeoutError {
 
 impl fmt::Display for TimeoutError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "timeout exceeded: budget {:?}, elapsed {:?}",
-            self.budget, self.elapsed
-        )
+        write!(f, "timeout exceeded: budget {:?}, elapsed {:?}", self.budget, self.elapsed)
     }
 }
 
@@ -28,19 +24,13 @@ pub struct TimeoutChecker {
 
 impl TimeoutChecker {
     pub fn new(budget: Duration) -> Self {
-        Self {
-            start: Instant::now(),
-            budget,
-        }
+        Self { start: Instant::now(), budget }
     }
 
     pub fn check(&self) -> Result<(), TimeoutError> {
         let elapsed = self.start.elapsed();
         if elapsed > self.budget {
-            return Err(TimeoutError {
-                budget: self.budget,
-                elapsed,
-            });
+            return Err(TimeoutError { budget: self.budget, elapsed });
         }
         Ok(())
     }

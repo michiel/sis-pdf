@@ -54,9 +54,7 @@ fn load_context() -> anyhow::Result<ScanContext<'static>> {
 }
 
 fn fixture_path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/ml")
-        .join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ml").join(name)
 }
 
 #[test]

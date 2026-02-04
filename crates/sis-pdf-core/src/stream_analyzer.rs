@@ -18,11 +18,7 @@ pub struct StreamAnalyzer {
 
 impl StreamAnalyzer {
     pub fn new(max_buffer: usize) -> Self {
-        Self {
-            buffer: Vec::new(),
-            max_buffer,
-            indicators: Vec::new(),
-        }
+        Self { buffer: Vec::new(), max_buffer, indicators: Vec::new() }
     }
 
     pub fn analyze_chunk(&mut self, chunk: &[u8]) -> StreamAnalysisState {
@@ -50,10 +46,7 @@ impl StreamAnalyzer {
                 }
             }
         }
-        StreamAnalysisState {
-            bytes_seen: self.buffer.len(),
-            indicators: self.indicators.clone(),
-        }
+        StreamAnalysisState { bytes_seen: self.buffer.len(), indicators: self.indicators.clone() }
     }
 
     pub fn early_terminate(&self, state: &StreamAnalysisState) -> Option<ThreatDetected> {

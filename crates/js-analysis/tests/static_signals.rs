@@ -4,18 +4,9 @@ use js_analysis::static_analysis::{decode_layers, extract_js_signals_with_ast};
 fn detects_basic_js_signals() {
     let data = b"eval('a'+String.fromCharCode(98))";
     let signals = extract_js_signals_with_ast(data, false);
-    assert_eq!(
-        signals.get("js.contains_eval").map(String::as_str),
-        Some("true")
-    );
-    assert_eq!(
-        signals.get("js.contains_fromcharcode").map(String::as_str),
-        Some("true")
-    );
-    assert_eq!(
-        signals.get("js.ast_parsed").map(String::as_str),
-        Some("false")
-    );
+    assert_eq!(signals.get("js.contains_eval").map(String::as_str), Some("true"));
+    assert_eq!(signals.get("js.contains_fromcharcode").map(String::as_str), Some("true"));
+    assert_eq!(signals.get("js.ast_parsed").map(String::as_str), Some("false"));
 }
 
 #[test]

@@ -11,11 +11,7 @@ pub struct IrOptions {
 
 impl Default for IrOptions {
     fn default() -> Self {
-        Self {
-            max_lines_per_object: 256,
-            max_string_len: 120,
-            max_array_elems: 12,
-        }
+        Self { max_lines_per_object: 256, max_string_len: 120, max_array_elems: 12 }
     }
 }
 
@@ -39,19 +35,8 @@ pub fn ir_for_object(entry: &ObjEntry<'_>, opts: &IrOptions) -> PdfIrObject {
     let obj_ref = (entry.obj, entry.gen);
     let mut deviations = Vec::new();
     let root_path = "$".to_string();
-    emit_lines_for_atom(
-        entry,
-        &entry.atom,
-        &root_path,
-        opts,
-        &mut lines,
-        &mut deviations,
-    );
-    PdfIrObject {
-        obj_ref,
-        lines,
-        deviations,
-    }
+    emit_lines_for_atom(entry, &entry.atom, &root_path, opts, &mut lines, &mut deviations);
+    PdfIrObject { obj_ref, lines, deviations }
 }
 
 pub fn ir_for_graph(objects: &[ObjEntry<'_>], opts: &IrOptions) -> Vec<PdfIrObject> {
@@ -75,11 +60,7 @@ fn emit_lines_for_atom(
         }
         PdfAtom::Stream(st) => {
             let filters = stream_filters(&st.dict);
-            let filter_list = if filters.is_empty() {
-                "-".to_string()
-            } else {
-                filters.join(",")
-            };
+            let filter_list = if filters.is_empty() { "-".to_string() } else { filters.join(",") };
             let meta = format!("len={} filters={}", st.data_span.len(), filter_list);
             out.push(PdfIrLine {
                 obj_ref: (entry.obj, entry.gen),
@@ -218,11 +199,8 @@ fn summarize_array(items: &[PdfObj<'_>], opts: &IrOptions) -> (String, String) {
         values.push(v);
     }
     let type_set: std::collections::BTreeSet<&str> = types.iter().map(|s| s.as_str()).collect();
-    let value_type = if type_set.len() == 1 {
-        format!("{}_list", types[0])
-    } else {
-        "mix_list".into()
-    };
+    let value_type =
+        if type_set.len() == 1 { format!("{}_list", types[0]) } else { "mix_list".into() };
     let summary = format!("len={} values=[{}]", items.len(), values.join(","));
     (value_type, summary)
 }
@@ -257,10 +235,7 @@ fn string_preview(s: &PdfStr<'_>, max_len: usize) -> String {
     };
     let truncated = raw.len() > max_len;
     let end = std::cmp::min(raw.len(), max_len);
-    let hex = raw[..end]
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<String>();
+    let hex = raw[..end].iter().map(|b| format!("{:02x}", b)).collect::<String>();
     let ascii = raw[..end]
         .iter()
         .map(|b| match b {
@@ -273,11 +248,5 @@ fn string_preview(s: &PdfStr<'_>, max_len: usize) -> String {
             _ => format!("\\x{:02x}", b),
         })
         .collect::<String>();
-    format!(
-        "len_bytes={} hex={} ascii={} truncated={}",
-        raw.len(),
-        hex,
-        ascii,
-        truncated
-    )
+    format!("len_bytes={} hex={} ascii={} truncated={}", raw.len(), hex, ascii, truncated)
 }

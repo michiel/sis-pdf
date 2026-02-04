@@ -149,12 +149,7 @@ pub struct ClassifiedObject {
 impl ClassifiedObject {
     /// Creates a new classified object
     pub fn new(obj: u32, gen: u16, obj_type: PdfObjectType) -> Self {
-        Self {
-            obj,
-            gen,
-            obj_type,
-            roles: HashSet::new(),
-        }
+        Self { obj, gen, obj_type, roles: HashSet::new() }
     }
 
     /// Adds a role to this object
@@ -355,9 +350,7 @@ impl ObjectClassifier {
                 // FontMatrix with non-numeric values is suspicious
                 if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
                     if let PdfAtom::Array(arr) = &obj.atom {
-                        if arr
-                            .iter()
-                            .any(|o| !matches!(o.atom, PdfAtom::Int(_) | PdfAtom::Real(_)))
+                        if arr.iter().any(|o| !matches!(o.atom, PdfAtom::Int(_) | PdfAtom::Real(_)))
                         {
                             classified.add_role(ObjectRole::SuspiciousFont);
                         }

@@ -67,11 +67,7 @@ impl Detector for StrictParseDeviationDetector {
                     id: String::new(),
                     surface: self.surface(),
                     kind: "header_offset_unusual".into(),
-                    severity: if off > 1024 {
-                        Severity::Medium
-                    } else {
-                        Severity::Low
-                    },
+                    severity: if off > 1024 { Severity::Medium } else { Severity::Low },
                     confidence: Confidence::Probable,
                     impact: None,
                     title: "PDF header offset unusual".into(),
@@ -99,11 +95,8 @@ impl Detector for StrictParseDeviationDetector {
                 });
             }
         }
-        let tail = if ctx.bytes.len() > 1024 {
-            &ctx.bytes[ctx.bytes.len() - 1024..]
-        } else {
-            ctx.bytes
-        };
+        let tail =
+            if ctx.bytes.len() > 1024 { &ctx.bytes[ctx.bytes.len() - 1024..] } else { ctx.bytes };
         let eof_offset = find_last(ctx.bytes, b"%%EOF");
         if eof_offset.is_none() {
             findings.push(Finding {

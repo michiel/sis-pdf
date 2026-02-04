@@ -37,10 +37,7 @@ impl OrgGraph {
         let mut adjacency = build_adjacency(&graph.objects);
         let mut nodes_set: BTreeSet<ObjRef> = BTreeSet::new();
         for entry in &graph.objects {
-            nodes_set.insert(ObjRef {
-                obj: entry.obj,
-                gen: entry.gen,
-            });
+            nodes_set.insert(ObjRef { obj: entry.obj, gen: entry.gen });
         }
         let mut missing = Vec::new();
         for (_src, targets) in adjacency.iter() {
@@ -55,12 +52,7 @@ impl OrgGraph {
             adjacency.entry(m).or_default();
         }
         let nodes: Vec<ObjRef> = nodes_set.into_iter().collect();
-        Self {
-            nodes,
-            adjacency,
-            enhanced_nodes: None,
-            enhanced_edges: None,
-        }
+        Self { nodes, adjacency, enhanced_nodes: None, enhanced_edges: None }
     }
 
     /// Create enhanced ORG with classifications and typed edges
@@ -78,35 +70,22 @@ impl OrgGraph {
             let key = (node.obj, node.gen);
             let (obj_type, roles) = if let Some(classified) = classifications.get(&key) {
                 let obj_type_str = format!("{:?}", classified.obj_type);
-                let role_strs: Vec<String> = classified
-                    .roles
-                    .iter()
-                    .map(|r| format!("{:?}", r))
-                    .collect();
+                let role_strs: Vec<String> =
+                    classified.roles.iter().map(|r| format!("{:?}", r)).collect();
                 (Some(obj_type_str), role_strs)
             } else {
                 (None, Vec::new())
             };
 
-            enhanced_nodes.push(OrgNode {
-                obj_ref: *node,
-                obj_type,
-                roles,
-            });
+            enhanced_nodes.push(OrgNode { obj_ref: *node, obj_type, roles });
         }
 
         // Build enhanced edges with type information
         let mut enhanced_edges = Vec::new();
         for edge in &typed_graph.edges {
             enhanced_edges.push(OrgEdge {
-                from: ObjRef {
-                    obj: edge.src.0,
-                    gen: edge.src.1,
-                },
-                to: ObjRef {
-                    obj: edge.dst.0,
-                    gen: edge.dst.1,
-                },
+                from: ObjRef { obj: edge.src.0, gen: edge.src.1 },
+                to: ObjRef { obj: edge.dst.0, gen: edge.dst.1 },
                 edge_type: Some(edge.edge_type.as_str().to_string()),
                 suspicious: edge.suspicious,
             });

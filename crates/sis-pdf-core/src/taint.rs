@@ -34,40 +34,21 @@ pub fn taint_from_findings(findings: &[Finding]) -> Taint {
     }
     reasons.sort();
     reasons.dedup();
-    Taint {
-        flagged: !reasons.is_empty(),
-        reasons,
-    }
+    Taint { flagged: !reasons.is_empty(), reasons }
 }
 
 fn js_taint_reason(f: &Finding) -> String {
     let mut details = Vec::new();
-    if f.meta
-        .get("js.ast_parsed")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if f.meta.get("js.ast_parsed").map(|v| v == "true").unwrap_or(false) {
         details.push("AST");
     }
-    if f.meta
-        .get("js.contains_eval")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if f.meta.get("js.contains_eval").map(|v| v == "true").unwrap_or(false) {
         details.push("eval");
     }
-    if f.meta
-        .get("js.suspicious_apis")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if f.meta.get("js.suspicious_apis").map(|v| v == "true").unwrap_or(false) {
         details.push("suspicious APIs");
     }
-    if f.meta
-        .get("js.obfuscation_suspected")
-        .map(|v| v == "true")
-        .unwrap_or(false)
-    {
+    if f.meta.get("js.obfuscation_suspected").map(|v| v == "true").unwrap_or(false) {
         details.push("obfuscation");
     }
     if details.is_empty() {

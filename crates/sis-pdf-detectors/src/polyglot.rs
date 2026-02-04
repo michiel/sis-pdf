@@ -35,16 +35,8 @@ impl Detector for PolyglotDetector {
         let non_pdf_at_zero = summary.hits.iter().any(|h| h.offset == 0);
         let strong_conflict = non_pdf_at_zero && pdf_offset > 0;
 
-        let severity = if strong_conflict {
-            Severity::Medium
-        } else {
-            Severity::Low
-        };
-        let confidence = if strong_conflict {
-            Confidence::Probable
-        } else {
-            Confidence::Heuristic
-        };
+        let severity = if strong_conflict { Severity::Medium } else { Severity::Low };
+        let confidence = if strong_conflict { Confidence::Probable } else { Confidence::Heuristic };
 
         let mut evidence = Vec::new();
         evidence.push(EvidenceSpan {
@@ -73,10 +65,7 @@ impl Detector for PolyglotDetector {
             .join(", ");
         let mut meta = std::collections::HashMap::new();
         meta.insert("polyglot.pdf_header_offset".into(), pdf_offset.to_string());
-        meta.insert(
-            "polyglot.pdf_header_at_zero".into(),
-            pdf_at_zero.to_string(),
-        );
+        meta.insert("polyglot.pdf_header_at_zero".into(), pdf_at_zero.to_string());
         meta.insert("polyglot.signatures".into(), sig_list.clone());
 
         Ok(vec![Finding {
@@ -170,11 +159,7 @@ pub fn analyze_polyglot_signatures(bytes: &[u8]) -> PolyglotSignatureSummary {
 
     let hits = hits
         .into_iter()
-        .map(|hit| PolyglotMagicHit {
-            label: hit.label,
-            offset: hit.offset,
-            length: hit.length,
-        })
+        .map(|hit| PolyglotMagicHit { label: hit.label, offset: hit.offset, length: hit.length })
         .collect::<Vec<_>>();
 
     PolyglotSignatureSummary {
@@ -200,12 +185,7 @@ struct MagicHit {
 
 impl MagicHit {
     fn new(label: &'static str, offset: usize, length: usize, region: &'static str) -> Self {
-        Self {
-            label,
-            offset,
-            length,
-            _region: region,
-        }
+        Self { label, offset, length, _region: region }
     }
 }
 
@@ -223,18 +203,8 @@ fn magic_signatures() -> Vec<MagicSig> {
             offset_zero: true,
             case_insensitive: false,
         },
-        MagicSig {
-            label: "GIF",
-            bytes: b"GIF87a",
-            offset_zero: true,
-            case_insensitive: false,
-        },
-        MagicSig {
-            label: "GIF",
-            bytes: b"GIF89a",
-            offset_zero: true,
-            case_insensitive: false,
-        },
+        MagicSig { label: "GIF", bytes: b"GIF87a", offset_zero: true, case_insensitive: false },
+        MagicSig { label: "GIF", bytes: b"GIF89a", offset_zero: true, case_insensitive: false },
         MagicSig {
             label: "ZIP",
             bytes: b"PK\x03\x04",
@@ -253,24 +223,14 @@ fn magic_signatures() -> Vec<MagicSig> {
             offset_zero: false,
             case_insensitive: false,
         },
-        MagicSig {
-            label: "MZ",
-            bytes: b"MZ",
-            offset_zero: true,
-            case_insensitive: false,
-        },
+        MagicSig { label: "MZ", bytes: b"MZ", offset_zero: true, case_insensitive: false },
         MagicSig {
             label: "HTML",
             bytes: b"<!doctype html",
             offset_zero: false,
             case_insensitive: true,
         },
-        MagicSig {
-            label: "HTML",
-            bytes: b"<html",
-            offset_zero: false,
-            case_insensitive: true,
-        },
+        MagicSig { label: "HTML", bytes: b"<html", offset_zero: false, case_insensitive: true },
         MagicSig {
             label: "HTA",
             bytes: b"<hta:application",

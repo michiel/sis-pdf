@@ -67,12 +67,8 @@ fn build_colon_table(items: &[String]) -> Option<String> {
         return None;
     }
 
-    let width_key = rows
-        .iter()
-        .map(|(k, _)| k.len())
-        .max()
-        .unwrap_or_else(|| "Field".len())
-        .max("Field".len());
+    let width_key =
+        rows.iter().map(|(k, _)| k.len()).max().unwrap_or_else(|| "Field".len()).max("Field".len());
     let width_value = rows
         .iter()
         .map(|(_, v)| v.len())
@@ -100,13 +96,7 @@ fn build_colon_table(items: &[String]) -> Option<String> {
     )
     .ok();
     for (key, value) in rows {
-        writeln!(
-            table,
-            "{:<width_key$} | {value}",
-            key,
-            width_key = width_key
-        )
-        .ok();
+        writeln!(table, "{:<width_key$} | {value}", key, width_key = width_key).ok();
     }
     Some(table.trim_end().to_string())
 }
@@ -252,11 +242,8 @@ fn value_summary(value: &Value) -> String {
 fn value_summary_for_column(column: &str, value: &Value) -> String {
     if column == "objects" {
         if let Value::Array(arr) = value {
-            let ids: Vec<_> = arr
-                .iter()
-                .filter_map(|item| item.as_str())
-                .map(format_object_ref)
-                .collect();
+            let ids: Vec<_> =
+                arr.iter().filter_map(|item| item.as_str()).map(format_object_ref).collect();
             if !ids.is_empty() {
                 return ids.join(" ");
             }
@@ -276,11 +263,7 @@ fn format_object_ref(input: &str) -> String {
 }
 
 fn parse_obj_gen(input: &str) -> Option<(u32, u16)> {
-    let cleaned = input
-        .trim()
-        .trim_end_matches("obj")
-        .trim_end_matches("R")
-        .trim();
+    let cleaned = input.trim().trim_end_matches("obj").trim_end_matches("R").trim();
     let tokens: Vec<&str> = cleaned.split_whitespace().collect();
     if tokens.len() >= 2 {
         if let (Ok(obj), Ok(gen)) = (tokens[0].parse::<u32>(), tokens[1].parse::<u16>()) {

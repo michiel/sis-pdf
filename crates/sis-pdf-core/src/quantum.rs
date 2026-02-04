@@ -28,10 +28,6 @@ impl QuantumThreatAnalyzer {
         if risk.score < 0.5 {
             return Vec::new();
         }
-        vec![
-            "CRYSTALS-Kyber".into(),
-            "CRYSTALS-Dilithium".into(),
-            "Falcon".into(),
-        ]
+        vec!["CRYSTALS-Kyber".into(), "CRYSTALS-Dilithium".into(), "Falcon".into()]
     }
 }

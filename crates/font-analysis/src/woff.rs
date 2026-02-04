@@ -50,9 +50,8 @@ fn decompress_woff1(data: &[u8]) -> Result<Vec<u8>, String> {
     use allsorts::woff::WoffFont;
 
     let scope = ReadScope::new(data);
-    let woff = scope
-        .read::<WoffFont<'_>>()
-        .map_err(|e| format!("Failed to parse WOFF file: {:?}", e))?;
+    let woff =
+        scope.read::<WoffFont<'_>>().map_err(|e| format!("Failed to parse WOFF file: {:?}", e))?;
 
     let tags: Vec<u32> = woff.table_directory.iter().map(|entry| entry.tag).collect();
     if !tags.contains(&tag::HEAD) || !tags.contains(&tag::MAXP) {
@@ -80,9 +79,8 @@ fn decompress_woff2(data: &[u8]) -> Result<Vec<u8>, String> {
         debug!("WOFF2 font missing required tables; skipping SFNT conversion");
         return Ok(data.to_vec());
     }
-    let provider = woff
-        .table_provider(0)
-        .map_err(|e| format!("Failed to load WOFF2 tables: {:?}", e))?;
+    let provider =
+        woff.table_provider(0).map_err(|e| format!("Failed to load WOFF2 tables: {:?}", e))?;
     whole_font(&provider, &tags).map_err(|e| format!("Failed to build SFNT from WOFF2: {:?}", e))
 }
 
@@ -99,10 +97,7 @@ pub fn validate_woff_decompression(data: &[u8]) -> Vec<FontFinding> {
 
         // Suspicious if claimed decompressed size is > 100MB
         if original_length > 100 * 1024 * 1024 {
-            warn!(
-                original_length = original_length,
-                "Suspiciously large WOFF original length"
-            );
+            warn!(original_length = original_length, "Suspiciously large WOFF original length");
 
             let mut meta = HashMap::new();
             meta.insert("format".to_string(), "WOFF".to_string());
@@ -125,17 +120,11 @@ pub fn validate_woff_decompression(data: &[u8]) -> Vec<FontFinding> {
         // Check for decompression bomb (claimed size >> compressed size)
         let compression_ratio = original_length as f64 / data.len() as f64;
         if compression_ratio > 1000.0 {
-            warn!(
-                compression_ratio = compression_ratio,
-                "Suspicious WOFF compression ratio"
-            );
+            warn!(compression_ratio = compression_ratio, "Suspicious WOFF compression ratio");
 
             let mut meta = HashMap::new();
             meta.insert("format".to_string(), "WOFF".to_string());
-            meta.insert(
-                "compression_ratio".to_string(),
-                compression_ratio.to_string(),
-            );
+            meta.insert("compression_ratio".to_string(), compression_ratio.to_string());
             meta.insert("compressed_size".to_string(), data.len().to_string());
             meta.insert("claimed_size".to_string(), original_length.to_string());
 
@@ -158,10 +147,7 @@ pub fn validate_woff_decompression(data: &[u8]) -> Vec<FontFinding> {
         let total_sfnt_size = u32::from_be_bytes([data[12], data[13], data[14], data[15]]) as usize;
 
         if total_sfnt_size > 100 * 1024 * 1024 {
-            warn!(
-                total_sfnt_size = total_sfnt_size,
-                "Suspiciously large WOFF2 original length"
-            );
+            warn!(total_sfnt_size = total_sfnt_size, "Suspiciously large WOFF2 original length");
 
             let mut meta = HashMap::new();
             meta.insert("format".to_string(), "WOFF2".to_string());
@@ -183,17 +169,11 @@ pub fn validate_woff_decompression(data: &[u8]) -> Vec<FontFinding> {
 
         let compression_ratio = total_sfnt_size as f64 / data.len() as f64;
         if compression_ratio > 1000.0 {
-            warn!(
-                compression_ratio = compression_ratio,
-                "Suspicious WOFF2 compression ratio"
-            );
+            warn!(compression_ratio = compression_ratio, "Suspicious WOFF2 compression ratio");
 
             let mut meta = HashMap::new();
             meta.insert("format".to_string(), "WOFF2".to_string());
-            meta.insert(
-                "compression_ratio".to_string(),
-                compression_ratio.to_string(),
-            );
+            meta.insert("compression_ratio".to_string(), compression_ratio.to_string());
 
             findings.push(FontFinding {
                 kind: "font.woff_decompression_anomaly".to_string(),
@@ -250,8 +230,6 @@ mod tests {
 
         let findings = validate_woff_decompression(&woff_data);
         assert!(!findings.is_empty());
-        assert!(findings
-            .iter()
-            .any(|f| f.kind == "font.woff_decompression_anomaly"));
+        assert!(findings.iter().any(|f| f.kind == "font.woff_decompression_anomaly"));
     }
 }

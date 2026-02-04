@@ -66,22 +66,13 @@ impl Detector for ExternalActionContextDetector {
         }
 
         let mut meta = std::collections::HashMap::new();
-        meta.insert(
-            "external.action_count".into(),
-            action_objects.len().to_string(),
-        );
+        meta.insert("external.action_count".into(), action_objects.len().to_string());
         meta.insert("external.action_types".into(), action_types.join(", "));
         if hex_name_count > 0 {
-            meta.insert(
-                "obfuscation.hex_name_count".into(),
-                hex_name_count.to_string(),
-            );
+            meta.insert("obfuscation.hex_name_count".into(), hex_name_count.to_string());
         }
         if deep_filter_count > 0 {
-            meta.insert(
-                "obfuscation.deep_filter_streams".into(),
-                deep_filter_count.to_string(),
-            );
+            meta.insert("obfuscation.deep_filter_streams".into(), deep_filter_count.to_string());
         }
 
         // Collect evidence from action source objects
@@ -92,10 +83,8 @@ impl Detector for ExternalActionContextDetector {
             }
         }
 
-        let objects: Vec<String> = action_objects
-            .iter()
-            .map(|(obj, gen)| format!("{} {} obj", obj, gen))
-            .collect();
+        let objects: Vec<String> =
+            action_objects.iter().map(|(obj, gen)| format!("{} {} obj", obj, gen)).collect();
 
         Ok(vec![Finding {
             id: String::new(),

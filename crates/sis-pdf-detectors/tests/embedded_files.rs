@@ -11,10 +11,7 @@ fn detectors_flag_embedded_executable_magic() {
             .expect("scan");
 
     assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.kind == "embedded_executable_present"),
+        report.findings.iter().any(|f| f.kind == "embedded_executable_present"),
         "expected embedded_executable_present finding"
     );
     let embedded_file = report
@@ -22,10 +19,7 @@ fn detectors_flag_embedded_executable_magic() {
         .iter()
         .find(|f| f.kind == "embedded_file_present")
         .expect("embedded file finding");
-    assert_eq!(
-        embedded_file.meta.get("magic_type").map(String::as_str),
-        Some("pe")
-    );
+    assert_eq!(embedded_file.meta.get("magic_type").map(String::as_str), Some("pe"));
 }
 
 #[test]
@@ -42,10 +36,7 @@ fn detectors_flag_embedded_double_extension() {
         .find(|f| f.kind == "embedded_file_present")
         .expect("embedded file finding");
     assert_eq!(
-        embedded_file
-            .meta
-            .get("embedded.double_extension")
-            .map(String::as_str),
+        embedded_file.meta.get("embedded.double_extension").map(String::as_str),
         Some("true")
     );
 }
@@ -59,10 +50,7 @@ fn detectors_flag_embedded_script_present() {
             .expect("scan");
 
     assert!(
-        report
-            .findings
-            .iter()
-            .any(|f| f.kind == "embedded_script_present"),
+        report.findings.iter().any(|f| f.kind == "embedded_script_present"),
         "expected embedded_script_present finding"
     );
 }
@@ -80,18 +68,8 @@ fn detectors_flag_embedded_encrypted_archive() {
         .iter()
         .find(|f| f.kind == "embedded_archive_encrypted")
         .expect("expected encrypted archive finding");
-    assert_eq!(
-        finding.meta.get("encrypted").map(String::as_str),
-        Some("true")
-    );
-    assert!(
-        finding
-            .meta
-            .get("hash.sha256")
-            .map(|hash| hash.len())
-            .unwrap_or(0)
-            >= 64
-    );
+    assert_eq!(finding.meta.get("encrypted").map(String::as_str), Some("true"));
+    assert!(finding.meta.get("hash.sha256").map(|hash| hash.len()).unwrap_or(0) >= 64);
 }
 
 #[test]
@@ -108,12 +86,5 @@ fn embedded_findings_include_blake3_metadata() {
         .iter()
         .find(|f| f.kind == "embedded_file_present")
         .expect("embedded file finding");
-    assert_eq!(
-        finding
-            .meta
-            .get("hash.blake3")
-            .map(|hash| hash.len())
-            .unwrap_or(0),
-        64
-    );
+    assert_eq!(finding.meta.get("hash.blake3").map(|hash| hash.len()).unwrap_or(0), 64);
 }

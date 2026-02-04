@@ -18,10 +18,7 @@ pub struct LabeledEdge {
 pub fn build_adjacency(objects: &[ObjEntry<'_>]) -> HashMap<ObjRef, Vec<ObjRef>> {
     let mut map: HashMap<ObjRef, Vec<ObjRef>> = HashMap::new();
     for entry in objects {
-        let key = ObjRef {
-            obj: entry.obj,
-            gen: entry.gen,
-        };
+        let key = ObjRef { obj: entry.obj, gen: entry.gen };
         let mut refs = Vec::new();
         collect_refs_from_atom(&entry.atom, &mut refs);
         map.insert(key, refs);
@@ -32,10 +29,7 @@ pub fn build_adjacency(objects: &[ObjEntry<'_>]) -> HashMap<ObjRef, Vec<ObjRef>>
 pub fn build_labeled_adjacency(objects: &[ObjEntry<'_>]) -> HashMap<ObjRef, Vec<LabeledEdge>> {
     let mut map: HashMap<ObjRef, Vec<LabeledEdge>> = HashMap::new();
     for entry in objects {
-        let key = ObjRef {
-            obj: entry.obj,
-            gen: entry.gen,
-        };
+        let key = ObjRef { obj: entry.obj, gen: entry.gen };
         let mut refs = Vec::new();
         collect_labeled_refs_from_atom(&entry.atom, None, &mut refs);
         map.insert(key, refs);
@@ -101,10 +95,7 @@ pub fn reachable_paths(
 
 fn collect_refs_from_atom(atom: &PdfAtom<'_>, out: &mut Vec<ObjRef>) {
     match atom {
-        PdfAtom::Ref { obj, gen } => out.push(ObjRef {
-            obj: *obj,
-            gen: *gen,
-        }),
+        PdfAtom::Ref { obj, gen } => out.push(ObjRef { obj: *obj, gen: *gen }),
         PdfAtom::Array(arr) => {
             for o in arr {
                 collect_refs_from_obj(o, out);
@@ -135,10 +126,7 @@ fn collect_labeled_refs_from_atom(
 ) {
     match atom {
         PdfAtom::Ref { obj, gen } => out.push(LabeledEdge {
-            to: ObjRef {
-                obj: *obj,
-                gen: *gen,
-            },
+            to: ObjRef { obj: *obj, gen: *gen },
             label: label.unwrap_or_else(|| "ref".into()),
         }),
         PdfAtom::Array(arr) => {

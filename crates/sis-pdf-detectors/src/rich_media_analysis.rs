@@ -78,10 +78,7 @@ impl Detector for RichMediaContentDetector {
             }
             let mut meta = HashMap::new();
             insert_stream_analysis_meta(&mut meta, &decoded.data);
-            meta.insert(
-                "swf.magic".into(),
-                String::from_utf8_lossy(&decoded.data[..3]).into(),
-            );
+            meta.insert("swf.magic".into(), String::from_utf8_lossy(&decoded.data[..3]).into());
             meta.insert("swf.size".into(), decoded.data.len().to_string());
             meta.insert("media_type".into(), "swf".into());
             meta.insert(
@@ -90,10 +87,7 @@ impl Detector for RichMediaContentDetector {
             );
             meta.insert("swf.decompression_ratio".into(), format!("{:.2}", ratio));
             meta.insert("swf.version".into(), analysis.header.version.to_string());
-            meta.insert(
-                "swf.declared_length".into(),
-                analysis.header.file_length.to_string(),
-            );
+            meta.insert("swf.declared_length".into(), analysis.header.file_length.to_string());
             meta.insert(
                 "swf.compression".into(),
                 swf_compression_label(analysis.header.compression).to_string(),
@@ -202,10 +196,7 @@ fn encode_list(values: &[String]) -> String {
         .map(|value| {
             format!(
                 "\"{}\"",
-                value
-                    .replace('\\', "\\\\")
-                    .replace('"', "\\\"")
-                    .replace(['\n', '\r'], " ")
+                value.replace('\\', "\\\\").replace('"', "\\\"").replace(['\n', '\r'], " ")
             )
         })
         .collect();

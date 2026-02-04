@@ -7,10 +7,7 @@ pub fn normalize_ir_texts(
     cfg: &NormalizeConfig,
     max_len: Option<usize>,
 ) -> Vec<String> {
-    texts
-        .iter()
-        .map(|t| normalize_ir_text(t, cfg, max_len))
-        .collect()
+    texts.iter().map(|t| normalize_ir_text(t, cfg, max_len)).collect()
 }
 
 fn normalize_ir_text(text: &str, cfg: &NormalizeConfig, max_len: Option<usize>) -> String {
@@ -22,10 +19,7 @@ fn normalize_ir_text(text: &str, cfg: &NormalizeConfig, max_len: Option<usize>) 
         }
         let (path, value_type, value) = parse_ir_line(line);
         let norm_value = normalize_value(value_type, value, cfg);
-        out_lines.push(format!(
-            "path={}\tvalue_type={}\tvalue={}",
-            path, value_type, norm_value
-        ));
+        out_lines.push(format!("path={}\tvalue_type={}\tvalue={}", path, value_type, norm_value));
     }
     let mut out = out_lines.join(" ; ");
     if let Some(limit) = max_len {

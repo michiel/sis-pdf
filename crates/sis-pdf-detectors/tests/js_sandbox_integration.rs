@@ -45,15 +45,9 @@ fn sandbox_exec_records_calls() {
     let report =
         sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts, &detectors).expect("scan");
 
-    let sandbox = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "js_sandbox_exec")
-        .expect("sandbox exec finding");
+    let sandbox =
+        report.findings.iter().find(|f| f.kind == "js_sandbox_exec").expect("sandbox exec finding");
     let calls = sandbox.meta.get("js.runtime.calls").expect("runtime calls");
     assert!(calls.contains("alert"));
-    assert_eq!(
-        sandbox.meta.get("js.sandbox_exec").map(String::as_str),
-        Some("true")
-    );
+    assert_eq!(sandbox.meta.get("js.sandbox_exec").map(String::as_str), Some("true"));
 }

@@ -192,9 +192,7 @@ fn extract_signatures(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<SignatureInf
         };
         if dict.has_name(b"/Type", b"/Sig") || dict.get_first(b"/ByteRange").is_some() {
             let filter = dict.get_first(b"/Filter").and_then(|(_, v)| name_string(v));
-            let subfilter = dict
-                .get_first(b"/SubFilter")
-                .and_then(|(_, v)| name_string(v));
+            let subfilter = dict.get_first(b"/SubFilter").and_then(|(_, v)| name_string(v));
             out.push(SignatureInfo { filter, subfilter });
         }
     }

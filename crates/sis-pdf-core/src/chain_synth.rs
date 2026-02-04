@@ -32,12 +32,7 @@ pub fn synthesise_chains(
         .count();
     let taint = taint_from_findings(findings);
     let mut chains = Vec::new();
-    chains.extend(build_object_chains(
-        findings,
-        structural_count,
-        &taint,
-        &finding_positions,
-    ));
+    chains.extend(build_object_chains(findings, structural_count, &taint, &finding_positions));
     for f in findings {
         let single = [f];
         let roles = assign_chain_roles(&single);
@@ -46,12 +41,7 @@ pub fn synthesise_chains(
         let payload = roles.payload_key.clone();
         let mut notes = notes_from_findings(&single, structural_count, &taint);
         apply_role_labels(&mut notes, &roles);
-        apply_chain_labels(
-            &mut notes,
-            trigger.as_deref(),
-            action.as_deref(),
-            payload.as_deref(),
-        );
+        apply_chain_labels(&mut notes, trigger.as_deref(), action.as_deref(), payload.as_deref());
         let mut chain = ExploitChain {
             id: String::new(),
             group_id: None,
@@ -86,15 +76,13 @@ pub fn synthesise_chains(
             c.action.as_deref().unwrap_or("-"),
             c.payload.as_deref().unwrap_or("-")
         );
-        let entry = templates
-            .entry(key.clone())
-            .or_insert_with(|| ChainTemplate {
-                id: template_id(&key),
-                trigger: c.trigger.clone(),
-                action: c.action.clone(),
-                payload: c.payload.clone(),
-                instances: Vec::new(),
-            });
+        let entry = templates.entry(key.clone()).or_insert_with(|| ChainTemplate {
+            id: template_id(&key),
+            trigger: c.trigger.clone(),
+            action: c.action.clone(),
+            payload: c.payload.clone(),
+            instances: Vec::new(),
+        });
         entry.instances.push(c.id.clone());
     }
 
@@ -125,10 +113,8 @@ fn build_object_chains(
         let trigger = roles.trigger_key.clone();
         let action = roles.action_key.clone();
         let payload = roles.payload_key.clone();
-        let categories = [trigger.is_some(), action.is_some(), payload.is_some()]
-            .iter()
-            .filter(|v| **v)
-            .count();
+        let categories =
+            [trigger.is_some(), action.is_some(), payload.is_some()].iter().filter(|v| **v).count();
         if categories < 2 {
             continue;
         }
@@ -138,12 +124,7 @@ fn build_object_chains(
         if action.is_some() && payload.is_some() {
             notes.insert("correlation.action_payload".into(), "true".into());
         }
-        apply_chain_labels(
-            &mut notes,
-            trigger.as_deref(),
-            action.as_deref(),
-            payload.as_deref(),
-        );
+        apply_chain_labels(&mut notes, trigger.as_deref(), action.as_deref(), payload.as_deref());
         let mut chain = ExploitChain {
             id: String::new(),
             group_id: None,
@@ -309,19 +290,13 @@ fn notes_from_findings(
     let mut notes = HashMap::new();
     for f in findings {
         if let Some(action_type) = f.meta.get("action.s") {
-            notes
-                .entry("action.type".into())
-                .or_insert_with(|| action_type.clone());
+            notes.entry("action.type".into()).or_insert_with(|| action_type.clone());
         }
         if let Some(action_target) = f.meta.get("action.target") {
-            notes
-                .entry("action.target".into())
-                .or_insert_with(|| action_target.clone());
+            notes.entry("action.target".into()).or_insert_with(|| action_target.clone());
         }
         if let Some(payload_type) = f.meta.get("payload.type") {
-            notes
-                .entry("payload.type".into())
-                .or_insert_with(|| payload_type.clone());
+            notes.entry("payload.type".into()).or_insert_with(|| payload_type.clone());
         }
         for (k, v) in &f.meta {
             if k.starts_with("js.") || k.starts_with("payload.") {
@@ -344,10 +319,7 @@ fn notes_from_findings(
         }
     }
     if structural_count > 0 {
-        notes.insert(
-            "structural.suspicious_count".into(),
-            structural_count.to_string(),
-        );
+        notes.insert("structural.suspicious_count".into(), structural_count.to_string());
     }
     if taint.flagged {
         notes.insert("taint.flagged".into(), "true".into());
@@ -365,11 +337,7 @@ enum ChainRole {
 
 fn apply_role_labels(notes: &mut HashMap<String, String>, roles: &ChainRoles<'_>) {
     if let Some(f) = roles.trigger_finding {
-        set_note_if_missing(
-            notes,
-            "trigger.label",
-            label_for_finding(ChainRole::Trigger, f),
-        );
+        set_note_if_missing(notes, "trigger.label", label_for_finding(ChainRole::Trigger, f));
         set_note_if_missing(notes, "trigger.summary", f.description.clone());
     }
     if let Some(f) = roles.action_finding {
@@ -377,11 +345,7 @@ fn apply_role_labels(notes: &mut HashMap<String, String>, roles: &ChainRoles<'_>
         // enrichment (action.target); otherwise let chain classification
         // labels provide the default via apply_chain_labels.
         if f.meta.contains_key("action.target") {
-            set_note_if_missing(
-                notes,
-                "action.label",
-                label_for_finding(ChainRole::Action, f),
-            );
+            set_note_if_missing(notes, "action.label", label_for_finding(ChainRole::Action, f));
         }
         set_note_if_missing(notes, "action.summary", f.description.clone());
     }
@@ -390,11 +354,7 @@ fn apply_role_labels(notes: &mut HashMap<String, String>, roles: &ChainRoles<'_>
         // enrichment metadata; otherwise let chain classification labels
         // provide the default.
         if f.meta.contains_key("payload.summary") || f.meta.contains_key("payload.preview") {
-            set_note_if_missing(
-                notes,
-                "payload.label",
-                label_for_finding(ChainRole::Payload, f),
-            );
+            set_note_if_missing(notes, "payload.label", label_for_finding(ChainRole::Payload, f));
         }
         let summary = f
             .meta
@@ -410,11 +370,8 @@ fn apply_role_labels(notes: &mut HashMap<String, String>, roles: &ChainRoles<'_>
 }
 
 fn label_for_finding(role: ChainRole, finding: &Finding) -> String {
-    let mut label = if !finding.title.is_empty() {
-        finding.title.clone()
-    } else {
-        finding.kind.clone()
-    };
+    let mut label =
+        if !finding.title.is_empty() { finding.title.clone() } else { finding.kind.clone() };
     match role {
         ChainRole::Action => {
             if let Some(target) = finding.meta.get("action.target") {
@@ -476,9 +433,8 @@ fn apply_payload_notes(notes: &mut HashMap<String, String>) {
     if let Some(source) = notes.get("js.source") {
         notes.insert("payload.source".into(), source.clone());
     }
-    if let Some(preview) = notes
-        .get("payload.deobfuscated_preview")
-        .or_else(|| notes.get("payload.decoded_preview"))
+    if let Some(preview) =
+        notes.get("payload.deobfuscated_preview").or_else(|| notes.get("payload.decoded_preview"))
     {
         notes.insert("payload.preview".into(), preview.clone());
     }
@@ -489,10 +445,7 @@ fn apply_payload_notes(notes: &mut HashMap<String, String>) {
     if let Some(layers) = notes.get("payload.decode_layers") {
         parts.push(format!("layers={layers}"));
     }
-    if let Some(filters) = notes
-        .get("stream.filters")
-        .or_else(|| notes.get("js.stream.filters"))
-    {
+    if let Some(filters) = notes.get("stream.filters").or_else(|| notes.get("js.stream.filters")) {
         parts.push(format!("filters={filters}"));
     }
     if let Some(outcome) = notes.get("decode.outcome") {
@@ -660,13 +613,7 @@ fn chain_signature(
     object_refs.dedup();
     finding_kinds.sort();
     finding_kinds.dedup();
-    ChainSignature {
-        trigger,
-        action,
-        payload,
-        object_refs,
-        finding_kinds,
-    }
+    ChainSignature { trigger, action, payload, object_refs, finding_kinds }
 }
 
 fn group_chains_by_signature(
@@ -680,11 +627,7 @@ fn group_chains_by_signature(
     }
     let mut out = Vec::new();
     for (signature, mut members) in groups {
-        members.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        members.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
         let mut representative = members.remove(0);
         let mut member_ids = vec![representative.id.clone()];
         for chain in &members {
@@ -709,10 +652,7 @@ fn group_chains_by_signature(
                 representative.payload = chain.payload.clone();
             }
             for (k, v) in &chain.notes {
-                representative
-                    .notes
-                    .entry(k.clone())
-                    .or_insert_with(|| v.clone());
+                representative.notes.entry(k.clone()).or_insert_with(|| v.clone());
             }
         }
         representative.findings = findings_set.into_iter().collect();

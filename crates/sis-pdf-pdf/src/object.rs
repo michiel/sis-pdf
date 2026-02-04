@@ -4,16 +4,8 @@ use crate::span::Span;
 
 #[derive(Debug, Clone)]
 pub enum PdfStr<'a> {
-    Literal {
-        span: Span,
-        raw: Cow<'a, [u8]>,
-        decoded: Vec<u8>,
-    },
-    Hex {
-        span: Span,
-        raw: Cow<'a, [u8]>,
-        decoded: Vec<u8>,
-    },
+    Literal { span: Span, raw: Cow<'a, [u8]>, decoded: Vec<u8> },
+    Hex { span: Span, raw: Cow<'a, [u8]>, decoded: Vec<u8> },
 }
 
 #[derive(Debug, Clone)]
@@ -57,10 +49,7 @@ pub struct PdfObj<'a> {
 
 impl<'a> PdfDict<'a> {
     pub fn get_first(&self, name: &[u8]) -> Option<(&PdfName<'a>, &PdfObj<'a>)> {
-        self.entries
-            .iter()
-            .find(|(k, _)| k.decoded.eq_ignore_ascii_case(name))
-            .map(|(k, v)| (k, v))
+        self.entries.iter().find(|(k, _)| k.decoded.eq_ignore_ascii_case(name)).map(|(k, v)| (k, v))
     }
 
     pub fn get_all(&self, name: &[u8]) -> Vec<(&PdfName<'a>, &PdfObj<'a>)> {

@@ -115,11 +115,7 @@ impl ScanCache {
     pub fn store(&self, hash: &str, report: &Report) -> Result<()> {
         let safe_hash = sanitize_hash(hash).ok_or_else(|| anyhow::anyhow!("invalid cache hash"))?;
         let path = self.path_for(&safe_hash);
-        let entry = CacheEntry {
-            version: CACHE_VERSION,
-            file_hash: safe_hash,
-            report,
-        };
+        let entry = CacheEntry { version: CACHE_VERSION, file_hash: safe_hash, report };
         let data = serde_json::to_vec(&entry)?;
         fs::write(path, data)?;
         Ok(())
@@ -181,11 +177,7 @@ impl ScanCache {
     pub fn store_features(&self, hash: &str, features: &FeatureVector) -> Result<()> {
         let safe_hash = sanitize_hash(hash).ok_or_else(|| anyhow::anyhow!("invalid cache hash"))?;
         let path = self.feature_path_for(&safe_hash);
-        let entry = FeatureEntry {
-            version: CACHE_VERSION,
-            file_hash: safe_hash,
-            features,
-        };
+        let entry = FeatureEntry { version: CACHE_VERSION, file_hash: safe_hash, features };
         let data = serde_json::to_vec(&entry)?;
         fs::write(path, data)?;
         Ok(())

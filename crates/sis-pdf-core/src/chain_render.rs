@@ -8,12 +8,7 @@ pub fn render_path(chain: &ExploitChain) -> String {
         .map(String::as_str)
         .or(chain.trigger.as_deref())
         .map(str::to_string)
-        .or_else(|| {
-            chain
-                .notes
-                .get("correlation.object")
-                .map(|obj| format!("Object {}", obj))
-        })
+        .or_else(|| chain.notes.get("correlation.object").map(|obj| format!("Object {}", obj)))
         .unwrap_or_else(|| findings_hint.clone());
     let mut action = chain
         .notes
@@ -43,8 +38,5 @@ pub fn render_path(chain: &ExploitChain) -> String {
     if let Some(summary) = chain.notes.get("payload.summary") {
         payload = format!("{} [{}]", payload, summary);
     }
-    format!(
-        "Trigger:{} -> Action:{} -> Payload:{}",
-        trigger, action, payload
-    )
+    format!("Trigger:{} -> Action:{} -> Payload:{}", trigger, action, payload)
 }

@@ -177,16 +177,12 @@ impl<'a> ScanContext<'a> {
     /// }
     /// ```
     pub fn classifications(&self) -> &ClassificationMap {
-        self.classifications
-            .get_or_init(|| self.graph.classify_objects())
+        self.classifications.get_or_init(|| self.graph.classify_objects())
     }
 
     pub fn canonical_view(&self) -> &CanonicalView {
         self.canonical_view.get_or_init(|| {
-            let span = info_span!(
-                "canonical_view.build",
-                object_count = self.graph.objects.len()
-            );
+            let span = info_span!("canonical_view.build", object_count = self.graph.objects.len());
             let _guard = span.enter();
             CanonicalView::build(&self.graph)
         })
@@ -361,11 +357,7 @@ impl<'a> BudgetReservation<'a> {
                     message: "Decode budget exceeded after decode",
                 }
                 .emit();
-                warn!(
-                    total = current,
-                    limit = limit,
-                    "Decode budget exceeded after decode"
-                );
+                warn!(total = current, limit = limit, "Decode budget exceeded after decode");
                 return Err(anyhow::anyhow!("total decoded bytes budget exceeded"));
             }
         }
