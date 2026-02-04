@@ -56,6 +56,11 @@ impl Detector for ActionTriggerDetector {
                 );
                 let action_type =
                     action_type_from_obj(ctx, v).unwrap_or_else(|| "OpenAction".into());
+                let severity = if action_type_is_high_risk(&action_type) {
+                    Severity::Medium
+                } else {
+                    Severity::Low
+                };
                 let target_value = meta.get("action.chain_path").cloned();
                 annotate_action_meta(&mut meta, &action_type, target_value.as_deref(), "automatic");
                 let evidence = EvidenceBuilder::new()
@@ -66,7 +71,7 @@ impl Detector for ActionTriggerDetector {
                     id: String::new(),
                     surface: self.surface(),
                     kind: "action_automatic_trigger".into(),
-                    severity: Severity::Medium,
+                    severity,
                     confidence: Confidence::Probable,
                     impact: None,
                     title: "Automatic action trigger".into(),
@@ -134,6 +139,11 @@ impl Detector for ActionTriggerDetector {
                         );
                         let action_type = action_type_from_obj(ctx, action_obj)
                             .unwrap_or_else(|| event_label.clone());
+                        let severity = if action_type_is_high_risk(&action_type) {
+                            Severity::Medium
+                        } else {
+                            Severity::Low
+                        };
                         let target_value = meta.get("action.chain_path").cloned();
                         annotate_action_meta(
                             &mut meta,
@@ -160,7 +170,7 @@ impl Detector for ActionTriggerDetector {
                                 id: String::new(),
                                 surface: self.surface(),
                                 kind: "action_automatic_trigger".into(),
-                                severity: Severity::Medium,
+                                severity,
                                 confidence: Confidence::Probable,
                                 impact: None,
                                 title: "Automatic action trigger".into(),
@@ -708,4 +718,11 @@ fn pdf_obj_to_string(obj: &PdfObj<'_>) -> Option<String> {
         });
     }
     None
+}
+
+fn action_type_is_high_risk(action_type: &str) -> bool {
+    match action_type.trim_start_matches('/') {
+        "JavaScript" | "Launch" | "URI" | "GoToR" | "GoToE" | "SubmitForm" => true,
+        _ => false,
+    }
 }

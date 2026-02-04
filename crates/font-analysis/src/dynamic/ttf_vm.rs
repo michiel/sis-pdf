@@ -4,6 +4,7 @@
 /// for security issues. It tracks instruction counts, stack depth, and
 /// detects suspicious patterns.
 use std::collections::HashMap;
+use std::fmt;
 use tracing::{debug, instrument, warn};
 
 use crate::model::{Confidence, FontAnalysisConfig, FontFinding, Severity};
@@ -43,6 +44,62 @@ impl Default for VmLimits {
     }
 }
 
+/// Errors observed while running the TrueType VM
+#[derive(Debug)]
+enum VmError {
+    StackUnderflow,
+    StackOverflow,
+    InstructionBudgetExceeded(usize),
+    UnexpectedEnd,
+    DivisionByZero,
+    UnmatchedIf,
+    UnmatchedFdef,
+}
+
+impl VmError {
+    fn kind(&self) -> &'static str {
+        match self {
+            VmError::StackUnderflow => "stack_underflow",
+            VmError::StackOverflow => "stack_overflow",
+            VmError::InstructionBudgetExceeded(_) => "instruction_budget_exceeded",
+            VmError::UnexpectedEnd => "unexpected_end",
+            VmError::DivisionByZero => "division_by_zero",
+            VmError::UnmatchedIf => "unmatched_if",
+            VmError::UnmatchedFdef => "unmatched_fdef",
+        }
+    }
+
+    fn severity(&self) -> Severity {
+        match self {
+            VmError::StackUnderflow | VmError::StackOverflow => Severity::Low,
+            _ => Severity::Medium,
+        }
+    }
+
+    fn confidence(&self) -> Confidence {
+        match self {
+            VmError::StackUnderflow | VmError::StackOverflow => Confidence::Heuristic,
+            _ => Confidence::Probable,
+        }
+    }
+}
+
+impl fmt::Display for VmError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VmError::StackUnderflow => write!(f, "Stack underflow"),
+            VmError::StackOverflow => write!(f, "Stack overflow"),
+            VmError::InstructionBudgetExceeded(count) => {
+                write!(f, "Instruction budget exceeded: {} instructions", count)
+            }
+            VmError::UnexpectedEnd => write!(f, "Unexpected end of program"),
+            VmError::DivisionByZero => write!(f, "Division by zero"),
+            VmError::UnmatchedIf => write!(f, "Unmatched IF/ELSE block"),
+            VmError::UnmatchedFdef => write!(f, "Unmatched FDEF/ENDF block"),
+        }
+    }
+}
+
 /// VM execution state (for future full VM execution)
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -67,26 +124,23 @@ impl VMState {
         }
     }
 
-    fn push(&mut self, value: i32) -> Result<(), String> {
+    fn push(&mut self, value: i32) -> Result<(), VmError> {
         if self.stack.len() >= self.limits.max_stack_depth {
-            return Err(format!("Stack overflow: depth {}", self.stack.len()));
+            return Err(VmError::StackOverflow);
         }
         self.stack.push(value);
         self.max_stack_depth = self.max_stack_depth.max(self.stack.len());
         Ok(())
     }
 
-    fn pop(&mut self) -> Result<i32, String> {
-        self.stack.pop().ok_or_else(|| "Stack underflow".to_string())
+    fn pop(&mut self) -> Result<i32, VmError> {
+        self.stack.pop().ok_or(VmError::StackUnderflow)
     }
 
-    fn check_budget(&mut self) -> Result<(), String> {
+    fn check_budget(&mut self) -> Result<(), VmError> {
         self.instruction_count += 1;
         if self.instruction_count > self.limits.max_instructions_per_glyph {
-            return Err(format!(
-                "Instruction budget exceeded: {} instructions",
-                self.instruction_count
-            ));
+            return Err(VmError::InstructionBudgetExceeded(self.instruction_count));
         }
         Ok(())
     }
@@ -112,16 +166,16 @@ pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFin
             max_stack_depth = state.max_stack_depth,
             "Hinting program execution failed"
         );
-        // Execution error indicates potential security issue
         let mut meta = HashMap::new();
-        meta.insert("error".to_string(), err.clone());
+        meta.insert("error_kind".to_string(), err.kind().to_string());
+        meta.insert("error_message".to_string(), err.to_string());
         meta.insert("instruction_count".to_string(), state.instruction_count.to_string());
         meta.insert("max_stack_depth".to_string(), state.max_stack_depth.to_string());
 
         findings.push(FontFinding {
             kind: "font.ttf_hinting_suspicious".to_string(),
-            severity: Severity::Medium,
-            confidence: Confidence::Probable,
+            severity: err.severity(),
+            confidence: err.confidence(),
             title: "Suspicious TrueType hinting program".to_string(),
             description: format!("Hinting program triggered security check: {}", err),
             meta,
@@ -154,7 +208,7 @@ pub fn analyze_hinting_program(_program: &[u8], _limits: &VmLimits) -> Vec<FontF
 
 /// Execute TrueType bytecode program
 #[instrument(skip_all, fields(program_len = program.len()))]
-fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), String> {
+fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), VmError> {
     let mut pc = 0; // Program counter
 
     debug!("Starting TrueType VM execution");
@@ -173,7 +227,7 @@ fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), String> {
                 let count = ((opcode - 0xB0) + 1) as usize;
                 for _ in 0..count {
                     if pc >= program.len() {
-                        return Err("Unexpected end of program".to_string());
+                        return Err(VmError::UnexpectedEnd);
                     }
                     state.push(program[pc] as i32)?;
                     pc += 1;
@@ -184,7 +238,7 @@ fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), String> {
                 let count = ((opcode - 0xB8) + 1) as usize;
                 for _ in 0..count {
                     if pc + 1 >= program.len() {
-                        return Err("Unexpected end of program".to_string());
+                        return Err(VmError::UnexpectedEnd);
                     }
                     let word = i16::from_be_bytes([program[pc], program[pc + 1]]);
                     state.push(word as i32)?;
@@ -237,7 +291,7 @@ fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), String> {
                 let b = state.pop()?;
                 let a = state.pop()?;
                 if b == 0 {
-                    return Err("Division by zero".to_string());
+                    return Err(VmError::DivisionByZero);
                 }
                 state.push(a / b)?;
             }
@@ -368,7 +422,7 @@ fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), String> {
 }
 
 /// Skip to ELSE or EIF instruction
-fn skip_to_else_or_eif(program: &[u8], mut pc: usize) -> Result<usize, String> {
+fn skip_to_else_or_eif(program: &[u8], mut pc: usize) -> Result<usize, VmError> {
     let mut depth = 1;
     while pc < program.len() && depth > 0 {
         match program[pc] {
@@ -390,11 +444,11 @@ fn skip_to_else_or_eif(program: &[u8], mut pc: usize) -> Result<usize, String> {
         }
         pc += 1;
     }
-    Err("Unmatched IF".to_string())
+    Err(VmError::UnmatchedIf)
 }
 
 /// Skip to EIF instruction
-fn skip_to_eif(program: &[u8], mut pc: usize) -> Result<usize, String> {
+fn skip_to_eif(program: &[u8], mut pc: usize) -> Result<usize, VmError> {
     let mut depth = 1;
     while pc < program.len() && depth > 0 {
         match program[pc] {
@@ -410,11 +464,11 @@ fn skip_to_eif(program: &[u8], mut pc: usize) -> Result<usize, String> {
         }
         pc += 1;
     }
-    Err("Unmatched IF".to_string())
+    Err(VmError::UnmatchedIf)
 }
 
 /// Skip to ENDF instruction
-fn skip_to_endf(program: &[u8], mut pc: usize) -> Result<usize, String> {
+fn skip_to_endf(program: &[u8], mut pc: usize) -> Result<usize, VmError> {
     let mut depth = 1;
     while pc < program.len() && depth > 0 {
         match program[pc] {
@@ -430,7 +484,7 @@ fn skip_to_endf(program: &[u8], mut pc: usize) -> Result<usize, String> {
         }
         pc += 1;
     }
-    Err("Unmatched FDEF".to_string())
+    Err(VmError::UnmatchedFdef)
 }
 
 #[cfg(test)]
@@ -438,7 +492,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_vm_push_pop() -> Result<(), String> {
+    fn test_vm_push_pop() -> Result<(), VmError> {
         let mut state = VMState::new(VmLimits::default());
         state.push(42)?;
         state.push(100)?;
@@ -448,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn test_vm_stack_overflow() -> Result<(), String> {
+    fn test_vm_stack_overflow() -> Result<(), VmError> {
         let limits = VmLimits::default();
         let mut state = VMState::new(limits);
         for i in 0..limits.max_stack_depth {
@@ -473,7 +527,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "dynamic")]
-    fn test_simple_program() -> Result<(), String> {
+    fn test_simple_program() -> Result<(), VmError> {
         // PUSHB[0] 42, PUSHB[0] 100, ADD
         let program = vec![0xB0, 42, 0xB0, 100, 0x60];
         let mut state = VMState::new(VmLimits::default());

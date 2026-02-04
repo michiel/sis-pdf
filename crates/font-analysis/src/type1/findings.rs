@@ -109,13 +109,21 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
             .collect();
         meta.insert("operators".to_string(), operators.join(", "));
 
+        const HIGH_RISK_OPERATORS: &[&str] = &["callothersubr", "store", "blend"];
+        let has_high_risk = analysis
+            .dangerous_ops
+            .iter()
+            .any(|op| HIGH_RISK_OPERATORS.contains(&op.operator.as_str()));
+
+        let severity = if has_high_risk { Severity::High } else { Severity::Medium };
+
         findings.push(FontFinding {
             kind: "font.type1_dangerous_operator".to_string(),
-            severity: Severity::High,
+            severity,
             confidence: Confidence::Probable,
             title: "Type 1 font with dangerous operators".to_string(),
             description: format!(
-                "Font contains {} dangerous Type 1 operators that could be exploited.",
+                "Font contains {} dangerous Type 1 operators that could be exploited. These operators manipulate the PostScript stack or call subroutines (callothersubr, pop/return, store/put, blend) and have been leveraged in past exploits (e.g., BLEND) to corrupt interpreter state or execute arbitrary paths while rendering.",
                 analysis.dangerous_ops.len()
             ),
             meta,
@@ -130,7 +138,7 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
 
         findings.push(FontFinding {
             kind: "font.type1_excessive_stack".to_string(),
-            severity: Severity::Medium,
+            severity: Severity::Low,
             confidence: Confidence::Probable,
             title: "Type 1 font with excessive stack usage".to_string(),
             description: format!(

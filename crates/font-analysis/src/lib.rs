@@ -67,7 +67,8 @@ pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysis
     };
 
     // Check if this is a Type 1 font
-    if type1::is_type1_font(&font_data) {
+    let is_type1 = type1::is_type1_font(&font_data);
+    if is_type1 {
         let type1_findings = type1::analyze_type1(&font_data);
         outcome.findings.extend(type1_findings);
     }
@@ -82,9 +83,9 @@ pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysis
     // Run color font analysis
     findings.extend(color_fonts::analyze_color_font(&font_data));
 
-    // Run dynamic analysis if enabled
+    // Run dynamic analysis if enabled (Type 1 fonts are handled by the Type 1 pipeline)
     #[cfg(feature = "dynamic")]
-    if config.dynamic_enabled && dynamic::available() {
+    if !is_type1 && config.dynamic_enabled && dynamic::available() {
         match run_dynamic_with_timeout(&font_data, config.dynamic_timeout_ms, config) {
             Ok(dynamic_findings) => {
                 findings.extend(dynamic_findings);
@@ -120,7 +121,10 @@ pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysis
         }
     }
 
-    if findings.len() >= DYNAMIC_RISK_THRESHOLD {
+    let risk_findings =
+        findings.iter().filter(|f| matches!(f.severity, Severity::Medium | Severity::High)).count();
+
+    if risk_findings >= DYNAMIC_RISK_THRESHOLD {
         findings.push(FontFinding {
             kind: "font.multiple_vuln_signals".into(),
             severity: Severity::High,

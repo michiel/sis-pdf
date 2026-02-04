@@ -69,14 +69,11 @@ fn classify_nodes(
             {
                 flags.has_external = true;
             }
-            if line.value_type == "stream" || line.value_type == "str" {
-                flags.has_payload = true;
-            }
             if path.ends_with("/JS") || path.ends_with("/JavaScript") {
                 flags.has_js = true;
             }
         }
-        flags.has_payload = flags.has_payload || flags.has_js || flags.has_external;
+        flags.has_payload = flags.has_js || flags.has_external;
         let key = ObjRef { obj: obj.obj_ref.0, gen: obj.obj_ref.1 };
         map.insert(key, flags);
     }

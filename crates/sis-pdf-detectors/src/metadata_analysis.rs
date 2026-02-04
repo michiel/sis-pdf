@@ -137,7 +137,7 @@ fn analyze_info_dict(
             id: String::new(),
             surface: AttackSurface::Metadata,
             kind: "info_dict_suspicious".into(),
-            severity: Severity::Medium,
+            severity: Severity::Low,
             confidence: Confidence::Probable,
             impact: None,
             title: "Suspicious Info dictionary content".into(),

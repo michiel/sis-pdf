@@ -661,6 +661,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: hinting bytecode can stress or exploit interpreter paths.
   - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
 
+## font.ttf_hinting_suspicious
+
+- ID: `font.ttf_hinting_suspicious`
+- Label: Suspicious TrueType hinting
+- Description: Hinting program execution triggered a security check (stack limits, division-by-zero, budget, unmatched control-flow, etc.).
+- Tags: font, dynamic
+- Details:
+  - Relevance: dynamic font validation.
+  - Meaning: the TrueType virtual machine observed anomalies while parsing `fpgm`/`prep` tables. Most stack underflow/overflow occurrences are marked as low-severity heuristics unless additional anomalies accompany them; other runtime errors remain medium severity.
+  - Chain usage: treated as a renderer-targeting payload signal when medium/high variants surface.
+
 ## font.dynamic_parse_failure
 
 - ID: `font.dynamic_parse_failure`
@@ -703,8 +714,9 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Details:
   - Relevance: PostScript Type 1 exploitation surface.
   - Meaning: dangerous operators can trigger stack manipulation or arbitrary code execution in font renderers.
+  - Context: attackers use these primitives (callothersubr/pop/return/put/store/blend) to corrupt interpreter stack/memory or escape to arbitrary execution paths (see BLEND/2015).
   - Chain usage: treated as a payload stage targeting Type 1 font parser vulnerabilities.
-  - Severity: HIGH
+  - Severity: MEDIUM (escalates to HIGH when `callothersubr`, `store`, or `blend` operators are present)
   - Introduced: Font analysis enhancement (2026-01-17)
 
 ## font.type1_excessive_stack
@@ -717,7 +729,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: stack overflow or parser stress attempts.
   - Meaning: excessive stack usage may trigger buffer overflows or denial of service.
   - Chain usage: treated as a payload delivery or exploitation preparation stage.
-  - Severity: MEDIUM
+  - Severity: LOW
   - Introduced: Font analysis enhancement (2026-01-17)
 
 ## font.type1_large_charstring
