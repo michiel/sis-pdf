@@ -211,6 +211,8 @@ Work crate-by-crate, starting with security-critical crates:
 
 *Note*: `sis-pdf-detectors` now avoids `unwrap()` by pattern-matching cycle detections, using safe option handling in the spot-color test, and replacing the UTF-16 normalisation test’s `unwrap()` with an explicit `match`, keeping the tests transferable while respecting the AGENTS guidance. Verified via `cargo test -p sis-pdf-detectors`.
 
+*Note*: Recent work also removes unwraps from the CLI (REPL path handling, SWF metadata) and from `js-analysis`’s regex preprocessing so those modules can now meet the AGENTS goal; `cargo test -p sis-pdf` plus `cargo test -p js-analysis --features js-sandbox` cover the critical paths that changed.
+
 **Success Criteria**: `grep -r '\\.unwrap()' crates/*/src/ --include='*.rs' | wc -l` returns 0
 
 ---
@@ -218,14 +220,16 @@ Work crate-by-crate, starting with security-critical crates:
 ### Stage 3: Eliminate Unsafe Code
 
 **Goal**: AGENTS.md compliance -- no unsafe blocks in workspace
-**Status**: Not Started
+**Status**: In Progress
 
 #### 3a. Memmap removal (3 blocks)
 
-- [ ] Create a helper function `fn read_pdf(path: &Path) -> Result<Vec<u8>>` that uses `std::fs::read()`
-- [ ] Replace `unsafe { Mmap::map(&f) }` in `main.rs` (2 sites) and `query.rs` (1 site) with the helper
-- [ ] Remove `memmap2` dependency from `crates/sis-pdf/Cargo.toml`
-- [ ] Benchmark large-file scan performance to verify acceptable regression
+- [x] Create a helper function `fn read_pdf_bytes(path: &Path) -> Result<Vec<u8>>` that uses `std::fs::read()` and preserves the existing size checks
+- [x] Replace `unsafe { Mmap::map(&f) }` in `main.rs` (2 sites) and `query.rs` (1 site) with the helper
+- [x] Remove `memmap2` dependency from `crates/sis-pdf/Cargo.toml`
+- [ ] Benchmark large-file scan performance to verify acceptable regression (pending; manual test coverage validated the path so far)
+
+*Note*: `cargo test -p sis-pdf` and `cargo test -p js-analysis --features js-sandbox` exercise the new read helper and confirm the CLI and sandbox integrations still behave. Full benchmarking of the read-to-vec path is planned before closing this sub-stage.
 
 #### 3b. Boa closure refactor (18 blocks)
 

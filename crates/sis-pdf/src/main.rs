@@ -5,7 +5,6 @@ use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
 use globset::Glob;
 use js_analysis::{DynamicOptions, DynamicOutcome};
-use memmap2::Mmap;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -2696,8 +2695,8 @@ fn validate_ml_config(scan: &sis_pdf_core::config::ScanConfig) -> Result<()> {
     }
     Ok(())
 }
-fn mmap_file(path: &str) -> Result<Mmap> {
-    let f = fs::File::open(path)?;
+fn read_pdf_bytes(path: &str) -> Result<Vec<u8>> {
+    let mut f = fs::File::open(path)?;
     let size = f.metadata()?.len();
     if size > WARN_PDF_BYTES {
         SecurityEvent {
@@ -2739,7 +2738,9 @@ fn mmap_file(path: &str) -> Result<Mmap> {
         );
         return Err(anyhow!("file exceeds max size: {} bytes", size));
     }
-    unsafe { Mmap::map(&f).map_err(|e| anyhow!(e)) }
+    let mut buffer = Vec::with_capacity(size as usize);
+    f.read_to_end(&mut buffer)?;
+    Ok(buffer)
 }
 
 fn maybe_colourise_output(
@@ -3655,13 +3656,13 @@ fn run_scan(
         );
     }
     let pdf = pdf.ok_or_else(|| anyhow!("PDF path is required unless --path is set"))?;
-    let mmap = mmap_file(pdf)?;
+    let bytes = read_pdf_bytes(pdf)?;
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(js_sandbox);
     let mut report =
-        run_scan_single(&mmap, pdf, &opts, &detectors)?.with_sandbox_summary(sandbox_summary);
+        run_scan_single(&bytes, pdf, &opts, &detectors)?.with_sandbox_summary(sandbox_summary);
     if ml_inference_requested {
         match run_ml_inference_for_scan(
-            &mmap,
+            &bytes,
             &opts,
             &report,
             ml_model_dir,
@@ -3682,7 +3683,7 @@ fn run_scan(
     }
     if temporal_requested {
         let (temporal_summary, temporal_snapshots, temporal_explanation) = run_temporal_analysis(
-            &mmap,
+            &bytes,
             &opts,
             &detectors,
             ml_model_dir,
@@ -3879,12 +3880,12 @@ fn run_temporal_analysis(
 }
 
 fn run_scan_single(
-    mmap: &Mmap,
+    bytes: &[u8],
     pdf: &str,
     opts: &sis_pdf_core::scan::ScanOptions,
     detectors: &[Box<dyn sis_pdf_core::detect::Detector>],
 ) -> Result<sis_pdf_core::report::Report> {
-    let report = sis_pdf_core::runner::run_scan_with_detectors(mmap, opts.clone(), detectors)?
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts.clone(), detectors)?
         .with_input_path(Some(pdf.to_string()));
     Ok(report)
 }
@@ -4041,8 +4042,8 @@ fn run_scan_batch(
     let process_path = |path: &PathBuf| -> Result<sis_pdf_core::report::BatchEntry> {
         let path_str = path.display().to_string();
         let start = std::time::Instant::now();
-        let mmap = mmap_file(&path_str)?;
-        let hash = sha256_hex(&mmap);
+        let bytes = read_pdf_bytes(&path_str)?;
+        let hash = sha256_hex(&bytes);
         let mut report = if let Some(cache) = &cache {
             cache.load(&hash)
         } else {
@@ -4050,7 +4051,7 @@ fn run_scan_batch(
         };
         if report.is_none() {
             report = Some(
-                sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), detectors)?
+                sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts.clone(), detectors)?
                     .with_input_path(Some(path_str.clone())),
             );
             if let (Some(cache), Some(report)) = (&cache, report.as_ref()) {
@@ -4176,7 +4177,7 @@ fn run_scan_batch(
     Ok(())
 }
 fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) -> Result<()> {
-    let mmap = mmap_file(pdf)?;
+    let bytes = read_pdf_bytes(pdf)?;
     let mut opts = sis_pdf_core::scan::ScanOptions {
         strict: false,
         strict_summary: false,
@@ -4210,7 +4211,7 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     }
     let detectors = sis_pdf_detectors::default_detectors();
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(true);
-    let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts, &detectors)?
         .with_input_path(Some(pdf.to_string()))
         .with_sandbox_summary(sandbox_summary);
     let Some(finding) = report.findings.iter().find(|f| f.id == finding_id) else {
@@ -4237,8 +4238,8 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
         );
         if matches!(ev.source, sis_pdf_core::model::EvidenceSource::File) {
             let start = ev.offset as usize;
-            let end = start.saturating_add(ev.length as usize).min(mmap.len());
-            let slice = &mmap[start..end];
+            let end = start.saturating_add(ev.length as usize).min(bytes.len());
+            let slice = &bytes[start..end];
             println!("{}", preview_bytes(slice));
         } else {
             println!("(decoded evidence preview not available)");
@@ -4284,7 +4285,7 @@ fn run_report(
     _report_chain_summary: commands::query::ChainSummaryLevel,
     _report_verbosity: commands::query::ReportVerbosity,
 ) -> Result<()> {
-    let mmap = mmap_file(pdf)?;
+    let bytes = read_pdf_bytes(pdf)?;
     let diff_parser = diff_parser || strict;
     if diff_parser && strict {
         SecurityEvent {
@@ -4375,7 +4376,7 @@ fn run_report(
             js_sandbox,
         });
     let mut report =
-        sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), &detectors)?
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts.clone(), &detectors)?
             .with_input_path(Some(pdf.to_string()));
     let ml_inference_requested = ml_extended_features
         || ml_explain
@@ -4386,7 +4387,7 @@ fn run_report(
     let temporal_requested = temporal_signals || ml_temporal;
     if ml_inference_requested {
         match run_ml_inference_for_scan(
-            &mmap,
+            &bytes,
             &opts,
             &report,
             ml_model_dir,
@@ -4407,7 +4408,7 @@ fn run_report(
     }
     if temporal_requested {
         let (temporal_summary, temporal_snapshots, temporal_explanation) = run_temporal_analysis(
-            &mmap,
+            &bytes,
             &opts,
             &detectors,
             ml_model_dir,

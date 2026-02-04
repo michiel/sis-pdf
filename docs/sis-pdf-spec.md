@@ -892,8 +892,6 @@ sis-pdf/
 * `serde`, `serde_json`
 * `rayon` (optional, for parallel detectors)
 * `flate2` (for FlateDecode)
-* `memmap2` (if you want mmap; CLI can read-to-vec first)
-
 ---
 
 # C) Key code (starter implementation)

@@ -448,7 +448,8 @@ mod sandbox_impl {
 
             // Track variable timeline for special functions
             if name == "eval" {
-                let eval_content = args.first()
+                let eval_content = args
+                    .first()
                     .map(|arg| js_value_summary(arg, ctx, 100))
                     .unwrap_or_else(|| "unknown".to_string());
 
@@ -2264,10 +2265,10 @@ mod sandbox_impl {
                     scope.borrow_mut().auto_promote.insert(var_str.clone());
 
                     // Replace with global assignment to ensure persistence
-                    result = result.replace(
-                        caps.get(0).unwrap().as_str(),
-                        &format!("this.{} = ", var_str),
-                    );
+                    if let Some(full_match) = caps.get(0) {
+                        result =
+                            result.replace(full_match.as_str(), &format!("this.{} = ", var_str));
+                    }
                 }
             }
         } else {
@@ -2721,15 +2722,16 @@ mod sandbox_impl {
                 && i + 2 < words.len()
                 && words[i + 1] == "not"
                 && words[i + 2] == "defined"
-                && i > 0 {
-                    let candidate = words[i - 1]
-                        .trim_end_matches(',')
-                        .trim_matches('"')
-                        .trim_matches('\'');
-                    if !candidate.is_empty() {
-                        return Some(candidate.to_string());
-                    }
+                && i > 0
+            {
+                let candidate = words[i - 1]
+                    .trim_end_matches(',')
+                    .trim_matches('"')
+                    .trim_matches('\'');
+                if !candidate.is_empty() {
+                    return Some(candidate.to_string());
                 }
+            }
         }
 
         None

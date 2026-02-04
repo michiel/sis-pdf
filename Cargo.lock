@@ -3990,7 +3990,6 @@ dependencies = [
  "hex",
  "image-analysis",
  "js-analysis",
- "memmap2",
  "rayon",
  "rustyline",
  "serde",

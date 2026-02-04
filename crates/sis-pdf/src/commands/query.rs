@@ -4080,18 +4080,18 @@ fn extract_event_triggers(
             // Check if this is a Page object
             if dict.has_name(b"/Type", b"/Page")
                 && (filter_level.is_none() || filter_level == Some("page")) {
-                    // Check for Page AA (Additional Actions)
-                    if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
-                        extract_aa_events(
-                            &ctx.graph,
-                            ctx.bytes,
-                            aa_obj,
-                            "page",
-                            &format!("obj {}:{}", entry.obj, entry.gen),
-                            &mut events,
-                        );
-                    }
+                // Check for Page AA (Additional Actions)
+                if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
+                    extract_aa_events(
+                        &ctx.graph,
+                        ctx.bytes,
+                        aa_obj,
+                        "page",
+                        &format!("obj {}:{}", entry.obj, entry.gen),
+                        &mut events,
+                    );
                 }
+            }
         }
     }
 
@@ -4101,36 +4101,36 @@ fn extract_event_triggers(
             // Check for widget annotations (form fields)
             if (dict.has_name(b"/Subtype", b"/Widget") || dict.get_first(b"/FT").is_some())
                 && (filter_level.is_none() || filter_level == Some("field")) {
-                    let field_name = dict
-                        .get_first(b"/T")
-                        .and_then(|(_, obj)| extract_obj_text(&ctx.graph, ctx.bytes, obj))
-                        .unwrap_or_else(|| "unnamed".to_string());
+                let field_name = dict
+                    .get_first(b"/T")
+                    .and_then(|(_, obj)| extract_obj_text(&ctx.graph, ctx.bytes, obj))
+                    .unwrap_or_else(|| "unnamed".to_string());
 
-                    // Check for field actions
-                    if let Some((_, action_obj)) = dict.get_first(b"/A") {
-                        let action_details =
-                            extract_action_details(&ctx.graph, ctx.bytes, action_obj);
-                        events.push(json!({
-                            "level": "field",
-                            "event_type": "Action",
-                            "location": format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
-                            "trigger_config": "Triggered on field activation",
-                            "action_details": action_details
-                        }));
-                    }
-
-                    // Check for Additional Actions (AA)
-                    if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
-                        extract_aa_events(
-                            &ctx.graph,
-                            ctx.bytes,
-                            aa_obj,
-                            "field",
-                            &format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
-                            &mut events,
-                        );
-                    }
+                // Check for field actions
+                if let Some((_, action_obj)) = dict.get_first(b"/A") {
+                    let action_details =
+                        extract_action_details(&ctx.graph, ctx.bytes, action_obj);
+                    events.push(json!({
+                        "level": "field",
+                        "event_type": "Action",
+                        "location": format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
+                        "trigger_config": "Triggered on field activation",
+                        "action_details": action_details
+                    }));
                 }
+
+                // Check for Additional Actions (AA)
+                if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
+                    extract_aa_events(
+                        &ctx.graph,
+                        ctx.bytes,
+                        aa_obj,
+                        "field",
+                        &format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
+                        &mut events,
+                    );
+                }
+            }
         }
     }
 
@@ -6654,7 +6654,6 @@ pub fn run_query_batch(
     max_batch_bytes: u64,
     max_walk_depth: usize,
 ) -> Result<()> {
-    use memmap2::Mmap;
     use sis_pdf_core::model::Severity as SecuritySeverity;
     use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
     use tracing::{error, Level};
@@ -6765,10 +6764,8 @@ pub fn run_query_batch(
         return Err(anyhow!("no files matched {} in {}", glob, path.display()));
     }
 
-    // Helper to mmap a file
-    fn mmap_file(path: &Path) -> Result<Mmap> {
-        let file = fs::File::open(path)?;
-        unsafe { memmap2::Mmap::map(&file).map_err(|e| anyhow!("mmap failed: {}", e)) }
+    fn read_pdf_bytes(path: &Path) -> Result<Vec<u8>> {
+        fs::read(path).map_err(|e| anyhow!("failed to read {}: {}", path.display(), e))
     }
 
     // Process files in parallel using rayon
@@ -6788,8 +6785,8 @@ pub fn run_query_batch(
 
     let process_path = |path_buf: &PathBuf| -> Result<Option<BatchResult>> {
         let path_str = path_buf.display().to_string();
-        let mmap = match mmap_file(path_buf) {
-            Ok(mmap) => mmap,
+        let bytes = match read_pdf_bytes(path_buf) {
+            Ok(bytes) => bytes,
             Err(err) => {
                 let detail = err.to_string();
                 log_batch_file_issue(
@@ -6803,7 +6800,7 @@ pub fn run_query_batch(
         };
 
         // Build scan context
-        let ctx = match build_scan_context(&mmap, scan_options) {
+        let ctx = match build_scan_context(&bytes, scan_options) {
             Ok(ctx) => ctx,
             Err(err) => {
                 let detail = err.to_string();
