@@ -239,9 +239,9 @@ The `unsafe` in `NativeFunction::from_closure` exists because Boa's GC cannot tr
 
 #### 4a. Workspace dependency consolidation
 
-- [ ] Add `[workspace.dependencies]` to root `Cargo.toml` for: `serde`, `serde_json`, `anyhow`, `tracing`, `base64`, `flate2`, `blake3`, `sha2`, `clap`, `hex`
-- [ ] Update each crate's `Cargo.toml` to use `serde.workspace = true` syntax
-- [ ] Verify `cargo build` and `cargo test` still pass
+- [x] Add `[workspace.dependencies]` to root `Cargo.toml` for: `serde`, `serde_json`, `anyhow`, `tracing`, `base64`, `flate2`, `blake3`, `sha2`, `clap`, `hex`
+- [x] Update each crate's `Cargo.toml` (and the two `tools/` crates) to reference those dependencies with `workspace = true`, covering the CLI, detection, JS, font, image, and support binaries
+- [x] Verify `cargo build` and `cargo test` still pass (`cargo check` + full `cargo test` both succeed after the workspace transition)
 
 #### 4b. Configuration files
 

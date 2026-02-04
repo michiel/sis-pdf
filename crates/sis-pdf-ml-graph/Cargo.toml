@@ -4,14 +4,14 @@ version.workspace = true
 edition = "2021"
 
 [dependencies]
-anyhow = "1"
-blake3 = "1"
+anyhow = { workspace = true }
+blake3 = { workspace = true }
 ort = { version = "2.0.0-rc.11", features = ["load-dynamic"] }
 prost = "0.11"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
 tokenizers = "0.15"
-tracing = "0.1"
+tracing = { workspace = true }
 tract-onnx = { version = "0.21", default-features = false }
 
 [features]
