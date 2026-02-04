@@ -37,11 +37,7 @@ pub fn export_ir_text(ir_objects: &[PdfIrObject]) -> String {
         for line in &obj.lines {
             out.push_str(&format!(
                 "{}-{}, {}, {}, {}\n",
-                line.obj_ref.0,
-                line.obj_ref.1,
-                line.path,
-                line.value_type,
-                line.value
+                line.obj_ref.0, line.obj_ref.1, line.path, line.value_type, line.value
             ));
         }
         if !obj.deviations.is_empty() {

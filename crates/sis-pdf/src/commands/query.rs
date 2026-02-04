@@ -4079,7 +4079,8 @@ fn extract_event_triggers(
         if let Some(dict) = entry_dict(entry) {
             // Check if this is a Page object
             if dict.has_name(b"/Type", b"/Page")
-                && (filter_level.is_none() || filter_level == Some("page")) {
+                && (filter_level.is_none() || filter_level == Some("page"))
+            {
                 // Check for Page AA (Additional Actions)
                 if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
                     extract_aa_events(
@@ -4100,7 +4101,8 @@ fn extract_event_triggers(
         if let Some(dict) = entry_dict(entry) {
             // Check for widget annotations (form fields)
             if (dict.has_name(b"/Subtype", b"/Widget") || dict.get_first(b"/FT").is_some())
-                && (filter_level.is_none() || filter_level == Some("field")) {
+                && (filter_level.is_none() || filter_level == Some("field"))
+            {
                 let field_name = dict
                     .get_first(b"/T")
                     .and_then(|(_, obj)| extract_obj_text(&ctx.graph, ctx.bytes, obj))
@@ -4108,8 +4110,7 @@ fn extract_event_triggers(
 
                 // Check for field actions
                 if let Some((_, action_obj)) = dict.get_first(b"/A") {
-                    let action_details =
-                        extract_action_details(&ctx.graph, ctx.bytes, action_obj);
+                    let action_details = extract_action_details(&ctx.graph, ctx.bytes, action_obj);
                     events.push(json!({
                         "level": "field",
                         "event_type": "Action",
@@ -7126,8 +7127,10 @@ mod tests {
 
     #[test]
     fn chain_to_json_includes_payload_and_edges() {
-        let edges = [TypedEdge::new((1, 0), (2, 0), EdgeType::OpenAction),
-            TypedEdge::new((2, 0), (3, 0), EdgeType::JavaScriptPayload)];
+        let edges = [
+            TypedEdge::new((1, 0), (2, 0), EdgeType::OpenAction),
+            TypedEdge::new((2, 0), (3, 0), EdgeType::JavaScriptPayload),
+        ];
 
         let chain = sis_pdf_pdf::path_finder::ActionChain {
             trigger: TriggerType::OpenAction,

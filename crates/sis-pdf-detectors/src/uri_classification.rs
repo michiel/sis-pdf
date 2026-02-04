@@ -200,9 +200,7 @@ pub fn analyze_uri_content(uri: &[u8]) -> UriContentAnalysis {
     let has_suspicious_extension = path.as_ref().is_some_and(|p| has_suspicious_extension(p));
     let has_suspicious_scheme = is_suspicious_scheme(&scheme);
     let has_embedded_ip_host = domain.as_ref().is_some_and(|d| has_embedded_ip(d));
-    let has_idn_lookalike = domain
-        .as_ref()
-        .is_some_and(|d| has_idn_lookalike_domain(d));
+    let has_idn_lookalike = domain.as_ref().is_some_and(|d| has_idn_lookalike_domain(d));
     let (data_mime, data_is_base64, data_length) = if is_data_uri {
         parse_data_uri(rest.as_str())
     } else {

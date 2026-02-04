@@ -350,19 +350,20 @@ impl ObjectClassifier {
 
             // Suspicious fonts
             if classified.obj_type == PdfObjectType::Font
-                && dict.get_first(b"/FontMatrix").is_some() {
-                    // FontMatrix with non-numeric values is suspicious
-                    if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
-                        if let PdfAtom::Array(arr) = &obj.atom {
-                            if arr
-                                .iter()
-                                .any(|o| !matches!(o.atom, PdfAtom::Int(_) | PdfAtom::Real(_)))
-                            {
-                                classified.add_role(ObjectRole::SuspiciousFont);
-                            }
+                && dict.get_first(b"/FontMatrix").is_some()
+            {
+                // FontMatrix with non-numeric values is suspicious
+                if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
+                    if let PdfAtom::Array(arr) = &obj.atom {
+                        if arr
+                            .iter()
+                            .any(|o| !matches!(o.atom, PdfAtom::Int(_) | PdfAtom::Real(_)))
+                        {
+                            classified.add_role(ObjectRole::SuspiciousFont);
                         }
                     }
                 }
+            }
         }
 
         // Compressed object (in ObjStm)

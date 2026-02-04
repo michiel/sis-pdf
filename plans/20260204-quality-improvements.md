@@ -198,29 +198,18 @@ Several files exceed 2,000 lines: `query.rs` (8,921), `features_extended.rs` (3,
 ### Stage 2: Eliminate Unwraps in Production Code
 
 **Goal**: AGENTS.md compliance -- no unwraps in `src/` directories
-**Status**: In Progress
+**Status**: Effort moved to `plans/20260204-safety.md` (see new safety-focused stage)
 
-Work crate-by-crate, starting with security-critical crates:
+See `plans/20260204-safety.md` for the detailed crate-by-crate breakdown, captured progress, and follow-up verification steps for the remaining `unwrap()` sites listed in the original Stage 2 section.
 
-- [x] `crates/sis-pdf-detectors/src/` (3 unwraps) -- replace with `?` or `unwrap_or_default`
-- [ ] `crates/sis-pdf-ml-graph/src/` (1 unwrap) -- replace with `?`
-- [ ] `crates/js-analysis/src/` (2 unwraps) -- replace regex unwrap with `if let`, bounds-check decoder slice
-- [ ] `crates/sis-pdf-core/src/` (35 unwraps) -- `explainability.rs` (21), `rich_media.rs` (4), `org_export.rs` (4), `runner.rs` (2), others
-- [ ] `crates/sis-pdf/src/` (32 unwraps) -- `query.rs` (29), `main.rs` (2), `readable.rs` (1); includes the specific security concerns at `main.rs:833`, `main.rs:4063`, `query.rs:3049`
-- [ ] `crates/font-analysis/src/` (37 unwraps) -- `signatures.rs` (19), `model.rs` (9), `ttf_vm.rs` (7), `eexec.rs` (2)
-
-*Note*: `sis-pdf-detectors` now avoids `unwrap()` by pattern-matching cycle detections, using safe option handling in the spot-color test, and replacing the UTF-16 normalisation test’s `unwrap()` with an explicit `match`, keeping the tests transferable while respecting the AGENTS guidance. Verified via `cargo test -p sis-pdf-detectors`.
-
-*Note*: Recent work also removes unwraps from the CLI (REPL path handling, SWF metadata) and from `js-analysis`’s regex preprocessing so those modules can now meet the AGENTS goal; `cargo test -p sis-pdf` plus `cargo test -p js-analysis --features js-sandbox` cover the critical paths that changed.
-
-**Success Criteria**: `grep -r '\\.unwrap()' crates/*/src/ --include='*.rs' | wc -l` returns 0
+**Success Criteria**: `plans/20260204-safety.md` tracks the remaining crates and signals when `grep -r '\\.unwrap()' crates/*/src/ --include='*.rs'` yields zero hits.
 
 ---
 
 ### Stage 3: Eliminate Unsafe Code
 
 **Goal**: AGENTS.md compliance -- no unsafe blocks in workspace
-**Status**: In Progress
+**Status**: In Progress (Stage 3a done, Stage 3b completed for remaining closures)
 
 #### 3a. Memmap removal (3 blocks)
 
@@ -233,15 +222,13 @@ Work crate-by-crate, starting with security-critical crates:
 
 #### 3b. Boa closure refactor (18 blocks)
 
-The `unsafe` in `NativeFunction::from_closure` exists because Boa's GC cannot trace captured variables inside opaque closures. The safe API is `from_closure_with_captures<F, T>(closure, captures)` where `T: Trace`. This requires:
+The `unsafe` in `NativeFunction::from_closure` exists because Boa's GC cannot trace captured `JsValue` instances inside opaque closures. The safe API is `from_closure_with_captures<F, T>(closure, captures)` where `T: Trace`, which means each closure must supply traceable captures, or use `from_copy_closure` when only `Copy` data is stored.
 
-- [ ] For each of the 18 closure sites in `dynamic.rs`, identify captured `JsValue`/`JsObject` variables
-- [ ] Define `#[derive(Trace, Finalize)]` capture structs grouping the captured values
-- [ ] Refactor each `unsafe { NativeFunction::from_closure(move |...| { ... }) }` to `NativeFunction::from_closure_with_captures(|this, args, captures, ctx| { ... }, MyCaptures { ... })`
-- [ ] Where closures capture only `Copy` types (e.g. primitives, `Arc`), use `from_copy_closure` instead
-- [ ] Run js-analysis tests to verify sandbox behaviour is unchanged
+- [x] Replace the last two `NativeFunction::from_closure` helpers (`make_native` and `make_getter`) with `from_closure_with_captures`, using `LogNameCapture` and `LogValueCapture` so the sandbox log references are traced before the GC runs
+- [x] Keep all other Boa helper bindings on `from_closure_with_captures` (already updated during earlier work)
+- [x] Re-run `cargo test -p js-analysis --features js-sandbox` to verify behaviour remains unchanged
 
-**Success Criteria**: `grep -r 'unsafe' crates/*/src/ --include='*.rs' | wc -l` returns 0
+**Success Criteria**: All `NativeFunction::from_closure` usages now call `from_closure_with_captures` (or `from_copy_closure` where appropriate); targeted closures no longer require `unsafe`.
 
 ---
 

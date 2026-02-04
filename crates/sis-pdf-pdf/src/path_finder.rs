@@ -197,12 +197,12 @@ impl<'a> PathFinder<'a> {
             }
 
             for edge in self.graph.outgoing_edges(current.0, current.1) {
-                if edge_types.iter().any(|et| et == &edge.edge_type)
-                    && !visited.contains(&edge.dst) {
-                        visited.insert(edge.dst);
-                        reachable.insert(edge.dst);
-                        queue.push_back((edge.dst, depth + 1));
-                    }
+                if edge_types.iter().any(|et| et == &edge.edge_type) && !visited.contains(&edge.dst)
+                {
+                    visited.insert(edge.dst);
+                    reachable.insert(edge.dst);
+                    queue.push_back((edge.dst, depth + 1));
+                }
             }
         }
 

@@ -112,7 +112,6 @@ pub enum MatchLogic {
     Any,
 }
 
-
 /// Pattern matching specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

@@ -1910,15 +1910,18 @@ fn detect_bitcoin_address(data: &[u8]) -> bool {
     // Bitcoin address regex pattern (simplified)
     // Starts with 1, 3, or bc1, length 26-90
     for word in s.split_whitespace() {
-        if word.len() >= 26 && word.len() <= 90
-            && (word.starts_with('1') || word.starts_with('3') || word.starts_with("bc1")) {
-                // Check if alphanumeric (excluding 0, O, I, l)
-                if word.chars().all(|c| {
-                    c.is_ascii_alphanumeric() && c != '0' && c != 'O' && c != 'I' && c != 'l'
-                }) {
-                    return true;
-                }
+        if word.len() >= 26
+            && word.len() <= 90
+            && (word.starts_with('1') || word.starts_with('3') || word.starts_with("bc1"))
+        {
+            // Check if alphanumeric (excluding 0, O, I, l)
+            if word
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() && c != '0' && c != 'O' && c != 'I' && c != 'l')
+            {
+                return true;
             }
+        }
     }
 
     // Monero address (starts with 4)
@@ -1946,7 +1949,6 @@ fn detect_jit_spray(data: &[u8]) -> bool {
     }
 
     // Function generation in loops
-    
 
     (find_token(data, b"eval(") || find_token(data, b"Function(")) && find_token(data, b"for(")
 }

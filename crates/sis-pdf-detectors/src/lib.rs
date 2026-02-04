@@ -1929,9 +1929,7 @@ impl Detector for EmbeddedFileDetector {
                         );
                     }
                     let payload_target = action_target_from_meta(&meta);
-                    let action_target = meta
-                        .get("embedded.filename").cloned()
-                        .or(payload_target);
+                    let action_target = meta.get("embedded.filename").cloned().or(payload_target);
                     annotate_action_meta(
                         &mut meta,
                         "/EmbeddedFile",

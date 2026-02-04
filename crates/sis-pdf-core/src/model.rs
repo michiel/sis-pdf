@@ -343,11 +343,7 @@ mod tests {
         .action_target("cmd.exe")
         .action_initiation("automatic")
         .reader_impact(reader_impact.clone())
-        .evidence(
-            EvidenceBuilder::new()
-                .file_offset(0, 4, "test")
-                .build(),
-        )
+        .evidence(EvidenceBuilder::new().file_offset(0, 4, "test").build())
         .build();
 
         let serialized = serde_json::to_value(&finding).unwrap();

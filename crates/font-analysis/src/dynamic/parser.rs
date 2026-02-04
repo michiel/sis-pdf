@@ -306,10 +306,7 @@ fn extract_glyf_references(data: &[u8], glyf_table: &TableInfo, context: &mut Fo
         if num_contours < 0 {
             // This is a composite glyph - track the reference
             let glyf_key = format!("glyf[{}]", glyph_id);
-            context
-                .table_references
-                .entry(glyf_key)
-                .or_default();
+            context.table_references.entry(glyf_key).or_default();
             // Note: Full component parsing would require more complex logic
             // For now we just mark that this glyph has references
         }

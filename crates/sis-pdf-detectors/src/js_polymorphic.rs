@@ -61,8 +61,7 @@ impl Detector for JsPolymorphicDetector {
                     .map(|v| v == "true")
                     .unwrap_or(false);
                 let multi_stage = decoded.layers >= 2;
-                let polymorphic =
-                    has_eval && (has_fcc || has_unescape || base64_like);
+                let polymorphic = has_eval && (has_fcc || has_unescape || base64_like);
 
                 let mut evidence = candidate.evidence;
                 if evidence.is_empty() {

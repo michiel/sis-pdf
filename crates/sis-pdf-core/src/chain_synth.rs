@@ -325,7 +325,9 @@ fn notes_from_findings(
         }
         for (k, v) in &f.meta {
             if k.starts_with("js.") || k.starts_with("payload.") {
-                if k == "js.sandbox_exec" && matches!(notes.get(k).map(String::as_str), Some("true")) {
+                if k == "js.sandbox_exec"
+                    && matches!(notes.get(k).map(String::as_str), Some("true"))
+                {
                     continue;
                 }
                 notes.entry(k.clone()).or_insert_with(|| v.clone());

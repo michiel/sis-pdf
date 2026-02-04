@@ -5,8 +5,7 @@ use crate::model::{FontFinding, Severity};
 use tracing::{debug, instrument};
 
 /// Analysis context describing the source and environment
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AnalysisContext {
     /// Font from a trusted source (e.g., system fonts, signed PDFs)
     TrustedSource,
@@ -24,7 +23,6 @@ pub enum AnalysisContext {
     /// Desktop application (more permissive)
     Desktop,
 }
-
 
 impl AnalysisContext {
     /// Adjust severity based on context
