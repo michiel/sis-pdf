@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod adversarial;
 pub mod behavior;
 pub mod cache;

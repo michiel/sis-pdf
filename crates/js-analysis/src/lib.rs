@@ -1,5 +1,8 @@
+#![forbid(unsafe_code)]
+
 pub mod dynamic;
 mod sandbox_test;
+
 pub mod static_analysis;
 pub mod types;
 

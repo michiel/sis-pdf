@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use serde::Deserialize;
@@ -110,9 +112,5 @@ fn load_profile(path: &PathBuf) -> Result<RuntimeProfile> {
 }
 
 fn phase_duration(profile: &RuntimeProfile, name: &str) -> Option<f64> {
-    profile
-        .phases
-        .iter()
-        .find(|phase| phase.name == name)
-        .map(|phase| phase.duration_ms)
+    profile.phases.iter().find(|phase| phase.name == name).map(|phase| phase.duration_ms)
 }

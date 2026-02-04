@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod blob;
 pub mod blob_classify;
 pub mod classification;

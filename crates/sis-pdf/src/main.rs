@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 mod commands;
 
 use anyhow::{anyhow, Result};
@@ -120,11 +122,7 @@ enum Command {
             help = "Output format (text, json, jsonl, yaml, csv, dot). Example: --format jsonl"
         )]
         format: String,
-        #[arg(
-            long = "colour",
-            alias = "color",
-            help = "Enable colourised JSON/YAML output"
-        )]
+        #[arg(long = "colour", alias = "color", help = "Enable colourised JSON/YAML output")]
         colour: bool,
         #[arg(long, short = 'c', help = "Compact output (numbers only)")]
         compact: bool,
@@ -207,10 +205,7 @@ enum Command {
         export_intents: bool,
         #[arg(long)]
         export_intents_out: Option<PathBuf>,
-        #[arg(
-            long,
-            help = "Include derived intent entries (domains and obfuscated URLs)"
-        )]
+        #[arg(long, help = "Include derived intent entries (domains and obfuscated URLs)")]
         intents_derived: bool,
         #[arg(long)]
         yara: bool,
@@ -253,10 +248,7 @@ enum Command {
         cache_dir: Option<PathBuf>,
         #[arg(long, alias = "seq")]
         sequential: bool,
-        #[arg(
-            long,
-            help = "Enable runtime profiling to measure detector performance"
-        )]
+        #[arg(long, help = "Enable runtime profiling to measure detector performance")]
         runtime_profile: bool,
         #[arg(long, default_value = "text", value_parser = ["text", "json"])]
         runtime_profile_format: String,
@@ -268,10 +260,7 @@ enum Command {
         ml_threshold: f32,
         #[arg(long, default_value = "traditional", value_parser = ["traditional", "graph"])]
         ml_mode: String,
-        #[arg(
-            long,
-            help = "Use extended 333-feature vector for ML (default with --ml)"
-        )]
+        #[arg(long, help = "Use extended 333-feature vector for ML (default with --ml)")]
         ml_extended_features: bool,
         #[arg(long, help = "Generate comprehensive ML explanation")]
         ml_explain: bool,
@@ -282,10 +271,7 @@ enum Command {
         ml_advanced: bool,
         #[arg(long, help = "Compute ML temporal analysis across incremental updates")]
         ml_temporal: bool,
-        #[arg(
-            long,
-            help = "Compute non-ML temporal signals across incremental updates"
-        )]
+        #[arg(long, help = "Compute non-ML temporal signals across incremental updates")]
         temporal_signals: bool,
         #[arg(long, help = "Path to benign baseline JSON for explanations")]
         ml_baseline: Option<PathBuf>,
@@ -314,15 +300,9 @@ enum Command {
         no_image_analysis: bool,
         #[arg(long, help = "Disable dynamic image decoding (deep scan)")]
         no_image_dynamic: bool,
-        #[arg(
-            long,
-            help = "Disable font CVE signature matching (enabled by default)"
-        )]
+        #[arg(long, help = "Disable font CVE signature matching (enabled by default)")]
         no_font_signatures: bool,
-        #[arg(
-            long,
-            help = "Custom directory containing font CVE signature YAML files"
-        )]
+        #[arg(long, help = "Custom directory containing font CVE signature YAML files")]
         font_signature_dir: Option<PathBuf>,
     },
     #[command(subcommand, about = "Run sandbox evaluation for dynamic assets")]
@@ -378,10 +358,7 @@ enum Command {
         ml_threshold: f32,
         #[arg(long, default_value = "traditional", value_parser = ["traditional", "graph"])]
         ml_mode: String,
-        #[arg(
-            long,
-            help = "Use extended 333-feature vector for ML (default with --ml)"
-        )]
+        #[arg(long, help = "Use extended 333-feature vector for ML (default with --ml)")]
         ml_extended_features: bool,
         #[arg(long, help = "Generate comprehensive ML explanation")]
         ml_explain: bool,
@@ -392,10 +369,7 @@ enum Command {
         ml_advanced: bool,
         #[arg(long, help = "Compute ML temporal analysis across incremental updates")]
         ml_temporal: bool,
-        #[arg(
-            long,
-            help = "Compute non-ML temporal signals across incremental updates"
-        )]
+        #[arg(long, help = "Compute non-ML temporal signals across incremental updates")]
         temporal_signals: bool,
         #[arg(long, help = "Path to benign baseline JSON for explanations")]
         ml_baseline: Option<PathBuf>,
@@ -547,10 +521,7 @@ enum MlOrtCommand {
         ml_provider_order: Option<String>,
         #[arg(long, help = "Path to ONNX Runtime dynamic library")]
         ml_ort_dylib: Option<PathBuf>,
-        #[arg(
-            long,
-            help = "Override ONNX Runtime version (default via SIS_ORT_VERSION)"
-        )]
+        #[arg(long, help = "Override ONNX Runtime version (default via SIS_ORT_VERSION)")]
         ort_version: Option<String>,
         #[arg(long, help = "Checksum URL override for the ORT archive")]
         checksum_url: Option<String>,
@@ -563,10 +534,7 @@ enum MlOrtCommand {
 
 #[derive(Subcommand)]
 enum StreamCommand {
-    #[command(
-        about = "Analyze a PDF stream in chunks and stop on indicators",
-        alias = "analyze"
-    )]
+    #[command(about = "Analyze a PDF stream in chunks and stop on indicators", alias = "analyze")]
     Analyse {
         pdf: String,
         #[arg(long, default_value_t = 64 * 1024)]
@@ -667,19 +635,15 @@ fn main() -> Result<()> {
                 checksum_file.as_deref(),
                 checksum_sha256.as_deref(),
             ),
-            MlCommand::Detect {
-                format,
-                config,
-                ml_provider,
-                ml_provider_order,
-                ml_ort_dylib,
-            } => run_ml_detect(
-                &format,
-                config.as_deref(),
-                ml_provider.as_deref(),
-                ml_provider_order.as_deref(),
-                ml_ort_dylib.as_deref(),
-            ),
+            MlCommand::Detect { format, config, ml_provider, ml_provider_order, ml_ort_dylib } => {
+                run_ml_detect(
+                    &format,
+                    config.as_deref(),
+                    ml_provider.as_deref(),
+                    ml_provider_order.as_deref(),
+                    ml_ort_dylib.as_deref(),
+                )
+            }
             MlCommand::Autoconfig {
                 dry_run,
                 config,
@@ -829,9 +793,7 @@ fn main() -> Result<()> {
                     output_format
                 };
                 run_query_repl(
-                    actual_pdf
-                        .as_deref()
-                        .ok_or_else(|| anyhow!("no PDF path available"))?,
+                    actual_pdf.as_deref().ok_or_else(|| anyhow!("no PDF path available"))?,
                     deep,
                     max_decode_bytes,
                     max_total_decoded_bytes,
@@ -978,11 +940,9 @@ fn main() -> Result<()> {
             )
         }
         Command::Sandbox(cmd) => match cmd {
-            SandboxCommand::Eval {
-                file,
-                asset_type,
-                max_bytes,
-            } => run_sandbox_eval(&file, &asset_type, max_bytes),
+            SandboxCommand::Eval { file, asset_type, max_bytes } => {
+                run_sandbox_eval(&file, &asset_type, max_bytes)
+            }
         },
         Command::Report {
             pdf,
@@ -1057,15 +1017,13 @@ fn main() -> Result<()> {
             report_chain_summary,
             report_verbosity,
         ),
-        Command::Explain {
-            pdf, finding_id, ..
-        } => run_explain(&pdf, &finding_id, config_path.as_deref()),
+        Command::Explain { pdf, finding_id, .. } => {
+            run_explain(&pdf, &finding_id, config_path.as_deref())
+        }
         Command::Stream(cmd) => match cmd {
-            StreamCommand::Analyse {
-                pdf,
-                chunk_size,
-                max_buffer,
-            } => run_stream_analyze(&pdf, chunk_size, max_buffer),
+            StreamCommand::Analyse { pdf, chunk_size, max_buffer } => {
+                run_stream_analyze(&pdf, chunk_size, max_buffer)
+            }
         },
         Command::Correlate(cmd) => match cmd {
             CorrelateCommand::Campaign { input, out } => {
@@ -1073,11 +1031,9 @@ fn main() -> Result<()> {
             }
         },
         Command::Generate(cmd) => match cmd {
-            GenerateCommand::Response {
-                kind,
-                from_report,
-                out,
-            } => run_response_generate(kind.as_deref(), from_report.as_deref(), out.as_deref()),
+            GenerateCommand::Response { kind, from_report, out } => {
+                run_response_generate(kind.as_deref(), from_report.as_deref(), out.as_deref())
+            }
             GenerateCommand::Mutate { pdf, out, scan } => run_mutate(&pdf, &out, scan),
             GenerateCommand::RedTeam { target, out } => run_redteam(&target, &out),
         },
@@ -1157,10 +1113,7 @@ fn run_config_verify(path: Option<&std::path::Path>) -> Result<()> {
         .or_else(default_config_path)
         .ok_or_else(|| anyhow!("config path not available on this platform"))?;
     let cfg = sis_pdf_core::config::Config::load(&path)?;
-    let log_level = cfg
-        .logging
-        .and_then(|l| l.level)
-        .unwrap_or_else(|| "warn".into());
+    let log_level = cfg.logging.and_then(|l| l.level).unwrap_or_else(|| "warn".into());
     println!("Config ok: {}", path.display());
     println!("Logging level: {}", log_level);
     if let Some(scan) = cfg.scan {
@@ -1241,11 +1194,7 @@ fn run_sandbox_eval(
             skip_actual: None,
             signals: None,
         },
-        DynamicOutcome::Skipped {
-            reason,
-            limit,
-            actual,
-        } => SandboxEvalReport {
+        DynamicOutcome::Skipped { reason, limit, actual } => SandboxEvalReport {
             path: path.display().to_string(),
             asset_type: asset_type.to_string(),
             status: "skipped".to_string(),
@@ -1471,9 +1420,7 @@ fn github_repo() -> Result<(String, String)> {
     let owner = parts.next().unwrap_or_default();
     let name = parts.next().unwrap_or_default();
     if owner.is_empty() || name.is_empty() || parts.next().is_some() {
-        return Err(anyhow!(
-            "invalid repository format: {repo} (expected owner/name)"
-        ));
+        return Err(anyhow!("invalid repository format: {repo} (expected owner/name)"));
     }
     Ok((owner.to_string(), name.to_string()))
 }
@@ -1482,24 +1429,16 @@ fn current_release_target() -> Result<(String, ArchiveFormat, String)> {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
     match (os, arch) {
-        ("linux", "x86_64") => Ok((
-            "x86_64-unknown-linux-gnu".to_string(),
-            ArchiveFormat::TarGz,
-            "sis".to_string(),
-        )),
-        ("windows", "x86_64") => Ok((
-            "x86_64-pc-windows-msvc".to_string(),
-            ArchiveFormat::Zip,
-            "sis.exe".to_string(),
-        )),
-        ("macos", "aarch64") => Ok((
-            "aarch64-apple-darwin".to_string(),
-            ArchiveFormat::TarGz,
-            "sis".to_string(),
-        )),
-        _ => Err(anyhow!(
-            "unsupported platform for self-update ({os} {arch})"
-        )),
+        ("linux", "x86_64") => {
+            Ok(("x86_64-unknown-linux-gnu".to_string(), ArchiveFormat::TarGz, "sis".to_string()))
+        }
+        ("windows", "x86_64") => {
+            Ok(("x86_64-pc-windows-msvc".to_string(), ArchiveFormat::Zip, "sis.exe".to_string()))
+        }
+        ("macos", "aarch64") => {
+            Ok(("aarch64-apple-darwin".to_string(), ArchiveFormat::TarGz, "sis".to_string()))
+        }
+        _ => Err(anyhow!("unsupported platform for self-update ({os} {arch})")),
     }
 }
 
@@ -1636,28 +1575,15 @@ fn run_ml_ort_download(
     let target = current_ort_target()?;
     let config_scan = load_scan_config(config)?;
     let hints = ml_config_hints(config_scan.as_ref());
-    let runtime_overrides = build_ml_runtime_config(
-        ml_provider,
-        ml_provider_order,
-        false,
-        ml_ort_dylib,
-        false,
-        None,
-    );
-    if let Some(path) = runtime_overrides
-        .ort_dylib_path
-        .as_ref()
-        .or(hints.ort_dylib.as_ref())
-    {
+    let runtime_overrides =
+        build_ml_runtime_config(ml_provider, ml_provider_order, false, ml_ort_dylib, false, None);
+    if let Some(path) = runtime_overrides.ort_dylib_path.as_ref().or(hints.ort_dylib.as_ref()) {
         println!("{}", path.display());
         return Ok(());
     }
     let version = resolve_ort_version(ort_version);
     let mut provider_order = resolve_provider_order(&runtime_overrides, &hints, target.os);
-    let preferred_provider = runtime_overrides
-        .provider
-        .as_deref()
-        .or(hints.provider.as_deref());
+    let preferred_provider = runtime_overrides.provider.as_deref().or(hints.provider.as_deref());
     if preferred_provider.is_none()
         && runtime_overrides.provider_order.is_none()
         && hints.provider_order.is_none()
@@ -1681,19 +1607,10 @@ fn run_ml_ort_download(
         version
     };
     let (archive_name, archive_format) = ort_archive_name(&target, &provider, &version)
-        .ok_or_else(|| {
-            anyhow!(
-                "no ORT archive for {provider} on {} {}",
-                target.os,
-                target.arch
-            )
-        })?;
+        .ok_or_else(|| anyhow!("no ORT archive for {provider} on {} {}", target.os, target.arch))?;
     let base = ort_release_base(&version);
     let url = format!("{base}/{archive_name}");
-    eprintln!(
-        "Downloading {archive_name} for {provider} ({})",
-        target.arch
-    );
+    eprintln!("Downloading {archive_name} for {provider} ({})", target.arch);
     let temp_dir = tempdir()?;
     let archive_path = temp_dir.path().join(&archive_name);
     let mut reader = http_get_reader(&url, ORT_USER_AGENT)
@@ -1719,15 +1636,12 @@ fn run_ml_ort_download(
         ArchiveFormat::Zip => extract_zip(&archive_path, &extract_dir)?,
     }
     let lib_path = find_ort_library(&extract_dir, target)?;
-    let cache_dir = ort_cache_dir()?
-        .join(&version)
-        .join(format!("{}-{}-{}", target.os, target.arch, provider));
+    let cache_dir =
+        ort_cache_dir()?.join(&version).join(format!("{}-{}-{}", target.os, target.arch, provider));
     fs::create_dir_all(&cache_dir)?;
 
     // Copy all ORT libraries (main + providers) from the same directory
-    let lib_dir = lib_path
-        .parent()
-        .ok_or_else(|| anyhow!("library path has no parent"))?;
+    let lib_dir = lib_path.parent().ok_or_else(|| anyhow!("library path has no parent"))?;
     let mut main_dest = None;
     for entry in fs::read_dir(lib_dir)? {
         let entry = entry?;
@@ -1745,10 +1659,7 @@ fn run_ml_ort_download(
                 && name.starts_with("libonnxruntime")
                 && (name.ends_with(".so") || name.contains(".so.")))
         {
-            let dest = cache_dir.join(
-                path.file_name()
-                    .ok_or_else(|| anyhow!("missing filename"))?,
-            );
+            let dest = cache_dir.join(path.file_name().ok_or_else(|| anyhow!("missing filename"))?);
             fs::copy(&path, &dest)?;
             if is_ort_library(name, target) {
                 main_dest = Some(dest);
@@ -1765,11 +1676,7 @@ fn run_ml_ort_download(
             .ok_or_else(|| anyhow!("config path not available on this platform"))?;
         write_ml_runtime_config(
             &path,
-            &MlRuntimeUpdate {
-                provider: None,
-                provider_order: None,
-                ort_dylib: Some(dest),
-            },
+            &MlRuntimeUpdate { provider: None, provider_order: None, ort_dylib: Some(dest) },
         )?;
     }
     Ok(())
@@ -1785,41 +1692,24 @@ fn run_ml_detect(
     let target = current_ort_target()?;
     let config_scan = load_scan_config(config)?;
     let hints = ml_config_hints(config_scan.as_ref());
-    let mut runtime_overrides = build_ml_runtime_config(
-        ml_provider,
-        ml_provider_order,
-        false,
-        ml_ort_dylib,
-        false,
-        None,
-    );
+    let mut runtime_overrides =
+        build_ml_runtime_config(ml_provider, ml_provider_order, false, ml_ort_dylib, false, None);
     if runtime_overrides.ort_dylib_path.is_none() {
         runtime_overrides.ort_dylib_path = hints.ort_dylib.clone();
     }
-    let ort_dylib = runtime_overrides
-        .ort_dylib_path
-        .clone()
-        .or(hints.ort_dylib.clone());
+    let ort_dylib = runtime_overrides.ort_dylib_path.clone().or(hints.ort_dylib.clone());
     let provider_order = resolve_provider_order(&runtime_overrides, &hints, target.os);
     let (provider_available, provider_selected, provider_detection_note) = {
         #[cfg(feature = "ml-graph")]
         {
             match detect_provider_info(&runtime_overrides, &provider_order) {
                 Ok(info) => (info.available, info.selected, None),
-                Err(err) => (
-                    Vec::new(),
-                    None,
-                    Some(format!("provider detection failed: {err}")),
-                ),
+                Err(err) => (Vec::new(), None, Some(format!("provider detection failed: {err}"))),
             }
         }
         #[cfg(not(feature = "ml-graph"))]
         {
-            (
-                Vec::new(),
-                None,
-                Some("provider detection requires the ml-graph feature".into()),
-            )
+            (Vec::new(), None, Some("provider detection requires the ml-graph feature".into()))
         }
     };
     let provider_suggestions = suggest_providers(&provider_order, &provider_available);
@@ -1857,14 +1747,8 @@ fn run_ml_autoconfig(
         .ok_or_else(|| anyhow!("config path not available on this platform"))?;
     let config_scan = load_scan_config(Some(&config_path))?;
     let hints = ml_config_hints(config_scan.as_ref());
-    let runtime_overrides = build_ml_runtime_config(
-        ml_provider,
-        ml_provider_order,
-        false,
-        ml_ort_dylib,
-        false,
-        None,
-    );
+    let runtime_overrides =
+        build_ml_runtime_config(ml_provider, ml_provider_order, false, ml_ort_dylib, false, None);
     let provider_order = resolve_provider_order(&runtime_overrides, &hints, target.os);
     let provider_available = {
         #[cfg(feature = "ml-graph")]
@@ -1879,10 +1763,7 @@ fn run_ml_autoconfig(
         }
     };
     let provider_suggestions = suggest_providers(&provider_order, &provider_available);
-    let selected = provider_suggestions
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "cpu".into());
+    let selected = provider_suggestions.first().cloned().unwrap_or_else(|| "cpu".into());
     let update = MlRuntimeUpdate {
         provider: Some(selected),
         provider_order: Some(provider_suggestions),
@@ -1893,11 +1774,7 @@ fn run_ml_autoconfig(
             "Config path: {}\nml_provider = {}\nml_provider_order = [{}]{}",
             config_path.display(),
             update.provider.clone().unwrap_or_else(|| "cpu".into()),
-            update
-                .provider_order
-                .as_ref()
-                .map(|list| list.join(", "))
-                .unwrap_or_default(),
+            update.provider_order.as_ref().map(|list| list.join(", ")).unwrap_or_default(),
             update
                 .ort_dylib
                 .as_ref()
@@ -1946,11 +1823,7 @@ fn ml_config_hints(scan: Option<&sis_pdf_core::config::ScanConfig>) -> MlConfigH
     } else {
         (None, None, None)
     };
-    MlConfigHints {
-        provider,
-        provider_order,
-        ort_dylib,
-    }
+    MlConfigHints { provider, provider_order, ort_dylib }
 }
 
 fn resolve_provider_order(
@@ -2118,27 +1991,15 @@ fn run_gpu_tool(tool: &str, args: &[&str]) -> GpuToolDetection {
             let detail = String::from_utf8_lossy(&out.stdout);
             let detail = detail.lines().next().map(|line| line.trim().to_string());
             let detail = detail.filter(|line| !line.is_empty());
-            GpuToolDetection {
-                tool: tool.to_string(),
-                available: true,
-                detail,
-            }
+            GpuToolDetection { tool: tool.to_string(), available: true, detail }
         }
         Ok(out) => {
             let detail = String::from_utf8_lossy(&out.stderr);
             let detail = detail.lines().next().map(|line| line.trim().to_string());
             let detail = detail.filter(|line| !line.is_empty());
-            GpuToolDetection {
-                tool: tool.to_string(),
-                available: false,
-                detail,
-            }
+            GpuToolDetection { tool: tool.to_string(), available: false, detail }
         }
-        Err(_) => GpuToolDetection {
-            tool: tool.to_string(),
-            available: false,
-            detail: None,
-        },
+        Err(_) => GpuToolDetection { tool: tool.to_string(), available: false, detail: None },
     }
 }
 
@@ -2157,22 +2018,13 @@ fn print_ml_detect_text(output: &MlDetectOutput) {
     if output.provider_available.is_empty() {
         println!("Available providers: none");
     } else {
-        println!(
-            "Available providers: {}",
-            output.provider_available.join(", ")
-        );
+        println!("Available providers: {}", output.provider_available.join(", "));
     }
     println!(
         "Selected provider: {}",
-        output
-            .provider_selected
-            .clone()
-            .unwrap_or_else(|| "none".into())
+        output.provider_selected.clone().unwrap_or_else(|| "none".into())
     );
-    println!(
-        "Suggested providers: {}",
-        output.provider_suggestions.join(", ")
-    );
+    println!("Suggested providers: {}", output.provider_suggestions.join(", "));
     if let Some(note) = &output.provider_detection_note {
         println!("Provider detection: {}", note);
     }
@@ -2180,15 +2032,8 @@ fn print_ml_detect_text(output: &MlDetectOutput) {
         println!(
             "GPU tool {}: {}{}",
             tool.tool,
-            if tool.available {
-                "available"
-            } else {
-                "unavailable"
-            },
-            tool.detail
-                .as_ref()
-                .map(|d| format!(" ({})", d))
-                .unwrap_or_default()
+            if tool.available { "available" } else { "unavailable" },
+            tool.detail.as_ref().map(|d| format!(" ({})", d)).unwrap_or_default()
         );
     }
 }
@@ -2197,21 +2042,10 @@ fn current_ort_target() -> Result<OrtTarget> {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
     match (os, arch) {
-        ("linux", "x86_64") => Ok(OrtTarget {
-            os: "linux",
-            arch: "x86_64",
-        }),
-        ("windows", "x86_64") => Ok(OrtTarget {
-            os: "windows",
-            arch: "x86_64",
-        }),
-        ("macos", "aarch64") => Ok(OrtTarget {
-            os: "macos",
-            arch: "aarch64",
-        }),
-        _ => Err(anyhow!(
-            "unsupported platform for ORT download ({os} {arch})"
-        )),
+        ("linux", "x86_64") => Ok(OrtTarget { os: "linux", arch: "x86_64" }),
+        ("windows", "x86_64") => Ok(OrtTarget { os: "windows", arch: "x86_64" }),
+        ("macos", "aarch64") => Ok(OrtTarget { os: "macos", arch: "aarch64" }),
+        _ => Err(anyhow!("unsupported platform for ORT download ({os} {arch})")),
     }
 }
 
@@ -2222,42 +2056,33 @@ fn ort_archive_name(
 ) -> Option<(String, ArchiveFormat)> {
     let provider = provider.to_lowercase();
     match (target.os, target.arch, provider.as_str()) {
-        ("linux", "x86_64", "cpu") => Some((
-            format!("onnxruntime-linux-x64-{version}.tgz"),
-            ArchiveFormat::TarGz,
-        )),
-        ("linux", "x86_64", "cuda") => Some((
-            format!("onnxruntime-linux-x64-gpu-{version}.tgz"),
-            ArchiveFormat::TarGz,
-        )),
-        ("linux", "x86_64", "openvino") => Some((
-            format!("onnxruntime-linux-x64-openvino-{version}.tgz"),
-            ArchiveFormat::TarGz,
-        )),
-        ("linux", "x86_64", "migraphx") => Some((
-            format!("onnxruntime-linux-x64-rocm-{version}.tgz"),
-            ArchiveFormat::TarGz,
-        )),
-        ("windows", "x86_64", "cpu") => Some((
-            format!("onnxruntime-win-x64-{version}.zip"),
-            ArchiveFormat::Zip,
-        )),
-        ("windows", "x86_64", "cuda") => Some((
-            format!("onnxruntime-win-x64-gpu-{version}.zip"),
-            ArchiveFormat::Zip,
-        )),
-        ("windows", "x86_64", "directml") => Some((
-            format!("onnxruntime-win-x64-directml-{version}.zip"),
-            ArchiveFormat::Zip,
-        )),
-        ("macos", "aarch64", "cpu") => Some((
-            format!("onnxruntime-osx-arm64-{version}.tgz"),
-            ArchiveFormat::TarGz,
-        )),
-        ("macos", "aarch64", "coreml") => Some((
-            format!("onnxruntime-osx-arm64-coreml-{version}.tgz"),
-            ArchiveFormat::TarGz,
-        )),
+        ("linux", "x86_64", "cpu") => {
+            Some((format!("onnxruntime-linux-x64-{version}.tgz"), ArchiveFormat::TarGz))
+        }
+        ("linux", "x86_64", "cuda") => {
+            Some((format!("onnxruntime-linux-x64-gpu-{version}.tgz"), ArchiveFormat::TarGz))
+        }
+        ("linux", "x86_64", "openvino") => {
+            Some((format!("onnxruntime-linux-x64-openvino-{version}.tgz"), ArchiveFormat::TarGz))
+        }
+        ("linux", "x86_64", "migraphx") => {
+            Some((format!("onnxruntime-linux-x64-rocm-{version}.tgz"), ArchiveFormat::TarGz))
+        }
+        ("windows", "x86_64", "cpu") => {
+            Some((format!("onnxruntime-win-x64-{version}.zip"), ArchiveFormat::Zip))
+        }
+        ("windows", "x86_64", "cuda") => {
+            Some((format!("onnxruntime-win-x64-gpu-{version}.zip"), ArchiveFormat::Zip))
+        }
+        ("windows", "x86_64", "directml") => {
+            Some((format!("onnxruntime-win-x64-directml-{version}.zip"), ArchiveFormat::Zip))
+        }
+        ("macos", "aarch64", "cpu") => {
+            Some((format!("onnxruntime-osx-arm64-{version}.tgz"), ArchiveFormat::TarGz))
+        }
+        ("macos", "aarch64", "coreml") => {
+            Some((format!("onnxruntime-osx-arm64-coreml-{version}.tgz"), ArchiveFormat::TarGz))
+        }
         _ => None,
     }
 }
@@ -2362,14 +2187,8 @@ fn download_text_optional(url: &str, user_agent: &str) -> Result<Option<String>>
 }
 
 fn http_get_reader(url: &str, user_agent: &str) -> Result<impl Read, ureq::Error> {
-    let agent: Agent = Agent::config_builder()
-        .user_agent(user_agent)
-        .build()
-        .into();
-    agent
-        .get(url)
-        .call()
-        .map(|res| res.into_body().into_reader())
+    let agent: Agent = Agent::config_builder().user_agent(user_agent).build().into();
+    agent.get(url).call().map(|res| res.into_body().into_reader())
 }
 
 fn fetch_checksum_from_release(version: &str, archive_name: &str) -> Result<String> {
@@ -2399,12 +2218,8 @@ fn fetch_checksum_from_release(version: &str, archive_name: &str) -> Result<Stri
 
 fn prefer_gpu_provider_order(order: &[String]) -> Vec<String> {
     let detections = detect_gpu_tools();
-    let has_rocm = detections
-        .iter()
-        .any(|d| d.tool == "rocminfo" && d.available);
-    let has_nvidia = detections
-        .iter()
-        .any(|d| d.tool == "nvidia-smi" && d.available);
+    let has_rocm = detections.iter().any(|d| d.tool == "rocminfo" && d.available);
+    let has_nvidia = detections.iter().any(|d| d.tool == "nvidia-smi" && d.available);
     let mut preferred = order.to_vec();
     if has_rocm {
         preferred = move_provider_to_front(&preferred, "migraphx");
@@ -2566,11 +2381,7 @@ fn select_provider_for_download(
             return Ok(provider.clone());
         }
     }
-    Err(anyhow!(
-        "no supported ORT download found for {} {}",
-        target.os,
-        target.arch
-    ))
+    Err(anyhow!("no supported ORT download found for {} {}", target.os, target.arch))
 }
 
 #[derive(Debug, Clone)]
@@ -2612,9 +2423,7 @@ fn scan_table(doc: &mut DocumentMut) -> &mut Table {
     if doc.get("scan").is_none() {
         doc["scan"] = Item::Table(Table::new());
     }
-    doc["scan"]
-        .as_table_mut()
-        .expect("scan table should always be a table")
+    doc["scan"].as_table_mut().expect("scan table should always be a table")
 }
 
 fn write_config_document(path: &std::path::Path, doc: &DocumentMut) -> Result<()> {
@@ -2635,9 +2444,8 @@ fn toml_array(values: &[String]) -> Array {
 
 fn validate_ml_config(scan: &sis_pdf_core::config::ScanConfig) -> Result<()> {
     const ALLOWED_MODES: &[&str] = &["traditional", "graph"];
-    const ALLOWED_PROVIDERS: &[&str] = &[
-        "auto", "cpu", "cuda", "rocm", "migraphx", "directml", "coreml", "onednn", "openvino",
-    ];
+    const ALLOWED_PROVIDERS: &[&str] =
+        &["auto", "cpu", "cuda", "rocm", "migraphx", "directml", "coreml", "onednn", "openvino"];
     if let Some(mode) = &scan.ml_mode {
         let mode = mode.trim().to_lowercase();
         if !ALLOWED_MODES.contains(&mode.as_str()) {
@@ -2650,10 +2458,7 @@ fn validate_ml_config(scan: &sis_pdf_core::config::ScanConfig) -> Result<()> {
     }
     if let Some(threshold) = scan.ml_threshold {
         if !(0.0..=1.0).contains(&threshold) {
-            return Err(anyhow!(
-                "invalid ml_threshold {} (expected 0.0..=1.0)",
-                threshold
-            ));
+            return Err(anyhow!("invalid ml_threshold {} (expected 0.0..=1.0)", threshold));
         }
     }
     if let Some(provider) = &scan.ml_provider {
@@ -2939,10 +2744,8 @@ fn run_query_repl(
     let _ = rl.load_history(&history_file);
 
     // REPL state
-    let mut json_mode = matches!(
-        output_format,
-        query::OutputFormat::Json | query::OutputFormat::Jsonl
-    );
+    let mut json_mode =
+        matches!(output_format, query::OutputFormat::Json | query::OutputFormat::Jsonl);
     let mut jsonl_mode = output_format == query::OutputFormat::Jsonl;
     let mut yaml_mode = output_format == query::OutputFormat::Yaml;
     let mut colour_mode = colour;
@@ -3009,10 +2812,7 @@ fn run_query_repl(
                         if !json_mode && !jsonl_mode && !yaml_mode {
                             readable_mode = true;
                         }
-                        eprintln!(
-                            "JSON mode: {}",
-                            if json_mode { "enabled" } else { "disabled" }
-                        );
+                        eprintln!("JSON mode: {}", if json_mode { "enabled" } else { "disabled" });
                         continue;
                     }
                     ":jsonl" => {
@@ -3041,10 +2841,7 @@ fn run_query_repl(
                         if !yaml_mode && !json_mode && !jsonl_mode {
                             readable_mode = true;
                         }
-                        eprintln!(
-                            "YAML mode: {}",
-                            if yaml_mode { "enabled" } else { "disabled" }
-                        );
+                        eprintln!("YAML mode: {}", if yaml_mode { "enabled" } else { "disabled" });
                         continue;
                     }
                     ":readable" => {
@@ -3538,11 +3335,7 @@ fn run_scan(
             message: "Enabling diff parser in strict mode",
         }
         .emit();
-        info!(
-            strict = true,
-            diff_parser = true,
-            "Diff parser enabled for strict mode"
-        );
+        info!(strict = true, diff_parser = true, "Diff parser enabled for strict mode");
     }
     let mut opts = sis_pdf_core::scan::ScanOptions {
         deep,
@@ -3764,11 +3557,7 @@ fn build_scan_context<'a>(
             max_carved_bytes: 0,
         },
     )?;
-    Ok(sis_pdf_core::scan::ScanContext::new(
-        mmap,
-        graph,
-        opts.clone(),
-    ))
+    Ok(sis_pdf_core::scan::ScanContext::new(mmap, graph, opts.clone()))
 }
 
 fn run_ml_inference_for_scan(
@@ -3823,9 +3612,7 @@ fn run_temporal_analysis(
     let mut opts_temporal = opts.clone();
     opts_temporal.ml_config = None;
     let scans = sis_pdf_core::temporal::build_versioned_scans(mmap, &opts_temporal, detectors)?;
-    let temporal_summary = Some(sis_pdf_core::temporal::build_temporal_signal_summary(
-        &scans,
-    ));
+    let temporal_summary = Some(sis_pdf_core::temporal::build_temporal_signal_summary(&scans));
 
     if !ml_temporal {
         return Ok((temporal_summary, None, None));
@@ -3874,9 +3661,8 @@ fn run_temporal_analysis(
         });
     }
 
-    let temporal_explanation = Some(sis_pdf_core::explainability::analyse_temporal_risk(
-        &snapshots,
-    ));
+    let temporal_explanation =
+        Some(sis_pdf_core::explainability::analyse_temporal_risk(&snapshots));
 
     Ok((temporal_summary, Some(snapshots), temporal_explanation))
 }
@@ -3965,13 +3751,9 @@ fn run_scan_batch(
         None
     };
     let iter = if dir.is_file() {
-        WalkDir::new(dir.parent().unwrap_or(dir))
-            .follow_links(false)
-            .max_depth(MAX_WALK_DEPTH)
+        WalkDir::new(dir.parent().unwrap_or(dir)).follow_links(false).max_depth(MAX_WALK_DEPTH)
     } else {
-        WalkDir::new(dir)
-            .follow_links(false)
-            .max_depth(MAX_WALK_DEPTH)
+        WalkDir::new(dir).follow_links(false).max_depth(MAX_WALK_DEPTH)
     };
     let mut total_bytes = 0u64;
     let mut file_count = 0usize;
@@ -4000,10 +3782,7 @@ fn run_scan_batch(
                 message: "Batch scan file count exceeded",
             }
             .emit();
-            error!(
-                max_files = MAX_BATCH_FILES,
-                "Batch scan file count exceeded"
-            );
+            error!(max_files = MAX_BATCH_FILES, "Batch scan file count exceeded");
             return Err(anyhow!("batch file count exceeds limit"));
         }
         if let Ok(meta) = entry.metadata() {
@@ -4036,9 +3815,7 @@ fn run_scan_batch(
     if paths.is_empty() {
         return Err(anyhow!("no files matched {} in {}", glob, dir.display()));
     }
-    let thread_count = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+    let thread_count = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
     let use_parallel = batch_parallel && thread_count > 1 && paths.len() > 1;
     let indexed_paths: Vec<(usize, PathBuf)> = paths.into_iter().enumerate().collect();
     let process_path = |path: &PathBuf| -> Result<sis_pdf_core::report::BatchEntry> {
@@ -4046,11 +3823,7 @@ fn run_scan_batch(
         let start = std::time::Instant::now();
         let bytes = read_pdf_bytes(&path_str)?;
         let hash = sha256_hex(&bytes);
-        let mut report = if let Some(cache) = &cache {
-            cache.load(&hash)
-        } else {
-            None
-        };
+        let mut report = if let Some(cache) = &cache { cache.load(&hash) } else { None };
         if report.is_none() {
             report = Some(
                 sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts.clone(), detectors)?
@@ -4064,15 +3837,11 @@ fn run_scan_batch(
         }
         let report = report.ok_or_else(|| anyhow!("report not produced for {}", path.display()))?;
         if let Some(writer) = intent_writer.as_ref() {
-            let mut guard = writer
-                .lock()
-                .map_err(|_| anyhow!("intent writer lock poisoned"))?;
+            let mut guard = writer.lock().map_err(|_| anyhow!("intent writer lock poisoned"))?;
             write_intents_jsonl(&report, guard.as_mut(), intents_derived)?;
         }
         if let Some(writer) = findings_writer.as_ref() {
-            let mut guard = writer
-                .lock()
-                .map_err(|_| anyhow!("findings writer lock poisoned"))?;
+            let mut guard = writer.lock().map_err(|_| anyhow!("findings writer lock poisoned"))?;
             sis_pdf_core::report::write_jsonl_findings(&report, guard.as_mut())?;
         }
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -4083,9 +3852,7 @@ fn run_scan_batch(
         })
     };
     let mut entries: Vec<(usize, sis_pdf_core::report::BatchEntry)> = if use_parallel {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(thread_count)
-            .build();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(thread_count).build();
         match pool {
             Ok(pool) => pool.install(|| {
                 indexed_paths
@@ -4122,13 +3889,8 @@ fn run_scan_batch(
             .collect::<Result<Vec<_>>>()?
     };
     entries.sort_by_key(|(idx, _)| *idx);
-    let mut summary = sis_pdf_core::report::Summary {
-        total: 0,
-        high: 0,
-        medium: 0,
-        low: 0,
-        info: 0,
-    };
+    let mut summary =
+        sis_pdf_core::report::Summary { total: 0, high: 0, medium: 0, low: 0, info: 0 };
     let mut timing_total_ms = 0u64;
     let mut timing_max_ms = 0u64;
     let entries: Vec<sis_pdf_core::report::BatchEntry> = entries
@@ -4150,11 +3912,7 @@ fn run_scan_batch(
     if jsonl_findings {
         return Ok(());
     }
-    let avg_ms = if entries.is_empty() {
-        0
-    } else {
-        timing_total_ms / entries.len() as u64
-    };
+    let avg_ms = if entries.is_empty() { 0 } else { timing_total_ms / entries.len() as u64 };
     let batch = sis_pdf_core::report::BatchReport {
         summary,
         entries,
@@ -4219,16 +3977,9 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     let Some(finding) = report.findings.iter().find(|f| f.id == finding_id) else {
         return Err(anyhow!("finding id not found; the scan that produced this ID may have been run with a different configuration (rerun this explain with the same --config or default settings)."));
     };
-    println!(
-        "{} - {}",
-        escape_terminal(&finding.id),
-        escape_terminal(&finding.title)
-    );
+    println!("{} - {}", escape_terminal(&finding.id), escape_terminal(&finding.title));
     println!("{}", escape_terminal(&finding.description));
-    println!(
-        "Severity: {:?}  Confidence: {:?}",
-        finding.severity, finding.confidence
-    );
+    println!("Severity: {:?}  Confidence: {:?}", finding.severity, finding.confidence);
     println!();
     for ev in &finding.evidence {
         println!(
@@ -4304,11 +4055,7 @@ fn run_report(
             message: "Enabling diff parser in strict mode",
         }
         .emit();
-        info!(
-            strict = true,
-            diff_parser = true,
-            "Diff parser enabled for strict mode"
-        );
+        info!(strict = true, diff_parser = true, "Diff parser enabled for strict mode");
     }
     let opts = sis_pdf_core::scan::ScanOptions {
         deep,
@@ -4460,19 +4207,13 @@ fn run_compute_baseline(input: &PathBuf, out: &PathBuf) -> Result<()> {
 
         // Extract features array
         if let Some(features) = record.get("features").and_then(|f| f.as_array()) {
-            let vec: Vec<f32> = features
-                .iter()
-                .filter_map(|v| v.as_f64().map(|f| f as f32))
-                .collect();
+            let vec: Vec<f32> =
+                features.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect();
 
             if vec.len() == 333 || vec.len() == 35 {
                 feature_samples.push(vec);
             } else {
-                warn!(
-                    line = line_num + 1,
-                    feature_count = vec.len(),
-                    "Unexpected feature count"
-                );
+                warn!(line = line_num + 1, feature_count = vec.len(), "Unexpected feature count");
             }
         } else {
             warn!(line = line_num + 1, "Missing features array");
@@ -4515,14 +4256,8 @@ fn run_compute_baseline(input: &PathBuf, out: &PathBuf) -> Result<()> {
     fs::write(out, json)?;
 
     info!(path = %out.display(), "Baseline saved");
-    debug!(
-        feature_count = baseline.feature_means.len(),
-        "Baseline feature count"
-    );
-    debug!(
-        sample_count = feature_samples.len(),
-        "Baseline sample count"
-    );
+    debug!(feature_count = baseline.feature_means.len(), "Baseline feature count");
+    debug!(sample_count = feature_samples.len(), "Baseline sample count");
 
     Ok(())
 }
@@ -4538,10 +4273,7 @@ fn run_stream_analyze(pdf: &str, chunk_size: usize, max_buffer: usize) -> Result
         }
         let state = analyzer.analyze_chunk(&buf[..n]);
         if let Some(threat) = analyzer.early_terminate(&state) {
-            println!(
-                "early_terminate kind={} reason={}",
-                threat.kind, threat.reason
-            );
+            println!("early_terminate kind={} reason={}", threat.kind, threat.reason);
             return Ok(());
         }
     }
@@ -4600,10 +4332,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                 message: "JSONL entry limit exceeded",
             }
             .emit();
-            error!(
-                max_entries = MAX_JSONL_ENTRIES,
-                "JSONL entry limit exceeded"
-            );
+            error!(max_entries = MAX_JSONL_ENTRIES, "JSONL entry limit exceeded");
             return Err(anyhow!("JSONL entry limit exceeded"));
         }
         let v: serde_json::Value = match serde_json::from_str(line) {
@@ -4664,10 +4393,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
         });
         entry
             .network_intents
-            .push(sis_pdf_core::campaign::NetworkIntent {
-                url: url.to_string(),
-                domain,
-            });
+            .push(sis_pdf_core::campaign::NetworkIntent { url: url.to_string(), domain });
     }
     let analyses: Vec<sis_pdf_core::campaign::PDFAnalysis> = by_path.into_values().collect();
     let correlator = sis_pdf_core::campaign::MultiStageCorrelator;
@@ -4676,10 +4402,8 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
         "campaigns": campaigns,
     });
     if let serde_json::Value::Object(map) = &mut output {
-        let intents: Vec<sis_pdf_core::campaign::NetworkIntent> = analyses
-            .iter()
-            .flat_map(|a| a.network_intents.iter().cloned())
-            .collect();
+        let intents: Vec<sis_pdf_core::campaign::NetworkIntent> =
+            analyses.iter().flat_map(|a| a.network_intents.iter().cloned()).collect();
         let c2 = correlator.detect_c2_infrastructure(&intents);
         map.insert("c2_domains".into(), serde_json::json!(c2));
     }
@@ -4732,11 +4456,7 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
     let tester = sis_pdf_core::mutation::MutationTester;
     let mutants = tester.mutate_malware(&data);
     for (idx, mutant) in mutants.iter().enumerate() {
-        let name = format!(
-            "mutant_{:02}_{}.pdf",
-            idx + 1,
-            sanitize_filename(&mutant.note)
-        );
+        let name = format!("mutant_{:02}_{}.pdf", idx + 1, sanitize_filename(&mutant.note));
         let path = out.join(name);
         fs::write(path, &mutant.bytes)?;
     }
@@ -4782,12 +4502,7 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
             )?;
             let counts = count_kinds(&report.findings);
             let deltas = diff_kind_counts(&base_counts, &counts);
-            println!(
-                "mutant {:02} {} deltas: {}",
-                idx + 1,
-                mutant.note,
-                deltas.join(", ")
-            );
+            println!("mutant {:02} {} deltas: {}", idx + 1, mutant.note, deltas.join(", "));
         }
     }
     Ok(())
@@ -4861,10 +4576,7 @@ fn run_ml_health(
     println!("ML runtime health");
     println!("Requested providers: {}", info.requested.join(", "));
     println!("Available providers: {}", info.available.join(", "));
-    println!(
-        "Selected provider: {}",
-        info.selected.unwrap_or_else(|| "none".into())
-    );
+    println!("Selected provider: {}", info.selected.unwrap_or_else(|| "none".into()));
     if ml_model_dir.is_some() {
         println!("Model load: ok");
     }
@@ -4884,9 +4596,7 @@ fn run_ml_health(
     Err(anyhow!("ml-health requires the ml-graph feature"))
 }
 fn sanitize_filename(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect()
+    s.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect()
 }
 fn preview_bytes(bytes: &[u8]) -> String {
     let mut s = String::new();
@@ -4942,11 +4652,7 @@ fn read_text_with_limit(path: &std::path::Path, max_bytes: u64) -> Result<String
                 max_bytes = max_bytes,
                 "Read rejected due to size limit"
             );
-            return Err(anyhow!(
-                "file {} exceeds {} bytes",
-                path.display(),
-                max_bytes
-            ));
+            return Err(anyhow!("file {} exceeds {} bytes", path.display(), max_bytes));
         }
     }
     Ok(fs::read_to_string(path)?)
@@ -5083,21 +4789,15 @@ mod tests {
             max_embedding_batch_size: None,
             print_provider: false,
         };
-        let hints = MlConfigHints {
-            provider: Some("cpu".into()),
-            provider_order: None,
-            ort_dylib: None,
-        };
+        let hints =
+            MlConfigHints { provider: Some("cpu".into()), provider_order: None, ort_dylib: None };
         let order = resolve_provider_order(&overrides, &hints, "linux");
         assert_eq!(order, vec!["cuda".to_string(), "cpu".to_string()]);
     }
 
     #[test]
     fn ort_archive_name_maps_linux_cpu() {
-        let target = OrtTarget {
-            os: "linux",
-            arch: "x86_64",
-        };
+        let target = OrtTarget { os: "linux", arch: "x86_64" };
         let (name, fmt) = ort_archive_name(&target, "cpu", "1.2.3").expect("archive");
         assert_eq!(name, "onnxruntime-linux-x64-1.2.3.tgz");
         assert!(matches!(fmt, ArchiveFormat::TarGz));
@@ -5105,10 +4805,7 @@ mod tests {
 
     #[test]
     fn ort_archive_name_maps_linux_openvino() {
-        let target = OrtTarget {
-            os: "linux",
-            arch: "x86_64",
-        };
+        let target = OrtTarget { os: "linux", arch: "x86_64" };
         let (name, fmt) = ort_archive_name(&target, "openvino", "1.2.3").expect("archive");
         assert_eq!(name, "onnxruntime-linux-x64-openvino-1.2.3.tgz");
         assert!(matches!(fmt, ArchiveFormat::TarGz));
@@ -5129,10 +4826,8 @@ mod tests {
         let mut file = tempfile::NamedTempFile::new().expect("tempfile");
         file.write_all(b"hello").expect("write");
         let contents = "0000000000000000000000000000000000000000000000000000000000000000  onnxruntime-linux-x64-1.2.3.tgz\n";
-        assert!(
-            verify_checksum_contents(contents, "onnxruntime-linux-x64-1.2.3.tgz", file.path())
-                .is_err()
-        );
+        assert!(verify_checksum_contents(contents, "onnxruntime-linux-x64-1.2.3.tgz", file.path())
+            .is_err());
     }
 
     #[test]
@@ -5146,11 +4841,7 @@ mod tests {
         apply_filter_allowlist_options(&mut opts, Some(&config_path), true)
             .expect("apply allowlist");
         assert!(opts.filter_allowlist_strict);
-        assert!(opts
-            .filter_allowlist
-            .as_ref()
-            .map(|v| !v.is_empty())
-            .unwrap_or(false));
+        assert!(opts.filter_allowlist.as_ref().map(|v| !v.is_empty()).unwrap_or(false));
 
         print_filter_allowlist().expect("print allowlist");
     }

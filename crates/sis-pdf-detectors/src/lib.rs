@@ -19,6 +19,8 @@ use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStream};
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 use std::time::Duration;
 
+#![forbid(unsafe_code)]
+
 pub mod actions_triggers;
 pub mod advanced_crypto;
 pub mod annotations_advanced;
@@ -61,10 +63,7 @@ pub struct DetectorSettings {
 
 impl Default for DetectorSettings {
     fn default() -> Self {
-        Self {
-            js_ast: true,
-            js_sandbox: true,
-        }
+        Self { js_ast: true, js_sandbox: true }
     }
 }
 
@@ -87,12 +86,8 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(AAPresentDetector),
         Box::new(AAEventDetector),
         Box::new(actions_triggers::ActionTriggerDetector),
-        Box::new(JavaScriptDetector {
-            enable_ast: settings.js_ast,
-        }),
-        Box::new(js_polymorphic::JsPolymorphicDetector {
-            enable_ast: settings.js_ast,
-        }),
+        Box::new(JavaScriptDetector { enable_ast: settings.js_ast }),
+        Box::new(js_polymorphic::JsPolymorphicDetector { enable_ast: settings.js_ast }),
         Box::new(evasion_time::TimingEvasionDetector),
         Box::new(evasion_env::EnvProbeDetector),
         Box::new(supply_chain::SupplyChainDetector),
@@ -163,10 +158,7 @@ pub fn sandbox_summary(requested: bool) -> sis_pdf_core::report::SandboxSummary 
             disabled_reason: Some("not compiled (js-sandbox feature disabled)".into()),
         };
     }
-    sis_pdf_core::report::SandboxSummary {
-        enabled: true,
-        disabled_reason: None,
-    }
+    sis_pdf_core::report::SandboxSummary { enabled: true, disabled_reason: None }
 }
 
 struct XrefConflictDetector;
@@ -196,10 +188,7 @@ impl Detector for XrefConflictDetector {
             });
 
             let mut meta = std::collections::HashMap::new();
-            meta.insert(
-                "xref.startxref_count".into(),
-                ctx.graph.startxrefs.len().to_string(),
-            );
+            meta.insert("xref.startxref_count".into(), ctx.graph.startxrefs.len().to_string());
             meta.insert("xref.has_signature".into(), has_signature.to_string());
 
             // Signed documents with incremental updates are legitimate (multi-author)
@@ -312,21 +301,13 @@ impl Detector for ObjectIdShadowingDetector {
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let classifications = ctx.classifications();
-        if !classifications
-            .values()
-            .any(|c| c.has_role(ObjectRole::EmbeddedFile))
-        {
+        if !classifications.values().any(|c| c.has_role(ObjectRole::EmbeddedFile)) {
             return Ok(Vec::new());
         }
         let mut findings = Vec::new();
 
         // Count total shadowing instances across document
-        let shadowing_count = ctx
-            .graph
-            .index
-            .iter()
-            .filter(|(_, idxs)| idxs.len() > 1)
-            .count();
+        let shadowing_count = ctx.graph.index.iter().filter(|(_, idxs)| idxs.len() > 1).count();
 
         // Determine severity based on count (benign incremental updates have low counts)
         let base_severity = match shadowing_count {
@@ -397,10 +378,7 @@ impl Detector for ShadowObjectDivergenceDetector {
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let classifications = ctx.classifications();
-        if !classifications
-            .values()
-            .any(|c| c.has_role(ObjectRole::LaunchTarget))
-        {
+        if !classifications.values().any(|c| c.has_role(ObjectRole::LaunchTarget)) {
             return Ok(Vec::new());
         }
         let mut findings = Vec::new();
@@ -787,11 +765,7 @@ fn aa_event_value(
 fn is_javascript_key(name: &sis_pdf_pdf::object::PdfName<'_>) -> bool {
     let decoded = &name.decoded;
     // Remove leading slash if present
-    let name_str = if decoded.starts_with(b"/") {
-        &decoded[1..]
-    } else {
-        decoded
-    };
+    let name_str = if decoded.starts_with(b"/") { &decoded[1..] } else { decoded };
 
     matches!(
         name_str,
@@ -811,15 +785,8 @@ fn is_javascript_key(name: &sis_pdf_pdf::object::PdfName<'_>) -> bool {
 /// Find all JavaScript key-value pairs in a dictionary
 fn find_javascript_entries<'a>(
     dict: &'a sis_pdf_pdf::object::PdfDict<'a>,
-) -> Vec<(
-    &'a sis_pdf_pdf::object::PdfName<'a>,
-    &'a sis_pdf_pdf::object::PdfObj<'a>,
-)> {
-    dict.entries
-        .iter()
-        .filter(|(k, _)| is_javascript_key(k))
-        .map(|(k, v)| (k, v))
-        .collect()
+) -> Vec<(&'a sis_pdf_pdf::object::PdfName<'a>, &'a sis_pdf_pdf::object::PdfObj<'a>)> {
+    dict.entries.iter().filter(|(k, _)| is_javascript_key(k)).map(|(k, v)| (k, v)).collect()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -870,11 +837,8 @@ fn javascript_uri_payload_from_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
     if bytes.len() < prefix.len() {
         return None;
     }
-    let matches_prefix = bytes
-        .iter()
-        .take(prefix.len())
-        .zip(prefix.iter())
-        .all(|(a, b)| a.eq_ignore_ascii_case(b));
+    let matches_prefix =
+        bytes.iter().take(prefix.len()).zip(prefix.iter()).all(|(a, b)| a.eq_ignore_ascii_case(b));
     if !matches_prefix {
         return None;
     }
@@ -895,11 +859,8 @@ fn data_uri_payload_from_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
     if bytes.len() < prefix.len() {
         return None;
     }
-    let matches_prefix = bytes
-        .iter()
-        .take(prefix.len())
-        .zip(prefix.iter())
-        .all(|(a, b)| a.eq_ignore_ascii_case(b));
+    let matches_prefix =
+        bytes.iter().take(prefix.len()).zip(prefix.iter()).all(|(a, b)| a.eq_ignore_ascii_case(b));
     if !matches_prefix {
         return None;
     }
@@ -979,10 +940,8 @@ fn js_payload_candidates_from_action_dict(
         let Some(mut payload) = res.payload else {
             return out;
         };
-        let evidence = vec![
-            span_to_evidence(k.span, "Key /URI"),
-            span_to_evidence(v.span, "URI value"),
-        ];
+        let evidence =
+            vec![span_to_evidence(k.span, "Key /URI"), span_to_evidence(v.span, "URI value")];
         if let Some(stripped) = javascript_uri_payload_from_bytes(&payload.bytes) {
             payload.bytes = stripped;
             out.push(JsPayloadCandidate {
@@ -1094,9 +1053,7 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 fn js_payload_candidates_from_embedded_stream(
@@ -1107,10 +1064,7 @@ fn js_payload_candidates_from_embedded_stream(
     let mut out = Vec::new();
     let payload = resolve_payload(
         ctx,
-        &sis_pdf_pdf::object::PdfObj {
-            span: entry.body_span,
-            atom: entry.atom.clone(),
-        },
+        &sis_pdf_pdf::object::PdfObj { span: entry.body_span, atom: entry.atom.clone() },
     );
     let Some(payload) = payload.payload else {
         return out;
@@ -1123,11 +1077,7 @@ fn js_payload_candidates_from_embedded_stream(
         span_to_evidence(stream.data_span, "EmbeddedFile stream"),
     ];
     if let Some(origin) = payload.origin {
-        evidence.push(decoded_evidence_span(
-            origin,
-            &payload.bytes,
-            "Embedded JS payload",
-        ));
+        evidence.push(decoded_evidence_span(origin, &payload.bytes, "Embedded JS payload"));
     }
     let key_name = embedded_filename(&stream.dict)
         .map(|name| format!("EmbeddedFile {}", name))
@@ -1186,11 +1136,7 @@ fn embedded_subtype(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> Option<String> {
 
 fn looks_like_js_text(data: &[u8]) -> bool {
     let max_scan_bytes = 64 * 1024;
-    let slice = if data.len() > max_scan_bytes {
-        &data[..max_scan_bytes]
-    } else {
-        data
-    };
+    let slice = if data.len() > max_scan_bytes { &data[..max_scan_bytes] } else { data };
     let mut printable = 0usize;
     for b in slice {
         if b.is_ascii_graphic() || b.is_ascii_whitespace() {
@@ -1203,23 +1149,12 @@ fn looks_like_js_text(data: &[u8]) -> bool {
     let lower: Vec<u8> = slice.iter().map(|b| b.to_ascii_lowercase()).collect();
     contains_any(
         &lower,
-        &[
-            b"function",
-            b"eval(",
-            b"document.",
-            b"window.",
-            b"var ",
-            b"let ",
-            b"const ",
-            b"=>",
-        ],
+        &[b"function", b"eval(", b"document.", b"window.", b"var ", b"let ", b"const ", b"=>"],
     )
 }
 
 fn contains_any(data: &[u8], needles: &[&[u8]]) -> bool {
-    needles
-        .iter()
-        .any(|needle| find_subslice(data, needle).is_some())
+    needles.iter().any(|needle| find_subslice(data, needle).is_some())
 }
 
 fn normalise_text_bytes_for_script(data: &[u8]) -> Option<Vec<u8>> {
@@ -1288,10 +1223,7 @@ impl Detector for JavaScriptDetector {
                     // Detect multiple JavaScript keys (evasion technique)
                     if js_entries.len() > 1 {
                         meta.insert("js.multiple_keys".into(), "true".into());
-                        meta.insert(
-                            "js.multiple_keys_count".into(),
-                            js_entries.len().to_string(),
-                        );
+                        meta.insert("js.multiple_keys_count".into(), js_entries.len().to_string());
                     }
 
                     // Process all JavaScript entries
@@ -1335,10 +1267,7 @@ impl Detector for JavaScriptDetector {
                             meta.insert("js.source".into(), label.into());
                         }
                         meta.insert("payload.type".into(), payload.kind.clone());
-                        meta.insert(
-                            "payload.decoded_len".into(),
-                            payload.bytes.len().to_string(),
-                        );
+                        meta.insert("payload.decoded_len".into(), payload.bytes.len().to_string());
                         meta.insert("payload.ref_chain".into(), payload.ref_chain.clone());
                         if let Some(filters) = payload.filters.clone() {
                             meta.insert("js.stream.filters".into(), filters);
@@ -1459,19 +1388,13 @@ impl Detector for LaunchActionDetector {
             if let Some(path) = tracker.target_path.clone() {
                 meta.insert("launch.target_path".into(), path);
             }
-            meta.insert(
-                "launch.target_type".into(),
-                tracker.target_type().to_string(),
-            );
+            meta.insert("launch.target_type".into(), tracker.target_type().to_string());
             if let Some(hash) = tracker.embedded_file_hash.clone() {
                 meta.insert("launch.embedded_file_hash".into(), hash);
             }
             let payload_target = action_target_from_meta(&meta);
-            let action_target = tracker
-                .target_path
-                .as_deref()
-                .map(|s| s.to_string())
-                .or(payload_target);
+            let action_target =
+                tracker.target_path.as_deref().map(|s| s.to_string()).or(payload_target);
             let action_telemetry =
                 annotate_action_meta(&mut meta, "/Launch", action_target.as_deref(), "automatic");
             let objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
@@ -1675,10 +1598,7 @@ fn uri_finding_from_action(
         PdfAtom::Dict(_) => obj.clone(),
         PdfAtom::Ref { .. } => {
             let entry = ctx.graph.resolve_ref(obj)?;
-            sis_pdf_pdf::object::PdfObj {
-                span: entry.body_span,
-                atom: entry.atom,
-            }
+            sis_pdf_pdf::object::PdfObj { span: entry.body_span, atom: entry.atom }
         }
         _ => return None,
     };
@@ -1692,15 +1612,11 @@ fn uri_finding_from_action(
         span_to_evidence(v.span, "URI value"),
     ];
     let mut meta = std::collections::HashMap::new();
-    if let Some(page) = annot_parents.get(&sis_pdf_core::graph_walk::ObjRef {
-        obj: entry.obj,
-        gen: entry.gen,
-    }) {
+    if let Some(page) =
+        annot_parents.get(&sis_pdf_core::graph_walk::ObjRef { obj: entry.obj, gen: entry.gen })
+    {
         meta.insert("page.number".into(), page.number.to_string());
-        meta.insert(
-            "page.object".into(),
-            format!("{} {} obj", page.obj, page.gen),
-        );
+        meta.insert("page.object".into(), format!("{} {} obj", page.obj, page.gen));
     }
     if let Some(enriched) = payload_from_obj(ctx, v, "URI payload") {
         evidence.extend(enriched.evidence);
@@ -1750,10 +1666,7 @@ impl Detector for FontMatrixDetector {
             };
             if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
                 if let PdfAtom::Array(arr) = &obj.atom {
-                    if arr
-                        .iter()
-                        .any(|o| !matches!(o.atom, PdfAtom::Int(_) | PdfAtom::Real(_)))
-                    {
+                    if arr.iter().any(|o| !matches!(o.atom, PdfAtom::Int(_) | PdfAtom::Real(_))) {
                         let mut meta = std::collections::HashMap::new();
                         meta.insert("fontmatrix.non_numeric".into(), "true".into());
                         findings.push(Finding {
@@ -2595,10 +2508,7 @@ impl Detector for DecoderRiskDetector {
         for entry in &ctx.graph.objects {
             if let PdfAtom::Stream(st) = &entry.atom {
                 let filters = stream_filters(&st.dict);
-                if filters
-                    .iter()
-                    .any(|f| f == "/JBIG2Decode" || f == "/JPXDecode")
-                {
+                if filters.iter().any(|f| f == "/JBIG2Decode" || f == "/JPXDecode") {
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -2943,10 +2853,7 @@ fn resolve_payload_recursive(
     if depth > MAX_RESOLVE_DEPTH {
         return PayloadResult {
             payload: None,
-            error: Some(format!(
-                "max resolution depth {} exceeded",
-                MAX_RESOLVE_DEPTH
-            )),
+            error: Some(format!("max resolution depth {} exceeded", MAX_RESOLVE_DEPTH)),
         };
     }
 
@@ -2955,11 +2862,7 @@ fn resolve_payload_recursive(
             payload: Some(PayloadInfo {
                 bytes: string_bytes(s),
                 kind: "string".into(),
-                ref_chain: if ref_chain.is_empty() {
-                    "-".into()
-                } else {
-                    ref_chain.join(" -> ")
-                },
+                ref_chain: if ref_chain.is_empty() { "-".into() } else { ref_chain.join(" -> ") },
                 origin: Some(s_span(s)),
                 filters: None,
                 decode_ratio: None,
@@ -2989,10 +2892,7 @@ fn resolve_payload_recursive(
                     error: None,
                 }
             }
-            Err(e) => PayloadResult {
-                payload: None,
-                error: Some(e.to_string()),
-            },
+            Err(e) => PayloadResult { payload: None, error: Some(e.to_string()) },
         },
         PdfAtom::Ref { obj: obj_id, gen } => {
             // Cycle detection
@@ -3016,10 +2916,8 @@ fn resolve_payload_recursive(
             ref_chain.push(format!("{} {} R", obj_id, gen));
 
             // Create a temporary PdfObj for the resolved entry
-            let resolved_obj = sis_pdf_pdf::object::PdfObj {
-                span: entry.body_span,
-                atom: entry.atom.clone(),
-            };
+            let resolved_obj =
+                sis_pdf_pdf::object::PdfObj { span: entry.body_span, atom: entry.atom.clone() };
 
             resolve_payload_recursive(ctx, &resolved_obj, depth + 1, visited, ref_chain)
         }
@@ -3121,10 +3019,7 @@ pub(crate) fn resolve_action_details(
         PdfAtom::Dict(_) => obj.clone(),
         PdfAtom::Ref { .. } => {
             let entry = ctx.graph.resolve_ref(obj)?;
-            sis_pdf_pdf::object::PdfObj {
-                span: entry.body_span,
-                atom: entry.atom,
-            }
+            sis_pdf_pdf::object::PdfObj { span: entry.body_span, atom: entry.atom }
         }
         _ => return None,
     };
@@ -3133,27 +3028,18 @@ pub(crate) fn resolve_action_details(
             evidence.push(span_to_evidence(k.span, "Action key /S"));
             evidence.push(span_to_evidence(v.span, "Action value"));
             if let PdfAtom::Name(n) = &v.atom {
-                meta.insert(
-                    "action.s".into(),
-                    String::from_utf8_lossy(&n.decoded).to_string(),
-                );
+                meta.insert("action.s".into(), String::from_utf8_lossy(&n.decoded).to_string());
             }
         }
         if let Some((k, v)) = d.get_first(b"/URI") {
             evidence.push(span_to_evidence(k.span, "Action key /URI"));
             evidence.push(span_to_evidence(v.span, "Action URI value"));
-            meta.insert(
-                "action.target".into(),
-                preview_ascii(&payload_string(v), 120),
-            );
+            meta.insert("action.target".into(), preview_ascii(&payload_string(v), 120));
         }
         if let Some((k, v)) = d.get_first(b"/F") {
             evidence.push(span_to_evidence(k.span, "Action key /F"));
             evidence.push(span_to_evidence(v.span, "Action file/target"));
-            meta.insert(
-                "action.target".into(),
-                preview_ascii(&payload_string(v), 120),
-            );
+            meta.insert("action.target".into(), preview_ascii(&payload_string(v), 120));
         }
         if let Some(s) = meta.get("action.s") {
             let impact = match s.as_str() {
@@ -3191,32 +3077,19 @@ fn payload_from_dict(
                 span_to_evidence(v.span, note),
             ];
             let mut meta = std::collections::HashMap::new();
-            meta.insert(
-                "payload.key".into(),
-                String::from_utf8_lossy(key).to_string(),
-            );
+            meta.insert("payload.key".into(), String::from_utf8_lossy(key).to_string());
             let res = resolve_payload(ctx, v);
             if let Some(err) = res.error {
                 meta.insert("payload.error".into(), err);
             }
             if let Some(payload) = res.payload {
                 meta.insert("payload.type".into(), payload.kind);
-                meta.insert(
-                    "payload.decoded_len".into(),
-                    payload.bytes.len().to_string(),
-                );
+                meta.insert("payload.decoded_len".into(), payload.bytes.len().to_string());
                 meta.insert("payload.ref_chain".into(), payload.ref_chain);
                 meta.insert("payload.preview".into(), preview_ascii(&payload.bytes, 120));
-                meta.insert(
-                    "payload.decoded_preview".into(),
-                    preview_ascii(&payload.bytes, 120),
-                );
+                meta.insert("payload.decoded_preview".into(), preview_ascii(&payload.bytes, 120));
                 if let Some(origin) = payload.origin {
-                    evidence.push(decoded_evidence_span(
-                        origin,
-                        &payload.bytes,
-                        "Decoded payload",
-                    ));
+                    evidence.push(decoded_evidence_span(origin, &payload.bytes, "Decoded payload"));
                 }
             }
             return Some(PayloadEnrichment { evidence, meta });
@@ -3238,22 +3111,12 @@ fn payload_from_obj(
     }
     if let Some(payload) = res.payload {
         meta.insert("payload.type".into(), payload.kind);
-        meta.insert(
-            "payload.decoded_len".into(),
-            payload.bytes.len().to_string(),
-        );
+        meta.insert("payload.decoded_len".into(), payload.bytes.len().to_string());
         meta.insert("payload.ref_chain".into(), payload.ref_chain);
         meta.insert("payload.preview".into(), preview_ascii(&payload.bytes, 120));
-        meta.insert(
-            "payload.decoded_preview".into(),
-            preview_ascii(&payload.bytes, 120),
-        );
+        meta.insert("payload.decoded_preview".into(), preview_ascii(&payload.bytes, 120));
         if let Some(origin) = payload.origin {
-            evidence.push(decoded_evidence_span(
-                origin,
-                &payload.bytes,
-                "Decoded payload",
-            ));
+            evidence.push(decoded_evidence_span(origin, &payload.bytes, "Decoded payload"));
         }
     }
     Some(PayloadEnrichment { evidence, meta })
@@ -3325,11 +3188,10 @@ pub(crate) fn action_type_from_obj(
         }
         _ => return None,
     };
-    dict.get_first(b"/S")
-        .and_then(|(_, value)| match &value.atom {
-            PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
-            _ => None,
-        })
+    dict.get_first(b"/S").and_then(|(_, value)| match &value.atom {
+        PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
+        _ => None,
+    })
 }
 
 fn s_span(s: &sis_pdf_pdf::object::PdfStr<'_>) -> sis_pdf_pdf::span::Span {
@@ -3362,10 +3224,7 @@ pub(crate) fn annot_has_uri(
         PdfAtom::Dict(_) => obj.clone(),
         PdfAtom::Ref { .. } => {
             if let Some(entry) = ctx.graph.resolve_ref(obj) {
-                sis_pdf_pdf::object::PdfObj {
-                    span: entry.body_span,
-                    atom: entry.atom,
-                }
+                sis_pdf_pdf::object::PdfObj { span: entry.body_span, atom: entry.atom }
             } else {
                 return false;
             }
@@ -3519,10 +3378,8 @@ fn handle_stream_target(
     tracker: &mut LaunchTargetTracker,
 ) {
     if is_embedded_file_dict(&stream.dict) {
-        tracker.mark_embedded(
-            embedded_filename(&stream.dict),
-            embedded_hash_from_stream(ctx, stream),
-        );
+        tracker
+            .mark_embedded(embedded_filename(&stream.dict), embedded_hash_from_stream(ctx, stream));
     }
 }
 
@@ -3550,10 +3407,7 @@ fn embedded_hash_from_stream(
     if !stream.dict.has_name(b"/Type", b"/EmbeddedFile") {
         return None;
     }
-    ctx.decoded
-        .get_or_decode(ctx.bytes, stream)
-        .ok()
-        .map(|decoded| sha256_hex(&decoded.data))
+    ctx.decoded.get_or_decode(ctx.bytes, stream).ok().map(|decoded| sha256_hex(&decoded.data))
 }
 
 fn embedded_hash_from_dict(

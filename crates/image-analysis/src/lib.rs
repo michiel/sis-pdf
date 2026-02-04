@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 pub mod dynamic;
 pub mod static_analysis;
 mod timeout;
