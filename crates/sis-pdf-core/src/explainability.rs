@@ -302,10 +302,8 @@ pub fn build_evidence_chains(
     for attr in attribution.iter().take(20) {
         // Top 20 features
         let relevant_findings = find_contributing_findings(&attr.feature_name, findings);
-        let evidence_spans: Vec<_> = relevant_findings
-            .iter()
-            .flat_map(|f| f.evidence.clone())
-            .collect();
+        let evidence_spans: Vec<_> =
+            relevant_findings.iter().flat_map(|f| f.evidence.clone()).collect();
 
         if !relevant_findings.is_empty() {
             chains.push(EvidenceChain {
@@ -325,41 +323,24 @@ pub fn build_evidence_chains(
 fn find_contributing_findings<'a>(feature_name: &str, findings: &'a [Finding]) -> Vec<&'a Finding> {
     // Map feature names to finding types
     if feature_name.starts_with("js_signals.") {
-        findings
-            .iter()
-            .filter(|f| f.surface == AttackSurface::JavaScript)
-            .collect()
+        findings.iter().filter(|f| f.surface == AttackSurface::JavaScript).collect()
     } else if feature_name.starts_with("uri_signals.") {
         findings.iter().filter(|f| f.kind.contains("uri")).collect()
     } else if feature_name.starts_with("finding.") {
         let Some(base) = feature_name.strip_prefix("finding.") else {
             return Vec::new();
         };
-        let kind = base
-            .strip_suffix("_count")
-            .or_else(|| base.strip_suffix("_present"))
-            .unwrap_or(base);
+        let kind =
+            base.strip_suffix("_count").or_else(|| base.strip_suffix("_present")).unwrap_or(base);
         findings.iter().filter(|f| f.kind == kind).collect()
     } else if feature_name.starts_with("supply_chain") {
-        findings
-            .iter()
-            .filter(|f| f.kind.starts_with("supply_chain"))
-            .collect()
+        findings.iter().filter(|f| f.kind.starts_with("supply_chain")).collect()
     } else if feature_name.starts_with("crypto_signals.") {
-        findings
-            .iter()
-            .filter(|f| f.kind.starts_with("crypto_"))
-            .collect()
+        findings.iter().filter(|f| f.kind.starts_with("crypto_")).collect()
     } else if feature_name.starts_with("embedded_content.") {
-        findings
-            .iter()
-            .filter(|f| f.surface == AttackSurface::EmbeddedFiles)
-            .collect()
+        findings.iter().filter(|f| f.surface == AttackSurface::EmbeddedFiles).collect()
     } else if feature_name.starts_with("action_chains.") {
-        findings
-            .iter()
-            .filter(|f| f.surface == AttackSurface::Actions)
-            .collect()
+        findings.iter().filter(|f| f.surface == AttackSurface::Actions).collect()
     } else {
         Vec::new()
     }
@@ -377,10 +358,8 @@ pub fn generate_explanation_text(
         _ => "somewhat",
     };
 
-    let mut summary = format!(
-        "This PDF is {} suspicious (ML risk score: {:.2}). ",
-        severity_level, prediction
-    );
+    let mut summary =
+        format!("This PDF is {} suspicious (ML risk score: {:.2}). ", severity_level, prediction);
 
     // Primary threat vector
     if let Some(top) = top_features.first() {
@@ -400,10 +379,7 @@ pub fn generate_explanation_text(
         .collect();
 
     if !high_findings.is_empty() {
-        summary.push_str(&format!(
-            "Found {} high-severity issues: ",
-            high_findings.len()
-        ));
+        summary.push_str(&format!("Found {} high-severity issues: ", high_findings.len()));
 
         for (i, f) in high_findings.iter().take(3).enumerate() {
             if i > 0 {
@@ -469,17 +445,12 @@ fn humanize_finding_kind(kind: &str) -> String {
 
 /// Recognize attack patterns from findings
 fn recognize_attack_pattern(findings: &[Finding]) -> Option<String> {
-    let has_js = findings
-        .iter()
-        .any(|f| f.surface == AttackSurface::JavaScript);
+    let has_js = findings.iter().any(|f| f.surface == AttackSurface::JavaScript);
     let has_obf = findings.iter().any(|f| f.kind.contains("obfuscation"));
     let has_auto = findings.iter().any(|f| f.kind.contains("open_action"));
-    let has_uri = findings
-        .iter()
-        .any(|f| f.surface == AttackSurface::Actions && f.kind.contains("uri"));
-    let has_embed = findings
-        .iter()
-        .any(|f| f.surface == AttackSurface::EmbeddedFiles);
+    let has_uri =
+        findings.iter().any(|f| f.surface == AttackSurface::Actions && f.kind.contains("uri"));
+    let has_embed = findings.iter().any(|f| f.surface == AttackSurface::EmbeddedFiles);
     let has_multi = findings.iter().any(|f| f.kind.contains("multi_stage"));
 
     if has_js && has_obf && has_auto && has_uri {
@@ -517,16 +488,12 @@ pub enum CalibrationMethod {
 impl CalibrationModel {
     /// Create a new Platt scaling calibration model
     pub fn platt_scaling(a: f32, b: f32) -> Self {
-        Self {
-            method: CalibrationMethod::PlattScaling { a, b },
-        }
+        Self { method: CalibrationMethod::PlattScaling { a, b } }
     }
 
     /// Create a new isotonic regression calibration model
     pub fn isotonic_regression(x: Vec<f32>, y: Vec<f32>) -> Self {
-        Self {
-            method: CalibrationMethod::IsotonicRegression { x, y },
-        }
+        Self { method: CalibrationMethod::IsotonicRegression { x, y } }
     }
 
     /// Calibrate a raw score
@@ -585,10 +552,8 @@ pub fn calibrate_prediction(raw_score: f32, calibrator: &CalibrationModel) -> Ca
     // Estimate confidence interval (simplified - real implementation would use bootstrap)
     // Width is wider near 0.5 (maximum uncertainty) and narrower near 0 or 1
     let ci_width = 0.1 * (1.0 - calibrated_score) * calibrated_score * 4.0;
-    let confidence_interval = (
-        (calibrated_score - ci_width).max(0.0),
-        (calibrated_score + ci_width).min(1.0),
-    );
+    let confidence_interval =
+        ((calibrated_score - ci_width).max(0.0), (calibrated_score + ci_width).min(1.0));
 
     let calibration_method = match &calibrator.method {
         CalibrationMethod::PlattScaling { .. } => "Platt Scaling",
@@ -653,11 +618,7 @@ pub fn compute_comparative_explanation(
     for (name, &value) in feature_map {
         let mean = baseline.feature_means.get(name).copied().unwrap_or(0.0);
         let stddev = baseline.feature_stddevs.get(name).copied().unwrap_or(1.0);
-        let z_score = if stddev > 0.0 {
-            (value - mean) / stddev
-        } else {
-            0.0
-        };
+        let z_score = if stddev > 0.0 { (value - mean) / stddev } else { 0.0 };
 
         if z_score.abs() > 1.5 {
             // More than 1.5 standard deviations
@@ -674,18 +635,12 @@ pub fn compute_comparative_explanation(
                         z_score
                     )
                 } else if z_score > 2.0 {
-                    format!(
-                        "Very high ({:.1}σ above benign average) - suspicious",
-                        z_score
-                    )
+                    format!("Very high ({:.1}σ above benign average) - suspicious", z_score)
                 } else {
                     format!("Higher than typical ({:.1}σ above benign average)", z_score)
                 }
             } else {
-                format!(
-                    "Lower than typical ({:.1}σ below benign average)",
-                    z_score.abs()
-                )
+                format!("Lower than typical ({:.1}σ below benign average)", z_score.abs())
             };
 
             comparisons.push(ComparativeFeature {
@@ -808,19 +763,13 @@ pub fn create_ml_explanation(
     };
 
     // Split into positive and negative contributions
-    let mut positive_features: Vec<_> = attributions
-        .iter()
-        .filter(|a| a.contribution > 0.0)
-        .cloned()
-        .collect();
+    let mut positive_features: Vec<_> =
+        attributions.iter().filter(|a| a.contribution > 0.0).cloned().collect();
     positive_features.sort_by(|a, b| b.contribution.total_cmp(&a.contribution));
     positive_features.truncate(10);
 
-    let mut negative_features: Vec<_> = attributions
-        .iter()
-        .filter(|a| a.contribution < 0.0)
-        .cloned()
-        .collect();
+    let mut negative_features: Vec<_> =
+        attributions.iter().filter(|a| a.contribution < 0.0).cloned().collect();
     negative_features.sort_by(|a, b| a.contribution.total_cmp(&b.contribution));
     negative_features.truncate(10);
 
@@ -866,10 +815,8 @@ pub fn compute_baseline_from_samples(
 
     // Compute statistics for each feature
     for feature_name in all_features {
-        let mut values: Vec<f32> = benign_feature_maps
-            .iter()
-            .filter_map(|m| m.get(&feature_name).copied())
-            .collect();
+        let mut values: Vec<f32> =
+            benign_feature_maps.iter().filter_map(|m| m.get(&feature_name).copied()).collect();
 
         if values.is_empty() {
             continue;
@@ -898,11 +845,7 @@ pub fn compute_baseline_from_samples(
         feature_percentiles.insert(feature_name, percentiles);
     }
 
-    BenignBaseline {
-        feature_means,
-        feature_stddevs,
-        feature_percentiles,
-    }
+    BenignBaseline { feature_means, feature_stddevs, feature_percentiles }
 }
 
 /// Compute the nth percentile from a sorted array
@@ -929,22 +872,10 @@ pub fn generate_document_risk_profile(
     evidence_chains: Vec<EvidenceChain>,
 ) -> DocumentRiskProfile {
     // Count findings by severity
-    let critical_count = findings
-        .iter()
-        .filter(|f| f.severity == Severity::Critical)
-        .count();
-    let high_severity_count = findings
-        .iter()
-        .filter(|f| f.severity == Severity::High)
-        .count();
-    let medium_severity_count = findings
-        .iter()
-        .filter(|f| f.severity == Severity::Medium)
-        .count();
-    let low_severity_count = findings
-        .iter()
-        .filter(|f| f.severity == Severity::Low)
-        .count();
+    let critical_count = findings.iter().filter(|f| f.severity == Severity::Critical).count();
+    let high_severity_count = findings.iter().filter(|f| f.severity == Severity::High).count();
+    let medium_severity_count = findings.iter().filter(|f| f.severity == Severity::Medium).count();
+    let low_severity_count = findings.iter().filter(|f| f.severity == Severity::Low).count();
 
     // Attack surface diversity
     let surfaces: std::collections::HashSet<_> = findings.iter().map(|f| f.surface).collect();
@@ -1073,9 +1004,8 @@ pub fn generate_counterfactual_linear(
         if weight <= 0.0 {
             continue;
         }
-        let baseline_value = baseline
-            .and_then(|b| b.feature_means.get(name).copied())
-            .unwrap_or(0.0);
+        let baseline_value =
+            baseline.and_then(|b| b.feature_means.get(name).copied()).unwrap_or(0.0);
         if value <= baseline_value {
             continue;
         }
@@ -1111,13 +1041,7 @@ pub fn generate_counterfactual_linear(
         notes.push("Target score not reached with available changes.".to_string());
     }
 
-    CounterfactualExplanation {
-        original_score,
-        target_score,
-        achieved_score,
-        changes,
-        notes,
-    }
+    CounterfactualExplanation { original_score, target_score, achieved_score, changes, notes }
 }
 
 /// Analyse temporal risk evolution from a sequence of snapshots.
@@ -1167,12 +1091,7 @@ pub fn analyse_temporal_risk(samples: &[TemporalSnapshot]) -> TemporalExplanatio
         }
     }
 
-    TemporalExplanation {
-        snapshots: samples.to_vec(),
-        score_delta,
-        trend,
-        notable_changes,
-    }
+    TemporalExplanation { snapshots: samples.to_vec(), score_delta, trend, notable_changes }
 }
 
 /// Detect interactions between strong outlier features based on z-scores.
@@ -1238,10 +1157,8 @@ fn sigmoid(x: f32) -> f32 {
 
 /// Extract JavaScript risk profile from findings
 fn extract_js_risk_profile(findings: &[Finding]) -> JsRiskProfile {
-    let js_findings: Vec<_> = findings
-        .iter()
-        .filter(|f| f.surface == AttackSurface::JavaScript)
-        .collect();
+    let js_findings: Vec<_> =
+        findings.iter().filter(|f| f.surface == AttackSurface::JavaScript).collect();
 
     if js_findings.is_empty() {
         return JsRiskProfile::default();
@@ -1379,19 +1296,15 @@ fn extract_structural_risk_profile(findings: &[Finding]) -> StructuralRiskProfil
         .filter(|f| f.kind.contains("invalid") || f.kind.contains("malformed"))
         .count();
 
-    let xref_issues = structural_findings
-        .iter()
-        .filter(|f| f.kind.contains("xref"))
-        .count();
+    let xref_issues = structural_findings.iter().filter(|f| f.kind.contains("xref")).count();
 
     let object_stream_anomalies = structural_findings
         .iter()
         .filter(|f| f.kind.contains("objstm") || f.kind.contains("object_stream"))
         .count();
 
-    let encryption_present = findings
-        .iter()
-        .any(|f| f.kind.contains("encrypted") || f.kind.contains("encryption"));
+    let encryption_present =
+        findings.iter().any(|f| f.kind.contains("encrypted") || f.kind.contains("encryption"));
 
     let risk_score = ((spec_violations as f32 * 0.2)
         + (xref_issues as f32 * 0.3)
@@ -1399,14 +1312,30 @@ fn extract_structural_risk_profile(findings: &[Finding]) -> StructuralRiskProfil
         + if encryption_present { 0.1 } else { 0.0 })
     .min(1.0);
 
+    let compression_ratio = max_compression_ratio_from_findings(findings);
+
     StructuralRiskProfile {
         spec_violations,
         xref_issues,
         object_stream_anomalies,
-        compression_ratio: 0.0, // TODO: extract from metadata
+        compression_ratio,
         encryption_present,
         risk_score,
     }
+}
+
+fn max_compression_ratio_from_findings(findings: &[Finding]) -> f32 {
+    let mut highest = 0.0f32;
+    for finding in findings {
+        for key in ["stream.decompression_ratio", "swf.decompression_ratio"] {
+            if let Some(ratio_str) = finding.meta.get(key) {
+                if let Ok(ratio) = ratio_str.parse::<f32>() {
+                    highest = highest.max(ratio);
+                }
+            }
+        }
+    }
+    highest
 }
 
 /// Extract supply chain risk profile from findings
@@ -1470,20 +1399,12 @@ fn extract_content_risk_profile(findings: &[Finding]) -> ContentRiskProfile {
         .filter(|f| f.kind.contains("text_anomaly") || f.kind.contains("hidden_text"))
         .count();
 
-    let font_issues = content_findings
-        .iter()
-        .filter(|f| f.kind.contains("font"))
-        .count();
+    let font_issues = content_findings.iter().filter(|f| f.kind.contains("font")).count();
 
-    let image_anomalies = content_findings
-        .iter()
-        .filter(|f| f.kind.contains("image"))
-        .count();
+    let image_anomalies = content_findings.iter().filter(|f| f.kind.contains("image")).count();
 
     let hidden_content = content_findings.iter().any(|f| f.kind.contains("hidden"));
-    let overlapping_objects = content_findings
-        .iter()
-        .any(|f| f.kind.contains("overlapping"));
+    let overlapping_objects = content_findings.iter().any(|f| f.kind.contains("overlapping"));
 
     let phishing_keywords: Vec<String> = content_findings
         .iter()
@@ -1589,9 +1510,7 @@ pub fn extract_suspicious_paths(
 
     // Sort by risk score (highest first)
     scored_paths.sort_by(|a, b| {
-        b.risk_score
-            .partial_cmp(&a.risk_score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        b.risk_score.partial_cmp(&a.risk_score).unwrap_or(std::cmp::Ordering::Equal)
     });
 
     let max_path_risk = scored_paths.first().map(|p| p.risk_score).unwrap_or(0.0);
@@ -1676,12 +1595,7 @@ fn build_path_nodes_from_chain(
         }
         .to_string();
 
-        nodes.push(PathNode {
-            obj_ref: dst,
-            node_type,
-            edge_to_next,
-            findings: obj_findings,
-        });
+        nodes.push(PathNode { obj_ref: dst, node_type, edge_to_next, findings: obj_findings });
     }
 
     nodes
@@ -1746,10 +1660,8 @@ fn compute_path_risk_score(
             continue;
         }
 
-        let node_findings: Vec<_> = findings
-            .iter()
-            .filter(|f| node.findings.contains(&f.kind))
-            .collect();
+        let node_findings: Vec<_> =
+            findings.iter().filter(|f| node.findings.contains(&f.kind)).collect();
 
         for f in node_findings {
             risk += match f.severity {
@@ -1763,11 +1675,8 @@ fn compute_path_risk_score(
     }
 
     // Edge contribution (suspicious edges)
-    let suspicious_edge_count = path
-        .iter()
-        .filter_map(|n| n.edge_to_next.as_ref())
-        .filter(|e| e.suspicious)
-        .count();
+    let suspicious_edge_count =
+        path.iter().filter_map(|n| n.edge_to_next.as_ref()).filter(|e| e.suspicious).count();
     risk += suspicious_edge_count as f32 * 0.1;
 
     // Path length bonus (longer chains are more suspicious)
@@ -1783,12 +1692,9 @@ fn classify_path_pattern(
     path: &[PathNode],
     chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
 ) -> Option<String> {
-    let has_openaction = path.iter().any(|n| {
-        n.edge_to_next
-            .as_ref()
-            .map(|e| e.key == "/OpenAction")
-            .unwrap_or(false)
-    });
+    let has_openaction = path
+        .iter()
+        .any(|n| n.edge_to_next.as_ref().map(|e| e.key == "/OpenAction").unwrap_or(false));
 
     let has_js = path.iter().any(|n| n.node_type == "JavaScript");
     let has_uri = path.iter().any(|n| n.node_type == "URI");
@@ -1996,9 +1902,9 @@ mod tests {
         assert!(group_importance.contains_key("general"));
 
         // JS signals should have highest importance (0.15 + 0.10 = 0.25)
-        assert_eq!(group_importance.get("js_signals").unwrap(), &0.25);
-        assert_eq!(group_importance.get("uri_signals").unwrap(), &0.08);
-        assert_eq!(group_importance.get("general").unwrap(), &0.02);
+        assert_eq!(group_importance.get("js_signals"), Some(&0.25));
+        assert_eq!(group_importance.get("uri_signals"), Some(&0.08));
+        assert_eq!(group_importance.get("general"), Some(&0.02));
     }
 
     #[test]
@@ -2049,12 +1955,8 @@ mod tests {
         );
 
         // Check group importance
-        assert!(explanation
-            .feature_group_importance
-            .contains_key("js_signals"));
-        assert!(explanation
-            .feature_group_importance
-            .contains_key("uri_signals"));
+        assert!(explanation.feature_group_importance.contains_key("js_signals"));
+        assert!(explanation.feature_group_importance.contains_key("uri_signals"));
 
         // Check summary is generated
         assert!(!explanation.summary.is_empty());
@@ -2083,20 +1985,21 @@ mod tests {
         let baseline = compute_baseline_from_samples(&samples);
 
         // Check means
-        assert_eq!(baseline.feature_means.get("feature_a").unwrap(), &3.0); // (1+3+5)/3
-        assert_eq!(baseline.feature_means.get("feature_b").unwrap(), &4.0); // (2+4+6)/3
-        assert_eq!(baseline.feature_means.get("feature_c").unwrap(), &5.0); // (3+5+7)/3
+        assert_eq!(baseline.feature_means.get("feature_a"), Some(&3.0)); // (1+3+5)/3
+        assert_eq!(baseline.feature_means.get("feature_b"), Some(&4.0)); // (2+4+6)/3
+        assert_eq!(baseline.feature_means.get("feature_c"), Some(&5.0)); // (3+5+7)/3
 
         // Check stddevs exist
         assert!(baseline.feature_stddevs.contains_key("feature_a"));
-        assert!(baseline.feature_stddevs.get("feature_a").unwrap() > &0.0);
+        assert!(baseline
+            .feature_stddevs
+            .get("feature_a")
+            .map(|value| *value > 0.0)
+            .unwrap_or(false));
 
         // Check percentiles
         assert!(baseline.feature_percentiles.contains_key("feature_a"));
-        assert_eq!(
-            baseline.feature_percentiles.get("feature_a").unwrap().len(),
-            7
-        );
+        assert_eq!(baseline.feature_percentiles.get("feature_a").map(|values| values.len()), Some(7));
     }
 
     #[test]
@@ -2124,36 +2027,35 @@ mod tests {
     fn test_baseline_save_and_load() {
         use tempfile::tempdir;
 
-        let dir = tempdir().unwrap();
+        let dir = match tempdir() {
+            Ok(dir) => dir,
+            Err(err) => panic!("failed to create temp dir: {}", err),
+        };
         let file_path = dir.path().join("baseline.json");
 
         let mut baseline = BenignBaseline::default();
+        baseline.feature_means.insert("test_feature".to_string(), 1.5);
+        baseline.feature_stddevs.insert("test_feature".to_string(), 0.5);
         baseline
-            .feature_means
-            .insert("test_feature".to_string(), 1.5);
-        baseline
-            .feature_stddevs
-            .insert("test_feature".to_string(), 0.5);
-        baseline.feature_percentiles.insert(
-            "test_feature".to_string(),
-            vec![0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5],
-        );
+            .feature_percentiles
+            .insert("test_feature".to_string(), vec![0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]);
 
         // Save
-        baseline.save_to_file(&file_path).unwrap();
+        if let Err(err) = baseline.save_to_file(&file_path) {
+            panic!("failed to save baseline: {:?}", err);
+        }
 
         // Load
-        let loaded = BenignBaseline::load_from_file(&file_path).unwrap();
+        let loaded = match BenignBaseline::load_from_file(&file_path) {
+            Ok(value) => value,
+            Err(err) => panic!("failed to load baseline: {:?}", err),
+        };
 
-        assert_eq!(loaded.feature_means.get("test_feature").unwrap(), &1.5);
-        assert_eq!(loaded.feature_stddevs.get("test_feature").unwrap(), &0.5);
+        assert_eq!(loaded.feature_means.get("test_feature"), Some(&1.5));
+        assert_eq!(loaded.feature_stddevs.get("test_feature"), Some(&0.5));
         assert_eq!(
-            loaded
-                .feature_percentiles
-                .get("test_feature")
-                .unwrap()
-                .len(),
-            7
+            loaded.feature_percentiles.get("test_feature").map(|values| values.len()),
+            Some(7)
         );
     }
 
@@ -2179,7 +2081,7 @@ mod tests {
         let group_importance = compute_feature_group_importance(&attributions);
 
         // Should sum absolute values: |0.15| + |-0.10| = 0.25
-        assert_eq!(group_importance.get("js_signals").unwrap(), &0.25);
+        assert_eq!(group_importance.get("js_signals"), Some(&0.25));
     }
 
     // ========================================================================
@@ -2192,14 +2094,8 @@ mod tests {
             humanize_pattern("automatic_js_trigger"),
             "Automatic JavaScript execution via OpenAction"
         );
-        assert_eq!(
-            humanize_pattern("automatic_action_chain"),
-            "Automatic action chain"
-        );
-        assert_eq!(
-            humanize_pattern("custom_pattern_name"),
-            "custom pattern name"
-        );
+        assert_eq!(humanize_pattern("automatic_action_chain"), "Automatic action chain");
+        assert_eq!(humanize_pattern("custom_pattern_name"), "custom pattern name");
     }
 
     #[test]
@@ -2207,22 +2103,12 @@ mod tests {
         use sis_pdf_pdf::typed_graph::EdgeType;
 
         assert_eq!(
-            extract_edge_key(&EdgeType::DictReference {
-                key: "/Type".to_string()
-            }),
+            extract_edge_key(&EdgeType::DictReference { key: "/Type".to_string() }),
             "/Type"
         );
-        assert_eq!(
-            extract_edge_key(&EdgeType::ArrayElement { index: 5 }),
-            "[5]"
-        );
+        assert_eq!(extract_edge_key(&EdgeType::ArrayElement { index: 5 }), "[5]");
         assert_eq!(extract_edge_key(&EdgeType::OpenAction), "/OpenAction");
-        assert_eq!(
-            extract_edge_key(&EdgeType::PageAction {
-                event: "/O".to_string()
-            }),
-            "/O"
-        );
+        assert_eq!(extract_edge_key(&EdgeType::PageAction { event: "/O".to_string() }), "/O");
         assert_eq!(extract_edge_key(&EdgeType::JavaScriptPayload), "/JS");
         assert_eq!(extract_edge_key(&EdgeType::UriTarget), "/URI");
     }
@@ -2244,7 +2130,10 @@ mod tests {
         assert_eq!(node.node_type, "JavaScript");
         assert_eq!(node.findings.len(), 2);
         assert!(node.edge_to_next.is_some());
-        assert!(node.edge_to_next.as_ref().unwrap().suspicious);
+        match node.edge_to_next.as_ref() {
+            Some(edge) => assert!(edge.suspicious),
+            None => panic!("expected edge information"),
+        };
     }
 
     #[test]
@@ -2314,7 +2203,7 @@ mod tests {
     }
 
     #[test]
-    fn test_graph_path_serialization() {
+    fn test_graph_path_serialization() -> serde_json::Result<()> {
         let node = PathNode {
             obj_ref: (1, 0),
             node_type: "JavaScript".to_string(),
@@ -2326,12 +2215,13 @@ mod tests {
             findings: vec!["js_eval".to_string()],
         };
 
-        let json = serde_json::to_string(&node).unwrap();
-        let deserialized: PathNode = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&node)?;
+        let deserialized: PathNode = serde_json::from_str(&json)?;
 
         assert_eq!(deserialized.obj_ref, (1, 0));
         assert_eq!(deserialized.node_type, "JavaScript");
         assert_eq!(deserialized.findings.len(), 1);
+        Ok(())
     }
 
     // ========================================================================
@@ -2388,13 +2278,21 @@ mod tests {
     fn test_calibration_model_save_load() {
         use tempfile::tempdir;
 
-        let dir = tempdir().unwrap();
+        let dir = match tempdir() {
+            Ok(dir) => dir,
+            Err(err) => panic!("failed to create temp dir: {}", err),
+        };
         let file_path = dir.path().join("calibration.json");
 
         let calibrator = CalibrationModel::platt_scaling(2.5, -1.0);
-        calibrator.save_to_file(&file_path).unwrap();
+        if let Err(err) = calibrator.save_to_file(&file_path) {
+            panic!("failed to save calibrator: {:?}", err);
+        }
 
-        let loaded = CalibrationModel::load_from_file(&file_path).unwrap();
+        let loaded = match CalibrationModel::load_from_file(&file_path) {
+            Ok(value) => value,
+            Err(err) => panic!("failed to load calibrator: {:?}", err),
+        };
 
         // Verify it works the same
         let score1 = calibrator.calibrate(0.5);
@@ -2642,15 +2540,9 @@ mod tests {
 
     #[test]
     fn test_generate_counterfactual_linear() {
-        let model = LinearModel {
-            bias: 0.0,
-            weights: vec![1.0, 0.5, -0.2],
-        };
-        let feature_names = vec![
-            "feature_a".to_string(),
-            "feature_b".to_string(),
-            "feature_c".to_string(),
-        ];
+        let model = LinearModel { bias: 0.0, weights: vec![1.0, 0.5, -0.2] };
+        let feature_names =
+            vec!["feature_a".to_string(), "feature_b".to_string(), "feature_c".to_string()];
         let feature_values = vec![2.0, 1.0, 0.0];
 
         let mut baseline = BenignBaseline::default();
@@ -2702,13 +2594,9 @@ mod tests {
     fn test_detect_feature_interactions() {
         let mut baseline = BenignBaseline::default();
         baseline.feature_means.insert("feature_a".to_string(), 0.0);
-        baseline
-            .feature_stddevs
-            .insert("feature_a".to_string(), 1.0);
+        baseline.feature_stddevs.insert("feature_a".to_string(), 1.0);
         baseline.feature_means.insert("feature_b".to_string(), 0.0);
-        baseline
-            .feature_stddevs
-            .insert("feature_b".to_string(), 1.0);
+        baseline.feature_stddevs.insert("feature_b".to_string(), 1.0);
 
         let mut feature_map = HashMap::new();
         feature_map.insert("feature_a".to_string(), 3.0);

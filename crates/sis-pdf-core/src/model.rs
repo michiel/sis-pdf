@@ -80,11 +80,8 @@ pub enum ReaderProfile {
 }
 
 impl ReaderProfile {
-    pub const ALL: [ReaderProfile; 3] = [
-        ReaderProfile::Acrobat,
-        ReaderProfile::Pdfium,
-        ReaderProfile::Preview,
-    ];
+    pub const ALL: [ReaderProfile; 3] =
+        [ReaderProfile::Acrobat, ReaderProfile::Pdfium, ReaderProfile::Preview];
 
     pub fn name(&self) -> &'static str {
         match self {
@@ -220,9 +217,7 @@ impl FindingBuilder {
         title: impl Into<String>,
         description: impl Into<String>,
     ) -> Self {
-        Self {
-            finding: Finding::template(surface, kind, severity, confidence, title, description),
-        }
+        Self { finding: Finding::template(surface, kind, severity, confidence, title, description) }
     }
 
     pub fn id(mut self, id: impl Into<String>) -> Self {
@@ -319,7 +314,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn builder_populates_metadata_and_reader_impact() {
+    fn builder_populates_metadata_and_reader_impact() -> serde_json::Result<()> {
         let reader_impact = ReaderImpact {
             profile: ReaderProfile::Acrobat,
             surface: AttackSurface::Actions,
@@ -346,15 +341,13 @@ mod tests {
         .evidence(EvidenceBuilder::new().file_offset(0, 4, "test").build())
         .build();
 
-        let serialized = serde_json::to_value(&finding).unwrap();
+        let serialized = serde_json::to_value(&finding)?;
         assert_eq!(serialized["impact"], json!("High"));
         assert_eq!(serialized["action_type"], json!("Launch"));
         assert_eq!(serialized["reader_impacts"][0]["surface"], json!("Actions"));
         assert_eq!(serialized["reader_impacts"][0]["profile"], json!("Acrobat"));
-        assert_eq!(
-            serialized["reader_impacts"][0]["note"],
-            json!(reader_impact.note)
-        );
+        assert_eq!(serialized["reader_impacts"][0]["note"], json!(reader_impact.note));
         assert_eq!(serialized["meta"]["meta.cve"], json!("CVE-2025-27363"));
+        Ok(())
     }
 }

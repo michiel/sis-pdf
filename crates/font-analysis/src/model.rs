@@ -141,6 +141,29 @@ impl FontAnalysisConfig {
 mod tests {
     use super::*;
 
+    fn require_result<T, E: std::fmt::Debug>(result: Result<T, E>, context: &str) -> T {
+        match result {
+            Ok(value) => value,
+            Err(err) => panic!("{}: {:?}", context, err),
+        }
+    }
+
+    fn config_from_json(json: &str) -> FontAnalysisConfig {
+        require_result(FontAnalysisConfig::from_json(json), "load config from JSON")
+    }
+
+    fn config_from_yaml(yaml: &str) -> FontAnalysisConfig {
+        require_result(FontAnalysisConfig::from_yaml(yaml), "load config from YAML")
+    }
+
+    fn config_to_json(config: &FontAnalysisConfig) -> String {
+        require_result(config.to_json(), "serialize config to JSON")
+    }
+
+    fn config_to_yaml(config: &FontAnalysisConfig) -> String {
+        require_result(config.to_yaml(), "serialize config to YAML")
+    }
+
     #[test]
     fn test_config_default() {
         let config = FontAnalysisConfig::default();
@@ -165,7 +188,7 @@ mod tests {
             "network_access": false
         }"#;
 
-        let config = FontAnalysisConfig::from_json(json).unwrap();
+        let config = config_from_json(json);
         assert!(config.enabled);
         assert!(config.dynamic_enabled);
         assert_eq!(config.dynamic_timeout_ms, 10000);
@@ -186,7 +209,7 @@ max_fonts: 200
 network_access: false
 "#;
 
-        let config = FontAnalysisConfig::from_yaml(yaml).unwrap();
+        let config = config_from_yaml(yaml);
         assert!(config.enabled);
         assert!(!config.dynamic_enabled);
         assert_eq!(config.dynamic_timeout_ms, 3000);
@@ -198,7 +221,7 @@ network_access: false
     #[test]
     fn test_config_to_json() {
         let config = FontAnalysisConfig::default();
-        let json = config.to_json().unwrap();
+        let json = config_to_json(&config);
         assert!(json.contains("\"enabled\""));
         assert!(json.contains("\"dynamic_enabled\""));
     }
@@ -206,7 +229,7 @@ network_access: false
     #[test]
     fn test_config_to_yaml() {
         let config = FontAnalysisConfig::default();
-        let yaml = config.to_yaml().unwrap();
+        let yaml = config_to_yaml(&config);
         assert!(yaml.contains("enabled:"));
         assert!(yaml.contains("dynamic_enabled:"));
     }
@@ -214,8 +237,8 @@ network_access: false
     #[test]
     fn test_config_roundtrip_json() {
         let config = FontAnalysisConfig::default();
-        let json = config.to_json().unwrap();
-        let config2 = FontAnalysisConfig::from_json(&json).unwrap();
+        let json = config_to_json(&config);
+        let config2 = config_from_json(&json);
         assert_eq!(config.enabled, config2.enabled);
         assert_eq!(config.dynamic_enabled, config2.dynamic_enabled);
         assert_eq!(config.max_stack_depth, config2.max_stack_depth);
@@ -242,7 +265,7 @@ network_access: false
             "signature_directory": "/custom/path"
         }"#;
 
-        let config = FontAnalysisConfig::from_json(json).unwrap();
+        let config = config_from_json(json);
         assert!(!config.signature_matching_enabled);
         assert_eq!(config.signature_directory, Some("/custom/path".to_string()));
     }
@@ -250,14 +273,10 @@ network_access: false
     #[test]
     #[cfg(feature = "dynamic")]
     fn test_load_signatures_disabled() {
-        let config = FontAnalysisConfig {
-            signature_matching_enabled: false,
-            ..Default::default()
-        };
+        let config = FontAnalysisConfig { signature_matching_enabled: false, ..Default::default() };
 
-        let result = config.load_signatures();
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().len(), 0);
+        let signatures = require_result(config.load_signatures(), "load signatures disabled");
+        assert_eq!(signatures.len(), 0);
     }
 
     #[test]
@@ -266,14 +285,8 @@ network_access: false
         let config = FontAnalysisConfig::default();
 
         // This should succeed and load signatures from the embedded directory
-        let result = config.load_signatures();
-        assert!(result.is_ok());
-        let signatures = result.unwrap();
+        let signatures = require_result(config.load_signatures(), "load embedded signatures");
         // We expect at least the 3 signatures we migrated
-        assert!(
-            signatures.len() >= 3,
-            "Expected at least 3 signatures, got {}",
-            signatures.len()
-        );
+        assert!(signatures.len() >= 3, "Expected at least 3 signatures, got {}", signatures.len());
     }
 }

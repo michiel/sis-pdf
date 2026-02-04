@@ -108,11 +108,8 @@ impl Profiler {
                 data.phases.push(phase);
             }
 
-            data.current_phase = Some(PhaseRecord {
-                name: name.to_string(),
-                start: Instant::now(),
-                duration: None,
-            });
+            data.current_phase =
+                Some(PhaseRecord { name: name.to_string(), start: Instant::now(), duration: None });
         }
     }
 
@@ -228,12 +225,7 @@ impl Profiler {
         // Sort detectors by duration (descending)
         detectors.sort_by(|a, b| b.duration_ms.cmp(&a.duration_ms));
 
-        Some(ProfileReport {
-            total_duration_ms: total_ms,
-            phases,
-            detectors,
-            document: doc_info,
-        })
+        Some(ProfileReport { total_duration_ms: total_ms, phases, detectors, document: doc_info })
     }
 }
 
@@ -249,10 +241,7 @@ pub fn format_text(report: &ProfileReport) -> String {
 
     output.push_str("Scan Profile Report\n");
     output.push_str("===================\n");
-    output.push_str(&format!(
-        "Total Time: {:.3}s\n\n",
-        report.total_duration_ms as f64 / 1000.0
-    ));
+    output.push_str(&format!("Total Time: {:.3}s\n\n", report.total_duration_ms as f64 / 1000.0));
 
     // Phase breakdown
     if !report.phases.is_empty() {
@@ -448,16 +437,8 @@ mod tests {
         ProfileReport {
             total_duration_ms: 120,
             phases: vec![
-                PhaseInfo {
-                    name: "parse".to_string(),
-                    duration_ms: 40,
-                    percentage: 33.3,
-                },
-                PhaseInfo {
-                    name: "detect".to_string(),
-                    duration_ms: 80,
-                    percentage: 66.7,
-                },
+                PhaseInfo { name: "parse".to_string(), duration_ms: 40, percentage: 33.3 },
+                PhaseInfo { name: "detect".to_string(), duration_ms: 80, percentage: 66.7 },
             ],
             detectors: vec![DetectorInfo {
                 id: "js_detector".to_string(),
@@ -500,7 +481,10 @@ mod tests {
             page_count: 1,
         });
         assert!(report.is_some());
-        let report = report.unwrap();
+        let report = match report {
+            Some(value) => value,
+            None => panic!("profiler did not emit a report"),
+        };
         assert_eq!(report.document.file_size_bytes, 2048);
         assert!(report.total_duration_ms >= 6);
         assert!(report.phases.len() >= 2);
@@ -520,8 +504,14 @@ mod tests {
     #[test]
     fn format_json_outputs_valid_data() {
         let report = build_sample_report();
-        let json = format_json(&report).expect("should serialize");
-        let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        let json = match format_json(&report) {
+            Ok(value) => value,
+            Err(err) => panic!("should serialize: {}", err),
+        };
+        let parsed: serde_json::Value = match serde_json::from_str(&json) {
+            Ok(value) => value,
+            Err(err) => panic!("valid json: {}", err),
+        };
         assert_eq!(parsed["total_duration_ms"], 120);
         assert!(parsed["phases"].is_array());
     }

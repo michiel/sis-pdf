@@ -77,9 +77,7 @@ impl VMState {
     }
 
     fn pop(&mut self) -> Result<i32, String> {
-        self.stack
-            .pop()
-            .ok_or_else(|| "Stack underflow".to_string())
+        self.stack.pop().ok_or_else(|| "Stack underflow".to_string())
     }
 
     fn check_budget(&mut self) -> Result<(), String> {
@@ -117,14 +115,8 @@ pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFin
         // Execution error indicates potential security issue
         let mut meta = HashMap::new();
         meta.insert("error".to_string(), err.clone());
-        meta.insert(
-            "instruction_count".to_string(),
-            state.instruction_count.to_string(),
-        );
-        meta.insert(
-            "max_stack_depth".to_string(),
-            state.max_stack_depth.to_string(),
-        );
+        meta.insert("instruction_count".to_string(), state.instruction_count.to_string());
+        meta.insert("max_stack_depth".to_string(), state.max_stack_depth.to_string());
 
         findings.push(FontFinding {
             kind: "font.ttf_hinting_suspicious".to_string(),
@@ -140,10 +132,7 @@ pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFin
     if !state.suspicious_patterns.is_empty() {
         let mut meta = HashMap::new();
         meta.insert("patterns".to_string(), state.suspicious_patterns.join(", "));
-        meta.insert(
-            "instruction_count".to_string(),
-            state.instruction_count.to_string(),
-        );
+        meta.insert("instruction_count".to_string(), state.instruction_count.to_string());
 
         findings.push(FontFinding {
             kind: "font.ttf_hinting_suspicious".to_string(),
@@ -331,9 +320,7 @@ fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), String> {
                 // LOOPCALL: Loop and call function
                 state.loop_depth += 1;
                 if state.loop_depth > state.limits.max_loop_depth {
-                    state
-                        .suspicious_patterns
-                        .push("Deep loop nesting".to_string());
+                    state.suspicious_patterns.push("Deep loop nesting".to_string());
                 }
                 let _iterations = state.pop()?;
                 let _function = state.pop()?;
@@ -451,22 +438,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_vm_push_pop() {
+    fn test_vm_push_pop() -> Result<(), String> {
         let mut state = VMState::new(VmLimits::default());
-        state.push(42).unwrap();
-        state.push(100).unwrap();
-        assert_eq!(state.pop().unwrap(), 100);
-        assert_eq!(state.pop().unwrap(), 42);
+        state.push(42)?;
+        state.push(100)?;
+        assert_eq!(state.pop()?, 100);
+        assert_eq!(state.pop()?, 42);
+        Ok(())
     }
 
     #[test]
-    fn test_vm_stack_overflow() {
+    fn test_vm_stack_overflow() -> Result<(), String> {
         let limits = VmLimits::default();
         let mut state = VMState::new(limits);
         for i in 0..limits.max_stack_depth {
-            state.push(i as i32).unwrap();
+            state.push(i as i32)?;
         }
         assert!(state.push(1000).is_err());
+        Ok(())
     }
 
     #[test]
@@ -484,12 +473,13 @@ mod tests {
 
     #[test]
     #[cfg(feature = "dynamic")]
-    fn test_simple_program() {
+    fn test_simple_program() -> Result<(), String> {
         // PUSHB[0] 42, PUSHB[0] 100, ADD
         let program = vec![0xB0, 42, 0xB0, 100, 0x60];
         let mut state = VMState::new(VmLimits::default());
-        execute_program(&mut state, &program).unwrap();
-        assert_eq!(state.pop().unwrap(), 142);
+        execute_program(&mut state, &program)?;
+        assert_eq!(state.pop()?, 142);
+        Ok(())
     }
 
     #[test]
@@ -512,8 +502,6 @@ mod tests {
         }
         let findings = analyze_hinting_program(&program, &VmLimits::default());
         assert!(!findings.is_empty());
-        assert!(findings
-            .iter()
-            .any(|f| f.kind == "font.ttf_hinting_suspicious"));
+        assert!(findings.iter().any(|f| f.kind == "font.ttf_hinting_suspicious"));
     }
 }

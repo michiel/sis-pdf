@@ -116,10 +116,8 @@ impl EnhancedPdfIrObject {
     ) -> Self {
         // Filter findings for this object
         let obj_str = format!("{} {} obj", obj_ref.0, obj_ref.1);
-        let obj_findings: Vec<_> = findings
-            .iter()
-            .filter(|f| f.objects.contains(&obj_str))
-            .collect();
+        let obj_findings: Vec<_> =
+            findings.iter().filter(|f| f.objects.contains(&obj_str)).collect();
 
         // Extract finding summaries
         let finding_summaries: Vec<IrFindingSummary> = obj_findings
@@ -142,11 +140,8 @@ impl EnhancedPdfIrObject {
             .collect();
 
         // Compute max severity
-        let max_severity = obj_findings
-            .iter()
-            .map(|f| f.severity)
-            .max()
-            .map(|s| format!("{:?}", s));
+        let max_severity =
+            obj_findings.iter().map(|f| f.severity).max().map(|s| format!("{:?}", s));
 
         // Compute risk score
         let risk_score = compute_object_risk_score(&obj_findings);
@@ -175,10 +170,7 @@ impl EnhancedIrExport {
     /// Create an enhanced IR export from objects and generate document summary
     pub fn new(objects: Vec<EnhancedPdfIrObject>) -> Self {
         let document_summary = DocumentSummary::from_objects(&objects);
-        Self {
-            objects,
-            document_summary,
-        }
+        Self { objects, document_summary }
     }
 }
 
@@ -190,10 +182,8 @@ impl DocumentSummary {
         let max_object_risk = objects.iter().map(|o| o.risk_score).fold(0.0f32, f32::max);
 
         // Count distinct attack surfaces
-        let all_surfaces: HashSet<_> = objects
-            .iter()
-            .flat_map(|o| o.attack_surfaces.iter())
-            .collect();
+        let all_surfaces: HashSet<_> =
+            objects.iter().flat_map(|o| o.attack_surfaces.iter()).collect();
         let attack_surface_diversity = all_surfaces.len();
 
         // Count by severity
@@ -292,24 +282,12 @@ fn generate_object_explanation(findings: &[&Finding]) -> String {
         return String::new();
     }
 
-    let critical_count = findings
-        .iter()
-        .filter(|f| f.severity == Severity::Critical)
-        .count();
-    let high_count = findings
-        .iter()
-        .filter(|f| f.severity == Severity::High)
-        .count();
-    let medium_count = findings
-        .iter()
-        .filter(|f| f.severity == Severity::Medium)
-        .count();
+    let critical_count = findings.iter().filter(|f| f.severity == Severity::Critical).count();
+    let high_count = findings.iter().filter(|f| f.severity == Severity::High).count();
+    let medium_count = findings.iter().filter(|f| f.severity == Severity::Medium).count();
 
     // Collect unique surfaces
-    let surfaces: HashSet<_> = findings
-        .iter()
-        .map(|f| format!("{:?}", f.surface))
-        .collect();
+    let surfaces: HashSet<_> = findings.iter().map(|f| format!("{:?}", f.surface)).collect();
     let surface_list = if surfaces.len() <= 3 {
         surfaces.into_iter().collect::<Vec<_>>().join(", ")
     } else {
@@ -341,16 +319,10 @@ fn generate_object_explanation(findings: &[&Finding]) -> String {
         ));
     }
 
-    let severity_desc = if parts.is_empty() {
-        "Low severity issues".to_string()
-    } else {
-        parts.join(", ")
-    };
+    let severity_desc =
+        if parts.is_empty() { "Low severity issues".to_string() } else { parts.join(", ") };
 
-    format!(
-        "Object contains {}. Attack surfaces: {}",
-        severity_desc, surface_list
-    )
+    format!("Object contains {}. Attack surfaces: {}", severity_desc, surface_list)
 }
 
 /// Generate natural language explanation for the entire document
@@ -402,11 +374,8 @@ fn generate_document_explanation(
     // Top attack surfaces
     let mut surface_vec: Vec<_> = surface_counts.iter().collect();
     surface_vec.sort_by(|a, b| b.1.cmp(a.1));
-    let top_surfaces: Vec<String> = surface_vec
-        .iter()
-        .take(3)
-        .map(|(s, c)| format!("{} ({})", s, c))
-        .collect();
+    let top_surfaces: Vec<String> =
+        surface_vec.iter().take(3).map(|(s, c)| format!("{} ({})", s, c)).collect();
 
     format!(
         "Document contains {} objects, {} with findings ({}). {} with {}. Primary attack surfaces: {}",
@@ -622,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ir_finding_summary_serialization() {
+    fn test_ir_finding_summary_serialization() -> serde_json::Result<()> {
         let summary = IrFindingSummary {
             kind: "test".to_string(),
             severity: "High".to_string(),
@@ -631,10 +600,11 @@ mod tests {
             signals: HashMap::new(),
         };
 
-        let json = serde_json::to_string(&summary).unwrap();
-        let deserialized: IrFindingSummary = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&summary)?;
+        let deserialized: IrFindingSummary = serde_json::from_str(&json)?;
 
         assert_eq!(deserialized.kind, "test");
         assert_eq!(deserialized.severity, "High");
+        Ok(())
     }
 }

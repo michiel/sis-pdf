@@ -40,11 +40,7 @@ pub fn export_org_json(org: &OrgGraph) -> serde_json::Value {
     }
 
     // Fallback to basic export
-    let nodes: Vec<String> = org
-        .nodes
-        .iter()
-        .map(|n| format!("{} {}", n.obj, n.gen))
-        .collect();
+    let nodes: Vec<String> = org.nodes.iter().map(|n| format!("{} {}", n.obj, n.gen)).collect();
     let mut edges = Vec::new();
     for (src, targets) in &org.adjacency {
         for t in targets {
@@ -86,11 +82,7 @@ pub fn export_org_dot(org: &OrgGraph) -> String {
         // Export edges with type information
         for edge in enhanced_edges {
             let edge_label = edge.edge_type.as_deref().unwrap_or("ref");
-            let style = if edge.suspicious {
-                "color=red, style=bold"
-            } else {
-                ""
-            };
+            let style = if edge.suspicious { "color=red, style=bold" } else { "" };
             out.push_str(&format!(
                 "  \"{} {}\" -> \"{} {}\" [label=\"{}\" {}];\n",
                 edge.from.obj, edge.from.gen, edge.to.obj, edge.to.gen, edge_label, style
@@ -136,10 +128,7 @@ impl OrgExportWithPaths {
 
     /// Create an enhanced export with path analysis
     pub fn enhanced(org: OrgGraph, paths: GraphPathExplanation) -> Self {
-        Self {
-            org,
-            paths: Some(paths),
-        }
+        Self { org, paths: Some(paths) }
     }
 }
 
@@ -225,11 +214,7 @@ struct ActionEdgeInfo<'a> {
 }
 
 fn collect_action_edges<'a>(typed_graph: &'a TypedGraph<'a>) -> Vec<ActionEdgeInfo<'a>> {
-    typed_graph
-        .edges
-        .iter()
-        .filter_map(classify_action_edge)
-        .collect()
+    typed_graph.edges.iter().filter_map(classify_action_edge).collect()
 }
 
 fn classify_action_edge<'a>(edge: &'a TypedEdge) -> Option<ActionEdgeInfo<'a>> {
@@ -340,9 +325,12 @@ mod tests {
 
         let export = OrgExportWithPaths::enhanced(org, paths);
 
-        assert!(export.paths.is_some());
-        assert_eq!(export.paths.as_ref().unwrap().suspicious_paths.len(), 1);
-        assert_eq!(export.paths.as_ref().unwrap().max_path_risk, 0.5);
+        let paths = match export.paths.as_ref() {
+            Some(value) => value,
+            None => panic!("expected enhanced paths"),
+        };
+        assert_eq!(paths.suspicious_paths.len(), 1);
+        assert_eq!(paths.max_path_risk, 0.5);
     }
 
     #[test]
@@ -354,8 +342,11 @@ mod tests {
 
         assert!(json.is_object());
         assert!(json.get("org").is_some());
-        assert!(json.get("suspicious_paths").is_some());
-        assert!(json.get("suspicious_paths").unwrap().is_null());
+        let suspicious_paths = match json.get("suspicious_paths") {
+            Some(value) => value,
+            None => panic!("suspicious_paths missing"),
+        };
+        assert!(suspicious_paths.is_null());
     }
 
     #[test]
@@ -372,8 +363,11 @@ mod tests {
 
         assert!(json.is_object());
         assert!(json.get("org").is_some());
-        assert!(json.get("suspicious_paths").is_some());
-        assert!(!json.get("suspicious_paths").unwrap().is_null());
+        let suspicious_paths = match json.get("suspicious_paths") {
+            Some(value) => value,
+            None => panic!("suspicious_paths missing"),
+        };
+        assert!(!suspicious_paths.is_null());
     }
 
     #[test]
@@ -424,11 +418,6 @@ mod tests {
         forward_index.insert((1, 0), vec![0]);
         let mut reverse_index = HashMap::new();
         reverse_index.insert((2, 0), vec![0]);
-        TypedGraph {
-            graph,
-            edges: vec![edge],
-            forward_index,
-            reverse_index,
-        }
+        TypedGraph { graph, edges: vec![edge], forward_index, reverse_index }
     }
 }

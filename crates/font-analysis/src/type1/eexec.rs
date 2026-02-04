@@ -17,10 +17,7 @@ pub fn decrypt_eexec(encrypted: &[u8]) -> Vec<u8> {
     for &byte in encrypted {
         let plain = byte ^ (key >> 8) as u8;
         result.push(plain);
-        key = key
-            .wrapping_add(byte as u16)
-            .wrapping_mul(EEXEC_KEY_C1)
-            .wrapping_add(EEXEC_KEY_C2);
+        key = key.wrapping_add(byte as u16).wrapping_mul(EEXEC_KEY_C1).wrapping_add(EEXEC_KEY_C2);
     }
 
     result
@@ -137,14 +134,20 @@ mod tests {
     #[test]
     fn test_hex_to_binary() {
         let hex = b"48656C6C6F"; // "Hello" in hex
-        let binary = hex_to_binary(hex).unwrap();
+        let binary = match hex_to_binary(hex) {
+            Some(value) => value,
+            None => panic!("hex to binary conversion failed"),
+        };
         assert_eq!(binary, b"Hello");
     }
 
     #[test]
     fn test_hex_to_binary_with_whitespace() {
         let hex = b"48 65 6C 6C 6F"; // "Hello" in hex with spaces
-        let binary = hex_to_binary(hex).unwrap();
+        let binary = match hex_to_binary(hex) {
+            Some(value) => value,
+            None => panic!("hex to binary conversion failed"),
+        };
         assert_eq!(binary, b"Hello");
     }
 

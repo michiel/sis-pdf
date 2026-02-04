@@ -85,14 +85,7 @@ impl GraphModelRunner {
             inference_timeout_ms(&config),
             &runtime,
         )?;
-        Ok(Self {
-            config,
-            _paths: paths,
-            tokenizer,
-            embedder,
-            gnn,
-            runtime,
-        })
+        Ok(Self { config, _paths: paths, tokenizer, embedder, gnn, runtime })
     }
 
     pub fn predict(
@@ -113,16 +106,16 @@ impl GraphModelRunner {
             let mut src = s;
             let mut dst = t;
             if src >= original_node_count || dst >= original_node_count {
-                unresolved_edges += 1;
-                if sentinel_idx.is_none() {
-                    sentinel_idx = Some(texts.len());
-                    texts.push("path=$meta\tvalue_type=unresolved_edges\tvalue=1".into());
-                }
-                let sentinel = sentinel_idx.unwrap();
-                if src >= original_node_count {
-                    src = sentinel;
-                }
-                if dst >= original_node_count {
+            unresolved_edges += 1;
+            let sentinel = *sentinel_idx.get_or_insert_with(|| {
+                let idx = texts.len();
+                texts.push("path=$meta\tvalue_type=unresolved_edges\tvalue=1".into());
+                idx
+            });
+            if src >= original_node_count {
+                src = sentinel;
+            }
+            if dst >= original_node_count {
                     dst = sentinel;
                 }
             }
@@ -130,10 +123,8 @@ impl GraphModelRunner {
         }
         if unresolved_edges > 0 {
             if let Some(idx) = sentinel_idx {
-                texts[idx] = format!(
-                    "path=$meta\tvalue_type=unresolved_edges\tvalue={}",
-                    unresolved_edges
-                );
+                texts[idx] =
+                    format!("path=$meta\tvalue_type=unresolved_edges\tvalue={}", unresolved_edges);
             }
             warn!(
                 unresolved_edges = unresolved_edges,
@@ -197,11 +188,8 @@ impl GraphModelRunner {
                 return Err(anyhow!("gnn inference panicked"));
             }
         };
-        let threshold = if threshold_override > 0.0 {
-            threshold_override
-        } else {
-            self.config.threshold
-        };
+        let threshold =
+            if threshold_override > 0.0 { threshold_override } else { self.config.threshold };
         Ok(GraphPrediction {
             score: inference.score,
             label: inference.score >= threshold,
@@ -270,18 +258,12 @@ fn resolve_model_paths(
     runtime: &RuntimeSettings,
 ) -> (std::path::PathBuf, std::path::PathBuf) {
     let embedding = if runtime.prefer_quantized {
-        paths
-            .embedding_quantized
-            .clone()
-            .unwrap_or_else(|| paths.embedding_model.clone())
+        paths.embedding_quantized.clone().unwrap_or_else(|| paths.embedding_model.clone())
     } else {
         paths.embedding_model.clone()
     };
     let graph = if runtime.prefer_quantized {
-        paths
-            .graph_quantized
-            .clone()
-            .unwrap_or_else(|| paths.graph_model.clone())
+        paths.graph_quantized.clone().unwrap_or_else(|| paths.graph_model.clone())
     } else {
         paths.graph_model.clone()
     };
@@ -327,10 +309,7 @@ fn cache_key(model_dir: &Path, runtime: &RuntimeSettings) -> String {
 }
 
 fn compress_texts_for_max_tokens(texts: &[String], max_length: usize) -> Vec<String> {
-    texts
-        .iter()
-        .map(|text| compress_text_for_max_tokens(text, max_length))
-        .collect()
+    texts.iter().map(|text| compress_text_for_max_tokens(text, max_length)).collect()
 }
 
 fn compress_text_for_max_tokens(text: &str, max_length: usize) -> String {
@@ -347,14 +326,8 @@ fn compress_text_for_max_tokens(text: &str, max_length: usize) -> String {
         return text.chars().take(max_chars).collect();
     }
     let head: String = text.chars().take(head_len).collect();
-    let tail: String = text
-        .chars()
-        .rev()
-        .take(tail_len)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
+    let tail: String =
+        text.chars().rev().take(tail_len).collect::<Vec<_>>().into_iter().rev().collect();
     format!("{}{}{}", head, TAIL_MARKER, tail)
 }
 
@@ -392,19 +365,13 @@ mod tests {
                 model_path: "graph.onnx".into(),
                 quantized_model_path: None,
                 input_dim: 4,
-                output: config::GraphOutput {
-                    kind: "logit".into(),
-                    apply_sigmoid: true,
-                },
+                output: config::GraphOutput { kind: "logit".into(), apply_sigmoid: true },
                 input_names: None,
                 output_name: None,
                 node_scores_name: None,
             },
             threshold: 0.9,
-            edge_index: config::EdgeIndexConfig {
-                directed: true,
-                add_reverse_edges: true,
-            },
+            edge_index: config::EdgeIndexConfig { directed: true, add_reverse_edges: true },
             integrity: None,
             limits: None,
             runtime: None,

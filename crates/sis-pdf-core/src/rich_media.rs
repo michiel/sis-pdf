@@ -91,7 +91,7 @@ pub fn scan_swf_action_tags(data: &[u8], max_tags: usize) -> SwfActionScan {
     }
     let nbits = data[8] >> 3;
     let rect_bits = 5u32 + 4u32 * nbits as u32;
-    let rect_bytes = ((rect_bits + 7) / 8) as usize;
+    let rect_bytes = usize::div_ceil(rect_bits as usize, 8);
     let mut offset = SWF_HEADER_LEN + rect_bytes;
     if offset + 4 >= data.len() {
         return scan;
@@ -160,14 +160,8 @@ pub fn analyze_swf(raw: &[u8], timeout: &mut TimeoutChecker) -> Option<SwfAnalys
     if compressed_len == 0 {
         return None;
     }
-    let scan_result = decompress_swf_body(
-        raw,
-        header.compression,
-        &header,
-        header_bytes,
-        body_offset,
-        timeout,
-    )?;
+    let scan_result =
+        decompress_swf_body(raw, header.compression, &header, header_bytes, body_offset, timeout)?;
     Some(SwfAnalysis {
         header,
         action_scan: scan_result.action_scan,
@@ -189,10 +183,7 @@ fn decompress_swf_body(
             let body = raw.get(body_offset..)?;
             let composed = build_swf_bytes(header_bytes, body);
             let scan = scan_swf_action_tags(&composed, SWF_ACTION_TAG_LIMIT);
-            Some(SwfActionScanResult {
-                action_scan: scan,
-                decompressed_body_len: body.len(),
-            })
+            Some(SwfActionScanResult { action_scan: scan, decompressed_body_len: body.len() })
         }
         SwfCompression::Zlib => {
             let body = raw.get(body_offset..)?;
@@ -206,9 +197,7 @@ fn decompress_swf_body(
             }
             let props = *raw.get(SWF_HEADER_LEN)?;
             let dict_size = u32::from_le_bytes(
-                raw.get(SWF_HEADER_LEN + 1..SWF_HEADER_LEN + 5)?
-                    .try_into()
-                    .ok()?,
+                raw.get(SWF_HEADER_LEN + 1..SWF_HEADER_LEN + 5)?.try_into().ok()?,
             );
             let body = raw.get(body_offset..)?;
             let cursor = Cursor::new(body);
@@ -263,10 +252,7 @@ fn decompress_with_reader<R: Read>(
         let composed = build_swf_bytes(header_bytes, &partial_body);
         scan = scan_swf_action_tags(&composed, SWF_ACTION_TAG_LIMIT);
     }
-    Some(SwfActionScanResult {
-        action_scan: scan,
-        decompressed_body_len: partial_body.len(),
-    })
+    Some(SwfActionScanResult { action_scan: scan, decompressed_body_len: partial_body.len() })
 }
 
 fn build_swf_bytes(header: &[u8], body: &[u8]) -> Vec<u8> {
@@ -336,12 +322,12 @@ mod tests {
     }
 
     #[test]
-    fn analyze_swf_compressed() {
+    fn analyze_swf_compressed() -> std::io::Result<()> {
         let mut body = make_minimal_swf_body();
         body.extend_from_slice(&[0x00, 0x03, 0x00, 0x00]);
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(&body).unwrap();
-        let compressed = encoder.finish().unwrap();
+        encoder.write_all(&body)?;
+        let compressed = encoder.finish()?;
         let file_length = (SWF_HEADER_LEN + compressed.len()) as u32;
         let mut raw = Vec::new();
         raw.extend_from_slice(b"CWS");
@@ -349,8 +335,12 @@ mod tests {
         raw.extend_from_slice(&file_length.to_le_bytes());
         raw.extend_from_slice(&compressed);
         let mut timeout = TimeoutChecker::new(Duration::from_millis(SWF_DECODE_TIMEOUT_MS));
-        let analysis = analyze_swf(&raw, &mut timeout).expect("should parse CWS");
+        let analysis = match analyze_swf(&raw, &mut timeout) {
+            Some(analysis) => analysis,
+            None => panic!("should parse CWS"),
+        };
         assert!(analysis.decompressed_body_len >= body.len());
+        Ok(())
     }
 
     #[test]
@@ -366,12 +356,12 @@ mod tests {
     }
 
     #[test]
-    fn swf_decompression_limit_enforced() {
+    fn swf_decompression_limit_enforced() -> std::io::Result<()> {
         let mut body = vec![0x41; SWF_DECOMPRESSED_LIMIT + 512];
         body.extend_from_slice(&[0x00, 0x03, 0x00, 0x00]); // DoAction tag
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(&body).unwrap();
-        let compressed = encoder.finish().unwrap();
+        encoder.write_all(&body)?;
+        let compressed = encoder.finish()?;
         let file_length = (SWF_HEADER_LEN + compressed.len()) as u32;
         let mut raw = Vec::new();
         raw.extend_from_slice(b"CWS");
@@ -380,8 +370,12 @@ mod tests {
         raw.extend_from_slice(&compressed);
 
         let mut timeout = TimeoutChecker::new(Duration::from_millis(SWF_DECODE_TIMEOUT_MS));
-        let analysis = analyze_swf(&raw, &mut timeout).expect("should parse CWS");
+        let analysis = match analyze_swf(&raw, &mut timeout) {
+            Some(analysis) => analysis,
+            None => panic!("should parse CWS"),
+        };
         assert_eq!(analysis.decompressed_body_len, SWF_DECOMPRESSED_LIMIT);
+        Ok(())
     }
 
     #[test]

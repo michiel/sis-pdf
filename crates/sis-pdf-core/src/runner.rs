@@ -85,9 +85,7 @@ pub fn run_scan_with_detectors(
     profiler.begin_phase("detection");
     let mut findings: Vec<Finding> = if ctx.options.parallel {
         use rayon::prelude::*;
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(PARALLEL_DETECTOR_THREADS)
-            .build();
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(PARALLEL_DETECTOR_THREADS).build();
         match pool {
             Ok(pool) => {
                 // For parallel execution, we need to track timing separately
@@ -138,10 +136,7 @@ pub fn run_scan_with_detectors(
                 }
 
                 // Flatten findings
-                results
-                    .into_iter()
-                    .flat_map(|(_, _, _, findings)| findings)
-                    .collect()
+                results.into_iter().flat_map(|(_, _, _, findings)| findings).collect()
             }
             Err(err) => {
                 SecurityEvent {
@@ -251,12 +246,7 @@ pub fn run_scan_with_detectors(
             .graph
             .objects
             .last()
-            .map(|e| {
-                vec![crate::scan::span_to_evidence(
-                    e.full_span,
-                    "Last object span",
-                )]
-            })
+            .map(|e| vec![crate::scan::span_to_evidence(e.full_span, "Last object span")])
             .unwrap_or_else(Vec::new);
         findings.push(Finding {
             id: String::new(),
@@ -302,10 +292,7 @@ pub fn run_scan_with_detectors(
         }
     }
 
-    let font_findings = findings
-        .iter()
-        .filter(|f| f.kind.starts_with("font."))
-        .count();
+    let font_findings = findings.iter().filter(|f| f.kind.starts_with("font.")).count();
     let js_findings = findings
         .iter()
         .filter(|f| {
@@ -445,10 +432,7 @@ pub fn run_scan_with_detectors(
                 }
                 if let Some(attempt) = defense.detect_adversarial(&feature_vec) {
                     let mut meta = std::collections::HashMap::new();
-                    meta.insert(
-                        "ml.adversarial_score".into(),
-                        format!("{:.2}", attempt.score),
-                    );
+                    meta.insert("ml.adversarial_score".into(), format!("{:.2}", attempt.score));
                     meta.insert("ml.adversarial_reason".into(), attempt.reason);
                     findings.push(Finding {
                         id: String::new(),
@@ -636,17 +620,10 @@ pub fn run_scan_with_detectors(
         .as_ref()
         .map(|s| {
             let generator = crate::response::ResponseGenerator;
-            s.patterns
-                .iter()
-                .flat_map(|p| generator.generate_yara_variants(p))
-                .collect::<Vec<_>>()
+            s.patterns.iter().flat_map(|p| generator.generate_yara_variants(p)).collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let structural_summary = Some(build_structural_summary(
-        &ctx,
-        diff_result.as_ref(),
-        &findings,
-    ));
+    let structural_summary = Some(build_structural_summary(&ctx, diff_result.as_ref(), &findings));
 
     // Finalize profiler and output if enabled
     if ctx.options.profile {
@@ -754,10 +731,7 @@ fn annotate_orphaned_page_context(findings: &mut [Finding]) {
         for obj in &finding.objects {
             if let Some((obj_id, gen_id)) = position::parse_obj_ref(obj) {
                 let key = format!("{} {}", obj_id, gen_id);
-                suspicious_by_obj
-                    .entry(key)
-                    .or_default()
-                    .push(finding.id.clone());
+                suspicious_by_obj.entry(key).or_default().push(finding.id.clone());
             }
         }
     }
@@ -766,12 +740,7 @@ fn annotate_orphaned_page_context(findings: &mut [Finding]) {
         if finding.kind != "page_tree_mismatch" {
             continue;
         }
-        if finding
-            .meta
-            .get("page_tree.orphaned")
-            .map(|v| v == "0")
-            .unwrap_or(true)
-        {
+        if finding.meta.get("page_tree.orphaned").map(|v| v == "0").unwrap_or(true) {
             continue;
         }
         let mut related = Vec::new();
@@ -787,17 +756,12 @@ fn annotate_orphaned_page_context(findings: &mut [Finding]) {
         related.sort();
         related.dedup();
         if !related.is_empty() {
+            finding.meta.insert("page_tree.orphaned_has_payload".into(), "true".into());
             finding
                 .meta
-                .insert("page_tree.orphaned_has_payload".into(), "true".into());
-            finding.meta.insert(
-                "page_tree.orphaned_payload_count".into(),
-                related.len().to_string(),
-            );
+                .insert("page_tree.orphaned_payload_count".into(), related.len().to_string());
             let list = related.into_iter().take(8).collect::<Vec<_>>().join(", ");
-            finding
-                .meta
-                .insert("page_tree.orphaned_payload_findings".into(), list);
+            finding.meta.insert("page_tree.orphaned_payload_findings".into(), list);
         }
     }
 }
@@ -807,10 +771,7 @@ fn correlate_font_js(findings: &mut Vec<Finding>) {
     // Check if we have both font and JavaScript findings
     let has_high_font = findings.iter().any(|f| {
         f.kind.starts_with("font.")
-            && matches!(
-                f.severity,
-                crate::model::Severity::High | crate::model::Severity::Critical
-            )
+            && matches!(f.severity, crate::model::Severity::High | crate::model::Severity::Critical)
     });
 
     let has_js_obfuscation = findings.iter().any(|f| {
@@ -819,10 +780,7 @@ fn correlate_font_js(findings: &mut Vec<Finding>) {
 
     let has_js_exploit = findings.iter().any(|f| {
         f.kind.contains("js_")
-            && matches!(
-                f.severity,
-                crate::model::Severity::High | crate::model::Severity::Critical
-            )
+            && matches!(f.severity, crate::model::Severity::High | crate::model::Severity::Critical)
     });
 
     // High severity font + JavaScript exploit = combined attack pattern
@@ -889,9 +847,7 @@ fn correlate_font_js(findings: &mut Vec<Finding>) {
                 && finding.severity == crate::model::Severity::Medium
             {
                 finding.severity = crate::model::Severity::High;
-                finding
-                    .meta
-                    .insert("severity_escalated".into(), "js_obfuscation_present".into());
+                finding.meta.insert("severity_escalated".into(), "js_obfuscation_present".into());
                 finding.description = format!(
                     "{} Severity escalated due to presence of obfuscated JavaScript.",
                     finding.description
@@ -937,16 +893,10 @@ fn raw_node_preview(graph: &ObjectGraph<'_>, obj: u32, gen: u16, max_len: usize)
 
 fn dict_preview(dict: &PdfDict<'_>) -> String {
     let mut parts = vec!["dict".to_string()];
-    if let Some(type_name) = dict
-        .get_first(b"/Type")
-        .and_then(|(_, v)| name_value(&v.atom))
-    {
+    if let Some(type_name) = dict.get_first(b"/Type").and_then(|(_, v)| name_value(&v.atom)) {
         parts.push(format!("Type={}", type_name.trim_start_matches('/')));
     }
-    if let Some(subtype) = dict
-        .get_first(b"/Subtype")
-        .and_then(|(_, v)| name_value(&v.atom))
-    {
+    if let Some(subtype) = dict.get_first(b"/Subtype").and_then(|(_, v)| name_value(&v.atom)) {
         parts.push(format!("Subtype={}", subtype.trim_start_matches('/')));
     }
     let mut keys: Vec<String> = dict.entries.iter().map(|(k, _)| name_preview(k)).collect();
@@ -961,22 +911,13 @@ fn dict_preview(dict: &PdfDict<'_>) -> String {
 
 fn stream_preview(stream: &sis_pdf_pdf::object::PdfStream<'_>) -> String {
     let filters = stream_filters(&stream.dict);
-    let filter_list = if filters.is_empty() {
-        "-".to_string()
-    } else {
-        filters.join(",")
-    };
+    let filter_list = if filters.is_empty() { "-".to_string() } else { filters.join(",") };
     let mut parts = vec![
         "stream".to_string(),
         format!("len={}", stream.data_span.len()),
         format!("filters={}", filter_list),
     ];
-    let mut keys: Vec<String> = stream
-        .dict
-        .entries
-        .iter()
-        .map(|(k, _)| name_preview(k))
-        .collect();
+    let mut keys: Vec<String> = stream.dict.entries.iter().map(|(k, _)| name_preview(k)).collect();
     keys.sort();
     keys.dedup();
     if !keys.is_empty() {
@@ -992,12 +933,7 @@ fn array_preview(items: &[PdfObj<'_>]) -> String {
         item_preview.push(atom_compact_preview(&item.atom));
     }
     let suffix = if items.len() > 3 { ", ..." } else { "" };
-    format!(
-        "array len={} [{}{}]",
-        items.len(),
-        item_preview.join(", "),
-        suffix
-    )
+    format!("array len={} [{}{}]", items.len(), item_preview.join(", "), suffix)
 }
 
 fn atom_compact_preview(atom: &PdfAtom<'_>) -> String {
@@ -1086,10 +1022,7 @@ fn top_node_attributions(
     let mut ir_map: std::collections::HashMap<ObjRef, &PdfIrObject> =
         std::collections::HashMap::new();
     for obj in &ir_graph.ir_objects {
-        let key = ObjRef {
-            obj: obj.obj_ref.0,
-            gen: obj.obj_ref.1,
-        };
+        let key = ObjRef { obj: obj.obj_ref.0, gen: obj.obj_ref.1 };
         ir_map.insert(key, obj);
     }
     let mut entries = Vec::new();
@@ -1109,11 +1042,7 @@ fn top_node_attributions(
             score: *score,
         });
     }
-    entries.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    entries.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     entries.truncate(5);
     entries
 }
@@ -1141,10 +1070,7 @@ fn focus_seeds_for_trigger(graph: &ObjectGraph<'_>, trigger: &str) -> Vec<ObjRef
             None => continue,
         };
         if let Some((_, obj)) = dict.get_first(key) {
-            seeds.push(ObjRef {
-                obj: entry.obj,
-                gen: entry.gen,
-            });
+            seeds.push(ObjRef { obj: entry.obj, gen: entry.gen });
             collect_refs_from_obj(obj, &mut seeds);
             if key == b"/AA" {
                 if let PdfAtom::Dict(aa_dict) = &obj.atom {
@@ -1176,31 +1102,24 @@ fn build_structural_summary(
         .objects
         .iter()
         .filter(|entry| {
-            entry_dict(entry)
-                .map(|d| d.has_name(b"/Type", b"/ObjStm"))
-                .unwrap_or(false)
+            entry_dict(entry).map(|d| d.has_name(b"/Type", b"/ObjStm")).unwrap_or(false)
         })
         .count();
     let object_count = ctx.graph.objects.len();
-    let objstm_ratio = if object_count == 0 {
-        0.0
-    } else {
-        objstm_count as f64 / object_count as f64
-    };
+    let objstm_ratio =
+        if object_count == 0 { 0.0 } else { objstm_count as f64 / object_count as f64 };
     let header_offset = find_first(ctx.bytes, b"%PDF-").map(|v| v as u64);
     let eof_offset = find_last(ctx.bytes, b"%%EOF").map(|v| v as u64);
     let eof_distance_to_end =
         eof_offset.map(|off| ctx.bytes.len().saturating_sub(off as usize + 5) as u64);
     let (polyglot_risk, polyglot_signatures) = polyglot_meta(findings);
-    let secondary_parser = diff
-        .and_then(|d| d.summary.as_ref())
-        .map(|s| SecondaryParserSummary {
-            parser: "lopdf".into(),
-            object_count: s.secondary_objects,
-            trailer_count: s.secondary_trailers,
-            missing_in_secondary: s.missing_in_secondary,
-            missing_in_primary: s.missing_in_primary,
-        });
+    let secondary_parser = diff.and_then(|d| d.summary.as_ref()).map(|s| SecondaryParserSummary {
+        parser: "lopdf".into(),
+        object_count: s.secondary_objects,
+        trailer_count: s.secondary_trailers,
+        missing_in_secondary: s.missing_in_secondary,
+        missing_in_primary: s.missing_in_primary,
+    });
     let secondary_parser_error = diff.and_then(|d| d.error.clone());
     let ir_summary = if ctx.options.ir {
         let ir_opts = sis_pdf_pdf::ir::IrOptions::default();
@@ -1278,9 +1197,7 @@ fn polyglot_meta(findings: &[Finding]) -> (bool, Vec<String>) {
             found = true;
             if let Some(list) = f.meta.get("polyglot.signatures") {
                 sigs.extend(
-                    list.split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty()),
+                    list.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
                 );
             }
         }
@@ -1300,12 +1217,7 @@ fn filter_graph_by_refs<'a>(graph: &ObjectGraph<'a>, keep: &HashSet<ObjRef>) -> 
     let objects: Vec<_> = graph
         .objects
         .iter()
-        .filter(|e| {
-            keep.contains(&ObjRef {
-                obj: e.obj,
-                gen: e.gen,
-            })
-        })
+        .filter(|e| keep.contains(&ObjRef { obj: e.obj, gen: e.gen }))
         .cloned()
         .collect();
     let mut index: HashMap<(u32, u16), Vec<usize>> = HashMap::new();
@@ -1385,9 +1297,7 @@ mod tests {
         correlate_font_js(&mut findings);
 
         // Should have created a combined exploit finding
-        let has_combined = findings
-            .iter()
-            .any(|f| f.kind == "pdf.font_js_combined_exploit");
+        let has_combined = findings.iter().any(|f| f.kind == "pdf.font_js_combined_exploit");
         assert!(
             has_combined,
             "Should create combined exploit finding. Findings: {:?}",
@@ -1395,10 +1305,13 @@ mod tests {
         );
 
         // Combined finding should be CRITICAL
-        let combined = findings
-            .iter()
-            .find(|f| f.kind == "pdf.font_js_combined_exploit")
-            .unwrap();
+        let combined = match findings.iter().find(|f| f.kind == "pdf.font_js_combined_exploit") {
+            Some(value) => value,
+            None => panic!(
+                "expected combined exploit finding, findings: {:?}",
+                findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+            ),
+        };
         assert_eq!(combined.severity, crate::model::Severity::Critical);
     }
 
@@ -1454,10 +1367,10 @@ mod tests {
         correlate_font_js(&mut findings);
 
         // Font finding should be escalated from MEDIUM to HIGH
-        let font_finding = findings
-            .iter()
-            .find(|f| f.kind == "font.type1_large_charstring")
-            .unwrap();
+        let font_finding = match findings.iter().find(|f| f.kind == "font.type1_large_charstring") {
+            Some(value) => value,
+            None => panic!("font finding missing after correlation"),
+        };
         assert_eq!(font_finding.severity, crate::model::Severity::High);
 
         // Should have escalation metadata
@@ -1493,11 +1406,7 @@ mod tests {
         correlate_font_js(&mut findings);
 
         // Should not create new findings or escalate severity
-        assert_eq!(
-            findings.len(),
-            original_count,
-            "Should not create new findings"
-        );
+        assert_eq!(findings.len(), original_count, "Should not create new findings");
         assert_eq!(findings[0].severity, crate::model::Severity::Low);
     }
 }

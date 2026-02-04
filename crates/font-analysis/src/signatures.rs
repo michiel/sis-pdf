@@ -55,14 +55,12 @@ impl Signature {
     /// Validate that signature has either pattern or patterns (but not both)
     pub fn validate(&self) -> Result<(), String> {
         match (&self.pattern, &self.patterns) {
-            (None, None) => Err(format!(
-                "Signature {} must have either 'pattern' or 'patterns'",
-                self.cve_id
-            )),
-            (Some(_), Some(_)) => Err(format!(
-                "Signature {} cannot have both 'pattern' and 'patterns'",
-                self.cve_id
-            )),
+            (None, None) => {
+                Err(format!("Signature {} must have either 'pattern' or 'patterns'", self.cve_id))
+            }
+            (Some(_), Some(_)) => {
+                Err(format!("Signature {} cannot have both 'pattern' and 'patterns'", self.cve_id))
+            }
             _ => Ok(()),
         }
     }
@@ -129,10 +127,7 @@ pub enum SignaturePattern {
         bounds: String, // e.g., "file_length"
     },
     /// Operator sequence in charstrings
-    OperatorSequence {
-        operators: Vec<String>,
-        min_count: usize,
-    },
+    OperatorSequence { operators: Vec<String>, min_count: usize },
     /// Table size exceeds limit
     TableSizeExceeds { table: String, max_size: usize },
     /// Glyph count mismatch
@@ -193,9 +188,7 @@ pub struct SignatureRegistry {
 
 impl SignatureRegistry {
     pub fn new() -> Self {
-        Self {
-            signatures: Vec::new(),
-        }
+        Self { signatures: Vec::new() }
     }
 
     /// Load signatures from YAML file
@@ -296,16 +289,12 @@ impl SignatureRegistry {
         context: &crate::dynamic::FontContext,
     ) -> bool {
         match pattern {
-            SignaturePattern::TableLengthMismatch {
-                table1,
-                table2,
-                condition,
-            } => self.check_table_length_mismatch(context, table1, table2, condition),
-            SignaturePattern::GlyphCountMismatch {
-                source1,
-                source2,
-                condition,
-            } => self.check_glyph_count_mismatch(context, source1, source2, condition),
+            SignaturePattern::TableLengthMismatch { table1, table2, condition } => {
+                self.check_table_length_mismatch(context, table1, table2, condition)
+            }
+            SignaturePattern::GlyphCountMismatch { source1, source2, condition } => {
+                self.check_glyph_count_mismatch(context, source1, source2, condition)
+            }
             SignaturePattern::TableSizeExceeds { table, max_size } => {
                 self.check_table_size_exceeds(context, table, *max_size)
             }
@@ -317,41 +306,29 @@ impl SignatureRegistry {
                 // Not yet implemented - requires CFF parsing
                 false
             }
-            SignaturePattern::IntegerOverflow {
-                operation,
-                operand1,
-                operand2,
-                max_value,
-            } => self.check_integer_overflow(context, operation, operand1, operand2, max_value),
-            SignaturePattern::InvalidMagic {
-                table,
-                offset,
-                expected,
-            } => self.check_invalid_magic(context, table, *offset, expected),
-            SignaturePattern::RecursionDepthExceeds {
-                structure,
-                max_depth,
-            } => self.check_recursion_depth_exceeds(context, structure, *max_depth),
-            SignaturePattern::CircularReference {
-                table,
-                reference_field,
-            } => self.check_circular_reference(context, table, reference_field),
-            SignaturePattern::BufferOverflow {
-                table,
-                offset_field,
-                size_field,
-                bounds,
-            } => self.check_buffer_overflow(context, table, offset_field, size_field, bounds),
-            SignaturePattern::InvalidTableReference {
-                source_table,
-                reference_field,
-                required,
-            } => self.check_invalid_table_reference(
-                context,
-                source_table,
-                reference_field,
-                *required,
-            ),
+            SignaturePattern::IntegerOverflow { operation, operand1, operand2, max_value } => {
+                self.check_integer_overflow(context, operation, operand1, operand2, max_value)
+            }
+            SignaturePattern::InvalidMagic { table, offset, expected } => {
+                self.check_invalid_magic(context, table, *offset, expected)
+            }
+            SignaturePattern::RecursionDepthExceeds { structure, max_depth } => {
+                self.check_recursion_depth_exceeds(context, structure, *max_depth)
+            }
+            SignaturePattern::CircularReference { table, reference_field } => {
+                self.check_circular_reference(context, table, reference_field)
+            }
+            SignaturePattern::BufferOverflow { table, offset_field, size_field, bounds } => {
+                self.check_buffer_overflow(context, table, offset_field, size_field, bounds)
+            }
+            SignaturePattern::InvalidTableReference { source_table, reference_field, required } => {
+                self.check_invalid_table_reference(
+                    context,
+                    source_table,
+                    reference_field,
+                    *required,
+                )
+            }
             SignaturePattern::InvalidInstructionSequence {
                 table,
                 invalid_opcodes,
@@ -411,12 +388,7 @@ impl SignatureRegistry {
         table: &str,
         max_size: usize,
     ) -> bool {
-        context
-            .tables
-            .iter()
-            .find(|t| t.tag == table)
-            .map(|t| t.length > max_size)
-            .unwrap_or(false)
+        context.tables.iter().find(|t| t.tag == table).map(|t| t.length > max_size).unwrap_or(false)
     }
 
     #[cfg(feature = "dynamic")]
@@ -429,15 +401,13 @@ impl SignatureRegistry {
         max_value: &str,
     ) -> bool {
         // Parse operands - can be field names or numeric literals
-        let val1 = self.get_operand_value(context, operand1);
-        let val2 = self.get_operand_value(context, operand2);
-
-        if val1.is_none() || val2.is_none() {
-            return false;
-        }
-
-        let v1 = val1.unwrap();
-        let v2 = val2.unwrap();
+        let (v1, v2) = match (
+            self.get_operand_value(context, operand1),
+            self.get_operand_value(context, operand2),
+        ) {
+            (Some(v1), Some(v2)) => (v1, v2),
+            _ => return false,
+        };
 
         // Parse max_value
         let max = match max_value {
@@ -452,14 +422,8 @@ impl SignatureRegistry {
 
         // Perform operation and check for overflow
         match operation {
-            "multiply" | "mul" => v1
-                .checked_mul(v2)
-                .map(|result| result > max)
-                .unwrap_or(true),
-            "add" => v1
-                .checked_add(v2)
-                .map(|result| result > max)
-                .unwrap_or(true),
+            "multiply" | "mul" => v1.checked_mul(v2).map(|result| result > max).unwrap_or(true),
+            "add" => v1.checked_add(v2).map(|result| result > max).unwrap_or(true),
             _ => false,
         }
     }
@@ -484,10 +448,7 @@ impl SignatureRegistry {
             "file_length" => Some(context.file_length as u64),
             _ => {
                 // Try to extract number from operand (e.g., "glyph_size_4" -> 4)
-                operand
-                    .split('_')
-                    .next_back()
-                    .and_then(|s| s.parse::<u64>().ok())
+                operand.split('_').next_back().and_then(|s| s.parse::<u64>().ok())
             }
         }
     }
@@ -500,10 +461,7 @@ impl SignatureRegistry {
         offset: usize,
         _expected: &str, // Not used - validation already done in FontContext
     ) -> bool {
-        context
-            .invalid_magic_numbers
-            .iter()
-            .any(|m| m.table == table && m.offset == offset)
+        context.invalid_magic_numbers.iter().any(|m| m.table == table && m.offset == offset)
     }
 
     #[cfg(feature = "dynamic")]
@@ -513,11 +471,7 @@ impl SignatureRegistry {
         structure: &str,
         max_depth: usize,
     ) -> bool {
-        context
-            .recursion_depths
-            .get(structure)
-            .map(|&depth| depth > max_depth)
-            .unwrap_or(false)
+        context.recursion_depths.get(structure).map(|&depth| depth > max_depth).unwrap_or(false)
     }
 
     #[cfg(feature = "dynamic")]
@@ -608,8 +562,7 @@ impl SignatureRegistry {
 
         // Check if source_table references tables that don't exist
         if let Some(refs) = context.table_references.get(source_table) {
-            refs.iter()
-                .any(|ref_table| !context.table_map.contains_key(ref_table))
+            refs.iter().any(|ref_table| !context.table_map.contains_key(ref_table))
         } else {
             false
         }
@@ -723,6 +676,25 @@ pub fn load_signatures_from_directory(_directory: &str) -> Result<Vec<Signature>
 mod tests {
     use super::*;
 
+    fn require_result<T, E: std::fmt::Debug>(result: Result<T, E>, context: &str) -> T {
+        match result {
+            Ok(value) => value,
+            Err(err) => panic!("{}: {:?}", context, err),
+        }
+    }
+
+    fn registry_from_yaml(yaml: &str) -> SignatureRegistry {
+        require_result(SignatureRegistry::load_from_yaml(yaml), "load signature registry from YAML")
+    }
+
+    fn registry_from_json(json: &str) -> SignatureRegistry {
+        require_result(SignatureRegistry::load_from_json(json), "load signature registry from JSON")
+    }
+
+    fn embedded_signatures() -> Vec<Signature> {
+        require_result(load_embedded_signatures(), "load embedded signatures")
+    }
+
     #[test]
     fn test_load_from_yaml() {
         let yaml = r#"
@@ -738,7 +710,7 @@ mod tests {
     - "https://nvd.nist.gov/vuln/detail/CVE-2025-27163"
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         assert_eq!(registry.signatures().len(), 1);
         assert_eq!(registry.signatures()[0].cve_id, "CVE-2025-27163");
     }
@@ -760,25 +732,16 @@ mod tests {
             }
         ]"#;
 
-        let registry = SignatureRegistry::load_from_json(json).unwrap();
+        let registry = registry_from_json(json);
         assert_eq!(registry.signatures().len(), 1);
         assert_eq!(registry.signatures()[0].cve_id, "CVE-2025-27164");
     }
 
     #[test]
     fn test_signature_severity_conversion() {
-        assert!(matches!(
-            SignatureSeverity::Low.to_severity(),
-            Severity::Low
-        ));
-        assert!(matches!(
-            SignatureSeverity::High.to_severity(),
-            Severity::High
-        ));
-        assert!(matches!(
-            SignatureSeverity::Critical.to_severity(),
-            Severity::High
-        ));
+        assert!(matches!(SignatureSeverity::Low.to_severity(), Severity::Low));
+        assert!(matches!(SignatureSeverity::High.to_severity(), Severity::High));
+        assert!(matches!(SignatureSeverity::Critical.to_severity(), Severity::High));
     }
 
     #[test]
@@ -800,7 +763,7 @@ mod tests {
     - "https://example.com/cve-99999"
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         assert_eq!(registry.signatures().len(), 1);
         let sig = &registry.signatures()[0];
         assert_eq!(sig.cve_id, "CVE-2025-99999");
@@ -826,7 +789,7 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         let sig = &registry.signatures()[0];
         assert!(matches!(sig.match_logic, MatchLogic::Any));
     }
@@ -846,7 +809,7 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         let sig = &registry.signatures()[0];
         assert!(sig.pattern.is_some());
         assert!(sig.patterns.is_none());
@@ -873,10 +836,8 @@ mod tests {
 
     #[test]
     fn test_validation_both_patterns() {
-        let pattern = SignaturePattern::TableSizeExceeds {
-            table: "test".to_string(),
-            max_size: 100,
-        };
+        let pattern =
+            SignaturePattern::TableSizeExceeds { table: "test".to_string(), max_size: 100 };
 
         let sig = Signature {
             cve_id: "CVE-TEST".to_string(),
@@ -909,14 +870,13 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         let sig = &registry.signatures()[0];
         assert!(sig.signature_rationale.is_some());
-        assert!(sig
-            .signature_rationale
-            .as_ref()
-            .unwrap()
-            .contains("vulnerability occurs"));
+        match sig.signature_rationale.as_ref() {
+            Some(rationale) => assert!(rationale.contains("vulnerability occurs")),
+            None => panic!("expected rationale text"),
+        }
     }
 
     // Tests for new pattern types
@@ -936,14 +896,11 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         assert_eq!(registry.signatures().len(), 1);
         let patterns = registry.signatures()[0].get_patterns();
         assert_eq!(patterns.len(), 1);
-        assert!(matches!(
-            patterns[0],
-            SignaturePattern::IntegerOverflow { .. }
-        ));
+        assert!(matches!(patterns[0], SignaturePattern::IntegerOverflow { .. }));
     }
 
     #[test]
@@ -960,7 +917,7 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         let patterns = registry.signatures()[0].get_patterns();
         assert!(matches!(patterns[0], SignaturePattern::InvalidMagic { .. }));
     }
@@ -978,12 +935,9 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         let patterns = registry.signatures()[0].get_patterns();
-        assert!(matches!(
-            patterns[0],
-            SignaturePattern::RecursionDepthExceeds { .. }
-        ));
+        assert!(matches!(patterns[0], SignaturePattern::RecursionDepthExceeds { .. }));
     }
 
     #[test]
@@ -999,12 +953,9 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         let patterns = registry.signatures()[0].get_patterns();
-        assert!(matches!(
-            patterns[0],
-            SignaturePattern::CircularReference { .. }
-        ));
+        assert!(matches!(patterns[0], SignaturePattern::CircularReference { .. }));
     }
 
     #[test]
@@ -1022,12 +973,9 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         let patterns = registry.signatures()[0].get_patterns();
-        assert!(matches!(
-            patterns[0],
-            SignaturePattern::BufferOverflow { .. }
-        ));
+        assert!(matches!(patterns[0], SignaturePattern::BufferOverflow { .. }));
     }
 
     #[test]
@@ -1044,12 +992,9 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         let patterns = registry.signatures()[0].get_patterns();
-        assert!(matches!(
-            patterns[0],
-            SignaturePattern::InvalidTableReference { .. }
-        ));
+        assert!(matches!(patterns[0], SignaturePattern::InvalidTableReference { .. }));
     }
 
     #[test]
@@ -1068,12 +1013,9 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         let patterns = registry.signatures()[0].get_patterns();
-        assert!(matches!(
-            patterns[0],
-            SignaturePattern::InvalidInstructionSequence { .. }
-        ));
+        assert!(matches!(patterns[0], SignaturePattern::InvalidInstructionSequence { .. }));
     }
 
     #[test]
@@ -1133,7 +1075,7 @@ mod tests {
   references: []
 "#;
 
-        let registry = SignatureRegistry::load_from_yaml(yaml).unwrap();
+        let registry = registry_from_yaml(yaml);
         assert_eq!(registry.signatures().len(), 1);
         let sig = &registry.signatures()[0];
         assert_eq!(sig.get_patterns().len(), 12); // All 12 pattern types
@@ -1147,12 +1089,12 @@ mod tests {
 
         // First load - will read from disk and populate cache
         let start = Instant::now();
-        let sigs1 = load_embedded_signatures().unwrap();
+        let sigs1 = embedded_signatures();
         let first_load_time = start.elapsed();
 
         // Second load - should be much faster due to caching
         let start = Instant::now();
-        let sigs2 = load_embedded_signatures().unwrap();
+        let sigs2 = embedded_signatures();
         let cached_load_time = start.elapsed();
 
         // Verify same content
@@ -1170,10 +1112,7 @@ mod tests {
                 cached_load_time.as_micros()
             );
             // Cached should be faster, but we don't assert to avoid flaky tests
-            assert!(
-                cached_load_time <= first_load_time,
-                "Cached load should not be slower"
-            );
+            assert!(cached_load_time <= first_load_time, "Cached load should not be slower");
         }
     }
 }
