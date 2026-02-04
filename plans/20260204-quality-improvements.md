@@ -198,16 +198,18 @@ Several files exceed 2,000 lines: `query.rs` (8,921), `features_extended.rs` (3,
 ### Stage 2: Eliminate Unwraps in Production Code
 
 **Goal**: AGENTS.md compliance -- no unwraps in `src/` directories
-**Status**: Not Started
+**Status**: In Progress
 
 Work crate-by-crate, starting with security-critical crates:
 
-- [ ] `crates/sis-pdf-detectors/src/` (3 unwraps) -- replace with `?` or `unwrap_or_default`
+- [x] `crates/sis-pdf-detectors/src/` (3 unwraps) -- replace with `?` or `unwrap_or_default`
 - [ ] `crates/sis-pdf-ml-graph/src/` (1 unwrap) -- replace with `?`
 - [ ] `crates/js-analysis/src/` (2 unwraps) -- replace regex unwrap with `if let`, bounds-check decoder slice
 - [ ] `crates/sis-pdf-core/src/` (35 unwraps) -- `explainability.rs` (21), `rich_media.rs` (4), `org_export.rs` (4), `runner.rs` (2), others
 - [ ] `crates/sis-pdf/src/` (32 unwraps) -- `query.rs` (29), `main.rs` (2), `readable.rs` (1); includes the specific security concerns at `main.rs:833`, `main.rs:4063`, `query.rs:3049`
 - [ ] `crates/font-analysis/src/` (37 unwraps) -- `signatures.rs` (19), `model.rs` (9), `ttf_vm.rs` (7), `eexec.rs` (2)
+
+*Note*: `sis-pdf-detectors` now avoids `unwrap()` by pattern-matching cycle detections, using safe option handling in the spot-color test, and replacing the UTF-16 normalisation test’s `unwrap()` with an explicit `match`, keeping the tests transferable while respecting the AGENTS guidance. Verified via `cargo test -p sis-pdf-detectors`.
 
 **Success Criteria**: `grep -r '\\.unwrap()' crates/*/src/ --include='*.rs' | wc -l` returns 0
 

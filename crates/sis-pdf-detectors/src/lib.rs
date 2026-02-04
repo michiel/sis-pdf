@@ -3734,7 +3734,10 @@ mod tests {
     #[test]
     fn normalise_text_bytes_handles_utf16le() {
         let utf16 = b"\xff\xfe\x66\x00\x75\x00\x6e\x00\x63\x00\x74\x00\x69\x00\x6f\x00\x6e\x00";
-        let normalised = normalise_text_bytes_for_script(utf16).unwrap();
+        let normalised = match normalise_text_bytes_for_script(utf16) {
+            Some(bytes) => bytes,
+            None => panic!("normalise_text_bytes_for_script should handle UTF-16"),
+        };
         assert!(normalised.starts_with(b"function"));
     }
 }

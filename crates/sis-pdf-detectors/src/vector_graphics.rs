@@ -380,10 +380,12 @@ mod tests {
         ops.push(make_op("cs", vec![ContentOperand::Name("SpotRed".into())]));
         let stats = summarize_ops(&ops);
         let signal = stats.should_report();
-        assert!(signal.is_some());
-        assert_eq!(
-            signal.unwrap().reason,
-            "spot/indexed colors used with vector paths"
-        );
+        assert!(signal.is_some(), "expected a vector graphics signal for spot colors");
+        if let Some(signal) = signal {
+            assert_eq!(
+                signal.reason,
+                "spot/indexed colors used with vector paths"
+            );
+        }
     }
 }

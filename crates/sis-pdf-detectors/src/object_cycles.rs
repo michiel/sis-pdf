@@ -205,8 +205,7 @@ fn detect_cycles_from(
     }
 
     // Check if we've found a cycle
-    if stack.contains(obj_ref) {
-        let cycle_start = stack.iter().position(|r| r == obj_ref).unwrap();
+    if let Some(cycle_start) = stack.iter().position(|r| r == obj_ref) {
         let cycle_refs: Vec<ObjRef> = stack[cycle_start..].to_vec();
         let cycle_objects: Vec<String> = cycle_refs
             .iter()
