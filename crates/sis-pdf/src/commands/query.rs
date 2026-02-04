@@ -3040,11 +3040,12 @@ fn collect_swf_content(
         let mut action_tags = Vec::new();
         let mut timeout = TimeoutChecker::new(Duration::from_millis(SWF_DECODE_TIMEOUT_MS));
         if let Some(analysis) = analyze_swf(&data, &mut timeout) {
-            version = Some(analysis.header.version);
+            let detected_version = analysis.header.version;
+            version = Some(detected_version);
             declared_length = Some(analysis.header.file_length);
             decompressed_bytes = analysis.decompressed_body_len;
             action_tags = analysis.action_scan.action_tags.clone();
-            meta.insert("swf.version".into(), version.unwrap().to_string());
+            meta.insert("swf.version".into(), detected_version.to_string());
             meta.insert(
                 "swf.decompressed_bytes".into(),
                 decompressed_bytes.to_string(),

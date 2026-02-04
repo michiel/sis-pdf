@@ -829,7 +829,9 @@ fn main() -> Result<()> {
                     output_format
                 };
                 run_query_repl(
-                    actual_pdf.as_deref().unwrap(), // Safe because we validated above
+                    actual_pdf
+                        .as_deref()
+                        .ok_or_else(|| anyhow!("no PDF path available"))?,
                     deep,
                     max_decode_bytes,
                     max_total_decoded_bytes,
@@ -4060,7 +4062,7 @@ fn run_scan_batch(
         } else if let Some(rep) = report.take() {
             report = Some(rep.with_input_path(Some(path_str.clone())));
         }
-        let report = report.expect("report");
+        let report = report.ok_or_else(|| anyhow!("report not produced for {}", path.display()))?;
         if let Some(writer) = intent_writer.as_ref() {
             let mut guard = writer
                 .lock()
