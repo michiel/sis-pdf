@@ -87,7 +87,6 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             yara: None,
             position: None,
             positions: Vec::new(),
-            ..Finding::default()
         });
     }
     if summary.primary_trailers != summary.secondary_trailers {
@@ -114,7 +113,6 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             yara: None,
             position: None,
             positions: Vec::new(),
-            ..Finding::default()
         });
     }
     if summary.missing_in_secondary > 0 || summary.missing_in_primary > 0 {
@@ -150,7 +148,6 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             yara: None,
             position: None,
             positions: Vec::new(),
-            ..Finding::default()
         });
         let mut meta = std::collections::HashMap::new();
         meta.insert(
@@ -184,7 +181,6 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             yara: None,
             position: None,
             positions: Vec::new(),
-        ..Finding::default()
         });
     }
     DiffResult {

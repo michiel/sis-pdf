@@ -268,7 +268,7 @@ fn find_objstm_payloads(
         }
         if let Some(entry) = ctx.graph.get_object(obj.obj, obj.gen) {
             let span = (entry.full_span.start, entry.full_span.end);
-            if objstm_spans.iter().any(|s| *s == span) {
+            if objstm_spans.contains(&span) {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("ir.objstm_count".into(), objstm_spans.len().to_string());
                 findings.push(Finding {

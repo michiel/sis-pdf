@@ -9,7 +9,7 @@ use crate::scan::ScanOptions;
 use crate::security_log::{SecurityDomain, SecurityEvent};
 use tracing::{info, warn, Level};
 
-const MAX_CONFIG_BYTES: u64 = 1 * 1024 * 1024;
+const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 const MAX_OBJECTS: usize = 10_000_000;
 const MAX_DECODE_BYTES: usize = 512 * 1024 * 1024;
 const MAX_TOTAL_DECODE_BYTES: usize = 2 * 1024 * 1024 * 1024;

@@ -5,7 +5,7 @@ use crate::model::{FontFinding, Severity};
 use tracing::{debug, instrument};
 
 /// Analysis context describing the source and environment
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AnalysisContext {
     /// Font from a trusted source (e.g., system fonts, signed PDFs)
     TrustedSource,
@@ -14,6 +14,7 @@ pub enum AnalysisContext {
     SignedPDF,
 
     /// Font from untrusted user input
+    #[default]
     UntrustedInput,
 
     /// Server-side processing (stricter rules)
@@ -21,13 +22,6 @@ pub enum AnalysisContext {
 
     /// Desktop application (more permissive)
     Desktop,
-}
-
-impl Default for AnalysisContext {
-    fn default() -> Self {
-        // Default to most strict context
-        Self::UntrustedInput
-    }
 }
 
 impl AnalysisContext {

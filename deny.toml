@@ -1,0 +1,7 @@
+[licenses]
+allow = ["Apache-2.0", "MIT", "BSD-3-Clause"]
+deny = []
+
+[sources]
+[sources.crates-io]
+check = true

@@ -54,9 +54,7 @@ fn findings_schema_validation() {
             assert!(!finding.title.is_empty());
             assert!(!finding.description.is_empty());
             assert!(!finding.objects.is_empty());
-            for span in &finding.evidence {
-                assert!(span.length <= u32::MAX);
-            }
+
             let value = serde_json::to_value(finding).expect("finding serialise");
             let obj = value.as_object().expect("finding json object");
             for key in [

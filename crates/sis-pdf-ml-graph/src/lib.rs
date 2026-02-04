@@ -167,7 +167,7 @@ impl GraphModelRunner {
             edges.push((0, 0));
         }
         let edge_count = edges.len();
-        let feature_dim = embeddings.get(0).map(|v| v.len()).unwrap_or(0);
+        let feature_dim = embeddings.first().map(|v| v.len()).unwrap_or(0);
         let max_node = edges.iter().flat_map(|(s, t)| [*s, *t]).max().unwrap_or(0);
         let inference = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.gnn.infer(&embeddings, &edges)

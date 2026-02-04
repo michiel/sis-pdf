@@ -103,17 +103,13 @@ impl SignatureSeverity {
 /// Match logic for combining multiple patterns
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum MatchLogic {
     /// All patterns must match (AND logic)
+    #[default]
     All,
     /// At least one pattern must match (OR logic)
     Any,
-}
-
-impl Default for MatchLogic {
-    fn default() -> Self {
-        MatchLogic::All
-    }
 }
 
 /// Pattern matching specification
@@ -490,7 +486,7 @@ impl SignatureRegistry {
                 // Try to extract number from operand (e.g., "glyph_size_4" -> 4)
                 operand
                     .split('_')
-                    .last()
+                    .next_back()
                     .and_then(|s| s.parse::<u64>().ok())
             }
         }

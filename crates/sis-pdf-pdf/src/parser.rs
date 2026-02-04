@@ -69,7 +69,7 @@ impl<'a> Parser<'a> {
         let start = self.cur.pos;
         let b = self.cur.peek().ok_or_else(|| anyhow!("eof"))?;
         let obj = match b {
-            b'/' => self.parse_name().map(|n| PdfAtom::Name(n))?,
+            b'/' => self.parse_name().map(PdfAtom::Name)?,
             b'<' => {
                 if self.cur.peek_n(1) == Some(b'<') {
                     let dict = self.parse_dict()?;
@@ -496,7 +496,7 @@ impl<'a> Parser<'a> {
         let mut out = Vec::new();
         let mut dot_count = 0usize;
         if let Some(b) = self.cur.peek() {
-            if b == b'+' || b == b'-' || b == b'.' || (b'0'..=b'9').contains(&b) {
+            if b == b'+' || b == b'-' || b == b'.' || b.is_ascii_digit() {
                 out.push(b);
                 if b == b'.' {
                     dot_count += 1;
@@ -515,7 +515,7 @@ impl<'a> Parser<'a> {
             }
         }
         while let Some(b) = self.cur.peek() {
-            if (b'0'..=b'9').contains(&b) || b == b'.' {
+            if b.is_ascii_digit() || b == b'.' {
                 out.push(b);
                 if b == b'.' {
                     dot_count += 1;

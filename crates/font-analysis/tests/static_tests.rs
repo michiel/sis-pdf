@@ -25,7 +25,7 @@ fn flags_short_font() {
 
 #[test]
 fn flags_overlapping_tables() {
-    let data = build_sfnt(&[(&*b"head", 40, 12), (&*b"glyf", 45, 12)], 80);
+    let data = build_sfnt(&[(b"head", 40, 12), (b"glyf", 45, 12)], 80);
     let outcome = analyse_static(&data);
     assert!(outcome
         .findings

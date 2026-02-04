@@ -88,7 +88,7 @@ fn load_bpe_from_vocab(path: &Path) -> Result<Tokenizer> {
     let merges = merges
         .to_str()
         .ok_or_else(|| anyhow!("merges path is not valid UTF-8"))?;
-    let model = BPE::from_file(vocab, &merges)
+    let model = BPE::from_file(vocab, merges)
         .build()
         .map_err(|e| anyhow!("failed to build BPE tokenizer: {}", e))?;
     Ok(Tokenizer::new(model))

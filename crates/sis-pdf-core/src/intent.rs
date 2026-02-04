@@ -60,7 +60,7 @@ pub fn apply_intent(findings: &mut [Finding]) -> IntentSummary {
             "open_action_present" | "aa_present" | "aa_event_present" => has_open_action = true,
             _ => {}
         }
-        if f.meta.get("action.s").is_some() {
+        if f.meta.contains_key("action.s") {
             has_action = true;
         }
     }
@@ -139,10 +139,10 @@ pub fn apply_intent(findings: &mut [Finding]) -> IntentSummary {
     for f in findings.iter_mut() {
         let mut best_bucket: Option<(IntentBucket, u32)> = None;
         for bucket in &summary.buckets {
-            if bucket.findings.iter().any(|id| id == &f.id) {
-                if best_bucket.map(|(_, s)| bucket.score > s).unwrap_or(true) {
-                    best_bucket = Some((bucket.bucket, bucket.score));
-                }
+            if bucket.findings.iter().any(|id| id == &f.id)
+                && best_bucket.map(|(_, s)| bucket.score > s).unwrap_or(true)
+            {
+                best_bucket = Some((bucket.bucket, bucket.score));
             }
         }
         if let Some((bucket, score)) = best_bucket {

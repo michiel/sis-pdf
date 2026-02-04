@@ -10,6 +10,10 @@ Run a one-shot query:
 sis query sample.pdf images
 ```
 
+Adjust the report verbosity with `--report-verbosity [compact|standard|verbose]` (default `standard`). `compact` drops info/low findings from the default tables while the JSON output still contains every finding.
+
+Control the amount of detail that action chains expose with `--chain-summary [minimal|events|full]` (default `events`). Minimal hides all edges, events keeps only suspicious or well-weighted edges, and full always emits the complete chain regardless of the format. JSON, JSONL, and YAML outputs always show the full data for reproducibility.
+
 Start an interactive REPL:
 
 ```bash
@@ -123,6 +127,8 @@ sis query sample.pdf images --format yaml
 sis query sample.pdf images --format json --colour
 ```
 
+`findings` queries now add a top-level `summary` object in JSON/YAML/JSONL outputs when the result is an array of findings. The summary includes `findings_by_severity` and `findings_by_surface` counts so dashboards can chart the digest without parsing every entry.
+
 ## Finding Shortcuts
 
 The following query shortcuts return `findings.kind` for common analysis paths.
@@ -176,6 +182,8 @@ The default response is a JSON object keyed by the correlation pattern name (for
 ## Action Chain Queries
 
 Use `actions.chains` to inspect the catalog of action chains and `actions.chains.count` to tally them (predicate filtering applies to both). The JSON output includes chain metadata such as trigger, length (depth), automatic flag, `has_js`, and `has_external` flags, so you can run queries like:
+
+When using text/readable output, the `--chain-summary` flag (and the REPL prompt indicator) control whether edges are trimmed — `minimal` hides edges entirely, `events` retains only suspicious or high-weight edges, and `full` keeps every link for comparison. JSON/YAML/JSONL always include the complete chain data for consistency.
 
 ```bash
 sis query sample.pdf actions.chains

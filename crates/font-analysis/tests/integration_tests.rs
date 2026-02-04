@@ -8,8 +8,10 @@ use font_analysis::{analyse_font, FontAnalysisConfig};
 #[test]
 fn test_blend_exploit_detection() {
     let data = include_bytes!("fixtures/exploits/blend_2015.pfa");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = false;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: false,
+        ..Default::default()
+    };
     let outcome = analyse_font(data, &config);
 
     // Should detect BLEND exploit pattern
@@ -105,8 +107,10 @@ fn test_benign_type1_no_findings() {
 #[test]
 fn test_cve_2025_27163_detection() {
     let data = include_bytes!("fixtures/cve/cve-2025-27163-hmtx-hhea-mismatch.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -128,8 +132,10 @@ fn test_cve_2025_27163_detection() {
 #[test]
 fn test_cve_2023_26369_detection() {
     let data = include_bytes!("fixtures/cve/cve-2023-26369-ebsc-oob.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -179,8 +185,10 @@ fn test_gvar_anomalous_size() {
 #[test]
 fn test_gvar_glyph_count_mismatch_metadata() {
     let data = include_bytes!("fixtures/cve/gvar-glyph-count-mismatch.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = false;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: false,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
     let finding = outcome
@@ -251,8 +259,10 @@ fn test_benign_variable_no_findings() {
 #[test]
 fn test_disabled_analysis() {
     let data = include_bytes!("fixtures/exploits/blend_2015.pfa");
-    let mut config = FontAnalysisConfig::default();
-    config.enabled = false;
+    let config = FontAnalysisConfig {
+        enabled: false,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -267,8 +277,10 @@ fn test_disabled_analysis() {
 #[test]
 fn test_ttf_excessive_instructions() {
     let data = include_bytes!("fixtures/exploits/ttf_excessive_instructions.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -290,8 +302,10 @@ fn test_ttf_excessive_instructions() {
 #[test]
 fn test_ttf_stack_overflow() {
     let data = include_bytes!("fixtures/exploits/ttf_stack_overflow.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -313,8 +327,10 @@ fn test_ttf_stack_overflow() {
 #[test]
 fn test_ttf_division_by_zero() {
     let data = include_bytes!("fixtures/exploits/ttf_division_by_zero.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -361,8 +377,10 @@ fn test_multiple_vulnerability_signals() {
 #[test]
 fn test_color_font_inconsistent_tables() {
     let data = include_bytes!("fixtures/color/colr-without-cpal.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -391,8 +409,10 @@ fn test_color_font_inconsistent_tables() {
 #[test]
 fn test_color_font_excessive_palettes() {
     let data = include_bytes!("fixtures/color/excessive-palettes.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -416,8 +436,10 @@ fn test_color_font_excessive_palettes() {
 #[test]
 fn test_color_font_glyph_mismatch() {
     let data = include_bytes!("fixtures/color/glyph-count-mismatch.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -441,8 +463,10 @@ fn test_color_font_glyph_mismatch() {
 #[test]
 fn test_benign_color_font() {
     let data = include_bytes!("fixtures/benign/valid-color.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -466,8 +490,10 @@ fn test_benign_color_font() {
 #[test]
 fn test_woff_decompression_bomb() {
     let data = include_bytes!("fixtures/woff/decompression-bomb.woff");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -494,8 +520,10 @@ fn test_woff_decompression_bomb() {
 #[test]
 fn test_woff2_decompression_bomb() {
     let data = include_bytes!("fixtures/woff/decompression-bomb.woff2");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -519,8 +547,10 @@ fn test_woff2_decompression_bomb() {
 #[test]
 fn test_woff_excessive_size() {
     let data = include_bytes!("fixtures/woff/excessive-size.woff");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -544,8 +574,10 @@ fn test_woff_excessive_size() {
 #[test]
 fn test_benign_woff_font() {
     let data = include_bytes!("fixtures/benign/valid.woff");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -569,8 +601,10 @@ fn test_benign_woff_font() {
 #[test]
 fn test_variable_font_excessive_axes() {
     let data = include_bytes!("fixtures/variable/excessive-axes.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -594,8 +628,10 @@ fn test_variable_font_excessive_axes() {
 #[test]
 fn test_variable_font_excessive_hvar() {
     let data = include_bytes!("fixtures/variable/excessive-hvar.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -619,8 +655,10 @@ fn test_variable_font_excessive_hvar() {
 #[test]
 fn test_variable_font_excessive_mvar() {
     let data = include_bytes!("fixtures/variable/excessive-mvar.ttf");
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     let outcome = analyse_font(data, &config);
 
@@ -670,9 +708,11 @@ fn test_load_embedded_signatures() {
 #[cfg(feature = "dynamic")]
 #[test]
 fn test_signature_matching_disabled() {
-    let mut config = FontAnalysisConfig::default();
-    config.signature_matching_enabled = false;
-    config.dynamic_enabled = true;
+    let config = FontAnalysisConfig {
+        signature_matching_enabled: false,
+        dynamic_enabled: true,
+        ..Default::default()
+    };
 
     // Create a font that would trigger CVE-2025-27163 (hmtx length mismatch)
     let malformed_font = create_hmtx_length_mismatch_font();
@@ -696,9 +736,11 @@ fn test_signature_matching_disabled() {
 #[cfg(feature = "dynamic")]
 #[test]
 fn test_cve_2025_27163_signature_match() {
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
-    config.signature_matching_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        signature_matching_enabled: true,
+        ..Default::default()
+    };
 
     // Create a font with hmtx table length mismatch
     let malformed_font = create_hmtx_length_mismatch_font();
@@ -730,9 +772,11 @@ fn test_cve_2025_27163_signature_match() {
 #[cfg(feature = "dynamic")]
 #[test]
 fn test_cve_2025_27164_signature_match() {
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
-    config.signature_matching_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        signature_matching_enabled: true,
+        ..Default::default()
+    };
 
     // Create a font with maxp > CFF2 glyph count
     let malformed_font = create_maxp_cff2_mismatch_font();
@@ -763,9 +807,11 @@ fn test_cve_2025_27164_signature_match() {
 #[cfg(feature = "dynamic")]
 #[test]
 fn test_benign_font_no_signature_matches() {
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
-    config.signature_matching_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        signature_matching_enabled: true,
+        ..Default::default()
+    };
 
     // Use a benign test font
     let benign_font = create_minimal_valid_font();
@@ -789,8 +835,10 @@ fn test_benign_font_no_signature_matches() {
 #[cfg(feature = "dynamic")]
 #[test]
 fn test_signature_loading_invalid_directory() {
-    let mut config = FontAnalysisConfig::default();
-    config.signature_directory = Some("/nonexistent/directory".to_string());
+    let config = FontAnalysisConfig {
+        signature_directory: Some("/nonexistent/directory".to_string()),
+        ..Default::default()
+    };
 
     let result = config.load_signatures();
     assert!(
@@ -803,9 +851,11 @@ fn test_signature_loading_invalid_directory() {
 #[cfg(feature = "dynamic")]
 #[test]
 fn test_multiple_signature_matches() {
-    let mut config = FontAnalysisConfig::default();
-    config.dynamic_enabled = true;
-    config.signature_matching_enabled = true;
+    let config = FontAnalysisConfig {
+        dynamic_enabled: true,
+        signature_matching_enabled: true,
+        ..Default::default()
+    };
 
     // Create a font with multiple issues
     let multi_issue_font = create_multi_issue_font();

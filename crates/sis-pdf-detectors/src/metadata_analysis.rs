@@ -83,7 +83,6 @@ fn analyze_info_dict(
             yara: None,
             position: None,
             positions: Vec::new(),
-            ..Finding::default()
         });
     }
 
@@ -124,7 +123,7 @@ fn analyze_info_dict(
     ];
 
     for (key, _) in &info_dict.entries {
-        if !standard_keys.iter().any(|&sk| sk == key.decoded.as_slice()) {
+        if !standard_keys.contains(&key.decoded.as_slice()) {
             let key_str = String::from_utf8_lossy(&key.decoded);
             suspicious_keys.push(format!("Unusual key: {}", key_str));
         }
@@ -153,10 +152,13 @@ fn analyze_info_dict(
             evidence: vec![span_to_evidence(info_dict.span, "Info dictionary")],
             remediation: Some("Inspect metadata for malware signatures or steganography.".into()),
             meta,
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
             yara: None,
             position: None,
             positions: Vec::new(),
-            ..Finding::default()
         });
     }
 }

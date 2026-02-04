@@ -3,8 +3,10 @@ use js_analysis::{DynamicOptions, DynamicOutcome};
 #[cfg(feature = "js-sandbox")]
 #[test]
 fn sandbox_skips_large_payload() {
-    let mut options = DynamicOptions::default();
-    options.max_bytes = 8;
+    let options = DynamicOptions {
+        max_bytes: 8,
+        ..DynamicOptions::default()
+    };
     let data = b"this is too large";
     let outcome = js_analysis::run_sandbox(data, &options);
     match outcome {

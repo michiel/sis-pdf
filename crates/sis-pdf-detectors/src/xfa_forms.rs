@@ -446,6 +446,7 @@ fn sorted_strings(set: &HashSet<String>) -> Vec<String> {
     values
 }
 
+#[allow(clippy::too_many_arguments)]
 fn base_xfa_meta(
     object_ref: &str,
     ref_chain: &str,
@@ -486,7 +487,7 @@ fn encode_array(values: &[String]) -> String {
 }
 
 fn preview_text(text: &str, max_len: usize) -> String {
-    let normalized = text.trim().replace('\n', " ").replace('\r', " ");
+    let normalized = text.trim().replace(['\n', '\r'], " ");
     if normalized.len() <= max_len {
         normalized
     } else {

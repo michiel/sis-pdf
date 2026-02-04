@@ -18,6 +18,7 @@ mod sandbox_impl {
     use boa_engine::value::JsVariant;
     use boa_engine::vm::RuntimeLimits;
     use boa_engine::{Context, JsArgs, JsString, JsValue, NativeFunction, Source};
+    use boa_gc::{custom_trace, empty_trace, Finalize, Trace};
 
     const CREATOR_PAYLOAD: &str = "z61z70z70z2Ez61z6Cz65z72z74z28z27z68z69z27z29";
     const SUBJECT_PAYLOAD: &str = "Hueputol61Hueputol70Hueputol70Hueputol2EHueputol61Hueputol6CHueputol65Hueputol72Hueputol74Hueputol28Hueputol27Hueputol68Hueputol69Hueputol27Hueputol29";
@@ -81,6 +82,71 @@ mod sandbox_impl {
         auto_promote: BTreeSet<String>,
         eval_contexts: Vec<std::collections::HashMap<String, String>>,
         access_log: Vec<VariableAccess>,
+    }
+
+    #[derive(Finalize)]
+    struct CallableCapture {
+        log: Rc<RefCell<SandboxLog>>,
+        name: &'static str,
+        value: JsValue,
+    }
+
+    unsafe impl Trace for CallableCapture {
+        custom_trace!(this, mark, {
+            mark(&this.value);
+        });
+    }
+
+    #[derive(Finalize)]
+    struct ValueCapture {
+        value: JsValue,
+    }
+
+    unsafe impl Trace for ValueCapture {
+        custom_trace!(this, mark, {
+            mark(&this.value);
+        });
+    }
+
+    #[derive(Finalize)]
+    struct LogValueCapture {
+        log: Rc<RefCell<SandboxLog>>,
+        value: JsValue,
+    }
+
+    unsafe impl Trace for LogValueCapture {
+        custom_trace!(this, mark, {
+            mark(&this.value);
+        });
+    }
+
+    #[derive(Finalize)]
+    struct LogCapture {
+        log: Rc<RefCell<SandboxLog>>,
+    }
+
+    unsafe impl Trace for LogCapture {
+        empty_trace!();
+    }
+
+    #[derive(Finalize)]
+    struct LogScopeCapture {
+        log: Rc<RefCell<SandboxLog>>,
+        scope: Rc<RefCell<DynamicScope>>,
+    }
+
+    unsafe impl Trace for LogScopeCapture {
+        empty_trace!();
+    }
+
+    #[derive(Finalize)]
+    struct LogNameCapture {
+        log: Rc<RefCell<SandboxLog>>,
+        name: &'static str,
+    }
+
+    unsafe impl Trace for LogNameCapture {
+        empty_trace!();
     }
 
     #[derive(Debug, Clone)]
@@ -449,7 +515,7 @@ mod sandbox_impl {
             // Track variable timeline for special functions
             if name == "eval" {
                 let eval_content = args
-                    .get(0)
+                    .first()
                     .map(|arg| js_value_summary(arg, ctx, 100))
                     .unwrap_or_else(|| "unknown".to_string());
 
@@ -546,7 +612,7 @@ mod sandbox_impl {
         });
 
         match rx.recv_timeout(Duration::from_millis(options.timeout_ms as u64)) {
-            Ok(log) => DynamicOutcome::Executed(DynamicSignals {
+            Ok(log) => DynamicOutcome::Executed(Box::new(DynamicSignals {
                 calls: log.calls.clone(),
                 call_args: log.call_args.clone(),
                 urls: log.urls.clone(),
@@ -591,7 +657,7 @@ mod sandbox_impl {
                         .max()
                         .unwrap_or(0),
                 },
-            }),
+            })),
             Err(RecvTimeoutError::Timeout) => DynamicOutcome::TimedOut {
                 timeout_ms: options.timeout_ms,
             },
@@ -692,11 +758,19 @@ mod sandbox_impl {
     ) -> JsObject {
         let value_for_call = value.clone();
         let log_call = log.clone();
+        let call_capture = CallableCapture {
+            log: log_call,
+            name,
+            value: value_for_call,
+        };
         let call_fn = unsafe {
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log_call, name, args, ctx);
-                Ok(value_for_call.clone())
-            })
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, captures.name, args, ctx);
+                    Ok(captures.value.clone())
+                },
+                call_capture,
+            )
         };
         let func = FunctionObjectBuilder::new(context.realm(), call_fn)
             .name(JsString::from(name))
@@ -707,7 +781,12 @@ mod sandbox_impl {
 
         let value_for_valueof = value.clone();
         let value_of_fn = unsafe {
-            NativeFunction::from_closure(move |_this, _args, _ctx| Ok(value_for_valueof.clone()))
+            NativeFunction::from_closure_with_captures(
+                move |_this, _args, captures, _ctx| Ok(captures.value.clone()),
+                ValueCapture {
+                    value: value_for_valueof,
+                },
+            )
         };
         let value_of = FunctionObjectBuilder::new(context.realm(), value_of_fn)
             .name(JsString::from("valueOf"))
@@ -718,10 +797,15 @@ mod sandbox_impl {
 
         let value_for_string = value.clone();
         let to_string_fn = unsafe {
-            NativeFunction::from_closure(move |_this, _args, ctx| {
-                let as_string = value_for_string.to_string(ctx)?;
-                Ok(JsValue::from(as_string))
-            })
+            NativeFunction::from_closure_with_captures(
+                move |_this, _args, captures, ctx| {
+                    let as_string = captures.value.to_string(ctx)?;
+                    Ok(JsValue::from(as_string))
+                },
+                ValueCapture {
+                    value: value_for_string,
+                },
+            )
         };
         let to_string = FunctionObjectBuilder::new(context.realm(), to_string_fn)
             .name(JsString::from("toString"))
@@ -761,10 +845,16 @@ mod sandbox_impl {
             let log_clone = log.clone();
             let plugins_clone = plugins_value.clone();
             let getter = unsafe {
-                NativeFunction::from_closure(move |_this, _args, _ctx| {
-                    record_prop(&log_clone, "app.plugIns");
-                    Ok(plugins_clone.clone())
-                })
+                NativeFunction::from_closure_with_captures(
+                    move |_this, _args, captures, _ctx| {
+                        record_prop(&captures.log, "app.plugIns");
+                        Ok(captures.value.clone())
+                    },
+                    LogValueCapture {
+                        log: log_clone,
+                        value: plugins_clone,
+                    },
+                )
             };
             FunctionObjectBuilder::new(context.realm(), getter)
                 .name(JsString::from("plugIns"))
@@ -788,10 +878,16 @@ mod sandbox_impl {
             let log_clone = log.clone();
             let doc_clone = doc_value.clone();
             let getter = unsafe {
-                NativeFunction::from_closure(move |_this, _args, _ctx| {
-                    record_prop(&log_clone, "app.doc");
-                    Ok(doc_clone.clone())
-                })
+                NativeFunction::from_closure_with_captures(
+                    move |_this, _args, captures, _ctx| {
+                        record_prop(&captures.log, "app.doc");
+                        Ok(captures.value.clone())
+                    },
+                    LogValueCapture {
+                        log: log_clone,
+                        value: doc_clone,
+                    },
+                )
             };
             FunctionObjectBuilder::new(context.realm(), getter)
                 .name(JsString::from("doc"))
@@ -1269,26 +1365,27 @@ mod sandbox_impl {
 
         // Register escape function (URL encoding)
         let escape_fn = unsafe {
-            let log = log.clone();
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log, "escape", args, ctx);
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "escape", args, ctx);
 
-                let input_arg = args.get_or_undefined(0);
-                let input = input_arg.to_string(ctx)?;
-                let input_str = input.to_std_string_escaped();
+                    let input_arg = args.get_or_undefined(0);
+                    let input = input_arg.to_string(ctx)?;
+                    let input_str = input.to_std_string_escaped();
 
-                // Implement basic URL escape functionality
-                let mut result = String::new();
-                for ch in input_str.chars() {
-                    if ch.is_ascii_alphanumeric() || "-_.!~*'()".contains(ch) {
-                        result.push(ch);
-                    } else {
-                        result.push_str(&format!("%{:02X}", ch as u8));
+                    let mut result = String::new();
+                    for ch in input_str.chars() {
+                        if ch.is_ascii_alphanumeric() || "-_.!~*'()".contains(ch) {
+                            result.push(ch);
+                        } else {
+                            result.push_str(&format!("%{:02X}", ch as u8));
+                        }
                     }
-                }
 
-                Ok(JsValue::from(JsString::from(result)))
-            })
+                    Ok(JsValue::from(JsString::from(result)))
+                },
+                LogCapture { log: log.clone() },
+            )
         };
         let _ = context.register_global_builtin_callable(JsString::from("escape"), 1, escape_fn);
 
@@ -1415,58 +1512,82 @@ mod sandbox_impl {
 
         // Create eval function for target with tracking
         let target_eval_fn = unsafe {
-            let log = log.clone();
-            let scope = scope.clone();
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log, "event.target.eval", args, ctx);
-                let code_arg = args.get_or_undefined(0);
-                let code = code_arg.to_string(ctx)?;
-                let code_str = code.to_std_string_escaped();
-                let processed = preprocess_eval_code(&code_str, &scope);
-                match execute_with_variable_promotion(ctx, &processed, &scope, &log) {
-                    Ok(result) => {
-                        post_process_eval_variables(ctx, &code_str, &scope, &log);
-                        Ok(result)
-                    }
-                    Err(err) => {
-                        if let Some(recovered) =
-                            attempt_error_recovery(ctx, &err, &code_str, &scope, &log)
-                        {
-                            Ok(recovered)
-                        } else {
-                            Ok(JsValue::undefined())
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "event.target.eval", args, ctx);
+                    let code_arg = args.get_or_undefined(0);
+                    let code = code_arg.to_string(ctx)?;
+                    let code_str = code.to_std_string_escaped();
+                    let processed = preprocess_eval_code(&code_str, &captures.scope);
+                    match execute_with_variable_promotion(
+                        ctx,
+                        &processed,
+                        &captures.scope,
+                        &captures.log,
+                    ) {
+                        Ok(result) => {
+                            post_process_eval_variables(
+                                ctx,
+                                &code_str,
+                                &captures.scope,
+                                &captures.log,
+                            );
+                            Ok(result)
+                        }
+                        Err(err) => {
+                            if let Some(recovered) = attempt_error_recovery(
+                                ctx,
+                                &err,
+                                &code_str,
+                                &captures.scope,
+                                &captures.log,
+                            ) {
+                                Ok(recovered)
+                            } else {
+                                Ok(JsValue::undefined())
+                            }
                         }
                     }
-                }
-            })
+                },
+                LogScopeCapture {
+                    log: log.clone(),
+                    scope: scope.clone(),
+                },
+            )
         };
 
         let target_unescape_fn = unsafe {
-            let log = log.clone();
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log, "event.target.unescape", args, ctx);
-                let input_arg = args.get_or_undefined(0);
-                let input = input_arg.to_string(ctx)?;
-                let input_str = input.to_std_string_escaped();
-                let result = decode_unescape(&input_str);
-                Ok(JsValue::from(JsString::from(result)))
-            })
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "event.target.unescape", args, ctx);
+                    let input_arg = args.get_or_undefined(0);
+                    let input = input_arg.to_string(ctx)?;
+                    let input_str = input.to_std_string_escaped();
+                    let result = decode_unescape(&input_str);
+                    Ok(JsValue::from(JsString::from(result)))
+                },
+                LogCapture { log: log.clone() },
+            )
         };
 
         let target_get_annot_fn = unsafe {
-            let log = log.clone();
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log, "event.target.getAnnot", args, ctx);
-                Ok(build_annot(ctx, log.clone()))
-            })
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "event.target.getAnnot", args, ctx);
+                    Ok(build_annot(ctx, captures.log.clone()))
+                },
+                LogCapture { log: log.clone() },
+            )
         };
 
         let target_get_annots_fn = unsafe {
-            let log = log.clone();
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log, "event.target.getAnnots", args, ctx);
-                Ok(build_annots(ctx, log.clone()))
-            })
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "event.target.getAnnots", args, ctx);
+                    Ok(build_annots(ctx, captures.log.clone()))
+                },
+                LogCapture { log: log.clone() },
+            )
         };
 
         // Create a mock target object (represents the field or document)
@@ -1663,19 +1784,23 @@ mod sandbox_impl {
             info.clone(),
             Attribute::all(),
         );
-        let log_clone = log.clone();
         let get_annot_fn = unsafe {
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log_clone, "doc.getAnnot", args, ctx);
-                Ok(build_annot(ctx, log_clone.clone()))
-            })
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "doc.getAnnot", args, ctx);
+                    Ok(build_annot(ctx, captures.log.clone()))
+                },
+                LogCapture { log: log.clone() },
+            )
         };
-        let log_clone = log.clone();
         let get_annots_fn = unsafe {
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log_clone, "doc.getAnnots", args, ctx);
-                Ok(build_annots(ctx, log_clone.clone()))
-            })
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "doc.getAnnots", args, ctx);
+                    Ok(build_annots(ctx, captures.log.clone()))
+                },
+                LogCapture { log: log.clone() },
+            )
         };
         let collab = ObjectInitializer::new(context)
             .function(
@@ -1862,11 +1987,13 @@ mod sandbox_impl {
         add(context, "getPageNumWords", 1, log.clone());
         add(context, "getPageNthWord", 3, log.clone());
         let get_annot_fn = unsafe {
-            let log = log.clone();
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log, "getAnnot", args, ctx);
-                Ok(build_annot(ctx, log.clone()))
-            })
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "getAnnot", args, ctx);
+                    Ok(build_annot(ctx, captures.log.clone()))
+                },
+                LogCapture { log: log.clone() },
+            )
         };
         let _ =
             context.register_global_builtin_callable(JsString::from("getAnnot"), 2, get_annot_fn);
@@ -1884,22 +2011,24 @@ mod sandbox_impl {
 
     fn register_enhanced_string_functions(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
         // String.fromCharCode with enhanced tracking
-        let log_clone = log.clone();
         let from_char_code_fn = unsafe {
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log_clone, "String.fromCharCode", args, ctx);
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "String.fromCharCode", args, ctx);
 
-                let mut result = String::new();
-                for arg in args {
-                    if let Ok(num) = arg.to_i32(ctx) {
-                        if num >= 0 && num <= 255 {
-                            result.push(num as u8 as char);
+                    let mut result = String::new();
+                    for arg in args {
+                        if let Ok(num) = arg.to_i32(ctx) {
+                            if (0..=255).contains(&num) {
+                                result.push(num as u8 as char);
+                            }
                         }
                     }
-                }
 
-                Ok(JsValue::from(JsString::from(result)))
-            })
+                    Ok(JsValue::from(JsString::from(result)))
+                },
+                LogCapture { log: log.clone() },
+            )
         };
 
         let from_char_code = FunctionObjectBuilder::new(context.realm(), from_char_code_fn)
@@ -1909,30 +2038,32 @@ mod sandbox_impl {
             .build();
 
         let substr_fn = unsafe {
-            let log = log.clone();
-            NativeFunction::from_closure(move |this, args, ctx| {
-                record_call(&log, "String.substr", args, ctx);
-                let value = this.to_string(ctx)?;
-                let input = value.to_std_string_escaped();
-                let chars: Vec<char> = input.chars().collect();
-                let total = chars.len() as i32;
-                let mut start = args.get_or_undefined(0).to_i32(ctx).unwrap_or(0);
-                if start < 0 {
-                    start = (total + start).max(0);
-                }
-                let start = start.min(total) as usize;
-                let mut length = if args.len() > 1 {
-                    args.get_or_undefined(1).to_i32(ctx).unwrap_or(0)
-                } else {
-                    total - start as i32
-                };
-                if length < 0 {
-                    length = 0;
-                }
-                let end = (start as i32 + length).min(total) as usize;
-                let result: String = chars[start..end].iter().collect();
-                Ok(JsValue::from(JsString::from(result)))
-            })
+            NativeFunction::from_closure_with_captures(
+                move |this, args, captures, ctx| {
+                    record_call(&captures.log, "String.substr", args, ctx);
+                    let value = this.to_string(ctx)?;
+                    let input = value.to_std_string_escaped();
+                    let chars: Vec<char> = input.chars().collect();
+                    let total = chars.len() as i32;
+                    let mut start = args.get_or_undefined(0).to_i32(ctx).unwrap_or(0);
+                    if start < 0 {
+                        start = (total + start).max(0);
+                    }
+                    let start = start.min(total) as usize;
+                    let mut length = if args.len() > 1 {
+                        args.get_or_undefined(1).to_i32(ctx).unwrap_or(0)
+                    } else {
+                        total - start as i32
+                    };
+                    if length < 0 {
+                        length = 0;
+                    }
+                    let end = (start as i32 + length).min(total) as usize;
+                    let result: String = chars[start..end].iter().collect();
+                    Ok(JsValue::from(JsString::from(result)))
+                },
+                LogCapture { log: log.clone() },
+            )
         };
         let substr = FunctionObjectBuilder::new(context.realm(), substr_fn)
             .name(JsString::from("substr"))
@@ -1960,25 +2091,27 @@ mod sandbox_impl {
         }
 
         // escape function
-        let log_clone2 = log.clone();
         let escape_fn = unsafe {
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log_clone2, "escape", args, ctx);
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "escape", args, ctx);
 
-                let input = args.get_or_undefined(0).to_string(ctx)?;
-                let input_str = input.to_std_string_escaped();
+                    let input = args.get_or_undefined(0).to_string(ctx)?;
+                    let input_str = input.to_std_string_escaped();
 
-                let mut result = String::new();
-                for ch in input_str.chars() {
-                    if ch.is_ascii_alphanumeric() || "_*-./@".contains(ch) {
-                        result.push(ch);
-                    } else {
-                        result.push_str(&format!("%{:02X}", ch as u8));
+                    let mut result = String::new();
+                    for ch in input_str.chars() {
+                        if ch.is_ascii_alphanumeric() || "_*-./@".contains(ch) {
+                            result.push(ch);
+                        } else {
+                            result.push_str(&format!("%{:02X}", ch as u8));
+                        }
                     }
-                }
 
-                Ok(JsValue::from(JsString::from(result)))
-            })
+                    Ok(JsValue::from(JsString::from(result)))
+                },
+                LogCapture { log: log.clone() },
+            )
         };
 
         let _ = context.register_global_builtin_callable(JsString::from("escape"), 1, escape_fn);
@@ -2040,25 +2173,26 @@ mod sandbox_impl {
     }
 
     fn make_console_function(_level: &'static str) -> NativeFunction {
-        unsafe {
-            NativeFunction::from_closure(move |_this, _args, _ctx| {
-                // Console functions are no-ops in sandbox, just return undefined
-                Ok(JsValue::undefined())
-            })
-        }
+        NativeFunction::from_copy_closure(|_this, _args, _ctx| {
+            // Console functions are no-ops in sandbox, just return undefined
+            Ok(JsValue::undefined())
+        })
     }
 
     fn register_unescape(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
         let unescape_fn = unsafe {
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log, "unescape", args, ctx);
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "unescape", args, ctx);
 
-                let input_arg = args.get_or_undefined(0);
-                let input = input_arg.to_string(ctx)?;
-                let input_str = input.to_std_string_escaped();
+                    let input_arg = args.get_or_undefined(0);
+                    let input = input_arg.to_string(ctx)?;
+                    let input_str = input.to_std_string_escaped();
 
-                Ok(JsValue::from(JsString::from(decode_unescape(&input_str))))
-            })
+                    Ok(JsValue::from(JsString::from(decode_unescape(&input_str))))
+                },
+                LogCapture { log },
+            )
         };
 
         let _ =
@@ -2189,64 +2323,76 @@ mod sandbox_impl {
         scope: Rc<RefCell<DynamicScope>>,
     ) {
         let eval_fn = unsafe {
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log, "eval", args, ctx);
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "eval", args, ctx);
 
-                let code_arg = args.get_or_undefined(0);
-                let code = code_arg.to_string(ctx)?;
-                let code_str = code.to_std_string_escaped();
+                    let code_arg = args.get_or_undefined(0);
+                    let code = code_arg.to_string(ctx)?;
+                    let code_str = code.to_std_string_escaped();
 
-                // Record the eval attempt
-                {
-                    let mut log_ref = log.borrow_mut();
-                    if log_ref.call_args.len() < log_ref.options.max_call_args {
-                        log_ref.call_args.push(format!(
-                            "eval({})",
-                            &code_str[..std::cmp::min(code_str.len(), 100)]
-                        ));
-                    }
-
-                    // Record scope transition
-                    log_ref.scope_transitions.push(ScopeTransition {
-                        from_scope: "global".to_string(),
-                        to_scope: "eval".to_string(),
-                        trigger: TransitionTrigger::EvalExecution,
-                        variables_inherited: Vec::new(),
-                        timestamp: std::time::Duration::from_millis(0), // TODO: proper timestamp
-                    });
-                }
-
-                // Preprocess the code for variable promotion
-                let processed_code = preprocess_eval_code(&code_str, &scope);
-
-                // Execute with enhanced error handling and variable tracking
-                match execute_with_variable_promotion(ctx, &processed_code, &scope, &log) {
-                    Ok(result) => {
-                        // Post-process to promote variables to global scope
-                        post_process_eval_variables(ctx, &code_str, &scope, &log);
-                        Ok(result)
-                    }
-                    Err(e) => {
-                        // Log error and attempt recovery
-                        let error_text = format!("{:?}", e);
-                        if !error_text.contains("RuntimeLimit") {
-                            let mut log_ref = log.borrow_mut();
-                            log_ref
-                                .errors
-                                .push(format!("Eval error (recovered): {}", error_text));
+                    {
+                        let mut log_ref = captures.log.borrow_mut();
+                        if log_ref.call_args.len() < log_ref.options.max_call_args {
+                            log_ref.call_args.push(format!(
+                                "eval({})",
+                                &code_str[..std::cmp::min(code_str.len(), 100)]
+                            ));
                         }
+                        log_ref.scope_transitions.push(ScopeTransition {
+                            from_scope: "global".to_string(),
+                            to_scope: "eval".to_string(),
+                            trigger: TransitionTrigger::EvalExecution,
+                            variables_inherited: Vec::new(),
+                            timestamp: std::time::Duration::from_millis(0),
+                        });
+                    }
 
-                        // Attempt error recovery
-                        if let Some(recovered_result) =
-                            attempt_error_recovery(ctx, &e, &code_str, &scope, &log)
-                        {
-                            Ok(recovered_result)
-                        } else {
-                            Ok(JsValue::undefined())
+                    let processed_code = preprocess_eval_code(&code_str, &captures.scope);
+
+                    match execute_with_variable_promotion(
+                        ctx,
+                        &processed_code,
+                        &captures.scope,
+                        &captures.log,
+                    ) {
+                        Ok(result) => {
+                            post_process_eval_variables(
+                                ctx,
+                                &code_str,
+                                &captures.scope,
+                                &captures.log,
+                            );
+                            Ok(result)
+                        }
+                        Err(e) => {
+                            let error_text = format!("{:?}", e);
+                            if !error_text.contains("RuntimeLimit") {
+                                let mut log_ref = captures.log.borrow_mut();
+                                log_ref
+                                    .errors
+                                    .push(format!("Eval error (recovered): {}", error_text));
+                            }
+
+                            if let Some(recovered_result) = attempt_error_recovery(
+                                ctx,
+                                &e,
+                                &code_str,
+                                &captures.scope,
+                                &captures.log,
+                            ) {
+                                Ok(recovered_result)
+                            } else {
+                                Ok(JsValue::undefined())
+                            }
                         }
                     }
-                }
-            })
+                },
+                LogScopeCapture {
+                    log: log.clone(),
+                    scope: scope.clone(),
+                },
+            )
         };
 
         let _ = context.register_global_builtin_callable(JsString::from("eval"), 1, eval_fn);
@@ -2265,10 +2411,10 @@ mod sandbox_impl {
                     scope.borrow_mut().auto_promote.insert(var_str.clone());
 
                     // Replace with global assignment to ensure persistence
-                    result = result.replace(
-                        caps.get(0).unwrap().as_str(),
-                        &format!("this.{} = ", var_str),
-                    );
+                    if let Some(full_match) = caps.get(0) {
+                        result =
+                            result.replace(full_match.as_str(), &format!("this.{} = ", var_str));
+                    }
                 }
             }
         } else {
@@ -2385,7 +2531,7 @@ mod sandbox_impl {
             && (
                 var_name.chars().any(|c| c.is_uppercase()) || // Mixed case
             var_name.contains('_') || // Underscore naming
-            var_name.chars().last().map_or(false, |c| c.is_numeric())
+            var_name.chars().last().is_some_and(|c| c.is_numeric())
                 // Ends with number
             )
     }
@@ -2722,15 +2868,14 @@ mod sandbox_impl {
                 && i + 2 < words.len()
                 && words[i + 1] == "not"
                 && words[i + 2] == "defined"
+                && i > 0
             {
-                if i > 0 {
-                    let candidate = words[i - 1]
-                        .trim_end_matches(',')
-                        .trim_matches('"')
-                        .trim_matches('\'');
-                    if !candidate.is_empty() {
-                        return Some(candidate.to_string());
-                    }
+                let candidate = words[i - 1]
+                    .trim_end_matches(',')
+                    .trim_matches('"')
+                    .trim_matches('\'');
+                if !candidate.is_empty() {
+                    return Some(candidate.to_string());
                 }
             }
         }
@@ -2883,15 +3028,18 @@ mod sandbox_impl {
     }
 
     fn is_hex(byte: u8) -> bool {
-        matches!(byte, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F')
+        byte.is_ascii_hexdigit()
     }
 
     fn make_native(log: Rc<RefCell<SandboxLog>>, name: &'static str) -> NativeFunction {
         unsafe {
-            NativeFunction::from_closure(move |_this, args, ctx| {
-                record_call(&log, name, args, ctx);
-                Ok(JsValue::undefined())
-            })
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, captures.name, args, ctx);
+                    Ok(JsValue::undefined())
+                },
+                LogNameCapture { log, name },
+            )
         }
     }
 
@@ -2901,11 +3049,18 @@ mod sandbox_impl {
         name: &'static str,
         value: &'static str,
     ) -> JsFunction {
+        let getter_value = JsValue::from(JsString::from(value));
         let function = unsafe {
-            NativeFunction::from_closure(move |_this, _args, _ctx| {
-                record_prop(&log, name);
-                Ok(JsValue::from(JsString::from(value)))
-            })
+            NativeFunction::from_closure_with_captures(
+                move |_this, _args, captures, _ctx| {
+                    record_prop(&captures.log, name);
+                    Ok(captures.value.clone())
+                },
+                LogValueCapture {
+                    log,
+                    value: getter_value,
+                },
+            )
         };
         FunctionObjectBuilder::new(context.realm(), function)
             .name(JsString::from(name))

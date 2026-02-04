@@ -60,7 +60,6 @@ impl Detector for ICCProfileDetector {
                             yara: None,
                             position: None,
                             positions: Vec::new(),
-                            ..Finding::default()
                         });
                     }
                     if let Some(issue) = icc_header_issue(ctx.bytes, &stream) {
@@ -80,10 +79,13 @@ impl Detector for ICCProfileDetector {
                                 "Validate ICC profile header and declared size.".into(),
                             ),
                             meta,
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
                             yara: None,
                             position: None,
                             positions: Vec::new(),
-                            ..Finding::default()
                         });
                     }
                 }

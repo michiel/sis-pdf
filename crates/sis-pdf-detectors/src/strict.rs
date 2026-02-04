@@ -57,7 +57,6 @@ impl Detector for StrictParseDeviationDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             });
         }
         if let Some(off) = header_offset {
@@ -90,10 +89,13 @@ impl Detector for StrictParseDeviationDetector {
                     }],
                     remediation: Some("Inspect for polyglot or header-tolerant evasion.".into()),
                     meta,
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                    ..Finding::default()
                 });
             }
         }
@@ -110,6 +112,7 @@ impl Detector for StrictParseDeviationDetector {
                 kind: "missing_eof_marker".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Strong, // Upgraded: %%EOF presence is definitive check
+                impact: None,
                 title: "Missing EOF marker".into(),
                 description: "EOF marker not found near end of file.".into(),
                 objects: vec!["eof".into()],
@@ -130,7 +133,6 @@ impl Detector for StrictParseDeviationDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             });
         } else if let Some(off) = eof_offset {
             let distance = ctx.bytes.len().saturating_sub(off + 5);
@@ -160,10 +162,13 @@ impl Detector for StrictParseDeviationDetector {
                     }],
                     remediation: Some("Inspect for incremental updates or trailing data.".into()),
                     meta,
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                    ..Finding::default()
                 });
             }
         }
@@ -174,7 +179,7 @@ impl Detector for StrictParseDeviationDetector {
                         let declared = i.max(0) as u64;
                         let actual = st.data_span.len();
                         if declared != actual {
-                            let tolerance = (declared as i64 - actual as i64).abs() as u64;
+                            let tolerance = (declared as i64 - actual as i64).unsigned_abs();
                             let mut meta = std::collections::HashMap::new();
                             meta.insert("stream.declared_length".into(), declared.to_string());
                             meta.insert("stream.actual_length".into(), actual.to_string());
@@ -256,7 +261,6 @@ impl Detector for StrictParseDeviationDetector {
             action_initiation: None,                    yara: None,
         position: None,
         positions: Vec::new(),
-                ..Finding::default()
                 });
             }
             let mut action_object = None;
@@ -308,7 +312,6 @@ impl Detector for StrictParseDeviationDetector {
                     yara: None,
                     position: None,
                     positions: Vec::new(),
-                    ..Finding::default()
                 });
             }
             if ctx.options.strict_summary {
@@ -349,10 +352,13 @@ impl Detector for StrictParseDeviationDetector {
                             "Inspect deviation kinds with the highest counts.".into(),
                         ),
                         meta,
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
                         yara: None,
                         position: None,
                         positions: Vec::new(),
-                        ..Finding::default()
                     });
                 }
             } else {
@@ -383,7 +389,6 @@ impl Detector for StrictParseDeviationDetector {
                         yara: None,
                         position: None,
                         positions: Vec::new(),
-                        ..Finding::default()
                     });
                 }
             }

@@ -48,6 +48,5 @@ fn flags_decode_recovery_used() {
     assert!(recovery
         .unwrap()
         .meta
-        .get("decode.recovered_filters")
-        .is_some());
+        .contains_key("decode.recovered_filters"));
 }

@@ -5,7 +5,6 @@ use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
 use globset::Glob;
 use js_analysis::{DynamicOptions, DynamicOutcome};
-use memmap2::Mmap;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -129,6 +128,20 @@ enum Command {
         colour: bool,
         #[arg(long, short = 'c', help = "Compact output (numbers only)")]
         compact: bool,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = commands::query::ReportVerbosity::Standard,
+            help = "Report verbosity (compact, standard, verbose)"
+        )]
+        report_verbosity: commands::query::ReportVerbosity,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = commands::query::ChainSummaryLevel::Events,
+            help = "Chain summary level (minimal, events, full)"
+        )]
+        chain_summary: commands::query::ChainSummaryLevel,
         #[arg(long, help = "Filter results with a predicate expression")]
         r#where: Option<String>,
         #[arg(long, help = "Deep scan mode")]
@@ -337,6 +350,20 @@ enum Command {
         strict: bool,
         #[arg(long)]
         ir: bool,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = commands::query::ChainSummaryLevel::Events,
+            help = "Chain summary level for report output (minimal, events, full)"
+        )]
+        report_chain_summary: commands::query::ChainSummaryLevel,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = commands::query::ReportVerbosity::Standard,
+            help = "Report verbosity for Markdown output (compact, standard, verbose)"
+        )]
+        report_verbosity: commands::query::ReportVerbosity,
         #[arg(long, help = "Disable image analysis (static and dynamic)")]
         no_image_analysis: bool,
         #[arg(long, help = "Disable dynamic image decoding (deep scan)")]
@@ -676,6 +703,8 @@ fn main() -> Result<()> {
             format,
             colour,
             compact,
+            report_verbosity,
+            chain_summary,
             r#where,
             deep,
             max_decode_bytes,
@@ -778,6 +807,8 @@ fn main() -> Result<()> {
                     max_extract_bytes,
                     decode_mode,
                     predicate.as_ref(),
+                    report_verbosity,
+                    chain_summary,
                 )
             } else {
                 // Interactive REPL mode requires a single PDF file
@@ -798,7 +829,9 @@ fn main() -> Result<()> {
                     output_format
                 };
                 run_query_repl(
-                    actual_pdf.as_deref().unwrap(), // Safe because we validated above
+                    actual_pdf
+                        .as_deref()
+                        .ok_or_else(|| anyhow!("no PDF path available"))?,
                     deep,
                     max_decode_bytes,
                     max_total_decoded_bytes,
@@ -811,6 +844,8 @@ fn main() -> Result<()> {
                     colour,
                     decode_mode,
                     predicate.as_ref(),
+                    report_verbosity,
+                    chain_summary,
                 )
             }
         }
@@ -983,6 +1018,8 @@ fn main() -> Result<()> {
             no_js_sandbox,
             no_image_analysis,
             no_image_dynamic,
+            report_chain_summary,
+            report_verbosity,
         } => run_report(
             &pdf,
             deep,
@@ -1017,6 +1054,8 @@ fn main() -> Result<()> {
             !no_js_sandbox,
             !no_image_analysis,
             !no_image_dynamic,
+            report_chain_summary,
+            report_verbosity,
         ),
         Command::Explain {
             pdf, finding_id, ..
@@ -2658,8 +2697,8 @@ fn validate_ml_config(scan: &sis_pdf_core::config::ScanConfig) -> Result<()> {
     }
     Ok(())
 }
-fn mmap_file(path: &str) -> Result<Mmap> {
-    let f = fs::File::open(path)?;
+fn read_pdf_bytes(path: &str) -> Result<Vec<u8>> {
+    let mut f = fs::File::open(path)?;
     let size = f.metadata()?.len();
     if size > WARN_PDF_BYTES {
         SecurityEvent {
@@ -2701,7 +2740,9 @@ fn mmap_file(path: &str) -> Result<Mmap> {
         );
         return Err(anyhow!("file exceeds max size: {} bytes", size));
     }
-    unsafe { Mmap::map(&f).map_err(|e| anyhow!(e)) }
+    let mut buffer = Vec::with_capacity(size as usize);
+    f.read_to_end(&mut buffer)?;
+    Ok(buffer)
 }
 
 fn maybe_colourise_output(
@@ -2736,6 +2777,8 @@ fn run_query_oneshot(
     max_extract_bytes: usize,
     decode_mode: commands::query::DecodeMode,
     predicate: Option<&commands::query::PredicateExpr>,
+    report_verbosity: commands::query::ReportVerbosity,
+    chain_summary: commands::query::ChainSummaryLevel,
 ) -> Result<()> {
     use commands::query;
 
@@ -2811,6 +2854,9 @@ fn run_query_oneshot(
     )
     .map_err(|e| anyhow!("Query execution failed: {}", e))?;
 
+    let result = query::apply_report_verbosity(&query, result, report_verbosity, output_format);
+    let result = query::apply_chain_summary(&query, result, chain_summary, output_format);
+
     // Format and print the result
     match output_format {
         query::OutputFormat::Json => {
@@ -2852,6 +2898,8 @@ fn run_query_repl(
     colour: bool,
     decode_mode: commands::query::DecodeMode,
     predicate: Option<&commands::query::PredicateExpr>,
+    report_verbosity: commands::query::ReportVerbosity,
+    chain_summary: commands::query::ChainSummaryLevel,
 ) -> Result<()> {
     use commands::query;
     use rustyline::error::ReadlineError;
@@ -3040,6 +3088,8 @@ fn run_query_repl(
                             query::OutputFormat::Jsonl
                         } else if json_mode {
                             query::OutputFormat::Json
+                        } else if readable_mode {
+                            query::OutputFormat::Readable
                         } else {
                             query::OutputFormat::Text
                         };
@@ -3059,42 +3109,62 @@ fn run_query_repl(
                             predicate_expr.as_ref(),
                         ) {
                             Ok(result) => {
-                                let formatted = if yaml_mode {
-                                    match query::format_yaml(query_line, pdf_path, &result) {
-                                        Ok(output) => maybe_colourise_output(
-                                            output,
-                                            query::OutputFormat::Yaml,
-                                            colour_mode,
-                                        ),
-                                        Err(e) => {
-                                            eprintln!("Error formatting result: {}", e);
-                                            continue;
+                                let result = query::apply_report_verbosity(
+                                    &q,
+                                    result,
+                                    report_verbosity,
+                                    output_format,
+                                );
+                                let result = query::apply_chain_summary(
+                                    &q,
+                                    result,
+                                    chain_summary,
+                                    output_format,
+                                );
+                                let formatted = match output_format {
+                                    query::OutputFormat::Yaml => {
+                                        match query::format_yaml(query_line, pdf_path, &result) {
+                                            Ok(output) => maybe_colourise_output(
+                                                output,
+                                                query::OutputFormat::Yaml,
+                                                colour_mode,
+                                            ),
+                                            Err(e) => {
+                                                eprintln!("Error formatting result: {}", e);
+                                                continue;
+                                            }
                                         }
                                     }
-                                } else if jsonl_mode {
-                                    match query::format_jsonl(query_line, pdf_path, &result) {
-                                        Ok(output) => output,
-                                        Err(e) => {
-                                            eprintln!("Error formatting result: {}", e);
-                                            continue;
+                                    query::OutputFormat::Jsonl => {
+                                        match query::format_jsonl(query_line, pdf_path, &result) {
+                                            Ok(output) => output,
+                                            Err(e) => {
+                                                eprintln!("Error formatting result: {}", e);
+                                                continue;
+                                            }
                                         }
                                     }
-                                } else if json_mode {
-                                    match query::format_json(query_line, pdf_path, &result) {
-                                        Ok(output) => maybe_colourise_output(
-                                            output,
-                                            query::OutputFormat::Json,
-                                            colour_mode,
-                                        ),
-                                        Err(e) => {
-                                            eprintln!("Error formatting result: {}", e);
-                                            continue;
+                                    query::OutputFormat::Json => {
+                                        match query::format_json(query_line, pdf_path, &result) {
+                                            Ok(output) => maybe_colourise_output(
+                                                output,
+                                                query::OutputFormat::Json,
+                                                colour_mode,
+                                            ),
+                                            Err(e) => {
+                                                eprintln!("Error formatting result: {}", e);
+                                                continue;
+                                            }
                                         }
                                     }
-                                } else if readable_mode {
-                                    query::format_readable_result(&result, compact_mode)
-                                } else {
-                                    query::format_result(&result, compact_mode)
+                                    query::OutputFormat::Readable => {
+                                        query::format_readable_result(&result, compact_mode)
+                                    }
+                                    query::OutputFormat::Text
+                                    | query::OutputFormat::Csv
+                                    | query::OutputFormat::Dot => {
+                                        query::format_result(&result, compact_mode)
+                                    }
                                 };
 
                                 match destination {
@@ -3208,7 +3278,7 @@ enum ReplDestination<'a> {
 }
 
 fn split_repl_destination(line: &str) -> (&str, ReplDestination<'_>) {
-    if let Some(idx) = line.find(|c| c == '|' || c == '>') {
+    if let Some(idx) = line.find(['|', '>']) {
         let (primary, rest) = line.split_at(idx);
         let command = rest[1..].trim();
         let query = primary.trim_end();
@@ -3280,7 +3350,6 @@ mod repl_tests {
         }
     }
 
-    #[cfg(unix)]
     #[cfg(unix)]
     #[test]
     fn run_repl_pipeline_invokes_shell() {
@@ -3589,13 +3658,13 @@ fn run_scan(
         );
     }
     let pdf = pdf.ok_or_else(|| anyhow!("PDF path is required unless --path is set"))?;
-    let mmap = mmap_file(pdf)?;
+    let bytes = read_pdf_bytes(pdf)?;
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(js_sandbox);
     let mut report =
-        run_scan_single(&mmap, pdf, &opts, &detectors)?.with_sandbox_summary(sandbox_summary);
+        run_scan_single(&bytes, pdf, &opts, &detectors)?.with_sandbox_summary(sandbox_summary);
     if ml_inference_requested {
         match run_ml_inference_for_scan(
-            &mmap,
+            &bytes,
             &opts,
             &report,
             ml_model_dir,
@@ -3616,7 +3685,7 @@ fn run_scan(
     }
     if temporal_requested {
         let (temporal_summary, temporal_snapshots, temporal_explanation) = run_temporal_analysis(
-            &mmap,
+            &bytes,
             &opts,
             &detectors,
             ml_model_dir,
@@ -3813,12 +3882,12 @@ fn run_temporal_analysis(
 }
 
 fn run_scan_single(
-    mmap: &Mmap,
+    bytes: &[u8],
     pdf: &str,
     opts: &sis_pdf_core::scan::ScanOptions,
     detectors: &[Box<dyn sis_pdf_core::detect::Detector>],
 ) -> Result<sis_pdf_core::report::Report> {
-    let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), detectors)?
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts.clone(), detectors)?
         .with_input_path(Some(pdf.to_string()));
     Ok(report)
 }
@@ -3975,8 +4044,8 @@ fn run_scan_batch(
     let process_path = |path: &PathBuf| -> Result<sis_pdf_core::report::BatchEntry> {
         let path_str = path.display().to_string();
         let start = std::time::Instant::now();
-        let mmap = mmap_file(&path_str)?;
-        let hash = sha256_hex(&mmap);
+        let bytes = read_pdf_bytes(&path_str)?;
+        let hash = sha256_hex(&bytes);
         let mut report = if let Some(cache) = &cache {
             cache.load(&hash)
         } else {
@@ -3984,16 +4053,16 @@ fn run_scan_batch(
         };
         if report.is_none() {
             report = Some(
-                sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), detectors)?
+                sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts.clone(), detectors)?
                     .with_input_path(Some(path_str.clone())),
             );
-            if let (Some(cache), Some(ref report)) = (&cache, report.as_ref()) {
+            if let (Some(cache), Some(report)) = (&cache, report.as_ref()) {
                 let _ = cache.store(&hash, report);
             }
         } else if let Some(rep) = report.take() {
             report = Some(rep.with_input_path(Some(path_str.clone())));
         }
-        let report = report.expect("report");
+        let report = report.ok_or_else(|| anyhow!("report not produced for {}", path.display()))?;
         if let Some(writer) = intent_writer.as_ref() {
             let mut guard = writer
                 .lock()
@@ -4110,7 +4179,7 @@ fn run_scan_batch(
     Ok(())
 }
 fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) -> Result<()> {
-    let mmap = mmap_file(pdf)?;
+    let bytes = read_pdf_bytes(pdf)?;
     let mut opts = sis_pdf_core::scan::ScanOptions {
         strict: false,
         strict_summary: false,
@@ -4144,7 +4213,7 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     }
     let detectors = sis_pdf_detectors::default_detectors();
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(true);
-    let report = sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts, &detectors)?
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts, &detectors)?
         .with_input_path(Some(pdf.to_string()))
         .with_sandbox_summary(sandbox_summary);
     let Some(finding) = report.findings.iter().find(|f| f.id == finding_id) else {
@@ -4171,8 +4240,8 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
         );
         if matches!(ev.source, sis_pdf_core::model::EvidenceSource::File) {
             let start = ev.offset as usize;
-            let end = start.saturating_add(ev.length as usize).min(mmap.len());
-            let slice = &mmap[start..end];
+            let end = start.saturating_add(ev.length as usize).min(bytes.len());
+            let slice = &bytes[start..end];
             println!("{}", preview_bytes(slice));
         } else {
             println!("(decoded evidence preview not available)");
@@ -4215,8 +4284,10 @@ fn run_report(
     js_sandbox: bool,
     image_analysis_enabled: bool,
     image_dynamic_enabled: bool,
+    _report_chain_summary: commands::query::ChainSummaryLevel,
+    _report_verbosity: commands::query::ReportVerbosity,
 ) -> Result<()> {
-    let mmap = mmap_file(pdf)?;
+    let bytes = read_pdf_bytes(pdf)?;
     let diff_parser = diff_parser || strict;
     if diff_parser && strict {
         SecurityEvent {
@@ -4307,7 +4378,7 @@ fn run_report(
             js_sandbox,
         });
     let mut report =
-        sis_pdf_core::runner::run_scan_with_detectors(&mmap, opts.clone(), &detectors)?
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts.clone(), &detectors)?
             .with_input_path(Some(pdf.to_string()));
     let ml_inference_requested = ml_extended_features
         || ml_explain
@@ -4318,7 +4389,7 @@ fn run_report(
     let temporal_requested = temporal_signals || ml_temporal;
     if ml_inference_requested {
         match run_ml_inference_for_scan(
-            &mmap,
+            &bytes,
             &opts,
             &report,
             ml_model_dir,
@@ -4339,7 +4410,7 @@ fn run_report(
     }
     if temporal_requested {
         let (temporal_summary, temporal_snapshots, temporal_explanation) = run_temporal_analysis(
-            &mmap,
+            &bytes,
             &opts,
             &detectors,
             ml_model_dir,

@@ -2,16 +2,11 @@ use std::path::PathBuf;
 
 use crate::features::FeatureVector;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub enum MlMode {
+    #[default]
     Traditional,
     Graph,
-}
-
-impl Default for MlMode {
-    fn default() -> Self {
-        MlMode::Traditional
-    }
 }
 
 #[derive(Debug, Clone)]

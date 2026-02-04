@@ -139,7 +139,7 @@ fn count_hex_names(graph: &sis_pdf_pdf::ObjectGraph<'_>) -> usize {
 }
 
 fn name_has_hex(name: &PdfName<'_>) -> bool {
-    name.raw.iter().any(|b| *b == b'#')
+    name.raw.contains(&b'#')
 }
 
 fn count_deep_filters(graph: &sis_pdf_pdf::ObjectGraph<'_>) -> usize {

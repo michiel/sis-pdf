@@ -46,9 +46,11 @@ impl Detector for JavaScriptSandboxDetector {
                     evidence.push(span_to_evidence(entry.full_span, "JavaScript object"));
                 }
 
-                let mut options = DynamicOptions::default();
-                options.max_bytes = JS_SANDBOX_MAX_BYTES;
-                options.timeout_ms = JS_WALLCLOCK_TIMEOUT.as_millis();
+                let options = DynamicOptions {
+                    max_bytes: JS_SANDBOX_MAX_BYTES,
+                    timeout_ms: JS_WALLCLOCK_TIMEOUT.as_millis(),
+                    ..Default::default()
+                };
 
                 match run_sandbox(&info.bytes, &options) {
                     DynamicOutcome::Skipped {

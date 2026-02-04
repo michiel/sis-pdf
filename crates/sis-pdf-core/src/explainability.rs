@@ -33,21 +33,11 @@ pub struct MlExplanation {
 }
 
 /// Benign baseline statistics for comparative analysis
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BenignBaseline {
     pub feature_means: HashMap<String, f32>,
     pub feature_stddevs: HashMap<String, f32>,
     pub feature_percentiles: HashMap<String, Vec<f32>>, // [P10, P25, P50, P75, P90, P95, P99]
-}
-
-impl Default for BenignBaseline {
-    fn default() -> Self {
-        Self {
-            feature_means: HashMap::new(),
-            feature_stddevs: HashMap::new(),
-            feature_percentiles: HashMap::new(),
-        }
-    }
 }
 
 impl BenignBaseline {
@@ -190,7 +180,7 @@ pub struct CalibratedPrediction {
 }
 
 /// JavaScript risk profile
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct JsRiskProfile {
     pub present: bool,
     pub count: usize,
@@ -202,23 +192,8 @@ pub struct JsRiskProfile {
     pub risk_score: f32,
 }
 
-impl Default for JsRiskProfile {
-    fn default() -> Self {
-        Self {
-            present: false,
-            count: 0,
-            max_obfuscation: 0.0,
-            avg_obfuscation: 0.0,
-            evasion_techniques: vec![],
-            multi_stage: false,
-            eval_usage: false,
-            risk_score: 0.0,
-        }
-    }
-}
-
 /// URI/external action risk profile
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UriRiskProfile {
     pub present: bool,
     pub count: usize,
@@ -229,22 +204,8 @@ pub struct UriRiskProfile {
     pub risk_score: f32,
 }
 
-impl Default for UriRiskProfile {
-    fn default() -> Self {
-        Self {
-            present: false,
-            count: 0,
-            suspicious_domains: vec![],
-            suspicious_schemes: vec![],
-            phishing_indicators: 0,
-            external_connections: 0,
-            risk_score: 0.0,
-        }
-    }
-}
-
 /// Structural anomaly risk profile
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StructuralRiskProfile {
     pub spec_violations: usize,
     pub xref_issues: usize,
@@ -252,19 +213,6 @@ pub struct StructuralRiskProfile {
     pub compression_ratio: f32,
     pub encryption_present: bool,
     pub risk_score: f32,
-}
-
-impl Default for StructuralRiskProfile {
-    fn default() -> Self {
-        Self {
-            spec_violations: 0,
-            xref_issues: 0,
-            object_stream_anomalies: 0,
-            compression_ratio: 0.0,
-            encryption_present: false,
-            risk_score: 0.0,
-        }
-    }
 }
 
 /// Supply chain risk profile
@@ -298,7 +246,7 @@ impl Default for SupplyChainRiskProfile {
 }
 
 /// Content-based risk profile
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ContentRiskProfile {
     pub text_anomalies: usize,
     pub font_issues: usize,
@@ -309,40 +257,14 @@ pub struct ContentRiskProfile {
     pub risk_score: f32,
 }
 
-impl Default for ContentRiskProfile {
-    fn default() -> Self {
-        Self {
-            text_anomalies: 0,
-            font_issues: 0,
-            image_anomalies: 0,
-            hidden_content: false,
-            overlapping_objects: false,
-            phishing_keywords: vec![],
-            risk_score: 0.0,
-        }
-    }
-}
-
 /// Cryptographic risk profile
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CryptoRiskProfile {
     pub encryption_algorithm: Option<String>,
     pub weak_encryption: bool,
     pub certificate_issues: usize,
     pub signature_anomalies: usize,
     pub risk_score: f32,
-}
-
-impl Default for CryptoRiskProfile {
-    fn default() -> Self {
-        Self {
-            encryption_algorithm: None,
-            weak_encryption: false,
-            certificate_issues: 0,
-            signature_anomalies: 0,
-            risk_score: 0.0,
-        }
-    }
 }
 
 /// Compute percentile from percentile array [P10, P25, P50, P75, P90, P95, P99]
@@ -2578,7 +2500,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "struct-1".to_string(),
@@ -2601,7 +2522,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
         ];
 
@@ -2636,7 +2556,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "xref-1".to_string(),
@@ -2659,7 +2578,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
         ];
 

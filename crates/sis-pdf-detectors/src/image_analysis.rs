@@ -144,13 +144,13 @@ fn payload_format(meta: &HashMap<String, String>) -> Option<String> {
         .get("image.filters")
         .map(|v| v.split(',').map(|s| s.trim()).collect::<Vec<_>>())
         .unwrap_or_default();
-    if filters.iter().any(|f| *f == "JBIG2Decode") {
+    if filters.contains(&"JBIG2Decode") {
         return Some("JBIG2".into());
     }
-    if filters.iter().any(|f| *f == "JPXDecode") {
+    if filters.contains(&"JPXDecode") {
         return Some("JPX".into());
     }
-    if filters.iter().any(|f| *f == "CCITTFaxDecode") {
+    if filters.contains(&"CCITTFaxDecode") {
         return Some("CCITT".into());
     }
     if filters.iter().any(|f| *f == "DCTDecode" || *f == "DCT") {

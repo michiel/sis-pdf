@@ -2,7 +2,6 @@
 ///
 /// This module analyzes variable font tables (gvar, avar, HVAR, MVAR) for
 /// suspicious patterns that could indicate exploits or malformed fonts.
-
 #[cfg(feature = "dynamic")]
 use std::collections::HashMap;
 #[cfg(feature = "dynamic")]
@@ -268,51 +267,6 @@ fn get_table_size(font_data: &[u8], tag: &[u8; 4]) -> Option<usize> {
     None
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[cfg(feature = "dynamic")]
-    fn test_non_variable_font() {
-        // Minimal TrueType font header (not a variable font)
-        let font_data = vec![
-            0x00, 0x01, 0x00, 0x00, // version
-            0x00, 0x00, // num tables
-            0x00, 0x00, // search range
-            0x00, 0x00, // entry selector
-            0x00, 0x00, // range shift
-        ];
-
-        let findings = analyze_variable_font(&font_data);
-        // Should return empty for non-variable fonts or parsing errors
-        assert_eq!(findings.len(), 0);
-    }
-
-    #[test]
-    fn test_get_table_size() {
-        // Create minimal font with gvar table
-        let font_data = vec![
-            0x00, 0x01, 0x00, 0x00, // version
-            0x00, 0x01, // num tables = 1
-            0x00, 0x00, // search range
-            0x00, 0x00, // entry selector
-            0x00, 0x00, // range shift
-            // Table record for 'gvar'
-            b'g', b'v', b'a', b'r', // tag
-            0x00, 0x00, 0x00, 0x00, // checksum
-            0x00, 0x00, 0x00, 0x20, // offset = 32
-            0x00, 0x00, 0x10, 0x00, // length = 4096
-        ];
-
-        let size = get_table_size(&font_data, b"gvar");
-        assert_eq!(size, Some(4096));
-
-        let missing = get_table_size(&font_data, b"HVAR");
-        assert_eq!(missing, None);
-    }
-}
-
 #[cfg(feature = "dynamic")]
 struct GvarHeader {
     glyph_count: u16,
@@ -356,7 +310,7 @@ fn parse_gvar_header(data: &[u8]) -> Option<GvarHeader> {
 #[cfg(feature = "dynamic")]
 fn parse_gvar_offsets(slice: &[u8], long_format: bool) -> Option<Vec<u32>> {
     if long_format {
-        if slice.len() % 4 != 0 {
+        if !slice.len().is_multiple_of(4) {
             return None;
         }
         let mut out = Vec::with_capacity(slice.len() / 4);
@@ -366,7 +320,7 @@ fn parse_gvar_offsets(slice: &[u8], long_format: bool) -> Option<Vec<u32>> {
         }
         Some(out)
     } else {
-        if slice.len() % 2 != 0 {
+        if !slice.len().is_multiple_of(2) {
             return None;
         }
         let mut out = Vec::with_capacity(slice.len() / 2);
@@ -376,5 +330,50 @@ fn parse_gvar_offsets(slice: &[u8], long_format: bool) -> Option<Vec<u32>> {
             out.push((val as u32) * 2);
         }
         Some(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(feature = "dynamic")]
+    fn test_non_variable_font() {
+        // Minimal TrueType font header (not a variable font)
+        let font_data = vec![
+            0x00, 0x01, 0x00, 0x00, // version
+            0x00, 0x00, // num tables
+            0x00, 0x00, // search range
+            0x00, 0x00, // entry selector
+            0x00, 0x00, // range shift
+        ];
+
+        let findings = analyze_variable_font(&font_data);
+        // Should return empty for non-variable fonts or parsing errors
+        assert_eq!(findings.len(), 0);
+    }
+
+    #[test]
+    fn test_get_table_size() {
+        // Create minimal font with gvar table
+        let font_data = vec![
+            0x00, 0x01, 0x00, 0x00, // version
+            0x00, 0x01, // num tables = 1
+            0x00, 0x00, // search range
+            0x00, 0x00, // entry selector
+            0x00, 0x00, // range shift
+            // Table record for 'gvar'
+            b'g', b'v', b'a', b'r', // tag
+            0x00, 0x00, 0x00, 0x00, // checksum
+            0x00, 0x00, 0x00, 0x20, // offset = 32
+            0x00, 0x00, 0x10, 0x00, // length = 4096
+        ];
+
+        let size = get_table_size(&font_data, b"gvar");
+        assert_eq!(size, Some(4096));
+
+        let missing = get_table_size(&font_data, b"HVAR");
+        assert_eq!(missing, None);
     }
 }

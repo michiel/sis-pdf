@@ -70,7 +70,6 @@ impl Detector for AnnotationAttackDetector {
                             yara: None,
                             position: None,
                             positions: Vec::new(),
-                            ..Finding::default()
                         });
                     }
                 }

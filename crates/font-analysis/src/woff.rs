@@ -2,7 +2,6 @@
 ///
 /// This module handles WOFF and WOFF2 compressed fonts, decompressing them
 /// and converting to standard SFNT format for analysis.
-
 #[cfg(feature = "dynamic")]
 use std::collections::HashMap;
 #[cfg(feature = "dynamic")]

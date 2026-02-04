@@ -65,21 +65,11 @@ impl MultiStageCorrelator {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct IntentExtractionOptions {
     pub include_domains: bool,
     pub include_obfuscated: bool,
     pub include_scheme_less: bool,
-}
-
-impl Default for IntentExtractionOptions {
-    fn default() -> Self {
-        Self {
-            include_domains: false,
-            include_obfuscated: false,
-            include_scheme_less: false,
-        }
-    }
 }
 
 pub fn extract_domain(url: &str) -> Option<String> {

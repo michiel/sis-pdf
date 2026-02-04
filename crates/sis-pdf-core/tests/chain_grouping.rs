@@ -51,7 +51,7 @@ fn adds_payload_summary_from_decode_meta() {
     let (chains, _) = synthesise_chains(&findings, true);
     let chain = chains
         .iter()
-        .find(|c| c.notes.get("payload.summary").is_some())
+        .find(|c| c.notes.contains_key("payload.summary"))
         .expect("payload summary");
     let summary = chain.notes.get("payload.summary").unwrap();
     assert!(summary.contains("filters=/FlateDecode"));
@@ -64,7 +64,7 @@ fn classifies_action_and_payload_labels() {
     let (chains, _) = synthesise_chains(&findings, true);
     let chain = chains
         .iter()
-        .find(|c| c.notes.get("action.label").is_some())
+        .find(|c| c.notes.contains_key("action.label"))
         .expect("action label");
     assert_eq!(
         chain.notes.get("action.label").map(String::as_str),
@@ -88,7 +88,7 @@ fn preserves_custom_action_labels() {
     let (chains, _) = synthesise_chains(&[finding], true);
     let chain = chains
         .iter()
-        .find(|c| c.notes.get("action.label").is_some())
+        .find(|c| c.notes.contains_key("action.label"))
         .expect("action label");
     assert_eq!(
         chain.notes.get("action.label").map(String::as_str),
@@ -106,7 +106,7 @@ fn records_recovered_payload_summary() {
     let (chains, _) = synthesise_chains(&findings, true);
     let chain = chains
         .iter()
-        .find(|c| c.notes.get("payload.summary").is_some())
+        .find(|c| c.notes.contains_key("payload.summary"))
         .expect("payload summary");
     let summary = chain.notes.get("payload.summary").unwrap();
     assert!(summary.contains("recovered=/FlateDecode"));

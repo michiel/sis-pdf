@@ -3018,7 +3018,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3041,7 +3040,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "3".to_string(),
@@ -3064,7 +3062,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
         ];
 
@@ -3098,7 +3095,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3121,7 +3117,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "3".to_string(),
@@ -3144,7 +3139,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
         ];
 
@@ -3180,7 +3174,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3203,7 +3196,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
         ];
 
@@ -3247,7 +3239,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3273,7 +3264,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
         ];
 
@@ -3349,7 +3339,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3372,7 +3361,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "3".to_string(),
@@ -3395,7 +3383,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
         ];
 
@@ -3430,7 +3417,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
             Finding {
                 id: "2".to_string(),
@@ -3453,7 +3439,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-                ..Finding::default()
             },
         ];
 

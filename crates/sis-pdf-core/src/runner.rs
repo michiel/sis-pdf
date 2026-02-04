@@ -282,7 +282,6 @@ pub fn run_scan_with_detectors(
             yara: None,
             position: None,
             positions: Vec::new(),
-            ..Finding::default()
         });
     }
 
@@ -339,7 +338,6 @@ pub fn run_scan_with_detectors(
             yara: None,
             position: None,
             positions: Vec::new(),
-            ..Finding::default()
         });
     }
     let mut ml_summary_override: Option<MlSummary> = None;
@@ -417,7 +415,6 @@ pub fn run_scan_with_detectors(
                                 yara: None,
                                 position: None,
                                 positions: Vec::new(),
-                                ..Finding::default()
                             });
                         }
                     }
@@ -443,7 +440,6 @@ pub fn run_scan_with_detectors(
                             yara: None,
                             position: None,
                             positions: Vec::new(),
-                            ..Finding::default()
                         });
                     }
                 }
@@ -475,7 +471,6 @@ pub fn run_scan_with_detectors(
                         yara: None,
                         position: None,
                         positions: Vec::new(),
-                        ..Finding::default()
                     });
                 }
             }
@@ -607,7 +602,6 @@ pub fn run_scan_with_detectors(
                         yara: None,
                         position: None,
                         positions: Vec::new(),
-                        ..Finding::default()
                     });
                 }
             }
@@ -885,7 +879,6 @@ fn correlate_font_js(findings: &mut Vec<Finding>) {
             yara: None,
             position: None,
             positions: Vec::new(),
-        ..Finding::default()
         });
     }
 
@@ -1364,7 +1357,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: vec![],
-                ..Finding::default()
             },
             Finding {
                 id: "js1".into(),
@@ -1387,7 +1379,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: vec![],
-                ..Finding::default()
             },
         ];
 
@@ -1435,7 +1426,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: vec![],
-                ..Finding::default()
             },
             Finding {
                 id: "js1".into(),
@@ -1458,7 +1448,6 @@ mod tests {
                 yara: None,
                 position: None,
                 positions: vec![],
-                ..Finding::default()
             },
         ];
 
@@ -1498,7 +1487,6 @@ mod tests {
             yara: None,
             position: None,
             positions: vec![],
-            ..Finding::default()
         }];
 
         let original_count = findings.len();

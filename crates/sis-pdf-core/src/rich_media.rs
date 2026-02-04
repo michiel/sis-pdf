@@ -6,19 +6,10 @@ use flate2::read::ZlibDecoder;
 use lzma_rust2::LzmaReader;
 use sis_pdf_pdf::swf::{parse_swf_header, SwfCompression, SwfHeader};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SwfActionScan {
     pub action_tags: Vec<String>,
     pub tags_scanned: usize,
-}
-
-impl Default for SwfActionScan {
-    fn default() -> Self {
-        Self {
-            action_tags: Vec::new(),
-            tags_scanned: 0,
-        }
-    }
 }
 
 pub struct SwfAnalysis {
@@ -71,7 +62,7 @@ pub fn swf_compression_label(compression: SwfCompression) -> &'static str {
 }
 
 pub fn detect_3d_format(data: &[u8]) -> Option<&'static str> {
-    if data.len() >= 4 && &data[..4] == [0x00, 0x00, 0x00, 0x24] {
+    if data.len() >= 4 && data[..4] == [0x00, 0x00, 0x00, 0x24] {
         return Some("u3d");
     }
     if data.starts_with(b"PRC") {
@@ -296,7 +287,7 @@ mod tests {
     fn make_minimal_swf_body() -> Vec<u8> {
         // RECT for frame size: nbits=1, 0 for all coords
         let nbits = 1u8;
-        let rect_header = (nbits << 3) | 0;
+        let rect_header = nbits << 3;
         vec![
             rect_header, // RECT + other bits (simplified)
             0,

@@ -1,6 +1,7 @@
 //! Query command implementation and output formatting helpers.
 
 use anyhow::{anyhow, Result};
+use clap::ValueEnum;
 use globset::Glob;
 use rayon::prelude::*;
 use serde::Serialize;
@@ -44,6 +45,20 @@ pub enum OutputFormat {
     Yaml,
     Csv,
     Dot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ReportVerbosity {
+    Compact,
+    Standard,
+    Verbose,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ChainSummaryLevel {
+    Minimal,
+    Events,
+    Full,
 }
 
 impl OutputFormat {
@@ -986,9 +1001,11 @@ fn is_ident_continue(ch: u8) -> bool {
 
 fn parse_predicate_field(name: &str) -> Result<PredicateField> {
     let lower = name.to_ascii_lowercase();
-    let field = if lower.ends_with(".length") || lower == "length" {
-        PredicateField::Length
-    } else if lower == "size" || lower.ends_with(".size") {
+    let field = if lower.ends_with(".length")
+        || lower == "length"
+        || lower == "size"
+        || lower.ends_with(".size")
+    {
         PredicateField::Length
     } else if lower.ends_with(".filter") || lower == "filter" {
         PredicateField::Filter
@@ -1236,6 +1253,159 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
     Ok(resolved)
 }
 
+pub fn apply_report_verbosity(
+    query: &Query,
+    result: QueryResult,
+    verbosity: ReportVerbosity,
+    output_format: OutputFormat,
+) -> QueryResult {
+    if verbosity != ReportVerbosity::Compact {
+        return result;
+    }
+
+    if !matches!(output_format, OutputFormat::Text | OutputFormat::Readable) {
+        return result;
+    }
+
+    if matches!(
+        query,
+        Query::Findings
+            | Query::FindingsBySeverity(_)
+            | Query::FindingsByKind(_)
+            | Query::FindingsComposite
+    ) {
+        if let QueryResult::Structure(value) = result {
+            QueryResult::Structure(filter_findings_by_severity(value))
+        } else {
+            result
+        }
+    } else {
+        result
+    }
+}
+
+fn filter_findings_by_severity(value: serde_json::Value) -> serde_json::Value {
+    let filtered = match value {
+        serde_json::Value::Array(entries) => serde_json::Value::Array(
+            entries
+                .into_iter()
+                .filter(
+                    |entry| match entry.get("severity").and_then(|v| v.as_str()) {
+                        Some("Info") | Some("Low") => false,
+                        Some(other) => {
+                            !other.eq_ignore_ascii_case("info")
+                                && !other.eq_ignore_ascii_case("low")
+                        }
+                        None => true,
+                    },
+                )
+                .collect(),
+        ),
+        other => other,
+    };
+    filtered
+}
+
+pub fn apply_chain_summary(
+    query: &Query,
+    result: QueryResult,
+    level: ChainSummaryLevel,
+    output_format: OutputFormat,
+) -> QueryResult {
+    if level == ChainSummaryLevel::Full {
+        return result;
+    }
+    if !matches!(output_format, OutputFormat::Text | OutputFormat::Readable) {
+        return result;
+    }
+    if !matches!(query, Query::Chains | Query::ChainsJs) {
+        return result;
+    }
+
+    if let QueryResult::Structure(mut value) = result {
+        if let Some(serde_json::Value::Array(chains)) = value.get_mut("chains") {
+            for chain in chains.iter_mut() {
+                summarize_chain_edges(chain, level);
+            }
+        }
+        QueryResult::Structure(value)
+    } else {
+        result
+    }
+}
+
+fn summarize_chain_edges(chain: &mut serde_json::Value, level: ChainSummaryLevel) {
+    if level == ChainSummaryLevel::Full {
+        return;
+    }
+    let original_count = chain
+        .get("edges")
+        .and_then(|v| v.as_array().map(|arr| arr.len()))
+        .or_else(|| {
+            chain
+                .get("length")
+                .and_then(|v| v.as_u64().map(|n| n as usize))
+        })
+        .unwrap_or(0);
+    let risk_score = chain
+        .get("risk_score")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let threshold = (risk_score * 0.4).max(0.25);
+
+    let mut summary_entry = None;
+    if let Some(serde_json::Value::Array(edges)) = chain.get_mut("edges") {
+        match level {
+            ChainSummaryLevel::Minimal => edges.clear(),
+            ChainSummaryLevel::Events => {
+                edges.retain(|edge| should_keep_edge(edge, threshold));
+            }
+            ChainSummaryLevel::Full => {}
+        }
+        if level != ChainSummaryLevel::Full {
+            summary_entry = Some(serde_json::json!({
+                "level": level_label(level),
+                "original": original_count,
+                "kept": edges.len()
+            }));
+        }
+    }
+
+    if let Some(summary) = summary_entry {
+        if let Some(map) = chain.as_object_mut() {
+            map.insert("edges_summary".into(), summary);
+        }
+    }
+
+    if level == ChainSummaryLevel::Minimal {
+        if let Some(map) = chain.as_object_mut() {
+            map.insert("filtered_edges".into(), serde_json::json!(true));
+        }
+    }
+}
+
+fn should_keep_edge(edge: &serde_json::Value, threshold: f64) -> bool {
+    if edge
+        .get("suspicious")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    if let Some(weight) = edge.get("weight").and_then(|v| v.as_f64()) {
+        return weight >= threshold;
+    }
+    false
+}
+
+fn level_label(level: ChainSummaryLevel) -> &'static str {
+    match level {
+        ChainSummaryLevel::Minimal => "minimal",
+        ChainSummaryLevel::Events => "events",
+        ChainSummaryLevel::Full => "full",
+    }
+}
+
 /// Build a scan context (public version for REPL caching)
 pub fn build_scan_context_public<'a>(
     bytes: &'a [u8],
@@ -1383,19 +1553,19 @@ pub fn execute_query_with_context(
             Query::FindingsComposite => {
                 let findings = run_detectors(ctx)?;
                 let filtered = filter_findings(findings, predicate);
-                let composites: Vec<_> = filtered.into_iter().filter(|f| is_composite(f)).collect();
+                let composites: Vec<_> = filtered.into_iter().filter(is_composite).collect();
                 Ok(QueryResult::Structure(json!(composites)))
             }
             Query::FindingsCompositeCount => {
                 let findings = run_detectors(ctx)?;
                 let filtered = filter_findings(findings, predicate);
-                let composites = filtered.into_iter().filter(|f| is_composite(f)).count();
+                let composites = filtered.into_iter().filter(is_composite).count();
                 Ok(QueryResult::Scalar(ScalarValue::Number(composites as i64)))
             }
             Query::Correlations => {
                 let findings = run_detectors(ctx)?;
                 let filtered = filter_findings(findings, predicate);
-                let composites: Vec<_> = filtered.into_iter().filter(|f| is_composite(f)).collect();
+                let composites: Vec<_> = filtered.into_iter().filter(is_composite).collect();
                 let mut summary_map: HashMap<String, CorrelationSummary> = HashMap::new();
                 for composite in composites {
                     let pattern = composite
@@ -1415,7 +1585,7 @@ pub fn execute_query_with_context(
             Query::CorrelationsCount => {
                 let findings = run_detectors(ctx)?;
                 let filtered = filter_findings(findings, predicate);
-                let composites = filtered.into_iter().filter(|f| is_composite(f)).count();
+                let composites = filtered.into_iter().filter(is_composite).count();
                 Ok(QueryResult::Scalar(ScalarValue::Number(composites as i64)))
             }
             Query::CanonicalDiff => {
@@ -2277,7 +2447,7 @@ fn decode_pdf_text_string(bytes: &[u8]) -> String {
     if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
         // UTF-16BE encoding
         let utf16_bytes = &bytes[2..];
-        if utf16_bytes.len() % 2 != 0 {
+        if !utf16_bytes.len().is_multiple_of(2) {
             // Invalid UTF-16 (odd number of bytes after BOM)
             return String::from_utf8_lossy(bytes).to_string();
         }
@@ -2377,24 +2547,14 @@ pub fn format_result(result: &QueryResult, compact: bool) -> String {
 
 /// Format query result as JSON
 pub fn format_json(query: &str, file: &str, result: &QueryResult) -> Result<String> {
-    let output = serde_json::json!({
-        "query": query,
-        "file": file,
-        "result": result,
-    });
-
-    Ok(serde_json::to_string_pretty(&output)?)
+    let payload = build_result_payload(query, file, result);
+    Ok(serde_json::to_string_pretty(&payload)?)
 }
 
 /// Format query result as YAML
 pub fn format_yaml(query: &str, file: &str, result: &QueryResult) -> Result<String> {
-    let output = serde_json::json!({
-        "query": query,
-        "file": file,
-        "result": result,
-    });
-
-    Ok(serde_yaml::to_string(&output)?)
+    let payload = build_result_payload(query, file, result);
+    Ok(serde_yaml::to_string(&payload)?)
 }
 
 pub fn colourise_output(output: &str, format: OutputFormat) -> Result<String> {
@@ -2441,13 +2601,66 @@ fn highlight_with_syntect(text: &str, extension: &str) -> Result<String> {
 
 /// Format query result as JSON Lines (single line per result)
 pub fn format_jsonl(query: &str, file: &str, result: &QueryResult) -> Result<String> {
-    let output = serde_json::json!({
-        "query": query,
-        "file": file,
-        "result": result,
-    });
+    let payload = build_result_payload(query, file, result);
+    Ok(serde_json::to_string(&payload)?)
+}
 
-    Ok(serde_json::to_string(&output)?)
+fn build_result_payload(query: &str, file: &str, result: &QueryResult) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    map.insert("query".into(), serde_json::json!(query));
+    map.insert("file".into(), serde_json::json!(file));
+    map.insert("result".into(), serde_json::json!(result));
+    if let Some(summary) = build_findings_digest(query, result) {
+        map.insert("summary".into(), summary);
+    }
+    serde_json::Value::Object(map)
+}
+
+fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json::Value> {
+    if !query.starts_with("findings") {
+        return None;
+    }
+    if let QueryResult::Structure(serde_json::Value::Array(entries)) = result {
+        if entries.is_empty() {
+            return None;
+        }
+        let mut severity_counts: HashMap<String, usize> = HashMap::new();
+        let mut surface_counts: HashMap<String, usize> = HashMap::new();
+        for entry in entries.iter().filter_map(|value| value.as_object()) {
+            if let Some(severity) = entry
+                .get("severity")
+                .and_then(|value| value.as_str())
+                .map(|s| s.to_string())
+            {
+                *severity_counts.entry(severity).or_insert(0) += 1;
+            }
+            if let Some(surface) = entry
+                .get("surface")
+                .and_then(|value| value.as_str())
+                .map(|s| s.to_string())
+            {
+                *surface_counts.entry(surface).or_insert(0) += 1;
+            }
+        }
+        if severity_counts.is_empty() && surface_counts.is_empty() {
+            return None;
+        }
+        let mut summary_map = serde_json::Map::new();
+        if !severity_counts.is_empty() {
+            summary_map.insert(
+                "findings_by_severity".into(),
+                serde_json::json!(severity_counts),
+            );
+        }
+        if !surface_counts.is_empty() {
+            summary_map.insert(
+                "findings_by_surface".into(),
+                serde_json::json!(surface_counts),
+            );
+        }
+        return Some(serde_json::Value::Object(summary_map));
+    }
+    None
 }
 
 /// Extract JavaScript code from PDF
@@ -2827,11 +3040,12 @@ fn collect_swf_content(
         let mut action_tags = Vec::new();
         let mut timeout = TimeoutChecker::new(Duration::from_millis(SWF_DECODE_TIMEOUT_MS));
         if let Some(analysis) = analyze_swf(&data, &mut timeout) {
-            version = Some(analysis.header.version);
+            let detected_version = analysis.header.version;
+            version = Some(detected_version);
             declared_length = Some(analysis.header.file_length);
             decompressed_bytes = analysis.decompressed_body_len;
             action_tags = analysis.action_scan.action_tags.clone();
-            meta.insert("swf.version".into(), version.unwrap().to_string());
+            meta.insert("swf.version".into(), detected_version.to_string());
             meta.insert(
                 "swf.decompressed_bytes".into(),
                 decompressed_bytes.to_string(),
@@ -3865,19 +4079,19 @@ fn extract_event_triggers(
     for entry in &ctx.graph.objects {
         if let Some(dict) = entry_dict(entry) {
             // Check if this is a Page object
-            if dict.has_name(b"/Type", b"/Page") {
-                if filter_level.is_none() || filter_level == Some("page") {
-                    // Check for Page AA (Additional Actions)
-                    if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
-                        extract_aa_events(
-                            &ctx.graph,
-                            ctx.bytes,
-                            aa_obj,
-                            "page",
-                            &format!("obj {}:{}", entry.obj, entry.gen),
-                            &mut events,
-                        );
-                    }
+            if dict.has_name(b"/Type", b"/Page")
+                && (filter_level.is_none() || filter_level == Some("page"))
+            {
+                // Check for Page AA (Additional Actions)
+                if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
+                    extract_aa_events(
+                        &ctx.graph,
+                        ctx.bytes,
+                        aa_obj,
+                        "page",
+                        &format!("obj {}:{}", entry.obj, entry.gen),
+                        &mut events,
+                    );
                 }
             }
         }
@@ -3887,37 +4101,36 @@ fn extract_event_triggers(
     for entry in &ctx.graph.objects {
         if let Some(dict) = entry_dict(entry) {
             // Check for widget annotations (form fields)
-            if dict.has_name(b"/Subtype", b"/Widget") || dict.get_first(b"/FT").is_some() {
-                if filter_level.is_none() || filter_level == Some("field") {
-                    let field_name = dict
-                        .get_first(b"/T")
-                        .and_then(|(_, obj)| extract_obj_text(&ctx.graph, ctx.bytes, obj))
-                        .unwrap_or_else(|| "unnamed".to_string());
+            if (dict.has_name(b"/Subtype", b"/Widget") || dict.get_first(b"/FT").is_some())
+                && (filter_level.is_none() || filter_level == Some("field"))
+            {
+                let field_name = dict
+                    .get_first(b"/T")
+                    .and_then(|(_, obj)| extract_obj_text(&ctx.graph, ctx.bytes, obj))
+                    .unwrap_or_else(|| "unnamed".to_string());
 
-                    // Check for field actions
-                    if let Some((_, action_obj)) = dict.get_first(b"/A") {
-                        let action_details =
-                            extract_action_details(&ctx.graph, ctx.bytes, action_obj);
-                        events.push(json!({
-                            "level": "field",
-                            "event_type": "Action",
-                            "location": format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
-                            "trigger_config": "Triggered on field activation",
-                            "action_details": action_details
-                        }));
-                    }
+                // Check for field actions
+                if let Some((_, action_obj)) = dict.get_first(b"/A") {
+                    let action_details = extract_action_details(&ctx.graph, ctx.bytes, action_obj);
+                    events.push(json!({
+                        "level": "field",
+                        "event_type": "Action",
+                        "location": format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
+                        "trigger_config": "Triggered on field activation",
+                        "action_details": action_details
+                    }));
+                }
 
-                    // Check for Additional Actions (AA)
-                    if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
-                        extract_aa_events(
-                            &ctx.graph,
-                            ctx.bytes,
-                            aa_obj,
-                            "field",
-                            &format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
-                            &mut events,
-                        );
-                    }
+                // Check for Additional Actions (AA)
+                if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
+                    extract_aa_events(
+                        &ctx.graph,
+                        ctx.bytes,
+                        aa_obj,
+                        "field",
+                        &format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
+                        &mut events,
+                    );
                 }
             }
         }
@@ -3927,7 +4140,7 @@ fn extract_event_triggers(
         let filtered: Vec<_> = events
             .into_iter()
             .filter(|event| {
-                predicate_context_for_event(event).map_or(false, |ctx| pred.evaluate(&ctx))
+                predicate_context_for_event(event).is_some_and(|ctx| pred.evaluate(&ctx))
             })
             .collect();
         Ok(json!(filtered))
@@ -5532,11 +5745,11 @@ fn format_pdf_atom(atom: &sis_pdf_pdf::object::PdfAtom, indent: usize) -> String
             for (key, value) in &dict.entries {
                 let key_str = String::from_utf8_lossy(&key.decoded);
                 output.push_str(&format!("{}  {}", indent_str, key_str));
-                output.push_str(" ");
-                output.push_str(&format_pdf_atom(&value.atom, 0).trim());
+                output.push(' ');
+                output.push_str(format_pdf_atom(&value.atom, 0).trim());
                 output.push('\n');
             }
-            output.push_str(&format!("{}", indent_str));
+            output.push_str(&indent_str.to_string());
             output.push_str(">>");
             output
         }
@@ -5606,7 +5819,7 @@ fn list_objects_with_type(
             if let Some((_, type_obj)) = dict.get_first(b"/Type") {
                 if let PdfAtom::Name(name) = &type_obj.atom {
                     let type_name = String::from_utf8_lossy(&name.decoded);
-                    if type_name == search_type || type_name == &search_type[1..] {
+                    if type_name == search_type || type_name == search_type[1..] {
                         objects.push(format!("{} {} ({})", entry.obj, entry.gen, type_name));
                     }
                 }
@@ -5644,7 +5857,7 @@ fn show_trailer(ctx: &ScanContext) -> Result<String> {
         for (key, value) in &trailer.entries {
             let key_str = String::from_utf8_lossy(&key.decoded);
             output.push_str(&format!("  {} ", key_str));
-            output.push_str(&format_pdf_atom(&value.atom, 0).trim());
+            output.push_str(format_pdf_atom(&value.atom, 0).trim());
             output.push('\n');
         }
         output.push_str(">>");
@@ -6142,7 +6355,7 @@ where
     } else {
         items
             .iter()
-            .map(|(idx, chain)| chain_to_json(*idx, *chain, None))
+            .map(|(idx, chain)| chain_to_json(*idx, chain, None))
             .collect()
     };
 
@@ -6226,7 +6439,7 @@ fn chain_to_json(
     chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
     group_meta: Option<&QueryChainGroupMeta>,
 ) -> serde_json::Value {
-    let edges: Vec<_> = chain.edges.iter().map(|edge| edge_to_json(*edge)).collect();
+    let edges: Vec<_> = chain.edges.iter().map(|edge| edge_to_json(edge)).collect();
     let payload = chain.payload.map(|(obj, gen)| ref_to_json((obj, gen)));
     let (group_id, group_count, group_members) = if let Some(meta) = group_meta {
         (
@@ -6313,7 +6526,7 @@ fn group_query_chains<'a>(
             group_id,
             group_count: members.len(),
             group_members,
-            representative: representative,
+            representative,
         });
     }
 
@@ -6443,7 +6656,6 @@ pub fn run_query_batch(
     max_batch_bytes: u64,
     max_walk_depth: usize,
 ) -> Result<()> {
-    use memmap2::Mmap;
     use sis_pdf_core::model::Severity as SecuritySeverity;
     use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
     use tracing::{error, Level};
@@ -6554,10 +6766,8 @@ pub fn run_query_batch(
         return Err(anyhow!("no files matched {} in {}", glob, path.display()));
     }
 
-    // Helper to mmap a file
-    fn mmap_file(path: &Path) -> Result<Mmap> {
-        let file = fs::File::open(path)?;
-        unsafe { memmap2::Mmap::map(&file).map_err(|e| anyhow!("mmap failed: {}", e)) }
+    fn read_pdf_bytes(path: &Path) -> Result<Vec<u8>> {
+        fs::read(path).map_err(|e| anyhow!("failed to read {}: {}", path.display(), e))
     }
 
     // Process files in parallel using rayon
@@ -6577,8 +6787,8 @@ pub fn run_query_batch(
 
     let process_path = |path_buf: &PathBuf| -> Result<Option<BatchResult>> {
         let path_str = path_buf.display().to_string();
-        let mmap = match mmap_file(path_buf) {
-            Ok(mmap) => mmap,
+        let bytes = match read_pdf_bytes(path_buf) {
+            Ok(bytes) => bytes,
             Err(err) => {
                 let detail = err.to_string();
                 log_batch_file_issue(
@@ -6592,7 +6802,7 @@ pub fn run_query_batch(
         };
 
         // Build scan context
-        let ctx = match build_scan_context(&mmap, scan_options) {
+        let ctx = match build_scan_context(&bytes, scan_options) {
             Ok(ctx) => ctx,
             Err(err) => {
                 let detail = err.to_string();
@@ -6918,7 +7128,7 @@ mod tests {
 
     #[test]
     fn chain_to_json_includes_payload_and_edges() {
-        let edges = vec![
+        let edges = [
             TypedEdge::new((1, 0), (2, 0), EdgeType::OpenAction),
             TypedEdge::new((2, 0), (3, 0), EdgeType::JavaScriptPayload),
         ];
@@ -6942,6 +7152,106 @@ mod tests {
         assert_eq!(edge_array.len(), 2);
         assert_eq!(edge_array[1]["type"], json!("javascript_payload"));
         assert_eq!(edge_array[1]["suspicious"], json!(true));
+    }
+
+    #[test]
+    fn chain_summary_events_filters_edges_before_display() {
+        let chain = json!({
+            "type": "chains",
+            "count": 1,
+            "total_chains": 1,
+            "chains": [{
+                "id": 0,
+                "length": 3,
+                "risk_score": 0.8,
+                "edges": [
+                    json!({"type": "open_action", "suspicious": false, "weight": 0.1}),
+                    json!({"type": "launch", "suspicious": true, "weight": 0.1}),
+                    json!({"type": "js_payload", "suspicious": false, "weight": 0.6})
+                ]
+            }]
+        });
+        let result = QueryResult::Structure(chain);
+        let filtered = apply_chain_summary(
+            &Query::Chains,
+            result,
+            ChainSummaryLevel::Events,
+            OutputFormat::Text,
+        );
+        let body = match filtered {
+            QueryResult::Structure(val) => val,
+            other => panic!("expected structure, got {:?}", other),
+        };
+        let edges = body["chains"][0]["edges"].as_array().unwrap();
+        assert_eq!(edges.len(), 2);
+        assert_eq!(body["chains"][0]["edges_summary"]["kept"], json!(2));
+    }
+
+    #[test]
+    fn chain_summary_minimal_clears_edges_and_marks_summary() {
+        let chain = json!({
+            "type": "chains",
+            "count": 1,
+            "total_chains": 1,
+            "chains": [{
+                "id": 0,
+                "length": 2,
+                "risk_score": 0.2,
+                "edges": [
+                    json!({"type": "js_payload", "suspicious": false, "weight": 0.1}),
+                    json!({"type": "launch", "suspicious": false, "weight": 0.05})
+                ]
+            }]
+        });
+        let result = QueryResult::Structure(chain);
+        let filtered = apply_chain_summary(
+            &Query::ChainsJs,
+            result,
+            ChainSummaryLevel::Minimal,
+            OutputFormat::Readable,
+        );
+        let body = match filtered {
+            QueryResult::Structure(val) => val,
+            other => panic!("expected structure, got {:?}", other),
+        };
+        let edges = body["chains"][0]["edges"].as_array().unwrap();
+        assert!(edges.is_empty());
+        assert_eq!(
+            body["chains"][0]["edges_summary"]["level"],
+            json!("minimal")
+        );
+    }
+
+    #[test]
+    fn chain_summary_full_for_json_keeps_all_edges() {
+        let chain = json!({
+            "type": "chains",
+            "count": 1,
+            "total_chains": 1,
+            "chains": [{
+                "id": 0,
+                "length": 2,
+                "risk_score": 0.1,
+                "edges": [
+                    json!({"type": "open_action", "suspicious": false, "weight": 0.1}),
+                    json!({"type": "launch", "suspicious": false, "weight": 0.1})
+                ]
+            }]
+        });
+        let result = QueryResult::Structure(chain);
+        let preserved = apply_chain_summary(
+            &Query::Chains,
+            result,
+            ChainSummaryLevel::Full,
+            OutputFormat::Json,
+        );
+        let body = match preserved {
+            QueryResult::Structure(val) => val,
+            other => panic!("expected structure, got {:?}", other),
+        };
+        let edges = body["chains"][0]["edges"].as_array().unwrap();
+        assert_eq!(edges.len(), 2);
+        assert!(body["chains"][0]["edges_summary"].is_null());
     }
 
     #[test]
@@ -6993,6 +7303,33 @@ mod tests {
         assert_eq!(value["query"], json!("js.count"));
         assert_eq!(value["file"], json!("sample.pdf"));
         assert_eq!(value["result"], json!(12));
+    }
+
+    #[test]
+    fn findings_summary_added_to_json_output() {
+        let findings = json!([
+            {"kind": "suspicious", "severity": "High", "surface": "Action"},
+            {"kind": "info", "severity": "Info", "surface": "Structure"},
+            {"kind": "suspicious", "severity": "High", "surface": "Action"}
+        ]);
+        let result = QueryResult::Structure(findings);
+        let output = format_json("findings", "sample.pdf", &result).unwrap();
+        let json_value: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let summary = json_value["summary"].as_object().expect("summary present");
+        assert_eq!(summary["findings_by_severity"]["High"], json!(2));
+        assert_eq!(summary["findings_by_severity"]["Info"], json!(1));
+        assert_eq!(summary["findings_by_surface"]["Action"], json!(2));
+    }
+
+    #[test]
+    fn findings_summary_skipped_for_other_queries() {
+        let findings = json!([
+            {"kind": "something", "severity": "High", "surface": "Action"}
+        ]);
+        let result = QueryResult::Structure(findings);
+        let output = format_json("images", "sample.pdf", &result).unwrap();
+        let json_value: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert!(json_value.get("summary").is_none());
     }
 
     #[test]
@@ -7091,8 +7428,10 @@ mod tests {
 
     #[test]
     fn images_malformed_query_mentions_jbig2_fixture() {
-        let mut options = ScanOptions::default();
-        options.deep = true;
+        let options = ScanOptions {
+            deep: true,
+            ..Default::default()
+        };
         with_fixture_context_opts("images/malformed_jbig2.pdf", options, |ctx| {
             let result = execute_query_with_context(
                 &Query::ImagesMalformed,
@@ -7118,8 +7457,10 @@ mod tests {
 
     #[test]
     fn images_malformed_requires_deep() {
-        let mut options = ScanOptions::default();
-        options.deep = false;
+        let options = ScanOptions {
+            deep: false,
+            ..Default::default()
+        };
         with_fixture_context_opts("images/cve-2018-4990-jpx.pdf", options, |ctx| {
             let err = extract_images_malformed(ctx, DecodeMode::Decode, 1024 * 1024, None)
                 .expect_err("malformed requires deep");
@@ -8403,7 +8744,7 @@ mod tests {
             .iter()
             .find(|f| f.kind == "polyglot_signature_conflict")
         {
-            assert!(polyglot.meta["polyglot.signatures"].as_str().len() > 0);
+            assert!(!polyglot.meta["polyglot.signatures"].is_empty());
         }
     }
 
@@ -8533,5 +8874,47 @@ mod tests {
             doc.extend_from_slice(b"\n");
         }
         doc.extend_from_slice(b"endobj\n");
+    }
+
+    #[test]
+    fn compact_text_reports_drop_low_info_findings() {
+        let query = Query::Findings;
+        let entries = json!([
+            {"kind": "suspicious", "severity": "High"},
+            {"kind": "benign", "severity": "Low"},
+            {"kind": "doc_info", "severity": "Info"},
+            {"kind": "medium", "severity": "Medium"}
+        ]);
+        let result = QueryResult::Structure(entries.clone());
+        let filtered =
+            apply_report_verbosity(&query, result, ReportVerbosity::Compact, OutputFormat::Text);
+        match filtered {
+            QueryResult::Structure(Value::Array(arr)) => {
+                assert_eq!(arr.len(), 2);
+                assert_eq!(arr[0]["severity"].as_str(), Some("High"));
+                assert_eq!(arr[1]["severity"].as_str(), Some("Medium"));
+            }
+            other => panic!("unexpected result: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn compact_json_preserves_all_findings() {
+        let query = Query::Findings;
+        let entries = json!([
+            {"kind": "suspicious", "severity": "High"},
+            {"kind": "benign", "severity": "Low"},
+            {"kind": "doc_info", "severity": "Info"},
+            {"kind": "medium", "severity": "Medium"}
+        ]);
+        let result = QueryResult::Structure(entries.clone());
+        let filtered =
+            apply_report_verbosity(&query, result, ReportVerbosity::Compact, OutputFormat::Json);
+        match filtered {
+            QueryResult::Structure(Value::Array(arr)) => {
+                assert_eq!(arr.len(), 4);
+            }
+            other => panic!("unexpected result: {:?}", other),
+        }
     }
 }

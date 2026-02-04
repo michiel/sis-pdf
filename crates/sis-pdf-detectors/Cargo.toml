@@ -4,16 +4,16 @@ version.workspace = true
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0"
-hex = "0.4"
-sha2 = "0.10"
+anyhow = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
 sis-pdf-core = { path = "../sis-pdf-core" }
 sis-pdf-pdf = { path = "../sis-pdf-pdf" }
-base64 = "0.22"
-flate2 = "1.0"
+base64 = { workspace = true }
+flate2 = { workspace = true }
 roxmltree = "0.20.0"
 js-analysis = { path = "../js-analysis", default-features = false }
-tracing = "0.1"
+tracing = { workspace = true }
 font-analysis = { path = "../font-analysis" }
 image-analysis = { path = "../image-analysis" }
 lzma-rust2 = { version = "0.15.6", default-features = false, features = ["std"] }

@@ -273,9 +273,9 @@ fn build_pdf(objects: &[&str]) -> Vec<u8> {
     }
     let xref_start = bytes.len();
     write!(&mut bytes, "xref\n0 {}\n", objects.len() + 1).expect("write xref header");
-    write!(&mut bytes, "0000000000 65535 f \n").expect("write xref free entry");
+    writeln!(&mut bytes, "0000000000 65535 f ").expect("write xref free entry");
     for offset in offsets {
-        write!(&mut bytes, "{:010} 00000 n \n", offset).expect("write xref entry");
+        writeln!(&mut bytes, "{:010} 00000 n ", offset).expect("write xref entry");
     }
     write!(
         &mut bytes,
