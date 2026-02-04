@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use anyhow::Result;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -18,8 +20,6 @@ use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStream};
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 use std::time::Duration;
-
-#![forbid(unsafe_code)]
 
 pub mod actions_triggers;
 pub mod advanced_crypto;

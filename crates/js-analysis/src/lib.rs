@@ -1,5 +1,3 @@
-#![forbid(unsafe_code)]
-
 pub mod dynamic;
 mod sandbox_test;
 
