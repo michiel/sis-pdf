@@ -408,9 +408,13 @@ enum Command {
     Correlate(CorrelateCommand),
     #[command(subcommand, about = "Generate test fixtures and response rules")]
     Generate(GenerateCommand),
+    #[command(subcommand, about = "Print bundled documentation")]
+    Doc(DocCommand),
     #[command(about = "Print sis version")]
     Version,
 }
+
+const AGENT_QUERY_GUIDE: &str = include_str!("../../../docs/agent-query-guide.md");
 
 #[derive(Subcommand)]
 enum SandboxCommand {
@@ -437,6 +441,12 @@ enum ConfigCommand {
         #[arg(long, help = "Override config path")]
         path: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+enum DocCommand {
+    #[command(about = "Print the agent query guide")]
+    AgentQuery,
 }
 
 #[derive(Subcommand)]
@@ -1036,6 +1046,12 @@ fn main() -> Result<()> {
             }
             GenerateCommand::Mutate { pdf, out, scan } => run_mutate(&pdf, &out, scan),
             GenerateCommand::RedTeam { target, out } => run_redteam(&target, &out),
+        },
+        Command::Doc(cmd) => match cmd {
+            DocCommand::AgentQuery => {
+                println!("{}", AGENT_QUERY_GUIDE);
+                Ok(())
+            }
         },
         Command::Version => {
             println!("{}", env!("CARGO_PKG_VERSION"));
