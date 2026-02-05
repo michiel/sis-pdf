@@ -682,6 +682,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: dynamic validation step.
   - Meaning: runtime parser errors can signal malformed or hostile fonts.
   - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
+  - Context: `UnknownMagic` errors often accompany renderer-generated FontFile3/CFF blobs, so these failures are now flagged with lower severity unless backed by other anomalies.
 
 ## font.dynamic_timeout
 
@@ -716,7 +717,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: dangerous operators can trigger stack manipulation or arbitrary code execution in font renderers.
   - Context: attackers use these primitives (callothersubr/pop/return/put/store/blend) to corrupt interpreter stack/memory or escape to arbitrary execution paths (see BLEND/2015).
   - Chain usage: treated as a payload stage targeting Type 1 font parser vulnerabilities.
-  - Severity: MEDIUM (escalates to HIGH when `callothersubr`, `store`, or `blend` operators are present)
+  - Severity: MEDIUM (downgrades to LOW when only stack-manipulating operators `pop`, `put`, `return` are present; escalates to HIGH when `callothersubr`, `store`, or `blend` operators appear)
   - Introduced: Font analysis enhancement (2026-01-17)
 
 ## font.type1_excessive_stack

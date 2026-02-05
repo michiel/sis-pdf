@@ -58,10 +58,15 @@ pub fn analyze_with_findings_and_config(
         Ok(ctx) => ctx,
         Err(err) => {
             let mut meta = HashMap::new();
-            meta.insert("parse_error".to_string(), err);
+            meta.insert("parse_error".to_string(), err.clone());
+            let mut severity = Severity::Medium;
+            if err.contains("UnknownMagic") {
+                severity = Severity::Low;
+                meta.insert("parse_error_class".to_string(), "unknown_magic".to_string());
+            }
             findings.push(FontFinding {
                 kind: "font.dynamic_parse_failure".to_string(),
-                severity: Severity::Medium,
+                severity,
                 confidence: Confidence::Probable,
                 title: "Font parsing failed".to_string(),
                 description: "Dynamic font parsing encountered an error".to_string(),

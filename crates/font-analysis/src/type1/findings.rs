@@ -110,12 +110,26 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
         meta.insert("operators".to_string(), operators.join(", "));
 
         const HIGH_RISK_OPERATORS: &[&str] = &["callothersubr", "store", "blend"];
+        const LOW_RISK_OPERATORS: &[&str] = &["pop", "put", "return"];
+
         let has_high_risk = analysis
             .dangerous_ops
             .iter()
             .any(|op| HIGH_RISK_OPERATORS.contains(&op.operator.as_str()));
 
-        let severity = if has_high_risk { Severity::High } else { Severity::Medium };
+        let has_only_low_risk = analysis
+            .dangerous_ops
+            .iter()
+            .all(|op| LOW_RISK_OPERATORS.contains(&op.operator.as_str()));
+
+        let severity = if has_high_risk {
+            Severity::High
+        } else if has_only_low_risk {
+            meta.insert("operator_risk_level".to_string(), "low".to_string());
+            Severity::Low
+        } else {
+            Severity::Medium
+        };
 
         findings.push(FontFinding {
             kind: "font.type1_dangerous_operator".to_string(),
