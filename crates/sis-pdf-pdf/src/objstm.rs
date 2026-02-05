@@ -182,25 +182,15 @@ pub fn expand_objstm<'a>(
                 }
             }
             let obj_end = parser.position();
-            let span = Span {
-                start: st.data_span.start,
-                end: st.data_span.end,
-            };
+            let span = Span { start: st.data_span.start, end: st.data_span.end };
             out.push(ObjEntry {
                 obj: obj_num,
                 gen: 0,
-                atom: crate::object::PdfObj {
-                    span,
-                    atom: parsed.atom,
-                }
-                .atom,
+                atom: crate::object::PdfObj { span, atom: parsed.atom }.atom,
                 header_span: span,
                 body_span: span,
                 full_span: span,
-                provenance: crate::graph::ObjProvenance::ObjStm {
-                    obj: entry.obj,
-                    gen: entry.gen,
-                },
+                provenance: crate::graph::ObjProvenance::ObjStm { obj: entry.obj, gen: entry.gen },
             });
             let _ = obj_end;
         }
@@ -247,45 +237,27 @@ fn own_obj(obj: crate::object::PdfObj<'_>) -> crate::object::PdfObj<'static> {
     use std::borrow::Cow;
 
     fn own_name(name: PdfName<'_>) -> PdfName<'static> {
-        PdfName {
-            span: name.span,
-            raw: Cow::Owned(name.raw.into_owned()),
-            decoded: name.decoded,
-        }
+        PdfName { span: name.span, raw: Cow::Owned(name.raw.into_owned()), decoded: name.decoded }
     }
 
     fn own_str(s: PdfStr<'_>) -> PdfStr<'static> {
         match s {
-            PdfStr::Literal { span, raw, decoded } => PdfStr::Literal {
-                span,
-                raw: Cow::Owned(raw.into_owned()),
-                decoded,
-            },
-            PdfStr::Hex { span, raw, decoded } => PdfStr::Hex {
-                span,
-                raw: Cow::Owned(raw.into_owned()),
-                decoded,
-            },
+            PdfStr::Literal { span, raw, decoded } => {
+                PdfStr::Literal { span, raw: Cow::Owned(raw.into_owned()), decoded }
+            }
+            PdfStr::Hex { span, raw, decoded } => {
+                PdfStr::Hex { span, raw: Cow::Owned(raw.into_owned()), decoded }
+            }
         }
     }
 
     fn own_dict(dict: PdfDict<'_>) -> PdfDict<'static> {
-        let entries = dict
-            .entries
-            .into_iter()
-            .map(|(k, v)| (own_name(k), own_obj(v)))
-            .collect();
-        PdfDict {
-            span: dict.span,
-            entries,
-        }
+        let entries = dict.entries.into_iter().map(|(k, v)| (own_name(k), own_obj(v))).collect();
+        PdfDict { span: dict.span, entries }
     }
 
     fn own_stream(stream: PdfStream<'_>) -> PdfStream<'static> {
-        PdfStream {
-            dict: own_dict(stream.dict),
-            data_span: stream.data_span,
-        }
+        PdfStream { dict: own_dict(stream.dict), data_span: stream.data_span }
     }
 
     let atom = match obj.atom {
@@ -300,8 +272,5 @@ fn own_obj(obj: crate::object::PdfObj<'_>) -> crate::object::PdfObj<'static> {
         PdfAtom::Dict(d) => PdfAtom::Dict(own_dict(d)),
         PdfAtom::Stream(st) => PdfAtom::Stream(own_stream(st)),
     };
-    PdfObj {
-        span: obj.span,
-        atom,
-    }
+    PdfObj { span: obj.span, atom }
 }

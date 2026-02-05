@@ -1999,7 +1999,10 @@ mod tests {
 
         // Check percentiles
         assert!(baseline.feature_percentiles.contains_key("feature_a"));
-        assert_eq!(baseline.feature_percentiles.get("feature_a").map(|values| values.len()), Some(7));
+        assert_eq!(
+            baseline.feature_percentiles.get("feature_a").map(|values| values.len()),
+            Some(7)
+        );
     }
 
     #[test]

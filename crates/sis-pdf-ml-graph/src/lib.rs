@@ -108,16 +108,16 @@ impl GraphModelRunner {
             let mut src = s;
             let mut dst = t;
             if src >= original_node_count || dst >= original_node_count {
-            unresolved_edges += 1;
-            let sentinel = *sentinel_idx.get_or_insert_with(|| {
-                let idx = texts.len();
-                texts.push("path=$meta\tvalue_type=unresolved_edges\tvalue=1".into());
-                idx
-            });
-            if src >= original_node_count {
-                src = sentinel;
-            }
-            if dst >= original_node_count {
+                unresolved_edges += 1;
+                let sentinel = *sentinel_idx.get_or_insert_with(|| {
+                    let idx = texts.len();
+                    texts.push("path=$meta\tvalue_type=unresolved_edges\tvalue=1".into());
+                    idx
+                });
+                if src >= original_node_count {
+                    src = sentinel;
+                }
+                if dst >= original_node_count {
                     dst = sentinel;
                 }
             }
