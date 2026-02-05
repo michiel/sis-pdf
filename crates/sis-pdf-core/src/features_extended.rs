@@ -413,7 +413,7 @@ pub struct FindingPresenceFeatures {
 
     // URI classification (3)
     pub uri_content_analysis: f32,
-    pub uri_presence_summary: f32,
+    pub uri_listing: f32,
     pub action_payload_path: f32,
 
     // Forms (2)
@@ -503,7 +503,7 @@ impl FindingPresenceFeatures {
             self.crypto_mining_js,
             self.js_sandbox_result,
             self.uri_content_analysis,
-            self.uri_presence_summary,
+            self.uri_listing,
             self.action_payload_path,
             self.acroform_present,
             self.xfa_present,
@@ -579,7 +579,7 @@ impl FindingPresenceFeatures {
             "finding.crypto_mining_js",
             "finding.js_sandbox_result",
             "finding.uri_content_analysis",
-            "finding.uri_presence_summary",
+            "finding.uri_listing",
             "finding.action_payload_path",
             "finding.acroform_present",
             "finding.xfa_present",
@@ -665,7 +665,7 @@ pub struct FindingCountFeatures {
     pub crypto_mining_js_count: f32,
     pub js_sandbox_result_count: f32,
     pub uri_content_analysis_count: f32,
-    pub uri_presence_summary_count: f32,
+    pub uri_listing_count: f32,
     pub action_payload_path_count: f32,
     pub acroform_present_count: f32,
     pub xfa_present_count: f32,
@@ -741,7 +741,7 @@ impl FindingCountFeatures {
             self.crypto_mining_js_count,
             self.js_sandbox_result_count,
             self.uri_content_analysis_count,
-            self.uri_presence_summary_count,
+            self.uri_listing_count,
             self.action_payload_path_count,
             self.acroform_present_count,
             self.xfa_present_count,
@@ -817,7 +817,7 @@ impl FindingCountFeatures {
             "finding_count.crypto_mining_js",
             "finding_count.js_sandbox_result",
             "finding_count.uri_content_analysis",
-            "finding_count.uri_presence_summary",
+            "finding_count.uri_listing",
             "finding_count.action_payload_path",
             "finding_count.acroform_present",
             "finding_count.xfa_present",
@@ -1726,7 +1726,7 @@ fn extract_finding_features(
 
     // URI classification (3)
     set_finding!("uri_content_analysis", uri_content_analysis, uri_content_analysis_count);
-    set_finding!("uri_presence_summary", uri_presence_summary, uri_presence_summary_count);
+    set_finding!("uri_listing", uri_listing, uri_listing_count);
     set_finding!("action_payload_path", action_payload_path, action_payload_path_count);
 
     // Forms (2)

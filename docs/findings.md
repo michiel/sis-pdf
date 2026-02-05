@@ -2781,6 +2781,18 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: viewer can perform external or privileged actions.
   - Chain usage: treated as an action node that can be linked to triggers and payloads.
 
+## uri_listing
+
+- ID: `uri_listing`
+- Label: URI(s) present
+- Severity: Info → Low → Medium → High (volume/domains thresholds)
+- Description: Aggregated URI listing; records every discovered URI plus contextual flags for the first 20 entries while still escalating severity when URI volume/diversity grows.
+- Tags: action, external, summary
+- Details:
+  - Relevance: documents with many URIs increase attack surface, but per-URI noise is captured centrally.
+  - Meaning: the finding collects `uri.count_*`, `uri.schemes`, and `uri.domains_sample` plus `uri.list.*` metadata (preview/canonical/chain_depth/visibility/trigger/suspicious) so downstream consumers can inspect every URI without flooding the report. `uri.suspicious_count` highlights how many URIs matched the `UriContentDetector` heuristics.
+  - Chain usage: acts as a summary node that can be joined with other findings (e.g., suspicious URIs, action chains) and remains low-noise even when hundreds of links are present.
+
 ## xfa_present
 
 - ID: `xfa_present`

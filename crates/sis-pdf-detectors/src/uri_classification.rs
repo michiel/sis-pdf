@@ -20,6 +20,7 @@ pub struct UriContentAnalysis {
     pub domain: Option<String>,
     pub path: Option<String>,
     pub query_params: Vec<(String, String)>,
+    pub query: String,
     pub port: Option<u16>,
     pub userinfo_present: bool,
 
@@ -221,6 +222,7 @@ pub fn analyze_uri_content(uri: &[u8]) -> UriContentAnalysis {
         domain,
         path,
         query_params,
+        query: query_string,
         port,
         userinfo_present,
         obfuscation_level,
@@ -912,6 +914,27 @@ pub fn risk_score_to_severity(score: u32) -> Severity {
     }
 }
 
+fn uri_has_significant_indicators(content: &UriContentAnalysis, severity: Severity) -> bool {
+    severity != Severity::Info
+        || !content.suspicious_patterns.is_empty()
+        || !content.tracking_params.is_empty()
+        || content.obfuscation_level != ObfuscationLevel::None
+        || content.has_shortener_domain
+        || content.has_suspicious_extension
+        || content.has_suspicious_scheme
+        || content.has_embedded_ip_host
+        || content.has_idn_lookalike
+        || content.is_data_uri
+}
+
+fn canonicalize_uri(original: &str) -> String {
+    if let Some(idx) = original.find(':') {
+        format!("{}{}", &original[..idx].to_ascii_lowercase(), &original[idx..])
+    } else {
+        original.to_string()
+    }
+}
+
 /// Detector for URI content analysis
 pub struct UriContentDetector;
 
@@ -1221,9 +1244,22 @@ fn build_description(
 /// Detector for document-level URI presence summary
 pub struct UriPresenceDetector;
 
+struct UriListingEntry {
+    url_preview: String,
+    canonical: String,
+    scheme: String,
+    domain: Option<String>,
+    risk_score: u32,
+    is_suspicious: bool,
+    visibility: Option<UriVisibility>,
+    placement: Option<UriPlacement>,
+    trigger: UriTrigger,
+    chain_depth: usize,
+}
+
 impl Detector for UriPresenceDetector {
     fn id(&self) -> &'static str {
-        "uri_presence_summary"
+        "uri_listing"
     }
 
     fn surface(&self) -> AttackSurface {
@@ -1239,27 +1275,51 @@ impl Detector for UriPresenceDetector {
     }
 
     fn run(&self, ctx: &ScanContext) -> Result<Vec<Finding>> {
-        let mut unique_domains = HashSet::new();
-        let mut scheme_counts = HashMap::new();
+        const MAX_URIS: usize = 1_000;
+        const MAX_LISTING_ENTRIES: usize = 20;
 
         // Build typed graph to find URI edges
         let typed_graph = ctx.build_typed_graph();
+        let mut seen = HashSet::new();
+        let mut uri_objects = Vec::new();
 
-        // Collect unique URI source objects
-        let mut uri_objects = HashSet::new();
         for edge in &typed_graph.edges {
             if matches!(edge.edge_type, EdgeType::UriTarget) {
-                uri_objects.insert(edge.src);
+                if seen.insert(edge.src) {
+                    uri_objects.push(edge.src);
+                    if uri_objects.len() >= MAX_URIS {
+                        break;
+                    }
+                }
             }
         }
 
-        // Analyze each URI
-        for (obj, gen) in &uri_objects {
-            let entry = match ctx.graph.get_object(*obj, *gen) {
+        // Fallback: scan every object for /URI if the typed graph didn’t find any
+        if uri_objects.is_empty() {
+            for entry in ctx.graph.objects.iter() {
+                if uri_objects.len() >= MAX_URIS {
+                    break;
+                }
+                if seen.insert((entry.obj, entry.gen)) {
+                    if let Some(dict) = entry_dict(entry) {
+                        if dict.get_first(b"/URI").is_some() {
+                            uri_objects.push((entry.obj, entry.gen));
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut unique_domains = HashSet::new();
+        let mut scheme_counts = HashMap::new();
+        let mut entries = Vec::new();
+        let mut suspicious_count = 0usize;
+
+        for &(obj, gen) in &uri_objects {
+            let entry = match ctx.graph.get_object(obj, gen) {
                 Some(e) => e,
                 None => continue,
             };
-
             let dict = match entry_dict(entry) {
                 Some(d) => d,
                 None => continue,
@@ -1267,91 +1327,167 @@ impl Detector for UriPresenceDetector {
 
             if let Some((_, v)) = dict.get_first(b"/URI") {
                 if let Some(uri_bytes) = extract_uri_bytes(v) {
+                    let url_preview = preview_ascii(&uri_bytes, 120);
+                    let url_full = String::from_utf8_lossy(&uri_bytes).to_string();
                     let content = analyze_uri_content(&uri_bytes);
+                    let context = analyze_uri_context(ctx, entry, dict);
+                    let trigger = analyze_uri_trigger(ctx, entry, dict);
 
-                    // Track scheme
                     *scheme_counts.entry(content.scheme.clone()).or_insert(0) += 1;
-
-                    // Track unique domains
-                    if let Some(domain) = content.domain {
-                        unique_domains.insert(domain);
+                    if let Some(domain) = &content.domain {
+                        unique_domains.insert(domain.clone());
                     }
+
+                    let risk_score = calculate_uri_risk_score(&content, &context, &trigger);
+                    let severity = risk_score_to_severity(risk_score);
+                    let is_suspicious = uri_has_significant_indicators(&content, severity);
+                    if is_suspicious {
+                        suspicious_count += 1;
+                    }
+
+                    let visibility = context.as_ref().map(|ctx| ctx.visibility.clone());
+                    let placement = context.as_ref().map(|ctx| ctx.placement.clone());
+
+                    let mut chain_depth = 1;
+                    if trigger.automatic {
+                        chain_depth += 1;
+                    }
+                    if trigger.js_involved {
+                        chain_depth += 1;
+                    }
+                    if visibility
+                        .as_ref()
+                        .map(|v| matches!(v, UriVisibility::HiddenRect | UriVisibility::HiddenFlag))
+                        .unwrap_or(false)
+                    {
+                        chain_depth += 1;
+                    }
+
+                    entries.push(UriListingEntry {
+                        url_preview,
+                        canonical: canonicalize_uri(&url_full),
+                        scheme: content.scheme.clone(),
+                        domain: content.domain.clone(),
+                        risk_score,
+                        is_suspicious,
+                        visibility,
+                        placement,
+                        trigger,
+                        chain_depth,
+                    });
                 }
             }
         }
 
-        let uri_count = uri_objects.len();
+        let uri_count = entries.len();
+        if uri_count == 0 {
+            return Ok(Vec::new());
+        }
+
         let has_http = scheme_counts.keys().any(|k| k.eq_ignore_ascii_case("http"));
         let has_https = scheme_counts.keys().any(|k| k.eq_ignore_ascii_case("https"));
 
-        // Only create finding if URIs are present
-        if uri_count > 0 {
-            let mut meta = HashMap::new();
-            meta.insert("uri.count_total".to_string(), uri_count.to_string());
-            meta.insert("uri.count_unique_domains".to_string(), unique_domains.len().to_string());
-
-            let schemes: Vec<String> =
-                scheme_counts.iter().map(|(k, v)| format!("{}:{}", k, v)).collect();
-            meta.insert("uri.schemes".to_string(), schemes.join(", "));
-
-            let unique_domain_count = unique_domains.len();
-            let severity = if uri_count >= 50 || unique_domain_count >= 20 {
-                Severity::High
-            } else if uri_count >= 25 || unique_domain_count >= 10 {
-                Severity::Medium
-            } else if uri_count >= 10 || unique_domain_count >= 5 {
-                Severity::Low
-            } else {
-                Severity::Info
-            };
-
-            if !unique_domains.is_empty() {
-                let domains: Vec<String> = unique_domains.iter().take(10).cloned().collect();
-                meta.insert("uri.domains_sample".to_string(), domains.join(", "));
-            }
-
-            if has_http && has_https {
-                meta.insert("uri.mixed_content".to_string(), "true".to_string());
-            }
-
-            let description = if severity == Severity::Info {
-                format!(
-                    "Found {} URIs pointing to {} unique domains.",
-                    uri_count,
-                    meta.get("uri.count_unique_domains").map(String::as_str).unwrap_or("0")
-                )
-            } else {
-                format!(
-                    "Found {} URIs pointing to {} unique domains, indicating elevated external exposure.",
-                    uri_count,
-                    meta.get("uri.count_unique_domains")
-                        .map(String::as_str)
-                        .unwrap_or("0")
-                )
-            };
-
-            Ok(vec![Finding {
-                id: String::new(),
-                surface: self.surface(),
-                kind: "uri_presence_summary".to_string(),
-                severity,
-                confidence: Confidence::Strong,
-                impact: None,
-                title: "Document contains URIs".to_string(),
-                description,
-                objects: vec!["document".to_string()],
-                evidence: vec![],
-                remediation: Some(
-                    "Review URIs for legitimacy and verify destinations.".to_string(),
-                ),
-                meta,
-                yara: None,
-                position: None,
-                positions: Vec::new(),
-                ..Finding::default()
-            }])
+        let unique_domain_count = unique_domains.len();
+        let severity = if uri_count >= 50 || unique_domain_count >= 20 {
+            Severity::High
+        } else if uri_count >= 25 || unique_domain_count >= 10 {
+            Severity::Medium
+        } else if uri_count >= 10 || unique_domain_count >= 5 {
+            Severity::Low
         } else {
-            Ok(Vec::new())
+            Severity::Info
+        };
+
+        let mut meta = HashMap::new();
+        meta.insert("uri.count_total".to_string(), uri_count.to_string());
+        meta.insert("uri.count_unique_domains".to_string(), unique_domain_count.to_string());
+        meta.insert("uri.suspicious_count".to_string(), suspicious_count.to_string());
+
+        let schemes: Vec<String> =
+            scheme_counts.iter().map(|(k, v)| format!("{}:{}", k, v)).collect();
+        meta.insert("uri.schemes".to_string(), schemes.join(", "));
+
+        if !unique_domains.is_empty() {
+            let domains: Vec<String> = unique_domains.iter().take(10).cloned().collect();
+            meta.insert("uri.domains_sample".to_string(), domains.join(", "));
         }
+
+        if has_http && has_https {
+            meta.insert("uri.mixed_content".to_string(), "true".to_string());
+        }
+
+        meta.insert("uri.list.count".to_string(), uri_count.to_string());
+        meta.insert("uri.list.stored".to_string(), uri_count.min(MAX_LISTING_ENTRIES).to_string());
+        meta.insert("uri.list.limit".to_string(), MAX_LISTING_ENTRIES.to_string());
+        meta.insert("uri.listing.schema_version".to_string(), "1".to_string());
+        if uri_count > MAX_LISTING_ENTRIES {
+            meta.insert("uri.listing.truncated".to_string(), "true".to_string());
+        }
+
+        for (idx, entry) in entries.iter().enumerate().take(MAX_LISTING_ENTRIES) {
+            meta.insert(format!("uri.list.{}.url", idx), entry.url_preview.clone());
+            meta.insert(format!("uri.list.{}.canonical", idx), entry.canonical.clone());
+            meta.insert(format!("uri.list.{}.scheme", idx), entry.scheme.clone());
+            if let Some(domain) = &entry.domain {
+                meta.insert(format!("uri.list.{}.domain", idx), domain.clone());
+            }
+            meta.insert(format!("uri.list.{}.risk_score", idx), entry.risk_score.to_string());
+            meta.insert(format!("uri.list.{}.suspicious", idx), entry.is_suspicious.to_string());
+            meta.insert(format!("uri.list.{}.chain_depth", idx), entry.chain_depth.to_string());
+            if let Some(visibility) = &entry.visibility {
+                meta.insert(
+                    format!("uri.list.{}.visibility", idx),
+                    visibility.as_str().to_string(),
+                );
+            }
+            if let Some(placement) = &entry.placement {
+                meta.insert(format!("uri.list.{}.placement", idx), placement.as_str().to_string());
+            }
+            meta.insert(
+                format!("uri.list.{}.trigger", idx),
+                entry.trigger.mechanism.as_str().to_string(),
+            );
+            meta.insert(
+                format!("uri.list.{}.trigger_automatic", idx),
+                entry.trigger.automatic.to_string(),
+            );
+            meta.insert(
+                format!("uri.list.{}.trigger_js_involved", idx),
+                entry.trigger.js_involved.to_string(),
+            );
+        }
+
+        let description = if severity == Severity::Info {
+            format!("Found {} URIs pointing to {} unique domains.", uri_count, unique_domain_count)
+        } else if suspicious_count > 0 {
+            format!(
+                "Found {} URIs pointing to {} unique domains, {} flagged as suspicious.",
+                uri_count, unique_domain_count, suspicious_count
+            )
+        } else {
+            format!(
+                "Found {} URIs pointing to {} unique domains, indicating elevated external exposure.",
+                uri_count, unique_domain_count
+            )
+        };
+
+        Ok(vec![Finding {
+            id: String::new(),
+            surface: self.surface(),
+            kind: "uri_listing".to_string(),
+            severity,
+            confidence: Confidence::Strong,
+            impact: None,
+            title: "URI(s) present".to_string(),
+            description,
+            objects: vec!["document".to_string()],
+            evidence: vec![],
+            remediation: Some("Review URIs for legitimacy and verify destinations.".to_string()),
+            meta,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+            ..Finding::default()
+        }])
     }
 }

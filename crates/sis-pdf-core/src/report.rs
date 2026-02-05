@@ -820,6 +820,13 @@ fn split_values(input: &str) -> Vec<String> {
         .collect()
 }
 
+fn is_chain_link_relevant(f: &Finding) -> bool {
+    match f.kind.as_str() {
+        "uri_present" => false,
+        _ => true,
+    }
+}
+
 fn build_position_preview_map(findings: &[Finding]) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for f in findings {
@@ -2782,11 +2789,20 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 })
                 .flat_map(|edge| [edge.from.clone(), edge.to.clone()])
                 .collect();
-            if !linked_findings.is_empty() {
-                let linked_short = linked_findings
-                    .into_iter()
-                    .map(|fid| display_id(&fid, &id_map))
-                    .collect::<Vec<_>>();
+            let filtered: Vec<String> = linked_findings
+                .into_iter()
+                .filter(|fid| {
+                    report
+                        .findings
+                        .iter()
+                        .find(|f| &f.id == fid)
+                        .map(|f| is_chain_link_relevant(f))
+                        .unwrap_or(false)
+                })
+                .collect();
+            if !filtered.is_empty() {
+                let linked_short =
+                    filtered.into_iter().map(|fid| display_id(&fid, &id_map)).collect::<Vec<_>>();
                 out.push_str(&format!(
                     "- Linked findings: {}\n",
                     escape_markdown(&linked_short.join(", "))

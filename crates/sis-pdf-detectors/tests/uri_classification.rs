@@ -1,4 +1,7 @@
-use sis_pdf_detectors::uri_classification::analyze_uri_content;
+mod common;
+
+use common::default_scan_opts;
+use sis_pdf_detectors::{default_detectors, uri_classification::analyze_uri_content};
 
 #[test]
 fn parses_authority_and_flags_phishing_indicators() {
@@ -59,4 +62,27 @@ fn parses_data_uri_and_idn_lookalikes() {
 
     let idn = analyze_uri_content("http://ex\u{0430}mple.com/login".as_bytes());
     assert!(idn.has_idn_lookalike);
+}
+
+#[test]
+fn uri_listing_aggregates_metadata() {
+    let bytes = include_bytes!("fixtures/uri_simple.pdf");
+    let detectors = default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    let listing =
+        report.findings.iter().find(|f| f.kind == "uri_listing").expect("uri_listing finding");
+
+    assert!(
+        listing.meta.get("uri.count_total").and_then(|v| v.parse::<usize>().ok()).unwrap_or(0) > 0,
+        "aggregate finding should count URIs"
+    );
+    assert!(listing.meta.contains_key("uri.suspicious_count"));
+    assert!(listing.meta.contains_key("uri.list.0.url"));
+    assert!(listing.meta.contains_key("uri.list.0.canonical"));
+    assert!(listing.meta.contains_key("uri.list.0.chain_depth"));
+    assert!(listing.meta.contains_key("uri.list.limit"));
+    assert!(listing.meta.contains_key("uri.listing.schema_version"));
 }
