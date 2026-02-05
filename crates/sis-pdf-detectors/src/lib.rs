@@ -45,6 +45,7 @@ pub mod metadata_analysis;
 pub mod multi_stage;
 pub mod object_cycles;
 pub mod objstm_summary;
+pub mod objstm_torture;
 pub mod page_tree_anomalies;
 pub mod polyglot;
 pub mod quantum_risk;
@@ -135,6 +136,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(strict::StrictParseDeviationDetector),
         Box::new(ir_graph_static::IrGraphStaticDetector),
         Box::new(structural_anomalies::StructuralAnomaliesDetector),
+        Box::new(objstm_torture::ObjStmTortureDetector),
     ];
     if settings.js_sandbox {
         #[cfg(feature = "js-sandbox")]

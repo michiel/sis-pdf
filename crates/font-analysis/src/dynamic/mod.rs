@@ -11,6 +11,8 @@ use crate::model::FontFinding;
 use crate::model::{Confidence, Severity};
 #[cfg(feature = "dynamic")]
 use std::collections::HashMap;
+#[cfg(feature = "dynamic")]
+use tracing::warn;
 
 #[cfg(feature = "dynamic")]
 const RENDERER_FONT_MARKER: &[u8] = b"CairoFont";
@@ -162,21 +164,32 @@ fn analyze_hinting_tables(
     let mut stats = HintingStats::default();
     // Extract hinting tables (fpgm, prep)
     if let Some(fpgm) = extract_table(data, b"fpgm") {
-        let table_findings = ttf_vm::analyze_hinting_program(&fpgm, &limits);
-        stats.record(&table_findings);
-        findings.extend(table_findings);
+        if !stats.warning_limit_reached() {
+            let table_findings = ttf_vm::analyze_hinting_program(&fpgm, &limits);
+            stats.record(&table_findings);
+            findings.extend(table_findings);
+            if stats.warning_limit_reached() {
+                stats.log_limit();
+            }
+        }
     }
 
     if let Some(prep) = extract_table(data, b"prep") {
-        let table_findings = ttf_vm::analyze_hinting_program(&prep, &limits);
-        stats.record(&table_findings);
-        findings.extend(table_findings);
+        if !stats.warning_limit_reached() {
+            let table_findings = ttf_vm::analyze_hinting_program(&prep, &limits);
+            stats.record(&table_findings);
+            findings.extend(table_findings);
+            if stats.warning_limit_reached() {
+                stats.log_limit();
+            }
+        }
     }
 
     stats.emit(&limits, findings);
 }
 
 const HINTING_TORTURE_THRESHOLD: usize = 3;
+const HINTING_WARNING_LIMIT: usize = 200;
 
 #[derive(Default)]
 pub(super) struct HintingStats {
@@ -184,6 +197,7 @@ pub(super) struct HintingStats {
     tables_scanned: usize,
     highest_stack_depth: usize,
     highest_instruction_count: usize,
+    limit_logged: bool,
 }
 
 impl HintingStats {
@@ -205,6 +219,21 @@ impl HintingStats {
                 self.highest_instruction_count = self.highest_instruction_count.max(instr_count);
             }
         }
+    }
+
+    fn warning_limit_reached(&self) -> bool {
+        self.warnings >= HINTING_WARNING_LIMIT
+    }
+
+    fn log_limit(&mut self) {
+        if self.limit_logged {
+            return;
+        }
+        self.limit_logged = true;
+        warn!(
+            "Hinting warning limit reached ({} warnings); skipping remaining hinting tables",
+            self.warnings
+        );
     }
 
     fn should_emit(&self, limits: &ttf_vm::VmLimits) -> bool {
