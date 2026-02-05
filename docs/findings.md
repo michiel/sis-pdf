@@ -2371,11 +2371,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 
 - ID: `polyglot_signature_conflict`
 - Label: Polyglot signature conflict
+- Severity: High
 - Description: Detected polyglot signature conflict.
 - Tags: evasion, structure
 - Details:
   - Relevance: parser differential/evasion risk.
-  - Meaning: file structure may be malformed or intentionally confusing.
+  - Meaning: file structure may be malformed or intentionally confusing; polyglots are almost certainly malicious.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
 ## quantum_vulnerable_crypto

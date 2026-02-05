@@ -32,11 +32,8 @@ impl Detector for PolyglotDetector {
         let pdf_offset = summary.pdf_header_offset.unwrap_or(0);
         let pdf_at_zero = summary.pdf_header_at_zero;
 
-        let non_pdf_at_zero = summary.hits.iter().any(|h| h.offset == 0);
-        let strong_conflict = non_pdf_at_zero && pdf_offset > 0;
-
-        let severity = if strong_conflict { Severity::Medium } else { Severity::Low };
-        let confidence = if strong_conflict { Confidence::Probable } else { Confidence::Heuristic };
+        let severity = Severity::High;
+        let confidence = Confidence::Strong;
 
         let mut evidence = Vec::new();
         evidence.push(EvidenceSpan {
