@@ -50,6 +50,7 @@ pub mod polyglot;
 pub mod quantum_risk;
 pub mod rich_media_analysis;
 pub mod strict;
+pub mod structural_anomalies;
 pub mod supply_chain;
 pub mod uri_classification;
 pub mod vector_graphics;
@@ -133,6 +134,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(metadata_analysis::MetadataAnalysisDetector),
         Box::new(strict::StrictParseDeviationDetector),
         Box::new(ir_graph_static::IrGraphStaticDetector),
+        Box::new(structural_anomalies::StructuralAnomaliesDetector),
     ];
     if settings.js_sandbox {
         #[cfg(feature = "js-sandbox")]

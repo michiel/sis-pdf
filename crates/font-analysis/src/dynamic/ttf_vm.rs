@@ -32,6 +32,14 @@ impl VmLimits {
             max_loop_depth: DEFAULT_MAX_LOOP_DEPTH,
         }
     }
+
+    pub fn max_stack_depth(&self) -> usize {
+        self.max_stack_depth
+    }
+
+    pub fn max_instructions_per_glyph(&self) -> usize {
+        self.max_instructions_per_glyph
+    }
 }
 
 impl Default for VmLimits {

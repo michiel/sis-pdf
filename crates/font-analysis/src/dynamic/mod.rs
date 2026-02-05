@@ -159,13 +159,147 @@ fn analyze_hinting_tables(
     findings: &mut Vec<FontFinding>,
 ) {
     let limits = ttf_vm::VmLimits::from_config(config);
+    let mut stats = HintingStats::default();
     // Extract hinting tables (fpgm, prep)
     if let Some(fpgm) = extract_table(data, b"fpgm") {
-        findings.extend(ttf_vm::analyze_hinting_program(&fpgm, &limits));
+        let table_findings = ttf_vm::analyze_hinting_program(&fpgm, &limits);
+        stats.record(&table_findings);
+        findings.extend(table_findings);
     }
 
     if let Some(prep) = extract_table(data, b"prep") {
-        findings.extend(ttf_vm::analyze_hinting_program(&prep, &limits));
+        let table_findings = ttf_vm::analyze_hinting_program(&prep, &limits);
+        stats.record(&table_findings);
+        findings.extend(table_findings);
+    }
+
+    stats.emit(&limits, findings);
+}
+
+const HINTING_TORTURE_THRESHOLD: usize = 3;
+
+#[derive(Default)]
+pub(super) struct HintingStats {
+    warnings: usize,
+    tables_scanned: usize,
+    highest_stack_depth: usize,
+    highest_instruction_count: usize,
+}
+
+impl HintingStats {
+    fn record(&mut self, table_findings: &[FontFinding]) {
+        self.tables_scanned += 1;
+        for finding in table_findings {
+            if finding.kind != "font.ttf_hinting_suspicious" {
+                continue;
+            }
+            self.warnings += 1;
+            if let Some(stack_depth) =
+                finding.meta.get("max_stack_depth").and_then(|value| value.parse::<usize>().ok())
+            {
+                self.highest_stack_depth = self.highest_stack_depth.max(stack_depth);
+            }
+            if let Some(instr_count) =
+                finding.meta.get("instruction_count").and_then(|value| value.parse::<usize>().ok())
+            {
+                self.highest_instruction_count = self.highest_instruction_count.max(instr_count);
+            }
+        }
+    }
+
+    fn should_emit(&self, limits: &ttf_vm::VmLimits) -> bool {
+        if self.warnings == 0 {
+            return false;
+        }
+        self.warnings >= HINTING_TORTURE_THRESHOLD
+            || self.highest_stack_depth >= limits.max_stack_depth()
+            || self.highest_instruction_count >= limits.max_instructions_per_glyph()
+    }
+
+    fn emit(self, limits: &ttf_vm::VmLimits, findings: &mut Vec<FontFinding>) {
+        if !self.should_emit(limits) {
+            return;
+        }
+        let mut meta = HashMap::new();
+        meta.insert("hinting_warnings".to_string(), self.warnings.to_string());
+        meta.insert("tables_scanned".to_string(), self.tables_scanned.to_string());
+        meta.insert("max_stack_depth".to_string(), self.highest_stack_depth.to_string());
+        meta.insert("instruction_count".to_string(), self.highest_instruction_count.to_string());
+        findings.push(FontFinding {
+            kind: "font.ttf_hinting_torture".to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Probable,
+            title: "Hinting program torture detected".to_string(),
+            description: "Multiple hinting programs exhaust the interpreter or stack budgets."
+                .to_string(),
+            meta,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Confidence, Severity};
+
+    fn suspicious_hinting_finding(stack_depth: usize, instruction_count: usize) -> FontFinding {
+        let mut meta = HashMap::new();
+        meta.insert("max_stack_depth".to_string(), stack_depth.to_string());
+        meta.insert("instruction_count".to_string(), instruction_count.to_string());
+        FontFinding {
+            kind: "font.ttf_hinting_suspicious".to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Probable,
+            title: "suspicious hinting".to_string(),
+            description: "test".to_string(),
+            meta,
+        }
+    }
+
+    #[test]
+    fn hinting_torture_triggers_on_warning_count() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let findings = vec![
+            suspicious_hinting_finding(10, 50),
+            suspicious_hinting_finding(12, 60),
+            suspicious_hinting_finding(14, 70),
+        ];
+        stats.record(&findings);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.iter().any(|f| f.kind == "font.ttf_hinting_torture"),
+            "Expected aggregate finding when warnings exceed threshold"
+        );
+    }
+
+    #[test]
+    fn hinting_torture_triggers_on_stack_limit() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let findings = vec![suspicious_hinting_finding(limits.max_stack_depth(), 5)];
+        stats.record(&findings);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.iter().any(|f| f.kind == "font.ttf_hinting_torture"),
+            "Expected aggregate finding when stack limit is met"
+        );
+    }
+
+    #[test]
+    fn hinting_torture_not_triggered_for_single_safe_warning() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let findings = vec![suspicious_hinting_finding(5, 5)];
+        stats.record(&findings);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.is_empty(),
+            "Should not emit aggregate finding for safe hinting programs"
+        );
     }
 }
 

@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict};
@@ -76,6 +76,39 @@ impl Detector for ObjStmSummaryDetector {
                             "ObjStm declares {} embedded objects; parsed {} header entries.",
                             n, parsed
                         );
+                    }
+                    if parsed != n as usize {
+                        let mut mismatch_meta = std::collections::HashMap::new();
+                        mismatch_meta.insert("objstm.declared".into(), n.to_string());
+                        mismatch_meta.insert("objstm.parsed".into(), parsed.to_string());
+                        mismatch_meta.insert(
+                            "objstm.object".into(),
+                            format!("{} {} obj", entry.obj, entry.gen),
+                        );
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "stream.object_stream_count_mismatch".into(),
+                            severity: Severity::Medium,
+                            confidence: Confidence::Probable,
+                            impact: Some(Impact::Medium),
+                            title: "ObjStm object count mismatch".into(),
+                            description: format!(
+                                "ObjStm declares {} objects but parsed {} header entries.",
+                                n, parsed
+                            ),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence: vec![span_to_evidence(st.dict.span, "ObjStm dictionary")],
+                            remediation: Some("Reconcile header table with declared count.".into()),
+                            meta: mismatch_meta,
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
                     }
                 }
             } else {
