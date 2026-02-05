@@ -682,6 +682,18 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: dynamic validation step.
   - Meaning: runtime parser errors can signal malformed or hostile fonts.
   - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
+  - Context: `UnknownMagic` errors often accompany renderer-generated FontFile3/CFF blobs, so these failures are now flagged with lower severity unless backed by other anomalies.
+
+## font.dynamic_renderer_font
+
+- ID: `font.dynamic_renderer_font`
+- Label: Renderer font skipped
+- Description: Renderer-generated Cairo Type1/CFF blob is handled by the Type 1 analyzer instead of the strict dynamic parser.
+- Tags: font, dynamic, info
+- Details:
+  - Relevance: dynamic validation step.
+  - Meaning: the font matched the renderer-produced Cairo Type1/CFF pattern (`CairoFont`, header byte `0x01`), so we skip the parser and rely on deterministic Type 1 analysis.
+  - Chain usage: treated as an informational signal; it documents the trusted path without escalating severity.
 
 ## font.dynamic_timeout
 
@@ -716,7 +728,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: dangerous operators can trigger stack manipulation or arbitrary code execution in font renderers.
   - Context: attackers use these primitives (callothersubr/pop/return/put/store/blend) to corrupt interpreter stack/memory or escape to arbitrary execution paths (see BLEND/2015).
   - Chain usage: treated as a payload stage targeting Type 1 font parser vulnerabilities.
-  - Severity: MEDIUM (escalates to HIGH when `callothersubr`, `store`, or `blend` operators are present)
+  - Severity: MEDIUM (downgrades to LOW when only stack-manipulating operators `pop`, `put`, `return` are present; escalates to HIGH when `callothersubr`, `store`, or `blend` operators appear)
   - Introduced: Font analysis enhancement (2026-01-17)
 
 ## font.type1_excessive_stack
@@ -2359,11 +2371,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 
 - ID: `polyglot_signature_conflict`
 - Label: Polyglot signature conflict
+- Severity: High
 - Description: Detected polyglot signature conflict.
 - Tags: evasion, structure
 - Details:
   - Relevance: parser differential/evasion risk.
-  - Meaning: file structure may be malformed or intentionally confusing.
+  - Meaning: file structure may be malformed or intentionally confusing; polyglots are almost certainly malicious.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
 ## quantum_vulnerable_crypto
@@ -2768,6 +2781,18 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: executable action surface.
   - Meaning: viewer can perform external or privileged actions.
   - Chain usage: treated as an action node that can be linked to triggers and payloads.
+
+## uri_listing
+
+- ID: `uri_listing`
+- Label: URI(s) present
+- Severity: Info → Low → Medium → High (volume/domains thresholds)
+- Description: Aggregated URI listing; records every discovered URI plus contextual flags for the first 20 entries while still escalating severity when URI volume/diversity grows.
+- Tags: action, external, summary
+- Details:
+  - Relevance: documents with many URIs increase attack surface, but per-URI noise is captured centrally.
+  - Meaning: the finding collects `uri.count_*`, `uri.schemes`, and `uri.domains_sample` plus `uri.list.*` metadata (preview/canonical/chain_depth/visibility/trigger/suspicious) so downstream consumers can inspect every URI without flooding the report. `uri.suspicious_count` highlights how many URIs matched the `UriContentDetector` heuristics.
+  - Chain usage: acts as a summary node that can be joined with other findings (e.g., suspicious URIs, action chains) and remains low-noise even when hundreds of links are present.
 
 ## xfa_present
 

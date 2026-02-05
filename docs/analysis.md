@@ -163,6 +163,7 @@ Focus: textual cues and overlay links.
 ### Report Verbosity
 - Use `--report-verbosity [compact|standard|verbose]` to control how findings are presented in the CLI/REPL tables. `compact` drops `Info`/`Low` severity entries from the textual/readable outputs while JSON, JSONL, and YAML outputs retain the full set of findings so your dashboards and automations continue to see every record.
 - `--chain-summary [minimal|events|full]` shrinks textual action-chain output when you only care about suspicious triggers/payloads. JSON/JSONL/YAML outputs always emit the full chain, but text/readable tables show the filtered edges plus a small `edges_summary` digest.
+- The `sis report` output now includes a **Chain analysis** section that aggregates correlated signatures instead of listing every raw path. Each entry highlights the trigger/action/payload trio, aggregated instance count, score, node preview, and top correlation reasons; JSON/JSONL/SARIF still carry the full chain data for downstream tooling.
 - JSON-based `findings` exports now add a `summary` object with severity/surface counts so dashboards ingest a digest without scanning every finding.
 
 ### Structural Summary

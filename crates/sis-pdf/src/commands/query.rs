@@ -364,9 +364,8 @@ fn build_polyglot_finding(
         return None;
     }
 
-    let strong_conflict = summary.hits.iter().any(|hit| hit.offset == 0);
-    let severity = if strong_conflict { Severity::Medium } else { Severity::Low };
-    let confidence = if strong_conflict { Confidence::Probable } else { Confidence::Heuristic };
+    let severity = Severity::High;
+    let confidence = Confidence::Strong;
 
     let sig_list = summary
         .hits
@@ -8369,7 +8368,7 @@ mod tests {
             .find(|f| f.kind == "polyglot_signature_conflict")
             .expect("missing polyglot finding");
         assert_eq!(polyglot.surface, AttackSurface::FileStructure);
-        assert_eq!(polyglot.severity, Severity::Medium);
+        assert_eq!(polyglot.severity, Severity::High);
         assert!(polyglot.meta["polyglot.signatures"].as_str().contains("@"));
     }
 

@@ -46,7 +46,7 @@ The project utilizes the following rating components:
 ### 5. UriPresenceDetector
 
 *   **Purpose:** Summarizes overall URI presence in the document.
-*   **Key Findings & Ratings:** `uri_presence_summary` with severity scaling from `Info` to `High` based on the number of total URIs and unique domains.
+ *   **Key Findings & Ratings:** `uri_listing` with the same severity scaling, but now consolidates all URIs into one finding while tracking canonical forms, suspicious counts, and the first 20 URI contexts.
 *   **Recommendations:** Severity scaling is a good heuristic for identifying extensive external linking. No immediate changes recommended.
 
 ### 6. JavaScriptDetector

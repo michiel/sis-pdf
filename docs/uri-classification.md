@@ -255,25 +255,63 @@ Finding {
 
 ### UriPresenceDetector
 
-Produces single document-level summary:
+Aggregates every discovered URI and emits a single `uri_listing` finding that keeps counts, canonical forms, and contextual flags for the first few entries.
 
 ```rust
 Finding {
-    kind: "uri_presence_summary",
+    kind: "uri_listing",
     severity: Info,
-    title: "Document contains URIs",
-    description: "Found 15 URIs pointing to 3 unique domains.",
+    title: "URI(s) present",
+    description: "Found 12 URIs pointing to 3 unique domains, 1 flagged as suspicious.",
 
     meta: {
-        "uri.count_total": "15",
+        "uri.count_total": "12",
         "uri.count_unique_domains": "3",
-        "uri.schemes": "https:12, http:2, file:1",
-        "uri.domains_sample": "example.com, test.org, suspicious.tk",
+        "uri.suspicious_count": "1",
+        "uri.schemes": "https:10, http:2",
+        "uri.domains_sample": "example.com, good.org, tracking.net",
         "uri.mixed_content": "true",
+        "uri.list.count": "12",
+        "uri.list.stored": "12",
+        "uri.list.limit": "20",
+        "uri.listing.schema_version": "1",
+        "uri.list.0.url": "https://example.com/form",
+        "uri.list.0.canonical": "https://example.com/form",
+        "uri.list.0.scheme": "https",
+        "uri.list.0.domain": "example.com",
+        "uri.list.0.risk_score": "35",
+        "uri.list.0.suspicious": "false",
+        "uri.list.0.chain_depth": "1",
+        "uri.list.0.visibility": "visible",
+        "uri.list.0.placement": "annotation",
+        "uri.list.0.trigger": "click",
+        "uri.list.0.trigger_automatic": "false",
+        "uri.list.0.trigger_js_involved": "false",
+        "uri.list.1.url": "javascript:alert(1)",
+        "uri.list.1.canonical": "javascript:alert(1)",
+        "uri.list.1.scheme": "javascript",
+        "uri.list.1.risk_score": "140",
+        "uri.list.1.suspicious": "true",
+        "uri.list.1.chain_depth": "3",
+        "uri.list.1.visibility": "hidden_rect",
+        "uri.list.1.trigger": "javascript",
+        "uri.list.1.trigger_automatic": "true",
+        "uri.list.1.trigger_js_involved": "true",
+        "uri.listing.truncated": "true"
     }
 }
 ```
 
+The `meta` map keeps:
+
+- `uri.count_*` / `uri.schemes` / `uri.domains_sample` / `uri.mixed_content` to support volume-based filters.
+- `uri.suspicious_count` so clients can quickly see how many URIs match the `UriContentDetector` heuristics.
+- `uri.list.*` entries (max 20) that include a preview plus canonicalized form, `scheme`, `domain`, `risk_score`, suspicious flag, heuristic `chain_depth`, visibility/placement, and trigger metadata. When the document contains more URIs the `uri.listing.truncated` flag flips to `true`, but `uri.count_total` still reports the real total.
+- `uri.list.limit` and `uri.list.stored` record how many entries were persisted so downstream parsers can iterate deterministically.
+
+Because some parsers (or minimalist PDF layouts) never expose `UriTarget` edges, the detector falls back to scanning every dictionary for `/URI` keys so the aggregate finding still appears as long as there is at least one URI target.
+
+Severity escalation keeps the previous thresholds: Low when 10+ URIs or 5+ domains, Medium for 25+ URIs or 10+ domains, High when there are 50+ URIs or 20+ domains. This keeps the detector signal consistent even though individual URIs now appear as a single finding. Downstream chain reporting also now suppresses benign `uri_present` entries so those long lists only appear when a URI produces additional suspicious context (e.g., `uri_content_analysis`) and appears in the `uri_listing` metadata.
 ## Implementation Details
 
 ### Module Structure
@@ -298,7 +336,7 @@ Located in `crates/sis-pdf-detectors/src/uri_classification.rs`:
 
 **Detectors**:
 - `UriContentDetector` - Main content analysis detector
-- `UriPresenceDetector` - Document summary detector
+- `UriPresenceDetector` - Document summary detector emitting the `uri_listing` aggregate
 
 ### Integration
 
@@ -322,7 +360,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
 - **UriContentDetector**: Cost::Moderate - URI parsing and analysis per URI
 - **Resource Limits**: Maximum 1000 URIs analyzed per document (DoS prevention)
 - **Complexity**: O(n) where n = number of objects with URIs
-- **Severity Escalation**: `uri_presence_summary` increases to Low/Medium/High for high URI volume or high domain spread
+- **Severity Escalation**: `uri_listing` increases to Low/Medium/High for high URI volume or high domain spread
 
 ## Usage Examples
 
@@ -349,11 +387,14 @@ sis-pdf scan --format json document.pdf > results.json
     - Data exfiltration pattern detected (+60)
   Recommendation: Review URI destination and trigger mechanism
 
-[INFO] uri_presence_summary: Document contains URIs
+[INFO] uri_listing: URI(s) present
   Total URIs: 8
   Unique domains: 2
+  Suspicious URIs: 1
   Schemes: https:7, http:1
-  Mixed content: true
+  Sample entries:
+    - https://example.com/form (chain_depth=1, visible, click)
+    - javascript:alert(1) (chain_depth=3, hidden_rect, javascript, suspicious)
 ```
 
 ## Testing

@@ -1,3 +1,4 @@
+use font_analysis::model::Severity;
 /// Integration tests for font analysis using test fixtures
 ///
 /// These tests validate the font analysis implementation against
@@ -29,6 +30,19 @@ fn test_type1_dangerous_operators() {
         outcome.findings.iter().any(|f| f.kind == "font.type1_dangerous_operator");
 
     assert!(has_dangerous_ops, "Dangerous operators should be detected");
+}
+
+#[test]
+fn test_type1_low_risk_operators_low_severity() {
+    let data = b"/.notdef { pop put pop } ND";
+    let config = FontAnalysisConfig::default();
+    let outcome = analyse_font(data, &config);
+    let finding = outcome
+        .findings
+        .iter()
+        .find(|f| f.kind == "font.type1_dangerous_operator")
+        .expect("should still flag the operators");
+    assert_eq!(finding.severity, Severity::Low, "Only pop/put should be low severity");
 }
 
 /// Test that excessive stack depth is detected

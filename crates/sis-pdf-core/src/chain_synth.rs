@@ -34,6 +34,9 @@ pub fn synthesise_chains(
     let mut chains = Vec::new();
     chains.extend(build_object_chains(findings, structural_count, &taint, &finding_positions));
     for f in findings {
+        if f.kind == "uri_present" && !group_has_suspicious_uri(&[f]) {
+            continue;
+        }
         let single = [f];
         let roles = assign_chain_roles(&single);
         let trigger = roles.trigger_key.clone();
@@ -142,9 +145,19 @@ fn build_object_chains(
             notes,
         };
         finalize_chain(&mut chain, finding_positions);
-        chains.push(chain);
+        if !chain_is_noise(&chain, &group) {
+            chains.push(chain);
+        }
     }
     chains
+}
+
+fn chain_is_noise(chain: &ExploitChain, group: &[&Finding]) -> bool {
+    matches!(chain.action.as_deref(), Some("uri_present")) && !group_has_suspicious_uri(group)
+}
+
+fn group_has_suspicious_uri(group: &[&Finding]) -> bool {
+    group.iter().any(|f| f.kind == "uri_content_analysis")
 }
 
 fn chain_nodes(

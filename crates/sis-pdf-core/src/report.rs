@@ -1,9 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write;
 
 use anyhow::Result;
 
 use crate::chain::{ChainTemplate, ExploitChain};
+use crate::chain_render::{chain_action_label, chain_payload_label, chain_trigger_label};
 use crate::intent::IntentSummary;
 use crate::model::{AttackSurface, Finding, Severity};
 use crate::reader_context;
@@ -15,6 +17,21 @@ pub struct Summary {
     pub medium: usize,
     pub low: usize,
     pub info: usize,
+}
+
+#[derive(Debug)]
+struct ChainSummaryEntry {
+    path: String,
+    trigger_label: String,
+    action_label: String,
+    payload_label: String,
+    outcome: Option<String>,
+    narrative: Option<String>,
+    instances: usize,
+    score: f64,
+    reasons: Vec<String>,
+    node_preview: Option<String>,
+    finding_kinds: Vec<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -614,6 +631,19 @@ fn polyglot_summary(findings: &[Finding]) -> Option<(String, Vec<String>)> {
     }
 }
 
+fn finding_context(kind: &str) -> Option<&'static str> {
+    match kind {
+        "icc_profile_anomaly" => Some("Malformed ICC profiles often trigger color-management bugs (e.g., Adobe CVE reports) and can conceal malicious imagery or metadata."),
+        "annotation_action_chain" => Some("Annotation chains frequently wrap multiple URI/action steps, allowing attackers to hide phishing redirects behind layered annotations."),
+        "uri_present" => Some("URIs often ferry phishing destinations or downloader links; attackers hide them in actions, JavaScript, or annotations to evade static filters."),
+        "launch_action_present" => Some("Launch actions invoke external executables and have been abused to stage binaries via malicious PDFs in targeted campaigns."),
+        "js_present" => Some("JavaScript actions enable heap sprays, obfuscation, and chained payload delivery; attackers rely on them for staged compromise."),
+        "polyglot_signature_conflict" => Some("PDFs that also match ZIP/HTML/Image signatures are classic polyglots used to sneak payloads past scanners that only look at headers."),
+        "invalid_pdf_header" => Some("Tampered headers signal evasion or corruption and have featured in parser-differential attacks where attackers append other formats to the PDF."),
+        _ => None,
+    }
+}
+
 struct ResourceRiskSummary {
     embedded_files: usize,
     filespecs: usize,
@@ -818,6 +848,13 @@ fn split_values(input: &str) -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(|s| s.trim_matches(['"', '\'']).to_string())
         .collect()
+}
+
+fn is_chain_link_relevant(f: &Finding) -> bool {
+    match f.kind.as_str() {
+        "uri_present" => false,
+        _ => true,
+    }
 }
 
 fn build_position_preview_map(findings: &[Finding]) -> BTreeMap<String, String> {
@@ -2201,12 +2238,14 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         ));
         let key_findings = top_findings(&report.findings, 3);
         if !key_findings.is_empty() {
-            let summary = key_findings
-                .iter()
-                .map(|f| format!("{} ({})", f.title, display_id(&f.id, &id_map)))
-                .collect::<Vec<String>>()
-                .join("; ");
-            out.push_str(&format!("- Key findings: {}\n", escape_markdown(&summary)));
+            out.push_str("- Key findings:\n");
+            for f in &key_findings {
+                out.push_str(&format!(
+                    "  - {} ({})\n",
+                    escape_markdown(&f.title),
+                    display_id(&f.id, &id_map)
+                ));
+            }
         }
         let mut validation_reasons = Vec::new();
         for f in &report.findings {
@@ -2242,7 +2281,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             ));
         }
         let mut impacts = Vec::new();
-        for f in key_findings {
+        for f in &key_findings {
             let impact = f.meta.get("impact").cloned().unwrap_or_else(|| impact_for_finding(f));
             if !impacts.contains(&impact) {
                 impacts.push(impact);
@@ -2256,10 +2295,10 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     }
     let recommendations = build_recommendations(report);
     if !recommendations.is_empty() {
-        out.push_str(&format!(
-            "- Recommended next steps: {}\n",
-            escape_markdown(&recommendations.join("; "))
-        ));
+        out.push_str("- Recommended next steps:\n");
+        for step in recommendations {
+            out.push_str(&format!("  - {}\n", escape_markdown(&step)));
+        }
     }
     if let Some(path) = input_path {
         out.push_str(&format!("- Input: `{}`\n", escape_markdown(path)));
@@ -2709,91 +2748,57 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     }
 
     out.push_str("# Chain analysis\n\n");
-    if report.chains.is_empty() {
+    let position_previews = build_position_preview_map(&report.findings);
+    let chain_summary = build_chain_summary(report, &position_previews, &id_map);
+    if chain_summary.is_empty() {
         out.push_str("- No chain analysis recorded\n\n");
     } else {
-        let link_edges = build_link_edges(report);
-        let position_previews = build_position_preview_map(&report.findings);
-        for chain in &report.chains {
+        let total_instances: usize = chain_summary.iter().map(|entry| entry.instances).sum();
+        out.push_str(&format!(
+            "- {} chain signature(s) covering {} correlated occurrence(s).\n",
+            chain_summary.len(),
+            total_instances
+        ));
+        for (idx, entry) in chain_summary.iter().take(5).enumerate() {
             out.push_str(&format!(
-                "## {} (score {:.2})\n\n",
-                escape_markdown(&display_id(&chain.id, &id_map)),
-                chain.score
+                "- Signature {} (score {:.2}, {} instance(s))\n",
+                idx + 1,
+                entry.score,
+                entry.instances
             ));
-            out.push_str(&format!(
-                "- Path: {}\n",
-                escape_markdown(&replace_ids(&chain.path, &id_map))
-            ));
-            if chain.group_count > 1 {
-                out.push_str(&format!("- Instances: {}\n", chain.group_count));
+            out.push_str(&format!("  - Path: `{}`\n", escape_markdown(&entry.path)));
+            if let Some(outcome) = &entry.outcome {
+                out.push_str(&format!("  - Outcome: `{}`\n", escape_markdown(outcome)));
             }
-            out.push_str(&format!("- Effect: {}\n", escape_markdown(&chain_effect_summary(chain))));
-            if let Some(trigger) = chain_note(chain, "trigger.label").or(chain.trigger.as_deref()) {
-                out.push_str(&format!("- Trigger: `{}`\n", escape_markdown(trigger)));
+            if let Some(narrative) = &entry.narrative {
+                out.push_str(&format!("  - Narrative: `{}`\n", escape_markdown(narrative)));
             }
-            if let Some(action) = chain_note(chain, "action.label")
-                .or(chain_note(chain, "action.type"))
-                .or(chain.action.as_deref())
-            {
-                out.push_str(&format!("- Action: `{}`\n", escape_markdown(action)));
+            out.push_str(&format!("  - Trigger: `{}`\n", escape_markdown(&entry.trigger_label)));
+            out.push_str(&format!("  - Action: `{}`\n", escape_markdown(&entry.action_label)));
+            out.push_str(&format!("  - Payload: `{}`\n", escape_markdown(&entry.payload_label)));
+            if let Some(preview) = &entry.node_preview {
+                out.push_str(&format!("  - Node preview: `{}`\n", escape_markdown(preview)));
             }
-            if let Some(payload) = chain_note(chain, "payload.label")
-                .or(chain_note(chain, "payload.type"))
-                .or(chain.payload.as_deref())
-            {
-                out.push_str(&format!("- Payload: `{}`\n", escape_markdown(payload)));
-            }
-            if let Some(summary) = chain_note(chain, "payload.summary") {
-                out.push_str(&format!("- Payload summary: `{}`\n", escape_markdown(summary)));
-            }
-            if let Some(preview) = chain_note(chain, "payload.preview") {
-                out.push_str(&format!("- Payload preview: `{}`\n", escape_markdown(preview)));
-            }
-            out.push_str(&format!(
-                "- Narrative: {}\n",
-                escape_markdown(&replace_ids(
-                    &chain_execution_narrative(chain, &report.findings),
-                    &id_map
-                ))
-            ));
-            if !chain.nodes.is_empty() {
-                out.push_str("- Nodes:\n");
-                let mut entries = Vec::new();
-                for node in &chain.nodes {
-                    let preview = node_summary(node, &position_previews, &report.findings, chain);
-                    entries.push((node.clone(), preview));
-                }
-                for line in render_aligned_preview_lines(&entries, 40) {
-                    out.push_str(&format!("  - `{}`\n", escape_markdown(&line)));
-                }
-            }
-            let mut reason_lines = chain.reasons.clone();
-            reason_lines.extend(chain_finding_reasons(chain, &report.findings, &id_map, 3));
-            if !reason_lines.is_empty() {
-                out.push_str("- Score reasons:\n");
-                for reason in &reason_lines {
-                    out.push_str(&format!("  - {}\n", escape_markdown(reason)));
-                }
-            }
-            let linked_findings: BTreeSet<String> = link_edges
-                .iter()
-                .filter(|edge| {
-                    chain.findings.iter().any(|fid| fid == &edge.from || fid == &edge.to)
-                })
-                .flat_map(|edge| [edge.from.clone(), edge.to.clone()])
-                .collect();
-            if !linked_findings.is_empty() {
-                let linked_short = linked_findings
-                    .into_iter()
-                    .map(|fid| display_id(&fid, &id_map))
-                    .collect::<Vec<_>>();
+            let reasons_text = if entry.reasons.is_empty() {
+                "none".into()
+            } else {
+                entry.reasons.iter().take(3).cloned().collect::<Vec<_>>().join("; ")
+            };
+            out.push_str(&format!("  - Reasons: {}\n", escape_markdown(&reasons_text)));
+            if !entry.finding_kinds.is_empty() {
                 out.push_str(&format!(
-                    "- Linked findings: {}\n",
-                    escape_markdown(&linked_short.join(", "))
+                    "  - Finding kinds: {}\n",
+                    escape_markdown(&entry.finding_kinds.join(", "))
                 ));
             }
-            out.push('\n');
         }
+        if chain_summary.len() > 5 {
+            out.push_str(&format!(
+                "- Additional {} signature(s) omitted for brevity.\n",
+                chain_summary.len() - 5
+            ));
+        }
+        out.push('\n');
     }
 
     out.push_str("# Appendix\n\n");
@@ -2871,8 +2876,18 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 ));
             }
             let impact = f.meta.get("impact").cloned().unwrap_or_else(|| impact_for_finding(f));
-            out.push_str("**Impact**\n\n");
-            out.push_str(&format!("{}\n\n", escape_markdown(&impact)));
+            let runtime = runtime_effect_for_finding(f);
+            let mut description_lines = Vec::new();
+            if !f.description.is_empty() {
+                description_lines.push(f.description.clone());
+            }
+            description_lines.push(format!("Runtime effect: {}", runtime));
+            description_lines.push(format!("Impact: {}", impact));
+            if let Some(context) = finding_context(&f.kind) {
+                description_lines.push(format!("Context: {}", context));
+            }
+            out.push_str("**Description**\n\n");
+            out.push_str(&format!("{}\n\n", escape_markdown(&description_lines.join("\n\n"))));
             if let Some(y) = &f.yara {
                 out.push_str("**YARA**\n\n");
                 out.push_str(&format!("- Rule: `{}`\n", escape_markdown(&y.rule_name)));
@@ -3207,6 +3222,97 @@ pub fn render_batch_markdown(report: &BatchReport) -> String {
         ));
     }
     out
+}
+
+fn build_chain_summary(
+    report: &Report,
+    position_previews: &BTreeMap<String, String>,
+    id_map: &BTreeMap<String, String>,
+) -> Vec<ChainSummaryEntry> {
+    let mut findings_by_id: HashMap<&str, &Finding> = HashMap::new();
+    for finding in &report.findings {
+        findings_by_id.insert(finding.id.as_str(), finding);
+    }
+
+    let mut entries = Vec::new();
+    for chain in &report.chains {
+        let path = replace_ids(&chain.path, id_map);
+        let trigger_label = chain_trigger_label(chain);
+        let action_label = chain_action_label(chain);
+        let payload_label = chain_payload_label(chain);
+        let outcome = {
+            let summary = chain_effect_summary(chain);
+            if summary == "Execution path inferred from linked findings; review trigger and payload details."
+            {
+                None
+            } else {
+                Some(summary)
+            }
+        };
+        let narrative = {
+            let story = chain_execution_narrative(chain, &report.findings);
+            if story == "Insufficient context for a detailed narrative; review chain findings and payload details."
+            {
+                None
+            } else {
+                Some(story)
+            }
+        };
+
+        let instances = chain.group_count.max(1);
+        let node_preview =
+            chain.nodes.iter().find_map(|node| format_node_preview(node, position_previews));
+
+        let mut finding_kinds = BTreeSet::new();
+        for fid in &chain.findings {
+            if let Some(finding) = findings_by_id.get(fid.as_str()) {
+                finding_kinds.insert(finding.kind.clone());
+            }
+        }
+
+        let mut reasons = Vec::new();
+        for reason in &chain.reasons {
+            if !reason.trim().is_empty() && !reasons.contains(reason) {
+                reasons.push(reason.clone());
+            }
+        }
+
+        entries.push(ChainSummaryEntry {
+            path,
+            trigger_label,
+            action_label,
+            payload_label,
+            outcome,
+            narrative,
+            instances,
+            score: chain.score,
+            reasons,
+            node_preview,
+            finding_kinds: finding_kinds.into_iter().collect(),
+        });
+    }
+
+    entries.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| b.instances.cmp(&a.instances))
+            .then_with(|| a.trigger_label.cmp(&b.trigger_label))
+            .then_with(|| a.action_label.cmp(&b.action_label))
+            .then_with(|| a.payload_label.cmp(&b.payload_label))
+    });
+    entries
+}
+
+fn format_node_preview(node: &str, position_previews: &BTreeMap<String, String>) -> Option<String> {
+    let preview = position_previews.get(node);
+    let obj_label = parse_position_obj_ref(node).map(|(obj, gen)| format!("obj[{obj} {gen}]"));
+    match (obj_label, preview) {
+        (Some(obj), Some(text)) => Some(format!("{} {}", obj, text)),
+        (Some(obj), None) => Some(obj),
+        (None, Some(text)) => Some(text.clone()),
+        (None, None) => None,
+    }
 }
 
 #[cfg(test)]
