@@ -173,6 +173,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Invalid max_decode_bytes in config",
             }
             .emit();
@@ -195,6 +196,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Invalid max_total_decoded_bytes in config",
             }
             .emit();
@@ -233,6 +235,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Invalid max_objects in config",
             }
             .emit();
@@ -255,6 +258,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Invalid max_recursion_depth in config",
             }
             .emit();
@@ -283,6 +287,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Invalid focus_depth in config",
             }
             .emit();
@@ -317,6 +322,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Invalid ML threshold in config",
             }
             .emit();
@@ -343,6 +349,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Invalid ML threshold in config",
             }
             .emit();
@@ -412,6 +419,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Invalid font dynamic timeout in config",
                 }
                 .emit();
@@ -437,6 +445,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Invalid max_fonts in config",
                 }
                 .emit();
@@ -467,6 +476,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Invalid image max_pixels in config",
                 }
                 .emit();
@@ -492,6 +502,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Invalid image max_decode_bytes in config",
                 }
                 .emit();
@@ -517,6 +528,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Invalid image timeout_ms in config",
                 }
                 .emit();
@@ -542,6 +554,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Invalid image max_header_bytes in config",
                 }
                 .emit();
@@ -567,6 +580,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Invalid image max_dimension in config",
                 }
                 .emit();
@@ -592,6 +606,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Invalid image max_xfa_decode_bytes in config",
                 }
                 .emit();
@@ -617,6 +632,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Invalid image max_filter_chain_depth in config",
                 }
                 .emit();

@@ -52,10 +52,18 @@ pub struct SecurityEvent<'a> {
     pub technique: Option<&'a str>,
     pub confidence: Option<f32>,
     pub message: &'a str,
+    pub fatal: bool,
 }
 
 impl<'a> SecurityEvent<'a> {
     pub fn emit(self) {
+        let prefix = if self.fatal { "[FATAL]" } else { "[NON-FATAL]" };
+        let finding_label = if self.kind.is_empty() {
+            "[finding:MISSING]".to_string()
+        } else {
+            format!("[finding:{}]", self.kind)
+        };
+        let annotated_message = format!("{}{} {}", prefix, finding_label, self.message);
         match self.level {
             Level::TRACE => tracing::event!(
                 Level::TRACE,
@@ -70,7 +78,7 @@ impl<'a> SecurityEvent<'a> {
                 technique = self.technique,
                 confidence = self.confidence,
                 "{message}",
-                message = self.message
+                message = annotated_message.as_str()
             ),
             Level::DEBUG => tracing::event!(
                 Level::DEBUG,
@@ -85,7 +93,7 @@ impl<'a> SecurityEvent<'a> {
                 technique = self.technique,
                 confidence = self.confidence,
                 "{message}",
-                message = self.message
+                message = annotated_message.as_str()
             ),
             Level::INFO => tracing::event!(
                 Level::INFO,
@@ -100,7 +108,7 @@ impl<'a> SecurityEvent<'a> {
                 technique = self.technique,
                 confidence = self.confidence,
                 "{message}",
-                message = self.message
+                message = annotated_message.as_str()
             ),
             Level::WARN => tracing::event!(
                 Level::WARN,
@@ -115,7 +123,7 @@ impl<'a> SecurityEvent<'a> {
                 technique = self.technique,
                 confidence = self.confidence,
                 "{message}",
-                message = self.message
+                message = annotated_message.as_str()
             ),
             Level::ERROR => tracing::event!(
                 Level::ERROR,
@@ -130,7 +138,7 @@ impl<'a> SecurityEvent<'a> {
                 technique = self.technique,
                 confidence = self.confidence,
                 "{message}",
-                message = self.message
+                message = annotated_message.as_str()
             ),
         }
     }

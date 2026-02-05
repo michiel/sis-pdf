@@ -2533,6 +2533,7 @@ fn read_pdf_bytes(path: &str) -> Result<Vec<u8>> {
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "Large PDF file size may impact scan performance",
         }
         .emit();
@@ -2550,6 +2551,7 @@ fn read_pdf_bytes(path: &str) -> Result<Vec<u8>> {
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "PDF file exceeds max size limit",
         }
         .emit();
@@ -3348,6 +3350,7 @@ fn run_scan(
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "Enabling diff parser in strict mode",
         }
         .emit();
@@ -3795,6 +3798,7 @@ fn run_scan_batch(
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Batch scan file count exceeded",
             }
             .emit();
@@ -3815,6 +3819,7 @@ fn run_scan_batch(
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Batch scan byte limit exceeded",
                 }
                 .emit();
@@ -3888,6 +3893,7 @@ fn run_scan_batch(
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Failed to build batch worker pool; falling back to sequential",
                 }
                 .emit();
@@ -4068,6 +4074,7 @@ fn run_report(
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "Enabling diff parser in strict mode",
         }
         .emit();
@@ -4322,6 +4329,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "JSONL line exceeds size limit",
             }
             .emit();
@@ -4345,6 +4353,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "JSONL entry limit exceeded",
             }
             .emit();
@@ -4365,6 +4374,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "JSONL parse error",
                 }
                 .emit();
@@ -4389,6 +4399,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "JSONL URL rejected",
             }
             .emit();
@@ -4659,6 +4670,7 @@ fn read_text_with_limit(path: &std::path::Path, max_bytes: u64) -> Result<String
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Read rejected due to size limit",
             }
             .emit();

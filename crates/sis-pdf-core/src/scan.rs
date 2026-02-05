@@ -299,6 +299,7 @@ impl DecodedCache {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Decode budget exceeded",
                 }
                 .emit();
@@ -354,6 +355,7 @@ impl<'a> BudgetReservation<'a> {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Decode budget exceeded after decode",
                 }
                 .emit();

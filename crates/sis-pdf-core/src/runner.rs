@@ -150,6 +150,7 @@ pub fn run_scan_with_detectors(
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Failed to build parallel detector pool; falling back to sequential",
                 }
                 .emit();
@@ -234,6 +235,7 @@ pub fn run_scan_with_detectors(
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "Object count exceeded max_objects",
         }
         .emit();
