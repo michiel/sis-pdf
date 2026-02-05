@@ -11,7 +11,6 @@ test_direct
 test_sandbox
 test_all_fixtures.sh
 demo_sample.js
-!crates/*/tests/**/*.pdf
 
 # Rust build artifacts
 **/*.rs.bk
@@ -19,5 +18,5 @@ demo_sample.js
 *.txt
 *.jsonl
 /f*.py
-out/
+./out/
 .env.local
