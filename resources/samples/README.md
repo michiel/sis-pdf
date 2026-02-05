@@ -11,5 +11,8 @@ This files in `out/` are the outputs
 | Firefox (Linux) | `in/basic.html` | 'out/firefox-linux-basic.pdf' |
 | pandoc 3.6.4 | `in/empty.md` | 'out/pandoc-empty.pdf' |
 | pandoc 3.6.4 | `in/basic.md` | 'out/pandoc-basic.pdf' |
+| Google Docs | Empty | 'out/google-docs-empty.pdf' |
+| Google Docs | Basic | 'out/google-docs-basic.pdf' |
+
 
 These samples are generated to be "known good".
