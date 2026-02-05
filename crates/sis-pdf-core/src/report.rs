@@ -21,9 +21,12 @@ pub struct Summary {
 
 #[derive(Debug)]
 struct ChainSummaryEntry {
+    path: String,
     trigger_label: String,
     action_label: String,
     payload_label: String,
+    outcome: Option<String>,
+    narrative: Option<String>,
     instances: usize,
     score: f64,
     reasons: Vec<String>,
@@ -2733,7 +2736,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
 
     out.push_str("# Chain analysis\n\n");
     let position_previews = build_position_preview_map(&report.findings);
-    let chain_summary = build_chain_summary(report, &position_previews);
+    let chain_summary = build_chain_summary(report, &position_previews, &id_map);
     if chain_summary.is_empty() {
         out.push_str("- No chain analysis recorded\n\n");
     } else {
@@ -2750,6 +2753,13 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 entry.score,
                 entry.instances
             ));
+            out.push_str(&format!("  - Path: `{}`\n", escape_markdown(&entry.path)));
+            if let Some(outcome) = &entry.outcome {
+                out.push_str(&format!("  - Outcome: `{}`\n", escape_markdown(outcome)));
+            }
+            if let Some(narrative) = &entry.narrative {
+                out.push_str(&format!("  - Narrative: `{}`\n", escape_markdown(narrative)));
+            }
             out.push_str(&format!("  - Trigger: `{}`\n", escape_markdown(&entry.trigger_label)));
             out.push_str(&format!("  - Action: `{}`\n", escape_markdown(&entry.action_label)));
             out.push_str(&format!("  - Payload: `{}`\n", escape_markdown(&entry.payload_label)));
@@ -3194,6 +3204,7 @@ pub fn render_batch_markdown(report: &BatchReport) -> String {
 fn build_chain_summary(
     report: &Report,
     position_previews: &BTreeMap<String, String>,
+    id_map: &BTreeMap<String, String>,
 ) -> Vec<ChainSummaryEntry> {
     let mut findings_by_id: HashMap<&str, &Finding> = HashMap::new();
     for finding in &report.findings {
@@ -3202,12 +3213,32 @@ fn build_chain_summary(
 
     let mut entries = Vec::new();
     for chain in &report.chains {
+        let path = replace_ids(&chain.path, id_map);
         let trigger_label = chain_trigger_label(chain);
         let action_label = chain_action_label(chain);
         let payload_label = chain_payload_label(chain);
+        let outcome = {
+            let summary = chain_effect_summary(chain);
+            if summary == "Execution path inferred from linked findings; review trigger and payload details."
+            {
+                None
+            } else {
+                Some(summary)
+            }
+        };
+        let narrative = {
+            let story = chain_execution_narrative(chain, &report.findings);
+            if story == "Insufficient context for a detailed narrative; review chain findings and payload details."
+            {
+                None
+            } else {
+                Some(story)
+            }
+        };
 
         let instances = chain.group_count.max(1);
-        let node_preview = chain.nodes.iter().find_map(|node| position_previews.get(node)).cloned();
+        let node_preview =
+            chain.nodes.iter().find_map(|node| format_node_preview(node, position_previews));
 
         let mut finding_kinds = BTreeSet::new();
         for fid in &chain.findings {
@@ -3224,9 +3255,12 @@ fn build_chain_summary(
         }
 
         entries.push(ChainSummaryEntry {
+            path,
             trigger_label,
             action_label,
             payload_label,
+            outcome,
+            narrative,
             instances,
             score: chain.score,
             reasons,
@@ -3245,6 +3279,17 @@ fn build_chain_summary(
             .then_with(|| a.payload_label.cmp(&b.payload_label))
     });
     entries
+}
+
+fn format_node_preview(node: &str, position_previews: &BTreeMap<String, String>) -> Option<String> {
+    let preview = position_previews.get(node);
+    let obj_label = parse_position_obj_ref(node).map(|(obj, gen)| format!("obj[{obj} {gen}]"));
+    match (obj_label, preview) {
+        (Some(obj), Some(text)) => Some(format!("{} {}", obj, text)),
+        (Some(obj), None) => Some(obj),
+        (None, Some(text)) => Some(text.clone()),
+        (None, None) => None,
+    }
 }
 
 #[cfg(test)]
