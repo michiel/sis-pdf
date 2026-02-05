@@ -3,59 +3,31 @@
 **Command:** `sis scan --path tmp/pdf.js/test/pdfs/`
 
 ## Summary
-- The directory contains the full pdf.js regression corpus (hundreds of intentionally malformed or unsupported samples).
-- The scan completes with hundreds of warnings (font hinting errors, trailer/object inconsistencies) and ultimately aborts with a stack overflow inside the hinting interpreter. The baseline exit is non-zero.
-
-## Observed issues
-1. **Font hinting interpreter noise** – Numerous `Hinting program execution failed` warnings (stack underflow/overflow, unmatched FDEF/IF/ELSE, division by zero, reference cycles) occur per sample. The errors primarily originate from Type 1/TTF hinting programs designed to stress the interpreter. They are logged repeatedly but at least one sample triggers the interpreter stack overflow exception (`thread '<unknown>' (555933) has overflowed its stack`), killing the scan.
-2. **Structural parsing faults** – Several PDFs exhibit trailer dictionary `Size` entries that do not match the actual object count, missing stream `/Length` entries (`stream dictionary of '5 0 R' is missing the Length entry`), object streams reporting wrong `N`, and `xref_offset_oob`. These lead to `Object load error` diagnostics and increase noise.
-3. **Encrypted & malformed streams** – A subset of files are encrypted or use ASCII85 streams without EOD markers, generating `PDF is encrypted and requires a password` or `ASCII85 stream is missing its EOD marker` warnings while preventing any further decoding of those assets.
-
-## Latest debug run (debug build artifact)
-- Re-ran `target/debug/sis scan --path tmp/pdf.js/test/pdfs/`. The scan still floods the log with hinting failures (stack underflows/overflows, unmatched FDEF/IF/ELSE, division by zero) and the process aborts with the same interpreter stack overflow once ObjStm-heavy fonts repeatedly trigger `high_objstm_count` warnings, `Encrypt` fallbacks, and Flate recovery paths.
-- The structural/stream findings now fire on this corpus, so we already see `pdf.trailer_inconsistent`, `stream_missing_length`, `stream_ascii85_missing_eod`, `stream.obfuscated_concealment`, and `stream.object_stream_count_mismatch`. That’s useful, but the fatal stack overflow still prevents finishing the corpus to establish a clean warning baseline.
+- The corpus still kills `sis scan` when a Type 1 font triggers enough stack underflows/overflows to exhaust the interpreter. Logs show `hinting program execution failed` errors (stack underflows/overflows, unmatched IF/ELSE/FDEF, division by zero) on nearly every Type 1 font before the fatal stack overflow occurs.
+- Structural anomalies dominate the diagnostic stream: trailer `Size` entries disagree with object totals, objstm headers declare the wrong count (`stream.object_stream_count_mismatch`), xref offsets go out of range, streams omit `/Length`, and ASCII85 streams drop their EOD markers. ObjStm-heavy files also raise `objstm.torture` and multiple `high_objstm_count` warnings.
+- The scan is resilient enough to highlight encrypted/truncated streams (`PDF is encrypted and requires a password`, `ASCII85 stream is missing its EOD marker`) but still aborts before processing every file.
 
 ## Timeline checklist
-- [x] **Baseline scan** – captured stderr/warnings from initial `sis scan --path tmp/pdf.js/test/pdfs/`, noted hinting noise and stack overflow (Feb 5).  
-- [x] **Detection updates** – added `font.ttf_hinting_torture`, structural/stream detectors, ObjStm mismatch finding, and regression coverage (Feb 5–6).  
-- [x] **Debug rerun** – executed debug build scan, confirmed warnings still fire while new findings appear, stack overflow persists (Feb 5, evening).  
-- [x] **Hinting guard hardening** – implemented early exit for repeated stack issues and now have the ObjStm torture aggregate detector; trend instrumentation via `font.ttf_hinting_torture` logging is ready to capture counts.  
-- [ ] **Corpus regression job** – automate nightly or pre-release run of the pdf.js corpus to confirm the tip baseline remains stable and no new crashes occur.  
-- [ ] **Documentation & baseline** – record expected warning counts/summary entries for the pdf.js run so future contributors can quickly recognize regressions.  
+- [x] **Baseline scan** – initial release scan (`target/release/sis`) recorded numerous hinting warnings and stack overflow crash (Feb 5).  
+- [x] **Debug scan** – rerun with `target/debug/sis` to capture identical hinting logs plus structural findings (Feb 5 evening).  
+- [x] **Evidence capture** – `tmp/pdf.js/test/pdfs/160F-2019.pdf` reproduces the crash; copied to `crates/font-analysis/tests/fixtures/pdfjs` for regression coverage.  
+- [x] **Docs & workflow updates** – expanded `docs/agent-query-guide.md` with deeper object inspection, stream dumping, and scope exercises referencing the pdf.js corpus.  
+- [ ] **Plan coverage** – ensure the plan enumerates every remediation, opportunity, and timeline item uncovered so far (current task).  
+- [ ] **Nightly regression job** – add an automated job that runs the pdf.js corpus, comparing each finding/chain count to the documented baseline.  
+- [ ] **Hinting guard regression** – implement deterministic abort when repeated stack errors occur and validate using the new fixture and nightly run.  
+- [ ] **Trend instrumentation** – log `font.ttf_hinting_torture` counts and `objstm` metrics so nightly jobs can detect regressions in hinting and object stream behaviour.
 
-## Remediation plan
-1. **Harden the hinting interpreter**
-   - Add explicit stack/budget guards to the hinting program executor so it rejects suspicious programs (` instruction_count > threshold`, unmatched control flow, etc.) before overflowing. Gracefully abort with a deterministic error rather than letting the thread crash.
-   - Introduce caching/log deduplication for recurring hinting failures so that the corpus run remains readable. Consider chunking by glyph to surface one summary warning per font instead of per glyph.
-   - Add a regression fixture (or reuse the offending pdf) that reproduces the stack overflow; ensure `cargo test -p font-analysis` or a new integration verifies the guard disables the crash.
-2. **Improve structural resilience**
-   - When encountering inconsistent `Size` entries, missing `/Length`, or xref offsets, fall back to best-effort heuristics (e.g., derive length from next object or stream terminator) but keep reporting a single warning per file rather than repeating for every object.
-   - Ensure object load errors stay confined to the affected object and do not abort the entire scan; treat them as non-fatal and continue processing other objects.
-   - Validate `Object load error` details (offset, target object) in a dedicated regression to avoid panics when pdf.js uses intentionally weird xref tables.
-3. **Handle encrypted streams & missing markers**
-   - Recognise the pdf.js corpus contains encrypted and truncated ASCII85 streams; after logging that the content is unreadable, skip the payload decoding path so the scan continues.
-   - Document these cases when sharing the corpus results so analysts know these warnings are expected.
-4. **Regression coverage & automation**
-   - Add a nightly or lint job that replays `sis scan --path tmp/pdf.js/test/pdfs/ --report-verbosity compact` to detect regressions early. When the stack overflow fix is in place, this job should exit cleanly with warnings only.
-   - Update `plans/` or `docs/` with the known expected warnings so future contributors understand why the run is noisy.
+## Remediations & findings
+1. **Hinting interpreter guard** – add stack/budget guards so repeated underflows/overflows abort gracefully (without crashing the scanner) and emit deterministic `font.type1_hinting_torture`/related findings summarising the anomaly. Include regression coverage anchored to the crashing sample and document the expected warning volume in this plan (goal: keep scan noise controlled for nightly comparisons).  
+2. **Object stream resilience** – surface `stream.object_stream_count_mismatch` and `objstm.torture` (including header mismatches/filters) as early-warning findings. Track ObjStm-heavy files for suspicious header/filters, so these structural anomalies get correlated with other warnings.  
+3. **Structural & stream fallbacks** – when encountering wrong `/Size`, missing `/Length`, or `xref_offset_oob`, record what was seen and continue processing other objects using heuristics (estimate stream lengths, clamp offsets, mark `Object load error` non-fatal).  
+4. **Encrypted/malformed streams** – log and skip unreadable encrypted streams or truncated ASCII85 segments; tie these warnings to findings like `stream.obfuscated_concealment` or a new `stream.malformed_encrypted` flag so analysts know what to expect.  
+5. **Trend-driven detectability** – instrument daily runs to record counts for `font.ttf_hinting_torture`, ObjStm metrics, and these new structural warnings so we can spot regressions in accuracy, robustness, or noise volume.
 
-## Next steps
-- Pinpoint the sample(s) that still overflow the hinting interpreter in the debug run (likely identical to the earlier Type 1 fonts) and add them to `crates/font-analysis/tests/fixtures` for regression coverage.  
-- Re-run the pdf.js corpus once the guard is stable (deployed now) and document the expected noise captured by the new structural/stream findings so future runs only flag meaningful regressions.  
-
-## Progress
-- Added an aggregate hinting detection (`font.ttf_hinting_torture`) that fires whenever multiple hinting programs exhaust interpreter budgets or hit the configured stack/instruction thresholds; regression tests now cover the new heuristic.
-- Implemented structural/stream findings for trailer `/Size` mismatches, out-of-range `startxref` offsets, missing `/Length`, truncated ASCII85 payloads, combined obfuscation indicators, and ObjStm header/count disagreements along with regression tests to keep the new detections exercised.
-- Introduced the `objstm.torture` aggregate finding, guarding hinting analysis with an early-exit after excessive warnings, and surfaced the hinting/trend instrumentation so the new `font.ttf_hinting_torture` counts can be graphed across corpora.
-
-## Security finding opportunities
-- **Hinting interpreter abuse**: the stack underflow/overflow and unmatched control flow errors are exactly the type of PostScript hinting abuse seen in real exploits (BLEND-style). Add findings that flag fonts hitting the guard thresholds (excessive stack, unmatched FDEF, division by zero) even when the interpreter survives, with `severity=Medium` and `impact=High` to highlight potential interpreter exploits.
-- **Malformed trailer/xref as indicators**: repeated wrong `Size` entries, missing `/Length`, and xref offsets out of range often accompany malware that corrupts object tables. Emit findings (even `Low`/`Info`) when trailer metadata doesn't match actual counts or cross-reference pointers to emphasise tampering. These can feed correlation patterns linking to object stream misuse or exploits targeting header parsing.
-- **Encrypted/truncated assets**: detecting ASCII85 streams missing EOD or missing Length entries combined with warnings about encryption could form a `font.type1_concealed_payload` or `stream.malformed_encrypted` finding. Mark these as `Medium` severity with `confidence=Probable` since such anomalies are common in obfuscated/silent payloads.
-- **Glyph/hinting anomaly scoring**: aggregate hinting failures per font and emit a `font.type1_hinting_torture` finding when many glyphs trigger stack or control-flow errors; capture counts and max stack depth so analysts understand which fonts are actively abusing the interpreter.
-- **Object stream abuse detection**: when object streams report wrong `/Count`/`N` values compared to the parsed entries, raise a `stream.object_stream_count_mismatch` finding (`severity=Low`/`Medium`, `impact=Medium`). This highlights tampering of object tables that often precedes exploitation attempts.
-- **Trailer/xref discrepancy finding**: create `pdf.trailer_inconsistent` when trailers report a `Size` that disagrees with parsed objects or when xref entries point outside the file bounds; severity `Medium`, confidence `Strong`.
-- **Encrypted + malformed chain**: correlate encryption warnings with missing `/Length` or truncated ASCII85 so the pipeline surfaces a `stream.obfuscated_concealment` finding reporting both the reason and the affected object; severity `Medium`, confidence `Probable`.
-- **High ObjStm count aggregate**: add `objstm.torture` (or similar) to score ObjStm-heavy files by combining high counts with header mismatch/filters so ObjStm tampering appears alongside `stream.object_stream_count_mismatch`.
-- **Hinting trend monitoring**: capture `font.ttf_hinting_torture` counts across pdf.js runs (perhaps via histogram or checksum) to detect regressions early and keep accuracy/robustness high whenever we re-run the corpus.
-- **Hinting guard hardening**: extend the interpreter guard so repeated stack errors abort gracefully before crashing (e.g., limit recursion depth, stop the glyph, or exit with deterministic error) and document the expected log noise/baseline in this plan so future corpus runs stay controlled.
+## Opportunity backlog
+- **objstm.torture finding refinement** – aggregate high ObjStm counts plus header mismatches/filters so ObjStm-heavy tampering surfaces alongside `stream.object_stream_count_mismatch`.  
+- **Hinting anomaly trends** – log histograms of `font.ttf_hinting_torture` counts across nightly pdf.js replays to detect regressions (stack errors should not spike unexpectedly).  
+- **Hinting guard hardening** – tighten the interpreter guard so repeated stack errors abort early, document a log baseline for these cases in this plan, and add sensors that warn when the actual log volume deviates from the baseline.
+- **Security finding proposals** – develop new findings (e.g., `font.type1_hinting_torture`, `stream.malformed_encrypted`, `pdf.trailer_inconsistent`, `font.type1_concealed_payload`) that capture hinting/structural abuse patterns discovered during the corpus runs.  
+- **Nightly baseline automation** – run `sis scan --path tmp/pdf.js/test/pdfs/ --report-verbosity compact --json` nightly with recorded warning counts; fail the job when new `critical/high` findings appear or when stack overflow returns.  
+- **Regressions in ObjStm trends** – once instrumentation exists, monitor ObjStm header mismatch counts, filter counts, and `objstm.torture` severity to catch regressions when the pdf.js corpus is rerun after code changes.
