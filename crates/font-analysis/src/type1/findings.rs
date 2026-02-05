@@ -121,10 +121,11 @@ fn generate_findings_from_analysis(analysis: &CharstringAnalysis, findings: &mut
             .dangerous_ops
             .iter()
             .all(|op| LOW_RISK_OPERATORS.contains(&op.operator.as_str()));
+        let only_one_low_risk = has_only_low_risk && analysis.dangerous_ops.len() == 1;
 
         let severity = if has_high_risk {
             Severity::High
-        } else if has_only_low_risk {
+        } else if only_one_low_risk {
             meta.insert("operator_risk_level".to_string(), "low".to_string());
             Severity::Low
         } else {
