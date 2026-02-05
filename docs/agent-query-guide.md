@@ -34,6 +34,16 @@ This guide is for a security analyst using `sis query` to investigate PDF sample
 - `sis query graph sample.pdf --format dot` exports the ORG/IR graph to visualise relationships (use Graphviz to render).  
 - Add `--extract-to /tmp/out` for object streams or JS when you need to analyse payload bytes offline.
 
+## Deep-dive examples
+- **Follow the finding**: once `sis query findings sample.pdf --where "severity in ['High', 'Critical']"` identifies a suspicious entry, note the `correlation.object`, `meta.action.target`, or `chain_id`. Query `sis query objects sample.pdf --where "object.number == <object>" --format json` to read the dictionary metadata, including `stream.filters`, `node_preview`, and any linked `action_chain` details. This keeps the surface context for every suspicious object in view.
+- **Dump the stream**: with the object number confirmed, run `sis query sample.pdf stream <obj> 0 --extract-to /tmp/streams --raw` to write the decoded stream to disk, or add `--hexdump` for a quick size/entropy sanity check before exporting. Use `--format table` to confirm byte ranges, filter counts and decode status so you capture the exact payload you intend to analyse.
+- **Trace JavaScript payloads**: use `sis query actions sample.pdf --where "action_type == 'JavaScript'" --chain-summary minimal` to list every JS trigger, then pipe the resulting object ids into `sis query js sample.pdf --where "object.number == <js_obj>" --format jsonl`. Combine this with `--extract-to /tmp/scripts --raw --decode` to dump the JS to a safe workspace for deeper static or dynamic examination.
+
+## Query scope exercise
+- Trace a finding across surfaces: after identifying a `launch` finding, run `sis query urls sample.pdf --where "chain_id == '<chain_id>'"`, `sis query embedded sample.pdf --where "object_id == <object_id>"`, and `sis query actions sample.pdf --where "chain_id == '<chain_id>'"` to ensure every related surface agrees with your hypothesis.  
+- Use `sis query --path ./samples --glob "*.pdf" findings.high --format jsonl` to rehearse the same scope on an entire corpus; compare `correlation.object` and `assertion.node_preview` across files to spot repeated artefacts and reduce blind spots.  
+- Cross-verify stream and object outputs by comparing `sis query objects.sample.pdf --where "reference_count > 1"` with `sis query stream <obj> 0 --format table`; missing references or truncated filters from one surface often reveal deliberately hidden payloads.
+
 ### Chain/correlation observation
 The new `Chain analysis` section in `sis report` summarises grouped attack paths. Use `sis query findings sample.pdf --where "chain_id == 'chain-abc'"` when you need an individual chain definition, or run `sis query actions sample.pdf --where "chain_id != null" --format table` to inspect triggers, actions, and payloads per chain. Correlate `correlation` metadata (e.g., `correlation.object`) between findings to understand which objects host multiple suspicious artefacts.
 
@@ -54,6 +64,10 @@ sis query urls sample.pdf --where "suspicious == true" --format table
 sis query actions sample.pdf --where "chain.depth > 2" --chain-summary events --format table
 # Step 4: Inspect potential payload objects for encoded binaries
 sis query objects sample.pdf --where "stream.filter_count >= 2" --format jsonl
+# Step 5: Dump the decoded stream for a suspicious object
+sis query sample.pdf stream 45 0 --extract-to /tmp/streams --raw
+# Step 6: Follow the scope of the finding across objects, URIs, and actions
+sis query urls sample.pdf --where "chain_id == '<chain_id>'" --format table
 ```
 
 ## Reporting back
