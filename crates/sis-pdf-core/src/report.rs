@@ -631,6 +631,19 @@ fn polyglot_summary(findings: &[Finding]) -> Option<(String, Vec<String>)> {
     }
 }
 
+fn finding_context(kind: &str) -> Option<&'static str> {
+    match kind {
+        "icc_profile_anomaly" => Some("Malformed ICC profiles often trigger color-management bugs (e.g., Adobe CVE reports) and can conceal malicious imagery or metadata."),
+        "annotation_action_chain" => Some("Annotation chains frequently wrap multiple URI/action steps, allowing attackers to hide phishing redirects behind layered annotations."),
+        "uri_present" => Some("URIs often ferry phishing destinations or downloader links; attackers hide them in actions, JavaScript, or annotations to evade static filters."),
+        "launch_action_present" => Some("Launch actions invoke external executables and have been abused to stage binaries via malicious PDFs in targeted campaigns."),
+        "js_present" => Some("JavaScript actions enable heap sprays, obfuscation, and chained payload delivery; attackers rely on them for staged compromise."),
+        "polyglot_signature_conflict" => Some("PDFs that also match ZIP/HTML/Image signatures are classic polyglots used to sneak payloads past scanners that only look at headers."),
+        "invalid_pdf_header" => Some("Tampered headers signal evasion or corruption and have featured in parser-differential attacks where attackers append other formats to the PDF."),
+        _ => None,
+    }
+}
+
 struct ResourceRiskSummary {
     embedded_files: usize,
     filespecs: usize,
@@ -2863,8 +2876,18 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
                 ));
             }
             let impact = f.meta.get("impact").cloned().unwrap_or_else(|| impact_for_finding(f));
-            out.push_str("**Impact**\n\n");
-            out.push_str(&format!("{}\n\n", escape_markdown(&impact)));
+            let runtime = runtime_effect_for_finding(f);
+            let mut description_lines = Vec::new();
+            if !f.description.is_empty() {
+                description_lines.push(f.description.clone());
+            }
+            description_lines.push(format!("Runtime effect: {}", runtime));
+            description_lines.push(format!("Impact: {}", impact));
+            if let Some(context) = finding_context(&f.kind) {
+                description_lines.push(format!("Context: {}", context));
+            }
+            out.push_str("**Description**\n\n");
+            out.push_str(&format!("{}\n\n", escape_markdown(&description_lines.join("\n\n"))));
             if let Some(y) = &f.yara {
                 out.push_str("**YARA**\n\n");
                 out.push_str(&format!("- Rule: `{}`\n", escape_markdown(&y.rule_name)));
