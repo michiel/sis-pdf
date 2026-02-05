@@ -13,6 +13,20 @@ use crate::model::{Confidence, Severity};
 use std::collections::HashMap;
 
 #[cfg(feature = "dynamic")]
+const RENDERER_FONT_MARKER: &[u8] = b"CairoFont";
+
+#[cfg(feature = "dynamic")]
+fn matches_renderer_font_marker(data: &[u8]) -> bool {
+    if data.len() < RENDERER_FONT_MARKER.len() + 8 {
+        return false;
+    }
+    if data[0] != 0x01 {
+        return false;
+    }
+    data.windows(RENDERER_FONT_MARKER.len()).any(|window| window == RENDERER_FONT_MARKER)
+}
+
+#[cfg(feature = "dynamic")]
 pub fn analyse(data: &[u8]) -> Result<(), String> {
     // Try parsing with skrifa first (original behavior)
     use skrifa::FontRef;
@@ -52,6 +66,25 @@ pub fn analyze_with_findings_and_config(
     config: &crate::model::FontAnalysisConfig,
 ) -> Vec<FontFinding> {
     let mut findings = Vec::new();
+
+    if matches_renderer_font_marker(data) {
+        let mut meta = HashMap::new();
+        meta.insert("renderer_font".to_string(), "cairo".to_string());
+        meta.insert(
+            "marker".to_string(),
+            String::from_utf8_lossy(RENDERER_FONT_MARKER).to_string(),
+        );
+        findings.push(FontFinding {
+            kind: "font.dynamic_renderer_font".to_string(),
+            severity: Severity::Info,
+            confidence: Confidence::Probable,
+            title: "Renderer font skipped".to_string(),
+            description: "Detected renderer-generated Cairo Type1/CFF blob; dynamic parsing is skipped because the dedicated Type 1 analyzer already covers this format."
+                .to_string(),
+            meta,
+        });
+        return findings;
+    }
 
     // Parse font and extract context
     let context = match parser::parse_font(data) {

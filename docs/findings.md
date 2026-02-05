@@ -684,6 +684,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
   - Context: `UnknownMagic` errors often accompany renderer-generated FontFile3/CFF blobs, so these failures are now flagged with lower severity unless backed by other anomalies.
 
+## font.dynamic_renderer_font
+
+- ID: `font.dynamic_renderer_font`
+- Label: Renderer font skipped
+- Description: Renderer-generated Cairo Type1/CFF blob is handled by the Type 1 analyzer instead of the strict dynamic parser.
+- Tags: font, dynamic, info
+- Details:
+  - Relevance: dynamic validation step.
+  - Meaning: the font matched the renderer-produced Cairo Type1/CFF pattern (`CairoFont`, header byte `0x01`), so we skip the parser and rely on deterministic Type 1 analysis.
+  - Chain usage: treated as an informational signal; it documents the trusted path without escalating severity.
+
 ## font.dynamic_timeout
 
 - ID: `font.dynamic_timeout`
