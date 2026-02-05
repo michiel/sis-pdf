@@ -164,23 +164,33 @@ fn analyze_hinting_tables(
     let mut stats = HintingStats::default();
     // Extract hinting tables (fpgm, prep)
     if let Some(fpgm) = extract_table(data, b"fpgm") {
-        if !stats.warning_limit_reached() {
+        if stats.should_skip() {
+            stats.log_stack_guard();
+        } else if !stats.warning_limit_reached() {
             let table_findings = ttf_vm::analyze_hinting_program(&fpgm, &limits);
             stats.record(&table_findings);
             findings.extend(table_findings);
             if stats.warning_limit_reached() {
                 stats.log_limit();
             }
+            if stats.stack_guard_reached() {
+                stats.log_stack_guard();
+            }
         }
     }
 
     if let Some(prep) = extract_table(data, b"prep") {
-        if !stats.warning_limit_reached() {
+        if stats.should_skip() {
+            stats.log_stack_guard();
+        } else if !stats.warning_limit_reached() {
             let table_findings = ttf_vm::analyze_hinting_program(&prep, &limits);
             stats.record(&table_findings);
             findings.extend(table_findings);
             if stats.warning_limit_reached() {
                 stats.log_limit();
+            }
+            if stats.stack_guard_reached() {
+                stats.log_stack_guard();
             }
         }
     }
@@ -190,6 +200,7 @@ fn analyze_hinting_tables(
 
 const HINTING_TORTURE_THRESHOLD: usize = 3;
 const HINTING_WARNING_LIMIT: usize = 200;
+const HINTING_STACK_ERROR_GUARD: usize = 32;
 
 #[derive(Default)]
 pub(super) struct HintingStats {
@@ -198,6 +209,8 @@ pub(super) struct HintingStats {
     highest_stack_depth: usize,
     highest_instruction_count: usize,
     limit_logged: bool,
+    stack_errors: usize,
+    guard_logged: bool,
 }
 
 impl HintingStats {
@@ -208,6 +221,11 @@ impl HintingStats {
                 continue;
             }
             self.warnings += 1;
+            if let Some(error_kind) = finding.meta.get("error_kind") {
+                if error_kind == "stack_overflow" || error_kind == "stack_underflow" {
+                    self.stack_errors += 1;
+                }
+            }
             if let Some(stack_depth) =
                 finding.meta.get("max_stack_depth").and_then(|value| value.parse::<usize>().ok())
             {
@@ -223,6 +241,25 @@ impl HintingStats {
 
     fn warning_limit_reached(&self) -> bool {
         self.warnings >= HINTING_WARNING_LIMIT
+    }
+
+    fn stack_guard_reached(&self) -> bool {
+        self.stack_errors >= HINTING_STACK_ERROR_GUARD
+    }
+
+    fn should_skip(&self) -> bool {
+        self.stack_guard_reached()
+    }
+
+    fn log_stack_guard(&mut self) {
+        if !self.stack_guard_reached() || self.guard_logged {
+            return;
+        }
+        self.guard_logged = true;
+        warn!(
+            "Hinting stack guard triggered ({} stack errors); skipping remaining tables",
+            self.stack_errors
+        );
     }
 
     fn log_limit(&mut self) {
@@ -285,6 +322,12 @@ mod tests {
         }
     }
 
+    fn stack_error_finding(error_kind: &'static str) -> FontFinding {
+        let mut finding = suspicious_hinting_finding(0, 0);
+        finding.meta.insert("error_kind".to_string(), error_kind.to_string());
+        finding
+    }
+
     #[test]
     fn hinting_torture_triggers_on_warning_count() {
         let limits = ttf_vm::VmLimits::default();
@@ -329,6 +372,22 @@ mod tests {
             collected.is_empty(),
             "Should not emit aggregate finding for safe hinting programs"
         );
+    }
+
+    #[test]
+    fn stack_guard_triggers_after_anomalies() {
+        let mut stats = HintingStats::default();
+        for _ in 0..HINTING_STACK_ERROR_GUARD {
+            stats.record(&[stack_error_finding("stack_overflow")]);
+        }
+        assert!(stats.stack_guard_reached());
+        assert!(stats.should_skip());
+        assert!(!stats.guard_logged);
+        stats.log_stack_guard();
+        assert!(stats.guard_logged);
+        let mut findings = Vec::new();
+        stats.emit(&ttf_vm::VmLimits::default(), &mut findings);
+        assert!(findings.is_empty(), "Guard should prevent aggregate finding emit");
     }
 }
 

@@ -42,7 +42,11 @@ fn test_type1_low_risk_operators_low_severity() {
         .iter()
         .find(|f| f.kind == "font.type1_dangerous_operator")
         .expect("should still flag the operators");
-    assert_eq!(finding.severity, Severity::Medium, "Multiple low-risk operators should raise severity to Medium");
+    assert_eq!(
+        finding.severity,
+        Severity::Medium,
+        "Multiple low-risk operators should raise severity to Medium"
+    );
 }
 
 #[test]
@@ -55,7 +59,11 @@ fn test_type1_single_low_risk_operator_low_severity() {
         .iter()
         .find(|f| f.kind == "font.type1_dangerous_operator")
         .expect("should still flag the operator");
-    assert_eq!(finding.severity, Severity::Low, "Single low-risk operator should remain Low severity");
+    assert_eq!(
+        finding.severity,
+        Severity::Low,
+        "Single low-risk operator should remain Low severity"
+    );
 }
 
 /// Test that excessive stack depth is detected

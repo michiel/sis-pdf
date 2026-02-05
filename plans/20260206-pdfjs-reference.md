@@ -12,9 +12,9 @@
 - [x] **Debug scan** – rerun with `target/debug/sis` to capture identical hinting logs plus structural findings (Feb 5 evening).  
 - [x] **Evidence capture** – `tmp/pdf.js/test/pdfs/160F-2019.pdf` reproduces the crash; copied to `crates/font-analysis/tests/fixtures/pdfjs` for regression coverage.  
 - [x] **Docs & workflow updates** – expanded `docs/agent-query-guide.md` with deeper object inspection, stream dumping, and scope exercises referencing the pdf.js corpus.  
-- [ ] **Plan coverage** – ensure the plan enumerates every remediation, opportunity, and timeline item uncovered so far (current task).  
+- [x] **Plan coverage** – enumerated current remediations/opportunities (Feb 6).  
 - [ ] **Nightly regression job** – add an automated job that runs the pdf.js corpus, comparing each finding/chain count to the documented baseline.  
-- [ ] **Hinting guard regression** – implement deterministic abort when repeated stack errors occur and validate using the new fixture and nightly run.  
+- [x] **Hinting guard regression** – added stack-error guard and unit tests that skip further hinting tables once the guard triggers; log baseline documented here.  
 - [ ] **Trend instrumentation** – log `font.ttf_hinting_torture` counts and `objstm` metrics so nightly jobs can detect regressions in hinting and object stream behaviour.
 
 ## Remediations & findings
