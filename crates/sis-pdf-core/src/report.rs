@@ -2222,12 +2222,14 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
         ));
         let key_findings = top_findings(&report.findings, 3);
         if !key_findings.is_empty() {
-            let summary = key_findings
-                .iter()
-                .map(|f| format!("{} ({})", f.title, display_id(&f.id, &id_map)))
-                .collect::<Vec<String>>()
-                .join("; ");
-            out.push_str(&format!("- Key findings: {}\n", escape_markdown(&summary)));
+            out.push_str("- Key findings:\n");
+            for f in &key_findings {
+                out.push_str(&format!(
+                    "  - {} ({})\n",
+                    escape_markdown(&f.title),
+                    display_id(&f.id, &id_map)
+                ));
+            }
         }
         let mut validation_reasons = Vec::new();
         for f in &report.findings {
@@ -2263,7 +2265,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             ));
         }
         let mut impacts = Vec::new();
-        for f in key_findings {
+        for f in &key_findings {
             let impact = f.meta.get("impact").cloned().unwrap_or_else(|| impact_for_finding(f));
             if !impacts.contains(&impact) {
                 impacts.push(impact);
@@ -2277,10 +2279,10 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     }
     let recommendations = build_recommendations(report);
     if !recommendations.is_empty() {
-        out.push_str(&format!(
-            "- Recommended next steps: {}\n",
-            escape_markdown(&recommendations.join("; "))
-        ));
+        out.push_str("- Recommended next steps:\n");
+        for step in recommendations {
+            out.push_str(&format!("  - {}\n", escape_markdown(&step)));
+        }
     }
     if let Some(path) = input_path {
         out.push_str(&format!("- Input: `{}`\n", escape_markdown(path)));
