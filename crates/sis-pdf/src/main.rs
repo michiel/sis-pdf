@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
 use globset::Glob;
 use js_analysis::{DynamicOptions, DynamicOutcome};
-use rayon::prelude::*;
+use rayon::{prelude::*, ThreadPoolBuilder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sis_pdf_core::filter_allowlist::{default_filter_allowlist_toml, load_filter_allowlist};
@@ -36,6 +36,7 @@ const MAX_JSONL_LINE_BYTES: usize = 10 * 1024;
 const MAX_JSONL_ENTRIES: usize = 1_000_000;
 const MAX_CAMPAIGN_INTENT_LEN: usize = 1024;
 const MAX_WALK_DEPTH: usize = 10;
+const BATCH_WORKER_STACK_SIZE: usize = 16 * 1024 * 1024;
 const UPDATE_REPO_DEFAULT: &str = "michiel/sis-pdf";
 const UPDATE_USER_AGENT: &str = "sis-update";
 const ORT_VERSION_DEFAULT: &str = "1.23.2";
@@ -3866,14 +3867,20 @@ fn run_scan_batch(
             sis_pdf_core::report::write_jsonl_findings(&report, guard.as_mut())?;
         }
         let duration_ms = start.elapsed().as_millis() as u64;
+        let detection_duration_ms = report.detection_duration_ms;
+        let summary = report.summary;
         Ok(sis_pdf_core::report::BatchEntry {
             path: path_str,
-            summary: report.summary,
             duration_ms,
+            summary,
+            detection_duration_ms,
         })
     };
     let mut entries: Vec<(usize, sis_pdf_core::report::BatchEntry)> = if use_parallel {
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(thread_count).build();
+        let pool = ThreadPoolBuilder::new()
+            .num_threads(thread_count)
+            .stack_size(BATCH_WORKER_STACK_SIZE)
+            .build();
         match pool {
             Ok(pool) => pool.install(|| {
                 indexed_paths
