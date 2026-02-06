@@ -34,8 +34,6 @@ fn scan_fixture(name: &str) -> sis_pdf_core::report::Report {
         group_chains: true,
         correlation: Default::default(),
         yara_scope: None,
-        no_js_ast: false,
-        no_js_sandbox: false,
     };
     run_scan_with_detectors(&bytes, opts, &default_detectors()).expect("scan succeeds")
 }
