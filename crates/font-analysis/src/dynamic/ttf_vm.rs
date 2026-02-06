@@ -10,7 +10,8 @@ use tracing::{debug, instrument, warn};
 use crate::model::{Confidence, FontAnalysisConfig, FontFinding, Severity};
 
 /// TrueType VM execution limits (for security analysis)
-const DEFAULT_MAX_INSTRUCTIONS_PER_GLYPH: usize = 50_000;
+/// Reduced from 50,000 to 5,000 - we only need to detect anomalies, not run full programs
+const DEFAULT_MAX_INSTRUCTIONS_PER_GLYPH: usize = 5_000;
 const DEFAULT_MAX_STACK_DEPTH: usize = 256;
 const DEFAULT_MAX_LOOP_DEPTH: usize = 10;
 const INSTRUCTION_HISTORY_LIMIT: usize = 32;
@@ -282,7 +283,7 @@ impl VMState {
 /// Analyze TrueType hinting program
 #[cfg(feature = "dynamic")]
 #[instrument(skip(program), fields(program_len = program.len()))]
-pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFinding> {
+pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits, suppress_warnings: bool) -> Vec<FontFinding> {
     let mut findings = Vec::new();
 
     if program.is_empty() {
@@ -294,14 +295,17 @@ pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFin
     let mut state = VMState::new(*limits);
     if let Err(err) = execute_program(&mut state, program) {
         let history = state.formatted_instruction_history();
-        warn!(
-            error = %err,
-            instruction_count = state.instruction_count,
-            max_stack_depth = state.max_stack_depth,
-            control_depth = state.max_control_depth,
-            instruction_history = &history,
-            "Hinting program execution failed"
-        );
+        // Only log warnings if not suppressed (to reduce log spam when limits are hit)
+        if !suppress_warnings {
+            warn!(
+                error = %err,
+                instruction_count = state.instruction_count,
+                max_stack_depth = state.max_stack_depth,
+                control_depth = state.max_control_depth,
+                instruction_history = &history,
+                "Hinting program execution failed"
+            );
+        }
         let mut meta = HashMap::new();
         meta.insert("error_kind".to_string(), err.kind().to_string());
         meta.insert("error_message".to_string(), err.to_string());
@@ -370,7 +374,7 @@ pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFin
 }
 
 #[cfg(not(feature = "dynamic"))]
-pub fn analyze_hinting_program(_program: &[u8], _limits: &VmLimits) -> Vec<FontFinding> {
+pub fn analyze_hinting_program(_program: &[u8], _limits: &VmLimits, _suppress_warnings: bool) -> Vec<FontFinding> {
     Vec::new()
 }
 
@@ -728,7 +732,7 @@ mod tests {
             program.push(0xB0); // PUSHB[0]
             program.push(1);
         }
-        let findings = analyze_hinting_program(&program, &VmLimits::default());
+        let findings = analyze_hinting_program(&program, &VmLimits::default(), false);
         assert!(!findings.is_empty());
         assert!(
             findings.iter().any(|f| {

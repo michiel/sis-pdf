@@ -3378,7 +3378,7 @@ fn run_scan(
             enabled: true,
             dynamic_enabled: false,
             dynamic_timeout_ms: 120,
-            max_fonts: 256,
+            max_fonts: 32, // Reduced from 256 to limit analysis time
             signature_matching_enabled: font_signatures_enabled,
             signature_directory: font_signature_dir.map(|p| p.to_string_lossy().to_string()),
         },
