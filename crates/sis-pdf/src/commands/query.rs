@@ -266,8 +266,22 @@ pub enum Query {
     References(u32, u16),
 
     // Stream queries
-    Stream(u32, u16),
+    Stream(StreamQuery),
     StreamsEntropy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamQuery {
+    pub obj: u32,
+    pub gen: u16,
+    pub decode_override: Option<DecodeMode>,
+    pub output: StreamOutput,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamOutput {
+    Summary,
+    Raw,
 }
 
 /// Query result that can be serialized to JSON or formatted as text
@@ -635,22 +649,52 @@ pub fn parse_query(input: &str) -> Result<Query> {
 
             // Try to parse stream queries
             if let Some(rest) = input.strip_prefix("stream ") {
-                let parts: Vec<&str> = rest.split_whitespace().collect();
-                if parts.len() == 1 {
-                    let obj = parts[0]
-                        .parse::<u32>()
-                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
-                    return Ok(Query::Stream(obj, 0));
-                } else if parts.len() == 2 {
-                    let obj = parts[0]
-                        .parse::<u32>()
-                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
-                    let gen = parts[1]
-                        .parse::<u16>()
-                        .map_err(|_| anyhow!("Invalid generation number: {}", parts[1]))?;
-                    return Ok(Query::Stream(obj, gen));
+                let mut parts = rest.split_whitespace();
+                let obj_token = parts.next().ok_or_else(|| anyhow!("Object number required"))?;
+                let obj = obj_token
+                    .parse::<u32>()
+                    .map_err(|_| anyhow!("Invalid object number: {}", obj_token))?;
+                let mut gen = 0u16;
+                let mut decode_override = None;
+                let mut output = StreamOutput::Summary;
+                if let Some(next) = parts.next() {
+                    if next.starts_with("--") {
+                        gen = 0;
+                        match next {
+                            "--raw" => {
+                                output = StreamOutput::Raw;
+                                decode_override = Some(DecodeMode::Raw);
+                            }
+                            "--hexdump" => {
+                                decode_override = Some(DecodeMode::Hexdump);
+                            }
+                            "--decode" => {
+                                decode_override = Some(DecodeMode::Decode);
+                            }
+                            _ => return Err(anyhow!("Unknown stream flag: {}", next)),
+                        }
+                    } else {
+                        gen = next
+                            .parse::<u16>()
+                            .map_err(|_| anyhow!("Invalid generation number: {}", next))?;
+                    }
                 }
-                return Err(anyhow!("Invalid stream query format"));
+                for token in parts {
+                    match token {
+                        "--raw" => {
+                            output = StreamOutput::Raw;
+                            decode_override = Some(DecodeMode::Raw);
+                        }
+                        "--hexdump" => {
+                            decode_override = Some(DecodeMode::Hexdump);
+                        }
+                        "--decode" => {
+                            decode_override = Some(DecodeMode::Decode);
+                        }
+                        other => return Err(anyhow!("Unknown stream flag: {}", other)),
+                    }
+                }
+                return Ok(Query::Stream(StreamQuery { obj, gen, decode_override, output }));
             }
 
             // Try to parse findings.kind query
@@ -1730,23 +1774,29 @@ pub fn execute_query_with_context(
                 let images = extract_images(ctx, decode_mode, max_extract_bytes, predicate)?;
                 Ok(QueryResult::Scalar(ScalarValue::Number(images.len() as i64)))
             }
-            Query::Stream(obj, gen) => {
+            Query::Stream(stream) => {
                 if predicate.is_some() {
                     ensure_predicate_supported(query)?;
                 }
+                let mode = stream.decode_override.unwrap_or(decode_mode);
                 if let Some(extract_path) = extract_to {
                     let written = write_stream_object(
                         ctx,
-                        *obj,
-                        *gen,
+                        stream.obj,
+                        stream.gen,
                         extract_path,
                         max_extract_bytes,
-                        decode_mode,
+                        mode,
                     )?;
                     Ok(QueryResult::List(vec![written]))
                 } else {
-                    let preview =
-                        preview_stream_object(ctx, *obj, *gen, max_extract_bytes, decode_mode)?;
+                    let preview = preview_stream_object(
+                        ctx,
+                        stream.obj,
+                        stream.gen,
+                        max_extract_bytes,
+                        mode,
+                    )?;
                     Ok(QueryResult::List(vec![preview]))
                 }
             }
@@ -5132,6 +5182,30 @@ fn stream_bytes_for_mode(
     }
 }
 
+pub fn maybe_stream_raw_bytes(
+    query: &Query,
+    ctx: &ScanContext,
+    decode_mode: DecodeMode,
+    max_bytes: usize,
+) -> Result<Option<Vec<u8>>> {
+    if let Query::Stream(request) = query {
+        if request.output != StreamOutput::Raw {
+            return Ok(None);
+        }
+        let entry = ctx
+            .graph
+            .get_object(request.obj, request.gen)
+            .ok_or_else(|| anyhow!("Object {} {} not found", request.obj, request.gen))?;
+        let PdfAtom::Stream(stream) = &entry.atom else {
+            return Err(anyhow!("Object {} {} is not a stream", request.obj, request.gen));
+        };
+        let mode = request.decode_override.unwrap_or(decode_mode);
+        let data = stream_bytes_for_mode(ctx.bytes, stream, max_bytes, mode)?;
+        return Ok(Some(data));
+    }
+    Ok(None)
+}
+
 fn raw_stream_bytes(
     bytes: &[u8],
     stream: &sis_pdf_pdf::object::PdfStream<'_>,
@@ -6719,7 +6793,12 @@ mod tests {
         let temp = tempdir().expect("tempdir");
 
         let result = execute_query_with_context(
-            &Query::Stream(3, 0),
+            &Query::Stream(StreamQuery {
+                obj: 3,
+                gen: 0,
+                decode_override: None,
+                output: StreamOutput::Summary,
+            }),
             &ctx,
             Some(temp.path()),
             1024 * 1024,
@@ -6747,7 +6826,12 @@ mod tests {
         let ctx = build_scan_context(&bytes, &options).expect("build context");
 
         let result = execute_query_with_context(
-            &Query::Stream(3, 0),
+            &Query::Stream(StreamQuery {
+                obj: 3,
+                gen: 0,
+                decode_override: None,
+                output: StreamOutput::Summary,
+            }),
             &ctx,
             None,
             1024 * 1024,

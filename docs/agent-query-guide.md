@@ -35,6 +35,7 @@ This guide is for a security analyst using `sis query` to investigate PDF sample
 
 ### Stream dumping & evidence capture
 - Once the suspicious object number is locked down, run `sis query sample.pdf stream <obj> 0 --extract-to /tmp/streams --decode --raw` to materialise the decoded bytes. Add `--hexdump` if you need a quick size/entropy snapshot before exporting.  
+- While in the interactive REPL, you can instead run `stream <obj> <gen> --raw` and pipe or redirect it (`sis> stream 8 0 --raw | od` or `sis> stream 8 0 --raw > /tmp/dump.raw`) so you can pipe the raw bytes directly into other tools.  
 - Review the command output (or the JSON record) to confirm `stream.filters`, `stream.decode` success/failure, and `stream.decode_error` text, then copy the extracted file into a safe workspace (`/tmp/streams`, `~/analysis`) for further static/dynamic tooling.  
 - If the stream is obfuscated, use `--extract-to` together with `--decode` (or `--raw` followed by `sis query ... --deep`) to capture the transformation chain; document the filter sequence and offsets so peers can reproduce the exact bytes and log lines associated with the finding.
 
