@@ -1,9 +1,13 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use sis_pdf_pdf::ObjectGraph;
+use tracing::warn;
 
 use crate::graph_walk::ObjRef;
+
+/// Maximum recursion depth for page tree traversal to prevent stack overflow
+const MAX_PAGE_TREE_DEPTH: usize = 128;
 
 #[derive(Debug, Clone)]
 pub struct PageInfo {
@@ -29,11 +33,12 @@ pub struct PageTree {
 pub fn build_page_tree(graph: &ObjectGraph<'_>) -> PageTree {
     let mut pages = Vec::new();
     let mut annot_parent = HashMap::new();
+    let mut seen = HashSet::new();
     let root = graph.trailers.last().and_then(|t| t.get_first(b"/Root")).map(|(_, v)| v.clone());
     let catalog = root.as_ref().and_then(|o| resolve_dict(graph, o));
     let pages_ref = catalog.as_ref().and_then(|d| d.get_first(b"/Pages")).map(|(_, v)| v.clone());
     if let Some(pages_obj) = pages_ref {
-        walk_pages(graph, &pages_obj, None, &mut pages, &mut annot_parent);
+        walk_pages(graph, &pages_obj, None, &mut pages, &mut annot_parent, &mut seen, 0);
     }
     PageTree { pages, annot_parent }
 }
@@ -48,7 +53,36 @@ fn walk_pages(
     inherited_media_box: Option<[f32; 4]>,
     pages: &mut Vec<PageInfo>,
     annot_parent: &mut HashMap<ObjRef, PageRefInfo>,
+    seen: &mut HashSet<(u32, u16)>,
+    depth: usize,
 ) {
+    // Guard against excessive recursion depth
+    if depth > MAX_PAGE_TREE_DEPTH {
+        warn!(
+            security = true,
+            domain = "pdf.page_tree",
+            kind = "page_tree_depth_exceeded",
+            depth = depth,
+            "Page tree depth exceeded maximum; aborting traversal"
+        );
+        return;
+    }
+
+    // Cycle detection via object reference tracking
+    if let Some((obj_id, gen_id)) = object_id_from_obj(graph, obj) {
+        if !seen.insert((obj_id, gen_id)) {
+            warn!(
+                security = true,
+                domain = "pdf.page_tree",
+                kind = "page_tree_cycle_detected",
+                obj = obj_id,
+                gen = gen_id,
+                "Page tree cycle detected; aborting traversal"
+            );
+            return;
+        }
+    }
+
     let dict = match resolve_dict(graph, obj) {
         Some(d) => d,
         None => return,
@@ -58,7 +92,7 @@ fn walk_pages(
         if let Some((_, kids)) = dict.get_first(b"/Kids") {
             if let PdfAtom::Array(arr) = &kids.atom {
                 for kid in arr {
-                    walk_pages(graph, kid, media_box, pages, annot_parent);
+                    walk_pages(graph, kid, media_box, pages, annot_parent, seen, depth + 1);
                 }
             }
         }

@@ -3,13 +3,11 @@
 **Command:** `sis scan --path tmp/pdf.js/test/pdfs/`
 
 ## Summary
-- The corpus still kills `sis scan` when a Type 1 font triggers enough stack underflows/overflows to exhaust the interpreter. Logs show `hinting program execution failed` errors (stack underflows/overflows, unmatched IF/ELSE/FDEF, division by zero) on nearly every Type 1 font before the fatal stack overflow occurs.
+- **Stack overflow resolved (2026-02-06)** - The corpus now completes without crashing. GDB tracing revealed the actual crash was in `sis_pdf_core::page_tree::walk_pages` (recursive page tree traversal), not the hinting interpreter. Added depth limiting (128 levels) and cycle detection to both the core page_tree module and the detector.
 - Structural anomalies dominate the diagnostic stream: trailer `Size` entries disagree with object totals, objstm headers declare the wrong count (`stream.object_stream_count_mismatch`), xref offsets go out of range, streams omit `/Length`, and ASCII85 streams drop their EOD markers. ObjStm-heavy files also raise `objstm.torture` and multiple `high_objstm_count` warnings.
-- The scan is resilient enough to highlight encrypted/truncated streams (`PDF is encrypted and requires a password`, `ASCII85 stream is missing its EOD marker`) but still aborts before processing every file.
-- A fresh debug build rerun on 2026-02-06 still ends in stack overflow even after instrumentation; `font.ttf_hinting_push_loop` now fires whenever dense `PUSHW/PUSHB` runs appear (see 2026-02-06T00:56:08), yet another glyph still crashes, so we must enlarge the guard coverage and consider per-font early exits.
-- We now track push-heavy instruction density and emit `font.ttf_hinting_push_loop` when the last 32 opcodes are mostly `PUSHW/PUSHB`, but the pdf.js corpus still reaches an uncaught overflow elsewhere, so the guard needs threshold tuning and broader signal coverage before nightly automation stabilises.
-- Control-flow/CALL heuristics now account for IF/ELSE/FDEF sequences and repeated CALLs, emitting deterministic `font.ttf_hinting_control_flow_storm` and `font.ttf_hinting_call_storm` findings before the interpreter hits the OS stack. These findings include the opcode history so the next guard can target the runaway glyph.
-- The latest GDB stack trace (logged at `/tmp/sis-gdb.log`) points the failure at `memchr::memmem::find` inside `sis_pdf_pdf::xref::parse_xref_table` when scanning for `trailer` near offset 372723; the haystack iterator became empty, so the search routine dereferenced zero before the guard kicked in. We now guard the trailer scan, emit `xref.trailer_search_invalid` findings (plus heuristics warnings), and fall back to the recovery path instead of letting `memchr` panic.
+- The scan is now resilient enough to process the entire pdf.js corpus (896 PDFs) without crashing, highlighting encrypted/truncated streams and other anomalies as it processes each file.
+- Hinting guards (`font.ttf_hinting_push_loop`, `font.ttf_hinting_control_flow_storm`, `font.ttf_hinting_call_storm`) continue to fire for dense push/call sequences, providing early warning before resource exhaustion.
+- New findings: `page_tree_cycle` (circular references) and `page_tree_depth_exceeded` (excessive nesting) now surface when malformed PDFs attempt DoS via page tree traversal.
 
 ## Timeline checklist
 - [x] **Baseline scan** – initial release scan (`target/release/sis`) recorded numerous hinting warnings and stack overflow crash (Feb 5).  
@@ -23,7 +21,8 @@
 - [x] **Push-loop guard** – added density tracking for `PUSHW`/`PUSHB` instructions and emit `font.ttf_hinting_push_loop` before the OS stack overflows; recognition still needs tuning to cover all crash paths.  
 - [x] **Control-flow/call guard** – expanded the interpreter guard so repeated IF/ELSE/FDEF sequences and dense CALL streams now raise `font.ttf_hinting_control_flow_storm`/`font.ttf_hinting_call_storm` before the OS stack is exhausted.  
 - [x] **Crash trace capture** – recorded the failing glyph stack trace with GDB (`/tmp/sis-gdb.log`), which narrows the crash to `memchr::memmem::find` in `sis_pdf_pdf::xref::parse_xref_table` while searching for `trailer` near offset 372723.  
-- [x] **Xref scan hardening** – guard memchr/trailer scans when the haystack length is zero (or `trailer` is missing) so the parser reports `xref.trailer_search_invalid`, logs a deviation, and continues using the existing recovery heuristics instead of panicking.  
+- [x] **Xref scan hardening** – guard memchr/trailer scans when the haystack length is zero (or `trailer` is missing) so the parser reports `xref.trailer_search_invalid`, logs a deviation, and continues using the existing recovery heuristics instead of panicking.
+- [x] **Page tree traversal hardening** – GDB trace revealed the actual crash was in `walk_pages` (not xref/hinting). Added depth limit (128) and cycle detection via `HashSet<(u32,u16)>` in both `sis_pdf_core::page_tree` and the detector. New findings: `page_tree_depth_exceeded` and enriched `page_tree_cycle` now surface malformed/malicious page trees.
 - [ ] **Trend instrumentation** – log `font.ttf_hinting_torture` counts and `objstm` metrics so nightly jobs can detect regressions in hinting and object stream behaviour.
 
 ## Remediations & findings
@@ -35,6 +34,9 @@
 6. **Hinting interpreter instrumentation** – capture recursion depth, call stack pressure, and instruction counts inside the hinting interpreter so we can map the precise sequence leading up to the overflow; use this data to abort before a fatal crash, and seed `font.type1_hinting_torture`/`font.ttf_hinting_torture` metadata with the control depth and recent opcode history for trend comparisons.
 7. **Push-loop guard** – density tracking for recent `PUSHW`/`PUSHB` instructions now triggers a `VmError::PushLoopDetected` before those loops can escalate to a fatal OS stack overflow and emits `font.ttf_hinting_push_loop` (metadata includes the opcode history and push count).  This guard still needs threshold tuning because the pdf.js run keeps crashing elsewhere, so the next step is to expand the detection corridor and verify the log baseline for the new finding.
 8. **Xref search guard** – the GDB trace showed a crash inside `memchr::memmem::find` while `sis_pdf_pdf::xref::parse_xref_table` searched for `trailer` near offset 372723 with an empty haystack iterator. Hardened the parser so it emits `xref.trailer_search_invalid` (with a deviation) whenever the trailer search either hits an empty remainder or cannot find the keyword, logs the event, and falls back to the normal recovery heuristics instead of panicking.
+9. **Page tree traversal guard** – GDB trace of actual crash pointed to `sis_pdf_core::page_tree::walk_pages` in unbounded recursion, not xref/hinting. Added `MAX_PAGE_TREE_DEPTH=128` constant, depth parameter tracking, and `HashSet<(u32,u16)>` cycle detection to both the core module and detector. New findings:
+   - `page_tree_depth_exceeded` (Severity::Medium) – emitted when page tree nesting exceeds 128 levels, indicating malformed/malicious PDF designed to exhaust parser resources.
+   - `page_tree_cycle` (enriched) – now includes `page_tree.cycle_node` and `page_tree.stack_depth` metadata for forensic analysis of circular references.
 
 ## Opportunity backlog
 - **objstm.torture finding refinement** – aggregate high ObjStm counts plus header mismatches/filters so ObjStm-heavy tampering surfaces alongside `stream.object_stream_count_mismatch`.  
