@@ -271,8 +271,15 @@ fn test_ttf_excessive_instructions() {
     let outcome = analyse_font(data, &config);
 
     // Should detect excessive instructions in hinting program
-    let has_hinting_issue =
-        outcome.findings.iter().any(|f| f.kind == "font.ttf_hinting_suspicious");
+    let has_hinting_issue = outcome.findings.iter().any(|f| {
+        matches!(
+            f.kind.as_str(),
+            "font.ttf_hinting_suspicious"
+                | "font.ttf_hinting_push_loop"
+                | "font.ttf_hinting_control_flow_storm"
+                | "font.ttf_hinting_call_storm"
+        )
+    });
 
     assert!(
         has_hinting_issue,
@@ -291,8 +298,15 @@ fn test_ttf_stack_overflow() {
     let outcome = analyse_font(data, &config);
 
     // Should detect stack overflow in hinting program
-    let has_hinting_issue =
-        outcome.findings.iter().any(|f| f.kind == "font.ttf_hinting_suspicious");
+    let has_hinting_issue = outcome.findings.iter().any(|f| {
+        matches!(
+            f.kind.as_str(),
+            "font.ttf_hinting_suspicious"
+                | "font.ttf_hinting_push_loop"
+                | "font.ttf_hinting_control_flow_storm"
+                | "font.ttf_hinting_call_storm"
+        )
+    });
 
     assert!(
         has_hinting_issue,

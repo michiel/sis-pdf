@@ -124,6 +124,7 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
     info!("Parsing PDF object graph");
     let startxrefs = find_startxrefs(bytes);
     let mut trailers = Vec::new();
+    let mut deviations = Vec::new();
     if let Some(last) = startxrefs.last().copied() {
         let chain = parse_xref_chain(bytes, last);
         for sec in &chain.sections {
@@ -132,10 +133,22 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
             }
         }
         debug!(startxrefs = startxrefs.len(), sections = chain.sections.len(), "Parsed xref chain");
+        for dev in chain.deviations {
+            deviations.push(Deviation {
+                kind: dev.kind.to_string(),
+                span: dev.span,
+                note: dev.note,
+            });
+        }
     }
-    let (mut objects, deviations) =
+    let (mut objects, mut parser_deviations) =
         scan_indirect_objects(bytes, options.strict, options.max_objects);
-    debug!(objects = objects.len(), deviations = deviations.len(), "Scanned indirect objects");
+    debug!(
+        objects = objects.len(),
+        deviations = parser_deviations.len(),
+        "Scanned indirect objects"
+    );
+    deviations.append(&mut parser_deviations);
 
     // Always expand object streams to detect hidden JavaScript and other content
     // Resource limits (max 100 ObjStm, byte limits) prevent DoS

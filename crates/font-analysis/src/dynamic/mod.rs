@@ -208,6 +208,9 @@ pub(super) struct HintingStats {
     tables_scanned: usize,
     highest_stack_depth: usize,
     highest_instruction_count: usize,
+    highest_control_depth: usize,
+    highest_push_loop_length: usize,
+    instruction_history: Option<String>,
     limit_logged: bool,
     stack_errors: usize,
     guard_logged: bool,
@@ -217,7 +220,9 @@ impl HintingStats {
     fn record(&mut self, table_findings: &[FontFinding]) {
         self.tables_scanned += 1;
         for finding in table_findings {
-            if finding.kind != "font.ttf_hinting_suspicious" {
+            if finding.kind != "font.ttf_hinting_suspicious"
+                && finding.kind != "font.ttf_hinting_push_loop"
+            {
                 continue;
             }
             self.warnings += 1;
@@ -235,6 +240,21 @@ impl HintingStats {
                 finding.meta.get("instruction_count").and_then(|value| value.parse::<usize>().ok())
             {
                 self.highest_instruction_count = self.highest_instruction_count.max(instr_count);
+            }
+            if let Some(control_depth) =
+                finding.meta.get("control_depth").and_then(|value| value.parse::<usize>().ok())
+            {
+                self.highest_control_depth = self.highest_control_depth.max(control_depth);
+            }
+            if let Some(push_loop_length) =
+                finding.meta.get("push_loop_length").and_then(|value| value.parse::<usize>().ok())
+            {
+                self.highest_push_loop_length = self.highest_push_loop_length.max(push_loop_length);
+            }
+            if self.instruction_history.is_none() {
+                if let Some(history) = finding.meta.get("instruction_history") {
+                    self.instruction_history = Some(history.clone());
+                }
             }
         }
     }
@@ -283,6 +303,9 @@ impl HintingStats {
     }
 
     fn emit(self, limits: &ttf_vm::VmLimits, findings: &mut Vec<FontFinding>) {
+        if self.should_skip() {
+            return;
+        }
         if !self.should_emit(limits) {
             return;
         }
@@ -291,6 +314,13 @@ impl HintingStats {
         meta.insert("tables_scanned".to_string(), self.tables_scanned.to_string());
         meta.insert("max_stack_depth".to_string(), self.highest_stack_depth.to_string());
         meta.insert("instruction_count".to_string(), self.highest_instruction_count.to_string());
+        meta.insert("control_depth".to_string(), self.highest_control_depth.to_string());
+        if self.highest_push_loop_length > 0 {
+            meta.insert("push_loop_length".to_string(), self.highest_push_loop_length.to_string());
+        }
+        if let Some(history) = &self.instruction_history {
+            meta.insert("instruction_history".to_string(), history.clone());
+        }
         findings.push(FontFinding {
             kind: "font.ttf_hinting_torture".to_string(),
             severity: Severity::Medium,
@@ -308,10 +338,19 @@ mod tests {
     use super::*;
     use crate::model::{Confidence, Severity};
 
-    fn suspicious_hinting_finding(stack_depth: usize, instruction_count: usize) -> FontFinding {
+    fn suspicious_hinting_finding(
+        stack_depth: usize,
+        instruction_count: usize,
+        control_depth: usize,
+        push_loop_length: Option<usize>,
+    ) -> FontFinding {
         let mut meta = HashMap::new();
         meta.insert("max_stack_depth".to_string(), stack_depth.to_string());
         meta.insert("instruction_count".to_string(), instruction_count.to_string());
+        meta.insert("control_depth".to_string(), control_depth.to_string());
+        if let Some(length) = push_loop_length {
+            meta.insert("push_loop_length".to_string(), length.to_string());
+        }
         FontFinding {
             kind: "font.ttf_hinting_suspicious".to_string(),
             severity: Severity::Medium,
@@ -323,7 +362,7 @@ mod tests {
     }
 
     fn stack_error_finding(error_kind: &'static str) -> FontFinding {
-        let mut finding = suspicious_hinting_finding(0, 0);
+        let mut finding = suspicious_hinting_finding(0, 0, 0, None);
         finding.meta.insert("error_kind".to_string(), error_kind.to_string());
         finding
     }
@@ -333,9 +372,9 @@ mod tests {
         let limits = ttf_vm::VmLimits::default();
         let mut stats = HintingStats::default();
         let findings = vec![
-            suspicious_hinting_finding(10, 50),
-            suspicious_hinting_finding(12, 60),
-            suspicious_hinting_finding(14, 70),
+            suspicious_hinting_finding(10, 50, 2, None),
+            suspicious_hinting_finding(12, 60, 0, None),
+            suspicious_hinting_finding(14, 70, 0, None),
         ];
         stats.record(&findings);
         let mut collected = Vec::new();
@@ -350,7 +389,7 @@ mod tests {
     fn hinting_torture_triggers_on_stack_limit() {
         let limits = ttf_vm::VmLimits::default();
         let mut stats = HintingStats::default();
-        let findings = vec![suspicious_hinting_finding(limits.max_stack_depth(), 5)];
+        let findings = vec![suspicious_hinting_finding(limits.max_stack_depth(), 5, 3, None)];
         stats.record(&findings);
         let mut collected = Vec::new();
         stats.emit(&limits, &mut collected);
@@ -364,7 +403,7 @@ mod tests {
     fn hinting_torture_not_triggered_for_single_safe_warning() {
         let limits = ttf_vm::VmLimits::default();
         let mut stats = HintingStats::default();
-        let findings = vec![suspicious_hinting_finding(5, 5)];
+        let findings = vec![suspicious_hinting_finding(5, 5, 0, None)];
         stats.record(&findings);
         let mut collected = Vec::new();
         stats.emit(&limits, &mut collected);
@@ -388,6 +427,55 @@ mod tests {
         let mut findings = Vec::new();
         stats.emit(&ttf_vm::VmLimits::default(), &mut findings);
         assert!(findings.is_empty(), "Guard should prevent aggregate finding emit");
+    }
+
+    #[test]
+    fn hinting_stats_capture_control_depth_and_history() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let mut first = suspicious_hinting_finding(6, 20, 5, None);
+        first.meta.insert("instruction_history".to_string(), "0xB0@0,0xB1@1".to_string());
+        let findings = vec![
+            first,
+            suspicious_hinting_finding(7, 21, 0, None),
+            suspicious_hinting_finding(8, 22, 0, None),
+        ];
+        stats.record(&findings);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.iter().any(|f| {
+                if f.kind != "font.ttf_hinting_torture" {
+                    return false;
+                }
+                f.meta.get("control_depth") == Some(&"5".to_string())
+                    && f.meta.get("instruction_history") == Some(&"0xB0@0,0xB1@1".to_string())
+            }),
+            "Aggregate finding should include control depth and instruction history"
+        );
+    }
+
+    #[test]
+    fn hinting_stats_capture_push_loop_length() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let findings = vec![
+            suspicious_hinting_finding(6, 20, 0, Some(48)),
+            suspicious_hinting_finding(6, 20, 0, None),
+            suspicious_hinting_finding(6, 20, 0, None),
+        ];
+        stats.record(&findings);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.iter().any(|f| {
+                if f.kind != "font.ttf_hinting_torture" {
+                    return false;
+                }
+                f.meta.get("push_loop_length") == Some(&"48".to_string())
+            }),
+            "Aggregate finding should include push loop length"
+        );
     }
 }
 

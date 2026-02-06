@@ -56,6 +56,7 @@ pub mod supply_chain;
 pub mod uri_classification;
 pub mod vector_graphics;
 pub mod xfa_forms;
+pub mod xref_deviation;
 
 #[derive(Clone, Copy)]
 pub struct DetectorSettings {
@@ -136,6 +137,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(strict::StrictParseDeviationDetector),
         Box::new(ir_graph_static::IrGraphStaticDetector),
         Box::new(structural_anomalies::StructuralAnomaliesDetector),
+        Box::new(xref_deviation::XrefTrailerSearchDetector),
         Box::new(objstm_torture::ObjStmTortureDetector),
     ];
     if settings.js_sandbox {
