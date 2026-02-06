@@ -771,101 +771,6 @@ fn ml_assessment(label: bool) -> &'static str {
     }
 }
 
-struct LinkEdge {
-    from: String,
-    to: String,
-    #[allow(dead_code)]
-    reason: String,
-}
-
-fn build_link_edges(report: &Report) -> Vec<LinkEdge> {
-    let mut keys: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
-    for f in &report.findings {
-        for obj in &f.objects {
-            add_link_key(&mut keys, "object", obj, &f.id);
-        }
-        if let Some(target) = f.meta.get("action.target") {
-            for token in split_values(target) {
-                add_link_key(&mut keys, "action_target", &token, &f.id);
-            }
-        }
-        if let Some(targets) = f.meta.get("supply_chain.action_targets") {
-            for token in split_values(targets) {
-                add_link_key(&mut keys, "action_target", &token, &f.id);
-            }
-        }
-        if let Some(urls) = f.meta.get("js.ast_urls") {
-            for token in split_values(urls) {
-                add_link_key(&mut keys, "url", &token, &f.id);
-            }
-        }
-        if let Some(payload_type) = f.meta.get("payload.type") {
-            add_link_key(&mut keys, "payload", payload_type, &f.id);
-        }
-        if let Some(names) = f.meta.get("supply_chain.embedded_names") {
-            for token in split_values(names) {
-                add_link_key(&mut keys, "embedded_name", &token, &f.id);
-            }
-        }
-    }
-    let mut seen = BTreeSet::new();
-    let mut out = Vec::new();
-    for ((kind, value), ids) in keys {
-        if ids.len() < 2 {
-            continue;
-        }
-        for i in 0..ids.len() {
-            for j in (i + 1)..ids.len() {
-                let (a, b) = if ids[i] <= ids[j] {
-                    (ids[i].clone(), ids[j].clone())
-                } else {
-                    (ids[j].clone(), ids[i].clone())
-                };
-                let reason = match kind.as_str() {
-                    "object" => format!("shared object {}", value),
-                    "action_target" => format!("shared action target {}", value),
-                    "url" => format!("shared url {}", value),
-                    "payload" => format!("shared payload {}", value),
-                    "embedded_name" => format!("shared embedded filename {}", value),
-                    _ => format!("shared {}", value),
-                };
-                if seen.insert((a.clone(), b.clone(), reason.clone())) {
-                    out.push(LinkEdge { from: a, to: b, reason });
-                }
-            }
-        }
-    }
-    out
-}
-
-fn add_link_key(
-    keys: &mut BTreeMap<(String, String), Vec<String>>,
-    kind: &str,
-    value: &str,
-    finding_id: &str,
-) {
-    let value = value.trim();
-    if value.is_empty() {
-        return;
-    }
-    keys.entry((kind.to_string(), value.to_string())).or_default().push(finding_id.to_string());
-}
-
-fn split_values(input: &str) -> Vec<String> {
-    input
-        .split(|c: char| c.is_whitespace() || c == ',')
-        .filter(|s| !s.is_empty())
-        .map(|s| s.trim_matches(['"', '\'']).to_string())
-        .collect()
-}
-
-fn is_chain_link_relevant(f: &Finding) -> bool {
-    match f.kind.as_str() {
-        "uri_present" => false,
-        _ => true,
-    }
-}
-
 fn build_position_preview_map(findings: &[Finding]) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for f in findings {
@@ -924,6 +829,7 @@ fn select_position_preview(f: &Finding) -> Option<String> {
     None
 }
 
+#[allow(dead_code)]
 fn render_aligned_preview_lines(entries: &[(String, String)], preview_len: usize) -> Vec<String> {
     let width = entries.iter().map(|(pos, _)| pos.len()).max().unwrap_or(0);
     entries
@@ -935,6 +841,7 @@ fn render_aligned_preview_lines(entries: &[(String, String)], preview_len: usize
         .collect()
 }
 
+#[allow(dead_code)]
 fn node_summary(
     node: &str,
     position_previews: &BTreeMap<String, String>,
@@ -962,6 +869,7 @@ fn node_summary(
     }
 }
 
+#[allow(dead_code)]
 fn summary_for_finding(f: &Finding) -> String {
     let mut summary = if !f.title.is_empty() { f.title.clone() } else { f.kind.clone() };
     if let Some(target) = f.meta.get("action.target") {
@@ -972,6 +880,7 @@ fn summary_for_finding(f: &Finding) -> String {
     summary
 }
 
+#[allow(dead_code)]
 fn chain_finding_reasons(
     chain: &ExploitChain,
     findings: &[Finding],
@@ -997,40 +906,6 @@ fn chain_finding_reasons(
 }
 
 #[allow(dead_code)]
-fn render_position_tree(entries: &[(String, String)], preview_len: usize) -> Vec<String> {
-    let mut parsed = Vec::new();
-    for (position, preview) in entries {
-        if let Some(entry) = parse_canonical_position(position, preview) {
-            parsed.push(entry);
-        }
-    }
-    if parsed.is_empty() {
-        return Vec::new();
-    }
-    let unique_revisions: BTreeSet<String> =
-        parsed.iter().map(|entry| entry.revision.clone()).collect();
-    let include_revision = unique_revisions.len() > 1;
-    let mut root = PositionTreeNode::default();
-    for entry in parsed {
-        let mut segments = Vec::new();
-        if include_revision {
-            segments.push(entry.revision);
-        }
-        segments.extend(entry.path_segments);
-        root.insert(&segments, entry.obj_ref, entry.preview);
-    }
-    let mut lines = Vec::new();
-    root.render(0, &mut lines);
-    let width = lines.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
-    lines
-        .into_iter()
-        .map(|(label, preview)| {
-            let preview = sanitise_preview(&preview, preview_len);
-            format!("{:<width$} | \"{}\"", label, preview, width = width)
-        })
-        .collect()
-}
-
 fn sanitise_preview(preview: &str, max_len: usize) -> String {
     let mut cleaned = String::with_capacity(preview.len());
     for ch in preview.chars() {
