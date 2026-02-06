@@ -2916,6 +2916,64 @@ fn run_query_repl(
                                 continue;
                             }
                         };
+                        match query::maybe_stream_raw_bytes(
+                            &q,
+                            &ctx,
+                            decode_mode,
+                            max_extract_bytes,
+                        ) {
+                            Ok(Some(bytes)) => {
+                                match destination {
+                                    ReplDestination::Stdout => {
+                                        if let Err(err) = std::io::stdout().write_all(&bytes) {
+                                            eprintln!("[stream] failed to write stdout: {}", err);
+                                        }
+                                    }
+                                    ReplDestination::Pipe(cmd) => {
+                                        match run_repl_pipeline(cmd.trim(), &bytes) {
+                                            Ok((stdout, stderr, status)) => {
+                                                if !stdout.is_empty() {
+                                                    print!("{}", stdout);
+                                                }
+                                                if !stderr.is_empty() {
+                                                    eprint!("{}", stderr);
+                                                }
+                                                if !status.success() {
+                                                    let status_code = status
+                                                        .code()
+                                                        .map(|code| code.to_string())
+                                                        .unwrap_or_else(|| "unknown".into());
+                                                    eprintln!(
+                                                        "[pipe] `{}` exited ({})",
+                                                        cmd, status_code
+                                                    );
+                                                }
+                                            }
+                                            Err(err) => {
+                                                eprintln!(
+                                                    "[pipe] failed to run '{}': {}",
+                                                    cmd, err
+                                                );
+                                            }
+                                        }
+                                    }
+                                    ReplDestination::Redirect(path) => {
+                                        if let Err(err) = std::fs::write(path.trim(), &bytes) {
+                                            eprintln!(
+                                                "[redirect] failed to write '{}': {}",
+                                                path, err
+                                            );
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
+                            Ok(None) => {}
+                            Err(err) => {
+                                eprintln!("Query failed: {}", err);
+                                continue;
+                            }
+                        }
                         match query::execute_query_with_context(
                             &q,
                             &ctx,
@@ -2986,7 +3044,7 @@ fn run_query_repl(
                                 match destination {
                                     ReplDestination::Stdout => println!("{}", formatted),
                                     ReplDestination::Pipe(cmd) => {
-                                        match run_repl_pipeline(cmd.trim(), &formatted) {
+                                        match run_repl_pipeline(cmd.trim(), formatted.as_bytes()) {
                                             Ok((stdout, stderr, status)) => {
                                                 if !stdout.is_empty() {
                                                     print!("{}", stdout);
@@ -3110,7 +3168,7 @@ fn split_repl_destination(line: &str) -> (&str, ReplDestination<'_>) {
     (line, ReplDestination::Stdout)
 }
 
-fn run_repl_pipeline(command: &str, input: &str) -> Result<(String, String, ExitStatus)> {
+fn run_repl_pipeline(command: &str, input: &[u8]) -> Result<(String, String, ExitStatus)> {
     let mut child = ProcessCommand::new("sh")
         .arg("-c")
         .arg(command)
@@ -3121,7 +3179,7 @@ fn run_repl_pipeline(command: &str, input: &str) -> Result<(String, String, Exit
         .map_err(|e| anyhow!("failed to run pipeline '{}': {}", command, e))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(input.as_bytes())?;
+        stdin.write_all(input)?;
         stdin.write_all(b"\n")?;
     }
 
@@ -3166,10 +3224,9 @@ mod repl_tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn run_repl_pipeline_invokes_shell() {
-        let (stdout, stderr, status) = run_repl_pipeline("cat", "hello").unwrap();
+        let (stdout, stderr, status) = run_repl_pipeline("cat", b"hello").unwrap();
         assert_eq!(stdout.trim(), "hello");
         assert!(stderr.is_empty());
         assert!(status.success());
