@@ -129,7 +129,7 @@ impl Default for FontAnalysisOptions {
             enabled: true,
             dynamic_enabled: false,
             dynamic_timeout_ms: 120,
-            max_fonts: 256,
+            max_fonts: 32, // Reduced from 256 to limit analysis time
             signature_matching_enabled: true,
             signature_directory: None,
         }
@@ -299,6 +299,7 @@ impl DecodedCache {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Decode budget exceeded",
                 }
                 .emit();
@@ -354,6 +355,7 @@ impl<'a> BudgetReservation<'a> {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Decode budget exceeded after decode",
                 }
                 .emit();

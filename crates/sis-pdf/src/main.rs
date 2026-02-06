@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
 use globset::Glob;
 use js_analysis::{DynamicOptions, DynamicOutcome};
-use rayon::prelude::*;
+use rayon::{prelude::*, ThreadPoolBuilder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sis_pdf_core::filter_allowlist::{default_filter_allowlist_toml, load_filter_allowlist};
@@ -36,6 +36,7 @@ const MAX_JSONL_LINE_BYTES: usize = 10 * 1024;
 const MAX_JSONL_ENTRIES: usize = 1_000_000;
 const MAX_CAMPAIGN_INTENT_LEN: usize = 1024;
 const MAX_WALK_DEPTH: usize = 10;
+const BATCH_WORKER_STACK_SIZE: usize = 16 * 1024 * 1024;
 const UPDATE_REPO_DEFAULT: &str = "michiel/sis-pdf";
 const UPDATE_USER_AGENT: &str = "sis-update";
 const ORT_VERSION_DEFAULT: &str = "1.23.2";
@@ -2533,6 +2534,7 @@ fn read_pdf_bytes(path: &str) -> Result<Vec<u8>> {
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "Large PDF file size may impact scan performance",
         }
         .emit();
@@ -2550,6 +2552,7 @@ fn read_pdf_bytes(path: &str) -> Result<Vec<u8>> {
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "PDF file exceeds max size limit",
         }
         .emit();
@@ -3348,6 +3351,7 @@ fn run_scan(
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "Enabling diff parser in strict mode",
         }
         .emit();
@@ -3375,7 +3379,7 @@ fn run_scan(
             enabled: true,
             dynamic_enabled: false,
             dynamic_timeout_ms: 120,
-            max_fonts: 256,
+            max_fonts: 32, // Reduced from 256 to limit analysis time
             signature_matching_enabled: font_signatures_enabled,
             signature_directory: font_signature_dir.map(|p| p.to_string_lossy().to_string()),
         },
@@ -3795,6 +3799,7 @@ fn run_scan_batch(
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Batch scan file count exceeded",
             }
             .emit();
@@ -3815,6 +3820,7 @@ fn run_scan_batch(
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Batch scan byte limit exceeded",
                 }
                 .emit();
@@ -3861,14 +3867,20 @@ fn run_scan_batch(
             sis_pdf_core::report::write_jsonl_findings(&report, guard.as_mut())?;
         }
         let duration_ms = start.elapsed().as_millis() as u64;
+        let detection_duration_ms = report.detection_duration_ms;
+        let summary = report.summary;
         Ok(sis_pdf_core::report::BatchEntry {
             path: path_str,
-            summary: report.summary,
             duration_ms,
+            summary,
+            detection_duration_ms,
         })
     };
     let mut entries: Vec<(usize, sis_pdf_core::report::BatchEntry)> = if use_parallel {
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(thread_count).build();
+        let pool = ThreadPoolBuilder::new()
+            .num_threads(thread_count)
+            .stack_size(BATCH_WORKER_STACK_SIZE)
+            .build();
         match pool {
             Ok(pool) => pool.install(|| {
                 indexed_paths
@@ -3888,6 +3900,7 @@ fn run_scan_batch(
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Failed to build batch worker pool; falling back to sequential",
                 }
                 .emit();
@@ -4068,6 +4081,7 @@ fn run_report(
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "Enabling diff parser in strict mode",
         }
         .emit();
@@ -4322,6 +4336,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "JSONL line exceeds size limit",
             }
             .emit();
@@ -4345,6 +4360,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "JSONL entry limit exceeded",
             }
             .emit();
@@ -4365,6 +4381,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "JSONL parse error",
                 }
                 .emit();
@@ -4389,6 +4406,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "JSONL URL rejected",
             }
             .emit();
@@ -4659,6 +4677,7 @@ fn read_text_with_limit(path: &std::path::Path, max_bytes: u64) -> Result<String
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Read rejected due to size limit",
             }
             .emit();

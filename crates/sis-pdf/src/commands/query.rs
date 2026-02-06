@@ -6341,6 +6341,7 @@ pub fn run_query_batch(
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Batch query skipped file",
             }
             .emit();
@@ -6385,6 +6386,7 @@ pub fn run_query_batch(
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Batch query file count exceeded",
             }
             .emit();
@@ -6406,6 +6408,7 @@ pub fn run_query_batch(
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Batch query byte limit exceeded",
                 }
                 .emit();

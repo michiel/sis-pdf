@@ -11,6 +11,8 @@ use crate::model::FontFinding;
 use crate::model::{Confidence, Severity};
 #[cfg(feature = "dynamic")]
 use std::collections::HashMap;
+#[cfg(feature = "dynamic")]
+use tracing::warn;
 
 #[cfg(feature = "dynamic")]
 const RENDERER_FONT_MARKER: &[u8] = b"CairoFont";
@@ -159,13 +161,422 @@ fn analyze_hinting_tables(
     findings: &mut Vec<FontFinding>,
 ) {
     let limits = ttf_vm::VmLimits::from_config(config);
+    let mut stats = HintingStats::default();
+
     // Extract hinting tables (fpgm, prep)
+    // Check limits BEFORE calling analyze_hinting_program to avoid unnecessary work
     if let Some(fpgm) = extract_table(data, b"fpgm") {
-        findings.extend(ttf_vm::analyze_hinting_program(&fpgm, &limits));
+        if stats.should_skip() {
+            stats.mark_truncated("stack_error_guard");
+        } else {
+            let table_findings = ttf_vm::analyze_hinting_program(&fpgm, &limits, stats.should_skip());
+            stats.record_and_limit(&table_findings, findings);
+        }
     }
 
     if let Some(prep) = extract_table(data, b"prep") {
-        findings.extend(ttf_vm::analyze_hinting_program(&prep, &limits));
+        if stats.should_skip() {
+            stats.mark_truncated("stack_error_guard");
+        } else {
+            let table_findings = ttf_vm::analyze_hinting_program(&prep, &limits, stats.should_skip());
+            stats.record_and_limit(&table_findings, findings);
+        }
+    }
+
+    stats.emit(&limits, findings);
+}
+
+const HINTING_TORTURE_THRESHOLD: usize = 3;
+/// Maximum hinting warnings before truncating analysis for this font
+const HINTING_WARNING_LIMIT: usize = 50;
+/// Maximum stack errors before aborting hinting analysis for this font
+const HINTING_STACK_ERROR_GUARD: usize = 10;
+
+#[derive(Default)]
+pub(super) struct HintingStats {
+    warnings: usize,
+    tables_scanned: usize,
+    highest_stack_depth: usize,
+    highest_instruction_count: usize,
+    highest_control_depth: usize,
+    highest_push_loop_length: usize,
+    instruction_history: Option<String>,
+    stack_errors: usize,
+    /// Set when analysis was truncated due to limits
+    truncated: bool,
+    truncation_reason: Option<&'static str>,
+}
+
+impl HintingStats {
+    /// Record findings and add to output, respecting limits
+    fn record_and_limit(&mut self, table_findings: &[FontFinding], output: &mut Vec<FontFinding>) {
+        self.tables_scanned += 1;
+        for finding in table_findings {
+            // Check limits before adding each finding
+            if self.truncated {
+                break;
+            }
+
+            // Track stats for relevant finding types
+            if finding.kind == "font.ttf_hinting_suspicious"
+                || finding.kind == "font.ttf_hinting_push_loop"
+                || finding.kind == "font.ttf_hinting_control_flow_storm"
+                || finding.kind == "font.ttf_hinting_call_storm"
+            {
+                self.warnings += 1;
+                if let Some(error_kind) = finding.meta.get("error_kind") {
+                    if error_kind == "stack_overflow" || error_kind == "stack_underflow" {
+                        self.stack_errors += 1;
+                    }
+                }
+                self.update_high_water_marks(finding);
+
+                // Check limits after updating counters
+                if self.stack_guard_reached() {
+                    self.mark_truncated("stack_error_guard");
+                    break;
+                }
+                if self.warning_limit_reached() {
+                    self.mark_truncated("warning_limit");
+                    break;
+                }
+            }
+
+            // Only add finding to output if not truncated
+            if !self.truncated {
+                output.push(finding.clone());
+            }
+        }
+    }
+
+    fn update_high_water_marks(&mut self, finding: &FontFinding) {
+        if let Some(stack_depth) =
+            finding.meta.get("max_stack_depth").and_then(|value| value.parse::<usize>().ok())
+        {
+            self.highest_stack_depth = self.highest_stack_depth.max(stack_depth);
+        }
+        if let Some(instr_count) =
+            finding.meta.get("instruction_count").and_then(|value| value.parse::<usize>().ok())
+        {
+            self.highest_instruction_count = self.highest_instruction_count.max(instr_count);
+        }
+        if let Some(control_depth) =
+            finding.meta.get("control_depth").and_then(|value| value.parse::<usize>().ok())
+        {
+            self.highest_control_depth = self.highest_control_depth.max(control_depth);
+        }
+        if let Some(push_loop_length) =
+            finding.meta.get("push_loop_length").and_then(|value| value.parse::<usize>().ok())
+        {
+            self.highest_push_loop_length = self.highest_push_loop_length.max(push_loop_length);
+        }
+        if self.instruction_history.is_none() {
+            if let Some(history) = finding.meta.get("instruction_history") {
+                self.instruction_history = Some(history.clone());
+            }
+        }
+    }
+
+    fn mark_truncated(&mut self, reason: &'static str) {
+        if self.truncated {
+            return;
+        }
+        self.truncated = true;
+        self.truncation_reason = Some(reason);
+        warn!(
+            security = true,
+            domain = "font.hinting",
+            kind = "hinting_analysis_truncated",
+            reason = reason,
+            warnings = self.warnings,
+            stack_errors = self.stack_errors,
+            "Font hinting analysis truncated due to excessive anomalies"
+        );
+    }
+
+    fn warning_limit_reached(&self) -> bool {
+        self.warnings >= HINTING_WARNING_LIMIT
+    }
+
+    fn stack_guard_reached(&self) -> bool {
+        self.stack_errors >= HINTING_STACK_ERROR_GUARD
+    }
+
+    fn should_skip(&self) -> bool {
+        self.stack_guard_reached() || self.warning_limit_reached()
+    }
+
+    fn should_emit(&self, limits: &ttf_vm::VmLimits) -> bool {
+        // Always emit if truncated
+        if self.truncated {
+            return true;
+        }
+        if self.warnings == 0 {
+            return false;
+        }
+        self.warnings >= HINTING_TORTURE_THRESHOLD
+            || self.highest_stack_depth >= limits.max_stack_depth()
+            || self.highest_instruction_count >= limits.max_instructions_per_glyph()
+    }
+
+    fn emit(self, limits: &ttf_vm::VmLimits, findings: &mut Vec<FontFinding>) {
+        if !self.should_emit(limits) {
+            return;
+        }
+
+        let mut meta = HashMap::new();
+        meta.insert("hinting_warnings".to_string(), self.warnings.to_string());
+        meta.insert("tables_scanned".to_string(), self.tables_scanned.to_string());
+        meta.insert("max_stack_depth".to_string(), self.highest_stack_depth.to_string());
+        meta.insert("instruction_count".to_string(), self.highest_instruction_count.to_string());
+        meta.insert("control_depth".to_string(), self.highest_control_depth.to_string());
+        meta.insert("stack_errors".to_string(), self.stack_errors.to_string());
+
+        if self.highest_push_loop_length > 0 {
+            meta.insert("push_loop_length".to_string(), self.highest_push_loop_length.to_string());
+        }
+        if let Some(history) = &self.instruction_history {
+            meta.insert("instruction_history".to_string(), history.clone());
+        }
+
+        // Add truncation metadata if analysis was limited
+        if self.truncated {
+            meta.insert("analysis_truncated".to_string(), "true".to_string());
+            if let Some(reason) = self.truncation_reason {
+                meta.insert("truncation_reason".to_string(), reason.to_string());
+            }
+            meta.insert("warning_limit".to_string(), HINTING_WARNING_LIMIT.to_string());
+            meta.insert("stack_error_limit".to_string(), HINTING_STACK_ERROR_GUARD.to_string());
+        }
+
+        let (title, description) = if self.truncated {
+            (
+                "Font hinting analysis truncated".to_string(),
+                format!(
+                    "Hinting analysis was truncated after {} warnings ({} stack errors). \
+                    This font contains excessive hinting anomalies that may indicate \
+                    malformed or malicious font data designed to exhaust parser resources.",
+                    self.warnings, self.stack_errors
+                ),
+            )
+        } else {
+            (
+                "Hinting program torture detected".to_string(),
+                "Multiple hinting programs exhaust the interpreter or stack budgets.".to_string(),
+            )
+        };
+
+        findings.push(FontFinding {
+            kind: "font.ttf_hinting_torture".to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Strong,
+            title,
+            description,
+            meta,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Confidence, Severity};
+
+    fn suspicious_hinting_finding(
+        stack_depth: usize,
+        instruction_count: usize,
+        control_depth: usize,
+        push_loop_length: Option<usize>,
+    ) -> FontFinding {
+        let mut meta = HashMap::new();
+        meta.insert("max_stack_depth".to_string(), stack_depth.to_string());
+        meta.insert("instruction_count".to_string(), instruction_count.to_string());
+        meta.insert("control_depth".to_string(), control_depth.to_string());
+        if let Some(length) = push_loop_length {
+            meta.insert("push_loop_length".to_string(), length.to_string());
+        }
+        FontFinding {
+            kind: "font.ttf_hinting_suspicious".to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Probable,
+            title: "suspicious hinting".to_string(),
+            description: "test".to_string(),
+            meta,
+        }
+    }
+
+    fn stack_error_finding(error_kind: &'static str) -> FontFinding {
+        let mut finding = suspicious_hinting_finding(0, 0, 0, None);
+        finding.meta.insert("error_kind".to_string(), error_kind.to_string());
+        finding
+    }
+
+    #[test]
+    fn hinting_torture_triggers_on_warning_count() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let findings = vec![
+            suspicious_hinting_finding(10, 50, 2, None),
+            suspicious_hinting_finding(12, 60, 0, None),
+            suspicious_hinting_finding(14, 70, 0, None),
+        ];
+        let mut output = Vec::new();
+        stats.record_and_limit(&findings, &mut output);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.iter().any(|f| f.kind == "font.ttf_hinting_torture"),
+            "Expected aggregate finding when warnings exceed threshold"
+        );
+    }
+
+    #[test]
+    fn hinting_torture_triggers_on_stack_limit() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let findings = vec![suspicious_hinting_finding(limits.max_stack_depth(), 5, 3, None)];
+        let mut output = Vec::new();
+        stats.record_and_limit(&findings, &mut output);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.iter().any(|f| f.kind == "font.ttf_hinting_torture"),
+            "Expected aggregate finding when stack limit is met"
+        );
+    }
+
+    #[test]
+    fn hinting_torture_not_triggered_for_single_safe_warning() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let findings = vec![suspicious_hinting_finding(5, 5, 0, None)];
+        let mut output = Vec::new();
+        stats.record_and_limit(&findings, &mut output);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.is_empty(),
+            "Should not emit aggregate finding for safe hinting programs"
+        );
+    }
+
+    #[test]
+    fn stack_guard_triggers_and_emits_truncated_finding() {
+        let mut stats = HintingStats::default();
+        let mut output = Vec::new();
+        // Generate enough stack errors to trigger the guard
+        for _ in 0..HINTING_STACK_ERROR_GUARD {
+            stats.record_and_limit(&[stack_error_finding("stack_overflow")], &mut output);
+        }
+        assert!(stats.stack_guard_reached());
+        assert!(stats.should_skip());
+        assert!(stats.truncated);
+
+        let mut findings = Vec::new();
+        stats.emit(&ttf_vm::VmLimits::default(), &mut findings);
+        assert!(
+            findings.iter().any(|f| {
+                f.kind == "font.ttf_hinting_torture"
+                    && f.meta.get("analysis_truncated") == Some(&"true".to_string())
+                    && f.meta.get("truncation_reason") == Some(&"stack_error_guard".to_string())
+            }),
+            "Should emit truncated finding with metadata: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn warning_limit_triggers_and_emits_truncated_finding() {
+        let mut stats = HintingStats::default();
+        let mut output = Vec::new();
+        // Generate enough warnings to trigger the limit
+        for _ in 0..HINTING_WARNING_LIMIT {
+            stats.record_and_limit(&[suspicious_hinting_finding(5, 5, 0, None)], &mut output);
+        }
+        assert!(stats.warning_limit_reached());
+        assert!(stats.should_skip());
+        assert!(stats.truncated);
+
+        let mut findings = Vec::new();
+        stats.emit(&ttf_vm::VmLimits::default(), &mut findings);
+        assert!(
+            findings.iter().any(|f| {
+                f.kind == "font.ttf_hinting_torture"
+                    && f.meta.get("analysis_truncated") == Some(&"true".to_string())
+                    && f.meta.get("truncation_reason") == Some(&"warning_limit".to_string())
+            }),
+            "Should emit truncated finding with metadata: {:?}",
+            findings
+        );
+    }
+
+    #[test]
+    fn output_limited_when_warning_limit_reached() {
+        let mut stats = HintingStats::default();
+        let mut output = Vec::new();
+        // Try to add more findings than the limit
+        for _ in 0..(HINTING_WARNING_LIMIT + 20) {
+            stats.record_and_limit(&[suspicious_hinting_finding(5, 5, 0, None)], &mut output);
+        }
+        // Output should be capped at the limit
+        assert!(
+            output.len() <= HINTING_WARNING_LIMIT,
+            "Output should be limited to {} findings, got {}",
+            HINTING_WARNING_LIMIT,
+            output.len()
+        );
+        assert!(stats.truncated, "Should be marked as truncated");
+    }
+
+    #[test]
+    fn hinting_stats_capture_control_depth_and_history() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let mut first = suspicious_hinting_finding(6, 20, 5, None);
+        first.meta.insert("instruction_history".to_string(), "0xB0@0,0xB1@1".to_string());
+        let findings = vec![
+            first,
+            suspicious_hinting_finding(7, 21, 0, None),
+            suspicious_hinting_finding(8, 22, 0, None),
+        ];
+        let mut output = Vec::new();
+        stats.record_and_limit(&findings, &mut output);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.iter().any(|f| {
+                if f.kind != "font.ttf_hinting_torture" {
+                    return false;
+                }
+                f.meta.get("control_depth") == Some(&"5".to_string())
+                    && f.meta.get("instruction_history") == Some(&"0xB0@0,0xB1@1".to_string())
+            }),
+            "Aggregate finding should include control depth and instruction history"
+        );
+    }
+
+    #[test]
+    fn hinting_stats_capture_push_loop_length() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let findings = vec![
+            suspicious_hinting_finding(6, 20, 0, Some(48)),
+            suspicious_hinting_finding(6, 20, 0, None),
+            suspicious_hinting_finding(6, 20, 0, None),
+        ];
+        let mut output = Vec::new();
+        stats.record_and_limit(&findings, &mut output);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.iter().any(|f| {
+                if f.kind != "font.ttf_hinting_torture" {
+                    return false;
+                }
+                f.meta.get("push_loop_length") == Some(&"48".to_string())
+            }),
+            "Aggregate finding should include push loop length"
+        );
     }
 }
 

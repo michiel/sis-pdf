@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use crate::correlation;
 use crate::evidence::preview_ascii;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
-use crate::model::Finding;
+use crate::model::{AttackSurface, Confidence, Finding, Severity};
 use crate::position;
 use crate::profiler::{DocumentInfo, Profiler};
 #[cfg(feature = "ml-graph")]
@@ -22,6 +22,16 @@ use tracing::{debug, error, info, warn, Level};
 
 const PARALLEL_DETECTOR_THREADS: usize = 4;
 const CARVED_OBJECT_LIMIT_DEFAULT: usize = 2000;
+const RESOURCE_CONSUMPTION_THRESHOLD_MS: u64 = 5_000;
+const RESOURCE_STRUCTURAL_FINDING_KINDS: &[&str] = &[
+    "object_shadow_mismatch",
+    "parser_diff_structural",
+    "parser_object_count_diff",
+    "parser_trailer_count_diff",
+    "pdf.trailer_inconsistent",
+    "label_mismatch_stream_type",
+    "objstm_embedded_summary",
+];
 
 pub fn run_scan_with_detectors(
     bytes: &[u8],
@@ -82,6 +92,7 @@ pub fn run_scan_with_detectors(
 
     let ctx = ScanContext::new(bytes, graph, options);
 
+    let detection_start = Instant::now();
     profiler.begin_phase("detection");
     let mut findings: Vec<Finding> = if ctx.options.parallel {
         use rayon::prelude::*;
@@ -150,6 +161,7 @@ pub fn run_scan_with_detectors(
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Failed to build parallel detector pool; falling back to sequential",
                 }
                 .emit();
@@ -221,6 +233,7 @@ pub fn run_scan_with_detectors(
         out
     };
     profiler.end_phase();
+    let detection_duration_ms = detection_start.elapsed().as_millis() as u64;
 
     if ctx.graph.objects.len() > ctx.options.max_objects {
         SecurityEvent {
@@ -234,6 +247,7 @@ pub fn run_scan_with_detectors(
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "Object count exceeded max_objects",
         }
         .emit();
@@ -291,6 +305,7 @@ pub fn run_scan_with_detectors(
             });
         }
     }
+    maybe_record_parser_resource_exhaustion(&mut findings, detection_duration_ms);
 
     let font_findings = findings.iter().filter(|f| f.kind.starts_with("font.")).count();
     let js_findings = findings
@@ -665,7 +680,8 @@ pub fn run_scan_with_detectors(
         response_rules,
         structural_summary,
         ml_summary_override,
-    ))
+    )
+    .with_detection_duration(Some(detection_duration_ms)))
 }
 
 fn stable_id(f: &Finding) -> String {
@@ -1207,6 +1223,54 @@ fn polyglot_meta(findings: &[Finding]) -> (bool, Vec<String>) {
     (found, sigs)
 }
 
+fn maybe_record_parser_resource_exhaustion(
+    findings: &mut Vec<Finding>,
+    detection_duration_ms: u64,
+) {
+    if detection_duration_ms < RESOURCE_CONSUMPTION_THRESHOLD_MS {
+        return;
+    }
+    let structural: Vec<String> = findings
+        .iter()
+        .filter(|f| RESOURCE_STRUCTURAL_FINDING_KINDS.contains(&f.kind.as_str()))
+        .map(|f| f.kind.clone())
+        .collect();
+    if structural.is_empty() {
+        return;
+    }
+    let mut meta = HashMap::new();
+    meta.insert("detection_duration_ms".into(), detection_duration_ms.to_string());
+    meta.insert("structural_finding_count".into(), structural.len().to_string());
+    meta.insert("structural_findings".into(), structural.join(", "));
+    findings.push(Finding {
+        id: String::new(),
+        surface: AttackSurface::FileStructure,
+        kind: "parser_resource_exhaustion".into(),
+        severity: Severity::High,
+        confidence: Confidence::Probable,
+        impact: Some(crate::model::Impact::High),
+        title: "Parser resource exhaustion detected".into(),
+        description: format!(
+            "The parser spent {}ms re-processing malformed structures ({}); treat it as a possible refusal-of-service attempt.",
+            detection_duration_ms,
+            structural.join(", ")
+        ),
+        objects: Vec::new(),
+        evidence: Vec::new(),
+        remediation: Some(
+            "Reject malformed structures early or run detection with reduced scope/--fast.".into(),
+        ),
+        meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    });
+}
+
 fn collect_refs_from_obj(obj: &PdfObj<'_>, out: &mut Vec<ObjRef>) {
     if let PdfAtom::Ref { obj, gen } = obj.atom {
         out.push(ObjRef { obj, gen });
@@ -1408,5 +1472,24 @@ mod tests {
         // Should not create new findings or escalate severity
         assert_eq!(findings.len(), original_count, "Should not create new findings");
         assert_eq!(findings[0].severity, crate::model::Severity::Low);
+    }
+
+    #[test]
+    fn parser_resource_exhaustion_logged() {
+        let mut findings = vec![Finding::template(
+            AttackSurface::FileStructure,
+            "parser_trailer_count_diff",
+            Severity::Medium,
+            Confidence::Certain,
+            "Trailer mismatch",
+            "Test",
+        )];
+        maybe_record_parser_resource_exhaustion(
+            &mut findings,
+            RESOURCE_CONSUMPTION_THRESHOLD_MS + 1,
+        );
+        let last = findings.last().expect("finding added");
+        assert_eq!(last.kind, "parser_resource_exhaustion");
+        assert_eq!(last.meta.get("structural_finding_count"), Some(&"1".to_string()));
     }
 }

@@ -1,9 +1,11 @@
 use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::object::PdfAtom;
+use sis_pdf_pdf::span::Span;
 use std::collections::BTreeMap;
 use tracing::warn;
 
@@ -167,6 +169,103 @@ impl Detector for StrictParseDeviationDetector {
         }
         for entry in &ctx.graph.objects {
             if let PdfAtom::Stream(st) = &entry.atom {
+                let filters = stream_filters(&st.dict);
+                let has_ascii85 = filters.iter().any(|filter| is_ascii85_filter(filter));
+                let ascii85_missing_eod =
+                    has_ascii85 && stream_missing_ascii85_eod(ctx.bytes, &st.data_span);
+                let length_missing = st.dict.get_first(b"/Length").is_none();
+
+                if length_missing {
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("stream.object".into(), format!("{} {} obj", entry.obj, entry.gen));
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: self.surface(),
+                        kind: "stream_missing_length".into(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::Probable,
+                        impact: Some(Impact::Medium),
+                        title: "Stream missing /Length entry".into(),
+                        description: "Stream dictionary does not specify /Length; parsing will rely on heuristics."
+                            .into(),
+                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                        evidence: vec![span_to_evidence(st.dict.span, "Stream dictionary")],
+                        remediation: Some("Confirm stream boundaries or restore missing /Length.".into()),
+                        meta,
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
+                        yara: None,
+                        position: None,
+                        positions: Vec::new(),
+                    });
+                }
+
+                if ascii85_missing_eod {
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("stream.filter".into(), "ASCII85Decode".into());
+                    meta.insert("stream.object".into(), format!("{} {} obj", entry.obj, entry.gen));
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: AttackSurface::StreamsAndFilters,
+                        kind: "stream_ascii85_missing_eod".into(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::Probable,
+                        impact: Some(Impact::Medium),
+                        title: "ASCII85 stream missing EOD marker".into(),
+                        description:
+                            "ASCII85-encoded stream lacks the ~> terminator; data may be truncated."
+                                .into(),
+                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                        evidence: vec![span_to_evidence(st.data_span, "Stream data")],
+                        remediation: Some(
+                            "Check for truncated ASCII85 payloads or potential obfuscation.".into(),
+                        ),
+                        meta,
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
+                        yara: None,
+                        position: None,
+                        positions: Vec::new(),
+                    });
+                }
+
+                if has_ascii85 && (length_missing || ascii85_missing_eod) {
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("stream.object".into(), format!("{} {} obj", entry.obj, entry.gen));
+                    meta.insert("stream.filters".into(), filters.join(", "));
+                    if length_missing {
+                        meta.insert("stream.length_missing".into(), "true".into());
+                    }
+                    if ascii85_missing_eod {
+                        meta.insert("stream.ascii85_missing_eod".into(), "true".into());
+                    }
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: AttackSurface::StreamsAndFilters,
+                        kind: "stream.obfuscated_concealment".into(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::Probable,
+                        impact: Some(Impact::Medium),
+                        title: "Obfuscated stream payload detected".into(),
+                        description: "Encrypted/obfuscated stream metadata is malformed; decoding may be incomplete."
+                            .into(),
+                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                        evidence: vec![span_to_evidence(entry.full_span, "Stream object")],
+                        remediation: Some("Inspect stream obfuscation and verify encryption settings.".into()),
+                        meta,
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
+                        yara: None,
+                        position: None,
+                        positions: Vec::new(),
+                    });
+                }
                 if let Some((_, len_obj)) = st.dict.get_first(b"/Length") {
                     if let PdfAtom::Int(i) = len_obj.atom {
                         let declared = i.max(0) as u64;
@@ -428,4 +527,20 @@ fn find_last(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         i -= 1;
     }
     None
+}
+
+fn is_ascii85_filter(filter: &str) -> bool {
+    matches!(
+        filter.to_ascii_uppercase().as_str(),
+        "/ASCII85DECODE" | "ASCII85DECODE" | "/A85" | "A85"
+    )
+}
+
+fn stream_missing_ascii85_eod(bytes: &[u8], span: &Span) -> bool {
+    let start = span.start as usize;
+    let end = span.end as usize;
+    if end <= start || end > bytes.len() {
+        return false;
+    }
+    !bytes[start..end].windows(2).any(|window| window == b"~>")
 }

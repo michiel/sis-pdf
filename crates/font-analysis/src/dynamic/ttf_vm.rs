@@ -3,16 +3,23 @@
 /// This module implements a minimal TrueType VM to analyze hinting programs
 /// for security issues. It tracks instruction counts, stack depth, and
 /// detects suspicious patterns.
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use tracing::{debug, instrument, warn};
 
 use crate::model::{Confidence, FontAnalysisConfig, FontFinding, Severity};
 
 /// TrueType VM execution limits (for security analysis)
-const DEFAULT_MAX_INSTRUCTIONS_PER_GLYPH: usize = 50_000;
+/// Reduced from 50,000 to 5,000 - we only need to detect anomalies, not run full programs
+const DEFAULT_MAX_INSTRUCTIONS_PER_GLYPH: usize = 5_000;
 const DEFAULT_MAX_STACK_DEPTH: usize = 256;
 const DEFAULT_MAX_LOOP_DEPTH: usize = 10;
+const INSTRUCTION_HISTORY_LIMIT: usize = 32;
+const PUSH_LOOP_WINDOW_THRESHOLD: usize = 24;
+const PUSH_LOOP_RUN_THRESHOLD: usize = 16;
+const CONTROL_DEPTH_LIMIT: usize = 48;
+const CONTROL_FLOW_STORM_THRESHOLD: usize = 40;
+const CALL_RUN_THRESHOLD: usize = 24;
 
 #[derive(Debug, Clone, Copy)]
 pub struct VmLimits {
@@ -31,6 +38,14 @@ impl VmLimits {
             max_stack_depth,
             max_loop_depth: DEFAULT_MAX_LOOP_DEPTH,
         }
+    }
+
+    pub fn max_stack_depth(&self) -> usize {
+        self.max_stack_depth
+    }
+
+    pub fn max_instructions_per_glyph(&self) -> usize {
+        self.max_instructions_per_glyph
     }
 }
 
@@ -54,6 +69,9 @@ enum VmError {
     DivisionByZero,
     UnmatchedIf,
     UnmatchedFdef,
+    PushLoopDetected(usize),
+    ControlFlowStorm(usize),
+    CallStorm(usize),
 }
 
 impl VmError {
@@ -66,12 +84,18 @@ impl VmError {
             VmError::DivisionByZero => "division_by_zero",
             VmError::UnmatchedIf => "unmatched_if",
             VmError::UnmatchedFdef => "unmatched_fdef",
+            VmError::PushLoopDetected(_) => "push_loop_detected",
+            VmError::ControlFlowStorm(_) => "control_flow_storm",
+            VmError::CallStorm(_) => "call_storm",
         }
     }
 
     fn severity(&self) -> Severity {
         match self {
             VmError::StackUnderflow | VmError::StackOverflow => Severity::Low,
+            VmError::PushLoopDetected(_) => Severity::Medium,
+            VmError::ControlFlowStorm(_) => Severity::Medium,
+            VmError::CallStorm(_) => Severity::Medium,
             _ => Severity::Medium,
         }
     }
@@ -79,6 +103,9 @@ impl VmError {
     fn confidence(&self) -> Confidence {
         match self {
             VmError::StackUnderflow | VmError::StackOverflow => Confidence::Heuristic,
+            VmError::PushLoopDetected(_) => Confidence::Strong,
+            VmError::ControlFlowStorm(_) => Confidence::Strong,
+            VmError::CallStorm(_) => Confidence::Strong,
             _ => Confidence::Probable,
         }
     }
@@ -96,6 +123,15 @@ impl fmt::Display for VmError {
             VmError::DivisionByZero => write!(f, "Division by zero"),
             VmError::UnmatchedIf => write!(f, "Unmatched IF/ELSE block"),
             VmError::UnmatchedFdef => write!(f, "Unmatched FDEF/ENDF block"),
+            VmError::PushLoopDetected(count) => {
+                write!(f, "Push loop detected: {} consecutive push opcodes", count)
+            }
+            VmError::ControlFlowStorm(count) => {
+                write!(f, "Control flow storm detected: {} consecutive control ops", count)
+            }
+            VmError::CallStorm(count) => {
+                write!(f, "Call storm detected: {} consecutive CALL opcodes", count)
+            }
         }
     }
 }
@@ -110,6 +146,14 @@ struct VMState {
     loop_depth: usize,
     suspicious_patterns: Vec<String>,
     limits: VmLimits,
+    recent_instructions: VecDeque<(usize, u8)>,
+    control_depth: usize,
+    max_control_depth: usize,
+    push_window: VecDeque<bool>,
+    push_window_count: usize,
+    push_run: usize,
+    control_flow_run: usize,
+    call_run: usize,
 }
 
 impl VMState {
@@ -121,6 +165,14 @@ impl VMState {
             loop_depth: 0,
             suspicious_patterns: Vec::new(),
             limits,
+            recent_instructions: VecDeque::with_capacity(INSTRUCTION_HISTORY_LIMIT),
+            control_depth: 0,
+            max_control_depth: 0,
+            push_window: VecDeque::with_capacity(INSTRUCTION_HISTORY_LIMIT),
+            push_window_count: 0,
+            push_run: 0,
+            control_flow_run: 0,
+            call_run: 0,
         }
     }
 
@@ -146,10 +198,92 @@ impl VMState {
     }
 }
 
+impl VMState {
+    fn record_instruction(&mut self, pc: usize, opcode: u8) -> Result<(), VmError> {
+        if self.recent_instructions.len() == INSTRUCTION_HISTORY_LIMIT {
+            self.recent_instructions.pop_front();
+        }
+        self.recent_instructions.push_back((pc, opcode));
+        self.track_push_window(opcode)
+    }
+
+    fn observe_control_flow(&mut self, is_control: bool) -> Result<(), VmError> {
+        if is_control {
+            self.control_flow_run = self.control_flow_run.saturating_add(1);
+        } else {
+            self.control_flow_run = 0;
+        }
+        if self.control_flow_run > CONTROL_FLOW_STORM_THRESHOLD {
+            return Err(VmError::ControlFlowStorm(self.control_flow_run));
+        }
+        Ok(())
+    }
+
+    fn observe_call_instruction(&mut self, is_call: bool) -> Result<(), VmError> {
+        if is_call {
+            self.call_run = self.call_run.saturating_add(1);
+            if self.call_run > CALL_RUN_THRESHOLD {
+                return Err(VmError::CallStorm(self.call_run));
+            }
+        } else {
+            self.call_run = 0;
+        }
+        Ok(())
+    }
+
+    fn enter_control(&mut self) -> Result<(), VmError> {
+        self.control_depth = self.control_depth.saturating_add(1);
+        self.max_control_depth = self.max_control_depth.max(self.control_depth);
+        if self.control_depth > CONTROL_DEPTH_LIMIT {
+            return Err(VmError::ControlFlowStorm(self.control_depth));
+        }
+        Ok(())
+    }
+
+    fn exit_control(&mut self) {
+        if self.control_depth > 0 {
+            self.control_depth -= 1;
+        }
+    }
+
+    fn formatted_instruction_history(&self) -> String {
+        self.recent_instructions
+            .iter()
+            .map(|(offset, opcode)| format!("0x{opcode:02X}@{offset}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn track_push_window(&mut self, opcode: u8) -> Result<(), VmError> {
+        let is_push = (0xB0..=0xBF).contains(&opcode);
+        self.push_window.push_back(is_push);
+        if is_push {
+            self.push_window_count = self.push_window_count.saturating_add(1);
+            self.push_run = self.push_run.saturating_add(1);
+        } else {
+            self.push_run = 0;
+        }
+        if self.push_window.len() > INSTRUCTION_HISTORY_LIMIT {
+            if let Some(old) = self.push_window.pop_front() {
+                if old {
+                    self.push_window_count = self.push_window_count.saturating_sub(1);
+                }
+            }
+        }
+        if self.push_window_count >= PUSH_LOOP_WINDOW_THRESHOLD
+            || self.push_run >= PUSH_LOOP_RUN_THRESHOLD
+            || (is_push && self.stack.len() >= self.limits.max_stack_depth.saturating_sub(4))
+        {
+            return Err(VmError::PushLoopDetected(self.push_window_count.max(self.push_run)));
+        }
+        Ok(())
+    }
+}
+
 /// Analyze TrueType hinting program
 #[cfg(feature = "dynamic")]
 #[instrument(skip(program), fields(program_len = program.len()))]
-pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFinding> {
+pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits, suppress_warnings: bool) -> Vec<FontFinding> {
     let mut findings = Vec::new();
 
     if program.is_empty() {
@@ -160,23 +294,61 @@ pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFin
     // Parse and execute the program
     let mut state = VMState::new(*limits);
     if let Err(err) = execute_program(&mut state, program) {
-        warn!(
-            error = %err,
-            instruction_count = state.instruction_count,
-            max_stack_depth = state.max_stack_depth,
-            "Hinting program execution failed"
-        );
+        let history = state.formatted_instruction_history();
+        // Only log warnings if not suppressed (to reduce log spam when limits are hit)
+        if !suppress_warnings {
+            warn!(
+                error = %err,
+                instruction_count = state.instruction_count,
+                max_stack_depth = state.max_stack_depth,
+                control_depth = state.max_control_depth,
+                instruction_history = &history,
+                "Hinting program execution failed"
+            );
+        }
         let mut meta = HashMap::new();
         meta.insert("error_kind".to_string(), err.kind().to_string());
         meta.insert("error_message".to_string(), err.to_string());
         meta.insert("instruction_count".to_string(), state.instruction_count.to_string());
         meta.insert("max_stack_depth".to_string(), state.max_stack_depth.to_string());
+        meta.insert("control_depth".to_string(), state.max_control_depth.to_string());
+        if !history.is_empty() {
+            meta.insert("instruction_history".to_string(), history);
+        }
+
+        let (kind, title) = match err {
+            VmError::PushLoopDetected(count) => {
+                meta.insert("push_loop_length".to_string(), count.to_string());
+                (
+                    "font.ttf_hinting_push_loop".to_string(),
+                    "Push loop detected in hinting program".to_string(),
+                )
+            }
+            VmError::ControlFlowStorm(count) => {
+                meta.insert("storm_length".to_string(), count.to_string());
+                (
+                    "font.ttf_hinting_control_flow_storm".to_string(),
+                    "Control flow storm detected in hinting program".to_string(),
+                )
+            }
+            VmError::CallStorm(count) => {
+                meta.insert("storm_length".to_string(), count.to_string());
+                (
+                    "font.ttf_hinting_call_storm".to_string(),
+                    "Call storm detected in hinting program".to_string(),
+                )
+            }
+            _ => (
+                "font.ttf_hinting_suspicious".to_string(),
+                "Suspicious TrueType hinting program".to_string(),
+            ),
+        };
 
         findings.push(FontFinding {
-            kind: "font.ttf_hinting_suspicious".to_string(),
+            kind,
             severity: err.severity(),
             confidence: err.confidence(),
-            title: "Suspicious TrueType hinting program".to_string(),
+            title,
             description: format!("Hinting program triggered security check: {}", err),
             meta,
         });
@@ -202,7 +374,7 @@ pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits) -> Vec<FontFin
 }
 
 #[cfg(not(feature = "dynamic"))]
-pub fn analyze_hinting_program(_program: &[u8], _limits: &VmLimits) -> Vec<FontFinding> {
+pub fn analyze_hinting_program(_program: &[u8], _limits: &VmLimits, _suppress_warnings: bool) -> Vec<FontFinding> {
     Vec::new()
 }
 
@@ -216,7 +388,12 @@ fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), VmError> {
     while pc < program.len() {
         state.check_budget()?;
 
+        let instr_pc = pc;
         let opcode = program[pc];
+        state.record_instruction(instr_pc, opcode)?;
+        let is_control = matches!(opcode, 0x58 | 0x1B | 0x59 | 0x2A | 0x2B | 0x2C | 0x2D);
+        state.observe_control_flow(is_control)?;
+        state.observe_call_instruction(opcode == 0x2B)?;
         pc += 1;
 
         // Simplified instruction set - focusing on security-relevant operations
@@ -354,6 +531,7 @@ fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), VmError> {
             0x58 => {
                 // IF: Conditional
                 let condition = state.pop()?;
+                state.enter_control()?;
                 if condition == 0 {
                     // Skip to ELSE or EIF
                     pc = skip_to_else_or_eif(program, pc)?;
@@ -366,7 +544,7 @@ fn execute_program(state: &mut VMState, program: &[u8]) -> Result<(), VmError> {
             }
             0x59 => {
                 // EIF: End if
-                // No operation needed
+                state.exit_control();
             }
 
             // Loop detection
@@ -554,8 +732,19 @@ mod tests {
             program.push(0xB0); // PUSHB[0]
             program.push(1);
         }
-        let findings = analyze_hinting_program(&program, &VmLimits::default());
+        let findings = analyze_hinting_program(&program, &VmLimits::default(), false);
         assert!(!findings.is_empty());
-        assert!(findings.iter().any(|f| f.kind == "font.ttf_hinting_suspicious"));
+        assert!(
+            findings.iter().any(|f| {
+                matches!(
+                    f.kind.as_str(),
+                    "font.ttf_hinting_suspicious"
+                        | "font.ttf_hinting_push_loop"
+                        | "font.ttf_hinting_control_flow_storm"
+                        | "font.ttf_hinting_call_storm"
+                )
+            }),
+            "Expected hinting guard finding for runaway instruction stream"
+        );
     }
 }

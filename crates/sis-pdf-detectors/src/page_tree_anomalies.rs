@@ -10,6 +10,9 @@ use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 
 use crate::entry_dict;
 
+/// Maximum recursion depth for page tree traversal to prevent stack overflow
+const MAX_PAGE_TREE_DEPTH: usize = 128;
+
 pub struct PageTreeManipulationDetector;
 
 impl Detector for PageTreeManipulationDetector {
@@ -36,8 +39,8 @@ impl Detector for PageTreeManipulationDetector {
 
         let root = root_pages_obj(ctx).or_else(|| fallback_pages_root(ctx, &mut findings));
         if let Some(root) = root {
-            detect_cycles(ctx, &root, &mut visited, &mut stack, &mut findings);
-            let actual = count_pages(ctx, &root, &mut HashSet::new());
+            detect_cycles(ctx, &root, &mut visited, &mut stack, &mut findings, 0);
+            let actual = count_pages(ctx, &root, &mut HashSet::new(), 0);
             let declared = declared_page_count(ctx, &root);
             if let Some(declared) = declared {
                 if declared != actual as i64 {
@@ -179,7 +182,37 @@ fn detect_cycles(
     visited: &mut HashSet<ObjRef>,
     stack: &mut Vec<ObjRef>,
     findings: &mut Vec<Finding>,
+    depth: usize,
 ) {
+    // Guard against excessive recursion depth
+    if depth > MAX_PAGE_TREE_DEPTH {
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("page_tree.depth".into(), depth.to_string());
+        meta.insert("page_tree.max_depth".into(), MAX_PAGE_TREE_DEPTH.to_string());
+        findings.push(Finding {
+            id: String::new(),
+            surface: AttackSurface::FileStructure,
+            kind: "page_tree_depth_exceeded".into(),
+            severity: Severity::Medium,
+            confidence: Confidence::Strong,
+            title: "Page tree depth exceeded".into(),
+            description: format!(
+                "Page tree nesting exceeds maximum safe depth of {}. \
+                This may indicate a malformed or malicious PDF designed to exhaust parser resources.",
+                MAX_PAGE_TREE_DEPTH
+            ),
+            objects: vec!["page_tree".into()],
+            evidence: vec![],
+            remediation: Some("Inspect page tree structure for excessive nesting.".into()),
+            meta,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+            ..Finding::default()
+        });
+        return;
+    }
+
     let Some(dict) = resolve_dict(&ctx.graph, obj) else {
         return;
     };
@@ -189,6 +222,9 @@ fn detect_cycles(
     let node_ref = object_ref(&ctx.graph, obj);
     if let Some(node_ref) = node_ref {
         if stack.contains(&node_ref) {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("page_tree.cycle_node".into(), format!("{} {}", node_ref.obj, node_ref.gen));
+            meta.insert("page_tree.stack_depth".into(), stack.len().to_string());
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::FileStructure,
@@ -196,12 +232,13 @@ fn detect_cycles(
                 severity: Severity::Medium,
                 confidence: Confidence::Strong, // Upgraded: cycle detection is definitive
                 title: "Page tree cycle detected".into(),
-                description: "Page tree contains a cycle, which can confuse traversal.".into(),
+                description: "Page tree contains a circular reference, which can cause infinite \
+                    loops in PDF parsers. This may indicate a malformed or malicious PDF designed \
+                    to exhaust parser resources or exploit traversal vulnerabilities.".into(),
                 objects: vec![format!("{} {} obj", node_ref.obj, node_ref.gen)],
                 evidence: vec![span_to_evidence(dict.span, "Pages node")],
                 remediation: Some("Inspect /Kids references for cycles.".into()),
-                meta: Default::default(),
-
+                meta,
                 reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
@@ -222,7 +259,7 @@ fn detect_cycles(
     if let Some((_, kids)) = dict.get_first(b"/Kids") {
         if let PdfAtom::Array(arr) = &kids.atom {
             for kid in arr {
-                detect_cycles(ctx, kid, visited, stack, findings);
+                detect_cycles(ctx, kid, visited, stack, findings, depth + 1);
             }
         }
     }
@@ -237,7 +274,12 @@ fn count_pages(
     ctx: &sis_pdf_core::scan::ScanContext,
     obj: &PdfObj<'_>,
     seen: &mut HashSet<ObjRef>,
+    depth: usize,
 ) -> usize {
+    // Guard against excessive recursion depth
+    if depth > MAX_PAGE_TREE_DEPTH {
+        return 0;
+    }
     let Some(dict) = resolve_dict(&ctx.graph, obj) else {
         return 0;
     };
@@ -255,7 +297,7 @@ fn count_pages(
     }
     if let Some((_, kids)) = dict.get_first(b"/Kids") {
         if let PdfAtom::Array(arr) = &kids.atom {
-            return arr.iter().map(|k| count_pages(ctx, k, seen)).sum();
+            return arr.iter().map(|k| count_pages(ctx, k, seen, depth + 1)).sum();
         }
     }
     0

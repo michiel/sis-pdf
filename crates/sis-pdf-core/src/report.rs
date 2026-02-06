@@ -70,6 +70,8 @@ pub struct Report {
     pub temporal_snapshots: Option<Vec<crate::explainability::TemporalSnapshot>>,
     #[serde(default)]
     pub sandbox_summary: Option<SandboxSummary>,
+    #[serde(default)]
+    pub detection_duration_ms: Option<u64>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -77,6 +79,7 @@ pub struct BatchEntry {
     pub path: String,
     pub summary: Summary,
     pub duration_ms: u64,
+    pub detection_duration_ms: Option<u64>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -147,6 +150,7 @@ impl Report {
             temporal_signals: None,
             temporal_snapshots: None,
             sandbox_summary: None,
+            detection_duration_ms: None,
         }
     }
 
@@ -181,6 +185,11 @@ impl Report {
         temporal_snapshots: Option<Vec<crate::explainability::TemporalSnapshot>>,
     ) -> Self {
         self.temporal_snapshots = temporal_snapshots;
+        self
+    }
+
+    pub fn with_detection_duration(mut self, detection_duration_ms: Option<u64>) -> Self {
+        self.detection_duration_ms = detection_duration_ms;
         self
     }
 }
@@ -3210,15 +3219,20 @@ pub fn render_batch_markdown(report: &BatchReport) -> String {
     ));
     out.push_str("## Per-File Totals\n\n");
     for entry in &report.entries {
+        let detection_duration = entry
+            .detection_duration_ms
+            .map(|ms| format!("{ms}ms"))
+            .unwrap_or_else(|| "n/a".to_string());
         out.push_str(&format!(
-            "- {}: total={} high={} medium={} low={} info={} duration={}ms\n",
+            "- {}: total={} high={} medium={} low={} info={} duration={}ms detection={}\n",
             escape_markdown(&entry.path),
             entry.summary.total,
             entry.summary.high,
             entry.summary.medium,
             entry.summary.low,
             entry.summary.info,
-            entry.duration_ms
+            entry.duration_ms,
+            detection_duration
         ));
     }
     out

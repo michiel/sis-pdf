@@ -617,7 +617,10 @@ fn decode_ascii85(data: &[u8]) -> Result<(Vec<u8>, bool)> {
         if tuple.len() == 5 {
             let mut value: u32 = 0;
             for &c in &tuple {
-                value = value * 85 + (c - 33) as u32;
+                value = value
+                    .checked_mul(85)
+                    .and_then(|v| v.checked_add((c - 33) as u32))
+                    .ok_or_else(|| anyhow!("ascii85 decoding overflow"))?;
             }
             out.extend_from_slice(&value.to_be_bytes());
             tuple.clear();
@@ -628,10 +631,16 @@ fn decode_ascii85(data: &[u8]) -> Result<(Vec<u8>, bool)> {
         let mut value: u32 = 0;
         let padding = 5 - tuple.len();
         for &c in &tuple {
-            value = value * 85 + (c - 33) as u32;
+            value = value
+                .checked_mul(85)
+                .and_then(|v| v.checked_add((c - 33) as u32))
+                .ok_or_else(|| anyhow!("ascii85 decoding overflow"))?;
         }
         for _ in 0..padding {
-            value = value * 85 + 84;
+            value = value
+                .checked_mul(85)
+                .and_then(|v| v.checked_add(84))
+                .ok_or_else(|| anyhow!("ascii85 decoding overflow (padding)"))?;
         }
         let bytes = value.to_be_bytes();
         out.extend_from_slice(&bytes[..4 - padding]);

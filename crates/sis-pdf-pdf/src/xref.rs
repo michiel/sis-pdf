@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 
 use crate::object::{PdfAtom, PdfDict};
 use crate::parser::{parse_indirect_object_at, Parser};
+use crate::span::Span;
 use tracing::{debug, warn};
 
 #[derive(Debug, Clone, Copy)]
@@ -21,12 +22,21 @@ pub struct XrefSection<'a> {
 #[derive(Debug)]
 pub struct XrefChain<'a> {
     pub sections: Vec<XrefSection<'a>>,
+    pub deviations: Vec<XrefDeviation>,
+}
+
+#[derive(Debug)]
+pub struct XrefDeviation {
+    pub kind: &'static str,
+    pub span: Span,
+    pub note: Option<String>,
 }
 
 pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
     let mut sections = Vec::new();
     let mut next = Some(startxref);
     let mut seen = std::collections::HashSet::new();
+    let mut deviations = Vec::new();
     while let Some(off) = next {
         if !seen.insert(off) {
             warn!(
@@ -51,7 +61,7 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
             break;
         }
         if bytes[offset..].starts_with(b"xref") {
-            if let Ok((trailer, prev)) = parse_xref_table(bytes, offset) {
+            if let Ok((trailer, prev)) = parse_xref_table(bytes, offset, &mut deviations) {
                 sections.push(XrefSection { offset: off, trailer, kind: XrefKind::Table });
                 debug!(offset = off, kind = ?XrefKind::Table, "Parsed xref table");
                 next = prev;
@@ -68,24 +78,44 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
         debug!(offset = off, kind = ?XrefKind::Unknown, "Parsed xref with unknown type");
         break;
     }
-    XrefChain { sections }
+    XrefChain { sections, deviations }
 }
 
 fn parse_xref_table<'a>(
     bytes: &'a [u8],
     offset: usize,
+    deviations: &mut Vec<XrefDeviation>,
 ) -> Result<(Option<PdfDict<'a>>, Option<u64>)> {
     let mut p = Parser::new(bytes, offset, false);
     p.consume_keyword(b"xref");
     // Skip subsection headers and entries, then find "trailer".
-    if let Some(pos) = memchr::memmem::find(&bytes[p.position()..], b"trailer") {
-        p.set_position(p.position() + pos + "trailer".len());
+    let haystack_start = p.position();
+    let haystack = &bytes[haystack_start..];
+    if haystack.is_empty() {
+        deviations.push(XrefDeviation {
+            kind: "xref_trailer_search_invalid",
+            span: Span { start: haystack_start as u64, end: haystack_start as u64 },
+            note: Some("trailer search haystack empty".into()),
+        });
+        return Err(anyhow!("trailer search haystack empty"));
+    }
+    if let Some(pos) = memchr::memmem::find(haystack, b"trailer") {
+        p.set_position(haystack_start + pos + "trailer".len());
         p.skip_ws_and_comments();
         let dict = p.parse_object()?;
         if let PdfAtom::Dict(d) = dict.atom {
             let prev = extract_prev(&d);
             return Ok((Some(d), prev));
         }
+    } else {
+        deviations.push(XrefDeviation {
+            kind: "xref_trailer_search_invalid",
+            span: Span {
+                start: haystack_start as u64,
+                end: (haystack_start + haystack.len()) as u64,
+            },
+            note: Some("trailer keyword not found before EOF".into()),
+        });
     }
     Err(anyhow!("trailer not found"))
 }

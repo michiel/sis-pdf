@@ -45,15 +45,18 @@ pub mod metadata_analysis;
 pub mod multi_stage;
 pub mod object_cycles;
 pub mod objstm_summary;
+pub mod objstm_torture;
 pub mod page_tree_anomalies;
 pub mod polyglot;
 pub mod quantum_risk;
 pub mod rich_media_analysis;
 pub mod strict;
+pub mod structural_anomalies;
 pub mod supply_chain;
 pub mod uri_classification;
 pub mod vector_graphics;
 pub mod xfa_forms;
+pub mod xref_deviation;
 
 #[derive(Clone, Copy)]
 pub struct DetectorSettings {
@@ -133,6 +136,9 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(metadata_analysis::MetadataAnalysisDetector),
         Box::new(strict::StrictParseDeviationDetector),
         Box::new(ir_graph_static::IrGraphStaticDetector),
+        Box::new(structural_anomalies::StructuralAnomaliesDetector),
+        Box::new(xref_deviation::XrefTrailerSearchDetector),
+        Box::new(objstm_torture::ObjStmTortureDetector),
     ];
     if settings.js_sandbox {
         #[cfg(feature = "js-sandbox")]

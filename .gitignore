@@ -20,3 +20,4 @@ demo_sample.js
 /f*.py
 ./out/
 .env.local
+.gdb_history

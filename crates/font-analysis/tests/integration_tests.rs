@@ -42,7 +42,11 @@ fn test_type1_low_risk_operators_low_severity() {
         .iter()
         .find(|f| f.kind == "font.type1_dangerous_operator")
         .expect("should still flag the operators");
-    assert_eq!(finding.severity, Severity::Medium, "Multiple low-risk operators should raise severity to Medium");
+    assert_eq!(
+        finding.severity,
+        Severity::Medium,
+        "Multiple low-risk operators should raise severity to Medium"
+    );
 }
 
 #[test]
@@ -55,7 +59,11 @@ fn test_type1_single_low_risk_operator_low_severity() {
         .iter()
         .find(|f| f.kind == "font.type1_dangerous_operator")
         .expect("should still flag the operator");
-    assert_eq!(finding.severity, Severity::Low, "Single low-risk operator should remain Low severity");
+    assert_eq!(
+        finding.severity,
+        Severity::Low,
+        "Single low-risk operator should remain Low severity"
+    );
 }
 
 /// Test that excessive stack depth is detected
@@ -263,8 +271,15 @@ fn test_ttf_excessive_instructions() {
     let outcome = analyse_font(data, &config);
 
     // Should detect excessive instructions in hinting program
-    let has_hinting_issue =
-        outcome.findings.iter().any(|f| f.kind == "font.ttf_hinting_suspicious");
+    let has_hinting_issue = outcome.findings.iter().any(|f| {
+        matches!(
+            f.kind.as_str(),
+            "font.ttf_hinting_suspicious"
+                | "font.ttf_hinting_push_loop"
+                | "font.ttf_hinting_control_flow_storm"
+                | "font.ttf_hinting_call_storm"
+        )
+    });
 
     assert!(
         has_hinting_issue,
@@ -283,8 +298,15 @@ fn test_ttf_stack_overflow() {
     let outcome = analyse_font(data, &config);
 
     // Should detect stack overflow in hinting program
-    let has_hinting_issue =
-        outcome.findings.iter().any(|f| f.kind == "font.ttf_hinting_suspicious");
+    let has_hinting_issue = outcome.findings.iter().any(|f| {
+        matches!(
+            f.kind.as_str(),
+            "font.ttf_hinting_suspicious"
+                | "font.ttf_hinting_push_loop"
+                | "font.ttf_hinting_control_flow_storm"
+                | "font.ttf_hinting_call_storm"
+        )
+    });
 
     assert!(
         has_hinting_issue,

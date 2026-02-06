@@ -75,6 +75,7 @@ impl ScanCache {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Cache entry too large",
                 }
                 .emit();
@@ -99,6 +100,7 @@ impl ScanCache {
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Cache hash mismatch",
             }
             .emit();
@@ -137,6 +139,7 @@ impl ScanCache {
                     vector: None,
                     technique: None,
                     confidence: None,
+                    fatal: false,
                     message: "Cache feature entry too large",
                 }
                 .emit();
@@ -161,6 +164,7 @@ impl ScanCache {
                 vector: None,
                 technique: None,
                 confidence: None,
+                fatal: false,
                 message: "Cache feature hash mismatch",
             }
             .emit();
@@ -227,6 +231,7 @@ fn sanitize_hash(hash: &str) -> Option<String> {
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "Cache hash rejected due to length",
         }
         .emit();
@@ -245,6 +250,7 @@ fn sanitize_hash(hash: &str) -> Option<String> {
             vector: None,
             technique: None,
             confidence: None,
+            fatal: false,
             message: "Cache hash rejected due to non-hex characters",
         }
         .emit();

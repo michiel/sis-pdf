@@ -14,6 +14,7 @@ pub struct Parser<'a> {
 
 const MAX_ARRAY_ELEMENTS: usize = 100_000;
 const MAX_DICT_ENTRIES: usize = 10_000;
+const MAX_PARSE_DEPTH: usize = 64;
 
 impl<'a> Parser<'a> {
     pub fn new(bytes: &'a [u8], pos: usize, strict: bool) -> Self {
@@ -57,6 +58,15 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_object(&mut self) -> Result<PdfObj<'a>> {
+        self.parse_object_with_depth(0)
+    }
+
+    fn parse_object_with_depth(&mut self, depth: usize) -> Result<PdfObj<'a>> {
+        if depth >= MAX_PARSE_DEPTH {
+            let span = Span { start: self.cur.pos as u64, end: self.cur.pos as u64 };
+            self.record_deviation("parse_depth_exceeded", span, Some(format!("depth={}", depth)));
+            return Err(anyhow!("parse depth exceeded"));
+        }
         self.cur.skip_ws_and_comments();
         let start = self.cur.pos;
         let b = self.cur.peek().ok_or_else(|| anyhow!("eof"))?;
@@ -64,7 +74,7 @@ impl<'a> Parser<'a> {
             b'/' => self.parse_name().map(PdfAtom::Name)?,
             b'<' => {
                 if self.cur.peek_n(1) == Some(b'<') {
-                    let dict = self.parse_dict()?;
+                    let dict = self.parse_dict_with_depth(depth + 1)?;
                     if self.try_parse_stream(&dict)? {
                         let stream = self.parse_stream(dict)?;
                         PdfAtom::Stream(stream)
@@ -81,7 +91,7 @@ impl<'a> Parser<'a> {
                 PdfAtom::Str(s)
             }
             b'[' => {
-                let arr = self.parse_array()?;
+                let arr = self.parse_array_with_depth(depth + 1)?;
                 PdfAtom::Array(arr)
             }
             b't' => {
@@ -153,7 +163,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_array(&mut self) -> Result<Vec<PdfObj<'a>>> {
+    fn parse_array_with_depth(&mut self, depth: usize) -> Result<Vec<PdfObj<'a>>> {
         let mut out = Vec::new();
         let _ = self.cur.consume();
         loop {
@@ -185,12 +195,12 @@ impl<'a> Parser<'a> {
                 );
                 return Err(anyhow!("array size limit exceeded"));
             }
-            out.push(self.parse_object()?);
+            out.push(self.parse_object_with_depth(depth + 1)?);
         }
         Ok(out)
     }
 
-    fn parse_dict(&mut self) -> Result<PdfDict<'a>> {
+    fn parse_dict_with_depth(&mut self, depth: usize) -> Result<PdfDict<'a>> {
         let start = self.cur.pos;
         self.cur.consume_keyword(b"<<");
         let mut entries = Vec::new();
@@ -212,7 +222,7 @@ impl<'a> Parser<'a> {
             if self.cur.peek() == Some(b'>') {
                 break;
             }
-            if let Ok(val) = self.parse_object() {
+            if let Ok(val) = self.parse_object_with_depth(depth + 1) {
                 entries.push((name, val));
             } else {
                 entries.push((
