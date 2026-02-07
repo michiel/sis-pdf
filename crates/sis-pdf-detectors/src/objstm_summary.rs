@@ -48,7 +48,7 @@ impl Detector for ObjStmSummaryDetector {
 
             let mut severity = Severity::Info;
             let mut confidence = Confidence::Probable;
-            let description;
+            let mut description;
             if let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, st) {
                 if decoded.data.len() <= first as usize {
                     severity = Severity::Medium;
