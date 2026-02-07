@@ -819,6 +819,7 @@ fn main() -> Result<()> {
                     predicate.as_ref(),
                     report_verbosity,
                     chain_summary,
+                    config_path.clone(),
                 )
             }
         }
@@ -2603,6 +2604,7 @@ fn run_query_oneshot(
     predicate: Option<&commands::query::PredicateExpr>,
     report_verbosity: commands::query::ReportVerbosity,
     chain_summary: commands::query::ChainSummaryLevel,
+    config_path: Option<PathBuf>,
 ) -> Result<()> {
     use commands::query;
 
@@ -2808,6 +2810,21 @@ fn run_query_repl(
                             }
                             Err(err) => eprintln!("Invalid predicate: {}", err),
                         }
+                    }
+                    continue;
+                }
+
+                if query_line == "explain" {
+                    eprintln!("Usage: explain <finding-id>");
+                    continue;
+                } else if let Some(arg) = query_line.strip_prefix("explain ") {
+                    let finding_id = arg.trim();
+                    if finding_id.is_empty() {
+                        eprintln!("Usage: explain <finding-id>");
+                    } else if let Err(err) =
+                        run_explain(pdf_path, finding_id, config_path.as_deref())
+                    {
+                        eprintln!("Explain failed: {}", err);
                     }
                     continue;
                 }
@@ -3303,6 +3320,7 @@ fn print_repl_help() {
     println!("  :readable          - Toggle readable output mode (default)");
     println!("  queries can append '| command' to pipe current output to the shell or '> file' to save it (e.g., findings | jq . or org > graph.dot)");
     println!("  :where EXPR        - Set predicate filter (blank clears)");
+    println!("  explain ID         - Run `sis explain` for the specified finding ID");
     println!("  help / ?           - Show this help");
     println!("  exit / quit / :q   - Exit REPL");
     println!();
