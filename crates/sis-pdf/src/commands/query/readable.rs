@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::fmt::Write;
 
 const TABLE_PRIORITIES: &[&str] = &[
+    "id",
     "kind",
     "severity",
     "impact",

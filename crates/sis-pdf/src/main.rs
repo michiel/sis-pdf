@@ -784,6 +784,7 @@ fn main() -> Result<()> {
                     predicate.as_ref(),
                     report_verbosity,
                     chain_summary,
+                    config_path.clone(),
                 )
             } else {
                 // Interactive REPL mode requires a single PDF file
@@ -819,6 +820,7 @@ fn main() -> Result<()> {
                     predicate.as_ref(),
                     report_verbosity,
                     chain_summary,
+                    config_path.clone(),
                 )
             }
         }
@@ -2603,6 +2605,7 @@ fn run_query_oneshot(
     predicate: Option<&commands::query::PredicateExpr>,
     report_verbosity: commands::query::ReportVerbosity,
     chain_summary: commands::query::ChainSummaryLevel,
+    _config_path: Option<PathBuf>,
 ) -> Result<()> {
     use commands::query;
 
@@ -2724,6 +2727,7 @@ fn run_query_repl(
     predicate: Option<&commands::query::PredicateExpr>,
     report_verbosity: commands::query::ReportVerbosity,
     chain_summary: commands::query::ChainSummaryLevel,
+    config_path: Option<PathBuf>,
 ) -> Result<()> {
     use commands::query;
     use rustyline::error::ReadlineError;
@@ -2809,6 +2813,25 @@ fn run_query_repl(
                             Err(err) => eprintln!("Invalid predicate: {}", err),
                         }
                     }
+                    continue;
+                }
+
+                if query_line == "explain" {
+                    eprintln!("Usage: explain <finding-id>");
+                    continue;
+                } else if let Some(arg) = query_line.strip_prefix("explain ") {
+                    let finding_id = arg.trim();
+                    if finding_id.is_empty() {
+                        eprintln!("Usage: explain <finding-id>");
+                    } else if let Err(err) =
+                        run_explain(pdf_path, finding_id, config_path.as_deref())
+                    {
+                        eprintln!("Explain failed: {}", err);
+                    }
+                    continue;
+                }
+                if let Some(rest) = query_line.strip_prefix(":doc") {
+                    handle_doc_command(rest.trim());
                     continue;
                 }
 
@@ -3303,9 +3326,41 @@ fn print_repl_help() {
     println!("  :readable          - Toggle readable output mode (default)");
     println!("  queries can append '| command' to pipe current output to the shell or '> file' to save it (e.g., findings | jq . or org > graph.dot)");
     println!("  :where EXPR        - Set predicate filter (blank clears)");
+    println!("  explain ID         - Run `sis explain` for the specified finding ID");
+    println!("  :doc TOPIC         - Show the fixit doc path and description (topics: filter-flatedecode, objstm)");
     println!("  help / ?           - Show this help");
     println!("  exit / quit / :q   - Exit REPL");
     println!();
+}
+
+fn handle_doc_command(topic: &str) {
+    if topic.is_empty() {
+        eprintln!("Doc topics: filter-flatedecode, objstm");
+        return;
+    }
+    match doc_topic_info(topic) {
+        Some((desc, path)) => {
+            eprintln!("Doc [{}]: {}", topic, path);
+            eprintln!("{}", desc);
+        }
+        None => {
+            eprintln!("Unknown doc topic '{}'; available: filter-flatedecode, objstm", topic);
+        }
+    }
+}
+
+fn doc_topic_info(topic: &str) -> Option<(&'static str, &'static str)> {
+    match topic {
+        "filter-flatedecode" => Some((
+            "Explains `/FlateDecode` decoding heuristics and reporting. Useful for interpreting declared filter errors.",
+            "docs/filter-flatedecode.md",
+        )),
+        "objstm" => Some((
+            "Summarizes ObjStm embedded object behavior and why deep scans surface the embedded payloads.",
+            "docs/findings.md#objstm_embedded_summary",
+        )),
+        _ => None,
+    }
 }
 
 fn print_filter_allowlist() -> Result<()> {

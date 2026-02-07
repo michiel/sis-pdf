@@ -1,5 +1,5 @@
 use sis_pdf_core::runner::run_scan_with_detectors;
-use sis_pdf_core::scan::{ScanOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat};
+use sis_pdf_core::scan::{FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat, ScanOptions};
 use sis_pdf_detectors::default_detectors;
 use std::path::PathBuf;
 

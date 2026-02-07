@@ -65,6 +65,7 @@ Key goals:
 - **Fonts** – Examines Type 1, TrueType, OpenType, and variable fonts for CVEs and stack anomalies, includes reader-impact reasoning.
 - **Entropy & resources** – Tracks entropy metrics, decoding budgets, and filter-chain anomalies to catch obfuscation or DoS attempts.
 - **Query & reporting** – CLI outputs (Markdown/JSON/SARIF), `sis query` for structured exploration (`pages`, `js`, `urls`, `events`, `filters`), and `sis explain` for per-finding breakdowns.
+- **Stream queries & REPL access** – `sis query sample.pdf stream <obj> [<gen>]` accepts `--decode`, `--hexdump` or `--raw` to control decoding, and the interactive REPL exposes `stream <obj> <gen> --raw` so the raw bytes can be piped or redirected straight into downstream tools.
 
 ## Taxonomy
 

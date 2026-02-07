@@ -7,6 +7,7 @@ use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict};
 
 pub struct ObjStmSummaryDetector;
+const OBJSTM_PREVIEW_LIMIT: usize = 3;
 
 impl Detector for ObjStmSummaryDetector {
     fn id(&self) -> &'static str {
@@ -16,13 +17,14 @@ impl Detector for ObjStmSummaryDetector {
         AttackSurface::ObjectStreams
     }
     fn needs(&self) -> Needs {
-        Needs::OBJECT_GRAPH | Needs::STREAM_DECODE
+        Needs::OBJECT_GRAPH
     }
     fn cost(&self) -> Cost {
         Cost::Expensive
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+        let classifications = ctx.classifications();
         for entry in &ctx.graph.objects {
             let st = match &entry.atom {
                 PdfAtom::Stream(st) => st,
@@ -48,7 +50,7 @@ impl Detector for ObjStmSummaryDetector {
 
             let mut severity = Severity::Info;
             let mut confidence = Confidence::Probable;
-            let description;
+            let mut description;
             if let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, st) {
                 if decoded.data.len() <= first as usize {
                     severity = Severity::Medium;
@@ -63,6 +65,21 @@ impl Detector for ObjStmSummaryDetector {
                     let header = &decoded.data[..first as usize];
                     let tokens = parse_header_tokens(header, n as usize * 2);
                     let parsed = tokens.len() / 2;
+                    let mut preview_labels = Vec::new();
+                    for (idx, obj_num) in tokens.iter().step_by(2).enumerate() {
+                        if idx >= OBJSTM_PREVIEW_LIMIT {
+                            break;
+                        }
+                        let obj_id = *obj_num as u32;
+                        let obj_type = classifications
+                            .get(&(obj_id, 0))
+                            .map(|classified| format!("{:?}", classified.obj_type))
+                            .unwrap_or_else(|| "unknown".into());
+                        preview_labels.push(format!("{} ({})", obj_id, obj_type));
+                    }
+                    if !preview_labels.is_empty() {
+                        meta.insert("objstm.preview".into(), preview_labels.join(", "));
+                    }
                     meta.insert("objstm.parsed_entries".into(), parsed.to_string());
                     if tokens.len() < n as usize * 2 {
                         severity = Severity::Low;
@@ -118,6 +135,11 @@ impl Detector for ObjStmSummaryDetector {
                     "ObjStm stream could not be decoded; filters unsupported or budget exceeded."
                         .into();
                 meta.insert("objstm.decode_failed".into(), "true".into());
+            }
+            if !ctx.options.deep {
+                description = format!(
+                    "{description} Run the scan with `--deep` so each embedded object becomes a standalone entry (JavaScript, actions, images, etc. will then have their own findings and make exploitation vectors visible)."
+                );
             }
 
             findings.push(Finding {

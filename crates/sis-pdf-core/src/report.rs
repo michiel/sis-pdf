@@ -653,6 +653,28 @@ fn finding_context(kind: &str) -> Option<&'static str> {
     }
 }
 
+fn doc_link_for_finding(f: &Finding) -> Option<&'static str> {
+    const FILTER_FLATE_DOC: &str = "docs/filter-flatedecode.md";
+    const OBJSTM_DOC: &str = "docs/findings.md#objstm_embedded_summary";
+
+    if f.kind == "objstm_embedded_summary" {
+        return Some(OBJSTM_DOC);
+    }
+    if f.kind == "declared_filter_invalid" {
+        if let Some(mismatch) = f.meta.get("decode.mismatch") {
+            if mismatch.contains("/FlateDecode") {
+                return Some(FILTER_FLATE_DOC);
+            }
+        }
+        if let Some(filters) = f.meta.get("stream.filters") {
+            if filters.contains("/FlateDecode") {
+                return Some(FILTER_FLATE_DOC);
+            }
+        }
+    }
+    None
+}
+
 struct ResourceRiskSummary {
     embedded_files: usize,
     filespecs: usize,
@@ -2728,10 +2750,6 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             if let Some(coord) = f.meta.get("content.coord") {
                 out.push_str(&format!("- Coord: {}\n", escape_markdown(coord)));
             }
-            out.push_str("\n**Description**\n\n");
-            out.push_str(&format!("{}\n\n", escape_markdown(&f.description)));
-            out.push_str("**Runtime effect**\n\n");
-            out.push_str(&format!("{}\n\n", escape_markdown(&runtime_effect_for_finding(f))));
             if let Some(s) = f.meta.get("action.s") {
                 out.push_str("**Action details**\n\n");
                 out.push_str(&format!("- Action type: `{}`\n", escape_markdown(s)));
@@ -2767,8 +2785,20 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             }
             description_lines.push(format!("Runtime effect: {}", runtime));
             description_lines.push(format!("Impact: {}", impact));
+            if let Some(mismatch) = f.meta.get("decode.mismatch") {
+                description_lines.push(format!("Filter mismatch: {}", mismatch));
+            }
+            if let Some(filters) = f.meta.get("stream.filters") {
+                description_lines.push(format!("Declared filters: {}", filters));
+            }
+            if let Some(outcome) = f.meta.get("decode.outcome") {
+                description_lines.push(format!("Decode outcome: {}", outcome));
+            }
             if let Some(context) = finding_context(&f.kind) {
                 description_lines.push(format!("Context: {}", context));
+            }
+            if let Some(link) = doc_link_for_finding(f) {
+                description_lines.push(format!("More info: {}", link));
             }
             out.push_str("**Description**\n\n");
             out.push_str(&format!("{}\n\n", escape_markdown(&description_lines.join("\n\n"))));
