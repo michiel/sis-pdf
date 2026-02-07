@@ -19,6 +19,7 @@ use sis_pdf_core::correlation;
 use sis_pdf_core::model::{
     AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
 };
+use sis_pdf_core::runner::assign_stable_ids;
 use sis_pdf_core::reader_context;
 use sis_pdf_core::rich_media::{
     analyze_swf, detect_3d_format, detect_media_format, SWF_DECODE_TIMEOUT_MS,
@@ -2419,6 +2420,7 @@ fn run_detectors(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>>
 
     let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
     findings.extend(composites);
+    assign_stable_ids(&mut findings);
 
     for finding in &mut findings {
         reader_context::annotate_reader_context(finding);
