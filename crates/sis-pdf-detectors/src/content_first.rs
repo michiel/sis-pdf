@@ -773,6 +773,10 @@ fn declared_filter_invalid_finding(
     blob: &Blob<'_>,
     origin: &str,
 ) -> Option<Finding> {
+    if stream_is_structural(stream) {
+        return None;
+    }
+
     let meta = blob.decode_meta.as_ref()?;
     if meta.filters.is_empty() {
         return None;
@@ -827,6 +831,91 @@ fn declared_filter_invalid_finding(
         position: None,
         positions: Vec::new(),
     })
+}
+
+fn stream_is_structural(stream: &PdfStream<'_>) -> bool {
+    stream.dict.has_name(b"/Type", b"/ObjStm")
+        || stream.dict.has_name(b"/Type", b"/XRef")
+        || stream.dict.get_first(b"/Linearized").is_some()
+}
+
+#[cfg(test)]
+mod declared_filter_invalid_tests {
+    use super::*;
+    use sis_pdf_pdf::blob::{Blob, BlobOrigin};
+    use sis_pdf_pdf::decode::{DecodeMeta, DecodeMismatch, DecodeOutcome};
+    use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj, PdfStream};
+    use sis_pdf_pdf::span::Span;
+    use std::borrow::Cow;
+
+    fn pdf_name(token: &'static [u8]) -> PdfName<'static> {
+        PdfName {
+            span: Span { start: 0, end: 0 },
+            raw: Cow::Owned(token.to_vec()),
+            decoded: token.to_vec(),
+        }
+    }
+
+    fn make_stream_with_entry(entry: (PdfName<'static>, PdfObj<'static>)) -> PdfStream<'static> {
+        PdfStream {
+            dict: PdfDict { span: Span { start: 0, end: 0 }, entries: vec![entry] },
+            data_span: Span { start: 0, end: 0 },
+        }
+    }
+
+    fn make_entry(
+        key: &'static [u8],
+        value: PdfAtom<'static>,
+    ) -> (PdfName<'static>, PdfObj<'static>) {
+        (pdf_name(key), PdfObj { span: Span { start: 0, end: 0 }, atom: value })
+    }
+
+    fn make_blob() -> Blob<'static> {
+        Blob {
+            origin: BlobOrigin::Stream { obj: 1, gen: 0 },
+            pdf_path: vec![],
+            raw: &[],
+            decoded: None,
+            decode_meta: Some(DecodeMeta {
+                filters: vec!["/FlateDecode".into()],
+                mismatches: vec![DecodeMismatch {
+                    filter: "/FlateDecode".into(),
+                    reason: "stream is not zlib-like".into(),
+                }],
+                outcome: DecodeOutcome::SuspectMismatch,
+                input_len: 0,
+                output_len: 0,
+                recovered_filters: vec![],
+            }),
+        }
+    }
+
+    #[test]
+    fn declared_filter_invalid_skips_objstm_streams() {
+        let stream =
+            make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/ObjStm"))));
+        assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_none());
+    }
+
+    #[test]
+    fn declared_filter_invalid_skips_xref_streams() {
+        let stream =
+            make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/XRef"))));
+        assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_none());
+    }
+
+    #[test]
+    fn declared_filter_invalid_skips_linearized_streams() {
+        let stream = make_stream_with_entry(make_entry(b"/Linearized", PdfAtom::Int(1)));
+        assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_none());
+    }
+
+    #[test]
+    fn declared_filter_invalid_reports_non_structural_streams() {
+        let stream =
+            make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/XObject"))));
+        assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_some());
+    }
 }
 
 fn decode_recovered_finding(
