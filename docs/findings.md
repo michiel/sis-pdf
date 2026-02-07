@@ -476,6 +476,8 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Details:
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
+  - Exploitation: ObjStm can pack arbitrary objects (JavaScript, annotations, embedded files, other streams) into a single compressed stream to hide malicious payloads or confuse outsiders.
+  - Triage advice: rerun with `--deep` to decode the ObjStm so each embedded object surfaces as its own node and any actionable payloads (JS/actions/images) emit their own findings.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
 ## external_action_risk_context

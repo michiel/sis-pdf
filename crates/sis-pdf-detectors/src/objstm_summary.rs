@@ -119,6 +119,11 @@ impl Detector for ObjStmSummaryDetector {
                         .into();
                 meta.insert("objstm.decode_failed".into(), "true".into());
             }
+            if !ctx.options.deep {
+                description = format!(
+                    "{description} Run the scan with `--deep` so each embedded object becomes a standalone entry (JavaScript, actions, images, etc. will then have their own findings and make exploitation vectors visible)."
+                );
+            }
 
             findings.push(Finding {
                 id: String::new(),
