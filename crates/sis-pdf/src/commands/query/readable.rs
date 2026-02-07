@@ -1,6 +1,7 @@
 use super::{QueryResult, ScalarValue};
 use serde_json::Value;
 use std::fmt::Write;
+use sis_pdf_core::id_shortener::ShortIdTable;
 
 const TABLE_PRIORITIES: &[&str] = &[
     "id",
@@ -104,13 +105,15 @@ fn build_colon_table(items: &[String]) -> Option<String> {
 
 fn format_structure(value: &Value) -> String {
     match value {
-        Value::Array(arr) if arr.iter().all(|item| item.is_object()) => {
-            if let Some(table) = build_object_table(arr) {
-                return table;
+        Value::Array(arr) => {
+            let processed = preprocess_array(arr);
+            if processed.iter().all(|item| item.is_object()) {
+                if let Some(table) = build_object_table(&processed) {
+                    return table;
+                }
             }
-            render_array(arr, 0)
+            render_array(&processed, 0)
         }
-        Value::Array(arr) => render_array(arr, 0),
         Value::Object(map) => render_object(map, 0),
         other => value_summary(other),
     }
@@ -183,6 +186,62 @@ fn build_object_table(entries: &[Value]) -> Option<String> {
         table.push('\n');
     }
     Some(table.trim_end().to_string())
+}
+
+fn preprocess_array(arr: &[Value]) -> Vec<Value> {
+    if arr.iter().any(|value| !matches!(value, Value::Object(_))) {
+        return arr.to_vec();
+    }
+    let mut entries: Vec<Value> = arr.to_vec();
+    shorten_ids_in_place(&mut entries);
+    sort_by_severity(&mut entries);
+    entries
+}
+
+fn shorten_ids_in_place(entries: &mut [Value]) {
+    let mut table = ShortIdTable::new();
+    for entry in entries.iter() {
+        if let Value::Object(map) = entry {
+            if let Some(Value::String(id)) = map.get("id") {
+                table.insert(id);
+            }
+        }
+    }
+    if table.map().is_empty() {
+        return;
+    }
+    let short_ids = table.into_map();
+    for entry in entries.iter_mut() {
+        if let Value::Object(map) = entry {
+            if let Some(Value::String(id)) = map.get_mut("id") {
+                if let Some(short) = short_ids.get(id).cloned() {
+                    *id = short;
+                }
+            }
+        }
+    }
+}
+
+fn sort_by_severity(entries: &mut [Value]) {
+    if entries.iter().all(|entry| severity_value(entry).is_some()) {
+        entries.sort_by_key(|entry| severity_value(entry).unwrap_or(usize::MAX));
+    }
+}
+
+fn severity_value(entry: &Value) -> Option<usize> {
+    if let Value::Object(map) = entry {
+        if let Some(Value::String(severity)) = map.get("severity") {
+            return Some(match severity.to_lowercase().as_str() {
+                "critical" => 0,
+                "high" => 1,
+                "medium" => 2,
+                "low" => 3,
+                "info" => 4,
+                _ => 5,
+            });
+        }
+    }
+    None
 }
 
 fn render_array(arr: &[Value], indent: usize) -> String {
