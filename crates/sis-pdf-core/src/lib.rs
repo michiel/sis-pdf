@@ -41,6 +41,7 @@ pub mod quantum;
 pub mod reader_context;
 pub mod redteam;
 pub mod report;
+pub mod id_shortener;
 pub mod response;
 pub mod rich_media;
 pub mod runner;

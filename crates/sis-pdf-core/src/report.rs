@@ -2037,6 +2037,17 @@ fn build_recommendations(report: &Report) -> Vec<String> {
     steps
 }
 
+pub fn build_short_id_map_from_findings(findings: &[Finding]) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    let mut used = BTreeSet::new();
+    for f in findings {
+        let long = f.id.clone();
+        let short = shorten_id(&long, &mut used);
+        map.insert(long, short);
+    }
+    map
+}
+
 fn build_id_map(report: &Report) -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
     let mut used = BTreeSet::new();
