@@ -834,9 +834,17 @@ fn declared_filter_invalid_finding(
 }
 
 fn stream_is_structural(stream: &PdfStream<'_>) -> bool {
-    stream.dict.has_name(b"/Type", b"/ObjStm")
-        || stream.dict.has_name(b"/Type", b"/XRef")
-        || stream.dict.get_first(b"/Linearized").is_some()
+    if let Some(type_name) = name_value(&stream.dict, b"/Type") {
+        let lower = strip_leading_slash(&type_name).to_ascii_lowercase();
+        if matches!(lower.as_str(), "objstm" | "xref" | "metadata") {
+            return true;
+        }
+    }
+    stream.dict.get_first(b"/Linearized").is_some()
+}
+
+fn strip_leading_slash(name: &str) -> &str {
+    name.strip_prefix('/').unwrap_or(name)
 }
 
 #[cfg(test)]
@@ -915,6 +923,13 @@ mod declared_filter_invalid_tests {
         let stream =
             make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/XObject"))));
         assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_some());
+    }
+
+    #[test]
+    fn declared_filter_invalid_skips_metadata_streams() {
+        let stream =
+            make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/Metadata"))));
+        assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_none());
     }
 }
 

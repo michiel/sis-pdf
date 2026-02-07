@@ -283,7 +283,11 @@ impl VMState {
 /// Analyze TrueType hinting program
 #[cfg(feature = "dynamic")]
 #[instrument(skip(program), fields(program_len = program.len()))]
-pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits, suppress_warnings: bool) -> Vec<FontFinding> {
+pub fn analyze_hinting_program(
+    program: &[u8],
+    limits: &VmLimits,
+    suppress_warnings: bool,
+) -> Vec<FontFinding> {
     let mut findings = Vec::new();
 
     if program.is_empty() {
@@ -374,7 +378,11 @@ pub fn analyze_hinting_program(program: &[u8], limits: &VmLimits, suppress_warni
 }
 
 #[cfg(not(feature = "dynamic"))]
-pub fn analyze_hinting_program(_program: &[u8], _limits: &VmLimits, _suppress_warnings: bool) -> Vec<FontFinding> {
+pub fn analyze_hinting_program(
+    _program: &[u8],
+    _limits: &VmLimits,
+    _suppress_warnings: bool,
+) -> Vec<FontFinding> {
     Vec::new()
 }
 

@@ -169,7 +169,8 @@ fn analyze_hinting_tables(
         if stats.should_skip() {
             stats.mark_truncated("stack_error_guard");
         } else {
-            let table_findings = ttf_vm::analyze_hinting_program(&fpgm, &limits, stats.should_skip());
+            let table_findings =
+                ttf_vm::analyze_hinting_program(&fpgm, &limits, stats.should_skip());
             stats.record_and_limit(&table_findings, findings);
         }
     }
@@ -178,7 +179,8 @@ fn analyze_hinting_tables(
         if stats.should_skip() {
             stats.mark_truncated("stack_error_guard");
         } else {
-            let table_findings = ttf_vm::analyze_hinting_program(&prep, &limits, stats.should_skip());
+            let table_findings =
+                ttf_vm::analyze_hinting_program(&prep, &limits, stats.should_skip());
             stats.record_and_limit(&table_findings, findings);
         }
     }

@@ -223,7 +223,10 @@ fn detect_cycles(
     if let Some(node_ref) = node_ref {
         if stack.contains(&node_ref) {
             let mut meta = std::collections::HashMap::new();
-            meta.insert("page_tree.cycle_node".into(), format!("{} {}", node_ref.obj, node_ref.gen));
+            meta.insert(
+                "page_tree.cycle_node".into(),
+                format!("{} {}", node_ref.obj, node_ref.gen),
+            );
             meta.insert("page_tree.stack_depth".into(), stack.len().to_string());
             findings.push(Finding {
                 id: String::new(),
@@ -234,7 +237,8 @@ fn detect_cycles(
                 title: "Page tree cycle detected".into(),
                 description: "Page tree contains a circular reference, which can cause infinite \
                     loops in PDF parsers. This may indicate a malformed or malicious PDF designed \
-                    to exhaust parser resources or exploit traversal vulnerabilities.".into(),
+                    to exhaust parser resources or exploit traversal vulnerabilities."
+                    .into(),
                 objects: vec![format!("{} {} obj", node_ref.obj, node_ref.gen)],
                 evidence: vec![span_to_evidence(dict.span, "Pages node")],
                 remediation: Some("Inspect /Kids references for cycles.".into()),
