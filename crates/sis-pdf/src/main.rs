@@ -2830,6 +2830,10 @@ fn run_query_repl(
                     }
                     continue;
                 }
+                if let Some(rest) = query_line.strip_prefix(":doc") {
+                    handle_doc_command(rest.trim());
+                    continue;
+                }
 
                 match query_line {
                     "exit" | "quit" | ":q" => {
@@ -3323,9 +3327,40 @@ fn print_repl_help() {
     println!("  queries can append '| command' to pipe current output to the shell or '> file' to save it (e.g., findings | jq . or org > graph.dot)");
     println!("  :where EXPR        - Set predicate filter (blank clears)");
     println!("  explain ID         - Run `sis explain` for the specified finding ID");
+    println!("  :doc TOPIC         - Show the fixit doc path and description (topics: filter-flatedecode, objstm)");
     println!("  help / ?           - Show this help");
     println!("  exit / quit / :q   - Exit REPL");
     println!();
+}
+
+fn handle_doc_command(topic: &str) {
+    if topic.is_empty() {
+        eprintln!("Doc topics: filter-flatedecode, objstm");
+        return;
+    }
+    match doc_topic_info(topic) {
+        Some((desc, path)) => {
+            eprintln!("Doc [{}]: {}", topic, path);
+            eprintln!("{}", desc);
+        }
+        None => {
+            eprintln!("Unknown doc topic '{}'; available: filter-flatedecode, objstm", topic);
+        }
+    }
+}
+
+fn doc_topic_info(topic: &str) -> Option<(&'static str, &'static str)> {
+    match topic {
+        "filter-flatedecode" => Some((
+            "Explains `/FlateDecode` decoding heuristics and reporting. Useful for interpreting declared filter errors.",
+            "docs/filter-flatedecode.md",
+        )),
+        "objstm" => Some((
+            "Summarizes ObjStm embedded object behavior and why deep scans surface the embedded payloads.",
+            "docs/findings.md#objstm_embedded_summary",
+        )),
+        _ => None,
+    }
 }
 
 fn print_filter_allowlist() -> Result<()> {

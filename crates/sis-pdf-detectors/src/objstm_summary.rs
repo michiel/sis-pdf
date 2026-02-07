@@ -17,7 +17,7 @@ impl Detector for ObjStmSummaryDetector {
         AttackSurface::ObjectStreams
     }
     fn needs(&self) -> Needs {
-        Needs::OBJECT_GRAPH | Needs::STREAM_DECODE
+        Needs::OBJECT_GRAPH
     }
     fn cost(&self) -> Cost {
         Cost::Expensive

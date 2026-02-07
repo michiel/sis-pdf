@@ -611,11 +611,7 @@ pub fn run_scan_with_detectors(
     correlate_font_js(&mut findings);
     let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
     findings.extend(composites);
-    for f in &mut findings {
-        if f.id.is_empty() {
-            f.id = stable_id(f);
-        }
-    }
+    assign_stable_ids(&mut findings);
     let intent_summary = Some(crate::intent::apply_intent(&mut findings));
     let yara_rules =
         crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());
@@ -703,7 +699,15 @@ fn stable_id(f: &Finding) -> String {
     format!("sis-{}", hasher.finalize().to_hex())
 }
 
-fn annotate_positions(ctx: &ScanContext, findings: &mut [Finding]) {
+pub fn assign_stable_ids(findings: &mut [Finding]) {
+    for f in findings {
+        if f.id.is_empty() {
+            f.id = stable_id(f);
+        }
+    }
+}
+
+pub fn annotate_positions(ctx: &ScanContext, findings: &mut [Finding]) {
     let classifications = ctx.classifications();
     let path_map = position::build_path_map(&ctx.graph);
     for finding in findings {

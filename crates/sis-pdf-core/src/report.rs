@@ -653,6 +653,28 @@ fn finding_context(kind: &str) -> Option<&'static str> {
     }
 }
 
+fn doc_link_for_finding(f: &Finding) -> Option<&'static str> {
+    const FILTER_FLATE_DOC: &str = "docs/filter-flatedecode.md";
+    const OBJSTM_DOC: &str = "docs/findings.md#objstm_embedded_summary";
+
+    if f.kind == "objstm_embedded_summary" {
+        return Some(OBJSTM_DOC);
+    }
+    if f.kind == "declared_filter_invalid" {
+        if let Some(mismatch) = f.meta.get("decode.mismatch") {
+            if mismatch.contains("/FlateDecode") {
+                return Some(FILTER_FLATE_DOC);
+            }
+        }
+        if let Some(filters) = f.meta.get("stream.filters") {
+            if filters.contains("/FlateDecode") {
+                return Some(FILTER_FLATE_DOC);
+            }
+        }
+    }
+    None
+}
+
 struct ResourceRiskSummary {
     embedded_files: usize,
     filespecs: usize,
@@ -2774,6 +2796,9 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             }
             if let Some(context) = finding_context(&f.kind) {
                 description_lines.push(format!("Context: {}", context));
+            }
+            if let Some(link) = doc_link_for_finding(f) {
+                description_lines.push(format!("More info: {}", link));
             }
             out.push_str("**Description**\n\n");
             out.push_str(&format!("{}\n\n", escape_markdown(&description_lines.join("\n\n"))));

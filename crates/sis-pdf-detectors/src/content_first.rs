@@ -9,6 +9,7 @@ use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::blob::Blob;
 use sis_pdf_pdf::blob_classify::{classify_blob, validate_blob_kind, BlobKind};
+use sis_pdf_pdf::classification::ClassificationMap;
 use sis_pdf_pdf::decode::{looks_like_zlib, DecodeLimits, DecodeOutcome};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj, PdfStr, PdfStream};
 
@@ -42,6 +43,7 @@ impl Detector for ContentFirstDetector {
             ctx.graph.objects.iter().map(|entry| ((entry.obj, entry.gen), &entry.atom)).collect();
         let embedded_map = embedded_file_map(ctx, &obj_map);
         let xfa_map = xfa_stream_map(ctx, &obj_map);
+        let classifications = ctx.classifications();
 
         for entry in &ctx.graph.objects {
             match &entry.atom {
@@ -127,6 +129,7 @@ impl Detector for ContentFirstDetector {
                         stream,
                         &blob,
                         origin_label,
+                        &classifications,
                     ) {
                         findings.push(finding);
                     }
@@ -772,6 +775,7 @@ fn declared_filter_invalid_finding(
     stream: &PdfStream<'_>,
     blob: &Blob<'_>,
     origin: &str,
+    classifications: &ClassificationMap,
 ) -> Option<Finding> {
     if stream_is_structural(stream) {
         return None;
@@ -800,6 +804,15 @@ fn declared_filter_invalid_finding(
     finding_meta.insert("stream.filters".to_string(), meta.filters.join(","));
     finding_meta.insert("decode.outcome".to_string(), outcome_label(&meta.outcome));
     finding_meta.insert("blob.origin".to_string(), origin.to_string());
+    if let Some(classified) = classifications.get(&(obj, gen)) {
+        finding_meta
+            .insert("stream.obj_type".to_string(), classified.obj_type.as_str().to_string());
+        if !classified.roles.is_empty() {
+            let roles =
+                classified.roles.iter().map(|role| role.as_str()).collect::<Vec<_>>().join(",");
+            finding_meta.insert("stream.roles".to_string(), roles);
+        }
+    }
     if !meta.mismatches.is_empty() {
         let reasons = meta
             .mismatches
@@ -851,6 +864,7 @@ fn strip_leading_slash(name: &str) -> &str {
 mod declared_filter_invalid_tests {
     use super::*;
     use sis_pdf_pdf::blob::{Blob, BlobOrigin};
+    use sis_pdf_pdf::classification::{ClassificationMap, ClassifiedObject, PdfObjectType};
     use sis_pdf_pdf::decode::{DecodeMeta, DecodeMismatch, DecodeOutcome};
     use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj, PdfStream};
     use sis_pdf_pdf::span::Span;
@@ -898,38 +912,84 @@ mod declared_filter_invalid_tests {
         }
     }
 
+    fn classification_map() -> ClassificationMap {
+        let mut map = ClassificationMap::new();
+        map.insert((1, 0), ClassifiedObject::new(1, 0, PdfObjectType::Stream));
+        map
+    }
+
     #[test]
     fn declared_filter_invalid_skips_objstm_streams() {
         let stream =
             make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/ObjStm"))));
-        assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_none());
+        assert!(declared_filter_invalid_finding(
+            1,
+            0,
+            &stream,
+            &make_blob(),
+            "stream",
+            &classification_map()
+        )
+        .is_none());
     }
 
     #[test]
     fn declared_filter_invalid_skips_xref_streams() {
         let stream =
             make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/XRef"))));
-        assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_none());
+        assert!(declared_filter_invalid_finding(
+            1,
+            0,
+            &stream,
+            &make_blob(),
+            "stream",
+            &classification_map()
+        )
+        .is_none());
     }
 
     #[test]
     fn declared_filter_invalid_skips_linearized_streams() {
         let stream = make_stream_with_entry(make_entry(b"/Linearized", PdfAtom::Int(1)));
-        assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_none());
+        assert!(declared_filter_invalid_finding(
+            1,
+            0,
+            &stream,
+            &make_blob(),
+            "stream",
+            &classification_map()
+        )
+        .is_none());
     }
 
     #[test]
     fn declared_filter_invalid_reports_non_structural_streams() {
         let stream =
             make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/XObject"))));
-        assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_some());
+        assert!(declared_filter_invalid_finding(
+            1,
+            0,
+            &stream,
+            &make_blob(),
+            "stream",
+            &classification_map()
+        )
+        .is_some());
     }
 
     #[test]
     fn declared_filter_invalid_skips_metadata_streams() {
         let stream =
             make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/Metadata"))));
-        assert!(declared_filter_invalid_finding(1, 0, &stream, &make_blob(), "stream").is_none());
+        assert!(declared_filter_invalid_finding(
+            1,
+            0,
+            &stream,
+            &make_blob(),
+            "stream",
+            &classification_map()
+        )
+        .is_none());
     }
 }
 
