@@ -172,6 +172,8 @@ pub fn decode_stream_with_meta(
     }
 
     let mut recovered_filters = Vec::new();
+    const ZLIB_MISMATCH_REASON: &str = "stream is not zlib-like";
+    let mut observed_zlib_mismatch = false;
     for filter in &filters {
         if matches!(filter.as_str(), "/DCTDecode" | "/DCT") && !looks_like_jpeg(raw) {
             mismatches.push(DecodeMismatch {
@@ -184,6 +186,7 @@ pub fn decode_stream_with_meta(
                 filter: filter.clone(),
                 reason: "stream is not zlib-like".to_string(),
             });
+            observed_zlib_mismatch = true;
         }
     }
 
@@ -228,6 +231,10 @@ pub fn decode_stream_with_meta(
                 }
             }
         }
+    }
+
+    if observed_zlib_mismatch && matches!(outcome, DecodeOutcome::Ok | DecodeOutcome::Truncated) {
+        mismatches.retain(|m| m.reason != ZLIB_MISMATCH_REASON);
     }
 
     if !mismatches.is_empty() && matches!(outcome, DecodeOutcome::Ok | DecodeOutcome::Truncated) {
@@ -783,5 +790,18 @@ mod tests {
             result.meta.outcome,
             DecodeOutcome::Deferred { handler, .. } if handler == "image"
         ));
+    }
+
+    #[test]
+    fn decode_stream_with_meta_allows_raw_deflate() {
+        let payload = b"Pf data";
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(payload).expect("deflate write");
+        let encoded = encoder.finish().expect("deflate finish");
+        let stream = make_stream(&["/FlateDecode"], encoded.len());
+        let result = decode_stream_with_meta(&encoded, &stream, DecodeLimits::default());
+        assert!(matches!(result.meta.outcome, DecodeOutcome::Ok));
+        assert!(result.meta.mismatches.is_empty());
+        assert_eq!(result.data.as_deref(), Some(payload.as_slice()));
     }
 }
