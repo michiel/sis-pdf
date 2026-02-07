@@ -784,6 +784,7 @@ fn main() -> Result<()> {
                     predicate.as_ref(),
                     report_verbosity,
                     chain_summary,
+                    config_path.clone(),
                 )
             } else {
                 // Interactive REPL mode requires a single PDF file
@@ -2604,7 +2605,7 @@ fn run_query_oneshot(
     predicate: Option<&commands::query::PredicateExpr>,
     report_verbosity: commands::query::ReportVerbosity,
     chain_summary: commands::query::ChainSummaryLevel,
-    config_path: Option<PathBuf>,
+    _config_path: Option<PathBuf>,
 ) -> Result<()> {
     use commands::query;
 
@@ -2726,6 +2727,7 @@ fn run_query_repl(
     predicate: Option<&commands::query::PredicateExpr>,
     report_verbosity: commands::query::ReportVerbosity,
     chain_summary: commands::query::ChainSummaryLevel,
+    config_path: Option<PathBuf>,
 ) -> Result<()> {
     use commands::query;
     use rustyline::error::ReadlineError;
