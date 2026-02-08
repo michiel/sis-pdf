@@ -7,6 +7,20 @@ use std::fmt::Write;
 const TABLE_PRIORITIES: &[&str] = &[
     "id",
     "kind",
+    "index",
+    "offset",
+    "has_trailer",
+    "prev",
+    "trailer_size",
+    "trailer_root",
+    "in_bounds",
+    "distance_from_eof",
+    "root",
+    "size",
+    "revision",
+    "startxref",
+    "trailer_index",
+    "has_incremental_update",
     "severity",
     "impact",
     "confidence",
@@ -129,7 +143,7 @@ fn build_object_table(entries: &[Value]) -> Option<String> {
     }
     let mut columns = Vec::new();
     for key in TABLE_PRIORITIES {
-        if columns.len() >= 5 {
+        if columns.len() >= 7 {
             break;
         }
         if entries.iter().any(|entry| entry.get(*key).is_some()) {
@@ -383,5 +397,33 @@ mod tests {
         let table = build_object_table(arr.as_array().unwrap()).unwrap();
         assert!(table.contains("[2 0]"));
         assert!(table.contains("[6 0] [7 0]"));
+    }
+
+    #[test]
+    fn xref_sections_table_shows_offsets_and_links() {
+        let arr = json!([
+            {
+                "index": 0,
+                "offset": 116,
+                "kind": "stream",
+                "has_trailer": true,
+                "prev": 99670,
+                "trailer_size": 122,
+                "trailer_root": "47 0 R"
+            },
+            {
+                "index": 1,
+                "offset": 99670,
+                "kind": "stream",
+                "has_trailer": true,
+                "prev": null,
+                "trailer_size": 46,
+                "trailer_root": "47 0 R"
+            }
+        ]);
+        let table = build_object_table(arr.as_array().unwrap()).expect("table");
+        assert!(table.contains("offset"));
+        assert!(table.contains("trailer_root"));
+        assert!(table.contains("99670"));
     }
 }

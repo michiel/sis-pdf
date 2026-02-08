@@ -4131,6 +4131,13 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     println!("{} - {}", escape_terminal(&finding.id), escape_terminal(&finding.title));
     println!("{}", escape_terminal(&finding.description));
     println!("Severity: {:?}  Confidence: {:?}", finding.severity, finding.confidence);
+    if let Some(keywords) = finding
+        .meta
+        .get("content.phishing_keywords")
+        .or_else(|| finding.meta.get("keyword"))
+    {
+        println!("Matched keywords: {}", escape_terminal(keywords));
+    }
     println!();
     for ev in &finding.evidence {
         println!(

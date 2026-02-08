@@ -1215,9 +1215,11 @@ fn compare_string(lhs: Option<&str>, op: PredicateOp, value: &PredicateValue) ->
         Some(value) => value,
         None => return false,
     };
+    let lhs_norm = lhs.to_ascii_lowercase();
+    let rhs_norm = rhs.to_ascii_lowercase();
     match op {
-        PredicateOp::Eq => lhs == rhs,
-        PredicateOp::NotEq => lhs != rhs,
+        PredicateOp::Eq => lhs_norm == rhs_norm,
+        PredicateOp::NotEq => lhs_norm != rhs_norm,
         _ => false,
     }
 }
@@ -8800,6 +8802,39 @@ mod tests {
             parse_predicate("filter == 'document' AND subtype == 'OpenAction'").expect("predicate");
         let ctx = predicate_context_for_event(&event).expect("context");
         assert!(predicate.evaluate(&ctx));
+    }
+
+    #[test]
+    fn predicate_string_comparisons_are_case_insensitive() {
+        let eq_predicate = parse_predicate("severity == 'Info'").expect("eq predicate");
+        let neq_predicate = parse_predicate("severity != 'Low'").expect("neq predicate");
+        let ctx = PredicateContext {
+            length: 0,
+            filter: Some("medium".to_string()),
+            type_name: "Finding".to_string(),
+            subtype: Some("xref_conflict".to_string()),
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: false,
+            severity: Some("info".to_string()),
+            confidence: None,
+            surface: None,
+            kind: Some("xref_conflict".to_string()),
+            object_count: 0,
+            evidence_count: 0,
+            name: None,
+            magic: None,
+            hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            meta: HashMap::new(),
+        };
+        assert!(eq_predicate.evaluate(&ctx));
+        assert!(neq_predicate.evaluate(&ctx));
     }
 
     #[test]

@@ -23,15 +23,35 @@ impl Detector for ContentPhishingDetector {
         Cost::Moderate
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let keywords: &[&[u8]] = &[b"invoice", b"secure", b"view document", b"account", b"verify"];
+        const KEYWORDS: &[(&[u8], &str)] = &[
+            (b"invoice", "invoice"),
+            (b"secure", "secure"),
+            (b"view document", "view document"),
+            (b"account", "account"),
+            (b"verify", "verify"),
+        ];
         let mut has_keyword = false;
+        let mut matched_keywords: Vec<String> = Vec::new();
         let mut evidence = Vec::new();
         for entry in &ctx.graph.objects {
             for (bytes, span) in extract_strings_with_span(entry) {
                 let lower = bytes.to_ascii_lowercase();
-                if keywords.iter().any(|k| lower.windows(k.len()).any(|w| w == *k)) {
+                let mut matches = matched_keyword_labels(&lower, KEYWORDS);
+                if !matches.is_empty() {
                     has_keyword = true;
-                    evidence.push(span_to_evidence(span, "Phishing-like keyword"));
+                    for label in matches.drain(..) {
+                        if !matched_keywords.contains(&label) {
+                            matched_keywords.push(label);
+                        }
+                    }
+                    if let Some(first) = matched_keywords.first() {
+                        evidence.push(span_to_evidence(
+                            span,
+                            &format!("Phishing-like keyword: {}", first),
+                        ));
+                    } else {
+                        evidence.push(span_to_evidence(span, "Phishing-like keyword"));
+                    }
                     break;
                 }
             }
@@ -51,6 +71,12 @@ impl Detector for ContentPhishingDetector {
             }
         });
         if has_uri {
+            let mut meta = std::collections::HashMap::new();
+            if !matched_keywords.is_empty() {
+                meta.insert("content.phishing_keywords".into(), matched_keywords.join(","));
+                // Keep legacy singular key for explainability and existing consumers.
+                meta.insert("keyword".into(), matched_keywords[0].clone());
+            }
             return Ok(vec![Finding {
                 id: String::new(),
                 surface: self.surface(),
@@ -64,7 +90,7 @@ impl Detector for ContentPhishingDetector {
                 objects: vec!["content".into()],
                 evidence,
                 remediation: Some("Manually review page content and links.".into()),
-                meta: Default::default(),
+                meta,
 
                 reader_impacts: Vec::new(),
                 action_type: None,
@@ -81,6 +107,19 @@ impl Detector for ContentPhishingDetector {
         }
         Ok(out)
     }
+}
+
+fn matched_keyword_labels(haystack: &[u8], keywords: &[(&[u8], &str)]) -> Vec<String> {
+    keywords
+        .iter()
+        .filter_map(|(needle, label)| {
+            if haystack.windows(needle.len()).any(|window| window == *needle) {
+                Some((*label).to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding> {
@@ -240,4 +279,19 @@ fn first_coord(page: &sis_pdf_core::content_index::PageContent) -> Option<(f32, 
         return Some(*p);
     }
     page.text_points.first().copied()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matched_keyword_labels;
+
+    #[test]
+    fn matched_keyword_labels_collects_expected_tokens() {
+        let keywords: &[(&[u8], &str)] =
+            &[(b"invoice", "invoice"), (b"verify", "verify"), (b"secure", "secure")];
+        let labels = matched_keyword_labels(b"please verify this invoice now", keywords);
+        assert!(labels.contains(&"invoice".to_string()));
+        assert!(labels.contains(&"verify".to_string()));
+        assert!(!labels.contains(&"secure".to_string()));
+    }
 }
