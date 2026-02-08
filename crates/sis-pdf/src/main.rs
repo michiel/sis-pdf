@@ -695,6 +695,7 @@ fn main() -> Result<()> {
             hexdump,
             ungroup_chains,
         } => {
+            let where_clause_raw = r#where.clone();
             let config_query_colour = config_path
                 .as_deref()
                 .and_then(|path| sis_pdf_core::config::Config::load(path).ok())
@@ -818,6 +819,7 @@ fn main() -> Result<()> {
                     colour,
                     decode_mode,
                     predicate.as_ref(),
+                    where_clause_raw.as_deref(),
                     report_verbosity,
                     chain_summary,
                     config_path.clone(),
@@ -2725,6 +2727,7 @@ fn run_query_repl(
     colour: bool,
     decode_mode: commands::query::DecodeMode,
     predicate: Option<&commands::query::PredicateExpr>,
+    predicate_text: Option<&str>,
     report_verbosity: commands::query::ReportVerbosity,
     chain_summary: commands::query::ChainSummaryLevel,
     config_path: Option<PathBuf>,
@@ -2775,9 +2778,10 @@ fn run_query_repl(
     let mut compact_mode = false;
     let mut readable_mode = output_format == query::OutputFormat::Readable;
     let mut predicate_expr = predicate.cloned();
+    let mut predicate_display = predicate_text.map(|value| value.to_string());
 
     loop {
-        let prompt = "sis> ";
+        let prompt = if predicate_expr.is_some() { "sis(:where)> " } else { "sis> " };
         let readline = rl.readline(prompt);
 
         match readline {
@@ -2802,12 +2806,25 @@ fn run_query_repl(
                 if let Some(rest) = query_line.strip_prefix(":where") {
                     let expr = rest.trim();
                     if expr.is_empty() {
+                        if let Some(current) = predicate_display.as_deref() {
+                            eprintln!("Predicate: {}", current);
+                        } else if predicate_expr.is_some() {
+                            eprintln!("Predicate set (source unavailable)");
+                        } else {
+                            eprintln!("No predicate set");
+                        }
+                    } else if matches!(
+                        expr.to_ascii_lowercase().as_str(),
+                        "clear" | "reset" | "off" | "none"
+                    ) {
                         predicate_expr = None;
+                        predicate_display = None;
                         eprintln!("Predicate cleared");
                     } else {
                         match query::parse_predicate(expr) {
                             Ok(parsed) => {
                                 predicate_expr = Some(parsed);
+                                predicate_display = Some(expr.to_string());
                                 eprintln!("Predicate set");
                             }
                             Err(err) => eprintln!("Invalid predicate: {}", err),
@@ -3333,7 +3350,9 @@ fn print_repl_help() {
     println!("  :compact           - Toggle compact output mode");
     println!("  :readable          - Toggle readable output mode (default)");
     println!("  queries can append '| command' to pipe current output to the shell or '> file' to save it (e.g., findings | jq . or org > graph.dot)");
-    println!("  :where EXPR        - Set predicate filter (blank clears)");
+    println!("  :where EXPR        - Set predicate filter");
+    println!("  :where             - Show current predicate");
+    println!("  :where clear       - Clear predicate filter");
     println!("  explain ID         - Run `sis explain` for the specified finding ID");
     println!("  :doc TOPIC         - Show the fixit doc path and description (topics: filter-flatedecode, objstm)");
     println!("  help / ?           - Show this help");
