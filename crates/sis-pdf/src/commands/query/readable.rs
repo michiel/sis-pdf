@@ -1,10 +1,26 @@
 use super::{QueryResult, ScalarValue};
 use serde_json::Value;
+use sis_pdf_core::id_shortener::{set_last_short_map, ShortIdTable};
+use std::collections::BTreeMap;
 use std::fmt::Write;
 
 const TABLE_PRIORITIES: &[&str] = &[
     "id",
     "kind",
+    "index",
+    "offset",
+    "has_trailer",
+    "prev",
+    "trailer_size",
+    "trailer_root",
+    "in_bounds",
+    "distance_from_eof",
+    "root",
+    "size",
+    "revision",
+    "startxref",
+    "trailer_index",
+    "has_incremental_update",
     "severity",
     "impact",
     "confidence",
@@ -15,6 +31,12 @@ const TABLE_PRIORITIES: &[&str] = &[
     "objects",
     "reference",
     "action",
+    "query.next",
+    "action.type",
+    "action.target",
+    "action.initiation",
+    "observed.signature_hint",
+    "decode.observed_signature",
 ];
 
 pub fn format_readable_result(result: &QueryResult, compact: bool) -> String {
@@ -104,16 +126,73 @@ fn build_colon_table(items: &[String]) -> Option<String> {
 
 fn format_structure(value: &Value) -> String {
     match value {
-        Value::Array(arr) if arr.iter().all(|item| item.is_object()) => {
-            if let Some(table) = build_object_table(arr) {
-                return table;
+        Value::Array(arr) => {
+            let (processed, map) = preprocess_array(arr);
+            if !map.is_empty() {
+                set_last_short_map(&map);
             }
-            render_array(arr, 0)
+            if processed.iter().all(|item| item.is_object()) {
+                if let Some(table) = build_object_table(&processed) {
+                    return table;
+                }
+            }
+            render_array(&processed, 0)
         }
-        Value::Array(arr) => render_array(arr, 0),
-        Value::Object(map) => render_object(map, 0),
+        Value::Object(map) => {
+            if let Some(xref) = format_xref_overview(map) {
+                return xref;
+            }
+            render_object(map, 0)
+        }
         other => value_summary(other),
     }
+}
+
+fn format_xref_overview(map: &serde_json::Map<String, Value>) -> Option<String> {
+    let startxref_count = map.get("startxref_count")?.as_u64()?;
+    let section_count = map.get("section_count")?.as_u64()?;
+    let trailer_count = map.get("trailer_count")?.as_u64()?;
+    let deviation_count = map.get("deviation_count")?.as_u64()?;
+    let startxrefs = map.get("startxrefs")?.as_array()?;
+    let sections = map.get("sections")?.as_array()?;
+    let trailers = map.get("trailers")?.as_array()?;
+    let deviations = map.get("deviations")?.as_array()?;
+
+    let mut out = String::new();
+    writeln!(out, "Xref Overview").ok();
+    writeln!(
+        out,
+        "startxrefs={} sections={} trailers={} deviations={}",
+        startxref_count, section_count, trailer_count, deviation_count
+    )
+    .ok();
+    writeln!(out).ok();
+
+    append_xref_block(&mut out, "Startxref Markers", startxrefs);
+    append_xref_block(&mut out, "Xref Sections", sections);
+    append_xref_block(&mut out, "Trailers", trailers);
+    append_xref_block(&mut out, "Deviations", deviations);
+
+    Some(out.trim_end().to_string())
+}
+
+fn append_xref_block(out: &mut String, title: &str, rows: &[Value]) {
+    writeln!(out, "{title}").ok();
+    if rows.is_empty() {
+        writeln!(out, "(none)").ok();
+        writeln!(out).ok();
+        return;
+    }
+    if rows.iter().all(|value| value.is_object()) {
+        if let Some(table) = build_object_table(rows) {
+            writeln!(out, "{table}").ok();
+            writeln!(out).ok();
+            return;
+        }
+    }
+    let rendered = render_array(rows, 0);
+    writeln!(out, "{}", rendered.trim_end()).ok();
+    writeln!(out).ok();
 }
 
 fn build_object_table(entries: &[Value]) -> Option<String> {
@@ -122,7 +201,7 @@ fn build_object_table(entries: &[Value]) -> Option<String> {
     }
     let mut columns = Vec::new();
     for key in TABLE_PRIORITIES {
-        if columns.len() >= 5 {
+        if columns.len() >= 7 {
             break;
         }
         if entries.iter().any(|entry| entry.get(*key).is_some()) {
@@ -183,6 +262,63 @@ fn build_object_table(entries: &[Value]) -> Option<String> {
         table.push('\n');
     }
     Some(table.trim_end().to_string())
+}
+
+fn preprocess_array(arr: &[Value]) -> (Vec<Value>, BTreeMap<String, String>) {
+    if arr.iter().any(|value| !matches!(value, Value::Object(_))) {
+        return (arr.to_vec(), BTreeMap::new());
+    }
+    let mut entries: Vec<Value> = arr.to_vec();
+    let map = shorten_ids_in_place(&mut entries);
+    sort_by_severity(&mut entries);
+    (entries, map)
+}
+
+fn shorten_ids_in_place(entries: &mut [Value]) -> BTreeMap<String, String> {
+    let mut table = ShortIdTable::new();
+    for entry in entries.iter() {
+        if let Value::Object(map) = entry {
+            if let Some(Value::String(id)) = map.get("id") {
+                table.insert(id);
+            }
+        }
+    }
+    let long_to_short = table.map().clone();
+    if long_to_short.is_empty() {
+        return BTreeMap::new();
+    }
+    for entry in entries.iter_mut() {
+        if let Value::Object(map) = entry {
+            if let Some(Value::String(id)) = map.get_mut("id") {
+                if let Some(short) = long_to_short.get(id) {
+                    *id = short.clone();
+                }
+            }
+        }
+    }
+    long_to_short
+}
+
+fn sort_by_severity(entries: &mut [Value]) {
+    if entries.iter().all(|entry| severity_value(entry).is_some()) {
+        entries.sort_by_key(|entry| severity_value(entry).unwrap_or(usize::MAX));
+    }
+}
+
+fn severity_value(entry: &Value) -> Option<usize> {
+    if let Value::Object(map) = entry {
+        if let Some(Value::String(severity)) = map.get("severity") {
+            return Some(match severity.to_lowercase().as_str() {
+                "critical" => 0,
+                "high" => 1,
+                "medium" => 2,
+                "low" => 3,
+                "info" => 4,
+                _ => 5,
+            });
+        }
+    }
+    None
 }
 
 fn render_array(arr: &[Value], indent: usize) -> String {
@@ -319,5 +455,62 @@ mod tests {
         let table = build_object_table(arr.as_array().unwrap()).unwrap();
         assert!(table.contains("[2 0]"));
         assert!(table.contains("[6 0] [7 0]"));
+    }
+
+    #[test]
+    fn xref_sections_table_shows_offsets_and_links() {
+        let arr = json!([
+            {
+                "index": 0,
+                "offset": 116,
+                "kind": "stream",
+                "has_trailer": true,
+                "prev": 99670,
+                "trailer_size": 122,
+                "trailer_root": "47 0 R"
+            },
+            {
+                "index": 1,
+                "offset": 99670,
+                "kind": "stream",
+                "has_trailer": true,
+                "prev": null,
+                "trailer_size": 46,
+                "trailer_root": "47 0 R"
+            }
+        ]);
+        let table = build_object_table(arr.as_array().unwrap()).expect("table");
+        assert!(table.contains("offset"));
+        assert!(table.contains("trailer_root"));
+        assert!(table.contains("99670"));
+    }
+
+    #[test]
+    fn xref_overview_renders_analyst_friendly_sections() {
+        let value = json!({
+            "startxref_count": 2,
+            "section_count": 2,
+            "trailer_count": 2,
+            "deviation_count": 0,
+            "startxrefs": [
+                {"index": 0, "offset": 0, "in_bounds": true, "distance_from_eof": 100045},
+                {"index": 1, "offset": 116, "in_bounds": true, "distance_from_eof": 99929}
+            ],
+            "sections": [
+                {"index": 0, "kind": "stream", "offset": 116, "prev": 99670, "has_trailer": true, "trailer_size": 122, "trailer_root": "47 0 R"},
+                {"index": 1, "kind": "stream", "offset": 99670, "prev": null, "has_trailer": true, "trailer_size": 46, "trailer_root": "47 0 R"}
+            ],
+            "trailers": [
+                {"index": 0, "size": 122, "root": "47 0 R", "prev": 99670, "id_present": true, "encrypt": null},
+                {"index": 1, "size": 46, "root": "47 0 R", "prev": null, "id_present": true, "encrypt": null}
+            ],
+            "deviations": []
+        });
+        let output = format_structure(&value);
+        assert!(output.contains("Xref Overview"));
+        assert!(output.contains("startxrefs=2 sections=2 trailers=2 deviations=0"));
+        assert!(output.contains("Xref Sections"));
+        assert!(output.contains("Startxref Markers"));
+        assert!(output.contains("Trailers"));
     }
 }

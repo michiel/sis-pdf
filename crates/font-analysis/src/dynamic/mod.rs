@@ -292,7 +292,7 @@ impl HintingStats {
             reason = reason,
             warnings = self.warnings,
             stack_errors = self.stack_errors,
-            "Font hinting analysis truncated due to excessive anomalies"
+            "[NON-FATAL][finding:hinting_analysis_truncated] Font hinting analysis truncated due to excessive anomalies"
         );
     }
 

@@ -34,7 +34,15 @@ fn build_context(
     for (idx, entry) in objects.iter().enumerate() {
         index.entry((entry.obj, entry.gen)).or_default().push(idx);
     }
-    let graph = ObjectGraph { bytes, objects, index, trailers, startxrefs, deviations: Vec::new() };
+    let graph = ObjectGraph {
+        bytes,
+        objects,
+        index,
+        trailers,
+        startxrefs,
+        xref_sections: Vec::new(),
+        deviations: Vec::new(),
+    };
     ScanContext::new(bytes, graph, default_scan_opts())
 }
 

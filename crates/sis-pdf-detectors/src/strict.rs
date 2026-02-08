@@ -328,7 +328,7 @@ impl Detector for StrictParseDeviationDetector {
                     domain = "pdf.parser",
                     kind = "parser_deviation_cluster",
                     deviation_count = ctx.graph.deviations.len(),
-                    "Deviation cluster detected"
+                    "[NON-FATAL][finding:parser_deviation_cluster] Deviation cluster detected"
                 );
                 findings.push(Finding {
                     id: String::new(),
@@ -378,7 +378,7 @@ impl Detector for StrictParseDeviationDetector {
                     domain = "pdf.parser",
                     kind = "deviations_in_action_context",
                     deviation_count = ctx.graph.deviations.len(),
-                    "Deviations present in JS/Action context"
+                    "[NON-FATAL][finding:deviations_in_action_context] Deviations present in JS/Action context"
                 );
                 findings.push(Finding {
                     id: String::new(),
@@ -437,7 +437,16 @@ impl Detector for StrictParseDeviationDetector {
                         confidence: Confidence::Heuristic,
                         impact: None,
                         title: "Strict parser deviation summary".into(),
-                        description: "Strict parser deviations summarised by kind.".into(),
+                        description: format!(
+                            "Strict parser recorded {} deviations across {} kinds; top kinds: {}.",
+                            ctx.graph.deviations.len(),
+                            counts.len(),
+                            if top_list.is_empty() {
+                                "none".to_string()
+                            } else {
+                                top_list.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                            }
+                        ),
                         objects: vec!["parser".into()],
                         evidence: Vec::new(),
                         remediation: Some(

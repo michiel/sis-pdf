@@ -140,6 +140,21 @@ impl Detector for ObjStmSummaryDetector {
                 description = format!(
                     "{description} Run the scan with `--deep` so each embedded object becomes a standalone entry (JavaScript, actions, images, etc. will then have their own findings and make exploitation vectors visible)."
                 );
+                meta.insert(
+                    "query.next".into(),
+                    format!(
+                        "scan --deep <pdf>; objects.list --where \"provenance contains '{} {}'\"",
+                        entry.obj, entry.gen
+                    ),
+                );
+            } else {
+                meta.insert(
+                    "query.next".into(),
+                    format!(
+                        "objects.list --where \"provenance contains '{} {}'\"",
+                        entry.obj, entry.gen
+                    ),
+                );
             }
 
             findings.push(Finding {

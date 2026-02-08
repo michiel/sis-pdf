@@ -90,6 +90,8 @@ impl Detector for ActionTriggerDetector {
                     positions: Vec::new(),
                 });
                 if summary.depth >= ACTION_CHAIN_COMPLEX_DEPTH {
+                    let mut complex_meta = meta.clone();
+                    enrich_complex_chain_meta(&mut complex_meta, &summary);
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -98,13 +100,16 @@ impl Detector for ActionTriggerDetector {
                         confidence: Confidence::Probable,
                         impact: None,
                         title: "Complex action chain".into(),
-                        description: "Action chain depth exceeds expected threshold.".into(),
+                        description: complex_action_chain_description(&complex_meta),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: EvidenceBuilder::new()
                             .file_offset(k.span.start, k.span.len() as u32, "OpenAction key")
                             .build(),
-                        remediation: Some("Inspect action chains for hidden payloads.".into()),
-                        meta,
+                        remediation: Some(
+                            "Review the full chain path, terminal action, and payload target for staged execution."
+                                .into(),
+                        ),
+                        meta: complex_meta,
                         reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
@@ -193,6 +198,8 @@ impl Detector for ActionTriggerDetector {
                         }
 
                         if summary.depth >= ACTION_CHAIN_COMPLEX_DEPTH {
+                            let mut complex_meta = meta.clone();
+                            enrich_complex_chain_meta(&mut complex_meta, &summary);
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
@@ -201,8 +208,7 @@ impl Detector for ActionTriggerDetector {
                                 confidence: Confidence::Probable,
                                 impact: None,
                                 title: "Complex action chain".into(),
-                                description: "Action chain depth exceeds expected threshold."
-                                    .into(),
+                                description: complex_action_chain_description(&complex_meta),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                                 evidence: EvidenceBuilder::new()
                                     .file_offset(
@@ -212,9 +218,10 @@ impl Detector for ActionTriggerDetector {
                                     )
                                     .build(),
                                 remediation: Some(
-                                    "Inspect action chains for hidden payloads.".into(),
+                                    "Review the full chain path, terminal action, and payload target for staged execution."
+                                        .into(),
                                 ),
-                                meta,
+                                meta: complex_meta,
                                 reader_impacts: Vec::new(),
                                 action_type: None,
                                 action_target: None,
@@ -342,6 +349,8 @@ impl Detector for ActionTriggerDetector {
                     }
 
                     if summary.depth >= ACTION_CHAIN_COMPLEX_DEPTH {
+                        let mut complex_meta = meta.clone();
+                        enrich_complex_chain_meta(&mut complex_meta, &summary);
                         findings.push(Finding {
                             id: String::new(),
                             surface: self.surface(),
@@ -350,13 +359,16 @@ impl Detector for ActionTriggerDetector {
                             confidence: Confidence::Probable,
                             impact: None,
                             title: "Complex action chain".into(),
-                            description: "Action chain depth exceeds expected threshold.".into(),
+                            description: complex_action_chain_description(&complex_meta),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                             evidence: EvidenceBuilder::new()
                                 .file_offset(k.span.start, k.span.len() as u32, "/A key")
                                 .build(),
-                            remediation: Some("Inspect action chains for hidden payloads.".into()),
-                            meta: meta.clone(),
+                            remediation: Some(
+                                "Review the full chain path, terminal action, and payload target for staged execution."
+                                    .into(),
+                            ),
+                            meta: complex_meta,
 
                             reader_impacts: Vec::new(),
                             action_type: None,
@@ -469,6 +481,8 @@ impl Detector for ActionTriggerDetector {
                             }
 
                             if summary.depth >= ACTION_CHAIN_COMPLEX_DEPTH {
+                                let mut complex_meta = meta.clone();
+                                enrich_complex_chain_meta(&mut complex_meta, &summary);
                                 findings.push(Finding {
                                     id: String::new(),
                                     surface: self.surface(),
@@ -477,8 +491,7 @@ impl Detector for ActionTriggerDetector {
                                     confidence: Confidence::Probable,
                                     impact: None,
                                     title: "Complex action chain".into(),
-                                    description: "Action chain depth exceeds expected threshold."
-                                        .into(),
+                                    description: complex_action_chain_description(&complex_meta),
                                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                                     evidence: EvidenceBuilder::new()
                                         .file_offset(
@@ -488,9 +501,10 @@ impl Detector for ActionTriggerDetector {
                                         )
                                         .build(),
                                     remediation: Some(
-                                        "Inspect action chains for hidden payloads.".into(),
+                                        "Review the full chain path, terminal action, and payload target for staged execution."
+                                            .into(),
                                     ),
-                                    meta: meta.clone(),
+                                    meta: complex_meta,
 
                                     reader_impacts: Vec::new(),
                                     action_type: None,
@@ -611,9 +625,34 @@ fn insert_chain_metadata(
     summary: &ChainSummary,
 ) {
     meta.insert("action.chain_depth".into(), summary.depth.to_string());
+    meta.insert("threshold.depth".into(), ACTION_CHAIN_COMPLEX_DEPTH.to_string());
     meta.insert("action.trigger_event".into(), trigger_event.clone());
     meta.insert("action.trigger_type".into(), trigger_type.into());
     meta.insert("action.chain_path".into(), build_chain_path(trigger_label, summary));
+}
+
+fn enrich_complex_chain_meta(
+    meta: &mut std::collections::HashMap<String, String>,
+    summary: &ChainSummary,
+) {
+    meta.insert("observed.chain_depth".into(), summary.depth.to_string());
+    meta.insert("threshold.depth".into(), ACTION_CHAIN_COMPLEX_DEPTH.to_string());
+    if let Some(last) = summary.path.last() {
+        meta.insert("observed.terminal_action".into(), last.clone());
+    }
+    meta.insert("query.next".into(), "actions.chains --where \"depth >= 3\"".into());
+}
+
+fn complex_action_chain_description(meta: &std::collections::HashMap<String, String>) -> String {
+    let observed = meta.get("observed.chain_depth").cloned().unwrap_or_else(|| "?".into());
+    let threshold = meta.get("threshold.depth").cloned().unwrap_or_else(|| "?".into());
+    let trigger = meta.get("action.trigger_event").cloned().unwrap_or_else(|| "unknown".into());
+    let path = meta.get("action.chain_path").cloned().unwrap_or_else(|| "unknown".into());
+    let terminal =
+        meta.get("observed.terminal_action").cloned().unwrap_or_else(|| "unknown".into());
+    format!(
+        "Action chain depth {observed} exceeds threshold {threshold}; trigger={trigger}, terminal={terminal}, path={path}."
+    )
 }
 
 fn build_chain_path(trigger_label: &str, summary: &ChainSummary) -> String {

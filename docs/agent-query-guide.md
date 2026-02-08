@@ -27,11 +27,13 @@ This guide is for a security analyst using `sis query` to investigate PDF sample
 - **JavaScript**: `sis query js sample.pdf --where "length > 1024" --format jsonl` and examine `js.payload_preview`/`js.ast_urls`.  
 - **URIs**: `sis query urls sample.pdf --where "suspicious == true" --format table` identifies flagged URIs with chain context (action label, chain depth).  
 - **Embedded files**: `sis query embedded sample.pdf --where "mime.contains('pe')"` surfaces executables hidden inside objects.
+- **Xref structure**: `sis query xref.sections sample.pdf` and `sis query xref.startxrefs sample.pdf` expose the revision chain and pointer state behind structural findings.
 
 ### Object inspection workflow
 - Step 1: gather candidates with `sis query findings sample.pdf --where "meta.object_id != null" --format json --limit 20` and note each `meta.object_id`/`chain_id`.  
 - Step 2: drill into the object dictionary: `sis query objects sample.pdf --where "object.number == <object>" --format json` shows filters, offsets, and `node_preview`. Keep an eye on `stream.filter_count`, `filters`, and `node_preview` to confirm whether the object contains a stream, font, or embedded payload.  
 - Step 3: capture any linked actions or embedded files by following `meta.action.target`, `meta.chain_id`, or the `reference_id` from the object output. Use `sis query actions sample.pdf --where "object_id == <object>" --format table` to confirm triggers and payloads remain consistent, and rerun the first step if new objects emerge from the chain.
+- Step 4: for xref/trailer findings, inspect revision primitives directly (`sis query xref.deviations sample.pdf`, `sis query revisions sample.pdf`) before deciding whether the anomaly is benign incremental history or suspicious xref tampering.
 
 ### Stream dumping & evidence capture
 - Once the suspicious object number is locked down, run `sis query sample.pdf stream <obj> 0 --extract-to /tmp/streams --decode --raw` to materialise the decoded bytes. Add `--hexdump` if you need a quick size/entropy snapshot before exporting.  

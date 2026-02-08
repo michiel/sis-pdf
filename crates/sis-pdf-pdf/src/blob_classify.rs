@@ -442,7 +442,9 @@ fn looks_like_riff(data: &[u8], kind: &[u8; 4]) -> bool {
 
 fn looks_like_xml(data: &[u8]) -> bool {
     let lower = lower_ascii_prefix(data, 128);
-    lower.starts_with(b"<?xml") || lower.starts_with(b"<x:xmpmeta")
+    lower.starts_with(b"<?xml")
+        || lower.starts_with(b"<?xpacket")
+        || lower.starts_with(b"<x:xmpmeta")
 }
 
 fn looks_like_html(data: &[u8]) -> bool {

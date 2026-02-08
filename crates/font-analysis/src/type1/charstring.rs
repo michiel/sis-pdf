@@ -47,7 +47,9 @@ pub fn analyze_charstring(data: &[u8]) -> CharstringAnalysis {
     analysis.has_blend_pattern = detect_blend_pattern(&analysis.dangerous_ops);
 
     if analysis.has_blend_pattern {
-        warn!("BLEND exploit pattern detected in charstrings");
+        warn!(
+            "[NON-FATAL][finding:font.type1_blend_pattern] BLEND exploit pattern detected in charstrings"
+        );
     }
 
     analysis

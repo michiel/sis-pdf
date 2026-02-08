@@ -111,6 +111,11 @@ impl Detector for RichMediaContentDetector {
                 )
                 .build();
             let action_evidence = evidence.clone();
+            let mut action_tags = analysis.action_scan.action_tags.clone();
+            if action_tags.is_empty() && analysis.action_scan.tags_scanned > 0 {
+                action_tags.push("DoABC".to_string());
+            }
+            let actions_present = !action_tags.is_empty();
             findings.push(Finding {
                 id: String::new(),
                 surface: self.surface(),
@@ -119,10 +124,18 @@ impl Detector for RichMediaContentDetector {
                 confidence: Confidence::Probable,
                 impact: None,
                 title: "SWF content embedded".into(),
-                description: "Stream data matches SWF magic header.".into(),
+                description: format!(
+                    "SWF payload detected (version {}, compression {}, ActionScript tags present: {}).",
+                    analysis.header.version,
+                    swf_compression_label(analysis.header.compression),
+                    actions_present
+                ),
                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                 evidence: evidence.clone(),
-                remediation: Some("Extract and inspect the SWF payload.".into()),
+                remediation: Some(
+                    "Extract SWF, confirm version/compression, then inspect ActionScript tags for staged payload behaviour."
+                        .into(),
+                ),
                 meta: meta.clone(),
 
                 reader_impacts: Vec::new(),
@@ -133,10 +146,6 @@ impl Detector for RichMediaContentDetector {
                 position: None,
                 positions: Vec::new(),
             });
-            let mut action_tags = analysis.action_scan.action_tags.clone();
-            if action_tags.is_empty() && analysis.action_scan.tags_scanned > 0 {
-                action_tags.push("DoABC".to_string());
-            }
             if !action_tags.is_empty() {
                 let mut action_meta = meta.clone();
                 action_meta.insert("swf.action_tag_count".into(), action_tags.len().to_string());

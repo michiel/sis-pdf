@@ -125,7 +125,11 @@ pub fn run_scan_with_detectors(
                                         Some((d.id().to_string(), cost_str.to_string(), elapsed, findings))
                                     }
                                     Err(e) => {
-                                        error!(detector = d.id(), error = %e, "Detector failed in parallel execution");
+                                        error!(
+                                            detector = d.id(),
+                                            error = %e,
+                                            "[NON-FATAL][finding:detector_execution_failed] Detector failed in parallel execution"
+                                        );
                                         None
                                     }
                                 }
@@ -149,7 +153,7 @@ pub fn run_scan_with_detectors(
                 // Flatten findings
                 results.into_iter().flat_map(|(_, _, _, findings)| findings).collect()
             }
-            Err(err) => {
+            Err(_err) => {
                 SecurityEvent {
                     level: Level::WARN,
                     domain: SecurityDomain::Detection,
@@ -165,7 +169,6 @@ pub fn run_scan_with_detectors(
                     message: "Failed to build parallel detector pool; falling back to sequential",
                 }
                 .emit();
-                warn!(error = %err, "Failed to build parallel detector pool; falling back to sequential");
                 let mut out = Vec::new();
                 for d in detectors {
                     if ctx.options.fast && d.cost() != crate::detect::Cost::Cheap {
@@ -251,11 +254,6 @@ pub fn run_scan_with_detectors(
             message: "Object count exceeded max_objects",
         }
         .emit();
-        warn!(
-            object_count = ctx.graph.objects.len(),
-            max_objects = ctx.options.max_objects,
-            "Object count exceeded max_objects"
-        );
         let evidence = ctx
             .graph
             .objects
@@ -421,7 +419,10 @@ pub fn run_scan_with_detectors(
                         }
                     }
                     Err(err) => {
-                        warn!(error = %err, "ML model load failed");
+                        warn!(
+                            error = %err,
+                            "[NON-FATAL][finding:ml_model_error] ML model load failed"
+                        );
                         findings.push(Finding {
                             id: String::new(),
                             surface: crate::model::AttackSurface::Metadata,
@@ -550,7 +551,10 @@ pub fn run_scan_with_detectors(
                             }
                         }
                         Err(err) => {
-                            warn!(error = %err, "Graph ML inference failed");
+                            warn!(
+                                error = %err,
+                                "[NON-FATAL][finding:ml_model_error] Graph ML inference failed"
+                            );
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: crate::model::AttackSurface::Metadata,
@@ -578,7 +582,9 @@ pub fn run_scan_with_detectors(
                 }
                 #[cfg(not(feature = "ml-graph"))]
                 {
-                    error!("Graph ML mode requested but not compiled (enable feature ml-graph)");
+                    error!(
+                        "[NON-FATAL][finding:ml_model_error] Graph ML mode requested but not compiled (enable feature ml-graph)"
+                    );
                     findings.push(Finding {
                         id: String::new(),
                         surface: crate::model::AttackSurface::Metadata,
@@ -1298,6 +1304,7 @@ fn filter_graph_by_refs<'a>(graph: &ObjectGraph<'a>, keep: &HashSet<ObjRef>) -> 
         index,
         trailers: graph.trailers.clone(),
         startxrefs: graph.startxrefs.clone(),
+        xref_sections: graph.xref_sections.clone(),
         deviations: graph.deviations.clone(),
     }
 }

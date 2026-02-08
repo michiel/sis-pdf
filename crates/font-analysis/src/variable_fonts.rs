@@ -102,7 +102,7 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
             warn!(
                 gvar_size = gvar_size,
                 max_size = MAX_GVAR_SIZE,
-                "Anomalously large gvar table detected"
+                "[NON-FATAL][finding:font.anomalous_variation_table] Anomalously large gvar table detected"
             );
 
             let mut meta = HashMap::new();
@@ -131,7 +131,7 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
             warn!(
                 hvar_size = hvar_size,
                 max_size = MAX_HVAR_SIZE,
-                "Anomalously large HVAR table detected"
+                "[NON-FATAL][finding:font.anomalous_variation_table] Anomalously large HVAR table detected"
             );
 
             let mut meta = HashMap::new();
@@ -159,7 +159,7 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
             warn!(
                 mvar_size = mvar_size,
                 max_size = MAX_MVAR_SIZE,
-                "Anomalously large MVAR table detected"
+                "[NON-FATAL][finding:font.anomalous_variation_table] Anomalously large MVAR table detected"
             );
 
             let mut meta = HashMap::new();
@@ -185,7 +185,10 @@ pub fn analyze_variable_font(font_data: &[u8]) -> Vec<FontFinding> {
     let axes = font.variation_axes();
     let axis_count = axes.into_iter().count();
     if axis_count > 16 {
-        warn!(axis_count = axis_count, "Excessive variation axes");
+        warn!(
+            axis_count = axis_count,
+            "[NON-FATAL][finding:font.anomalous_variation_table] Excessive variation axes"
+        );
 
         let mut meta = HashMap::new();
         meta.insert("axis_count".to_string(), axis_count.to_string());

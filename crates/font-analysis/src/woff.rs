@@ -97,7 +97,10 @@ pub fn validate_woff_decompression(data: &[u8]) -> Vec<FontFinding> {
 
         // Suspicious if claimed decompressed size is > 100MB
         if original_length > 100 * 1024 * 1024 {
-            warn!(original_length = original_length, "Suspiciously large WOFF original length");
+            warn!(
+                original_length = original_length,
+                "[NON-FATAL][finding:font.woff_decompression_anomaly] Suspiciously large WOFF original length"
+            );
 
             let mut meta = HashMap::new();
             meta.insert("format".to_string(), "WOFF".to_string());
@@ -120,7 +123,10 @@ pub fn validate_woff_decompression(data: &[u8]) -> Vec<FontFinding> {
         // Check for decompression bomb (claimed size >> compressed size)
         let compression_ratio = original_length as f64 / data.len() as f64;
         if compression_ratio > 1000.0 {
-            warn!(compression_ratio = compression_ratio, "Suspicious WOFF compression ratio");
+            warn!(
+                compression_ratio = compression_ratio,
+                "[NON-FATAL][finding:font.woff_decompression_anomaly] Suspicious WOFF compression ratio"
+            );
 
             let mut meta = HashMap::new();
             meta.insert("format".to_string(), "WOFF".to_string());
@@ -147,7 +153,10 @@ pub fn validate_woff_decompression(data: &[u8]) -> Vec<FontFinding> {
         let total_sfnt_size = u32::from_be_bytes([data[12], data[13], data[14], data[15]]) as usize;
 
         if total_sfnt_size > 100 * 1024 * 1024 {
-            warn!(total_sfnt_size = total_sfnt_size, "Suspiciously large WOFF2 original length");
+            warn!(
+                total_sfnt_size = total_sfnt_size,
+                "[NON-FATAL][finding:font.woff_decompression_anomaly] Suspiciously large WOFF2 original length"
+            );
 
             let mut meta = HashMap::new();
             meta.insert("format".to_string(), "WOFF2".to_string());
@@ -169,7 +178,10 @@ pub fn validate_woff_decompression(data: &[u8]) -> Vec<FontFinding> {
 
         let compression_ratio = total_sfnt_size as f64 / data.len() as f64;
         if compression_ratio > 1000.0 {
-            warn!(compression_ratio = compression_ratio, "Suspicious WOFF2 compression ratio");
+            warn!(
+                compression_ratio = compression_ratio,
+                "[NON-FATAL][finding:font.woff_decompression_anomaly] Suspicious WOFF2 compression ratio"
+            );
 
             let mut meta = HashMap::new();
             meta.insert("format".to_string(), "WOFF2".to_string());

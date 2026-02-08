@@ -4,6 +4,7 @@ use sis_pdf_core::content_index::build_content_index;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_pdf::object::{PdfAtom, PdfObj};
 
 use crate::{entry_dict, extract_strings_with_span, page_has_uri_annot};
 
@@ -23,15 +24,35 @@ impl Detector for ContentPhishingDetector {
         Cost::Moderate
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let keywords: &[&[u8]] = &[b"invoice", b"secure", b"view document", b"account", b"verify"];
+        const KEYWORDS: &[(&[u8], &str)] = &[
+            (b"invoice", "invoice"),
+            (b"secure", "secure"),
+            (b"view document", "view document"),
+            (b"account", "account"),
+            (b"verify", "verify"),
+        ];
         let mut has_keyword = false;
+        let mut matched_keywords: Vec<String> = Vec::new();
         let mut evidence = Vec::new();
         for entry in &ctx.graph.objects {
             for (bytes, span) in extract_strings_with_span(entry) {
                 let lower = bytes.to_ascii_lowercase();
-                if keywords.iter().any(|k| lower.windows(k.len()).any(|w| w == *k)) {
+                let mut matches = matched_keyword_labels(&lower, KEYWORDS);
+                if !matches.is_empty() {
                     has_keyword = true;
-                    evidence.push(span_to_evidence(span, "Phishing-like keyword"));
+                    for label in matches.drain(..) {
+                        if !matched_keywords.contains(&label) {
+                            matched_keywords.push(label);
+                        }
+                    }
+                    if let Some(first) = matched_keywords.first() {
+                        evidence.push(span_to_evidence(
+                            span,
+                            &format!("Phishing-like keyword: {}", first),
+                        ));
+                    } else {
+                        evidence.push(span_to_evidence(span, "Phishing-like keyword"));
+                    }
                     break;
                 }
             }
@@ -43,14 +64,18 @@ impl Detector for ContentPhishingDetector {
             let html = detect_html_payload(ctx);
             return Ok(html.into_iter().collect());
         }
-        let has_uri = ctx.graph.objects.iter().any(|e| {
-            if let Some(dict) = entry_dict(e) {
-                dict.get_first(b"/URI").is_some()
-            } else {
-                false
+        if let Some((uri_value, uri_span)) = first_external_uri(ctx) {
+            let mut meta = std::collections::HashMap::new();
+            if !matched_keywords.is_empty() {
+                meta.insert("content.phishing_keywords".into(), matched_keywords.join(","));
+                // Keep legacy singular key for explainability and existing consumers.
+                meta.insert("keyword".into(), matched_keywords[0].clone());
             }
-        });
-        if has_uri {
+            meta.insert("content.phishing_external_uri".into(), uri_value.clone());
+            evidence.push(span_to_evidence(
+                uri_span,
+                &format!("External URI target: {}", uri_note_value(&uri_value)),
+            ));
             return Ok(vec![Finding {
                 id: String::new(),
                 surface: self.surface(),
@@ -64,7 +89,7 @@ impl Detector for ContentPhishingDetector {
                 objects: vec!["content".into()],
                 evidence,
                 remediation: Some("Manually review page content and links.".into()),
-                meta: Default::default(),
+                meta,
 
                 reader_impacts: Vec::new(),
                 action_type: None,
@@ -81,6 +106,71 @@ impl Detector for ContentPhishingDetector {
         }
         Ok(out)
     }
+}
+
+fn first_external_uri(
+    ctx: &sis_pdf_core::scan::ScanContext,
+) -> Option<(String, sis_pdf_pdf::span::Span)> {
+    for entry in &ctx.graph.objects {
+        let Some(dict) = entry_dict(entry) else {
+            continue;
+        };
+        let Some((_, uri_obj)) = dict.get_first(b"/URI") else {
+            continue;
+        };
+        if let Some(uri) = uri_string_from_obj(ctx, uri_obj) {
+            let lower = uri.to_ascii_lowercase();
+            if lower.starts_with("http://")
+                || lower.starts_with("https://")
+                || lower.starts_with("mailto:")
+                || lower.starts_with("ftp://")
+            {
+                return Some((uri, uri_obj.span));
+            }
+        }
+    }
+    None
+}
+
+fn uri_string_from_obj(ctx: &sis_pdf_core::scan::ScanContext, obj: &PdfObj<'_>) -> Option<String> {
+    match &obj.atom {
+        PdfAtom::Str(s) => Some(String::from_utf8_lossy(&pdf_string_bytes(s)).to_string()),
+        PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
+        PdfAtom::Ref { .. } => {
+            let resolved = ctx.graph.resolve_ref(obj)?;
+            uri_string_from_obj(ctx, &PdfObj { span: resolved.body_span, atom: resolved.atom })
+        }
+        _ => None,
+    }
+}
+
+fn pdf_string_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
+    match s {
+        sis_pdf_pdf::object::PdfStr::Literal { decoded, .. } => decoded.clone(),
+        sis_pdf_pdf::object::PdfStr::Hex { decoded, .. } => decoded.clone(),
+    }
+}
+
+fn uri_note_value(uri: &str) -> String {
+    const MAX_LEN: usize = 120;
+    if uri.chars().count() <= MAX_LEN {
+        return uri.to_string();
+    }
+    let truncated = uri.chars().take(MAX_LEN).collect::<String>();
+    format!("{truncated}...")
+}
+
+fn matched_keyword_labels(haystack: &[u8], keywords: &[(&[u8], &str)]) -> Vec<String> {
+    keywords
+        .iter()
+        .filter_map(|(needle, label)| {
+            if haystack.windows(needle.len()).any(|window| window == *needle) {
+                Some((*label).to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding> {
@@ -240,4 +330,38 @@ fn first_coord(page: &sis_pdf_core::content_index::PageContent) -> Option<(f32, 
         return Some(*p);
     }
     page.text_points.first().copied()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::uri_note_value;
+
+    #[test]
+    fn uri_note_value_truncates_long_values() {
+        let value = format!("https://example.com/{}", "a".repeat(200));
+        let note = uri_note_value(&value);
+        assert!(note.ends_with("..."));
+        assert!(note.len() <= 123);
+    }
+
+    #[test]
+    fn uri_note_value_keeps_short_values() {
+        let value = "https://example.com/reset";
+        assert_eq!(uri_note_value(value), value);
+    }
+}
+
+#[cfg(test)]
+mod keyword_tests {
+    use super::matched_keyword_labels;
+
+    #[test]
+    fn matched_keyword_labels_collects_expected_tokens() {
+        let keywords: &[(&[u8], &str)] =
+            &[(b"invoice", "invoice"), (b"verify", "verify"), (b"secure", "secure")];
+        let labels = matched_keyword_labels(b"please verify this invoice now", keywords);
+        assert!(labels.contains(&"invoice".to_string()));
+        assert!(labels.contains(&"verify".to_string()));
+        assert!(!labels.contains(&"secure".to_string()));
+    }
 }

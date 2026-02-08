@@ -63,7 +63,7 @@ fn walk_pages(
             domain = "pdf.page_tree",
             kind = "page_tree_depth_exceeded",
             depth = depth,
-            "Page tree depth exceeded maximum; aborting traversal"
+            "[NON-FATAL][finding:page_tree_depth_exceeded] Page tree depth exceeded maximum; aborting traversal"
         );
         return;
     }
@@ -77,7 +77,7 @@ fn walk_pages(
                 kind = "page_tree_cycle_detected",
                 obj = obj_id,
                 gen = gen_id,
-                "Page tree cycle detected; aborting traversal"
+                "[NON-FATAL][finding:page_tree_cycle_detected] Page tree cycle detected; aborting traversal"
             );
             return;
         }

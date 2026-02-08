@@ -159,7 +159,7 @@ fn fallback_encrypt_dict<'a>(ctx: &'a sis_pdf_core::scan::ScanContext<'a>) -> Op
         security = true,
         domain = "pdf.encryption",
         kind = "encrypt_dict_fallback",
-        "Using fallback /Encrypt dict from object graph"
+        "[NON-FATAL][finding:encrypt_dict_fallback] Using fallback /Encrypt dict from object graph"
     );
     match &entry.atom {
         PdfAtom::Dict(d) => Some(d.clone()),

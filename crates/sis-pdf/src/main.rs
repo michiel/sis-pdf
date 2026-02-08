@@ -695,6 +695,7 @@ fn main() -> Result<()> {
             hexdump,
             ungroup_chains,
         } => {
+            let where_clause_raw = r#where.clone();
             let config_query_colour = config_path
                 .as_deref()
                 .and_then(|path| sis_pdf_core::config::Config::load(path).ok())
@@ -818,6 +819,7 @@ fn main() -> Result<()> {
                     colour,
                     decode_mode,
                     predicate.as_ref(),
+                    where_clause_raw.as_deref(),
                     report_verbosity,
                     chain_summary,
                     config_path.clone(),
@@ -2725,6 +2727,7 @@ fn run_query_repl(
     colour: bool,
     decode_mode: commands::query::DecodeMode,
     predicate: Option<&commands::query::PredicateExpr>,
+    predicate_text: Option<&str>,
     report_verbosity: commands::query::ReportVerbosity,
     chain_summary: commands::query::ChainSummaryLevel,
     config_path: Option<PathBuf>,
@@ -2775,9 +2778,10 @@ fn run_query_repl(
     let mut compact_mode = false;
     let mut readable_mode = output_format == query::OutputFormat::Readable;
     let mut predicate_expr = predicate.cloned();
+    let mut predicate_display = predicate_text.map(|value| value.to_string());
 
     loop {
-        let prompt = "sis> ";
+        let prompt = if predicate_expr.is_some() { "sis(:where)> " } else { "sis> " };
         let readline = rl.readline(prompt);
 
         match readline {
@@ -2802,12 +2806,25 @@ fn run_query_repl(
                 if let Some(rest) = query_line.strip_prefix(":where") {
                     let expr = rest.trim();
                     if expr.is_empty() {
+                        if let Some(current) = predicate_display.as_deref() {
+                            eprintln!("Predicate: {}", current);
+                        } else if predicate_expr.is_some() {
+                            eprintln!("Predicate set (source unavailable)");
+                        } else {
+                            eprintln!("No predicate set");
+                        }
+                    } else if matches!(
+                        expr.to_ascii_lowercase().as_str(),
+                        "clear" | "reset" | "off" | "none"
+                    ) {
                         predicate_expr = None;
+                        predicate_display = None;
                         eprintln!("Predicate cleared");
                     } else {
                         match query::parse_predicate(expr) {
                             Ok(parsed) => {
                                 predicate_expr = Some(parsed);
+                                predicate_display = Some(expr.to_string());
                                 eprintln!("Predicate set");
                             }
                             Err(err) => eprintln!("Invalid predicate: {}", err),
@@ -3305,6 +3322,14 @@ fn print_repl_help() {
     println!("  objects.with TYPE  - Filter objects by type (e.g., Page, Font)");
     println!("  trailer            - Show PDF trailer");
     println!("  catalog            - Show PDF catalog");
+    println!(
+        "  xref               - Summarise startxrefs, sections, trailers, and xref deviations"
+    );
+    println!("  xref.startxrefs    - List startxref markers");
+    println!("  xref.sections      - List parsed xref chain sections");
+    println!("  xref.trailers      - List trailer dictionary summaries");
+    println!("  xref.deviations    - List xref parser deviations");
+    println!("  revisions          - List revision summaries derived from xref/trailer state");
     println!();
     println!("Advanced queries:");
     println!("  chains             - Describe action chains (rich JSON output)");
@@ -3325,7 +3350,9 @@ fn print_repl_help() {
     println!("  :compact           - Toggle compact output mode");
     println!("  :readable          - Toggle readable output mode (default)");
     println!("  queries can append '| command' to pipe current output to the shell or '> file' to save it (e.g., findings | jq . or org > graph.dot)");
-    println!("  :where EXPR        - Set predicate filter (blank clears)");
+    println!("  :where EXPR        - Set predicate filter");
+    println!("  :where             - Show current predicate");
+    println!("  :where clear       - Clear predicate filter");
     println!("  explain ID         - Run `sis explain` for the specified finding ID");
     println!("  :doc TOPIC         - Show the fixit doc path and description (topics: filter-flatedecode, objstm)");
     println!("  help / ?           - Show this help");
@@ -4115,12 +4142,21 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts, &detectors)?
         .with_input_path(Some(pdf.to_string()))
         .with_sandbox_summary(sandbox_summary);
-    let Some(finding) = report.findings.iter().find(|f| f.id == finding_id) else {
+    let resolved_id = resolve_explain_finding_id(&report.findings, finding_id);
+    let Some(finding) =
+        resolved_id.as_deref().and_then(|id| report.findings.iter().find(|f| f.id == id))
+    else {
         return Err(anyhow!("finding id not found; the scan that produced this ID may have been run with a different configuration (rerun this explain with the same --config or default settings)."));
     };
     println!("{} - {}", escape_terminal(&finding.id), escape_terminal(&finding.title));
     println!("{}", escape_terminal(&finding.description));
     println!("Severity: {:?}  Confidence: {:?}", finding.severity, finding.confidence);
+    if let Some(keywords) =
+        finding.meta.get("content.phishing_keywords").or_else(|| finding.meta.get("keyword"))
+    {
+        println!("Matched keywords: {}", escape_terminal(keywords));
+    }
+    print_finding_context_hints(&finding.meta);
     println!();
     for ev in &finding.evidence {
         println!(
@@ -4139,7 +4175,82 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
             println!("(decoded evidence preview not available)");
         }
     }
+    if finding.kind.contains("xref")
+        || finding.surface == sis_pdf_core::model::AttackSurface::XRefTrailer
+    {
+        println!();
+        println!("Suggested follow-up queries:");
+        println!("  sis query {pdf} xref.startxrefs");
+        println!("  sis query {pdf} xref.sections");
+        println!("  sis query {pdf} xref.deviations");
+    }
     Ok(())
+}
+
+fn resolve_explain_finding_id(
+    findings: &[sis_pdf_core::model::Finding],
+    requested_id: &str,
+) -> Option<String> {
+    if findings.iter().any(|f| f.id == requested_id) {
+        return Some(requested_id.to_string());
+    }
+
+    let mut prefix_matches = findings.iter().filter(|f| f.id.starts_with(requested_id));
+    if let Some(first) = prefix_matches.next() {
+        if prefix_matches.next().is_none() {
+            return Some(first.id.clone());
+        }
+    }
+
+    sis_pdf_core::id_shortener::resolve_short_id(requested_id)
+}
+
+fn print_finding_context_hints(meta: &std::collections::HashMap<String, String>) {
+    const IMPORTANT_KEYS: &[&str] = &[
+        "expected.filter_declared",
+        "expected.compression",
+        "observed.compression_guess",
+        "observed.signature_hint",
+        "decode.expected_types",
+        "decode.expected_signatures",
+        "decode.observed_type",
+        "decode.observed_signature",
+        "threshold.depth",
+        "observed.chain_depth",
+        "observed.terminal_action",
+        "action.chain_path",
+        "action.type",
+        "action.target",
+        "action.initiation",
+        "url.domain",
+        "url.external",
+        "uri.domain",
+        "uri.scheme",
+        "uri.userinfo",
+        "uri.ip_host",
+        "parser.deviation_top",
+        "xref.integrity.level",
+        "xref.startxref.count",
+        "xref.section.count",
+        "xref.section.kinds",
+        "xref.prev_chain.valid",
+        "xref.prev_chain.length",
+        "xref.prev_chain.cycle",
+        "xref.offsets.in_bounds",
+        "xref.deviation.count",
+        "xref.deviation.kinds",
+        "query.next",
+    ];
+    let mut printed_any = false;
+    for key in IMPORTANT_KEYS {
+        if let Some(value) = meta.get(*key) {
+            if !printed_any {
+                println!("Context:");
+                printed_any = true;
+            }
+            println!("  {}: {}", key, escape_terminal(value));
+        }
+    }
 }
 
 fn run_report(

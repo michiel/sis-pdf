@@ -6,6 +6,7 @@ use base64::Engine;
 use std::collections::HashSet;
 
 use crate::encryption_obfuscation::{encryption_meta_from_dict, resolve_encrypt_dict};
+use crate::uri_classification::analyze_uri_content;
 use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii, EvidenceBuilder};
@@ -16,7 +17,7 @@ use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
 use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::decode::stream_filters;
-use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance};
+use sis_pdf_pdf::graph::{Deviation, ObjEntry, ObjProvenance, XrefSectionSummary};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStream};
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 use std::time::Duration;
@@ -169,6 +170,160 @@ pub fn sandbox_summary(requested: bool) -> sis_pdf_core::report::SandboxSummary 
 
 struct XrefConflictDetector;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum XrefIntegrityLevel {
+    Coherent,
+    Warning,
+    Broken,
+}
+
+impl XrefIntegrityLevel {
+    fn as_str(self) -> &'static str {
+        match self {
+            XrefIntegrityLevel::Coherent => "coherent",
+            XrefIntegrityLevel::Warning => "warning",
+            XrefIntegrityLevel::Broken => "broken",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct XrefConflictAssessment {
+    severity: Severity,
+    description: String,
+    integrity: XrefIntegrityLevel,
+    prev_chain_valid: bool,
+    prev_chain_length: usize,
+    prev_chain_cycle: bool,
+    offsets_in_bounds: bool,
+    deviation_count: usize,
+    deviation_kinds: String,
+    section_count: usize,
+    section_kinds: String,
+}
+
+fn assess_xref_conflict(
+    bytes_len: usize,
+    startxrefs: &[u64],
+    sections: &[XrefSectionSummary],
+    deviations: &[Deviation],
+    has_signature: bool,
+) -> XrefConflictAssessment {
+    let startxref_count = startxrefs.len();
+    let section_count = sections.len();
+    let offsets_in_bounds = startxrefs.iter().all(|offset| *offset < bytes_len as u64)
+        && sections.iter().all(|section| section.offset < bytes_len as u64);
+
+    let mut section_kinds = sections.iter().map(|section| section.kind.clone()).collect::<Vec<_>>();
+    section_kinds.sort();
+    section_kinds.dedup();
+    let section_kinds_joined = section_kinds.join(",");
+    let has_unknown_section_kind =
+        section_kinds.iter().any(|kind| kind.eq_ignore_ascii_case("unknown"));
+
+    let xref_deviations = deviations
+        .iter()
+        .filter(|deviation| deviation.kind.starts_with("xref_"))
+        .collect::<Vec<_>>();
+    let deviation_count = xref_deviations.len();
+    let mut deviation_kinds =
+        xref_deviations.iter().map(|deviation| deviation.kind.clone()).collect::<Vec<_>>();
+    deviation_kinds.sort();
+    deviation_kinds.dedup();
+    let deviation_kinds_joined = deviation_kinds.join(",");
+
+    let offset_set = sections.iter().map(|section| section.offset).collect::<HashSet<_>>();
+    let prev_links_resolvable =
+        sections.iter().filter_map(|section| section.prev).all(|prev| offset_set.contains(&prev));
+
+    let mut prev_map = std::collections::HashMap::new();
+    for section in sections {
+        prev_map.insert(section.offset, section.prev);
+    }
+    let mut visited = HashSet::new();
+    let mut prev_chain_cycle = false;
+    let mut prev_chain_length = 0usize;
+    let mut current = sections.first().map(|section| section.offset);
+    while let Some(offset) = current {
+        if !visited.insert(offset) {
+            prev_chain_cycle = true;
+            break;
+        }
+        prev_chain_length += 1;
+        current = prev_map.get(&offset).copied().flatten();
+    }
+    let chain_covers_sections = sections.is_empty() || prev_chain_length == sections.len();
+    let prev_chain_valid = prev_links_resolvable && !prev_chain_cycle && chain_covers_sections;
+
+    let mut trailer_roots = sections
+        .iter()
+        .filter_map(|section| section.trailer_root.as_ref())
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    trailer_roots.sort();
+    trailer_roots.dedup();
+    let root_mismatch = trailer_roots.len() > 1;
+
+    let integrity = if !offsets_in_bounds || !prev_links_resolvable || prev_chain_cycle {
+        XrefIntegrityLevel::Broken
+    } else if deviation_count > 0 || has_unknown_section_kind || root_mismatch || !prev_chain_valid
+    {
+        XrefIntegrityLevel::Warning
+    } else {
+        XrefIntegrityLevel::Coherent
+    };
+
+    let severity = if startxref_count <= 1 {
+        Severity::Info
+    } else if section_count <= 1 {
+        Severity::Info
+    } else {
+        match integrity {
+            XrefIntegrityLevel::Coherent => {
+                if has_signature {
+                    Severity::Info
+                } else {
+                    Severity::Low
+                }
+            }
+            XrefIntegrityLevel::Warning => Severity::Medium,
+            XrefIntegrityLevel::Broken => {
+                if prev_chain_cycle && deviation_count > 0 {
+                    Severity::High
+                } else {
+                    Severity::Medium
+                }
+            }
+        }
+    };
+
+    let description = match integrity {
+        XrefIntegrityLevel::Coherent => format!(
+            "Found {startxref_count} startxref markers; xref chain is coherent across {section_count} linked sections."
+        ),
+        XrefIntegrityLevel::Warning => format!(
+            "Found {startxref_count} startxref markers; xref chain has integrity warnings (prev_chain_valid={prev_chain_valid}, deviations={deviation_count})."
+        ),
+        XrefIntegrityLevel::Broken => format!(
+            "Found {startxref_count} startxref markers; xref chain integrity is broken (prev_chain_valid={prev_chain_valid}, cycle={prev_chain_cycle}, offsets_in_bounds={offsets_in_bounds})."
+        ),
+    };
+
+    XrefConflictAssessment {
+        severity,
+        description,
+        integrity,
+        prev_chain_valid,
+        prev_chain_length,
+        prev_chain_cycle,
+        offsets_in_bounds,
+        deviation_count,
+        deviation_kinds: deviation_kinds_joined,
+        section_count,
+        section_kinds: section_kinds_joined,
+    }
+}
+
 impl Detector for XrefConflictDetector {
     fn id(&self) -> &'static str {
         "xref_conflict"
@@ -193,42 +348,60 @@ impl Detector for XrefConflictDetector {
                 }
             });
 
+            let assessment = assess_xref_conflict(
+                ctx.bytes.len(),
+                &ctx.graph.startxrefs,
+                &ctx.graph.xref_sections,
+                &ctx.graph.deviations,
+                has_signature,
+            );
             let mut meta = std::collections::HashMap::new();
             meta.insert("xref.startxref_count".into(), ctx.graph.startxrefs.len().to_string());
+            meta.insert("xref.startxref.count".into(), ctx.graph.startxrefs.len().to_string());
+            meta.insert("xref.section.count".into(), assessment.section_count.to_string());
+            meta.insert("xref.prev_chain.valid".into(), assessment.prev_chain_valid.to_string());
+            meta.insert("xref.prev_chain.length".into(), assessment.prev_chain_length.to_string());
+            meta.insert("xref.prev_chain.cycle".into(), assessment.prev_chain_cycle.to_string());
+            meta.insert("xref.offsets.in_bounds".into(), assessment.offsets_in_bounds.to_string());
+            meta.insert("xref.deviation.count".into(), assessment.deviation_count.to_string());
+            meta.insert("xref.integrity.level".into(), assessment.integrity.as_str().to_string());
             meta.insert("xref.has_signature".into(), has_signature.to_string());
-
-            // Signed documents with incremental updates are legitimate (multi-author)
-            let (severity, description) = if has_signature {
-                (
-                    Severity::Info,
-                    format!(
-                        "Found {} startxref offsets in signed document. Likely legitimate multi-author scenario.",
-                        ctx.graph.startxrefs.len()
-                    )
-                )
-            } else {
-                (
-                    Severity::Medium,
-                    format!(
-                        "Found {} startxref offsets; PDFs with multiple xref sections can hide updates.",
-                        ctx.graph.startxrefs.len()
-                    )
-                )
-            };
+            let offsets = ctx
+                .graph
+                .startxrefs
+                .iter()
+                .map(|offset| offset.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            meta.insert("xref.offsets".into(), offsets);
+            if !assessment.section_kinds.is_empty() {
+                meta.insert("xref.section_kinds".into(), assessment.section_kinds.clone());
+                meta.insert("xref.section.kinds".into(), assessment.section_kinds.clone());
+            }
+            if !assessment.deviation_kinds.is_empty() {
+                meta.insert("xref.deviation.kinds".into(), assessment.deviation_kinds.clone());
+            }
+            meta.insert(
+                "query.next".into(),
+                "xref.sections; xref.trailers; xref.deviations; revisions".into(),
+            );
 
             let evidence = keyword_evidence(ctx.bytes, b"startxref", "startxref marker", 5);
             Ok(vec![Finding {
                 id: String::new(),
                 surface: self.surface(),
                 kind: "xref_conflict".into(),
-                severity,
+                severity: assessment.severity,
                 confidence: Confidence::Probable,
                 impact: None,
                 title: "Multiple startxref entries".into(),
-                description,
+                description: assessment.description,
                 objects: vec!["xref".into()],
                 evidence,
-                remediation: Some("Validate with a strict parser; inspect each revision.".into()),
+                remediation: Some(
+                    "Inspect xref sections, trailer chain, and deviations; prioritise broken /Prev chains and offset anomalies."
+                        .into(),
+                ),
                 meta,
                 yara: None,
                 position: None,
@@ -259,6 +432,17 @@ impl Detector for IncrementalUpdateDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         if ctx.graph.startxrefs.len() > 1 {
             let evidence = keyword_evidence(ctx.bytes, b"startxref", "startxref marker", 5);
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("xref.startxref_count".into(), ctx.graph.startxrefs.len().to_string());
+            meta.insert(
+                "xref.offsets".into(),
+                ctx.graph
+                    .startxrefs
+                    .iter()
+                    .map(|offset| offset.to_string())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
             Ok(vec![Finding {
                 id: String::new(),
                 surface: self.surface(),
@@ -274,7 +458,7 @@ impl Detector for IncrementalUpdateDetector {
                 objects: vec!["xref".into()],
                 evidence,
                 remediation: Some("Review changes between revisions for hidden content.".into()),
-                meta: Default::default(),
+                meta,
 
                 reader_impacts: Vec::new(),
                 action_type: None,
@@ -1532,6 +1716,32 @@ impl Detector for UriDetector {
                         evidence.extend(enriched.evidence);
                         meta.extend(enriched.meta);
                     }
+                    if let Some(uri) = uri_text_from_obj(ctx, v) {
+                        let uri_summary = enrich_uri_context(&mut meta, &uri);
+                        meta.insert("url".into(), uri.clone());
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "uri_present".into(),
+                            severity: Severity::Info,
+                            confidence: Confidence::Strong,
+                            impact: None,
+                            title: "URI present".into(),
+                            description: format!("External URI action detected ({uri_summary})."),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence,
+                            remediation: Some(
+                                "Verify destination domain, userinfo/IP usage, and navigation trigger context."
+                                    .into(),
+                            ),
+                            meta,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                            ..Default::default()
+                        });
+                        continue;
+                    }
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -1628,6 +1838,12 @@ fn uri_finding_from_action(
         evidence.extend(enriched.evidence);
         meta.extend(enriched.meta);
     }
+    let mut description = "Annotation action contains a URI target.".to_string();
+    if let Some(uri) = uri_text_from_obj(ctx, v) {
+        let uri_summary = enrich_uri_context(&mut meta, &uri);
+        meta.insert("url".into(), uri.clone());
+        description = format!("Annotation action contains URI target ({uri_summary}).");
+    }
     Some(Finding {
         id: String::new(),
         surface: AttackSurface::Actions,
@@ -1636,7 +1852,7 @@ fn uri_finding_from_action(
         confidence: Confidence::Probable,
         impact: None,
         title: "URI present".into(),
-        description: "Annotation action contains a URI target.".into(),
+        description,
         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
         evidence,
         remediation: Some("Verify destination URLs.".into()),
@@ -1646,6 +1862,50 @@ fn uri_finding_from_action(
         positions: Vec::new(),
         ..Finding::default()
     })
+}
+
+fn uri_text_from_obj(ctx: &sis_pdf_core::scan::ScanContext, obj: &PdfObj<'_>) -> Option<String> {
+    match &obj.atom {
+        PdfAtom::Str(s) => Some(String::from_utf8_lossy(&string_bytes(s)).to_string()),
+        PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
+        PdfAtom::Ref { .. } => {
+            let resolved = ctx.graph.resolve_ref(obj)?;
+            uri_text_from_obj(ctx, &PdfObj { span: resolved.body_span, atom: resolved.atom })
+        }
+        _ => None,
+    }
+}
+
+fn enrich_uri_context(meta: &mut std::collections::HashMap<String, String>, uri: &str) -> String {
+    let analysis = analyze_uri_content(uri.as_bytes());
+    if let Some(domain) = analysis.domain.as_ref() {
+        meta.insert("uri.domain".into(), domain.clone());
+    }
+    meta.insert("uri.scheme".into(), analysis.scheme.clone());
+    if analysis.userinfo_present {
+        meta.insert("uri.userinfo".into(), "true".into());
+    }
+    if analysis.is_ip_address || analysis.has_embedded_ip_host {
+        meta.insert("uri.ip_host".into(), "true".into());
+    }
+    if analysis.suspicious_tld {
+        meta.insert("uri.suspicious_tld".into(), "true".into());
+    }
+    let mut parts = Vec::new();
+    if let Some(domain) = analysis.domain {
+        parts.push(format!("domain={domain}"));
+    }
+    parts.push(format!("scheme={}", analysis.scheme));
+    if analysis.userinfo_present {
+        parts.push("userinfo=yes".into());
+    }
+    if analysis.is_ip_address || analysis.has_embedded_ip_host {
+        parts.push("host=ip".into());
+    }
+    if analysis.suspicious_tld {
+        parts.push("tld=suspicious".into());
+    }
+    parts.join(", ")
 }
 
 struct FontMatrixDetector;
@@ -3540,9 +3800,12 @@ fn string_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        data_uri_payload_from_bytes, extract_xfa_script_payloads,
+        assess_xref_conflict, data_uri_payload_from_bytes, extract_xfa_script_payloads,
         javascript_uri_payload_from_bytes, normalise_text_bytes_for_script,
     };
+    use sis_pdf_core::model::Severity;
+    use sis_pdf_pdf::graph::{Deviation, XrefSectionSummary};
+    use sis_pdf_pdf::span::Span;
 
     #[test]
     fn javascript_uri_payload_strips_scheme() {
@@ -3597,5 +3860,85 @@ mod tests {
             None => panic!("normalise_text_bytes_for_script should handle UTF-16"),
         };
         assert!(normalised.starts_with(b"function"));
+    }
+
+    #[test]
+    fn xref_conflict_assessment_downgrades_coherent_chain() {
+        let sections = vec![
+            XrefSectionSummary {
+                offset: 200,
+                kind: "stream".into(),
+                has_trailer: true,
+                prev: Some(100),
+                trailer_size: Some(122),
+                trailer_root: Some("47 0 R".into()),
+            },
+            XrefSectionSummary {
+                offset: 100,
+                kind: "stream".into(),
+                has_trailer: true,
+                prev: None,
+                trailer_size: Some(46),
+                trailer_root: Some("47 0 R".into()),
+            },
+        ];
+        let assessment = assess_xref_conflict(1_000, &[100, 200], &sections, &[], false);
+        assert_eq!(assessment.severity, Severity::Low);
+        assert_eq!(assessment.integrity.as_str(), "coherent");
+    }
+
+    #[test]
+    fn xref_conflict_assessment_marks_broken_prev_chain() {
+        let sections = vec![
+            XrefSectionSummary {
+                offset: 200,
+                kind: "stream".into(),
+                has_trailer: true,
+                prev: Some(999), // missing link
+                trailer_size: Some(122),
+                trailer_root: Some("47 0 R".into()),
+            },
+            XrefSectionSummary {
+                offset: 100,
+                kind: "stream".into(),
+                has_trailer: true,
+                prev: None,
+                trailer_size: Some(46),
+                trailer_root: Some("47 0 R".into()),
+            },
+        ];
+        let assessment = assess_xref_conflict(1_000, &[100, 200], &sections, &[], false);
+        assert_eq!(assessment.severity, Severity::Medium);
+        assert_eq!(assessment.integrity.as_str(), "broken");
+    }
+
+    #[test]
+    fn xref_conflict_assessment_escalates_cycle_with_deviation() {
+        let sections = vec![
+            XrefSectionSummary {
+                offset: 200,
+                kind: "stream".into(),
+                has_trailer: true,
+                prev: Some(100),
+                trailer_size: Some(122),
+                trailer_root: Some("47 0 R".into()),
+            },
+            XrefSectionSummary {
+                offset: 100,
+                kind: "stream".into(),
+                has_trailer: true,
+                prev: Some(200), // cycle
+                trailer_size: Some(46),
+                trailer_root: Some("47 0 R".into()),
+            },
+        ];
+        let deviations = vec![Deviation {
+            kind: "xref_trailer_search_invalid".into(),
+            span: Span { start: 0, end: 0 },
+            note: Some("test".into()),
+        }];
+        let assessment = assess_xref_conflict(1_000, &[100, 200], &sections, &deviations, false);
+        assert_eq!(assessment.severity, Severity::High);
+        assert_eq!(assessment.integrity.as_str(), "broken");
     }
 }

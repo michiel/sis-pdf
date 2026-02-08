@@ -91,12 +91,15 @@ pub fn export_org_dot(org: &OrgGraph) -> String {
     } else {
         // Fallback to basic export
         for node in &org.nodes {
-            out.push_str(&format!("  \"{} {}\";\n", node.obj, node.gen));
+            out.push_str(&format!(
+                "  \"{} {}\" [label=\"Object {} {}\"];\n",
+                node.obj, node.gen, node.obj, node.gen
+            ));
         }
         for (src, targets) in &org.adjacency {
             for t in targets {
                 out.push_str(&format!(
-                    "  \"{} {}\" -> \"{} {}\";\n",
+                    "  \"{} {}\" -> \"{} {}\" [label=\"reference\"];\n",
                     src.obj, src.gen, t.obj, t.gen
                 ));
             }
@@ -401,6 +404,29 @@ mod tests {
         assert!(dot.contains("/OpenAction"));
     }
 
+    #[test]
+    fn org_dot_fallback_includes_node_and_edge_labels() {
+        let mut adjacency = HashMap::new();
+        adjacency.insert(
+            crate::graph_walk::ObjRef { obj: 1, gen: 0 },
+            vec![crate::graph_walk::ObjRef { obj: 2, gen: 0 }],
+        );
+        adjacency.entry(crate::graph_walk::ObjRef { obj: 2, gen: 0 }).or_default();
+        let org = OrgGraph {
+            nodes: vec![
+                crate::graph_walk::ObjRef { obj: 1, gen: 0 },
+                crate::graph_walk::ObjRef { obj: 2, gen: 0 },
+            ],
+            adjacency,
+            enhanced_nodes: None,
+            enhanced_edges: None,
+        };
+
+        let dot = export_org_dot(&org);
+        assert!(dot.contains("label=\"Object 1 0\""));
+        assert!(dot.contains("label=\"reference\""));
+    }
+
     fn test_object_graph<'a>() -> ObjectGraph<'a> {
         ObjectGraph {
             bytes: &[],
@@ -408,6 +434,7 @@ mod tests {
             index: HashMap::new(),
             trailers: Vec::new(),
             startxrefs: Vec::new(),
+            xref_sections: Vec::new(),
             deviations: Vec::new(),
         }
     }
