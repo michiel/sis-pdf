@@ -1,7 +1,7 @@
 # xref_conflict heuristic refinement plan
 
 Date: 2026-02-08  
-Status: Drafted (implementation pending)
+Status: Implemented
 
 ## Problem statement
 
@@ -162,3 +162,8 @@ After refinement, analysts can do:
 
 - 2026-02-08: Plan drafted.
 - 2026-02-08: Related in-flight code committed in `13d7765` (context/severity improvements outside this specific heuristic).
+- 2026-02-08: Implemented xref integrity evaluator in detector code and wired `xref_conflict` severity to integrity state (`coherent|warning|broken`) with bounded escalation.
+- 2026-02-08: Added metadata keys for chain quality (`xref.prev_chain.*`, `xref.offsets.in_bounds`, `xref.deviation.*`, `xref.integrity.level`) and updated finding description/remediation.
+- 2026-02-08: Updated reporting/explain surfacing to include xref integrity rationale and context hints.
+- 2026-02-08: Added regression tests covering coherent linked sections (`Low`), broken `/Prev` chain (`Medium`), and cycle+deviation escalation (`High`).
+- 2026-02-08: Validation completed (`cargo build -q`, `cargo test -q -p sis-pdf-detectors xref_conflict_assessment`, `cargo test -q -p sis-pdf query`).

@@ -1266,8 +1266,32 @@ fn runtime_effect_for_finding(f: &Finding) -> String {
         "decoder_risk_present" | "decompression_ratio_suspicious" | "huge_image_dimensions" => {
             "Decoding may trigger resource exhaustion or vulnerable parser paths during rendering.".into()
         }
-        "xref_conflict"
-        | "incremental_update_chain"
+        "xref_conflict" => {
+            let integrity = f
+                .meta
+                .get("xref.integrity.level")
+                .cloned()
+                .unwrap_or_else(|| "unknown".into());
+            let startxref_count = f
+                .meta
+                .get("xref.startxref.count")
+                .or_else(|| f.meta.get("xref.startxref_count"))
+                .cloned()
+                .unwrap_or_else(|| "unknown".into());
+            match integrity.as_str() {
+                "coherent" => format!(
+                    "No direct runtime behaviour inferred; {} linked startxref entries appear coherent and typically indicate incremental revisions.",
+                    startxref_count
+                ),
+                "warning" | "broken" => format!(
+                    "Xref chain integrity is {} across {} startxref entries, which can cause parser differentials during revision resolution.",
+                    integrity, startxref_count
+                ),
+                _ => "Multiple xref sections can alter how viewers resolve revisions and parse object history."
+                    .into(),
+            }
+        }
+        "incremental_update_chain"
         | "object_id_shadowing"
         | "objstm_density_high"
         | "label_mismatch_stream_type"
@@ -1892,8 +1916,33 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
             "Decoder-heavy content can trigger parser vulnerabilities or resource exhaustion."
                 .into()
         }
-        "xref_conflict"
-        | "incremental_update_chain"
+        "xref_conflict" => {
+            let integrity = f
+                .meta
+                .get("xref.integrity.level")
+                .cloned()
+                .unwrap_or_else(|| "unknown".into());
+            let deviations = f
+                .meta
+                .get("xref.deviation.count")
+                .cloned()
+                .unwrap_or_else(|| "0".into());
+            match integrity.as_str() {
+                "coherent" => {
+                    "Multiple xref sections are present but coherently linked, so risk is primarily contextual unless paired with other anomalies."
+                        .into()
+                }
+                "warning" | "broken" => format!(
+                    "Xref chain integrity is {} with {} xref deviations; malformed revision chains can hide content or trigger parser differentials.",
+                    integrity, deviations
+                ),
+                _ => {
+                    "Structural xref inconsistencies can cause parser differentials and enable evasion or exploitation."
+                        .into()
+                }
+            }
+        }
+        "incremental_update_chain"
         | "object_id_shadowing"
         | "objstm_density_high"
         | "stream_length_mismatch"

@@ -4229,6 +4229,16 @@ fn print_finding_context_hints(meta: &std::collections::HashMap<String, String>)
         "uri.userinfo",
         "uri.ip_host",
         "parser.deviation_top",
+        "xref.integrity.level",
+        "xref.startxref.count",
+        "xref.section.count",
+        "xref.section.kinds",
+        "xref.prev_chain.valid",
+        "xref.prev_chain.length",
+        "xref.prev_chain.cycle",
+        "xref.offsets.in_bounds",
+        "xref.deviation.count",
+        "xref.deviation.kinds",
         "query.next",
     ];
     let mut printed_any = false;
