@@ -6,7 +6,7 @@ use sis_pdf_core::page_tree::build_annotation_parent_map;
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 
-use crate::entry_dict;
+use crate::{entry_dict, uri_classification::analyze_uri_content};
 
 pub struct AnnotationAttackDetector;
 
@@ -76,6 +76,11 @@ impl Detector for AnnotationAttackDetector {
             if dict.get_first(b"/A").is_some() || dict.get_first(b"/AA").is_some() {
                 let (trigger_kind, action_type, action_target, action_initiation) =
                     annotation_action_context(ctx, dict);
+                let severity = annotation_action_severity(
+                    action_type.as_str(),
+                    action_target.as_str(),
+                    action_initiation.as_str(),
+                );
                 if !action_type.is_empty() {
                     meta.insert("action.type".into(), action_type.clone());
                 }
@@ -89,7 +94,7 @@ impl Detector for AnnotationAttackDetector {
                     id: String::new(),
                     surface: self.surface(),
                     kind: "annotation_action_chain".into(),
-                    severity: Severity::Medium,
+                    severity,
                     confidence: Confidence::Probable,
                     impact: None,
                     title: "Annotation action chain".into(),
@@ -221,4 +226,79 @@ fn pdf_string_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
 
 fn is_automatic_event(name: &[u8]) -> bool {
     matches!(name, b"/O" | b"/C" | b"/PV" | b"/PI" | b"/V" | b"/PO")
+}
+
+fn annotation_action_severity(
+    action_type: &str,
+    action_target: &str,
+    initiation: &str,
+) -> Severity {
+    if !initiation.eq_ignore_ascii_case("user") {
+        return Severity::Medium;
+    }
+
+    let action_upper = action_type.to_ascii_uppercase();
+    if matches!(
+        action_upper.as_str(),
+        "/JAVASCRIPT" | "/LAUNCH" | "/SUBMITFORM" | "/IMPORTDATA" | "/RENDITION"
+    ) {
+        return Severity::Medium;
+    }
+
+    if action_upper == "/URI" {
+        if uri_target_is_suspicious(action_target) {
+            return Severity::Low;
+        }
+        return Severity::Info;
+    }
+
+    Severity::Low
+}
+
+fn uri_target_is_suspicious(target: &str) -> bool {
+    if target.is_empty() || target == "unknown" {
+        return false;
+    }
+    let analysis = analyze_uri_content(target.as_bytes());
+    analysis.userinfo_present
+        || analysis.is_javascript_uri
+        || analysis.is_data_uri
+        || analysis.is_file_uri
+        || analysis.is_ip_address
+        || analysis.has_embedded_ip_host
+        || analysis.has_non_standard_port
+        || analysis.suspicious_tld
+        || analysis.has_shortener_domain
+        || analysis.has_idn_lookalike
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{annotation_action_severity, uri_target_is_suspicious};
+    use sis_pdf_core::model::Severity;
+
+    #[test]
+    fn annotation_user_benign_uri_is_info() {
+        let sev = annotation_action_severity("/URI", "https://australiansuper.com/TMD", "user");
+        assert_eq!(sev, Severity::Info);
+    }
+
+    #[test]
+    fn annotation_user_suspicious_uri_is_low() {
+        let sev = annotation_action_severity("/URI", "https://user@example.com/login", "user");
+        assert_eq!(sev, Severity::Low);
+        assert!(uri_target_is_suspicious("https://user@example.com/login"));
+    }
+
+    #[test]
+    fn annotation_risky_action_stays_medium() {
+        let sev = annotation_action_severity("/JavaScript", "JavaScript payload", "user");
+        assert_eq!(sev, Severity::Medium);
+    }
+
+    #[test]
+    fn annotation_automatic_trigger_stays_medium() {
+        let sev = annotation_action_severity("/URI", "https://example.com", "automatic");
+        assert_eq!(sev, Severity::Medium);
+    }
 }

@@ -2188,12 +2188,26 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::Structure(events))
             }
             Query::ExportOrgDot => {
-                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph(&ctx.graph);
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
                 let dot_output = sis_pdf_core::org_export::export_org_dot(&org_graph);
                 Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
             }
             Query::ExportOrgJson => {
-                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph(&ctx.graph);
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
                 let json_output = sis_pdf_core::org_export::export_org_json(&org_graph);
                 Ok(QueryResult::Structure(json_output))
             }
