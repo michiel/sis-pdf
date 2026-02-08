@@ -10,7 +10,7 @@ use sis_pdf_pdf::object::PdfStream;
 use sis_pdf_pdf::span::Span;
 use sis_pdf_pdf::typed_graph::TypedGraph;
 use sis_pdf_pdf::ObjectGraph;
-use tracing::{debug, info_span, trace, warn, Level};
+use tracing::{debug, info_span, trace, Level};
 
 use crate::canonical::CanonicalView;
 use crate::security_log::{SecurityDomain, SecurityEvent};
@@ -303,12 +303,6 @@ impl DecodedCache {
                     message: "Decode budget exceeded",
                 }
                 .emit();
-                warn!(
-                    current = current,
-                    reserve = amount,
-                    limit = self.max_total_decoded_bytes,
-                    "Decode budget exceeded"
-                );
                 return Err(anyhow::anyhow!("total decoded bytes budget exceeded"));
             }
             match self.total_decoded.compare_exchange(
@@ -359,7 +353,6 @@ impl<'a> BudgetReservation<'a> {
                     message: "Decode budget exceeded after decode",
                 }
                 .emit();
-                warn!(total = current, limit = limit, "Decode budget exceeded after decode");
                 return Err(anyhow::anyhow!("total decoded bytes budget exceeded"));
             }
         }

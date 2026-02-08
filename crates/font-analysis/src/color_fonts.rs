@@ -47,7 +47,7 @@ pub fn analyze_color_font(font_data: &[u8]) -> Vec<FontFinding> {
         warn!(
             has_colr = has_colr,
             has_cpal = has_cpal,
-            "Inconsistent color tables: COLR and CPAL should both be present or both absent"
+            "[NON-FATAL][finding:font.color_table_inconsistent] Inconsistent color tables: COLR and CPAL should both be present or both absent"
         );
 
         let mut meta = HashMap::new();
@@ -97,7 +97,9 @@ fn validate_cpal_table(font_data: &[u8]) -> Option<Vec<FontFinding>> {
     let (offset, length) = find_table(font_data, b"CPAL")?;
 
     if offset + length > font_data.len() {
-        warn!("CPAL table extends beyond font data");
+        warn!(
+            "[NON-FATAL][finding:font.color_table_inconsistent] CPAL table extends beyond font data"
+        );
         let mut meta = HashMap::new();
         meta.insert("table".to_string(), "CPAL".to_string());
         meta.insert("offset".to_string(), offset.to_string());
@@ -117,7 +119,10 @@ fn validate_cpal_table(font_data: &[u8]) -> Option<Vec<FontFinding>> {
 
     // Basic CPAL structure validation (version 0)
     if length < 12 {
-        warn!(length = length, "CPAL table too small");
+        warn!(
+            length = length,
+            "[NON-FATAL][finding:font.color_table_inconsistent] CPAL table too small"
+        );
         let mut meta = HashMap::new();
         meta.insert("table".to_string(), "CPAL".to_string());
         meta.insert("size".to_string(), length.to_string());
@@ -143,7 +148,10 @@ fn validate_cpal_table(font_data: &[u8]) -> Option<Vec<FontFinding>> {
     let num_palettes = u16::from_be_bytes([table_data[4], table_data[5]]) as usize;
 
     if num_palettes > MAX_SAFE_PALETTES {
-        warn!(num_palettes = num_palettes, "Excessive number of color palettes");
+        warn!(
+            num_palettes = num_palettes,
+            "[NON-FATAL][finding:font.color_table_inconsistent] Excessive number of color palettes"
+        );
 
         let mut meta = HashMap::new();
         meta.insert("num_palettes".to_string(), num_palettes.to_string());
@@ -178,7 +186,9 @@ fn validate_colr_table(font_data: &[u8], font_num_glyphs: u16) -> Option<Vec<Fon
     let (offset, length) = find_table(font_data, b"COLR")?;
 
     if offset + length > font_data.len() {
-        warn!("COLR table extends beyond font data");
+        warn!(
+            "[NON-FATAL][finding:font.color_table_inconsistent] COLR table extends beyond font data"
+        );
         let mut meta = HashMap::new();
         meta.insert("table".to_string(), "COLR".to_string());
         meta.insert("offset".to_string(), offset.to_string());
@@ -197,7 +207,10 @@ fn validate_colr_table(font_data: &[u8], font_num_glyphs: u16) -> Option<Vec<Fon
 
     // Basic COLR structure validation
     if length < 14 {
-        warn!(length = length, "COLR table too small");
+        warn!(
+            length = length,
+            "[NON-FATAL][finding:font.color_table_inconsistent] COLR table too small"
+        );
         let mut meta = HashMap::new();
         meta.insert("table".to_string(), "COLR".to_string());
         meta.insert("size".to_string(), length.to_string());
@@ -227,7 +240,7 @@ fn validate_colr_table(font_data: &[u8], font_num_glyphs: u16) -> Option<Vec<Fon
         warn!(
             num_base_glyphs = num_base_glyphs,
             num_glyphs = font_num_glyphs,
-            "COLR base glyph count exceeds total glyph count"
+            "[NON-FATAL][finding:font.color_table_inconsistent] COLR base glyph count exceeds total glyph count"
         );
 
         let mut meta = HashMap::new();

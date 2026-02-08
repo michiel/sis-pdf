@@ -298,16 +298,44 @@ pub fn analyze_hinting_program(
     // Parse and execute the program
     let mut state = VMState::new(*limits);
     if let Err(err) = execute_program(&mut state, program) {
+        let (kind, title, detail_key, detail_value) = match err {
+            VmError::PushLoopDetected(count) => (
+                "font.ttf_hinting_push_loop".to_string(),
+                "Push loop detected in hinting program".to_string(),
+                Some("push_loop_length".to_string()),
+                Some(count.to_string()),
+            ),
+            VmError::ControlFlowStorm(count) => (
+                "font.ttf_hinting_control_flow_storm".to_string(),
+                "Control flow storm detected in hinting program".to_string(),
+                Some("storm_length".to_string()),
+                Some(count.to_string()),
+            ),
+            VmError::CallStorm(count) => (
+                "font.ttf_hinting_call_storm".to_string(),
+                "Call storm detected in hinting program".to_string(),
+                Some("storm_length".to_string()),
+                Some(count.to_string()),
+            ),
+            _ => (
+                "font.ttf_hinting_suspicious".to_string(),
+                "Suspicious TrueType hinting program".to_string(),
+                None,
+                None,
+            ),
+        };
         let history = state.formatted_instruction_history();
         // Only log warnings if not suppressed (to reduce log spam when limits are hit)
         if !suppress_warnings {
             warn!(
                 error = %err,
+                finding = kind.as_str(),
                 instruction_count = state.instruction_count,
                 max_stack_depth = state.max_stack_depth,
                 control_depth = state.max_control_depth,
                 instruction_history = &history,
-                "Hinting program execution failed"
+                "[NON-FATAL][finding:{}] Hinting program execution failed",
+                kind
             );
         }
         let mut meta = HashMap::new();
@@ -319,34 +347,9 @@ pub fn analyze_hinting_program(
         if !history.is_empty() {
             meta.insert("instruction_history".to_string(), history);
         }
-
-        let (kind, title) = match err {
-            VmError::PushLoopDetected(count) => {
-                meta.insert("push_loop_length".to_string(), count.to_string());
-                (
-                    "font.ttf_hinting_push_loop".to_string(),
-                    "Push loop detected in hinting program".to_string(),
-                )
-            }
-            VmError::ControlFlowStorm(count) => {
-                meta.insert("storm_length".to_string(), count.to_string());
-                (
-                    "font.ttf_hinting_control_flow_storm".to_string(),
-                    "Control flow storm detected in hinting program".to_string(),
-                )
-            }
-            VmError::CallStorm(count) => {
-                meta.insert("storm_length".to_string(), count.to_string());
-                (
-                    "font.ttf_hinting_call_storm".to_string(),
-                    "Call storm detected in hinting program".to_string(),
-                )
-            }
-            _ => (
-                "font.ttf_hinting_suspicious".to_string(),
-                "Suspicious TrueType hinting program".to_string(),
-            ),
-        };
+        if let (Some(key), Some(value)) = (detail_key, detail_value) {
+            meta.insert(key, value);
+        }
 
         findings.push(FontFinding {
             kind,

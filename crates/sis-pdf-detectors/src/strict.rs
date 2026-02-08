@@ -328,7 +328,7 @@ impl Detector for StrictParseDeviationDetector {
                     domain = "pdf.parser",
                     kind = "parser_deviation_cluster",
                     deviation_count = ctx.graph.deviations.len(),
-                    "Deviation cluster detected"
+                    "[NON-FATAL][finding:parser_deviation_cluster] Deviation cluster detected"
                 );
                 findings.push(Finding {
                     id: String::new(),
@@ -378,7 +378,7 @@ impl Detector for StrictParseDeviationDetector {
                     domain = "pdf.parser",
                     kind = "deviations_in_action_context",
                     deviation_count = ctx.graph.deviations.len(),
-                    "Deviations present in JS/Action context"
+                    "[NON-FATAL][finding:deviations_in_action_context] Deviations present in JS/Action context"
                 );
                 findings.push(Finding {
                     id: String::new(),
