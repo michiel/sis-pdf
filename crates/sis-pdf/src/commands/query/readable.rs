@@ -138,9 +138,61 @@ fn format_structure(value: &Value) -> String {
             }
             render_array(&processed, 0)
         }
-        Value::Object(map) => render_object(map, 0),
+        Value::Object(map) => {
+            if let Some(xref) = format_xref_overview(map) {
+                return xref;
+            }
+            render_object(map, 0)
+        }
         other => value_summary(other),
     }
+}
+
+fn format_xref_overview(map: &serde_json::Map<String, Value>) -> Option<String> {
+    let startxref_count = map.get("startxref_count")?.as_u64()?;
+    let section_count = map.get("section_count")?.as_u64()?;
+    let trailer_count = map.get("trailer_count")?.as_u64()?;
+    let deviation_count = map.get("deviation_count")?.as_u64()?;
+    let startxrefs = map.get("startxrefs")?.as_array()?;
+    let sections = map.get("sections")?.as_array()?;
+    let trailers = map.get("trailers")?.as_array()?;
+    let deviations = map.get("deviations")?.as_array()?;
+
+    let mut out = String::new();
+    writeln!(out, "Xref Overview").ok();
+    writeln!(
+        out,
+        "startxrefs={} sections={} trailers={} deviations={}",
+        startxref_count, section_count, trailer_count, deviation_count
+    )
+    .ok();
+    writeln!(out).ok();
+
+    append_xref_block(&mut out, "Startxref Markers", startxrefs);
+    append_xref_block(&mut out, "Xref Sections", sections);
+    append_xref_block(&mut out, "Trailers", trailers);
+    append_xref_block(&mut out, "Deviations", deviations);
+
+    Some(out.trim_end().to_string())
+}
+
+fn append_xref_block(out: &mut String, title: &str, rows: &[Value]) {
+    writeln!(out, "{title}").ok();
+    if rows.is_empty() {
+        writeln!(out, "(none)").ok();
+        writeln!(out).ok();
+        return;
+    }
+    if rows.iter().all(|value| value.is_object()) {
+        if let Some(table) = build_object_table(rows) {
+            writeln!(out, "{table}").ok();
+            writeln!(out).ok();
+            return;
+        }
+    }
+    let rendered = render_array(rows, 0);
+    writeln!(out, "{}", rendered.trim_end()).ok();
+    writeln!(out).ok();
 }
 
 fn build_object_table(entries: &[Value]) -> Option<String> {
@@ -431,5 +483,34 @@ mod tests {
         assert!(table.contains("offset"));
         assert!(table.contains("trailer_root"));
         assert!(table.contains("99670"));
+    }
+
+    #[test]
+    fn xref_overview_renders_analyst_friendly_sections() {
+        let value = json!({
+            "startxref_count": 2,
+            "section_count": 2,
+            "trailer_count": 2,
+            "deviation_count": 0,
+            "startxrefs": [
+                {"index": 0, "offset": 0, "in_bounds": true, "distance_from_eof": 100045},
+                {"index": 1, "offset": 116, "in_bounds": true, "distance_from_eof": 99929}
+            ],
+            "sections": [
+                {"index": 0, "kind": "stream", "offset": 116, "prev": 99670, "has_trailer": true, "trailer_size": 122, "trailer_root": "47 0 R"},
+                {"index": 1, "kind": "stream", "offset": 99670, "prev": null, "has_trailer": true, "trailer_size": 46, "trailer_root": "47 0 R"}
+            ],
+            "trailers": [
+                {"index": 0, "size": 122, "root": "47 0 R", "prev": 99670, "id_present": true, "encrypt": null},
+                {"index": 1, "size": 46, "root": "47 0 R", "prev": null, "id_present": true, "encrypt": null}
+            ],
+            "deviations": []
+        });
+        let output = format_structure(&value);
+        assert!(output.contains("Xref Overview"));
+        assert!(output.contains("startxrefs=2 sections=2 trailers=2 deviations=0"));
+        assert!(output.contains("Xref Sections"));
+        assert!(output.contains("Startxref Markers"));
+        assert!(output.contains("Trailers"));
     }
 }
