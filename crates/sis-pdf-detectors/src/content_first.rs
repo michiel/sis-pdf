@@ -1392,19 +1392,45 @@ fn script_payload_findings(
     let slice = if data.len() > max_scan_bytes { &data[..max_scan_bytes] } else { data };
 
     let mut findings = Vec::new();
-    let mut push = |kind_str: &str, title: &str, description: &str, default_severity: Severity| {
-        let actual_severity = if kind.is_image()
-            || matches!(kind, BlobKind::Xml | BlobKind::Html | BlobKind::Unknown)
+    let mut push = |kind_str: &str,
+                    title: &str,
+                    description: &str,
+                    family: &str,
+                    hits: Vec<String>| {
+        if hits.is_empty() {
+            return;
+        }
+        let printable_ratio = printable_ascii_ratio(slice);
+        let text_like = printable_ratio >= 70;
+        let corroborated =
+            contains_any_ci(slice, &[b"/launch", b"/javascript", b"/openaction", b"/aa", b"/js"]);
+        let hit_count = hits.len();
+        let actual_severity = if !text_like || kind.is_image() || matches!(kind, BlobKind::Unknown)
         {
-            // If the blob is an image, XML, HTML, or unknown, and we found a script indicator,
-            // it's likely a false positive or benign data. Lower severity.
             Severity::Low
+        } else if corroborated && hit_count >= 2 {
+            Severity::High
+        } else if hit_count >= 2 {
+            Severity::Medium
         } else {
-            // Otherwise, use the default severity (which is High for most script payloads)
-            default_severity
+            Severity::Low
         };
         let mut meta = HashMap::new();
         meta.insert("blob.origin".to_string(), origin.to_string());
+        meta.insert("script.pattern_family".to_string(), family.to_string());
+        meta.insert("script.pattern_hits".to_string(), hits.join(","));
+        meta.insert("script.pattern_hit_count".to_string(), hit_count.to_string());
+        meta.insert("script.text_printable_ratio".to_string(), printable_ratio.to_string());
+        meta.insert("script.corroborating_action_markers".to_string(), corroborated.to_string());
+        if let Some(first_hit) = hits.first() {
+            if let Some(offset) = find_ci(slice, first_hit.as_bytes()) {
+                meta.insert("script.match_offset".to_string(), offset.to_string());
+                meta.insert(
+                    "script.match_snippet".to_string(),
+                    snippet_around(slice, offset, first_hit.len(), 80),
+                );
+            }
+        }
         findings.push(Finding {
             id: String::new(),
             surface: AttackSurface::StreamsAndFilters,
@@ -1415,7 +1441,10 @@ fn script_payload_findings(
             title: title.to_string(),
             description: description.to_string(),
             objects: vec![format!("{} {} obj", obj, gen)],
-            evidence: vec![span_to_evidence(span, label)],
+            evidence: vec![span_to_evidence(
+                span,
+                &format!("{}; matched patterns: {}", label, hits.join(", ")),
+            )],
             remediation: Some("Inspect the script payload and execution context.".to_string()),
             meta,
             yara: None,
@@ -1425,44 +1454,67 @@ fn script_payload_findings(
         });
     };
 
-    if contains_any_ci(slice, &[b"vbscript", b"wscript.shell", b"createscript"]) {
+    let vb_hits = collect_pattern_hits(
+        slice,
+        &[b"vbscript", b"wscript.shell", b"createscript", b"createobject(\"wscript.shell\")"],
+    );
+    if !vb_hits.is_empty() {
         push(
             "vbscript_payload_present",
             "VBScript payload present",
             "VBScript indicators detected in content.",
-            Severity::High,
+            "vbscript",
+            vb_hits,
         );
     }
-    if contains_any_ci(slice, &[b"powershell", b"invoke-expression", b"iex "]) {
+    let ps_hits = collect_pattern_hits(
+        slice,
+        &[b"powershell", b"invoke-expression", b"iex ", b"-encodedcommand", b"-nop"],
+    );
+    if !ps_hits.is_empty() {
         push(
             "powershell_payload_present",
             "PowerShell payload present",
             "PowerShell indicators detected in content.",
-            Severity::High,
+            "powershell",
+            ps_hits,
         );
     }
-    if contains_any_ci(slice, &[b"#!/bin/bash", b"/bin/sh", b"bash -c"]) {
+    let bash_hits =
+        collect_pattern_hits(slice, &[b"#!/bin/bash", b"/bin/sh", b"bash -c", b"sh -c"]);
+    if !bash_hits.is_empty() {
         push(
             "bash_payload_present",
             "Shell payload present",
             "Shell script indicators detected in content.",
-            Severity::High,
+            "bash",
+            bash_hits,
         );
     }
-    if contains_any_ci(slice, &[b"cmd.exe", b"cmd /c", b" /c "]) {
+    let cmd_hits = collect_pattern_hits(
+        slice,
+        &[b"cmd.exe", b"cmd /c", b"\\cmd.exe", b" /k ", b"comspec", b"powershell -command"],
+    );
+    if !cmd_hits.is_empty() {
         push(
             "cmd_payload_present",
             "Command payload present",
             "Command shell indicators detected in content.",
-            Severity::High,
+            "cmd",
+            cmd_hits,
         );
     }
-    if contains_any_ci(slice, &[b"osascript", b"tell application", b"apple script"]) {
+    let apple_hits = collect_pattern_hits(
+        slice,
+        &[b"osascript", b"tell application", b"apple script", b"do shell script"],
+    );
+    if !apple_hits.is_empty() {
         push(
             "applescript_payload_present",
             "AppleScript payload present",
             "AppleScript indicators detected in content.",
-            Severity::High,
+            "applescript",
+            apple_hits,
         );
     }
     if contains_any_ci(slice, &[b"<script", b"<xfa", b"<xdp"]) && looks_like_xml(slice) {
@@ -1470,11 +1522,44 @@ fn script_payload_findings(
             "xfa_script_present",
             "XFA/XML script present",
             "Script tags detected inside XFA/XML content.",
-            Severity::Medium,
+            "xfa_xml",
+            vec!["<script".to_string()],
         );
     }
 
     findings
+}
+
+fn collect_pattern_hits(haystack: &[u8], patterns: &[&[u8]]) -> Vec<String> {
+    patterns
+        .iter()
+        .filter_map(|needle| {
+            if find_ci(haystack, needle).is_some() {
+                Some(String::from_utf8_lossy(needle).to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn printable_ascii_ratio(bytes: &[u8]) -> usize {
+    if bytes.is_empty() {
+        return 0;
+    }
+    let printable =
+        bytes.iter().filter(|byte| byte.is_ascii_graphic() || byte.is_ascii_whitespace()).count();
+    (printable * 100) / bytes.len()
+}
+
+fn snippet_around(bytes: &[u8], offset: usize, match_len: usize, max_len: usize) -> String {
+    let half = max_len / 2;
+    let start = offset.saturating_sub(half);
+    let end = (offset + match_len + half).min(bytes.len());
+    bytes[start..end]
+        .iter()
+        .map(|b| if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '.' })
+        .collect()
 }
 
 fn contains_any_ci(haystack: &[u8], needles: &[&[u8]]) -> bool {
@@ -1835,5 +1920,54 @@ mod tests {
         let hint =
             observed_signature_hint(b"<?xpacket begin=\"...\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>");
         assert_eq!(hint, "xml/xmp packet prefix (<?xpacket)");
+    }
+
+    #[test]
+    fn script_payload_cmd_ignores_lone_c_switch_token() {
+        let span = Span { start: 0, end: 32 };
+        let data = b"benign text with /c in content";
+        let findings =
+            script_payload_findings(60, 0, span, data, BlobKind::Xml, "stream", "Stream data");
+        assert!(findings.iter().all(|f| f.kind != "cmd_payload_present"));
+    }
+
+    #[test]
+    fn script_payload_cmd_is_medium_with_multiple_hits_without_action_marker() {
+        let span = Span { start: 0, end: 64 };
+        let data = b"cmd.exe used with cmd /c in plain metadata text";
+        let findings =
+            script_payload_findings(60, 0, span, data, BlobKind::Xml, "stream", "Stream data");
+        let cmd = findings
+            .iter()
+            .find(|finding| finding.kind == "cmd_payload_present")
+            .expect("expected command payload finding");
+        assert_eq!(cmd.severity, Severity::Medium);
+        assert_eq!(
+            cmd.meta.get("script.pattern_hits").map(|value| value.as_str()),
+            Some("cmd.exe,cmd /c")
+        );
+        assert_eq!(
+            cmd.meta.get("script.corroborating_action_markers").map(|value| value.as_str()),
+            Some("false")
+        );
+    }
+
+    #[test]
+    fn script_payload_cmd_is_high_when_corroborated_and_multi_hit() {
+        let span = Span { start: 0, end: 96 };
+        let data =
+            b"<< /OpenAction 1 0 R >> cmd.exe /c calc with cmd /c and comspec in same stream";
+        let findings =
+            script_payload_findings(60, 0, span, data, BlobKind::Xml, "stream", "Stream data");
+        let cmd = findings
+            .iter()
+            .find(|finding| finding.kind == "cmd_payload_present")
+            .expect("expected command payload finding");
+        assert_eq!(cmd.severity, Severity::High);
+        assert_eq!(
+            cmd.meta.get("script.corroborating_action_markers").map(|value| value.as_str()),
+            Some("true")
+        );
+        assert_eq!(cmd.meta.get("script.pattern_hit_count").map(|value| value.as_str()), Some("3"));
     }
 }
