@@ -7,6 +7,7 @@ use flate2::read::ZlibDecoder;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
 use sis_pdf_pdf::blob::Blob;
 use sis_pdf_pdf::blob_classify::{classify_blob, validate_blob_kind, BlobKind};
 use sis_pdf_pdf::classification::ClassificationMap;
@@ -107,6 +108,7 @@ impl Detector for ContentFirstDetector {
                         &declared_type,
                         &declared_subtype,
                         kind,
+                        data,
                         origin_label,
                     ) {
                         findings.push(finding);
@@ -621,6 +623,7 @@ fn label_mismatch_finding(
     declared_type: &Option<String>,
     declared_subtype: &Option<String>,
     kind: BlobKind,
+    observed_data: &[u8],
     origin: &str,
 ) -> Option<Finding> {
     let declared_subtype = declared_subtype.as_ref()?;
@@ -659,7 +662,20 @@ fn label_mismatch_finding(
     }
     meta.insert("declared.subtype".to_string(), declared_subtype.clone());
     meta.insert("blob.kind".to_string(), kind.as_str().to_string());
+    meta.insert("observed.signature_hint".to_string(), observed_signature_hint(observed_data));
     meta.insert("blob.origin".to_string(), origin.to_string());
+    meta.insert(
+        "declared.expected_family".to_string(),
+        expected_family_for_subtype(&declared_lower).to_string(),
+    );
+
+    let description = format!(
+        "Declared subtype {} expects {}, but observed content classifies as {} (signature hint: {}).",
+        declared_subtype,
+        expected_family_for_subtype(&declared_lower),
+        kind.as_str(),
+        meta.get("observed.signature_hint").cloned().unwrap_or_else(|| "unknown".to_string())
+    );
 
     Some(Finding {
         id: String::new(),
@@ -669,7 +685,7 @@ fn label_mismatch_finding(
         confidence: Confidence::Strong,
         impact: None,
         title: "Stream label mismatch".to_string(),
-        description: "Stream subtype does not match observed content signature.".to_string(),
+        description,
         objects: vec![format!("{} {} obj", obj, gen)],
         evidence: vec![span_to_evidence(stream.data_span, "Stream data")],
         remediation: Some("Verify stream subtype and inspect embedded content.".to_string()),
@@ -682,6 +698,14 @@ fn label_mismatch_finding(
         position: None,
         positions: Vec::new(),
     })
+}
+
+fn expected_family_for_subtype(subtype_lower: &str) -> &'static str {
+    match subtype_lower {
+        "/image" => "image-like stream bytes",
+        "/xml" | "/xfa" => "xml/html text payload",
+        _ => "declared subtype-compatible bytes",
+    }
 }
 
 fn validation_failure_finding(
@@ -786,7 +810,7 @@ fn declared_filter_invalid_finding(
         return None;
     }
 
-    let (title, description, confidence) = match &meta.outcome {
+    let (title, mut description, confidence) = match &meta.outcome {
         DecodeOutcome::Failed { reason, .. } => (
             "Declared filters failed to decode",
             format!("Stream decode failed: {reason}"),
@@ -804,6 +828,34 @@ fn declared_filter_invalid_finding(
     finding_meta.insert("stream.filters".to_string(), meta.filters.join(","));
     finding_meta.insert("decode.outcome".to_string(), outcome_label(&meta.outcome));
     finding_meta.insert("blob.origin".to_string(), origin.to_string());
+    let observed_data = blob.decoded.as_deref().unwrap_or(blob.raw);
+    let observed_kind = classify_blob(observed_data);
+    finding_meta.insert("decode.observed_type".to_string(), observed_kind.as_str().to_string());
+    finding_meta
+        .insert("decode.observed_signature".to_string(), observed_signature_hint(observed_data));
+
+    let mut expected_types = Vec::new();
+    let mut expected_signatures = Vec::new();
+    for filter in &meta.filters {
+        if let Some((expected_type, expected_signature)) = expected_profile_for_filter(filter) {
+            let expected_type = expected_type.to_string();
+            let expected_signature = expected_signature.to_string();
+            if !expected_types.contains(&expected_type) {
+                expected_types.push(expected_type);
+            }
+            if !expected_signatures.contains(&expected_signature) {
+                expected_signatures.push(expected_signature);
+            }
+        }
+    }
+    if !expected_types.is_empty() {
+        finding_meta.insert("decode.expected_types".to_string(), expected_types.join(","));
+    }
+    if !expected_signatures.is_empty() {
+        finding_meta
+            .insert("decode.expected_signatures".to_string(), expected_signatures.join(","));
+    }
+
     if let Some(classified) = classifications.get(&(obj, gen)) {
         finding_meta
             .insert("stream.obj_type".to_string(), classified.obj_type.as_str().to_string());
@@ -820,6 +872,25 @@ fn declared_filter_invalid_finding(
             .map(|m| format!("{}:{}", m.filter, m.reason))
             .collect::<Vec<_>>();
         finding_meta.insert("decode.mismatch".to_string(), reasons.join(";"));
+    }
+    if !expected_types.is_empty()
+        && matches!(meta.outcome, DecodeOutcome::SuspectMismatch | DecodeOutcome::Failed { .. })
+    {
+        let mismatch_summary = format!(
+            "Declared filters expected {} (signature hints: {}), but observed {} (signature hint: {}).",
+            expected_types.join(","),
+            expected_signatures.join(","),
+            observed_kind.as_str(),
+            finding_meta
+                .get("decode.observed_signature")
+                .cloned()
+                .unwrap_or_else(|| "unknown".to_string())
+        );
+        if matches!(meta.outcome, DecodeOutcome::SuspectMismatch) {
+            description = mismatch_summary;
+        } else {
+            description = format!("{description} {mismatch_summary}");
+        }
     }
 
     Some(Finding {
@@ -844,6 +915,45 @@ fn declared_filter_invalid_finding(
         position: None,
         positions: Vec::new(),
     })
+}
+
+fn expected_profile_for_filter(filter: &str) -> Option<(&'static str, &'static str)> {
+    match filter.to_ascii_lowercase().as_str() {
+        "/flatedecode" | "/fl" => Some(("zlib/deflate payload", "zlib header (typically 0x78..)")),
+        "/dctdecode" | "/dct" => Some(("jpeg payload", "jpeg soi (ff d8 ff)")),
+        "/jpxdecode" | "/jpx" => Some(("jpeg2000 payload", "jp2 signature box")),
+        "/jbig2decode" | "/jbig2" => Some(("jbig2 payload", "jbig2 file header")),
+        "/ccittfaxdecode" | "/ccittfax" => Some(("ccitt fax payload", "tiff/ccitt style header")),
+        _ => None,
+    }
+}
+
+fn observed_signature_hint(data: &[u8]) -> String {
+    if data.is_empty() {
+        return "empty".to_string();
+    }
+    if data.starts_with(b"%PDF-") {
+        return "%PDF-".to_string();
+    }
+    if data.starts_with(b"\xFF\xD8\xFF") {
+        return "jpeg soi (ff d8 ff)".to_string();
+    }
+    if data.starts_with(b"\x89PNG\r\n\x1A\n") {
+        return "png signature".to_string();
+    }
+    if data.starts_with(b"PK\x03\x04") {
+        return "zip local header (pk\\x03\\x04)".to_string();
+    }
+    if looks_like_zlib(data) {
+        return "zlib-like header".to_string();
+    }
+    let mut preview = String::new();
+    let max = data.len().min(8);
+    for byte in &data[..max] {
+        use std::fmt::Write;
+        let _ = write!(&mut preview, "{:02x}", byte);
+    }
+    format!("hex:{preview}")
 }
 
 fn stream_is_structural(stream: &PdfStream<'_>) -> bool {
@@ -966,15 +1076,22 @@ mod declared_filter_invalid_tests {
     fn declared_filter_invalid_reports_non_structural_streams() {
         let stream =
             make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/XObject"))));
-        assert!(declared_filter_invalid_finding(
+        let finding = declared_filter_invalid_finding(
             1,
             0,
             &stream,
             &make_blob(),
             "stream",
-            &classification_map()
+            &classification_map(),
         )
-        .is_some());
+        .expect("finding");
+        assert!(finding.description.contains("Declared filters expected"));
+        assert_eq!(
+            finding.meta.get("decode.expected_types").map(|v| v.as_str()),
+            Some("zlib/deflate payload")
+        );
+        assert!(finding.meta.contains_key("decode.observed_type"));
+        assert!(finding.meta.contains_key("decode.observed_signature"));
     }
 
     #[test]
@@ -1059,9 +1176,24 @@ fn undeclared_compression_finding(
         return None;
     }
 
+    let analysis = analyse_stream(raw, &StreamLimits::default());
     let mut meta = HashMap::new();
-    meta.insert("compression.guess".to_string(), "zlib".to_string());
+    meta.insert("expected.filter_declared".to_string(), "none".to_string());
+    meta.insert(
+        "expected.compression".to_string(),
+        "uncompressed/plain stream bytes when /Filter is absent".to_string(),
+    );
+    meta.insert("observed.compression_guess".to_string(), "zlib".to_string());
+    meta.insert("observed.signature_hint".to_string(), observed_signature_hint(raw));
+    meta.insert("observed.stream_entropy".to_string(), format!("{:.2}", analysis.entropy));
+    meta.insert(
+        "observed.first_bytes".to_string(),
+        observed_signature_hint(&raw[..raw.len().min(8)]),
+    );
     meta.insert("blob.origin".to_string(), origin.to_string());
+    meta.insert("query.next".to_string(), format!("stream {obj} {gen} --raw (or --decode)"));
+    meta.insert("threshold.filter_count".to_string(), "0".to_string());
+    meta.insert("threshold.zlib_like".to_string(), "true".to_string());
 
     Some(Finding {
         id: String::new(),
@@ -1071,10 +1203,17 @@ fn undeclared_compression_finding(
         confidence: Confidence::Probable,
         impact: None,
         title: "Undeclared compression detected".to_string(),
-        description: "Stream data looks compressed despite no declared filters.".to_string(),
+        description: format!(
+            "No /Filter is declared (expected plain bytes), but stream bytes look zlib-compressed (signature hint: {}, entropy {:.2}).",
+            meta.get("observed.signature_hint").cloned().unwrap_or_else(|| "unknown".to_string()),
+            analysis.entropy
+        ),
         objects: vec![format!("{} {} obj", obj, gen)],
         evidence: vec![span_to_evidence(stream.data_span, "Stream data")],
-        remediation: Some("Review stream for hidden compression or evasion.".to_string()),
+        remediation: Some(
+            "Inspect stream bytes, add/repair /Filter declarations, and compare decoded content against viewer behaviour."
+                .to_string(),
+        ),
         meta,
         reader_impacts: Vec::new(),
         action_type: None,

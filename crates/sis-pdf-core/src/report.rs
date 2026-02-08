@@ -1215,7 +1215,41 @@ fn runtime_effect_for_finding(f: &Finding) -> String {
         "open_action_present" => "Automatic execution occurs on document open; downstream actions may run without user intent.".into(),
         "aa_present" | "aa_event_present" => "Event-driven actions can fire during viewing or interaction, enabling automatic execution.".into(),
         "js_present" => "JavaScript runs in the viewer context and can influence document behavior or user actions.".into(),
-        "uri_present" => "User may be redirected to external resources, enabling phishing or data exfiltration.".into(),
+        "uri_present" => {
+            let domain = f.meta.get("uri.domain").cloned().unwrap_or_else(|| "unknown".into());
+            format!(
+                "Viewer may navigate to URI targets (domain: {}), enabling phishing, credential capture, or staged fetches.",
+                domain
+            )
+        }
+        "action_chain_complex" => {
+            let depth = f
+                .meta
+                .get("observed.chain_depth")
+                .or_else(|| f.meta.get("action.chain_depth"))
+                .cloned()
+                .unwrap_or_else(|| "unknown".into());
+            let terminal =
+                f.meta.get("observed.terminal_action").cloned().unwrap_or_else(|| "unknown".into());
+            format!(
+                "Chained actions can execute in sequence (depth {}, terminal {}), increasing staged-execution risk.",
+                depth, terminal
+            )
+        }
+        "annotation_action_chain" => {
+            let action_type =
+                f.meta.get("action.type").cloned().unwrap_or_else(|| "unknown".into());
+            let initiation =
+                f.meta.get("action.initiation").cloned().unwrap_or_else(|| "unknown".into());
+            format!(
+                "Annotation-triggered action ({}, initiation {}) can fire navigation or script behaviour.",
+                action_type, initiation
+            )
+        }
+        "xfa_submit" => {
+            "XFA submission can send form data to remote endpoints, including attacker-controlled collectors."
+                .into()
+        }
         "launch_action_present" => "External application launch is possible, increasing risk of system compromise.".into(),
         "submitform_present" => "Form data may be transmitted to remote endpoints.".into(),
         "embedded_file_present" | "filespec_present" => "Embedded files can be extracted or opened by the user or viewer.".into(),
@@ -1248,7 +1282,19 @@ fn runtime_effect_for_finding(f: &Finding) -> String {
         | "missing_pdf_header"
         | "missing_eof_marker"
         | "parser_diff_structural" => {
-            "No direct runtime behavior inferred; structural anomalies can alter how viewers parse and execute content.".into()
+            if f.kind == "undeclared_compression_present" {
+                let sig = f
+                    .meta
+                    .get("observed.signature_hint")
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".into());
+                format!(
+                    "Viewer decode paths can diverge when /Filter is absent but bytes appear compressed (signature: {}).",
+                    sig
+                )
+            } else {
+                "No direct runtime behaviour inferred; structural anomalies can alter how viewers parse and execute content.".into()
+            }
         }
         _ => "No direct runtime behavior inferred; increases attack surface or analysis risk.".into(),
     }
@@ -1675,8 +1721,11 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
                 .into()
         }
         "uri_present" => {
-            "URI actions can direct users to external resources, enabling phishing or data exfiltration."
-                .into()
+            let domain = f.meta.get("uri.domain").cloned().unwrap_or_else(|| "unknown".into());
+            format!(
+                "URI actions can direct users to external resources (domain: {}), enabling phishing or data exfiltration.",
+                domain
+            )
         }
         "submitform_present" => {
             "SubmitForm can transmit form data to external endpoints, enabling data leakage."
@@ -1695,8 +1744,81 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
                 .into()
         }
         "undeclared_compression_present" => {
-            "Stream appears compressed without declaring filters, suggesting hidden content or evasion."
-                .into()
+            let expected =
+                f.meta.get("expected.filter_declared").cloned().unwrap_or_else(|| "none".into());
+            let observed = f
+                .meta
+                .get("observed.compression_guess")
+                .cloned()
+                .unwrap_or_else(|| "compressed-like".into());
+            format!(
+                "Declared filter state ({}) does not match observed payload encoding ({}), suggesting hidden content or parser differential risk.",
+                expected, observed
+            )
+        }
+        "action_chain_complex" => {
+            let depth = f
+                .meta
+                .get("observed.chain_depth")
+                .or_else(|| f.meta.get("action.chain_depth"))
+                .cloned()
+                .unwrap_or_else(|| "unknown".into());
+            let threshold = f.meta.get("threshold.depth").cloned().unwrap_or_else(|| "unknown".into());
+            format!(
+                "Action-chain depth {} exceeds complexity threshold {}, which can hide staged payload transitions.",
+                depth, threshold
+            )
+        }
+        "annotation_action_chain" => {
+            let action_type =
+                f.meta.get("action.type").cloned().unwrap_or_else(|| "unknown".into());
+            let target =
+                f.meta.get("action.target").cloned().unwrap_or_else(|| "unknown".into());
+            format!(
+                "Annotation action ({}) targeting {} can trigger unexpected navigation or execution paths.",
+                action_type, target
+            )
+        }
+        "xfa_submit" => {
+            let domain = f.meta.get("url.domain").cloned().unwrap_or_else(|| "unknown".into());
+            let external = f.meta.get("url.external").cloned().unwrap_or_else(|| "unknown".into());
+            format!(
+                "XFA submit target domain={} (external={}) can exfiltrate form data outside trusted boundaries.",
+                domain, external
+            )
+        }
+        "swf_embedded" => {
+            let version = f.meta.get("swf.version").cloned().unwrap_or_else(|| "unknown".into());
+            let compression =
+                f.meta.get("swf.compression").cloned().unwrap_or_else(|| "unknown".into());
+            format!(
+                "Embedded SWF (version {}, compression {}) expands exploit surface via legacy Flash parsing paths.",
+                version, compression
+            )
+        }
+        "strict_parse_deviation_summary" => {
+            let top = f
+                .meta
+                .get("parser.deviation_top")
+                .cloned()
+                .unwrap_or_else(|| "unknown".into());
+            format!(
+                "Frequent strict-parser deviations ({}) indicate malformed structure that can produce parser differentials.",
+                top
+            )
+        }
+        "objstm_embedded_summary" => {
+            let declared =
+                f.meta.get("objstm.n").cloned().unwrap_or_else(|| "unknown".into());
+            let parsed = f
+                .meta
+                .get("objstm.header_entries")
+                .cloned()
+                .unwrap_or_else(|| "unknown".into());
+            format!(
+                "Object streams can hide executable objects from shallow inspection (declared {}, parsed {}).",
+                declared, parsed
+            )
         }
         "content_validation_failed" => {
             "Lightweight validation failed despite a matching signature, indicating malformed or evasive content."
@@ -1816,7 +1938,7 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
             "Malformed ICC profiles can trigger vulnerable color management code paths."
                 .into()
         }
-        "annotation_hidden" | "annotation_action_chain" => {
+        "annotation_hidden" => {
             "Annotation manipulation can hide actions or trigger unexpected viewer behavior."
                 .into()
         }
@@ -1874,8 +1996,18 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
             "ML classification was requested but the model failed to load."
                 .into()
         }
-        _ => "This construct increases attack surface or indicates a potentially unsafe PDF feature."
-            .into(),
+        _ => {
+            if let (Some(expected), Some(observed)) =
+                (f.meta.get("declared.expected_family"), f.meta.get("observed.signature_hint"))
+            {
+                return format!(
+                    "Declared content expectation ({}) differs from observed signature ({}), suggesting disguise or malformed structure.",
+                    expected, observed
+                );
+            }
+            "This construct increases attack surface or indicates a potentially unsafe PDF feature."
+                .into()
+        }
     }
 }
 

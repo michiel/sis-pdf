@@ -19,11 +19,11 @@ use sis_pdf_core::correlation;
 use sis_pdf_core::model::{
     AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
 };
-use sis_pdf_core::runner::assign_stable_ids;
 use sis_pdf_core::reader_context;
 use sis_pdf_core::rich_media::{
     analyze_swf, detect_3d_format, detect_media_format, SWF_DECODE_TIMEOUT_MS,
 };
+use sis_pdf_core::runner::assign_stable_ids;
 use sis_pdf_core::scan::{CorrelationOptions, ScanContext};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_detectors::polyglot::analyze_polyglot_signatures;
@@ -2098,9 +2098,9 @@ pub fn execute_query_with_context(
                     "deviations": deviations,
                 })))
             }
-            Query::XrefCount => Ok(QueryResult::Scalar(ScalarValue::Number(
-                ctx.graph.startxrefs.len() as i64,
-            ))),
+            Query::XrefCount => {
+                Ok(QueryResult::Scalar(ScalarValue::Number(ctx.graph.startxrefs.len() as i64)))
+            }
             Query::XrefStartxrefs => {
                 let startxrefs = list_xref_startxrefs(ctx, predicate)?;
                 Ok(QueryResult::Structure(json!(startxrefs)))
@@ -7923,10 +7923,7 @@ mod tests {
             parse_query("xref.deviations").expect("xref.deviations"),
             Query::XrefDeviations
         ));
-        assert!(matches!(
-            parse_query("revisions").expect("revisions"),
-            Query::Revisions
-        ));
+        assert!(matches!(parse_query("revisions").expect("revisions"), Query::Revisions));
     }
 
     #[test]

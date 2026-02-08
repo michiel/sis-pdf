@@ -146,11 +146,8 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
                 crate::xref::XrefKind::Unknown => "unknown",
             }
             .to_string();
-            let (prev, trailer_size, trailer_root) = sec
-                .trailer
-                .as_ref()
-                .map(extract_trailer_summary)
-                .unwrap_or((None, None, None));
+            let (prev, trailer_size, trailer_root) =
+                sec.trailer.as_ref().map(extract_trailer_summary).unwrap_or((None, None, None));
             xref_sections.push(XrefSectionSummary {
                 offset: sec.offset,
                 kind,
@@ -210,18 +207,14 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
 }
 
 fn extract_trailer_summary(trailer: &PdfDict<'_>) -> (Option<u64>, Option<u64>, Option<String>) {
-    let prev = trailer
-        .get_first(b"/Prev")
-        .and_then(|(_, value)| match value.atom {
-            PdfAtom::Int(v) if v >= 0 => Some(v as u64),
-            _ => None,
-        });
-    let size = trailer
-        .get_first(b"/Size")
-        .and_then(|(_, value)| match value.atom {
-            PdfAtom::Int(v) if v >= 0 => Some(v as u64),
-            _ => None,
-        });
+    let prev = trailer.get_first(b"/Prev").and_then(|(_, value)| match value.atom {
+        PdfAtom::Int(v) if v >= 0 => Some(v as u64),
+        _ => None,
+    });
+    let size = trailer.get_first(b"/Size").and_then(|(_, value)| match value.atom {
+        PdfAtom::Int(v) if v >= 0 => Some(v as u64),
+        _ => None,
+    });
     let root = trailer.get_first(b"/Root").and_then(|(_, value)| match value.atom {
         PdfAtom::Ref { obj, gen } => Some(format!("{obj} {gen} R")),
         _ => None,

@@ -31,6 +31,12 @@ const TABLE_PRIORITIES: &[&str] = &[
     "objects",
     "reference",
     "action",
+    "query.next",
+    "action.type",
+    "action.target",
+    "action.initiation",
+    "observed.signature_hint",
+    "decode.observed_signature",
 ];
 
 pub fn format_readable_result(result: &QueryResult, compact: bool) -> String {

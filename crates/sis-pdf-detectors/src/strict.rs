@@ -437,7 +437,16 @@ impl Detector for StrictParseDeviationDetector {
                         confidence: Confidence::Heuristic,
                         impact: None,
                         title: "Strict parser deviation summary".into(),
-                        description: "Strict parser deviations summarised by kind.".into(),
+                        description: format!(
+                            "Strict parser recorded {} deviations across {} kinds; top kinds: {}.",
+                            ctx.graph.deviations.len(),
+                            counts.len(),
+                            if top_list.is_empty() {
+                                "none".to_string()
+                            } else {
+                                top_list.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+                            }
+                        ),
                         objects: vec!["parser".into()],
                         evidence: Vec::new(),
                         remediation: Some(

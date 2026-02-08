@@ -6,6 +6,7 @@ use base64::Engine;
 use std::collections::HashSet;
 
 use crate::encryption_obfuscation::{encryption_meta_from_dict, resolve_encrypt_dict};
+use crate::uri_classification::analyze_uri_content;
 use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii, EvidenceBuilder};
@@ -1561,6 +1562,32 @@ impl Detector for UriDetector {
                         evidence.extend(enriched.evidence);
                         meta.extend(enriched.meta);
                     }
+                    if let Some(uri) = uri_text_from_obj(ctx, v) {
+                        let uri_summary = enrich_uri_context(&mut meta, &uri);
+                        meta.insert("url".into(), uri.clone());
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "uri_present".into(),
+                            severity: Severity::Info,
+                            confidence: Confidence::Strong,
+                            impact: None,
+                            title: "URI present".into(),
+                            description: format!("External URI action detected ({uri_summary})."),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence,
+                            remediation: Some(
+                                "Verify destination domain, userinfo/IP usage, and navigation trigger context."
+                                    .into(),
+                            ),
+                            meta,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                            ..Default::default()
+                        });
+                        continue;
+                    }
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -1657,6 +1684,12 @@ fn uri_finding_from_action(
         evidence.extend(enriched.evidence);
         meta.extend(enriched.meta);
     }
+    let mut description = "Annotation action contains a URI target.".to_string();
+    if let Some(uri) = uri_text_from_obj(ctx, v) {
+        let uri_summary = enrich_uri_context(&mut meta, &uri);
+        meta.insert("url".into(), uri.clone());
+        description = format!("Annotation action contains URI target ({uri_summary}).");
+    }
     Some(Finding {
         id: String::new(),
         surface: AttackSurface::Actions,
@@ -1665,7 +1698,7 @@ fn uri_finding_from_action(
         confidence: Confidence::Probable,
         impact: None,
         title: "URI present".into(),
-        description: "Annotation action contains a URI target.".into(),
+        description,
         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
         evidence,
         remediation: Some("Verify destination URLs.".into()),
@@ -1675,6 +1708,50 @@ fn uri_finding_from_action(
         positions: Vec::new(),
         ..Finding::default()
     })
+}
+
+fn uri_text_from_obj(ctx: &sis_pdf_core::scan::ScanContext, obj: &PdfObj<'_>) -> Option<String> {
+    match &obj.atom {
+        PdfAtom::Str(s) => Some(String::from_utf8_lossy(&string_bytes(s)).to_string()),
+        PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
+        PdfAtom::Ref { .. } => {
+            let resolved = ctx.graph.resolve_ref(obj)?;
+            uri_text_from_obj(ctx, &PdfObj { span: resolved.body_span, atom: resolved.atom })
+        }
+        _ => None,
+    }
+}
+
+fn enrich_uri_context(meta: &mut std::collections::HashMap<String, String>, uri: &str) -> String {
+    let analysis = analyze_uri_content(uri.as_bytes());
+    if let Some(domain) = analysis.domain.as_ref() {
+        meta.insert("uri.domain".into(), domain.clone());
+    }
+    meta.insert("uri.scheme".into(), analysis.scheme.clone());
+    if analysis.userinfo_present {
+        meta.insert("uri.userinfo".into(), "true".into());
+    }
+    if analysis.is_ip_address || analysis.has_embedded_ip_host {
+        meta.insert("uri.ip_host".into(), "true".into());
+    }
+    if analysis.suspicious_tld {
+        meta.insert("uri.suspicious_tld".into(), "true".into());
+    }
+    let mut parts = Vec::new();
+    if let Some(domain) = analysis.domain {
+        parts.push(format!("domain={domain}"));
+    }
+    parts.push(format!("scheme={}", analysis.scheme));
+    if analysis.userinfo_present {
+        parts.push("userinfo=yes".into());
+    }
+    if analysis.is_ip_address || analysis.has_embedded_ip_host {
+        parts.push("host=ip".into());
+    }
+    if analysis.suspicious_tld {
+        parts.push("tld=suspicious".into());
+    }
+    parts.join(", ")
 }
 
 struct FontMatrixDetector;

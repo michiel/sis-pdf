@@ -31,9 +31,30 @@ impl Detector for XrefTrailerSearchDetector {
                 continue;
             }
             let mut meta = HashMap::new();
+            meta.insert("xref.startxref.count".into(), ctx.graph.startxrefs.len().to_string());
+            if let Some(last) = ctx.graph.startxrefs.last() {
+                meta.insert("xref.startxref.last".into(), last.to_string());
+            }
+            meta.insert("xref.section.count".into(), ctx.graph.xref_sections.len().to_string());
+            meta.insert("xref.trailer_scan.offset".into(), dev.span.start.to_string());
+            meta.insert("xref.trailer_scan.length".into(), dev.span.len().to_string());
+            if let Some(section) = ctx
+                .graph
+                .xref_sections
+                .iter()
+                .min_by_key(|section| section.offset.abs_diff(dev.span.start))
+            {
+                meta.insert("xref.section.kind".into(), section.kind.clone());
+                meta.insert("xref.section.offset".into(), section.offset.to_string());
+                meta.insert("xref.section.has_trailer".into(), section.has_trailer.to_string());
+                if let Some(prev) = section.prev {
+                    meta.insert("xref.section.prev".into(), prev.to_string());
+                }
+            }
             if let Some(note) = &dev.note {
                 meta.insert("trailer.search.note".into(), note.clone());
             }
+            meta.insert("query.next".into(), "xref.sections --verbose".into());
 
             findings.push(Finding {
                 id: String::new(),
@@ -43,12 +64,15 @@ impl Detector for XrefTrailerSearchDetector {
                 confidence: Confidence::Strong,
                 impact: Some(Impact::Medium),
                 title: "Xref trailer search invalid".into(),
-                description:
-                    "Unable to locate the trailer keyword while scanning the XRef table.".into(),
+                description: format!(
+                    "Trailer keyword search failed near offset {} (section kind: {}).",
+                    dev.span.start,
+                    meta.get("xref.section.kind").cloned().unwrap_or_else(|| "unknown".into())
+                ),
                 objects: vec!["xref".into()],
                 evidence: vec![span_to_evidence(dev.span, "Xref trailer scan")],
                 remediation: Some(
-                    "Guard startxref/trailer offsets and verify the trailer dictionary before parsing."
+                    "Validate startxref offsets, inspect the matching xref section, and walk the /Prev chain for hidden updates."
                         .into(),
                 ),
                 meta,

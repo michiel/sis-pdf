@@ -3305,7 +3305,9 @@ fn print_repl_help() {
     println!("  objects.with TYPE  - Filter objects by type (e.g., Page, Font)");
     println!("  trailer            - Show PDF trailer");
     println!("  catalog            - Show PDF catalog");
-    println!("  xref               - Summarise startxrefs, sections, trailers, and xref deviations");
+    println!(
+        "  xref               - Summarise startxrefs, sections, trailers, and xref deviations"
+    );
     println!("  xref.startxrefs    - List startxref markers");
     println!("  xref.sections      - List parsed xref chain sections");
     println!("  xref.trailers      - List trailer dictionary summaries");
@@ -4122,22 +4124,20 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
         .with_input_path(Some(pdf.to_string()))
         .with_sandbox_summary(sandbox_summary);
     let resolved_id = resolve_explain_finding_id(&report.findings, finding_id);
-    let Some(finding) = resolved_id
-        .as_deref()
-        .and_then(|id| report.findings.iter().find(|f| f.id == id))
+    let Some(finding) =
+        resolved_id.as_deref().and_then(|id| report.findings.iter().find(|f| f.id == id))
     else {
         return Err(anyhow!("finding id not found; the scan that produced this ID may have been run with a different configuration (rerun this explain with the same --config or default settings)."));
     };
     println!("{} - {}", escape_terminal(&finding.id), escape_terminal(&finding.title));
     println!("{}", escape_terminal(&finding.description));
     println!("Severity: {:?}  Confidence: {:?}", finding.severity, finding.confidence);
-    if let Some(keywords) = finding
-        .meta
-        .get("content.phishing_keywords")
-        .or_else(|| finding.meta.get("keyword"))
+    if let Some(keywords) =
+        finding.meta.get("content.phishing_keywords").or_else(|| finding.meta.get("keyword"))
     {
         println!("Matched keywords: {}", escape_terminal(keywords));
     }
+    print_finding_context_hints(&finding.meta);
     println!();
     for ev in &finding.evidence {
         println!(
@@ -4156,7 +4156,9 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
             println!("(decoded evidence preview not available)");
         }
     }
-    if finding.kind.contains("xref") || finding.surface == sis_pdf_core::model::AttackSurface::XRefTrailer {
+    if finding.kind.contains("xref")
+        || finding.surface == sis_pdf_core::model::AttackSurface::XRefTrailer
+    {
         println!();
         println!("Suggested follow-up queries:");
         println!("  sis query {pdf} xref.startxrefs");
@@ -4182,6 +4184,44 @@ fn resolve_explain_finding_id(
     }
 
     sis_pdf_core::id_shortener::resolve_short_id(requested_id)
+}
+
+fn print_finding_context_hints(meta: &std::collections::HashMap<String, String>) {
+    const IMPORTANT_KEYS: &[&str] = &[
+        "expected.filter_declared",
+        "expected.compression",
+        "observed.compression_guess",
+        "observed.signature_hint",
+        "decode.expected_types",
+        "decode.expected_signatures",
+        "decode.observed_type",
+        "decode.observed_signature",
+        "threshold.depth",
+        "observed.chain_depth",
+        "observed.terminal_action",
+        "action.chain_path",
+        "action.type",
+        "action.target",
+        "action.initiation",
+        "url.domain",
+        "url.external",
+        "uri.domain",
+        "uri.scheme",
+        "uri.userinfo",
+        "uri.ip_host",
+        "parser.deviation_top",
+        "query.next",
+    ];
+    let mut printed_any = false;
+    for key in IMPORTANT_KEYS {
+        if let Some(value) = meta.get(*key) {
+            if !printed_any {
+                println!("Context:");
+                printed_any = true;
+            }
+            println!("  {}: {}", key, escape_terminal(value));
+        }
+    }
 }
 
 fn run_report(

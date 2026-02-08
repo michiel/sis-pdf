@@ -9,7 +9,7 @@ use sis_pdf_core::scan::ScanContext;
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 
-use crate::{entry_dict, xfa_payloads_from_obj};
+use crate::{entry_dict, uri_classification::analyze_uri_content, xfa_payloads_from_obj};
 
 #[derive(Debug, Clone)]
 pub struct XfaFormRecord {
@@ -150,6 +150,23 @@ impl Detector for XfaFormDetector {
                     let mut meta = base_meta.clone();
                     meta.insert("xfa.submit.url".into(), url.clone());
                     meta.insert("url".into(), url.clone());
+                    let analysis = analyze_uri_content(url.as_bytes());
+                    if let Some(domain) = analysis.domain.as_ref() {
+                        meta.insert("url.domain".into(), domain.clone());
+                    }
+                    meta.insert("url.scheme".into(), analysis.scheme.clone());
+                    meta.insert("url.is_http".into(), analysis.is_http.to_string());
+                    meta.insert("url.is_ip_address".into(), analysis.is_ip_address.to_string());
+                    meta.insert(
+                        "url.userinfo_present".into(),
+                        analysis.userinfo_present.to_string(),
+                    );
+                    let is_external = analysis
+                        .domain
+                        .as_ref()
+                        .map(|d| !matches!(d.as_str(), "localhost" | "127.0.0.1" | "::1"))
+                        .unwrap_or(true);
+                    meta.insert("url.external".into(), is_external.to_string());
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -158,10 +175,19 @@ impl Detector for XfaFormDetector {
                         confidence: Confidence::Probable,
                         impact: None,
                         title: "XFA submit action present".into(),
-                        description: "XFA form contains submit action with target URL.".into(),
+                        description: format!(
+                            "XFA submit target {} (scheme={}, domain={}, external={}).",
+                            url,
+                            analysis.scheme,
+                            analysis.domain.unwrap_or_else(|| "unknown".into()),
+                            is_external
+                        ),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: evidence.clone(),
-                        remediation: Some("Inspect submission targets and data bindings.".into()),
+                        remediation: Some(
+                            "Validate submit destination trust boundary and audit which fields are transmitted."
+                                .into(),
+                        ),
                         meta,
                         yara: None,
                         position: None,
