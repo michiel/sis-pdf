@@ -43,6 +43,14 @@ fn detects_additional_image_signatures() {
 }
 
 #[test]
+fn detects_xpacket_as_xml() {
+    assert_eq!(
+        classify_blob(b"<?xpacket begin=\"...\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"),
+        BlobKind::Xml
+    );
+}
+
+#[test]
 fn validates_known_formats() {
     let jpeg = b"\xFF\xD8test\xFF\xD9";
     let png = b"\x89PNG\r\n\x1A\n\x00\x00\x00\rIHDR";

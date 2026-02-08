@@ -932,6 +932,16 @@ fn observed_signature_hint(data: &[u8]) -> String {
     if data.is_empty() {
         return "empty".to_string();
     }
+    let lower = data.iter().take(64).map(|b| b.to_ascii_lowercase()).collect::<Vec<_>>();
+    if lower.starts_with(b"<?xml") {
+        return "xml prefix (<?xml)".to_string();
+    }
+    if lower.starts_with(b"<?xpacket") {
+        return "xml/xmp packet prefix (<?xpacket)".to_string();
+    }
+    if lower.starts_with(b"<x:xmpmeta") {
+        return "xmp meta prefix (<x:xmpmeta)".to_string();
+    }
     if data.starts_with(b"%PDF-") {
         return "%PDF-".to_string();
     }
@@ -1818,5 +1828,12 @@ mod tests {
         );
         assert_eq!(finding.meta.get("carve.match").map(|v| v.as_str()), Some("false"));
         assert_eq!(finding.meta.get("carve.expected_kind").map(|v| v.as_str()), Some("TIFF/CCITT"));
+    }
+
+    #[test]
+    fn signature_hint_reports_xpacket_as_xml() {
+        let hint =
+            observed_signature_hint(b"<?xpacket begin=\"...\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>");
+        assert_eq!(hint, "xml/xmp packet prefix (<?xpacket)");
     }
 }
