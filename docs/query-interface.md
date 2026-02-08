@@ -47,7 +47,33 @@ sis query sample.pdf media.audio
 sis query sample.pdf encryption
 sis query sample.pdf encryption.weak
 sis query sample.pdf encryption.weak.count
+sis query sample.pdf xref
+sis query sample.pdf xref.startxrefs
+sis query sample.pdf xref.sections
+sis query sample.pdf xref.trailers
+sis query sample.pdf xref.deviations
+sis query sample.pdf revisions
 ```
+
+## Xref and revision queries
+
+Use the xref namespace when you need to trace structural findings (`xref_conflict`, trailer anomalies, startxref out-of-bounds) back to concrete parser state:
+
+```bash
+sis query sample.pdf xref
+sis query sample.pdf xref.startxrefs
+sis query sample.pdf xref.sections
+sis query sample.pdf xref.trailers
+sis query sample.pdf xref.deviations
+sis query sample.pdf revisions
+```
+
+- `xref` returns a combined summary with counts plus `startxrefs`, `sections`, `trailers`, and `deviations` arrays.
+- `xref.startxrefs` exposes marker offsets and bounds checks.
+- `xref.sections` exposes parsed chain section kind (`table`, `stream`, `unknown`) and trailer linkage.
+- `xref.trailers` summarises `/Size`, `/Root`, `/Info`, `/Encrypt`, `/Prev`, and `/ID` presence.
+- `xref.deviations` exposes xref parser deviations (for example trailer-search issues).
+- `revisions` provides revision-oriented records derived from startxref/trailer state.
 
 ## Canonical diff
 
@@ -99,6 +125,13 @@ Use `--where` to filter results:
 sis query sample.pdf images --where "pixels > 1000000 AND risky == true"
 sis query sample.pdf images --where "format == 'PNG' AND entropy > 7.5"
 sis query sample.pdf findings.count --where "subtype == 'embedded_executable_present'"
+```
+
+In interactive mode, predicates are set with `:where` and then applied to subsequent queries:
+
+```text
+sis> :where kind == 'table'
+sis> xref.sections
 ```
 
 See `docs/query-predicates.md` for all fields.

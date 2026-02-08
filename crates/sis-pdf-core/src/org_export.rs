@@ -408,6 +408,7 @@ mod tests {
             index: HashMap::new(),
             trailers: Vec::new(),
             startxrefs: Vec::new(),
+            xref_sections: Vec::new(),
             deviations: Vec::new(),
         }
     }

@@ -21,6 +21,11 @@ Predicate filtering is supported for:
 - finding shortcut queries (for example `embedded.executables`, `launch.external`, `streams.high-entropy`) and their `.count` variants
 - `encryption`, `encryption.weak`, `encryption.weak.count`
 - `streams.entropy`
+- `xref.startxrefs`, `xref.startxrefs.count`
+- `xref.sections`, `xref.sections.count`
+- `xref.trailers`, `xref.trailers.count`
+- `xref.deviations`, `xref.deviations.count`
+- `revisions`, `revisions.count`
 
 ## Feature vector highlights
 
@@ -192,6 +197,37 @@ Use `sis query canonical-diff file.pdf` to show exactly what the canonical view 
 - `subtype`: `/Subtype` name (if present)
 - `name`: generated handle such as `123 0 obj`
 - `meta`: includes `stream.size_bytes`, `stream.sample_size_bytes`, `stream.magic_type`, and `stream.sample_timed_out`
+
+### Xref startxrefs (`xref.startxrefs`, `xref.startxrefs.count`)
+- `type`: `XrefStartxref`
+- `kind`/`subtype`: `startxref`
+- `length`: distance from marker offset to EOF
+- `risky`: `true` when the marker offset is out of file bounds
+- `meta.xref.index`, `meta.xref.offset`, `meta.xref.distance_from_eof`, `meta.xref.in_bounds`
+
+### Xref sections (`xref.sections`, `xref.sections.count`)
+- `type`: `XrefSection`
+- `kind`/`subtype`: section kind (`table`, `stream`, `unknown`)
+- `risky`: `true` when section kind is `unknown`
+- `meta.xref.offset`, `meta.xref.prev`, `meta.xref.trailer_size`, `meta.xref.trailer_root`
+
+### Xref trailers (`xref.trailers`, `xref.trailers.count`)
+- `type`: `XrefTrailer`
+- `kind`/`subtype`: `trailer`
+- `meta.xref.size`, `meta.xref.root`, `meta.xref.info`, `meta.xref.encrypt`, `meta.xref.prev`, `meta.xref.id_present`
+
+### Xref deviations (`xref.deviations`, `xref.deviations.count`)
+- `type`: `XrefDeviation`
+- `kind`/`subtype`: deviation kind (for example `xref_trailer_search_invalid`)
+- `length`: deviation span length (`offset_end - offset_start`)
+- `risky`: always `true`
+- `meta.xref.kind`, `meta.xref.offset_start`, `meta.xref.offset_end`, `meta.xref.note`
+
+### Revisions (`revisions`, `revisions.count`)
+- `type`: `Revision`
+- `kind`/`subtype`: `revision`
+- `risky`: `true` for non-zero revision indices (incremental updates)
+- `meta.revision`, `meta.startxref`, `meta.root`
 
 ## Examples
 

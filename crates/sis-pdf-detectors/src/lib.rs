@@ -196,6 +196,24 @@ impl Detector for XrefConflictDetector {
             let mut meta = std::collections::HashMap::new();
             meta.insert("xref.startxref_count".into(), ctx.graph.startxrefs.len().to_string());
             meta.insert("xref.has_signature".into(), has_signature.to_string());
+            let offsets = ctx
+                .graph
+                .startxrefs
+                .iter()
+                .map(|offset| offset.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            meta.insert("xref.offsets".into(), offsets);
+            let section_kinds = ctx
+                .graph
+                .xref_sections
+                .iter()
+                .map(|section| section.kind.clone())
+                .collect::<Vec<_>>()
+                .join(",");
+            if !section_kinds.is_empty() {
+                meta.insert("xref.section_kinds".into(), section_kinds);
+            }
 
             // Signed documents with incremental updates are legitimate (multi-author)
             let (severity, description) = if has_signature {
@@ -259,6 +277,17 @@ impl Detector for IncrementalUpdateDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         if ctx.graph.startxrefs.len() > 1 {
             let evidence = keyword_evidence(ctx.bytes, b"startxref", "startxref marker", 5);
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("xref.startxref_count".into(), ctx.graph.startxrefs.len().to_string());
+            meta.insert(
+                "xref.offsets".into(),
+                ctx.graph
+                    .startxrefs
+                    .iter()
+                    .map(|offset| offset.to_string())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
             Ok(vec![Finding {
                 id: String::new(),
                 surface: self.surface(),
@@ -274,7 +303,7 @@ impl Detector for IncrementalUpdateDetector {
                 objects: vec!["xref".into()],
                 evidence,
                 remediation: Some("Review changes between revisions for hidden content.".into()),
-                meta: Default::default(),
+                meta,
 
                 reader_impacts: Vec::new(),
                 action_type: None,

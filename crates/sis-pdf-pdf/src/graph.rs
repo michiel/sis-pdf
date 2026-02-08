@@ -31,6 +31,16 @@ pub struct Deviation {
 }
 
 #[derive(Debug, Clone)]
+pub struct XrefSectionSummary {
+    pub offset: u64,
+    pub kind: String,
+    pub has_trailer: bool,
+    pub prev: Option<u64>,
+    pub trailer_size: Option<u64>,
+    pub trailer_root: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct ObjEntry<'a> {
     pub obj: u32,
     pub gen: u16,
@@ -55,6 +65,7 @@ pub struct ObjectGraph<'a> {
     pub index: HashMap<(u32, u16), Vec<usize>>,
     pub trailers: Vec<PdfDict<'a>>,
     pub startxrefs: Vec<u64>,
+    pub xref_sections: Vec<XrefSectionSummary>,
     pub deviations: Vec<Deviation>,
 }
 
@@ -124,10 +135,30 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
     info!("Parsing PDF object graph");
     let startxrefs = find_startxrefs(bytes);
     let mut trailers = Vec::new();
+    let mut xref_sections = Vec::new();
     let mut deviations = Vec::new();
     if let Some(last) = startxrefs.last().copied() {
         let chain = parse_xref_chain(bytes, last);
         for sec in &chain.sections {
+            let kind = match sec.kind {
+                crate::xref::XrefKind::Table => "table",
+                crate::xref::XrefKind::Stream => "stream",
+                crate::xref::XrefKind::Unknown => "unknown",
+            }
+            .to_string();
+            let (prev, trailer_size, trailer_root) = sec
+                .trailer
+                .as_ref()
+                .map(extract_trailer_summary)
+                .unwrap_or((None, None, None));
+            xref_sections.push(XrefSectionSummary {
+                offset: sec.offset,
+                kind,
+                has_trailer: sec.trailer.is_some(),
+                prev,
+                trailer_size,
+                trailer_root,
+            });
             if let Some(t) = sec.trailer.as_ref() {
                 trailers.push(t.clone());
             }
@@ -175,7 +206,27 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
         trailers = trailers.len(),
         "Parsed PDF object graph"
     );
-    Ok(ObjectGraph { bytes, objects, index, trailers, startxrefs, deviations })
+    Ok(ObjectGraph { bytes, objects, index, trailers, startxrefs, xref_sections, deviations })
+}
+
+fn extract_trailer_summary(trailer: &PdfDict<'_>) -> (Option<u64>, Option<u64>, Option<String>) {
+    let prev = trailer
+        .get_first(b"/Prev")
+        .and_then(|(_, value)| match value.atom {
+            PdfAtom::Int(v) if v >= 0 => Some(v as u64),
+            _ => None,
+        });
+    let size = trailer
+        .get_first(b"/Size")
+        .and_then(|(_, value)| match value.atom {
+            PdfAtom::Int(v) if v >= 0 => Some(v as u64),
+            _ => None,
+        });
+    let root = trailer.get_first(b"/Root").and_then(|(_, value)| match value.atom {
+        PdfAtom::Ref { obj, gen } => Some(format!("{obj} {gen} R")),
+        _ => None,
+    });
+    (prev, size, root)
 }
 
 fn carve_stream_objects<'a>(

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Mutex, OnceLock};
 
 pub struct ShortIdTable {
     map: BTreeMap<String, String>,
@@ -32,6 +33,24 @@ impl ShortIdTable {
     pub fn into_map(self) -> BTreeMap<String, String> {
         self.map
     }
+}
+
+static SHORT_ID_STORE: OnceLock<Mutex<Option<BTreeMap<String, String>>>> = OnceLock::new();
+
+pub fn set_last_short_map(long_to_short: &BTreeMap<String, String>) {
+    let short_to_long = long_to_short
+        .iter()
+        .map(|(long, short)| (short.clone(), long.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mutex = SHORT_ID_STORE.get_or_init(|| Mutex::new(None));
+    let mut guard = mutex.lock().unwrap();
+    *guard = Some(short_to_long);
+}
+
+pub fn resolve_short_id(short: &str) -> Option<String> {
+    let mutex = SHORT_ID_STORE.get_or_init(|| Mutex::new(None));
+    let guard = mutex.lock().unwrap();
+    guard.as_ref().and_then(|map| map.get(short).cloned())
 }
 
 fn shorten_id(long: &str, used: &mut BTreeSet<String>) -> String {

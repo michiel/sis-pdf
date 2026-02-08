@@ -186,6 +186,18 @@ pub enum Query {
     // Structure queries
     Trailer,
     Catalog,
+    Xref,
+    XrefCount,
+    XrefStartxrefs,
+    XrefStartxrefsCount,
+    XrefSections,
+    XrefSectionsCount,
+    XrefTrailers,
+    XrefTrailersCount,
+    XrefDeviations,
+    XrefDeviationsCount,
+    Revisions,
+    RevisionsCount,
 
     // Content queries
     JavaScript,
@@ -455,6 +467,18 @@ pub fn parse_query(input: &str) -> Result<Query> {
         // Structure
         "trailer" => Ok(Query::Trailer),
         "catalog" => Ok(Query::Catalog),
+        "xref" => Ok(Query::Xref),
+        "xref.count" => Ok(Query::XrefCount),
+        "xref.startxrefs" => Ok(Query::XrefStartxrefs),
+        "xref.startxrefs.count" => Ok(Query::XrefStartxrefsCount),
+        "xref.sections" => Ok(Query::XrefSections),
+        "xref.sections.count" => Ok(Query::XrefSectionsCount),
+        "xref.trailers" => Ok(Query::XrefTrailers),
+        "xref.trailers.count" => Ok(Query::XrefTrailersCount),
+        "xref.deviations" => Ok(Query::XrefDeviations),
+        "xref.deviations.count" => Ok(Query::XrefDeviationsCount),
+        "revisions" => Ok(Query::Revisions),
+        "revisions.count" => Ok(Query::RevisionsCount),
 
         // Content
         "js" | "javascript" => Ok(Query::JavaScript),
@@ -1451,6 +1475,16 @@ pub fn execute_query_with_context(
                     | Query::ObjectsCount
                     | Query::ObjectsList
                     | Query::ObjectsWithType(_)
+                    | Query::XrefStartxrefs
+                    | Query::XrefStartxrefsCount
+                    | Query::XrefSections
+                    | Query::XrefSectionsCount
+                    | Query::XrefTrailers
+                    | Query::XrefTrailersCount
+                    | Query::XrefDeviations
+                    | Query::XrefDeviationsCount
+                    | Query::Revisions
+                    | Query::RevisionsCount
             )
         {
             ensure_predicate_supported(query)?;
@@ -2045,6 +2079,65 @@ pub fn execute_query_with_context(
             Query::Catalog => {
                 let catalog_str = show_catalog(ctx)?;
                 Ok(QueryResult::Scalar(ScalarValue::String(catalog_str)))
+            }
+            Query::Xref => {
+                let startxrefs = list_xref_startxrefs(ctx, None)?;
+                let sections = list_xref_sections(ctx, None)?;
+                let trailers = list_xref_trailers(ctx, None)?;
+                let deviations = list_xref_deviations(ctx, None)?;
+                Ok(QueryResult::Structure(json!({
+                    "startxref_count": startxrefs.len(),
+                    "section_count": sections.len(),
+                    "trailer_count": trailers.len(),
+                    "deviation_count": deviations.len(),
+                    "startxrefs": startxrefs,
+                    "sections": sections,
+                    "trailers": trailers,
+                    "deviations": deviations,
+                })))
+            }
+            Query::XrefCount => Ok(QueryResult::Scalar(ScalarValue::Number(
+                ctx.graph.startxrefs.len() as i64,
+            ))),
+            Query::XrefStartxrefs => {
+                let startxrefs = list_xref_startxrefs(ctx, predicate)?;
+                Ok(QueryResult::Structure(json!(startxrefs)))
+            }
+            Query::XrefStartxrefsCount => {
+                let startxrefs = list_xref_startxrefs(ctx, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(startxrefs.len() as i64)))
+            }
+            Query::XrefSections => {
+                let sections = list_xref_sections(ctx, predicate)?;
+                Ok(QueryResult::Structure(json!(sections)))
+            }
+            Query::XrefSectionsCount => {
+                let sections = list_xref_sections(ctx, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(sections.len() as i64)))
+            }
+            Query::XrefTrailers => {
+                let trailers = list_xref_trailers(ctx, predicate)?;
+                Ok(QueryResult::Structure(json!(trailers)))
+            }
+            Query::XrefTrailersCount => {
+                let trailers = list_xref_trailers(ctx, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(trailers.len() as i64)))
+            }
+            Query::XrefDeviations => {
+                let deviations = list_xref_deviations(ctx, predicate)?;
+                Ok(QueryResult::Structure(json!(deviations)))
+            }
+            Query::XrefDeviationsCount => {
+                let deviations = list_xref_deviations(ctx, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(deviations.len() as i64)))
+            }
+            Query::Revisions => {
+                let revisions = list_revisions(ctx, predicate)?;
+                Ok(QueryResult::Structure(json!(revisions)))
+            }
+            Query::RevisionsCount => {
+                let revisions = list_revisions(ctx, predicate)?;
+                Ok(QueryResult::Scalar(ScalarValue::Number(revisions.len() as i64)))
             }
             Query::Chains => {
                 let chains = list_action_chains(ctx, predicate)?;
@@ -3864,9 +3957,19 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::CorrelationsCount
         | Query::ObjectsCount
         | Query::ObjectsList
-        | Query::ObjectsWithType(_) => Ok(()),
+        | Query::ObjectsWithType(_)
+        | Query::XrefStartxrefs
+        | Query::XrefStartxrefsCount
+        | Query::XrefSections
+        | Query::XrefSectionsCount
+        | Query::XrefTrailers
+        | Query::XrefTrailersCount
+        | Query::XrefDeviations
+        | Query::XrefDeviationsCount
+        | Query::Revisions
+        | Query::RevisionsCount => Ok(()),
         _ => Err(anyhow!(
-            "Predicate filtering is only supported for js, embedded, urls, images, events, findings, correlations, and objects queries"
+            "Predicate filtering is only supported for js, embedded, urls, images, events, findings, correlations, objects, xref, and revisions queries"
         )),
     }
 }
@@ -4185,6 +4288,7 @@ mod event_tests {
             index,
             trailers,
             startxrefs: Vec::new(),
+            xref_sections: Vec::new(),
             deviations: Vec::new(),
         }
     }
@@ -5685,6 +5789,316 @@ fn show_catalog(ctx: &ScanContext) -> Result<String> {
     }
 
     Err(anyhow!("Catalog not found"))
+}
+
+fn list_xref_startxrefs(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<serde_json::Value>> {
+    let mut records = Vec::new();
+    let bytes_len = ctx.bytes.len() as u64;
+    for (idx, offset) in ctx.graph.startxrefs.iter().enumerate() {
+        let in_bounds = *offset < bytes_len;
+        let distance_from_eof = if *offset <= bytes_len { bytes_len - *offset } else { 0 };
+        let mut meta = HashMap::new();
+        meta.insert("xref.index".into(), idx.to_string());
+        meta.insert("xref.offset".into(), offset.to_string());
+        meta.insert("xref.distance_from_eof".into(), distance_from_eof.to_string());
+        meta.insert("xref.in_bounds".into(), in_bounds.to_string());
+        let predicate_context = PredicateContext {
+            length: distance_from_eof as usize,
+            filter: None,
+            type_name: "XrefStartxref".to_string(),
+            subtype: Some("startxref".to_string()),
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: !in_bounds,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: Some("startxref".to_string()),
+            object_count: 0,
+            evidence_count: 0,
+            name: Some(format!("startxref.{idx}")),
+            magic: None,
+            hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            meta,
+        };
+        if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
+            records.push(json!({
+                "index": idx,
+                "offset": offset,
+                "distance_from_eof": distance_from_eof,
+                "in_bounds": in_bounds,
+            }));
+        }
+    }
+    Ok(records)
+}
+
+fn list_xref_sections(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<serde_json::Value>> {
+    let mut records = Vec::new();
+    for (idx, section) in ctx.graph.xref_sections.iter().enumerate() {
+        let mut meta = HashMap::new();
+        meta.insert("xref.index".into(), idx.to_string());
+        meta.insert("xref.offset".into(), section.offset.to_string());
+        meta.insert("xref.kind".into(), section.kind.clone());
+        meta.insert("xref.has_trailer".into(), section.has_trailer.to_string());
+        if let Some(prev) = section.prev {
+            meta.insert("xref.prev".into(), prev.to_string());
+        }
+        if let Some(size) = section.trailer_size {
+            meta.insert("xref.trailer_size".into(), size.to_string());
+        }
+        if let Some(root) = &section.trailer_root {
+            meta.insert("xref.trailer_root".into(), root.clone());
+        }
+        let predicate_context = PredicateContext {
+            length: 0,
+            filter: None,
+            type_name: "XrefSection".to_string(),
+            subtype: Some(section.kind.clone()),
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: section.kind == "unknown",
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: Some(section.kind.clone()),
+            object_count: 0,
+            evidence_count: 0,
+            name: Some(format!("section#{idx}")),
+            magic: None,
+            hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            meta,
+        };
+        if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
+            records.push(json!({
+                "index": idx,
+                "offset": section.offset,
+                "kind": section.kind,
+                "has_trailer": section.has_trailer,
+                "prev": section.prev,
+                "trailer_size": section.trailer_size,
+                "trailer_root": section.trailer_root,
+            }));
+        }
+    }
+    Ok(records)
+}
+
+fn list_xref_trailers(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<serde_json::Value>> {
+    let mut records = Vec::new();
+    for (idx, trailer) in ctx.graph.trailers.iter().enumerate() {
+        let size = trailer_int_value(trailer, b"/Size");
+        let root = trailer_ref_value(trailer, b"/Root");
+        let info = trailer_ref_value(trailer, b"/Info");
+        let encrypt = trailer_ref_value(trailer, b"/Encrypt");
+        let prev = trailer_int_value(trailer, b"/Prev");
+        let id_present = trailer.get_first(b"/ID").is_some();
+
+        let mut meta = HashMap::new();
+        meta.insert("xref.index".into(), idx.to_string());
+        if let Some(value) = size {
+            meta.insert("xref.size".into(), value.to_string());
+        }
+        if let Some(value) = &root {
+            meta.insert("xref.root".into(), value.clone());
+        }
+        if let Some(value) = &info {
+            meta.insert("xref.info".into(), value.clone());
+        }
+        if let Some(value) = &encrypt {
+            meta.insert("xref.encrypt".into(), value.clone());
+        }
+        if let Some(value) = prev {
+            meta.insert("xref.prev".into(), value.to_string());
+        }
+        meta.insert("xref.id_present".into(), id_present.to_string());
+
+        let predicate_context = PredicateContext {
+            length: 0,
+            filter: None,
+            type_name: "XrefTrailer".to_string(),
+            subtype: Some("trailer".to_string()),
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: false,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: Some("trailer".to_string()),
+            object_count: 0,
+            evidence_count: 0,
+            name: Some(format!("trailer#{idx}")),
+            magic: None,
+            hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            meta,
+        };
+        if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
+            records.push(json!({
+                "index": idx,
+                "size": size,
+                "root": root,
+                "info": info,
+                "encrypt": encrypt,
+                "id_present": id_present,
+                "prev": prev,
+            }));
+        }
+    }
+    Ok(records)
+}
+
+fn list_xref_deviations(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<serde_json::Value>> {
+    let mut records = Vec::new();
+    for dev in &ctx.graph.deviations {
+        if !dev.kind.starts_with("xref_") {
+            continue;
+        }
+        let mut meta = HashMap::new();
+        meta.insert("xref.kind".into(), dev.kind.clone());
+        meta.insert("xref.offset_start".into(), dev.span.start.to_string());
+        meta.insert("xref.offset_end".into(), dev.span.end.to_string());
+        if let Some(note) = &dev.note {
+            meta.insert("xref.note".into(), note.clone());
+        }
+
+        let predicate_context = PredicateContext {
+            length: dev.span.end.saturating_sub(dev.span.start) as usize,
+            filter: None,
+            type_name: "XrefDeviation".to_string(),
+            subtype: Some(dev.kind.clone()),
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: true,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: Some(dev.kind.clone()),
+            object_count: 0,
+            evidence_count: 0,
+            name: None,
+            magic: None,
+            hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            meta,
+        };
+        if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
+            records.push(json!({
+                "kind": dev.kind,
+                "offset_start": dev.span.start,
+                "offset_end": dev.span.end,
+                "note": dev.note,
+            }));
+        }
+    }
+    Ok(records)
+}
+
+fn list_revisions(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<serde_json::Value>> {
+    let mut records = Vec::new();
+    let count = usize::max(ctx.graph.startxrefs.len(), ctx.graph.trailers.len());
+    for idx in 0..count {
+        let startxref = ctx.graph.startxrefs.get(idx).copied();
+        let trailer = ctx.graph.trailers.get(idx);
+        let root = trailer.and_then(|dict| trailer_ref_value(dict, b"/Root"));
+        let has_incremental_update = idx > 0;
+
+        let mut meta = HashMap::new();
+        meta.insert("revision".into(), idx.to_string());
+        if let Some(offset) = startxref {
+            meta.insert("startxref".into(), offset.to_string());
+        }
+        if let Some(value) = &root {
+            meta.insert("root".into(), value.clone());
+        }
+
+        let predicate_context = PredicateContext {
+            length: 0,
+            filter: None,
+            type_name: "Revision".to_string(),
+            subtype: Some("revision".to_string()),
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: has_incremental_update,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: Some("revision".to_string()),
+            object_count: 0,
+            evidence_count: 0,
+            name: Some(format!("revision#{idx}")),
+            magic: None,
+            hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            meta,
+        };
+        if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
+            records.push(json!({
+                "revision": idx,
+                "startxref": startxref,
+                "trailer_index": trailer.map(|_| idx),
+                "root": root,
+                "has_incremental_update": has_incremental_update,
+            }));
+        }
+    }
+    Ok(records)
+}
+
+fn trailer_int_value(trailer: &sis_pdf_pdf::object::PdfDict<'_>, key: &[u8]) -> Option<u64> {
+    trailer.get_first(key).and_then(|(_, value)| match value.atom {
+        PdfAtom::Int(v) if v >= 0 => Some(v as u64),
+        _ => None,
+    })
+}
+
+fn trailer_ref_value(trailer: &sis_pdf_pdf::object::PdfDict<'_>, key: &[u8]) -> Option<String> {
+    trailer.get_first(key).and_then(|(_, value)| match value.atom {
+        PdfAtom::Ref { obj, gen } => Some(format!("{obj} {gen} R")),
+        _ => None,
+    })
 }
 
 /// List all action chains
@@ -7486,6 +7900,65 @@ mod tests {
         assert!(matches!(query, Query::ExportIrText));
         let query = parse_query("ir.json").expect("ir json query");
         assert!(matches!(query, Query::ExportIrJson));
+    }
+
+    #[test]
+    fn parse_query_supports_xref_namespace() {
+        assert!(matches!(parse_query("xref").expect("xref"), Query::Xref));
+        assert!(matches!(
+            parse_query("xref.startxrefs").expect("xref.startxrefs"),
+            Query::XrefStartxrefs
+        ));
+        assert!(matches!(
+            parse_query("xref.sections").expect("xref.sections"),
+            Query::XrefSections
+        ));
+        assert!(matches!(
+            parse_query("xref.trailers").expect("xref.trailers"),
+            Query::XrefTrailers
+        ));
+        assert!(matches!(
+            parse_query("xref.deviations").expect("xref.deviations"),
+            Query::XrefDeviations
+        ));
+        assert!(matches!(
+            parse_query("revisions").expect("revisions"),
+            Query::Revisions
+        ));
+    }
+
+    #[test]
+    fn xref_queries_support_predicates() {
+        assert!(ensure_predicate_supported(&Query::XrefStartxrefs).is_ok());
+        assert!(ensure_predicate_supported(&Query::XrefSections).is_ok());
+        assert!(ensure_predicate_supported(&Query::XrefTrailers).is_ok());
+        assert!(ensure_predicate_supported(&Query::XrefDeviations).is_ok());
+        assert!(ensure_predicate_supported(&Query::Revisions).is_ok());
+        assert!(ensure_predicate_supported(&Query::Xref).is_err());
+    }
+
+    #[test]
+    fn execute_query_returns_xref_records() {
+        with_fixture_context("actions/launch_cve_2010_1240.pdf", |ctx| {
+            let query = parse_query("xref.startxrefs").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::Structure(value) => {
+                    let items = value.as_array().expect("array");
+                    assert!(!items.is_empty());
+                    assert!(items[0].get("offset").is_some());
+                }
+                other => panic!("Unexpected result type: {other:?}"),
+            }
+        });
     }
 
     #[test]

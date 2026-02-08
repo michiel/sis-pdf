@@ -1298,6 +1298,7 @@ fn filter_graph_by_refs<'a>(graph: &ObjectGraph<'a>, keep: &HashSet<ObjRef>) -> 
         index,
         trailers: graph.trailers.clone(),
         startxrefs: graph.startxrefs.clone(),
+        xref_sections: graph.xref_sections.clone(),
         deviations: graph.deviations.clone(),
     }
 }

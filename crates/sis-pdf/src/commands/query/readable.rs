@@ -1,7 +1,8 @@
 use super::{QueryResult, ScalarValue};
 use serde_json::Value;
+use sis_pdf_core::id_shortener::{set_last_short_map, ShortIdTable};
+use std::collections::BTreeMap;
 use std::fmt::Write;
-use sis_pdf_core::id_shortener::ShortIdTable;
 
 const TABLE_PRIORITIES: &[&str] = &[
     "id",
@@ -106,7 +107,10 @@ fn build_colon_table(items: &[String]) -> Option<String> {
 fn format_structure(value: &Value) -> String {
     match value {
         Value::Array(arr) => {
-            let processed = preprocess_array(arr);
+            let (processed, map) = preprocess_array(arr);
+            if !map.is_empty() {
+                set_last_short_map(&map);
+            }
             if processed.iter().all(|item| item.is_object()) {
                 if let Some(table) = build_object_table(&processed) {
                     return table;
@@ -188,17 +192,17 @@ fn build_object_table(entries: &[Value]) -> Option<String> {
     Some(table.trim_end().to_string())
 }
 
-fn preprocess_array(arr: &[Value]) -> Vec<Value> {
+fn preprocess_array(arr: &[Value]) -> (Vec<Value>, BTreeMap<String, String>) {
     if arr.iter().any(|value| !matches!(value, Value::Object(_))) {
-        return arr.to_vec();
+        return (arr.to_vec(), BTreeMap::new());
     }
     let mut entries: Vec<Value> = arr.to_vec();
-    shorten_ids_in_place(&mut entries);
+    let map = shorten_ids_in_place(&mut entries);
     sort_by_severity(&mut entries);
-    entries
+    (entries, map)
 }
 
-fn shorten_ids_in_place(entries: &mut [Value]) {
+fn shorten_ids_in_place(entries: &mut [Value]) -> BTreeMap<String, String> {
     let mut table = ShortIdTable::new();
     for entry in entries.iter() {
         if let Value::Object(map) = entry {
@@ -207,19 +211,20 @@ fn shorten_ids_in_place(entries: &mut [Value]) {
             }
         }
     }
-    if table.map().is_empty() {
-        return;
+    let long_to_short = table.map().clone();
+    if long_to_short.is_empty() {
+        return BTreeMap::new();
     }
-    let short_ids = table.into_map();
     for entry in entries.iter_mut() {
         if let Value::Object(map) = entry {
             if let Some(Value::String(id)) = map.get_mut("id") {
-                if let Some(short) = short_ids.get(id).cloned() {
-                    *id = short;
+                if let Some(short) = long_to_short.get(id) {
+                    *id = short.clone();
                 }
             }
         }
     }
+    long_to_short
 }
 
 fn sort_by_severity(entries: &mut [Value]) {

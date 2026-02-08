@@ -3305,6 +3305,12 @@ fn print_repl_help() {
     println!("  objects.with TYPE  - Filter objects by type (e.g., Page, Font)");
     println!("  trailer            - Show PDF trailer");
     println!("  catalog            - Show PDF catalog");
+    println!("  xref               - Summarise startxrefs, sections, trailers, and xref deviations");
+    println!("  xref.startxrefs    - List startxref markers");
+    println!("  xref.sections      - List parsed xref chain sections");
+    println!("  xref.trailers      - List trailer dictionary summaries");
+    println!("  xref.deviations    - List xref parser deviations");
+    println!("  revisions          - List revision summaries derived from xref/trailer state");
     println!();
     println!("Advanced queries:");
     println!("  chains             - Describe action chains (rich JSON output)");
@@ -4115,7 +4121,11 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts, &detectors)?
         .with_input_path(Some(pdf.to_string()))
         .with_sandbox_summary(sandbox_summary);
-    let Some(finding) = report.findings.iter().find(|f| f.id == finding_id) else {
+    let resolved_id = resolve_explain_finding_id(&report.findings, finding_id);
+    let Some(finding) = resolved_id
+        .as_deref()
+        .and_then(|id| report.findings.iter().find(|f| f.id == id))
+    else {
         return Err(anyhow!("finding id not found; the scan that produced this ID may have been run with a different configuration (rerun this explain with the same --config or default settings)."));
     };
     println!("{} - {}", escape_terminal(&finding.id), escape_terminal(&finding.title));
@@ -4139,7 +4149,32 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
             println!("(decoded evidence preview not available)");
         }
     }
+    if finding.kind.contains("xref") || finding.surface == sis_pdf_core::model::AttackSurface::XRefTrailer {
+        println!();
+        println!("Suggested follow-up queries:");
+        println!("  sis query {pdf} xref.startxrefs");
+        println!("  sis query {pdf} xref.sections");
+        println!("  sis query {pdf} xref.deviations");
+    }
     Ok(())
+}
+
+fn resolve_explain_finding_id(
+    findings: &[sis_pdf_core::model::Finding],
+    requested_id: &str,
+) -> Option<String> {
+    if findings.iter().any(|f| f.id == requested_id) {
+        return Some(requested_id.to_string());
+    }
+
+    let mut prefix_matches = findings.iter().filter(|f| f.id.starts_with(requested_id));
+    if let Some(first) = prefix_matches.next() {
+        if prefix_matches.next().is_none() {
+            return Some(first.id.clone());
+        }
+    }
+
+    sis_pdf_core::id_shortener::resolve_short_id(requested_id)
 }
 
 fn run_report(

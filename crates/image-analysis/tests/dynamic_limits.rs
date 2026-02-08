@@ -118,6 +118,7 @@ fn timeout_enforced() {
         index,
         trailers: Vec::new(),
         startxrefs: Vec::new(),
+        xref_sections: Vec::new(),
         deviations: Vec::new(),
     };
     let opts = ImageDynamicOptions {
@@ -143,6 +144,7 @@ fn total_budget_enforced() {
         index,
         trailers: Vec::new(),
         startxrefs: Vec::new(),
+        xref_sections: Vec::new(),
         deviations: Vec::new(),
     };
     let opts = ImageDynamicOptions {
@@ -169,6 +171,7 @@ fn skip_threshold_enforced() {
         index,
         trailers: Vec::new(),
         startxrefs: Vec::new(),
+        xref_sections: Vec::new(),
         deviations: Vec::new(),
     };
     let opts = ImageDynamicOptions {
@@ -204,6 +207,7 @@ fn size_limit_enforced() {
         index,
         trailers: Vec::new(),
         startxrefs: Vec::new(),
+        xref_sections: Vec::new(),
         deviations: Vec::new(),
     };
 
@@ -235,6 +239,7 @@ fn malformed_jpeg_detected() {
         index,
         trailers: Vec::new(),
         startxrefs: Vec::new(),
+        xref_sections: Vec::new(),
         deviations: Vec::new(),
     };
 
@@ -262,6 +267,7 @@ fn png_decode_success_no_findings() {
         index,
         trailers: Vec::new(),
         startxrefs: Vec::new(),
+        xref_sections: Vec::new(),
         deviations: Vec::new(),
     };
 
