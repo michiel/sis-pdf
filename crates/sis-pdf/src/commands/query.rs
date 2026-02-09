@@ -5685,13 +5685,7 @@ fn format_pdf_atom(atom: &sis_pdf_pdf::object::PdfAtom, indent: usize) -> String
         PdfAtom::Name(name) => {
             format!("{}/{}", indent_str, String::from_utf8_lossy(&name.decoded))
         }
-        PdfAtom::Str(s) => {
-            let bytes = match s {
-                sis_pdf_pdf::object::PdfStr::Literal { decoded, .. } => decoded,
-                sis_pdf_pdf::object::PdfStr::Hex { decoded, .. } => decoded,
-            };
-            format!("{}({})", indent_str, String::from_utf8_lossy(bytes))
-        }
+        PdfAtom::Str(s) => format!("{}{}", indent_str, format_pdf_string(s)),
         PdfAtom::Array(arr) => {
             let mut output = format!("{}[\n", indent_str);
             for item in arr.iter() {
@@ -5722,6 +5716,21 @@ fn format_pdf_atom(atom: &sis_pdf_pdf::object::PdfAtom, indent: usize) -> String
             output
         }
         PdfAtom::Ref { obj, gen } => format!("{}{} {} R", indent_str, obj, gen),
+    }
+}
+
+fn format_pdf_string(value: &sis_pdf_pdf::object::PdfStr<'_>) -> String {
+    use sis_pdf_pdf::object::PdfStr;
+    match value {
+        PdfStr::Hex { decoded, .. } => format!("<{}>", hex::encode(decoded)),
+        PdfStr::Literal { decoded, .. } => {
+            if let Ok(text) = std::str::from_utf8(decoded) {
+                if text.chars().all(|ch| !ch.is_control() || matches!(ch, '\n' | '\r' | '\t')) {
+                    return format!("({text})");
+                }
+            }
+            format!("<{}>", hex::encode(decoded))
+        }
     }
 }
 
@@ -7549,6 +7558,18 @@ mod tests {
         assert!(output.starts_with("00000000"));
         assert!(output.contains("41 42 43"));
         assert!(output.contains("|ABC|"));
+    }
+
+    #[test]
+    fn format_pdf_atom_renders_non_text_strings_as_hex() {
+        use sis_pdf_pdf::object::PdfStr;
+        let atom = sis_pdf_pdf::object::PdfAtom::Str(PdfStr::Literal {
+            span: sis_pdf_pdf::span::Span { start: 0, end: 2 },
+            raw: std::borrow::Cow::Owned(vec![0xFF, 0x00]),
+            decoded: vec![0xFF, 0x00],
+        });
+        let output = format_pdf_atom(&atom, 0);
+        assert_eq!(output, "<ff00>");
     }
 
     #[test]
