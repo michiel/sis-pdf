@@ -406,3 +406,62 @@ Execution command remained:
      - timeout rate <=10%
      - runtime error rate <=20%
      - no new dominant breakpoint class.
+
+## Sixth sweep (post-timeout/loop telemetry hardening)
+
+## Scope and sample set
+
+Sixth batch from the next 10 date folders:
+
+1. `tmp/javascript-malware-collection/2017/20170325/20170325_5aa6ec4dad24f98b7652224a9d65afb2.js`
+2. `tmp/javascript-malware-collection/2017/20170327/20170327_10a99df98343965846c40c89c3f6327f.js`
+3. `tmp/javascript-malware-collection/2017/20170331/20170331_3e38dd52734be11f4c47ab5128f493be.js`
+4. `tmp/javascript-malware-collection/2017/20170401/20170401_6488b5fc036553fdad166bc1f6ab2b77.js`
+5. `tmp/javascript-malware-collection/2017/20170402/20170402_620f42a48c2375d42e73510482873a8b.js`
+6. `tmp/javascript-malware-collection/2017/20170403/20170403_5cc0758c10bcfc404fa32b99af73bcee.js`
+7. `tmp/javascript-malware-collection/2017/20170404/20170404_6a2cce2ba0dcee0647a17c28bdfb6999.js`
+8. `tmp/javascript-malware-collection/2017/20170407/20170407_dd1a8a2f582254c152a1e68bbc0c7358.js`
+9. `tmp/javascript-malware-collection/2017/20170408/20170408_4eafcdb770a1f045af43a9b3d4705acb.js`
+10. `tmp/javascript-malware-collection/2017/20170409/20170409_00768c0e28bebe1b12fcfe4f0708b9cd.js`
+
+Execution command remained:
+
+- `cargo run -q -p sis-pdf -- sandbox eval <sample>`
+
+## Results summary
+
+- 9/10 executed; 1/10 timed out; 0 skipped.
+- 0/9 executed samples emitted runtime errors.
+- Error buckets in this batch:
+  - `loop_iteration_limit`: 0
+  - `not_callable_function`: 0
+  - `recursion_limit`: 0
+- Downloader-like cadence remains dominant in executed traces:
+  - `MSXML2.XMLHTTP.open`: 35 calls
+  - `MSXML2.XMLHTTP.send`: 35 calls
+  - `WScript.CreateObject`: present in 7/10 samples
+- Dynamic code generation present in 1/10 samples.
+- Behavioural pattern labels remained low-noise:
+  - `variable_promotion_detected` (1)
+  - `error_recovery_patterns` (0)
+
+## Observed impact of latest changes
+
+- Timeout/loop telemetry split is now operational with low-noise output in this slice: no loop-limit bucket pressure and only one top-level timeout.
+- Callable/constructor breakpoints were eliminated in this batch, indicating the recent callable and profile-hardening work is reducing emulation-breakpoint churn.
+- The downloader-style signal remains highly consistent, so confidence adjustment policy is now the main lever for triage precision rather than additional stub expansion for this segment.
+
+## Updated recommendations (post-sixth sweep)
+
+1. **Timeout root-cause capture for the remaining timeout sample**
+   - Add a lightweight timeout context field to `sandbox eval` output and detector metadata (`phase`, `runtime_profile`, elapsed budget ratio) so `20170327`-style timeouts can be triaged without reruns.
+
+2. **Promote downloader confidence when no breakpoint pressure exists**
+   - For samples with repeated `CreateObject` + `XMLHTTP.open/send` and zero runtime errors, consider promoting confidence one level (while keeping severity stable) to prioritise likely-active downloader behaviour.
+
+3. **Keep stop-criteria tracking for one more consecutive batch**
+   - This batch meets the current thresholds (`timeout rate = 10%`, runtime error rate = 0%).
+   - Run one additional 10-sample sweep; if thresholds hold again and no new dominant breakpoint class appears, conclude this hardening phase.
+
+4. **Add corpus-regression assertion for runtime-budget telemetry fields**
+   - Add a targeted test that validates presence/shape of `js_runtime_budget` summary keys and batch markdown timeout/loop counters so reporting regressions are caught early.
