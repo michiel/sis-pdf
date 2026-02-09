@@ -169,3 +169,77 @@ Telemetry already captures calls and patterns, but intent findings remain under-
   - increase in meaningful call telemetry depth,
   - increase in intent-bearing findings with stable confidence.
 - Extend the sweep to 50+ samples across 2017 once break-rate improves.
+
+## Follow-up sweep (second 10-sample batch, post-implementation)
+
+## Scope and sample set
+
+A second batch of 10 samples was executed from different subdirectories (next 10 date folders):
+
+1. `tmp/javascript-malware-collection/2017/20170126/20170126_2c07ec12e87a9d0b4cc8a8ab472e1873.js`
+2. `tmp/javascript-malware-collection/2017/20170127/20170127_ac02f835cc57f3f58c788eb66d607275.js`
+3. `tmp/javascript-malware-collection/2017/20170128/20170128_b3e5c2afec9a727eb35b69af3b097033.js`
+4. `tmp/javascript-malware-collection/2017/20170130/20170130_27d82dc4bb8bcaf513c17c3acddba8f5.js`
+5. `tmp/javascript-malware-collection/2017/20170131/20170131_55550f61aa88d3e875498fd6c5f3a790.js`
+6. `tmp/javascript-malware-collection/2017/20170202/20170202_fd62ce23cc6f4d5aa5f37369d7be95af.js`
+7. `tmp/javascript-malware-collection/2017/20170203/20170203_671786823d3f486e8e6c55a5371cfe3b.js`
+8. `tmp/javascript-malware-collection/2017/20170206/20170206_07542265c4814fc1988ce537ba2c9255.js`
+9. `tmp/javascript-malware-collection/2017/20170210/20170210_9014940ebd231f4efcc6a7a811a634d6.js`
+10. `tmp/javascript-malware-collection/2017/20170211/20170211_667febed1c61ab169a6677e164d62e5a.js`
+
+Execution command remained:
+
+- `cargo run -q -p sis-pdf -- sandbox eval <sample>`
+
+## Results summary
+
+- 10/10 executed.
+- 8/10 produced runtime errors.
+- 3/10 exercised `WScript.CreateObject`.
+- 3/10 showed dynamic code generation.
+- Dominant error buckets:
+  - `not a constructor` (5)
+  - `not a callable function` (3)
+
+Behavioural pattern labels observed:
+
+- `error_recovery_patterns` (8)
+- `dynamic_code_generation` (3)
+- `obfuscated_string_construction` (2)
+
+## What improved
+
+- COM factory refinement now recovers deeper behaviour before breakpointing in at least one loader-like sample:
+  - `20170127_ac02f835cc57f3f58c788eb66d607275.js`
+  - observed chained calls include `Scripting.FileSystemObject.GetSpecialFolder`, `MSXML2.XMLHTTP.open/send`, and `ADODB.Stream.Open/Write/SaveToFile/Close`.
+- This indicates the newer ProgID-aware stubs are enabling materially better intent recovery than single-call `CreateObject` telemetry alone.
+
+## Remaining gaps
+
+1. **Constructor semantics mismatch remains common**
+   - `not a constructor` is now the dominant failure mode.
+   - Likely causes include missing constructor-compatible emulation for selected built-ins and malware-specific helper objects.
+
+2. **Callable-return contract gaps still present**
+   - `not a callable function` persists in staged samples using `Function` and COM return objects.
+   - Some methods likely need callable returns or function-valued properties rather than plain objects/undefined.
+
+3. **Sparse environment globals for script-host payloads**
+   - `print` appears in call telemetry for one sample, suggesting host-specific global surface assumptions still vary.
+
+## Updated recommendations (priority)
+
+1. **Add constructor parity layer (PR next)**
+   - Extend emulation with constructor-safe wrappers for high-frequency host objects and selected built-ins used by obfuscated loaders.
+   - Include dedicated tests for `new` versus direct-call compatibility.
+
+2. **Refine callable-return contracts**
+   - For COM-heavy paths (`XMLHTTP`, `ADODB.Stream`, `WScript.Shell`, FSO), return object graphs that preserve expected method/property callability through second-order chaining.
+   - Add targeted regression fixtures for the 20170127/20170202/20170203 patterns.
+
+3. **Expand script-host globals minimally and safely**
+   - Add low-risk host aliases (for example `print`) as monitored stubs to reduce avoidable breakpoints while keeping strict bounds.
+
+4. **Promote `js_emulation_breakpoint` aggregation in reporting workflows**
+   - Use the new bucket metadata to prioritise emulator hardening work by frequency and exploit-family clustering.
+   - Report top breakpoint buckets in batch summaries.
