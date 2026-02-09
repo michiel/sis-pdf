@@ -1303,6 +1303,44 @@ mod sandbox_impl {
             }
         }
 
+        fn expand_windows_env_tokens(raw: &str) -> String {
+            let mut expanded = raw.to_string();
+            let replacements = [
+                ("%TEMP%", r"C:\Windows\Temp"),
+                ("%TMP%", r"C:\Windows\Temp"),
+                ("%APPDATA%", r"C:\Users\Public\AppData\Roaming"),
+                ("%WINDIR%", r"C:\Windows"),
+            ];
+            for (token, value) in replacements {
+                loop {
+                    let haystack = expanded.to_ascii_lowercase();
+                    let needle = token.to_ascii_lowercase();
+                    let Some(position) = haystack.find(&needle) else {
+                        break;
+                    };
+                    expanded.replace_range(position..position + token.len(), value);
+                }
+            }
+            expanded
+        }
+
+        fn make_native_expand_environment_strings(log: Rc<RefCell<SandboxLog>>) -> NativeFunction {
+            unsafe {
+                NativeFunction::from_closure_with_captures(
+                    move |_this, args, captures, ctx| {
+                        record_call(&captures.log, captures.name, args, ctx);
+                        let raw = args.get_or_undefined(0).to_string(ctx)?.to_std_string_escaped();
+                        let expanded = expand_windows_env_tokens(&raw);
+                        Ok(JsValue::from(JsString::from(expanded)))
+                    },
+                    LogNameCapture {
+                        log,
+                        name: "WScript.Shell.ExpandEnvironmentStrings",
+                    },
+                )
+            }
+        }
+
         fn build_com_text_stream(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
             let make_fn = |name: &'static str| {
                 let log = log.clone();
@@ -1317,12 +1355,38 @@ mod sandbox_impl {
                 .build()
         }
 
+        fn build_com_file_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            let text_stream = build_com_text_stream(context, log.clone());
+            ObjectInitializer::new(context)
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.File.OpenAsTextStream",
+                        text_stream,
+                    ),
+                    JsString::from("OpenAsTextStream"),
+                    1,
+                )
+                .function(make_fn("Scripting.File.Delete"), JsString::from("Delete"), 1)
+                .property(
+                    JsString::from("Path"),
+                    JsString::from(r"C:\Windows\Temp\payload.exe"),
+                    Attribute::all(),
+                )
+                .build()
+        }
+
         fn build_fso_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
             let make_fn = |name: &'static str| {
                 let log = log.clone();
                 make_native(log, name)
             };
             let text_stream = build_com_text_stream(context, log.clone());
+            let file_object = build_com_file_object(context, log.clone());
             ObjectInitializer::new(context)
                 .function(
                     make_fn("Scripting.FileSystemObject.OpenTextFile"),
@@ -1382,6 +1446,15 @@ mod sandbox_impl {
                     JsString::from("MoveFile"),
                     2,
                 )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.GetFile",
+                        file_object,
+                    ),
+                    JsString::from("GetFile"),
+                    1,
+                )
                 .property(JsString::from("TextStream"), text_stream, Attribute::all())
                 .build()
         }
@@ -1398,7 +1471,7 @@ mod sandbox_impl {
                 .function(make_fn("WScript.Shell.Run"), JsString::from("Run"), 1)
                 .function(make_fn("WScript.Shell.Exec"), JsString::from("Exec"), 1)
                 .function(
-                    make_fn("WScript.Shell.ExpandEnvironmentStrings"),
+                    make_native_expand_environment_strings(log.clone()),
                     JsString::from("ExpandEnvironmentStrings"),
                     1,
                 )
@@ -1407,6 +1480,52 @@ mod sandbox_impl {
                 .function(
                     make_fn("WScript.Shell.SpecialFolders"),
                     JsString::from("SpecialFolders"),
+                    1,
+                )
+                .build()
+        }
+
+        fn build_shell_application_object(
+            context: &mut Context,
+            log: Rc<RefCell<SandboxLog>>,
+        ) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            let shell_item = ObjectInitializer::new(context)
+                .property(
+                    JsString::from("Path"),
+                    JsString::from(r"C:\Windows\Temp"),
+                    Attribute::all(),
+                )
+                .build();
+            let namespace = ObjectInitializer::new(context)
+                .property(JsString::from("Self"), shell_item, Attribute::all())
+                .property(JsString::from("Title"), JsString::from("Temp"), Attribute::all())
+                .build();
+            ObjectInitializer::new(context)
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Shell.Application.NameSpace",
+                        namespace.clone(),
+                    ),
+                    JsString::from("NameSpace"),
+                    1,
+                )
+                .function(
+                    make_fn("Shell.Application.ShellExecute"),
+                    JsString::from("ShellExecute"),
+                    1,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Shell.Application.BrowseForFolder",
+                        namespace,
+                    ),
+                    JsString::from("BrowseForFolder"),
                     1,
                 )
                 .build()
@@ -1472,6 +1591,7 @@ mod sandbox_impl {
             match pid.as_str() {
                 "scripting.filesystemobject" => build_fso_object(context, log),
                 "wscript.shell" => build_wscript_shell_object(context, log),
+                "shell.application" => build_shell_application_object(context, log),
                 "msxml2.xmlhttp"
                 | "msxml2.xmlhttp.3.0"
                 | "msxml2.xmlhttp.6.0"
@@ -1542,8 +1662,17 @@ mod sandbox_impl {
                 JsString::from("CreateObject"),
                 1,
             )
+            .function(make_fn("WScript.Echo"), JsString::from("Echo"), 1)
+            .function(make_fn("WScript.Echo"), JsString::from("echo"), 1)
+            .function(make_fn("WScript.Sleep"), JsString::from("Sleep"), 1)
+            .function(make_fn("WScript.Sleep"), JsString::from("sleep"), 1)
             .function(make_fn("WScript.RegRead"), JsString::from("RegRead"), 1)
             .function(make_fn("WScript.RegWrite"), JsString::from("RegWrite"), 2)
+            .property(
+                JsString::from("ScriptFullName"),
+                JsString::from(r"C:\Windows\Temp\stub.js"),
+                Attribute::all(),
+            )
             .build();
         let _ =
             context.register_global_property(JsString::from("WScript"), wscript, Attribute::all());

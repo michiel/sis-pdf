@@ -123,11 +123,23 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
         if (typeof CreateObject !== 'function') throw new Error('CreateObject');
         var shell = new ActiveXObject('WScript.Shell');
         if (typeof shell.Run !== 'function') throw new Error('WScript.Shell.Run');
+        if (typeof WScript.Echo !== 'function') throw new Error('WScript.Echo');
+        if (typeof WScript.Sleep !== 'function') throw new Error('WScript.Sleep');
+        if (typeof WScript.echo !== 'function') throw new Error('WScript.echo');
+        if (typeof WScript.sleep !== 'function') throw new Error('WScript.sleep');
         print('sandbox');
         shell.Run('cmd /c whoami');
+        WScript.Echo('probe');
+        WScript.Sleep(1);
+        WScript.echo('probe-lower');
+        WScript.sleep(1);
         var fso = ActiveXObject('Scripting.FileSystemObject');
         if (typeof fso.OpenTextFile !== 'function') throw new Error('Scripting.FileSystemObject.OpenTextFile');
+        if (typeof fso.GetFile !== 'function') throw new Error('Scripting.FileSystemObject.GetFile');
         fso.OpenTextFile('C:\\\\temp\\\\x.txt');
+        var file = fso.GetFile('C:\\\\temp\\\\x.txt');
+        if (typeof file.OpenAsTextStream !== 'function') throw new Error('Scripting.File.OpenAsTextStream');
+        file.OpenAsTextStream(1);
         var stream = CreateObject('ADODB.Stream');
         if (typeof stream.SaveToFile !== 'function') throw new Error('ADODB.Stream.SaveToFile');
         stream.SaveToFile('C:\\\\temp\\\\payload.bin');
@@ -137,8 +149,47 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
     assert!(signals.calls.iter().any(|call| call == "ActiveXObject"));
     assert!(signals.calls.iter().any(|call| call == "CreateObject"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Run"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Echo"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Sleep"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.OpenTextFile"));
+    assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.GetFile"));
+    assert!(signals.calls.iter().any(|call| call == "Scripting.File.OpenAsTextStream"));
     assert!(signals.calls.iter().any(|call| call == "ADODB.Stream.SaveToFile"));
+    assert!(signals.errors.is_empty(), "unexpected errors: {:?}", signals.errors);
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn pdf_profile_compat_supports_shell_namespace_and_env_expansion() {
+    let options = profile_options(RuntimeKind::PdfReader);
+    let payload = b"
+        var shell = WScript.CreateObject('WScript.Shell');
+        var tempPath = shell.ExpandEnvironmentStrings('%TEMP%');
+        if (typeof tempPath !== 'string') throw new Error('ExpandEnvironmentStrings return type');
+        var shellApp = new ActiveXObject('Shell.Application');
+        if (typeof shellApp.NameSpace !== 'function') throw new Error('Shell.Application.NameSpace');
+        var ns = shellApp.NameSpace(7);
+        if (typeof ns.Self.Path !== 'string') throw new Error('Shell.Application.NameSpace.Self.Path');
+        var combined = tempPath + '\\\\x.exe';
+        if (combined.length < 5) throw new Error('combined path too short');
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(signals
+        .calls
+        .iter()
+        .any(|call| call == "WScript.Shell.ExpandEnvironmentStrings"));
+    assert!(signals
+        .calls
+        .iter()
+        .any(|call| call == "Shell.Application.NameSpace"));
+    assert!(
+        !signals
+            .errors
+            .iter()
+            .any(|error| error.contains("not a callable function")),
+        "unexpected callable error: {:?}",
+        signals.errors
+    );
     assert!(signals.errors.is_empty(), "unexpected errors: {:?}", signals.errors);
 }
 

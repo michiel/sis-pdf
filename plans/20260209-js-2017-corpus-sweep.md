@@ -588,3 +588,66 @@ Execution command remained:
 
 5. **Continue one final 10-sample confirmation**
    - Validate whether loop-limit error rate drops to <=10% with no timeout regressions after the above tuning; if yes and no new dominant breakpoint class emerges, close this hardening track.
+
+## Additional validation slice (1936 corpus subset)
+
+## Scope and sample set
+
+An additional validation run was executed against all available JavaScript samples under:
+
+- `tmp/javascript-malware-collection/1936/`
+
+Available samples (6 total):
+
+1. `tmp/javascript-malware-collection/1936/19360616/19360616_5e841d55a1141a97c11c9975bdbe7d38.js`
+2. `tmp/javascript-malware-collection/1936/19360716/19360716_651cabb5c73e438af661f671507361d5.js`
+3. `tmp/javascript-malware-collection/1936/19360630/19360630_3aaaa12047363293f30cb7bf787a7f07.js`
+4. `tmp/javascript-malware-collection/1936/19360701/19360701_13d0fc4e5e75d0b28010330002c4f19b.js`
+5. `tmp/javascript-malware-collection/1936/19360701/19360701_446c88847493ce78b655e517e2a5d081.js`
+6. `tmp/javascript-malware-collection/1936/19360611/19360611_23f5eaf84cedb0998e31b34a5f81e4ef.js`
+
+Execution command:
+
+- `cargo run -q -p sis-pdf -- sandbox eval <sample>`
+
+## Results summary
+
+- 6/6 executed; 0/6 timed out; 0/6 skipped.
+- 6/6 produced runtime errors.
+- Dominant failure class: `not a callable function` (6/6).
+- Observed API cadence:
+  - `ActiveXObject` (24)
+  - `WScript.CreateObject` (12)
+  - `WScript.Shell.ExpandEnvironmentStrings` (12)
+  - `String.fromCharCode` (4)
+- Loop profile remained `base` for all samples (`adaptive_loop_iteration_limit=10000`), with no loop-limit pressure and no probe short-circuit events.
+
+## Interpretation
+
+This slice is not loop-budget constrained; it is a pure callable-contract compatibility gap in WSH/COM-style chains. The dominant signatures indicate scripts are obtaining host objects, expanding environment strings, and then attempting secondary invocation paths where returned values are not callable in the current emulation.
+
+## Proposed fix set (targeted)
+
+1. **WSH callable-return parity pack**
+   - Add callable-compatible return wrappers for high-frequency chain points in this slice:
+     - `WScript.Shell.ExpandEnvironmentStrings`
+     - selected secondary methods reachable from `WScript.CreateObject` outputs
+   - Ensure values used as function targets in obfuscated call sites are represented as callable where historically expected.
+
+2. **Secondary call-site recovery enhancement**
+   - Extend `not a callable function` recovery to detect call attempts on strings/object-members that are often decode stages in legacy samples.
+   - Re-run with deterministic guarded fallback wrappers instead of terminating on first callable mismatch.
+
+3. **COM object graph consistency checks**
+   - Add explicit contract assertions for object graphs returned from `ActiveXObject` / `WScript.CreateObject`, validating method callability and expected property shapes.
+   - Emit structured emulation-breakpoint metadata when contract mismatches are detected (`expected_callable=true`, `actual_kind=<type>`).
+
+4. **Legacy fixture integration tests**
+   - Promote 2–3 representative 1936 samples into regression fixtures for:
+     - `ActiveXObject -> WScript.CreateObject -> ExpandEnvironmentStrings` paths
+     - `fromCharCode`-assisted decode chains
+   - Success criteria: no `not a callable function` in baseline execution, preserved deterministic telemetry.
+
+5. **Confidence policy for callable-recovery-heavy runs**
+   - When execution succeeds only via callable recovery/fallback wrappers, annotate and mildly demote confidence for intent findings unless corroborated by network/file/risky-call signals.
+   - Preserve severity for strongly corroborated malicious behaviours.
