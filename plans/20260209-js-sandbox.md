@@ -246,7 +246,7 @@ Adjust severity/confidence based on:
   - Keep output machine-parseable and backwards compatible.
   - **Done when**: analysts can inspect these fields without JSON-only workflows.
 
-- [ ] **PR-05: Stub conformance harness**
+- [x] **PR-05: Stub conformance harness**
   - Add profile contract tests for key stubs and descriptors.
   - Assert deterministic error signatures and stable return types.
   - **Done when**: profile contract suite validates baseline profiles.
