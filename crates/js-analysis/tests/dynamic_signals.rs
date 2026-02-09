@@ -180,6 +180,46 @@ fn sandbox_short_circuits_repetitive_probe_loops() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_suppresses_runtime_limit_for_sentinel_spin_with_wsh_calls() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var shell = WScript.CreateObject('WScript.Shell');
+        var tempPath = shell.ExpandEnvironmentStrings('%TEMP%');
+        var shellApp = new ActiveXObject('Shell.Application');
+        shellApp.NameSpace(7);
+        var tone = 1;
+        while (true) {
+            tone = tone + 1;
+            if (tone == 300000000) {
+                break;
+            }
+        }
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.calls.iter().any(|call| call == "WScript.CreateObject"));
+            assert!(signals
+                .calls
+                .iter()
+                .any(|call| call == "WScript.Shell.ExpandEnvironmentStrings"));
+            assert_eq!(signals.execution_stats.adaptive_loop_profile, "sentinel_spin");
+            assert!(
+                !signals
+                    .errors
+                    .iter()
+                    .any(|error| error.to_ascii_lowercase().contains("loop iteration limit")),
+                "unexpected loop limit error: {:?}",
+                signals.errors
+            );
+            assert!(signals.execution_stats.probe_loop_short_circuit_hits > 0);
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_deduped_lists_are_deterministically_sorted() {
     let options = DynamicOptions::default();
     let payload = b"

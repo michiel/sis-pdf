@@ -30,6 +30,7 @@ mod sandbox_impl {
     const BASE_LOOP_ITERATION_LIMIT: u64 = 10_000;
     const DOWNLOADER_LOOP_ITERATION_LIMIT: u64 = 20_000;
     const HOST_PROBE_LOOP_ITERATION_LIMIT: u64 = 40_000;
+    const SENTINEL_SPIN_LOOP_ITERATION_LIMIT: u64 = 60_000;
     const PROBE_EXISTS_TRUE_AFTER: usize = 24;
 
     #[derive(Default, Clone)]
@@ -681,14 +682,22 @@ mod sandbox_impl {
                     let recovered =
                         attempt_error_recovery(&mut context, &err, &phase_code, &scope, &log)
                             .is_some();
-                    if !recovered {
+                    let error_text = format!("{:?}", err);
+                    let suppress_runtime_limit = {
+                        let log_ref = log.borrow();
+                        should_suppress_runtime_limit(&log_ref, &error_text)
+                    };
+                    if !recovered && !suppress_runtime_limit {
                         let mut log_ref = log.borrow_mut();
                         if log_ref.errors.len() < MAX_RECORDED_ERRORS {
-                            log_ref.errors.push(format!("{:?}", err));
+                            log_ref.errors.push(error_text);
                         } else {
                             log_ref.errors_dropped += 1;
                         }
                         *log_ref.phase_error_counts.entry(phase_name).or_insert(0) += 1;
+                    } else if suppress_runtime_limit {
+                        let mut log_ref = log.borrow_mut();
+                        log_ref.probe_loop_short_circuit_hits += 1;
                     }
                 }
             }
@@ -3546,6 +3555,16 @@ mod sandbox_impl {
             || lower.contains("scripting.filesystemobject")
             || lower.contains("folderexists"))
             && (lower.contains("folderexists") || lower.contains("fileexists"));
+        let has_sentinel_spin_pattern = (lower.contains("while(true)")
+            || lower.contains("while (true)")
+            || lower.contains("while( true )")
+            || lower.contains("while ( true )"))
+            && regex::Regex::new(r"==\s*[1-9][0-9]{7,}")
+                .map(|pattern| pattern.is_match(&lower))
+                .unwrap_or(false);
+        if has_sentinel_spin_pattern {
+            return (SENTINEL_SPIN_LOOP_ITERATION_LIMIT, "sentinel_spin", true);
+        }
         if has_host_probe_pattern {
             return (HOST_PROBE_LOOP_ITERATION_LIMIT, "host_probe", true);
         }
@@ -3565,6 +3584,31 @@ mod sandbox_impl {
                     || lower.contains("loop iteration limit")
             })
             .count()
+    }
+
+    fn is_runtime_limit_error(error_text: &str) -> bool {
+        let lower = error_text.to_ascii_lowercase();
+        lower.contains("maximum loop iteration limit")
+            || lower.contains("loop iteration limit")
+            || lower.contains("runtimelimit")
+    }
+
+    fn should_suppress_runtime_limit(log: &SandboxLog, error_text: &str) -> bool {
+        if !is_runtime_limit_error(error_text) {
+            return false;
+        }
+        if log.adaptive_loop_profile != "sentinel_spin" {
+            return false;
+        }
+        log.calls.iter().any(|call| {
+            matches!(
+                call.as_str(),
+                "ActiveXObject"
+                    | "WScript.CreateObject"
+                    | "WScript.Shell.ExpandEnvironmentStrings"
+                    | "Shell.Application.NameSpace"
+            )
+        })
     }
 
     fn make_native(log: Rc<RefCell<SandboxLog>>, name: &'static str) -> NativeFunction {
