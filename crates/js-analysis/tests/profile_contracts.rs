@@ -118,10 +118,12 @@ fn pdf_profile_compat_exposes_require_stub() {
 fn pdf_profile_compat_exposes_com_factory_stubs() {
     let options = profile_options(RuntimeKind::PdfReader);
     let payload = b"
+        if (typeof print !== 'function') throw new Error('print');
         if (typeof ActiveXObject !== 'function') throw new Error('ActiveXObject');
         if (typeof CreateObject !== 'function') throw new Error('CreateObject');
-        var shell = ActiveXObject('WScript.Shell');
+        var shell = new ActiveXObject('WScript.Shell');
         if (typeof shell.Run !== 'function') throw new Error('WScript.Shell.Run');
+        print('sandbox');
         shell.Run('cmd /c whoami');
         var fso = ActiveXObject('Scripting.FileSystemObject');
         if (typeof fso.OpenTextFile !== 'function') throw new Error('Scripting.FileSystemObject.OpenTextFile');
@@ -131,6 +133,7 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
         stream.SaveToFile('C:\\\\temp\\\\payload.bin');
     ";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(signals.calls.iter().any(|call| call == "print"));
     assert!(signals.calls.iter().any(|call| call == "ActiveXObject"));
     assert!(signals.calls.iter().any(|call| call == "CreateObject"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Run"));

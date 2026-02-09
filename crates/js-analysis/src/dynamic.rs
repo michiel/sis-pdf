@@ -172,6 +172,18 @@ mod sandbox_impl {
         empty_trace!();
     }
 
+    #[derive(Finalize)]
+    struct LogObjectCapture {
+        log: Rc<RefCell<SandboxLog>>,
+        object: JsObject,
+    }
+
+    unsafe impl Trace for LogObjectCapture {
+        custom_trace!(this, mark, {
+            mark(&this.object);
+        });
+    }
+
     #[derive(Debug, Clone)]
     struct VariableAccess {
         variable: String,
@@ -1201,6 +1213,37 @@ mod sandbox_impl {
     }
 
     fn register_windows_scripting(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        fn register_global_constructable_callable(
+            context: &mut Context,
+            name: &'static str,
+            length: usize,
+            function: NativeFunction,
+        ) {
+            let function = FunctionObjectBuilder::new(context.realm(), function)
+                .name(JsString::from(name))
+                .length(length)
+                .constructor(true)
+                .build();
+            let _ =
+                context.register_global_property(JsString::from(name), function, Attribute::all());
+        }
+
+        fn make_native_returning_object(
+            log: Rc<RefCell<SandboxLog>>,
+            name: &'static str,
+            object: JsObject,
+        ) -> NativeFunction {
+            unsafe {
+                NativeFunction::from_closure_with_captures(
+                    move |_this, args, captures, ctx| {
+                        record_call(&captures.log, name, args, ctx);
+                        Ok(JsValue::from(captures.object.clone()))
+                    },
+                    LogObjectCapture { log, object },
+                )
+            }
+        }
+
         fn build_com_text_stream(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
             let make_fn = |name: &'static str| {
                 let log = log.clone();
@@ -1309,15 +1352,27 @@ mod sandbox_impl {
             };
             ObjectInitializer::new(context)
                 .function(make_fn("MSXML2.XMLHTTP.open"), JsString::from("open"), 2)
+                .function(make_fn("MSXML2.XMLHTTP.Open"), JsString::from("Open"), 2)
                 .function(make_fn("MSXML2.XMLHTTP.send"), JsString::from("send"), 1)
+                .function(make_fn("MSXML2.XMLHTTP.Send"), JsString::from("Send"), 1)
                 .function(
                     make_fn("MSXML2.XMLHTTP.setRequestHeader"),
                     JsString::from("setRequestHeader"),
                     2,
                 )
                 .function(
+                    make_fn("MSXML2.XMLHTTP.SetRequestHeader"),
+                    JsString::from("SetRequestHeader"),
+                    2,
+                )
+                .function(
                     make_fn("MSXML2.XMLHTTP.getResponseHeader"),
                     JsString::from("getResponseHeader"),
+                    1,
+                )
+                .function(
+                    make_fn("MSXML2.XMLHTTP.GetResponseHeader"),
+                    JsString::from("GetResponseHeader"),
                     1,
                 )
                 .build()
@@ -1397,13 +1452,24 @@ mod sandbox_impl {
             let log = log.clone();
             make_native(log, name)
         };
-        let _ = context.register_global_builtin_callable(
-            JsString::from("ActiveXObject"),
+        register_global_constructable_callable(
+            context,
+            "ActiveXObject",
             1,
             make_com_factory(log.clone(), "ActiveXObject"),
         );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("print"),
+            1,
+            make_native(log.clone(), "print"),
+        );
+        let shell_object = build_wscript_shell_object(context, log.clone());
         let wscript = ObjectInitializer::new(context)
-            .function(make_fn("WScript.Shell"), JsString::from("Shell"), 0)
+            .function(
+                make_native_returning_object(log.clone(), "WScript.Shell", shell_object),
+                JsString::from("Shell"),
+                0,
+            )
             .function(
                 make_com_factory(log.clone(), "WScript.CreateObject"),
                 JsString::from("CreateObject"),
@@ -1414,13 +1480,15 @@ mod sandbox_impl {
             .build();
         let _ =
             context.register_global_property(JsString::from("WScript"), wscript, Attribute::all());
-        let _ = context.register_global_builtin_callable(
-            JsString::from("GetObject"),
+        register_global_constructable_callable(
+            context,
+            "GetObject",
             1,
             make_com_factory(log.clone(), "GetObject"),
         );
-        let _ = context.register_global_builtin_callable(
-            JsString::from("CreateObject"),
+        register_global_constructable_callable(
+            context,
+            "CreateObject",
             1,
             make_com_factory(log, "CreateObject"),
         );
@@ -2134,7 +2202,7 @@ mod sandbox_impl {
     fn register_enhanced_doc_globals(
         context: &mut Context,
         log: Rc<RefCell<SandboxLog>>,
-        _scope: Rc<RefCell<DynamicScope>>,
+        scope: Rc<RefCell<DynamicScope>>,
     ) {
         let add =
             |ctx: &mut Context, name: &'static str, len: usize, log: Rc<RefCell<SandboxLog>>| {
@@ -2144,17 +2212,42 @@ mod sandbox_impl {
                     make_native(log, name),
                 );
             };
-        let add_callable =
-            |ctx: &mut Context, name: &'static str, len: usize, log: Rc<RefCell<SandboxLog>>| {
-                let _ =
-                    ctx.register_global_callable(JsString::from(name), len, make_native(log, name));
-            };
-
         // Standard JavaScript globals with enhanced tracking
         add(context, "setTimeout", 1, log.clone());
         add(context, "setInterval", 1, log.clone());
         add(context, "confirm", 1, log.clone());
-        add_callable(context, "Function", 1, log.clone());
+        let function_ctor = unsafe {
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "Function", args, ctx);
+                    let body = args
+                        .last()
+                        .map(|value| value.to_string(ctx))
+                        .transpose()?
+                        .map(|value| value.to_std_string_escaped())
+                        .unwrap_or_default();
+                    let wrapped = format!("(function(){{{body}}})");
+                    let processed = preprocess_eval_code(&wrapped, &captures.scope);
+                    match execute_with_variable_promotion(
+                        ctx,
+                        &processed,
+                        &captures.scope,
+                        &captures.log,
+                    ) {
+                        Ok(result) => Ok(result),
+                        Err(error) => {
+                            let mut log_ref = captures.log.borrow_mut();
+                            log_ref
+                                .errors
+                                .push(format!("Function ctor error (recovered): {:?}", error));
+                            Ok(JsValue::undefined())
+                        }
+                    }
+                },
+                LogScopeCapture { log: log.clone(), scope: scope.clone() },
+            )
+        };
+        let _ = context.register_global_callable(JsString::from("Function"), 1, function_ctor);
 
         // Enhanced string functions
         register_enhanced_string_functions(context, log.clone());

@@ -220,6 +220,9 @@ fn test_all_fixtures_no_crash() {
         "base64_custom_decoder.js",
         "heap_spray_exploit.js",
         "whitespace_obfuscation.js",
+        "regression_20170127_wscript_chain.js",
+        "regression_20170202_function_ctor_chain.js",
+        "regression_20170203_activex_constructor.js",
     ];
 
     let mut executed = 0;
@@ -248,4 +251,53 @@ fn test_all_fixtures_no_crash() {
     println!("  Executed: {}/{}", executed, fixtures.len());
     println!("  Timed out: {}/{}", timed_out, fixtures.len());
     println!("  Skipped: {}/{}", skipped, fixtures.len());
+}
+
+#[test]
+fn regression_20170127_wscript_chain_executes_deep_com_flow() {
+    let outcome = test_fixture("regression_20170127_wscript_chain.js");
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.calls.iter().any(|call| call == "WScript.CreateObject"));
+            assert!(signals
+                .calls
+                .iter()
+                .any(|call| call == "Scripting.FileSystemObject.GetSpecialFolder"));
+            assert!(signals.calls.iter().any(|call| call == "MSXML2.XMLHTTP.open"));
+            assert!(signals.calls.iter().any(|call| call == "ADODB.Stream.SaveToFile"));
+            assert!(!signals.errors.iter().any(|error| error.contains("not a callable function")));
+            assert!(!signals.errors.iter().any(|error| error.contains("not a constructor")));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[test]
+fn regression_20170202_function_ctor_chain_keeps_shell_callable() {
+    let outcome = test_fixture("regression_20170202_function_ctor_chain.js");
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.calls.iter().any(|call| call == "Function"));
+            assert!(signals.calls.iter().any(|call| call == "WScript.CreateObject"));
+            assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Run"));
+            assert!(!signals.errors.iter().any(|error| error.contains("not a callable function")));
+            assert!(!signals.errors.iter().any(|error| error.contains("not a constructor")));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[test]
+fn regression_20170203_activex_constructor_is_supported() {
+    let outcome = test_fixture("regression_20170203_activex_constructor.js");
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.calls.iter().any(|call| call == "ActiveXObject"));
+            assert!(signals.calls.iter().any(|call| call == "MSXML2.XMLHTTP.Open"));
+            assert!(signals.calls.iter().any(|call| call == "MSXML2.XMLHTTP.Send"));
+            assert!(!signals.errors.iter().any(|error| error.contains("not a constructor")));
+            assert!(!signals.errors.iter().any(|error| error.contains("not a callable function")));
+        }
+        _ => panic!("expected executed"),
+    }
 }

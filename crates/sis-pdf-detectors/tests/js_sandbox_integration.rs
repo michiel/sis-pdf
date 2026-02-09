@@ -155,6 +155,10 @@ fn sandbox_emits_emulation_breakpoint_finding_for_runtime_errors() {
         finding.meta.get("js.emulation_breakpoint.buckets").map(String::as_str),
         Some("parser_dialect_mismatch:1")
     );
+    assert_eq!(
+        finding.meta.get("js.emulation_breakpoint.top_bucket").map(String::as_str),
+        Some("parser_dialect_mismatch")
+    );
     assert_eq!(finding.meta.get("js.runtime.error_count").map(String::as_str), Some("1"));
     assert!(finding
         .meta

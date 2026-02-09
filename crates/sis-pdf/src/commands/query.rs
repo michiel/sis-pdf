@@ -2645,6 +2645,7 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
         }
         let mut severity_counts: HashMap<String, usize> = HashMap::new();
         let mut surface_counts: HashMap<String, usize> = HashMap::new();
+        let mut js_breakpoint_buckets: HashMap<String, usize> = HashMap::new();
         for entry in entries.iter().filter_map(|value| value.as_object()) {
             if let Some(severity) =
                 entry.get("severity").and_then(|value| value.as_str()).map(|s| s.to_string())
@@ -2656,8 +2657,40 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
             {
                 *surface_counts.entry(surface).or_insert(0) += 1;
             }
+            let is_breakpoint = entry
+                .get("kind")
+                .and_then(|value| value.as_str())
+                .map(|kind| kind == "js_emulation_breakpoint")
+                .unwrap_or(false);
+            if is_breakpoint {
+                if let Some(meta) = entry.get("meta").and_then(|value| value.as_object()) {
+                    if let Some(raw_buckets) =
+                        meta.get("js.emulation_breakpoint.buckets").and_then(|value| value.as_str())
+                    {
+                        for token in
+                            raw_buckets.split(',').map(str::trim).filter(|token| !token.is_empty())
+                        {
+                            let mut parts = token.splitn(2, ':');
+                            let Some(bucket) =
+                                parts.next().map(str::trim).filter(|bucket| !bucket.is_empty())
+                            else {
+                                continue;
+                            };
+                            let count = parts
+                                .next()
+                                .map(str::trim)
+                                .and_then(|raw| raw.parse::<usize>().ok())
+                                .unwrap_or(1);
+                            *js_breakpoint_buckets.entry(bucket.to_string()).or_insert(0) += count;
+                        }
+                    }
+                }
+            }
         }
-        if severity_counts.is_empty() && surface_counts.is_empty() {
+        if severity_counts.is_empty()
+            && surface_counts.is_empty()
+            && js_breakpoint_buckets.is_empty()
+        {
             return None;
         }
         let mut summary_map = serde_json::Map::new();
@@ -2666,6 +2699,12 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
         }
         if !surface_counts.is_empty() {
             summary_map.insert("findings_by_surface".into(), serde_json::json!(surface_counts));
+        }
+        if !js_breakpoint_buckets.is_empty() {
+            summary_map.insert(
+                "js_emulation_breakpoints_by_bucket".into(),
+                serde_json::json!(js_breakpoint_buckets),
+            );
         }
         return Some(serde_json::Value::Object(summary_map));
     }
@@ -7517,15 +7556,26 @@ mod tests {
         let findings = json!([
             {"kind": "suspicious", "severity": "High", "surface": "Action"},
             {"kind": "info", "severity": "Info", "surface": "Structure"},
-            {"kind": "suspicious", "severity": "High", "surface": "Action"}
+            {"kind": "suspicious", "severity": "High", "surface": "Action"},
+            {
+                "kind": "js_emulation_breakpoint",
+                "severity": "Low",
+                "surface": "JavaScript",
+                "meta": {
+                    "js.emulation_breakpoint.buckets": "missing_callable:2, not_constructor:1"
+                }
+            }
         ]);
         let result = QueryResult::Structure(findings);
         let output = format_json("findings", "sample.pdf", &result).unwrap();
         let json_value: serde_json::Value = serde_json::from_str(&output).unwrap();
         let summary = json_value["summary"].as_object().expect("summary present");
         assert_eq!(summary["findings_by_severity"]["High"], json!(2));
+        assert_eq!(summary["findings_by_severity"]["Low"], json!(1));
         assert_eq!(summary["findings_by_severity"]["Info"], json!(1));
         assert_eq!(summary["findings_by_surface"]["Action"], json!(2));
+        assert_eq!(summary["js_emulation_breakpoints_by_bucket"]["missing_callable"], json!(2));
+        assert_eq!(summary["js_emulation_breakpoints_by_bucket"]["not_constructor"], json!(1));
     }
 
     #[test]

@@ -394,6 +394,13 @@ fn extend_with_emulation_breakpoint_finding(
             .collect::<Vec<_>>()
             .join(", "),
     );
+    if let Some((top_bucket, top_count)) = bucket_counts
+        .iter()
+        .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(left.0)))
+    {
+        meta.insert("js.emulation_breakpoint.top_bucket".into(), top_bucket.clone());
+        meta.insert("js.emulation_breakpoint.top_bucket_count".into(), top_count.to_string());
+    }
     let parser_mismatch = bucket_counts.contains_key("parser_dialect_mismatch");
     let base_severity = if parser_mismatch { Severity::Medium } else { Severity::Low };
     let base_confidence = if parser_mismatch { Confidence::Strong } else { Confidence::Probable };

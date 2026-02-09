@@ -80,6 +80,8 @@ pub struct BatchEntry {
     pub summary: Summary,
     pub duration_ms: u64,
     pub detection_duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub js_emulation_breakpoint_buckets: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -94,6 +96,32 @@ pub struct BatchReport {
     pub summary: Summary,
     pub entries: Vec<BatchEntry>,
     pub timing: BatchTiming,
+}
+
+pub fn js_emulation_breakpoint_bucket_counts(findings: &[Finding]) -> BTreeMap<String, usize> {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for finding in findings.iter().filter(|finding| finding.kind == "js_emulation_breakpoint") {
+        if let Some(value) = finding.meta.get("js.emulation_breakpoint.buckets") {
+            for (bucket, count) in parse_bucket_counts(value) {
+                *counts.entry(bucket).or_insert(0) += count;
+            }
+        }
+    }
+    counts
+}
+
+fn parse_bucket_counts(value: &str) -> Vec<(String, usize)> {
+    let mut parsed = Vec::new();
+    for token in value.split(',').map(str::trim).filter(|token| !token.is_empty()) {
+        let mut parts = token.splitn(2, ':');
+        let Some(bucket) = parts.next().map(str::trim).filter(|bucket| !bucket.is_empty()) else {
+            continue;
+        };
+        let count =
+            parts.next().map(str::trim).and_then(|raw| raw.parse::<usize>().ok()).unwrap_or(1);
+        parsed.push((bucket.to_string(), count));
+    }
+    parsed
 }
 
 fn chain_note<'a>(chain: &'a ExploitChain, key: &str) -> Option<&'a str> {
@@ -3300,6 +3328,12 @@ fn format_ml_explanation_for_report(
 
 pub fn render_batch_markdown(report: &BatchReport) -> String {
     let mut out = String::new();
+    let mut js_breakpoint_totals: BTreeMap<String, usize> = BTreeMap::new();
+    for entry in &report.entries {
+        for (bucket, count) in &entry.js_emulation_breakpoint_buckets {
+            *js_breakpoint_totals.entry(bucket.clone()).or_insert(0) += *count;
+        }
+    }
     out.push_str("# sis-pdf Batch Report\n\n");
     out.push_str("## Summary\n\n");
     out.push_str(&format!(
@@ -3320,8 +3354,18 @@ pub fn render_batch_markdown(report: &BatchReport) -> String {
             .detection_duration_ms
             .map(|ms| format!("{ms}ms"))
             .unwrap_or_else(|| "n/a".to_string());
+        let breakpoint_summary = if entry.js_emulation_breakpoint_buckets.is_empty() {
+            "none".to_string()
+        } else {
+            entry
+                .js_emulation_breakpoint_buckets
+                .iter()
+                .map(|(bucket, count)| format!("{bucket}:{count}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
         out.push_str(&format!(
-            "- {}: total={} high={} medium={} low={} info={} duration={}ms detection={}\n",
+            "- {}: total={} high={} medium={} low={} info={} duration={}ms detection={} js_breakpoints={}\n",
             escape_markdown(&entry.path),
             entry.summary.total,
             entry.summary.high,
@@ -3329,8 +3373,17 @@ pub fn render_batch_markdown(report: &BatchReport) -> String {
             entry.summary.low,
             entry.summary.info,
             entry.duration_ms,
-            detection_duration
+            detection_duration,
+            breakpoint_summary
         ));
+    }
+    if !js_breakpoint_totals.is_empty() {
+        out.push_str("\n## JS Emulation Breakpoint Buckets\n\n");
+        let mut ranked = js_breakpoint_totals.into_iter().collect::<Vec<_>>();
+        ranked.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+        for (bucket, count) in ranked.into_iter().take(8) {
+            out.push_str(&format!("- {}: {}\n", escape_markdown(&bucket), count));
+        }
     }
     out
 }
@@ -3428,7 +3481,12 @@ fn format_node_preview(node: &str, position_previews: &BTreeMap<String, String>)
 
 #[cfg(test)]
 mod tests {
-    use super::escape_control;
+    use super::{
+        escape_control, js_emulation_breakpoint_bucket_counts, render_batch_markdown,
+        AttackSurface, BatchEntry, BatchReport, BatchTiming, Finding, Severity, Summary,
+    };
+    use crate::model::Confidence;
+    use std::collections::BTreeMap;
 
     #[test]
     fn escapes_control_chars() {
@@ -3436,6 +3494,47 @@ mod tests {
         let escaped = escape_control(input);
         assert!(escaped.contains("\\x1B"));
         assert!(!escaped.contains('\x1b'));
+    }
+
+    #[test]
+    fn aggregates_js_emulation_breakpoint_bucket_counts() {
+        let mut finding = Finding::template(
+            AttackSurface::JavaScript,
+            "js_emulation_breakpoint",
+            Severity::Low,
+            Confidence::Probable,
+            "break",
+            "breakpoint",
+        );
+        finding.meta.insert(
+            "js.emulation_breakpoint.buckets".into(),
+            "missing_callable:2, missing_constructor:1".into(),
+        );
+        let counts = js_emulation_breakpoint_bucket_counts(&[finding]);
+        assert_eq!(counts.get("missing_callable"), Some(&2));
+        assert_eq!(counts.get("missing_constructor"), Some(&1));
+    }
+
+    #[test]
+    fn batch_markdown_includes_js_breakpoint_summary() {
+        let mut buckets = BTreeMap::new();
+        buckets.insert("missing_constructor".to_string(), 3);
+        buckets.insert("missing_callable".to_string(), 1);
+        let report = BatchReport {
+            summary: Summary { total: 2, high: 0, medium: 0, low: 1, info: 1 },
+            entries: vec![BatchEntry {
+                path: "sample.pdf".into(),
+                summary: Summary { total: 2, high: 0, medium: 0, low: 1, info: 1 },
+                duration_ms: 10,
+                detection_duration_ms: Some(5),
+                js_emulation_breakpoint_buckets: buckets,
+            }],
+            timing: BatchTiming { total_ms: 10, avg_ms: 10, max_ms: 10 },
+        };
+        let markdown = render_batch_markdown(&report);
+        assert!(markdown.contains("JS Emulation Breakpoint Buckets"));
+        assert!(markdown.contains("missing\\_constructor: 3"));
+        assert!(markdown.contains("js_breakpoints=missing_callable:1,missing_constructor:3"));
     }
 }
 

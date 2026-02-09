@@ -4085,11 +4085,14 @@ fn run_scan_batch(
         let duration_ms = start.elapsed().as_millis() as u64;
         let detection_duration_ms = report.detection_duration_ms;
         let summary = report.summary;
+        let js_emulation_breakpoint_buckets =
+            sis_pdf_core::report::js_emulation_breakpoint_bucket_counts(&report.findings);
         Ok(sis_pdf_core::report::BatchEntry {
             path: path_str,
             duration_ms,
             summary,
             detection_duration_ms,
+            js_emulation_breakpoint_buckets,
         })
     };
     let mut entries: Vec<(usize, sis_pdf_core::report::BatchEntry)> = if use_parallel {
