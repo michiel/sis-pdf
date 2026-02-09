@@ -1102,6 +1102,92 @@ fn from_hex(b: u8) -> Option<u8> {
     }
 }
 
+fn infer_js_intent(
+    payload_bytes: &[u8],
+    signals: &std::collections::HashMap<String, String>,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    let lower = payload_bytes.to_ascii_lowercase();
+
+    let has_network_tokens = has_any_token(&lower, &[
+        b"app.launchurl(",
+        b"this.submitform(",
+        b"xmlhttp",
+        b"fetch(",
+        b"open(",
+        b"ws://",
+        b"wss://",
+        b"http://",
+        b"https://",
+    ]);
+    let has_ast_network =
+        signals.get("js.ast_urls").map(|v| !v.trim().is_empty()).unwrap_or(false)
+            || signals.get("js.ast_domains").map(|v| !v.trim().is_empty()).unwrap_or(false)
+            || matches!(
+                signals.get("js.encoded_transmission").map(String::as_str),
+                Some("true")
+            );
+    if has_network_tokens || has_ast_network {
+        return Some((
+            "network_access",
+            "JavaScript appears to initiate network-capable actions.",
+            "strong",
+        ));
+    }
+
+    if has_any_token(&lower, &[b"app.alert(", b"confirm(", b"prompt(", b"app.response("]) {
+        return Some((
+            "user_interaction",
+            "JavaScript appears focused on user prompt or social-engineering interaction.",
+            "strong",
+        ));
+    }
+
+    let has_obfuscation_tokens = has_any_token(&lower, &[b"eval(", b"unescape(", b"fromcharcode"]);
+    let has_obfuscation_signals = matches!(
+        signals.get("js.obfuscation_suspected").map(String::as_str),
+        Some("true")
+    ) || matches!(signals.get("js.contains_eval").map(String::as_str), Some("true"));
+    if has_obfuscation_tokens || has_obfuscation_signals {
+        return Some((
+            "obfuscation_loader",
+            "JavaScript contains obfuscation or dynamic execution indicators.",
+            "probable",
+        ));
+    }
+
+    None
+}
+
+fn js_present_severity_from_meta(meta: &std::collections::HashMap<String, String>) -> Severity {
+    let intent = meta.get("js.intent.primary").map(String::as_str);
+    if matches!(intent, Some("network_access" | "obfuscation_loader")) {
+        return Severity::High;
+    }
+    let high_risk_flags = [
+        "js.sandbox_evasion",
+        "js.credential_harvesting",
+        "js.encoded_transmission",
+        "js.dynamic_eval_construction",
+        "js.obfuscation_suspected",
+    ];
+    if high_risk_flags
+        .iter()
+        .any(|k| matches!(meta.get(*k).map(String::as_str), Some("true")))
+    {
+        return Severity::High;
+    }
+    if matches!(intent, Some("user_interaction")) {
+        return Severity::Medium;
+    }
+    Severity::Low
+}
+
+fn has_any_token(haystack: &[u8], needles: &[&[u8]]) -> bool {
+    needles
+        .iter()
+        .any(|needle| !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == *needle))
+}
+
 fn js_payload_candidates_from_action_dict(
     ctx: &sis_pdf_core::scan::ScanContext,
     dict: &sis_pdf_pdf::object::PdfDict<'_>,
@@ -1479,6 +1565,16 @@ impl Detector for JavaScriptDetector {
                         for (k, v) in sig {
                             meta.insert(k, v);
                         }
+                        if let Some((intent, summary, confidence)) =
+                            infer_js_intent(&payload.bytes, &meta)
+                        {
+                            meta.insert("js.intent.primary".into(), intent.into());
+                            meta.insert("js.intent.summary".into(), summary.into());
+                            meta.insert("js.intent.confidence".into(), confidence.into());
+                            if !meta.contains_key("payload.summary") {
+                                meta.insert("payload.summary".into(), format!("intent={intent}"));
+                            }
+                        }
                         let decoded =
                             js_analysis::static_analysis::decode_layers(&payload.bytes, 3);
                         meta.insert("payload.decode_layers".into(), decoded.layers.to_string());
@@ -1498,11 +1594,56 @@ impl Detector for JavaScriptDetector {
                             preview_ascii(&payload.bytes, 120),
                         );
                     }
+                    let js_present_severity = js_present_severity_from_meta(&meta);
+                    if matches!(
+                        meta.get("js.intent.primary").map(String::as_str),
+                        Some("user_interaction")
+                    ) {
+                        let mut intent_meta = std::collections::HashMap::new();
+                        intent_meta.insert(
+                            "js.intent.primary".into(),
+                            meta.get("js.intent.primary")
+                                .cloned()
+                                .unwrap_or_else(|| "user_interaction".into()),
+                        );
+                        if let Some(summary) = meta.get("js.intent.summary") {
+                            intent_meta.insert("js.intent.summary".into(), summary.clone());
+                        }
+                        if let Some(confidence) = meta.get("js.intent.confidence") {
+                            intent_meta.insert("js.intent.confidence".into(), confidence.clone());
+                        }
+                        if let Some(preview) = meta.get("payload.decoded_preview") {
+                            intent_meta.insert("payload.preview".into(), preview.clone());
+                        }
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "js_intent_user_interaction".into(),
+                            severity: Severity::High,
+                            confidence: Confidence::Strong,
+                            impact: None,
+                            title: "JavaScript user-interaction intent".into(),
+                            description:
+                                "JavaScript uses user interaction primitives (alert/confirm/prompt), consistent with social-engineering lure behaviour."
+                                    .into(),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence: evidence.clone(),
+                            remediation: Some(
+                                "Treat as active social-engineering script and validate whether execution is automatic or user-triggered."
+                                    .into(),
+                            ),
+                            meta: intent_meta,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                            ..Default::default()
+                        });
+                    }
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
                         kind: "js_present".into(),
-                        severity: Severity::High,
+                        severity: js_present_severity,
                         confidence: Confidence::Strong,
                         impact: None,
                         title: "JavaScript present".into(),
@@ -3801,7 +3942,8 @@ fn string_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
 mod tests {
     use super::{
         assess_xref_conflict, data_uri_payload_from_bytes, extract_xfa_script_payloads,
-        javascript_uri_payload_from_bytes, normalise_text_bytes_for_script,
+        infer_js_intent, javascript_uri_payload_from_bytes, js_present_severity_from_meta,
+        normalise_text_bytes_for_script,
     };
     use sis_pdf_core::model::Severity;
     use sis_pdf_pdf::graph::{Deviation, XrefSectionSummary};
@@ -3860,6 +4002,68 @@ mod tests {
             None => panic!("normalise_text_bytes_for_script should handle UTF-16"),
         };
         assert!(normalised.starts_with(b"function"));
+    }
+
+    #[test]
+    fn infer_js_intent_marks_user_interaction_for_alert() {
+        let signals = std::collections::HashMap::new();
+        let intent = infer_js_intent(b"app.alert('XSS from annotation!');", &signals);
+        assert_eq!(
+            intent,
+            Some((
+                "user_interaction",
+                "JavaScript appears focused on user prompt or social-engineering interaction.",
+                "strong",
+            ))
+        );
+    }
+
+    #[test]
+    fn infer_js_intent_marks_network_access_for_launchurl() {
+        let signals = std::collections::HashMap::new();
+        let intent = infer_js_intent(b"app.launchURL('https://example.test')", &signals);
+        assert_eq!(
+            intent,
+            Some((
+                "network_access",
+                "JavaScript appears to initiate network-capable actions.",
+                "strong",
+            ))
+        );
+    }
+
+    #[test]
+    fn infer_js_intent_marks_obfuscation_loader_for_eval_chain() {
+        let signals = std::collections::HashMap::new();
+        let intent = infer_js_intent(b"eval(unescape('%61%6c%65%72%74(1)'))", &signals);
+        assert_eq!(
+            intent,
+            Some((
+                "obfuscation_loader",
+                "JavaScript contains obfuscation or dynamic execution indicators.",
+                "probable",
+            ))
+        );
+    }
+
+    #[test]
+    fn js_present_severity_is_high_for_network_intent() {
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("js.intent.primary".into(), "network_access".into());
+        assert_eq!(js_present_severity_from_meta(&meta), Severity::High);
+    }
+
+    #[test]
+    fn js_present_severity_is_medium_for_user_interaction_intent() {
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("js.intent.primary".into(), "user_interaction".into());
+        assert_eq!(js_present_severity_from_meta(&meta), Severity::Medium);
+    }
+
+    #[test]
+    fn js_present_severity_is_low_without_risk_metadata() {
+        let meta = std::collections::HashMap::new();
+        assert_eq!(js_present_severity_from_meta(&meta), Severity::Low);
     }
 
     #[test]
