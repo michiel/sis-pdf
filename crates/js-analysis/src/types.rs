@@ -150,6 +150,9 @@ pub struct ExecutionStats {
     pub error_recoveries: usize,
     pub successful_recoveries: usize,
     pub execution_depth: usize,
+    pub loop_iteration_limit_hits: usize,
+    pub adaptive_loop_iteration_limit: usize,
+    pub downloader_scheduler_hardening: bool,
 }
 
 #[derive(Debug, Clone)]

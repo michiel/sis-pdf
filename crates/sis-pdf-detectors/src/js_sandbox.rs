@@ -306,12 +306,12 @@ fn apply_profile_scoring_meta(
     base_confidence: Confidence,
 ) -> (Severity, Confidence) {
     insert_profile_meta(meta, summary);
-    let (severity, confidence, ratio, signal) =
+    let (severity, confidence, consistency_ratio, signal) =
         apply_profile_scoring(kind, base_severity, base_confidence, summary);
     if signal != "none" {
         meta.insert("js.runtime.profile_consistency_signal".into(), signal.to_string());
     }
-    if let Some(value) = ratio {
+    if let Some(value) = consistency_ratio {
         meta.insert("js.runtime.profile_consistency_ratio".into(), format!("{value:.2}"));
     }
     if severity != base_severity {
@@ -325,6 +325,31 @@ fn apply_profile_scoring_meta(
             "js.runtime.profile_confidence_adjusted".into(),
             format!("{:?}->{:?}", base_confidence, confidence),
         );
+    }
+    if summary.timed_out_count > 0
+        && matches!(
+            kind,
+            "js_runtime_network_intent"
+                | "js_runtime_file_probe"
+                | "js_runtime_risky_calls"
+                | "js_runtime_downloader_pattern"
+        )
+    {
+        let timeout_ratio = ratio(summary.timed_out_count, summary.total()).unwrap_or(0.0);
+        meta.insert(
+            "js.runtime.script_timeout_profiles".into(),
+            summary.timed_out_count.to_string(),
+        );
+        meta.insert("js.runtime.script_timeout_ratio".into(), format!("{timeout_ratio:.2}"));
+        meta.insert("js.runtime.partial_dynamic_trace".into(), "true".into());
+        let adjusted_confidence = demote_confidence(confidence);
+        if adjusted_confidence != confidence {
+            meta.insert(
+                "js.runtime.timeout_confidence_adjusted".into(),
+                format!("{:?}->{:?}", confidence, adjusted_confidence),
+            );
+        }
+        return (severity, adjusted_confidence);
     }
     (severity, confidence)
 }
@@ -342,7 +367,12 @@ fn extract_js_error_message(raw: &str) -> String {
 
 fn classify_emulation_breakpoint(error_message: &str) -> &'static str {
     let lower = error_message.to_ascii_lowercase();
-    if lower.contains("exceeded maximum number of recursive calls")
+    if lower.contains("maximum loop iteration limit")
+        || lower.contains("loop iteration limit")
+        || lower.contains("runtime limit")
+    {
+        "loop_iteration_limit"
+    } else if lower.contains("exceeded maximum number of recursive calls")
         || lower.contains("too much recursion")
     {
         "recursion_limit"
@@ -364,6 +394,17 @@ fn classify_emulation_breakpoint(error_message: &str) -> &'static str {
     } else {
         "runtime_error"
     }
+}
+
+fn loop_iteration_limit_hits(errors: &[String]) -> usize {
+    errors
+        .iter()
+        .map(|raw| extract_js_error_message(raw))
+        .filter(|message| {
+            let lower = message.to_ascii_lowercase();
+            lower.contains("maximum loop iteration limit") || lower.contains("loop iteration limit")
+        })
+        .count()
 }
 
 fn recursion_limit_hits(errors: &[String]) -> usize {
@@ -467,6 +508,63 @@ fn extend_with_recursion_limit_finding(
         objects: vec![object_ref],
         evidence: evidence.to_vec(),
         remediation: Some("Investigate recursive control-flow and deobfuscate the script to determine intent.".into()),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    });
+}
+
+fn extend_with_script_timeout_finding(
+    findings: &mut Vec<Finding>,
+    detector_surface: AttackSurface,
+    object_ref: String,
+    evidence: &[sis_pdf_core::model::EvidenceSpan],
+    base_meta: &std::collections::HashMap<String, String>,
+    summary: &ProfileDivergenceSummary,
+    timeout_ms: Option<u128>,
+    partial: bool,
+) {
+    if summary.timed_out_count == 0 {
+        return;
+    }
+    let mut meta = base_meta.clone();
+    meta.insert("js.sandbox_exec".into(), "true".into());
+    meta.insert("js.sandbox_timeout".into(), "true".into());
+    meta.insert("js.runtime.script_timeout_profiles".into(), summary.timed_out_count.to_string());
+    if let Some(value) = ratio(summary.timed_out_count, summary.total()) {
+        meta.insert("js.runtime.script_timeout_ratio".into(), format!("{value:.2}"));
+    }
+    if let Some(ms) = timeout_ms {
+        meta.insert("js.sandbox_timeout_ms".into(), ms.to_string());
+    }
+    let (severity, confidence) = apply_profile_scoring_meta(
+        &mut meta,
+        summary,
+        "js_sandbox_exec",
+        Severity::Low,
+        Confidence::Probable,
+    );
+    findings.push(Finding {
+        id: String::new(),
+        surface: detector_surface,
+        kind: "js_sandbox_timeout".into(),
+        severity,
+        confidence,
+        impact: None,
+        title: "JavaScript sandbox timeout".into(),
+        description: if partial {
+            "Sandbox execution timed out in one or more runtime profiles; dynamic trace may be partial.".into()
+        } else {
+            "Sandbox execution exceeded the time limit.".into()
+        },
+        objects: vec![object_ref],
+        evidence: evidence.to_vec(),
+        remediation: Some(
+            "Inspect long-running loop behaviour and review dynamic findings with partial-trace caution."
+                .into(),
+        ),
         meta,
         yara: None,
         position: None,
@@ -654,33 +752,19 @@ impl Detector for JavaScriptSandboxDetector {
                     }
                     DynamicOutcome::TimedOut { timeout_ms } => {
                         let mut meta = std::collections::HashMap::new();
-                        meta.insert("js.sandbox_exec".into(), "true".into());
-                        meta.insert("js.sandbox_timeout".into(), "true".into());
-                        meta.insert("js.sandbox_timeout_ms".into(), timeout_ms.to_string());
                         if let Some(label) = candidate.source.meta_value() {
                             meta.insert("js.source".into(), label.into());
                         }
-                        insert_profile_meta(&mut meta, &profile_summary);
-                        findings.push(Finding {
-                            id: String::new(),
-                            surface: self.surface(),
-                            kind: "js_sandbox_timeout".into(),
-                            severity: Severity::Low,
-                            confidence: Confidence::Probable,
-                            impact: None,
-                            title: "JavaScript sandbox timeout".into(),
-                            description: "Sandbox execution exceeded the time limit.".into(),
-                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                            evidence: evidence.clone(),
-                            remediation: Some(
-                                "Inspect the JS payload for long-running loops.".into(),
-                            ),
-                            meta,
-                            yara: None,
-                            position: None,
-                            positions: Vec::new(),
-                            ..Finding::default()
-                        });
+                        extend_with_script_timeout_finding(
+                            &mut findings,
+                            self.surface(),
+                            format!("{} {} obj", entry.obj, entry.gen),
+                            &evidence,
+                            &meta,
+                            &profile_summary,
+                            Some(timeout_ms),
+                            false,
+                        );
                     }
                     DynamicOutcome::Executed(signals) => {
                         if signals.call_count == 0 {
@@ -710,6 +794,12 @@ impl Detector for JavaScriptSandboxDetector {
                             }
                             if !signals.errors.is_empty() {
                                 meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
+                            }
+                            if profile_summary.timed_out_count > 0 {
+                                meta.insert(
+                                    "js.runtime.script_timeout_profiles".into(),
+                                    profile_summary.timed_out_count.to_string(),
+                                );
                             }
                             if !signals.prop_writes.is_empty() {
                                 meta.insert(
@@ -845,6 +935,23 @@ impl Detector for JavaScriptSandboxDetector {
                             }
                             let object_ref = format!("{} {} obj", entry.obj, entry.gen);
                             let recursion_hits = recursion_limit_hits(&signals.errors);
+                            let loop_hits = loop_iteration_limit_hits(&signals.errors);
+                            if loop_hits > 0 {
+                                meta.insert(
+                                    "js.runtime.loop_iteration_limit_hits".into(),
+                                    loop_hits.to_string(),
+                                );
+                            }
+                            extend_with_script_timeout_finding(
+                                &mut findings,
+                                self.surface(),
+                                object_ref.clone(),
+                                &evidence,
+                                &meta,
+                                &profile_summary,
+                                None,
+                                true,
+                            );
                             extend_with_emulation_breakpoint_finding(
                                 &mut findings,
                                 self.surface(),
@@ -1068,6 +1175,12 @@ impl Detector for JavaScriptSandboxDetector {
                         if !signals.errors.is_empty() {
                             base_meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
                         }
+                        if profile_summary.timed_out_count > 0 {
+                            base_meta.insert(
+                                "js.runtime.script_timeout_profiles".into(),
+                                profile_summary.timed_out_count.to_string(),
+                            );
+                        }
                         if let Some(ms) = signals.elapsed_ms {
                             base_meta.insert("js.sandbox_exec_ms".into(), ms.to_string());
                         }
@@ -1076,12 +1189,29 @@ impl Detector for JavaScriptSandboxDetector {
                         }
                         let object_ref = format!("{} {} obj", entry.obj, entry.gen);
                         let recursion_hits = recursion_limit_hits(&signals.errors);
+                        let loop_hits = loop_iteration_limit_hits(&signals.errors);
                         if recursion_hits > 0 {
                             base_meta.insert(
                                 "js.runtime.recursion_limit_hits".into(),
                                 recursion_hits.to_string(),
                             );
                         }
+                        if loop_hits > 0 {
+                            base_meta.insert(
+                                "js.runtime.loop_iteration_limit_hits".into(),
+                                loop_hits.to_string(),
+                            );
+                        }
+                        extend_with_script_timeout_finding(
+                            &mut findings,
+                            self.surface(),
+                            object_ref.clone(),
+                            &evidence,
+                            &base_meta,
+                            &profile_summary,
+                            None,
+                            true,
+                        );
                         extend_with_emulation_breakpoint_finding(
                             &mut findings,
                             self.surface(),

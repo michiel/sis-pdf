@@ -126,6 +126,9 @@ struct SandboxExecutionStats {
     error_recoveries: usize,
     successful_recoveries: usize,
     execution_depth: usize,
+    loop_iteration_limit_hits: usize,
+    adaptive_loop_iteration_limit: usize,
+    downloader_scheduler_hardening: bool,
 }
 
 #[derive(Serialize)]
@@ -1265,6 +1268,13 @@ fn run_sandbox_eval(
                     error_recoveries: signals.execution_stats.error_recoveries,
                     successful_recoveries: signals.execution_stats.successful_recoveries,
                     execution_depth: signals.execution_stats.execution_depth,
+                    loop_iteration_limit_hits: signals.execution_stats.loop_iteration_limit_hits,
+                    adaptive_loop_iteration_limit: signals
+                        .execution_stats
+                        .adaptive_loop_iteration_limit,
+                    downloader_scheduler_hardening: signals
+                        .execution_stats
+                        .downloader_scheduler_hardening,
                 },
                 behavioral_patterns: signals
                     .behavioral_patterns
@@ -4087,12 +4097,21 @@ fn run_scan_batch(
         let summary = report.summary;
         let js_emulation_breakpoint_buckets =
             sis_pdf_core::report::js_emulation_breakpoint_bucket_counts(&report.findings);
+        let js_script_timeout_findings =
+            sis_pdf_core::report::js_script_timeout_finding_count(&report.findings);
+        let js_loop_iteration_limit_hits =
+            sis_pdf_core::report::js_loop_iteration_limit_hit_count(&report.findings);
+        let js_runtime_error_findings =
+            sis_pdf_core::report::js_runtime_error_finding_count(&report.findings);
         Ok(sis_pdf_core::report::BatchEntry {
             path: path_str,
             duration_ms,
             summary,
             detection_duration_ms,
             js_emulation_breakpoint_buckets,
+            js_script_timeout_findings,
+            js_loop_iteration_limit_hits,
+            js_runtime_error_findings,
         })
     };
     let mut entries: Vec<(usize, sis_pdf_core::report::BatchEntry)> = if use_parallel {
@@ -4302,6 +4321,15 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     if let Some(value) = finding.meta.get("js.runtime.profile_divergence") {
         println!("Runtime profile divergence: {}", escape_terminal(value));
     }
+    if let Some(value) = finding.meta.get("js.runtime.script_timeout_profiles") {
+        println!("Runtime timeout profiles: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.script_timeout_ratio") {
+        println!("Runtime timeout ratio: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.loop_iteration_limit_hits") {
+        println!("Runtime loop iteration limit hits: {}", escape_terminal(value));
+    }
     if let Some(value) = finding.meta.get("js.runtime.profile_status") {
         println!("Runtime profile status: {}", escape_terminal(value));
     }
@@ -4316,6 +4344,9 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     }
     if let Some(value) = finding.meta.get("js.runtime.profile_confidence_adjusted") {
         println!("Runtime confidence adjusted: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_confidence_adjusted") {
+        println!("Runtime timeout confidence adjusted: {}", escape_terminal(value));
     }
     if let Some(value) = finding.meta.get("js.runtime.truncation.calls_dropped") {
         println!("Runtime calls dropped: {}", escape_terminal(value));

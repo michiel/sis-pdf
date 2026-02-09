@@ -142,6 +142,9 @@ sis query sample.pdf actions.chains --chain-summary full
 For JavaScript runtime triage, the summary also includes:
 
 - `js_emulation_breakpoints_by_bucket` (for example `missing_callable`, `recursion_limit`, `parser_dialect_mismatch`)
+- `js_runtime_budget` with:
+  - `script_timeout_findings`
+  - `loop_iteration_limit_hits`
 
 ```bash
 sis query sample.pdf findings --format json
@@ -157,6 +160,7 @@ When a finding is produced from JavaScript sandbox execution, `explain` now incl
 - phase telemetry: `js.runtime.phase_order`, `js.runtime.phase_count`, `js.runtime.phase_summaries`
 - profile fusion telemetry: `js.runtime.profile_count`, `js.runtime.profile_status`, `js.runtime.profile_divergence`
 - scoring adjustments: `js.runtime.profile_consistency_signal`, `js.runtime.profile_consistency_ratio`, `js.runtime.profile_severity_adjusted`, `js.runtime.profile_confidence_adjusted`
+- timeout-aware scoring/coverage telemetry: `js.runtime.script_timeout_profiles`, `js.runtime.script_timeout_ratio`, `js.runtime.timeout_confidence_adjusted`, `js.runtime.loop_iteration_limit_hits`
 - integrity metadata: `js.runtime.replay_id`, `js.runtime.ordering`, and `js.runtime.truncation.*`
 
 Example:

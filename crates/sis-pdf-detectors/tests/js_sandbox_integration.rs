@@ -218,3 +218,25 @@ fn sandbox_emits_downloader_loop_pattern_finding() {
         .expect("js_runtime_downloader_pattern finding");
     assert_eq!(finding.meta.get("js.runtime.downloader.open_calls").map(String::as_str), Some("2"));
 }
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emulation_breakpoint_tracks_loop_iteration_limit_bucket() {
+    let payload = "for (var i = 0; i < 50000; i++) { var z = i + 1; }";
+    let bytes = build_minimal_js_pdf(payload);
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_emulation_breakpoint")
+        .expect("js_emulation_breakpoint finding");
+    assert!(finding
+        .meta
+        .get("js.emulation_breakpoint.buckets")
+        .map(|value| value.contains("loop_iteration_limit"))
+        .unwrap_or(false));
+}

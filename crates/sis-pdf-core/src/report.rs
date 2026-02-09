@@ -82,6 +82,12 @@ pub struct BatchEntry {
     pub detection_duration_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub js_emulation_breakpoint_buckets: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub js_script_timeout_findings: usize,
+    #[serde(default)]
+    pub js_loop_iteration_limit_hits: usize,
+    #[serde(default)]
+    pub js_runtime_error_findings: usize,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -110,6 +116,21 @@ pub fn js_emulation_breakpoint_bucket_counts(findings: &[Finding]) -> BTreeMap<S
     counts
 }
 
+pub fn js_script_timeout_finding_count(findings: &[Finding]) -> usize {
+    findings.iter().filter(|finding| finding.kind == "js_sandbox_timeout").count()
+}
+
+pub fn js_runtime_error_finding_count(findings: &[Finding]) -> usize {
+    findings.iter().filter(|finding| finding.kind == "js_emulation_breakpoint").count()
+}
+
+pub fn js_loop_iteration_limit_hit_count(findings: &[Finding]) -> usize {
+    js_emulation_breakpoint_bucket_counts(findings)
+        .get("loop_iteration_limit")
+        .copied()
+        .unwrap_or(0)
+}
+
 fn parse_bucket_counts(value: &str) -> Vec<(String, usize)> {
     let mut parsed = Vec::new();
     for token in value.split(',').map(str::trim).filter(|token| !token.is_empty()) {
@@ -122,6 +143,14 @@ fn parse_bucket_counts(value: &str) -> Vec<(String, usize)> {
         parsed.push((bucket.to_string(), count));
     }
     parsed
+}
+
+fn ratio_percent(numerator: usize, denominator: usize) -> f64 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f64 * 100.0 / denominator as f64
+    }
 }
 
 fn chain_note<'a>(chain: &'a ExploitChain, key: &str) -> Option<&'a str> {
@@ -3329,16 +3358,45 @@ fn format_ml_explanation_for_report(
 pub fn render_batch_markdown(report: &BatchReport) -> String {
     let mut out = String::new();
     let mut js_breakpoint_totals: BTreeMap<String, usize> = BTreeMap::new();
+    let mut files_with_script_timeout = 0usize;
+    let mut files_with_loop_limit = 0usize;
+    let mut files_with_runtime_errors = 0usize;
+    let mut total_script_timeout_findings = 0usize;
+    let mut total_loop_iteration_hits = 0usize;
+    let mut total_runtime_error_findings = 0usize;
     for entry in &report.entries {
         for (bucket, count) in &entry.js_emulation_breakpoint_buckets {
             *js_breakpoint_totals.entry(bucket.clone()).or_insert(0) += *count;
         }
+        total_script_timeout_findings += entry.js_script_timeout_findings;
+        total_loop_iteration_hits += entry.js_loop_iteration_limit_hits;
+        total_runtime_error_findings += entry.js_runtime_error_findings;
+        if entry.js_script_timeout_findings > 0 {
+            files_with_script_timeout += 1;
+        }
+        if entry.js_loop_iteration_limit_hits > 0 {
+            files_with_loop_limit += 1;
+        }
+        if entry.js_runtime_error_findings > 0 {
+            files_with_runtime_errors += 1;
+        }
     }
+    let file_count = report.entries.len();
+    let timeout_rate = ratio_percent(files_with_script_timeout, file_count);
+    let loop_rate = ratio_percent(files_with_loop_limit, file_count);
+    let runtime_error_rate = ratio_percent(files_with_runtime_errors, file_count);
+    let timeout_stop_ok = timeout_rate <= 10.0;
+    let runtime_stop_ok = runtime_error_rate <= 20.0;
+    let dominant_bucket = js_breakpoint_totals
+        .iter()
+        .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(left.0)))
+        .map(|(bucket, count)| format!("{bucket}:{count}"))
+        .unwrap_or_else(|| "none".to_string());
     out.push_str("# sis-pdf Batch Report\n\n");
     out.push_str("## Summary\n\n");
     out.push_str(&format!(
-        "- Files: {}\n- Total findings: {}\n- High: {}\n- Medium: {}\n- Low: {}\n- Info: {}\n- Timing: total={}ms avg={}ms max={}ms\n\n",
-        report.entries.len(),
+        "- Files: {}\n- Total findings: {}\n- High: {}\n- Medium: {}\n- Low: {}\n- Info: {}\n- Timing: total={}ms avg={}ms max={}ms\n- JS script timeout findings: {} (files {:.2}%)\n- JS loop iteration limit hits: {} (files {:.2}%)\n- JS runtime error findings: {} (files {:.2}%)\n- Hardening stop criteria (single batch): timeout<=10%={} runtime_error<=20%={} dominant_breakpoint={}\n\n",
+        file_count,
         report.summary.total,
         report.summary.high,
         report.summary.medium,
@@ -3346,7 +3404,16 @@ pub fn render_batch_markdown(report: &BatchReport) -> String {
         report.summary.info,
         report.timing.total_ms,
         report.timing.avg_ms,
-        report.timing.max_ms
+        report.timing.max_ms,
+        total_script_timeout_findings,
+        timeout_rate,
+        total_loop_iteration_hits,
+        loop_rate,
+        total_runtime_error_findings,
+        runtime_error_rate,
+        timeout_stop_ok,
+        runtime_stop_ok,
+        escape_markdown(&dominant_bucket)
     ));
     out.push_str("## Per-File Totals\n\n");
     for entry in &report.entries {
@@ -3365,7 +3432,7 @@ pub fn render_batch_markdown(report: &BatchReport) -> String {
                 .join(",")
         };
         out.push_str(&format!(
-            "- {}: total={} high={} medium={} low={} info={} duration={}ms detection={} js_breakpoints={}\n",
+            "- {}: total={} high={} medium={} low={} info={} duration={}ms detection={} js_breakpoints={} js_script_timeout_findings={} js_loop_iteration_limit_hits={} js_runtime_error_findings={}\n",
             escape_markdown(&entry.path),
             entry.summary.total,
             entry.summary.high,
@@ -3374,7 +3441,10 @@ pub fn render_batch_markdown(report: &BatchReport) -> String {
             entry.summary.info,
             entry.duration_ms,
             detection_duration,
-            breakpoint_summary
+            breakpoint_summary,
+            entry.js_script_timeout_findings,
+            entry.js_loop_iteration_limit_hits,
+            entry.js_runtime_error_findings
         ));
     }
     if !js_breakpoint_totals.is_empty() {
@@ -3528,13 +3598,18 @@ mod tests {
                 duration_ms: 10,
                 detection_duration_ms: Some(5),
                 js_emulation_breakpoint_buckets: buckets,
+                js_script_timeout_findings: 1,
+                js_loop_iteration_limit_hits: 2,
+                js_runtime_error_findings: 1,
             }],
             timing: BatchTiming { total_ms: 10, avg_ms: 10, max_ms: 10 },
         };
         let markdown = render_batch_markdown(&report);
         assert!(markdown.contains("JS Emulation Breakpoint Buckets"));
+        assert!(markdown.contains("JS script timeout findings: 1"));
         assert!(markdown.contains("missing\\_constructor: 3"));
         assert!(markdown.contains("js_breakpoints=missing_callable:1,missing_constructor:3"));
+        assert!(markdown.contains("js_script_timeout_findings=1"));
     }
 }
 

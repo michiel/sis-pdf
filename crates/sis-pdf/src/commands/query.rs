@@ -2647,6 +2647,8 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
         let mut surface_counts: HashMap<String, usize> = HashMap::new();
         let mut kind_counts: HashMap<String, usize> = HashMap::new();
         let mut js_breakpoint_buckets: HashMap<String, usize> = HashMap::new();
+        let mut js_script_timeout_findings = 0usize;
+        let mut js_loop_iteration_limit_hits = 0usize;
         for entry in entries.iter().filter_map(|value| value.as_object()) {
             if let Some(severity) =
                 entry.get("severity").and_then(|value| value.as_str()).map(|s| s.to_string())
@@ -2662,6 +2664,14 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
                 entry.get("kind").and_then(|value| value.as_str()).map(|s| s.to_string())
             {
                 *kind_counts.entry(kind).or_insert(0) += 1;
+            }
+            if entry
+                .get("kind")
+                .and_then(|value| value.as_str())
+                .map(|kind| kind == "js_sandbox_timeout")
+                .unwrap_or(false)
+            {
+                js_script_timeout_findings += 1;
             }
             let is_breakpoint = entry
                 .get("kind")
@@ -2688,6 +2698,9 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
                                 .and_then(|raw| raw.parse::<usize>().ok())
                                 .unwrap_or(1);
                             *js_breakpoint_buckets.entry(bucket.to_string()).or_insert(0) += count;
+                            if bucket == "loop_iteration_limit" {
+                                js_loop_iteration_limit_hits += count;
+                            }
                         }
                     }
                 }
@@ -2714,6 +2727,15 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
             summary_map.insert(
                 "js_emulation_breakpoints_by_bucket".into(),
                 serde_json::json!(js_breakpoint_buckets),
+            );
+        }
+        if js_script_timeout_findings > 0 || js_loop_iteration_limit_hits > 0 {
+            summary_map.insert(
+                "js_runtime_budget".into(),
+                serde_json::json!({
+                    "script_timeout_findings": js_script_timeout_findings,
+                    "loop_iteration_limit_hits": js_loop_iteration_limit_hits
+                }),
             );
         }
         return Some(serde_json::Value::Object(summary_map));
@@ -7568,12 +7590,13 @@ mod tests {
             {"kind": "info", "severity": "Info", "surface": "Structure"},
             {"kind": "suspicious", "severity": "High", "surface": "Action"},
             {"kind": "js_runtime_downloader_pattern", "severity": "High", "surface": "JavaScript"},
+            {"kind": "js_sandbox_timeout", "severity": "Low", "surface": "JavaScript"},
             {
                 "kind": "js_emulation_breakpoint",
                 "severity": "Low",
                 "surface": "JavaScript",
                 "meta": {
-                    "js.emulation_breakpoint.buckets": "missing_callable:2, not_constructor:1"
+                    "js.emulation_breakpoint.buckets": "missing_callable:2, loop_iteration_limit:1"
                 }
             }
         ]);
@@ -7582,13 +7605,15 @@ mod tests {
         let json_value: serde_json::Value = serde_json::from_str(&output).unwrap();
         let summary = json_value["summary"].as_object().expect("summary present");
         assert_eq!(summary["findings_by_severity"]["High"], json!(3));
-        assert_eq!(summary["findings_by_severity"]["Low"], json!(1));
+        assert_eq!(summary["findings_by_severity"]["Low"], json!(2));
         assert_eq!(summary["findings_by_severity"]["Info"], json!(1));
         assert_eq!(summary["findings_by_surface"]["Action"], json!(2));
         assert_eq!(summary["findings_by_kind"]["js_runtime_downloader_pattern"], json!(1));
         assert_eq!(summary["findings_by_kind"]["suspicious"], json!(2));
         assert_eq!(summary["js_emulation_breakpoints_by_bucket"]["missing_callable"], json!(2));
-        assert_eq!(summary["js_emulation_breakpoints_by_bucket"]["not_constructor"], json!(1));
+        assert_eq!(summary["js_emulation_breakpoints_by_bucket"]["loop_iteration_limit"], json!(1));
+        assert_eq!(summary["js_runtime_budget"]["script_timeout_findings"], json!(1));
+        assert_eq!(summary["js_runtime_budget"]["loop_iteration_limit_hits"], json!(1));
     }
 
     #[test]

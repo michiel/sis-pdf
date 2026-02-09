@@ -26,6 +26,8 @@ mod sandbox_impl {
     const MAX_RECORDED_CALLS: usize = 2_048;
     const MAX_RECORDED_PROP_READS: usize = 4_096;
     const MAX_RECORDED_ERRORS: usize = 256;
+    const BASE_LOOP_ITERATION_LIMIT: u64 = 10_000;
+    const DOWNLOADER_LOOP_ITERATION_LIMIT: u64 = 20_000;
 
     #[derive(Default, Clone)]
     struct SandboxLog {
@@ -64,6 +66,8 @@ mod sandbox_impl {
         scope_transitions: Vec<ScopeTransition>,
         execution_flow: ExecutionFlow,
         behavioral_patterns: Vec<BehaviorObservation>,
+        adaptive_loop_iteration_limit: usize,
+        downloader_scheduler_hardening: bool,
     }
 
     #[derive(Debug, Clone)]
@@ -594,9 +598,17 @@ mod sandbox_impl {
             initial_log.execution_flow.start_time = Some(std::time::Instant::now());
             let log = Rc::new(RefCell::new(initial_log));
             let scope = Rc::new(RefCell::new(DynamicScope::default()));
+            let normalised = normalise_js_source(&bytes);
             let mut context = Context::default();
             let mut limits = RuntimeLimits::default();
-            limits.set_loop_iteration_limit(10_000);
+            let (loop_iteration_limit, downloader_scheduler_hardening) =
+                select_loop_iteration_limit(&normalised);
+            {
+                let mut log_ref = log.borrow_mut();
+                log_ref.adaptive_loop_iteration_limit = loop_iteration_limit as usize;
+                log_ref.downloader_scheduler_hardening = downloader_scheduler_hardening;
+            }
+            limits.set_loop_iteration_limit(loop_iteration_limit);
             limits.set_recursion_limit(64);
             limits.set_stack_size_limit(512 * 1024);
             context.set_runtime_limits(limits);
@@ -607,7 +619,6 @@ mod sandbox_impl {
             register_enhanced_eval_v2(&mut context, log.clone(), scope.clone());
             register_enhanced_global_fallback(&mut context, log.clone(), scope.clone());
 
-            let normalised = normalise_js_source(&bytes);
             let baseline_source = String::from_utf8_lossy(&normalised).to_string();
             let baseline_snapshot = snapshot_source(&baseline_source);
             let mut total_elapsed = 0u128;
@@ -767,6 +778,9 @@ mod sandbox_impl {
                         .map(|call| call.call_depth)
                         .max()
                         .unwrap_or(0),
+                    loop_iteration_limit_hits: loop_iteration_limit_hits(&log.errors),
+                    adaptive_loop_iteration_limit: log.adaptive_loop_iteration_limit,
+                    downloader_scheduler_hardening: log.downloader_scheduler_hardening,
                 },
             })),
             Err(RecvTimeoutError::Timeout) => {
@@ -3338,6 +3352,30 @@ mod sandbox_impl {
 
     fn is_hex(byte: u8) -> bool {
         byte.is_ascii_hexdigit()
+    }
+
+    fn select_loop_iteration_limit(source: &[u8]) -> (u64, bool) {
+        let lower = String::from_utf8_lossy(source).to_ascii_lowercase();
+        let has_downloader_pattern = (lower.contains("wscript.createobject")
+            || lower.contains("activexobject")
+            || lower.contains("createobject("))
+            && (lower.contains("msxml2.xmlhttp") || lower.contains("serverxmlhttp"));
+        if has_downloader_pattern {
+            (DOWNLOADER_LOOP_ITERATION_LIMIT, true)
+        } else {
+            (BASE_LOOP_ITERATION_LIMIT, false)
+        }
+    }
+
+    fn loop_iteration_limit_hits(errors: &[String]) -> usize {
+        errors
+            .iter()
+            .filter(|error| {
+                let lower = error.to_ascii_lowercase();
+                lower.contains("maximum loop iteration limit")
+                    || lower.contains("loop iteration limit")
+            })
+            .count()
     }
 
     fn make_native(log: Rc<RefCell<SandboxLog>>, name: &'static str) -> NativeFunction {
