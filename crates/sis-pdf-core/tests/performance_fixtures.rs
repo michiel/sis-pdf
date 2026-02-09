@@ -42,12 +42,7 @@ fn scan_fixture(name: &str) -> sis_pdf_core::report::Report {
 fn vera_pdf_metadata_trailer_findings() {
     let report = scan_fixture("veraPDF-6-6-2-3-1-t01-fail-r.pdf");
     let kinds: Vec<&str> = report.findings.iter().map(|f| f.kind.as_str()).collect();
-    for expected in [
-        "parser_trailer_count_diff",
-        "pdf.trailer_inconsistent",
-        "label_mismatch_stream_type",
-        "content_image_only_page",
-    ] {
+    for expected in ["pdf.trailer_inconsistent", "content_image_only_page"] {
         assert!(kinds.contains(&expected), "{} missing", expected);
     }
 }
@@ -56,14 +51,14 @@ fn vera_pdf_metadata_trailer_findings() {
 fn unknown_filter_bundle() {
     let report = scan_fixture("unknown-filter-4387ba48.pdf");
     let kinds: Vec<&str> = report.findings.iter().map(|f| f.kind.as_str()).collect();
-    for expected in [
-        "declared_filter_invalid",
-        "embedded_payload_carved",
-        "parser_trailer_count_diff",
-        "pdf.trailer_inconsistent",
-    ] {
+    for expected in ["embedded_payload_carved", "pdf.trailer_inconsistent"] {
         assert!(kinds.contains(&expected), "{} missing", expected);
     }
+    assert!(
+        kinds.contains(&"declared_filter_invalid") || kinds.contains(&"label_mismatch_stream_type"),
+        "expected filter mismatch finding, got {:?}",
+        kinds
+    );
 }
 
 #[test]

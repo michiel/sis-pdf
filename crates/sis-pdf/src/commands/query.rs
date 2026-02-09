@@ -2758,12 +2758,17 @@ fn extract_embedded_files(
     predicate: Option<&PredicateExpr>,
 ) -> Result<Vec<String>> {
     let mut embedded = Vec::new();
+    let embedded_index = sis_pdf_core::embedded_index::build_embedded_artefact_index(&ctx.graph);
 
     for entry in &ctx.graph.objects {
         if let PdfAtom::Stream(st) = &entry.atom {
             if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
                 let data = stream_bytes_for_mode(ctx.bytes, st, 32 * 1024 * 1024, decode_mode)?;
-                let name = embedded_filename(&st.dict)
+                let stream_ref = (entry.obj, entry.gen);
+                let artefact_ref = embedded_index.get(&stream_ref);
+                let name = artefact_ref
+                    .and_then(|record| record.filename.clone())
+                    .or_else(|| embedded_filename(&st.dict))
                     .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
                 let analysis = sis_pdf_core::stream_analysis::analyse_stream(
                     &data,
@@ -2774,6 +2779,14 @@ fn extract_embedded_files(
                 predicate_meta.insert("name".into(), name.clone());
                 predicate_meta.insert("magic".into(), analysis.magic_type.clone());
                 predicate_meta.insert("hash".into(), hash.clone());
+                if let Some((filespec_obj, filespec_gen)) =
+                    artefact_ref.and_then(|record| record.filespec_ref)
+                {
+                    predicate_meta.insert(
+                        "filespec_ref".into(),
+                        format!("{} {}", filespec_obj, filespec_gen),
+                    );
+                }
                 let meta = PredicateContext {
                     length: data.len(),
                     filter: filter_name(&st.dict),
@@ -2800,13 +2813,22 @@ fn extract_embedded_files(
                     meta: predicate_meta,
                 };
                 if predicate.map(|pred| pred.evaluate(&meta)).unwrap_or(true) {
-                    embedded.push(format!(
-                        "{} ({}_{}, {} bytes)",
-                        name,
-                        entry.obj,
-                        entry.gen,
-                        data.len()
-                    ));
+                    if let Some((filespec_obj, filespec_gen)) =
+                        artefact_ref.and_then(|record| record.filespec_ref)
+                    {
+                        embedded.push(format!(
+                            "{} ({}_{}, filespec={}_{}, {} bytes)",
+                            name, entry.obj, entry.gen, filespec_obj, filespec_gen, data.len()
+                        ));
+                    } else {
+                        embedded.push(format!(
+                            "{} ({}_{}, {} bytes)",
+                            name,
+                            entry.obj,
+                            entry.gen,
+                            data.len()
+                        ));
+                    }
                 }
             }
         }
@@ -5484,6 +5506,7 @@ fn write_embedded_files(
     let mut written_files = Vec::new();
     let mut count = 0usize;
     let mut total_bytes = 0usize;
+    let embedded_index = sis_pdf_core::embedded_index::build_embedded_artefact_index(&ctx.graph);
 
     for entry in &ctx.graph.objects {
         if let PdfAtom::Stream(st) = &entry.atom {
@@ -5499,7 +5522,11 @@ fn write_embedded_files(
                         break;
                     }
 
-                    let name = embedded_filename(&st.dict)
+                    let stream_ref = (entry.obj, entry.gen);
+                    let artefact_ref = embedded_index.get(&stream_ref);
+                    let name = artefact_ref
+                        .and_then(|record| record.filename.clone())
+                        .or_else(|| embedded_filename(&st.dict))
                         .unwrap_or_else(|| format!("embedded_{}_{}.bin", entry.obj, entry.gen));
                     let analysis = sis_pdf_core::stream_analysis::analyse_stream(
                         &data,
@@ -5510,6 +5537,14 @@ fn write_embedded_files(
                     predicate_meta.insert("name".into(), name.clone());
                     predicate_meta.insert("magic".into(), analysis.magic_type.clone());
                     predicate_meta.insert("hash".into(), hash.clone());
+                    if let Some((filespec_obj, filespec_gen)) =
+                        artefact_ref.and_then(|record| record.filespec_ref)
+                    {
+                        predicate_meta.insert(
+                            "filespec_ref".into(),
+                            format!("{} {}", filespec_obj, filespec_gen),
+                        );
+                    }
                     let meta = PredicateContext {
                         length: data.len(),
                         filter: filter_name(&st.dict),
@@ -5560,6 +5595,11 @@ fn write_embedded_files(
                             "{}: {} bytes, type={}, sha256={}, object={}_{}",
                             filename, data_len, file_type, hash, entry.obj, entry.gen
                         );
+                        if let Some((filespec_obj, filespec_gen)) =
+                            artefact_ref.and_then(|record| record.filespec_ref)
+                        {
+                            info.push_str(&format!(", filespec={}_{}", filespec_obj, filespec_gen));
+                        }
                         info.push_str(&format!(", mode={}", mode_label));
                         if decode_mode == DecodeMode::Hexdump {
                             info.push_str(&format!(", hexdump_bytes={}", output_bytes.len()));

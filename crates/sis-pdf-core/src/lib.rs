@@ -15,6 +15,7 @@ pub mod correlation;
 pub mod crypto_analysis;
 pub mod detect;
 pub mod diff;
+pub mod embedded_index;
 pub mod evidence;
 pub mod explainability;
 pub mod features;

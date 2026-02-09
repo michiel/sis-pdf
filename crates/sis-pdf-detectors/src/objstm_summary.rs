@@ -20,7 +20,7 @@ impl Detector for ObjStmSummaryDetector {
         Needs::OBJECT_GRAPH
     }
     fn cost(&self) -> Cost {
-        Cost::Expensive
+        Cost::Cheap
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();

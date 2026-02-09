@@ -9,6 +9,7 @@ use crate::encryption_obfuscation::{encryption_meta_from_dict, resolve_encrypt_d
 use crate::uri_classification::analyze_uri_content;
 use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
+use sis_pdf_core::embedded_index::{build_embedded_artefact_index, EmbeddedArtefactRef};
 use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii, EvidenceBuilder};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
@@ -2189,6 +2190,156 @@ impl Detector for GoToRDetector {
 
 struct EmbeddedFileDetector;
 
+#[derive(Clone, Debug)]
+struct EmbeddedScriptAssessment {
+    family: String,
+    confidence: Confidence,
+    signals: Vec<String>,
+}
+
+fn embedded_extension_family(name: &str) -> Option<&'static str> {
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".sh") || lower.ends_with(".bash") || lower.ends_with(".zsh") {
+        return Some("shell");
+    }
+    if lower.ends_with(".bat") || lower.ends_with(".cmd") {
+        return Some("cmd");
+    }
+    if lower.ends_with(".ps1") || lower.ends_with(".psm1") {
+        return Some("powershell");
+    }
+    if lower.ends_with(".vbs") {
+        return Some("vbscript");
+    }
+    if lower.ends_with(".js") || lower.ends_with(".mjs") || lower.ends_with(".jse") {
+        return Some("javascript");
+    }
+    None
+}
+
+fn detect_script_signals(data: &[u8]) -> Vec<(&'static str, &'static str)> {
+    let max_scan_bytes = 256 * 1024;
+    let slice = if data.len() > max_scan_bytes { &data[..max_scan_bytes] } else { data };
+    let mut signals = Vec::new();
+    if slice.starts_with(b"#!") {
+        signals.push(("shell", "header:shebang"));
+    }
+    if contains_any_ci(
+        slice,
+        &[
+            b"/bin/sh".as_slice(),
+            b"#!/bin/bash".as_slice(),
+            b"bash -c".as_slice(),
+            b"sh -c".as_slice(),
+        ],
+    ) {
+        signals.push(("shell", "token:shell"));
+    }
+    if contains_any_ci(
+        slice,
+        &[
+            b"@echo off".as_slice(),
+            b"cmd /c".as_slice(),
+            b"cmd.exe".as_slice(),
+            b" %comspec% ".as_slice(),
+        ],
+    ) {
+        signals.push(("cmd", "token:cmd"));
+    }
+    if contains_any_ci(
+        slice,
+        &[
+            b"powershell".as_slice(),
+            b"write-host".as_slice(),
+            b"invoke-expression".as_slice(),
+            b"iex ".as_slice(),
+            b"$env:".as_slice(),
+        ],
+    ) {
+        signals.push(("powershell", "token:powershell"));
+    }
+    if contains_any_ci(
+        slice,
+        &[
+            b"vbscript".as_slice(),
+            b"wscript.shell".as_slice(),
+            b"createobject(".as_slice(),
+        ],
+    ) {
+        signals.push(("vbscript", "token:vbscript"));
+    }
+    if looks_like_js_text(slice) {
+        signals.push(("javascript", "token:javascript"));
+    }
+    signals
+}
+
+fn contains_any_ci(data: &[u8], needles: &[&[u8]]) -> bool {
+    let lower = data.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<u8>>();
+    needles.iter().any(|needle| lower.windows(needle.len()).any(|window| window == *needle))
+}
+
+fn printable_ascii_ratio(bytes: &[u8]) -> usize {
+    if bytes.is_empty() {
+        return 0;
+    }
+    let printable = bytes
+        .iter()
+        .filter(|byte| matches!(**byte, b'\t' | b'\n' | b'\r' | 0x20..=0x7E))
+        .count();
+    (printable * 100) / bytes.len()
+}
+
+fn classify_embedded_script(
+    filename: Option<&str>,
+    magic_type: Option<&str>,
+    bytes: &[u8],
+) -> Option<EmbeddedScriptAssessment> {
+    let printable_ratio = printable_ascii_ratio(bytes);
+    if printable_ratio < 60 {
+        return None;
+    }
+
+    let ext_family = filename.and_then(embedded_extension_family);
+    let signals = detect_script_signals(bytes);
+    let mut family_scores: std::collections::HashMap<String, i32> =
+        std::collections::HashMap::new();
+    let mut signal_labels = Vec::new();
+
+    if let Some(family) = ext_family {
+        *family_scores.entry(family.to_string()).or_insert(0) += 3;
+        signal_labels.push(format!("extension:{family}"));
+    }
+    if matches!(magic_type, Some("script")) {
+        let target_family = ext_family.unwrap_or("shell");
+        *family_scores.entry(target_family.to_string()).or_insert(0) += 2;
+        signal_labels.push("magic:script".into());
+    }
+    for (family, label) in signals {
+        *family_scores.entry(family.to_string()).or_insert(0) += 2;
+        signal_labels.push(label.to_string());
+    }
+
+    let Some((family, score)) = family_scores.into_iter().max_by_key(|(_, score)| *score) else {
+        return None;
+    };
+    if score < 3 {
+        return None;
+    }
+
+    let confidence = if score >= 6 {
+        Confidence::Strong
+    } else if score >= 4 {
+        Confidence::Probable
+    } else {
+        Confidence::Tentative
+    };
+    signal_labels.sort();
+    signal_labels.dedup();
+
+    Some(EmbeddedScriptAssessment { family, confidence, signals: signal_labels })
+}
+
 impl Detector for EmbeddedFileDetector {
     fn id(&self) -> &'static str {
         "embedded_file_present"
@@ -2205,6 +2356,7 @@ impl Detector for EmbeddedFileDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         let timeout = TimeoutChecker::new(Duration::from_millis(100));
+        let embedded_index = build_embedded_artefact_index(&ctx.graph);
         for entry in &ctx.graph.objects {
             if timeout.check().is_err() {
                 break;
@@ -2227,7 +2379,23 @@ impl Detector for EmbeddedFileDetector {
                     let mut magic = None;
                     let mut encrypted_container = false;
                     let mut has_double = false;
-                    let filename = embedded_filename(&st.dict);
+                    let stream_ref = (entry.obj, entry.gen);
+                    let artefact_ref: Option<&EmbeddedArtefactRef> = embedded_index.get(&stream_ref);
+                    let filename = artefact_ref
+                        .and_then(|record| record.filename.clone())
+                        .or_else(|| embedded_filename(&st.dict));
+                    meta.insert(
+                        "embedded.stream_ref".into(),
+                        format!("{} {}", stream_ref.0, stream_ref.1),
+                    );
+                    if let Some((filespec_obj, filespec_gen)) =
+                        artefact_ref.and_then(|record| record.filespec_ref)
+                    {
+                        meta.insert(
+                            "embedded.filespec_ref".into(),
+                            format!("{} {}", filespec_obj, filespec_gen),
+                        );
+                    }
                     if let Some(name) = &filename {
                         meta.insert("embedded.filename".into(), name.clone());
                         meta.insert("filename".into(), name.clone());
@@ -2236,6 +2404,7 @@ impl Detector for EmbeddedFileDetector {
                             meta.insert("embedded.double_extension".into(), "true".into());
                         }
                     }
+                    let mut script_assessment: Option<EmbeddedScriptAssessment> = None;
                     if let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, st) {
                         let analysis = analyse_stream(&decoded.data, &StreamLimits::default());
                         let hash = sha256_hex(&decoded.data);
@@ -2257,6 +2426,18 @@ impl Detector for EmbeddedFileDetector {
                         meta.insert("magic_type".into(), magic_value.clone());
                         meta.insert("stream.magic_type".into(), magic_value.clone());
                         magic = Some(magic_value);
+                        script_assessment = classify_embedded_script(
+                            filename.as_deref(),
+                            magic.as_deref(),
+                            &decoded.data,
+                        );
+                        if let Some(assessment) = &script_assessment {
+                            meta.insert("embedded.script_family".into(), assessment.family.clone());
+                            meta.insert(
+                                "embedded.script_signals".into(),
+                                assessment.signals.join(","),
+                            );
+                        }
                         if is_encrypted_archive {
                             meta.insert("embedded.encrypted_container".into(), "true".into());
                             encrypted_flag = "true";
@@ -2308,7 +2489,12 @@ impl Detector for EmbeddedFileDetector {
                         positions: Vec::new(),
                     });
 
-                    let objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
+                    let mut objects = vec![format!("{} {} obj", entry.obj, entry.gen)];
+                    if let Some((filespec_obj, filespec_gen)) =
+                        artefact_ref.and_then(|record| record.filespec_ref)
+                    {
+                        objects.push(format!("{} {} obj", filespec_obj, filespec_gen));
+                    }
                     if let Some(magic) = magic.as_deref() {
                         if magic == "pe" {
                             findings.push(Finding {
@@ -2334,16 +2520,28 @@ impl Detector for EmbeddedFileDetector {
                                 positions: Vec::new(),
                             });
                         }
-                        if magic == "script" {
+                        if magic == "script" || script_assessment.is_some() {
+                            let script_confidence = script_assessment
+                                .as_ref()
+                                .map(|assessment| assessment.confidence)
+                                .unwrap_or(Confidence::Probable);
+                            let script_description = if let Some(assessment) = &script_assessment {
+                                format!(
+                                    "Embedded file appears to be {} script content.",
+                                    assessment.family
+                                )
+                            } else {
+                                "Embedded file appears to be a script.".to_string()
+                            };
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
                                 kind: "embedded_script_present".into(),
                                 severity: Severity::Medium,
-                                confidence: Confidence::Probable,
+                                confidence: script_confidence,
                                 impact: None,
                                 title: "Embedded script present".into(),
-                                description: "Embedded file appears to be a script.".into(),
+                                description: script_description,
                                 objects: objects.clone(),
                                 evidence: evidence.clone(),
                                 remediation: Some("Review the script content.".into()),
@@ -3972,7 +4170,7 @@ mod tests {
     use super::{
         assess_xref_conflict, data_uri_payload_from_bytes, extract_xfa_script_payloads,
         infer_js_intent, javascript_uri_payload_from_bytes, js_present_severity_from_meta,
-        normalise_text_bytes_for_script,
+        normalise_text_bytes_for_script, classify_embedded_script,
     };
     use sis_pdf_core::model::Severity;
     use sis_pdf_pdf::graph::{Deviation, XrefSectionSummary};
@@ -4093,6 +4291,22 @@ mod tests {
     fn js_present_severity_is_low_without_risk_metadata() {
         let meta = std::collections::HashMap::new();
         assert_eq!(js_present_severity_from_meta(&meta), Severity::Low);
+    }
+
+    #[test]
+    fn embedded_script_classifier_marks_batch_from_extension_and_tokens() {
+        let payload = b"@echo off\r\necho hello from batch\r\n";
+        let assessment = classify_embedded_script(Some("hello.bat"), Some("unknown"), payload)
+            .expect("batch payload should classify as script");
+        assert_eq!(assessment.family, "cmd");
+    }
+
+    #[test]
+    fn embedded_script_classifier_marks_powershell_from_extension() {
+        let payload = b"Write-Host 'hello from powershell'\n";
+        let assessment = classify_embedded_script(Some("hello.ps1"), Some("unknown"), payload)
+            .expect("powershell payload should classify as script");
+        assert_eq!(assessment.family, "powershell");
     }
 
     #[test]
