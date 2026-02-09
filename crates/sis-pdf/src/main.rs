@@ -4156,6 +4156,33 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     {
         println!("Matched keywords: {}", escape_terminal(keywords));
     }
+    if let Some(value) = finding.meta.get("js.runtime.calls") {
+        println!("Runtime calls: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.call_args") {
+        println!("Runtime call args: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.urls") {
+        println!("Runtime URLs: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.domains") {
+        println!("Runtime domains: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.prop_reads") {
+        println!("Runtime property reads: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.errors") {
+        println!("Runtime errors: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.call_count") {
+        println!("Runtime call count: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.unique_calls") {
+        println!("Runtime unique calls: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.unique_prop_reads") {
+        println!("Runtime unique property reads: {}", escape_terminal(value));
+    }
     print_finding_context_hints(&finding.meta);
     println!();
     for ev in &finding.evidence {
