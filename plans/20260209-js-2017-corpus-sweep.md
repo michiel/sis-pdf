@@ -651,3 +651,62 @@ This slice is not loop-budget constrained; it is a pure callable-contract compat
 5. **Confidence policy for callable-recovery-heavy runs**
    - When execution succeeds only via callable recovery/fallback wrappers, annotate and mildly demote confidence for intent findings unless corroborated by network/file/risky-call signals.
    - Preserve severity for strongly corroborated malicious behaviours.
+
+## Ninth 10-sample sweep (post-callable contract refinement)
+
+### Scope
+
+Re-used the same random 10-sample set from the previous sweep to isolate impact from the callable-contract patch:
+
+- `tmp/javascript-malware-collection/2017/20170119/20170119_8496099966c12d7ae43a8d9d4de7efc1.js`
+- `tmp/javascript-malware-collection/2017/20170119/20170119_202a6366f7b0c3c3e1233763cc2ac19f.js`
+- `tmp/javascript-malware-collection/2017/20170219/20170219_2eb997fab8dc4151b2a936fc513fbc07.js`
+- `tmp/javascript-malware-collection/2017/20170504/20170504_dcaac8421d5e1e2d47883d3cd73920b6.js`
+- `tmp/javascript-malware-collection/2017/20170221/20170221_1486c6103e734fdbafde9c8f93618d03.js`
+- `tmp/javascript-malware-collection/2017/20170123/20170123_d5f57a19c9e5cc31558772c2a282be7e.js`
+- `tmp/javascript-malware-collection/2017/20170412/20170412_5a0493b8e4e62ae6455d848b644c21a3.js`
+- `tmp/javascript-malware-collection/2017/20170123/20170123_86568a682abc06bc6da3d7e6075ade66.js`
+- `tmp/javascript-malware-collection/2017/20170320/20170320_318f0937aae8425c94f985b30b4b1d75.js`
+- `tmp/javascript-malware-collection/2017/20170427/20170427_a2ad7fc45827068fa402cac361b5a0d9.js`
+
+Execution command remained:
+
+- `cargo run -q -p sis-pdf -- sandbox eval <sample>`
+
+### Results summary
+
+- Executed: `9/10`
+- Timeout: `1/10`
+- Skipped: `0/10`
+- Executed with errors: `2/9`
+
+Error class breakdown:
+
+- `not a callable function`: `0` (down from `2`)
+- `cannot convert 'null' or 'undefined' to object`: `1`
+- `Maximum loop iteration limit 20000 exceeded`: `1`
+
+Notable behavioural outcome:
+
+- `20170123_86568a682abc06bc6da3d7e6075ade66.js` no longer emits callable errors and now records the previously blocked chain (`Scripting.FileSystemObject.DeleteFile`, `WScript.Shell.Run`).
+
+### Interpretation
+
+The first refinement item (callable contract parity for mixed-case COM/WSH method naming) is effective and removes callable breakpoints for this slice.
+
+Residual issues are now concentrated in:
+
+1. One null-conversion chain (`20170119_202a6366...`)
+2. One downloader loop-limit chain (`20170412_5a0493...`)
+3. One persistent timeout (`20170320_318f0937...`)
+
+### Next recommendations (post-ninth sweep)
+
+1. **Target null-conversion recovery next**
+   - Implement a narrow, deterministic fallback for object-member access in heavy `String.fromCharCode` decoder chains to avoid premature `null/undefined` collapse.
+
+2. **Tune downloader profile loop handling for the remaining loop-limit sample**
+   - Add a bounded second-stage budget escalation for downloader-labelled scripts that demonstrate repeated network/decode cadence with no unsafe side effects.
+
+3. **Timeout mitigation for the 20170320 sample**
+   - Capture early-phase telemetry signature and add a profile-specific fast-path (or phase budget split) to reduce `open` phase timeout likelihood without relaxing global limits.

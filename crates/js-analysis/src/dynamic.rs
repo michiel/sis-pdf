@@ -1396,10 +1396,16 @@ mod sandbox_impl {
             };
             let text_stream = build_com_text_stream(context, log.clone());
             let file_object = build_com_file_object(context, log.clone());
+            let file_object_lower = build_com_file_object(context, log.clone());
             ObjectInitializer::new(context)
                 .function(
                     make_fn("Scripting.FileSystemObject.OpenTextFile"),
                     JsString::from("OpenTextFile"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.OpenTextFile"),
+                    JsString::from("openTextFile"),
                     1,
                 )
                 .function(
@@ -1408,13 +1414,28 @@ mod sandbox_impl {
                     1,
                 )
                 .function(
+                    make_fn("Scripting.FileSystemObject.CreateTextFile"),
+                    JsString::from("createTextFile"),
+                    1,
+                )
+                .function(
                     make_fn("Scripting.FileSystemObject.GetSpecialFolder"),
                     JsString::from("GetSpecialFolder"),
                     1,
                 )
                 .function(
+                    make_fn("Scripting.FileSystemObject.GetSpecialFolder"),
+                    JsString::from("getSpecialFolder"),
+                    1,
+                )
+                .function(
                     make_fn("Scripting.FileSystemObject.GetTempName"),
                     JsString::from("GetTempName"),
+                    0,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.GetTempName"),
+                    JsString::from("getTempName"),
                     0,
                 )
                 .function(
@@ -1429,10 +1450,28 @@ mod sandbox_impl {
                 .function(
                     make_native_probe_exists(
                         log.clone(),
+                        "Scripting.FileSystemObject.FileExists",
+                        PROBE_EXISTS_TRUE_AFTER,
+                    ),
+                    JsString::from("fileExists"),
+                    1,
+                )
+                .function(
+                    make_native_probe_exists(
+                        log.clone(),
                         "Scripting.FileSystemObject.FolderExists",
                         PROBE_EXISTS_TRUE_AFTER,
                     ),
                     JsString::from("FolderExists"),
+                    1,
+                )
+                .function(
+                    make_native_probe_exists(
+                        log.clone(),
+                        "Scripting.FileSystemObject.FolderExists",
+                        PROBE_EXISTS_TRUE_AFTER,
+                    ),
+                    JsString::from("folderExists"),
                     1,
                 )
                 .function(
@@ -1441,8 +1480,18 @@ mod sandbox_impl {
                     1,
                 )
                 .function(
+                    make_fn("Scripting.FileSystemObject.CreateFolder"),
+                    JsString::from("createFolder"),
+                    1,
+                )
+                .function(
                     make_fn("Scripting.FileSystemObject.DeleteFile"),
                     JsString::from("DeleteFile"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.DeleteFile"),
+                    JsString::from("deleteFile"),
                     1,
                 )
                 .function(
@@ -1451,8 +1500,18 @@ mod sandbox_impl {
                     2,
                 )
                 .function(
+                    make_fn("Scripting.FileSystemObject.CopyFile"),
+                    JsString::from("copyFile"),
+                    2,
+                )
+                .function(
                     make_fn("Scripting.FileSystemObject.MoveFile"),
                     JsString::from("MoveFile"),
+                    2,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.MoveFile"),
+                    JsString::from("moveFile"),
                     2,
                 )
                 .function(
@@ -1462,6 +1521,15 @@ mod sandbox_impl {
                         file_object,
                     ),
                     JsString::from("GetFile"),
+                    1,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.GetFile",
+                        file_object_lower,
+                    ),
+                    JsString::from("getFile"),
                     1,
                 )
                 .property(JsString::from("TextStream"), text_stream, Attribute::all())
@@ -1478,17 +1546,31 @@ mod sandbox_impl {
             };
             ObjectInitializer::new(context)
                 .function(make_fn("WScript.Shell.Run"), JsString::from("Run"), 1)
+                .function(make_fn("WScript.Shell.Run"), JsString::from("run"), 1)
                 .function(make_fn("WScript.Shell.Exec"), JsString::from("Exec"), 1)
+                .function(make_fn("WScript.Shell.Exec"), JsString::from("exec"), 1)
                 .function(
                     make_native_expand_environment_strings(log.clone()),
                     JsString::from("ExpandEnvironmentStrings"),
                     1,
                 )
+                .function(
+                    make_native_expand_environment_strings(log.clone()),
+                    JsString::from("expandEnvironmentStrings"),
+                    1,
+                )
                 .function(make_fn("WScript.Shell.RegRead"), JsString::from("RegRead"), 1)
+                .function(make_fn("WScript.Shell.RegRead"), JsString::from("regRead"), 1)
                 .function(make_fn("WScript.Shell.RegWrite"), JsString::from("RegWrite"), 2)
+                .function(make_fn("WScript.Shell.RegWrite"), JsString::from("regWrite"), 2)
                 .function(
                     make_fn("WScript.Shell.SpecialFolders"),
                     JsString::from("SpecialFolders"),
+                    1,
+                )
+                .function(
+                    make_fn("WScript.Shell.SpecialFolders"),
+                    JsString::from("specialFolders"),
                     1,
                 )
                 .build()
@@ -1583,11 +1665,25 @@ mod sandbox_impl {
             };
             ObjectInitializer::new(context)
                 .function(make_fn("ADODB.Stream.Open"), JsString::from("Open"), 0)
+                .function(make_fn("ADODB.Stream.Open"), JsString::from("open"), 0)
                 .function(make_fn("ADODB.Stream.LoadFromFile"), JsString::from("LoadFromFile"), 1)
+                .function(
+                    make_fn("ADODB.Stream.LoadFromFile"),
+                    JsString::from("loadFromFile"),
+                    1,
+                )
                 .function(make_fn("ADODB.Stream.Write"), JsString::from("Write"), 1)
+                .function(make_fn("ADODB.Stream.Write"), JsString::from("write"), 1)
                 .function(make_fn("ADODB.Stream.Read"), JsString::from("Read"), 0)
+                .function(make_fn("ADODB.Stream.Read"), JsString::from("read"), 0)
                 .function(make_fn("ADODB.Stream.SaveToFile"), JsString::from("SaveToFile"), 1)
+                .function(
+                    make_fn("ADODB.Stream.SaveToFile"),
+                    JsString::from("saveToFile"),
+                    1,
+                )
                 .function(make_fn("ADODB.Stream.Close"), JsString::from("Close"), 0)
+                .function(make_fn("ADODB.Stream.Close"), JsString::from("close"), 0)
                 .build()
         }
 
