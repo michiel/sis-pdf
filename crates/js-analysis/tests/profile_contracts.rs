@@ -59,10 +59,14 @@ fn browser_profile_contract_exposes_fetch_stub() {
     let options = profile_options(RuntimeKind::Browser);
     let payload = b"
         if (typeof fetch !== 'function') throw new Error('fetch');
+        if (typeof window !== 'object') throw new Error('window');
+        if (typeof window.addEventListener !== 'function') throw new Error('window.addEventListener');
         fetch('https://example.test/path');
+        window.addEventListener('load', function(){});
     ";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
     assert!(signals.calls.iter().any(|call| call == "fetch"));
+    assert!(signals.calls.iter().any(|call| call == "window.addEventListener"));
     assert!(signals.errors.is_empty(), "unexpected errors: {:?}", signals.errors);
 }
 
@@ -73,12 +77,39 @@ fn node_profile_contract_exposes_require_and_process() {
     let payload = b"
         if (typeof require !== 'function') throw new Error('require');
         if (typeof process.exit !== 'function') throw new Error('process.exit');
+        if (typeof Buffer !== 'object') throw new Error('Buffer');
+        if (typeof Buffer.from !== 'function') throw new Error('Buffer.from');
         require('fs');
+        Buffer.from('abcd');
         process.exit(0);
     ";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
     assert!(signals.calls.iter().any(|call| call == "require"));
+    assert!(signals.calls.iter().any(|call| call == "Buffer.from"));
     assert!(signals.calls.iter().any(|call| call == "process.exit"));
+    assert!(signals.errors.is_empty(), "unexpected errors: {:?}", signals.errors);
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn pdf_profile_compat_exposes_require_stub() {
+    let options = profile_options(RuntimeKind::PdfReader);
+    let payload = b"
+        if (typeof require !== 'function') throw new Error('require');
+        if (typeof Buffer !== 'object') throw new Error('Buffer');
+        if (typeof Buffer.from !== 'function') throw new Error('Buffer.from');
+        var fs = require('fs');
+        var buffer = require('buffer');
+        if (typeof buffer.Buffer.from !== 'function') throw new Error('buffer.Buffer.from');
+        if (typeof fs.readFile !== 'function') throw new Error('fs.readFile');
+        Buffer.from('abcd');
+        buffer.Buffer.from('def');
+        fs.readFile('/tmp/a');
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(signals.calls.iter().any(|call| call == "require"));
+    assert!(signals.calls.iter().any(|call| call == "Buffer.from"));
+    assert!(signals.calls.iter().any(|call| call == "fs.readFile"));
     assert!(signals.errors.is_empty(), "unexpected errors: {:?}", signals.errors);
 }
 

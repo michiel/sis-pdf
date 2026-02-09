@@ -1097,8 +1097,11 @@ mod sandbox_impl {
         let beacon = ObjectInitializer::new(context)
             .function(make_fn("navigator.sendBeacon"), JsString::from("sendBeacon"), 2)
             .build();
-        let _ =
-            context.register_global_property(JsString::from("navigator"), beacon, Attribute::all());
+        let _ = context.register_global_property(
+            JsString::from("navigator"),
+            beacon.clone(),
+            Attribute::all(),
+        );
         let storage = ObjectInitializer::new(context)
             .function(make_fn("localStorage.getItem"), JsString::from("getItem"), 1)
             .function(make_fn("localStorage.setItem"), JsString::from("setItem"), 2)
@@ -1110,14 +1113,91 @@ mod sandbox_impl {
         );
         let _ = context.register_global_property(
             JsString::from("sessionStorage"),
-            storage,
+            storage.clone(),
             Attribute::all(),
         );
         let doc = ObjectInitializer::new(context)
             .function(make_fn("document.cookie"), JsString::from("cookie"), 0)
             .function(make_fn("document.location"), JsString::from("location"), 0)
             .build();
-        let _ = context.register_global_property(JsString::from("document"), doc, Attribute::all());
+        let _ = context.register_global_property(
+            JsString::from("document"),
+            doc.clone(),
+            Attribute::all(),
+        );
+        let location = ObjectInitializer::new(context)
+            .property(
+                JsString::from("href"),
+                JsValue::from(JsString::from("https://example.test/")),
+                Attribute::all(),
+            )
+            .function(make_fn("window.location.assign"), JsString::from("assign"), 1)
+            .function(make_fn("window.location.replace"), JsString::from("replace"), 1)
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("location"),
+            location.clone(),
+            Attribute::all(),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("setTimeout"),
+            2,
+            make_native(log.clone(), "setTimeout"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("setInterval"),
+            2,
+            make_native(log.clone(), "setInterval"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("clearTimeout"),
+            1,
+            make_native(log.clone(), "clearTimeout"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("clearInterval"),
+            1,
+            make_native(log.clone(), "clearInterval"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("alert"),
+            1,
+            make_native(log.clone(), "alert"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("confirm"),
+            1,
+            make_native(log.clone(), "confirm"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("prompt"),
+            2,
+            make_native(log.clone(), "prompt"),
+        );
+        let window = ObjectInitializer::new(context)
+            .property(JsString::from("document"), doc.clone(), Attribute::all())
+            .property(JsString::from("navigator"), beacon.clone(), Attribute::all())
+            .property(JsString::from("localStorage"), storage.clone(), Attribute::all())
+            .property(JsString::from("sessionStorage"), storage, Attribute::all())
+            .property(JsString::from("location"), location, Attribute::all())
+            .function(make_fn("window.addEventListener"), JsString::from("addEventListener"), 2)
+            .function(
+                make_fn("window.removeEventListener"),
+                JsString::from("removeEventListener"),
+                2,
+            )
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("window"),
+            window.clone(),
+            Attribute::all(),
+        );
+        let _ = context.register_global_property(
+            JsString::from("self"),
+            window.clone(),
+            Attribute::all(),
+        );
+        let _ = context.register_global_property(JsString::from("top"), window, Attribute::all());
     }
 
     fn register_windows_scripting(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
@@ -1297,16 +1377,78 @@ mod sandbox_impl {
         let _ = context.register_global_property(JsString::from("winmgmts"), svc, Attribute::all());
     }
 
+    fn build_buffer_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+        let make_fn = |name: &'static str| {
+            let log = log.clone();
+            make_native(log, name)
+        };
+        ObjectInitializer::new(context)
+            .function(make_fn("Buffer.from"), JsString::from("from"), 1)
+            .function(make_fn("Buffer.alloc"), JsString::from("alloc"), 1)
+            .function(make_fn("Buffer.concat"), JsString::from("concat"), 1)
+            .function(make_fn("Buffer.byteLength"), JsString::from("byteLength"), 1)
+            .build()
+    }
+
+    fn register_buffer_stub(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        let buffer = build_buffer_object(context, log);
+        let _ =
+            context.register_global_property(JsString::from("Buffer"), buffer, Attribute::all());
+    }
+
+    fn register_require_stub(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        let require_fn = unsafe {
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "require", args, ctx);
+                    let module_name =
+                        args.get_or_undefined(0).to_string(ctx)?.to_std_string_escaped();
+                    let make_mod_fn = |name: &'static str| {
+                        let log = captures.log.clone();
+                        make_native(log, name)
+                    };
+                    let module = match module_name.as_str() {
+                        "fs" => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("fs.readFile"), JsString::from("readFile"), 1)
+                            .function(make_mod_fn("fs.writeFile"), JsString::from("writeFile"), 2)
+                            .build(),
+                        "path" => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("path.join"), JsString::from("join"), 2)
+                            .function(make_mod_fn("path.resolve"), JsString::from("resolve"), 2)
+                            .build(),
+                        "os" => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("os.platform"), JsString::from("platform"), 0)
+                            .function(make_mod_fn("os.homedir"), JsString::from("homedir"), 0)
+                            .build(),
+                        "http" => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("http.request"), JsString::from("request"), 1)
+                            .build(),
+                        "https" => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("https.request"), JsString::from("request"), 1)
+                            .build(),
+                        "buffer" => {
+                            let buffer_obj = build_buffer_object(ctx, captures.log.clone());
+                            ObjectInitializer::new(ctx)
+                                .property(JsString::from("Buffer"), buffer_obj, Attribute::all())
+                                .build()
+                        }
+                        _ => ObjectInitializer::new(ctx).build(),
+                    };
+                    Ok(JsValue::from(module))
+                },
+                LogCapture { log },
+            )
+        };
+        let _ = context.register_global_builtin_callable(JsString::from("require"), 1, require_fn);
+    }
+
     fn register_node_like(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
         let make_fn = |name: &'static str| {
             let log = log.clone();
             make_native(log, name)
         };
-        let _ = context.register_global_builtin_callable(
-            JsString::from("require"),
-            1,
-            make_native(log.clone(), "require"),
-        );
+        register_require_stub(context, log.clone());
+        register_buffer_stub(context, log.clone());
         let process = ObjectInitializer::new(context)
             .function(make_fn("process.exit"), JsString::from("exit"), 1)
             .build();
@@ -1326,6 +1468,27 @@ mod sandbox_impl {
             .function(make_fn("fs.writeFile"), JsString::from("writeFile"), 2)
             .build();
         let _ = context.register_global_property(JsString::from("fs"), fs, Attribute::all());
+        let exports_obj = ObjectInitializer::new(context).build();
+        let module = ObjectInitializer::new(context)
+            .property(JsString::from("exports"), exports_obj.clone(), Attribute::all())
+            .build();
+        let _ =
+            context.register_global_property(JsString::from("module"), module, Attribute::all());
+        let _ = context.register_global_property(
+            JsString::from("exports"),
+            exports_obj,
+            Attribute::all(),
+        );
+        let _ = context.register_global_property(
+            JsString::from("__filename"),
+            JsValue::from(JsString::from("/sandbox/input.js")),
+            Attribute::all(),
+        );
+        let _ = context.register_global_property(
+            JsString::from("__dirname"),
+            JsValue::from(JsString::from("/sandbox")),
+            Attribute::all(),
+        );
     }
 
     fn register_doc_globals(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
@@ -3010,6 +3173,8 @@ mod sandbox_impl {
                 register_soap(context, log.clone());
                 register_net(context, log.clone());
                 register_browser_like(context, log.clone());
+                register_require_stub(context, log.clone());
+                register_buffer_stub(context, log.clone());
                 register_windows_scripting(context, log.clone());
                 register_windows_com(context, log.clone());
                 register_windows_wmi(context, log.clone());

@@ -117,9 +117,8 @@ fn sandbox_exec_demotes_confidence_when_calls_diverge_across_profiles() {
     let bytes = build_minimal_js_pdf("require\\('fs'\\);");
     let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
         vec![Box::new(JavaScriptSandboxDetector)];
-    let report =
-        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
-            .expect("scan");
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
 
     let sandbox =
         report.findings.iter().find(|f| f.kind == "js_sandbox_exec").expect("sandbox exec finding");
