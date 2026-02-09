@@ -815,6 +815,10 @@ fn declared_filter_invalid_finding(
         return None;
     }
 
+    let empty_output_from_multi_filter_flate = meta.output_len == 0
+        && meta.input_len > 0
+        && meta.filters.len() > 1
+        && meta.filters.iter().any(|filter| matches!(filter.as_str(), "/FlateDecode" | "/Fl"));
     let (title, mut description, confidence) = match &meta.outcome {
         DecodeOutcome::Failed { reason, .. } => (
             "Declared filters failed to decode",
@@ -825,6 +829,12 @@ fn declared_filter_invalid_finding(
             "Declared filters mismatched stream data",
             "Stream content does not match declared filters.".to_string(),
             Confidence::Strong,
+        ),
+        DecodeOutcome::Ok | DecodeOutcome::Truncated if empty_output_from_multi_filter_flate => (
+            "Declared filters produced empty payload",
+            "Declared filters yielded empty decoded output despite non-empty encoded input."
+                .to_string(),
+            Confidence::Probable,
         ),
         _ => return None,
     };
@@ -878,6 +888,8 @@ fn declared_filter_invalid_finding(
             .collect::<Vec<_>>();
         finding_meta.insert("decode.mismatch".to_string(), reasons.join(";"));
     }
+    finding_meta.insert("decode.input_len".to_string(), meta.input_len.to_string());
+    finding_meta.insert("decode.output_len".to_string(), meta.output_len.to_string());
     if !expected_types.is_empty()
         && matches!(meta.outcome, DecodeOutcome::SuspectMismatch | DecodeOutcome::Failed { .. })
     {
@@ -1037,6 +1049,26 @@ mod declared_filter_invalid_tests {
         }
     }
 
+    fn make_empty_decode_blob() -> Blob<'static> {
+        Blob {
+            origin: BlobOrigin::Stream { obj: 1, gen: 0 },
+            pdf_path: vec![],
+            raw: &[0x37, 0x38, 0x39, 0x63],
+            decoded: Some(Vec::new()),
+            decode_meta: Some(DecodeMeta {
+                filters: vec!["/ASCIIHexDecode".into(), "/FlateDecode".into()],
+                mismatches: vec![DecodeMismatch {
+                    filter: "/FlateDecode".into(),
+                    reason: "stream is not zlib-like".into(),
+                }],
+                outcome: DecodeOutcome::Ok,
+                input_len: 4,
+                output_len: 0,
+                recovered_filters: vec![],
+            }),
+        }
+    }
+
     fn classification_map() -> ClassificationMap {
         let mut map = ClassificationMap::new();
         map.insert((1, 0), ClassifiedObject::new(1, 0, PdfObjectType::Stream));
@@ -1122,6 +1154,27 @@ mod declared_filter_invalid_tests {
             &classification_map()
         )
         .is_none());
+    }
+
+    #[test]
+    fn declared_filter_invalid_reports_empty_output_with_mismatch() {
+        let stream =
+            make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/XObject"))));
+        let finding = declared_filter_invalid_finding(
+            1,
+            0,
+            &stream,
+            &make_empty_decode_blob(),
+            "stream",
+            &classification_map(),
+        )
+        .expect("finding");
+        assert_eq!(finding.kind, "declared_filter_invalid");
+        assert_eq!(finding.meta.get("decode.output_len").map(|value| value.as_str()), Some("0"));
+        assert!(
+            finding.description.contains("empty decoded output")
+                || finding.title.contains("empty payload")
+        );
     }
 }
 
