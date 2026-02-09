@@ -294,3 +294,53 @@ Third batch from the next 10 date folders:
 
 4. **Batch reporting**
    - Continue surfacing top emulation-breakpoint buckets in batch summaries (now implemented) and track trend lines across corpus slices.
+
+## Fourth sweep (post-recursion/format/downloader finding implementation)
+
+## Scope and sample set
+
+Fourth batch from the next 10 date folders:
+
+1. `tmp/javascript-malware-collection/2017/20170227/20170227_a2d5c059dcbb09d5d9cbd886c8fe7b51.js`
+2. `tmp/javascript-malware-collection/2017/20170228/20170228_7b146dc09978b32161ce1fc29f3e020d.js`
+3. `tmp/javascript-malware-collection/2017/20170301/20170301_bf55dc97b611f894f3550515d45a4171.js`
+4. `tmp/javascript-malware-collection/2017/20170302/20170302_62a7cd7b44ecf34e189522f1484ba399.js`
+5. `tmp/javascript-malware-collection/2017/20170303/20170303_7b7ca63d72bfadf876a1800ae472f8f3.js`
+6. `tmp/javascript-malware-collection/2017/20170304/20170304_810b89ab9772b0c5f2d1bd8a8963499a.js`
+7. `tmp/javascript-malware-collection/2017/20170306/20170306_fbb7e6840238ac85698cc001df13289a.js`
+8. `tmp/javascript-malware-collection/2017/20170307/20170307_516de46e8268c371b74375013046d3ef.js`
+9. `tmp/javascript-malware-collection/2017/20170309/20170309_053a4cc9b14ac1233ee7401b1621a0c8.js`
+10. `tmp/javascript-malware-collection/2017/20170310/20170310_946474cd9cc88ffed5cf2e12d64b523c.js`
+
+## Results summary
+
+- 10/10 executed.
+- 3/10 emitted runtime errors (stable vs third sweep).
+- Error signatures converged to:
+  - `not a callable function` (3)
+- `ActiveXObject` appeared in 4/10 samples.
+- `WScript.CreateObject` appeared in 4/10 samples.
+- Dynamic-code patterns in 2/10 samples.
+
+## Observed impact of latest changes
+
+- Broad downloader-style chains now execute deeply in this slice:
+  - repeated `ActiveXObject/WScript.CreateObject` + `MSXML2.XMLHTTP.open/send` + `ADODB.Stream.*`.
+- The new detector-level findings (`js_runtime_downloader_pattern`, `js_runtime_recursion_limit`, `js_payload_non_javascript_format`) are now available for scan workflows to classify these behaviours more explicitly than generic sandbox execution status.
+- Remaining failures are now tightly clustered in callable semantics for specific chained object/function returns.
+
+## Updated recommendations (post-fourth sweep)
+
+1. **Callable-return parity (targeted)**
+   - Focus on the residual `not a callable function` cluster in samples that already execute deep COM chains.
+   - Add targeted return-shape fixtures derived from 20170227/20170309 patterns.
+
+2. **Promote downloader-loop finding in triage defaults**
+   - Given repeated open/send loops observed across this and prior batches, prioritise `js_runtime_downloader_pattern` visibility in operator workflows (query docs/examples and analyst runbooks).
+
+3. **Corpus-scale trend tracking**
+   - Continue batched 10-sample stepping and track:
+     - runtime-error rate,
+     - top emulation buckets,
+     - downloader-loop prevalence.
+   - Stop criteria for this phase: error rate <20% for two consecutive batches or no new dominant failure class.
