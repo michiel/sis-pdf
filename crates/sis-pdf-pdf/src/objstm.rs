@@ -1,5 +1,6 @@
 use crate::decode::decode_stream;
 use crate::graph::ObjEntry;
+use crate::graph::{TelemetryEvent, TelemetryLevel};
 use crate::object::{PdfAtom, PdfDict};
 use crate::parser::Parser;
 use crate::span::Span;
@@ -9,6 +10,7 @@ const MAX_OBJSTM_COUNT: usize = 100;
 
 pub struct ObjStmExpansion<'a> {
     pub objects: Vec<ObjEntry<'a>>,
+    pub telemetry_events: Vec<TelemetryEvent>,
 }
 
 pub fn expand_objstm<'a>(
@@ -20,6 +22,7 @@ pub fn expand_objstm<'a>(
     max_total_decoded_bytes: usize,
 ) -> ObjStmExpansion<'a> {
     let mut out = Vec::new();
+    let mut telemetry_events = Vec::new();
     let mut decoded_total = 0usize;
     let mut objstm_count = 0usize;
     let mut warned_total = false;
@@ -32,6 +35,18 @@ pub fn expand_objstm<'a>(
                 max_objects_total = max_objects_total,
                 "ObjStm expansion halted due to object budget"
             );
+            telemetry_events.push(TelemetryEvent {
+                level: TelemetryLevel::Warn,
+                domain: "pdf.object_stream".into(),
+                kind: "max_objects_total_reached".into(),
+                message: "ObjStm expansion halted due to object budget".into(),
+                span: Some(entry.full_span),
+                object_ref: Some(format!("{} {} obj", entry.obj, entry.gen)),
+                meta: std::collections::HashMap::from([(
+                    "max_objects_total".into(),
+                    max_objects_total.to_string(),
+                )]),
+            });
             break;
         }
         let st = match &entry.atom {
@@ -50,6 +65,18 @@ pub fn expand_objstm<'a>(
                 objstm_count = objstm_count,
                 "High ObjStm count detected"
             );
+            telemetry_events.push(TelemetryEvent {
+                level: TelemetryLevel::Warn,
+                domain: "pdf.object_stream".into(),
+                kind: "high_objstm_count".into(),
+                message: "High ObjStm count detected".into(),
+                span: Some(entry.full_span),
+                object_ref: Some(format!("{} {} obj", entry.obj, entry.gen)),
+                meta: std::collections::HashMap::from([(
+                    "objstm_count".into(),
+                    objstm_count.to_string(),
+                )]),
+            });
         }
         if objstm_count > MAX_OBJSTM_COUNT {
             warn!(
@@ -59,6 +86,18 @@ pub fn expand_objstm<'a>(
                 max_objstm_count = MAX_OBJSTM_COUNT,
                 "ObjStm expansion halted due to count limit"
             );
+            telemetry_events.push(TelemetryEvent {
+                level: TelemetryLevel::Warn,
+                domain: "pdf.object_stream".into(),
+                kind: "objstm_count_exceeded".into(),
+                message: "ObjStm expansion halted due to count limit".into(),
+                span: Some(entry.full_span),
+                object_ref: Some(format!("{} {} obj", entry.obj, entry.gen)),
+                meta: std::collections::HashMap::from([(
+                    "max_objstm_count".into(),
+                    MAX_OBJSTM_COUNT.to_string(),
+                )]),
+            });
             break;
         }
         let n = match dict_int(&st.dict, b"/N") {
@@ -84,6 +123,18 @@ pub fn expand_objstm<'a>(
                     max_total_decoded_bytes = max_total_decoded_bytes,
                     "ObjStm expansion halted due to decode budget"
                 );
+                telemetry_events.push(TelemetryEvent {
+                    level: TelemetryLevel::Warn,
+                    domain: "pdf.object_stream".into(),
+                    kind: "objstm_decode_budget_reached".into(),
+                    message: "ObjStm expansion halted due to decode budget".into(),
+                    span: Some(entry.full_span),
+                    object_ref: Some(format!("{} {} obj", entry.obj, entry.gen)),
+                    meta: std::collections::HashMap::from([(
+                        "max_total_decoded_bytes".into(),
+                        max_total_decoded_bytes.to_string(),
+                    )]),
+                });
                 break;
             }
             if decoded_total.saturating_add(max_objstm_bytes) > max_total_decoded_bytes {
@@ -96,6 +147,19 @@ pub fn expand_objstm<'a>(
                     max_total_decoded_bytes = max_total_decoded_bytes,
                     "ObjStm expansion halted due to budget overflow"
                 );
+                telemetry_events.push(TelemetryEvent {
+                    level: TelemetryLevel::Warn,
+                    domain: "pdf.object_stream".into(),
+                    kind: "objstm_decode_budget_exceeded".into(),
+                    message: "ObjStm expansion halted due to budget overflow".into(),
+                    span: Some(entry.full_span),
+                    object_ref: Some(format!("{} {} obj", entry.obj, entry.gen)),
+                    meta: std::collections::HashMap::from([
+                        ("decoded_total".into(), decoded_total.to_string()),
+                        ("max_objstm_bytes".into(), max_objstm_bytes.to_string()),
+                        ("max_total_decoded_bytes".into(), max_total_decoded_bytes.to_string()),
+                    ]),
+                });
                 break;
             }
         }
@@ -114,6 +178,18 @@ pub fn expand_objstm<'a>(
                     decoded_total = decoded_total,
                     "ObjStm decoded bytes exceed 100MB"
                 );
+                telemetry_events.push(TelemetryEvent {
+                    level: TelemetryLevel::Warn,
+                    domain: "pdf.object_stream".into(),
+                    kind: "objstm_decoded_bytes_high".into(),
+                    message: "ObjStm decoded bytes exceed 100MB".into(),
+                    span: Some(entry.full_span),
+                    object_ref: Some(format!("{} {} obj", entry.obj, entry.gen)),
+                    meta: std::collections::HashMap::from([(
+                        "decoded_total".into(),
+                        decoded_total.to_string(),
+                    )]),
+                });
             }
             if decoded_total > max_total_decoded_bytes {
                 warn!(
@@ -124,6 +200,18 @@ pub fn expand_objstm<'a>(
                     max_total_decoded_bytes = max_total_decoded_bytes,
                     "ObjStm expansion halted; decoded bytes exceeded budget"
                 );
+                telemetry_events.push(TelemetryEvent {
+                    level: TelemetryLevel::Warn,
+                    domain: "pdf.object_stream".into(),
+                    kind: "objstm_decoded_bytes_exceeded".into(),
+                    message: "ObjStm expansion halted; decoded bytes exceeded budget".into(),
+                    span: Some(entry.full_span),
+                    object_ref: Some(format!("{} {} obj", entry.obj, entry.gen)),
+                    meta: std::collections::HashMap::from([
+                        ("decoded_total".into(), decoded_total.to_string()),
+                        ("max_total_decoded_bytes".into(), max_total_decoded_bytes.to_string()),
+                    ]),
+                });
                 break;
             }
         }
@@ -145,6 +233,18 @@ pub fn expand_objstm<'a>(
                     max_objects_total = max_objects_total,
                     "ObjStm expansion halted due to object budget"
                 );
+                telemetry_events.push(TelemetryEvent {
+                    level: TelemetryLevel::Warn,
+                    domain: "pdf.object_stream".into(),
+                    kind: "max_objects_total_reached".into(),
+                    message: "ObjStm expansion halted due to object budget".into(),
+                    span: Some(entry.full_span),
+                    object_ref: Some(format!("{} {} obj", entry.obj, entry.gen)),
+                    meta: std::collections::HashMap::from([(
+                        "max_objects_total".into(),
+                        max_objects_total.to_string(),
+                    )]),
+                });
                 break;
             }
             let obj_num = tokens[idx * 2] as u32;
@@ -156,6 +256,15 @@ pub fn expand_objstm<'a>(
                     obj = obj_num,
                     "Detected recursive ObjStm reference"
                 );
+                telemetry_events.push(TelemetryEvent {
+                    level: TelemetryLevel::Warn,
+                    domain: "pdf.object_stream".into(),
+                    kind: "objstm_recursive_reference".into(),
+                    message: "Detected recursive ObjStm reference".into(),
+                    span: Some(entry.full_span),
+                    object_ref: Some(format!("{} {} obj", obj_num, 0)),
+                    meta: std::collections::HashMap::new(),
+                });
                 continue;
             }
             let offset = tokens[idx * 2 + 1] as usize;
@@ -178,6 +287,15 @@ pub fn expand_objstm<'a>(
                         obj = obj_num,
                         "ObjStm entry references another ObjStm object"
                     );
+                    telemetry_events.push(TelemetryEvent {
+                        level: TelemetryLevel::Warn,
+                        domain: "pdf.object_stream".into(),
+                        kind: "objstm_nested_reference".into(),
+                        message: "ObjStm entry references another ObjStm object".into(),
+                        span: Some(entry.full_span),
+                        object_ref: Some(format!("{} {} obj", obj_num, 0)),
+                        meta: std::collections::HashMap::new(),
+                    });
                     continue;
                 }
             }
@@ -195,7 +313,7 @@ pub fn expand_objstm<'a>(
             let _ = obj_end;
         }
     }
-    ObjStmExpansion { objects: out }
+    ObjStmExpansion { objects: out, telemetry_events }
 }
 
 fn dict_int(dict: &PdfDict<'_>, key: &[u8]) -> Option<u64> {

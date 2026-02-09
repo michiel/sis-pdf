@@ -120,6 +120,7 @@ fn timeout_enforced() {
         startxrefs: Vec::new(),
         xref_sections: Vec::new(),
         deviations: Vec::new(),
+        telemetry_events: Vec::new(),
     };
     let opts = ImageDynamicOptions {
         max_pixels: 1_000_000,
@@ -146,6 +147,7 @@ fn total_budget_enforced() {
         startxrefs: Vec::new(),
         xref_sections: Vec::new(),
         deviations: Vec::new(),
+        telemetry_events: Vec::new(),
     };
     let opts = ImageDynamicOptions {
         max_pixels: 1_000_000,
@@ -173,6 +175,7 @@ fn skip_threshold_enforced() {
         startxrefs: Vec::new(),
         xref_sections: Vec::new(),
         deviations: Vec::new(),
+        telemetry_events: Vec::new(),
     };
     let opts = ImageDynamicOptions {
         max_pixels: 1_000_000,
@@ -209,6 +212,7 @@ fn size_limit_enforced() {
         startxrefs: Vec::new(),
         xref_sections: Vec::new(),
         deviations: Vec::new(),
+        telemetry_events: Vec::new(),
     };
 
     let opts = ImageDynamicOptions {
@@ -241,6 +245,7 @@ fn malformed_jpeg_detected() {
         startxrefs: Vec::new(),
         xref_sections: Vec::new(),
         deviations: Vec::new(),
+        telemetry_events: Vec::new(),
     };
 
     let opts = ImageDynamicOptions {
@@ -269,6 +274,7 @@ fn png_decode_success_no_findings() {
         startxrefs: Vec::new(),
         xref_sections: Vec::new(),
         deviations: Vec::new(),
+        telemetry_events: Vec::new(),
     };
 
     let opts = ImageDynamicOptions {

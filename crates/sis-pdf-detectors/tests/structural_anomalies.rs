@@ -42,6 +42,7 @@ fn build_context(
         startxrefs,
         xref_sections: Vec::new(),
         deviations: Vec::new(),
+        telemetry_events: Vec::new(),
     };
     ScanContext::new(bytes, graph, default_scan_opts())
 }

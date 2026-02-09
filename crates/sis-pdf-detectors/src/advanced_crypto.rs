@@ -31,7 +31,37 @@ impl Detector for AdvancedCryptoDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         let analyzer = CryptoAnalyzer;
-        if let Some(enc) = trailer_encrypt_dict(ctx) {
+        let (fallback_used, fallback_object, enc_dict) = trailer_encrypt_dict(ctx);
+        if fallback_used {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("encrypt.source".into(), "object_graph_fallback".into());
+            if let Some(object_ref) = &fallback_object {
+                meta.insert("object.ref".into(), object_ref.clone());
+                meta.insert("query.next".into(), format!("object {}", object_ref));
+            }
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::CryptoSignatures,
+                kind: "encrypt_dict_fallback".into(),
+                severity: Severity::Low,
+                confidence: Confidence::Probable,
+                impact: Some(sis_pdf_core::model::Impact::Low),
+                title: "Encryption dictionary recovered via fallback".into(),
+                description: "Trailer /Encrypt reference was unavailable; encryption dictionary was recovered from object graph heuristics.".into(),
+                objects: fallback_object
+                    .as_ref()
+                    .map(|object_ref| vec![object_ref.clone()])
+                    .unwrap_or_else(|| vec!["encrypt".into()]),
+                evidence: Vec::new(),
+                remediation: Some("Inspect trailer and encryption dictionary references for tampering.".into()),
+                meta,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+                ..Finding::default()
+            });
+        }
+        if let Some(enc) = enc_dict {
             let version = dict_int(&enc, b"/V");
             let key_len = dict_int(&enc, b"/Length");
             let revision = dict_int(&enc, b"/R");
@@ -137,16 +167,20 @@ impl Detector for AdvancedCryptoDetector {
     }
 }
 
-fn trailer_encrypt_dict<'a>(ctx: &'a sis_pdf_core::scan::ScanContext<'a>) -> Option<PdfDict<'a>> {
+fn trailer_encrypt_dict<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
+) -> (bool, Option<String>, Option<PdfDict<'a>>) {
     if let Some(trailer) = ctx.graph.trailers.last() {
         if let Some((_, enc)) = trailer.get_first(b"/Encrypt") {
-            return resolve_dict(&ctx.graph, enc);
+            return (false, None, resolve_dict(&ctx.graph, enc));
         }
     }
     fallback_encrypt_dict(ctx)
 }
 
-fn fallback_encrypt_dict<'a>(ctx: &'a sis_pdf_core::scan::ScanContext<'a>) -> Option<PdfDict<'a>> {
+fn fallback_encrypt_dict<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
+) -> (bool, Option<String>, Option<PdfDict<'a>>) {
     let entry = ctx.graph.objects.iter().find(|entry| {
         entry_dict(entry)
             .map(|d| {
@@ -154,18 +188,22 @@ fn fallback_encrypt_dict<'a>(ctx: &'a sis_pdf_core::scan::ScanContext<'a>) -> Op
                     && (d.get_first(b"/V").is_some() || d.get_first(b"/R").is_some())
             })
             .unwrap_or(false)
-    })?;
+    });
+    let Some(entry) = entry else {
+        return (false, None, None);
+    };
     warn!(
         security = true,
         domain = "pdf.encryption",
         kind = "encrypt_dict_fallback",
         "[NON-FATAL][finding:encrypt_dict_fallback] Using fallback /Encrypt dict from object graph"
     );
-    match &entry.atom {
+    let dict = match &entry.atom {
         PdfAtom::Dict(d) => Some(d.clone()),
         PdfAtom::Stream(st) => Some(st.dict.clone()),
         _ => None,
-    }
+    };
+    (true, Some(format!("{} {} obj", entry.obj, entry.gen)), dict)
 }
 
 fn resolve_dict<'a>(

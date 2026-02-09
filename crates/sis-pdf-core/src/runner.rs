@@ -130,7 +130,44 @@ pub fn run_scan_with_detectors(
                                             error = %e,
                                             "[NON-FATAL][finding:detector_execution_failed] Detector failed in parallel execution"
                                         );
-                                        None
+                                        let mut meta = std::collections::HashMap::new();
+                                        meta.insert("detector.id".into(), d.id().to_string());
+                                        meta.insert("detector.error".into(), e.to_string());
+                                        let finding = Finding {
+                                            id: String::new(),
+                                            surface: AttackSurface::Metadata,
+                                            kind: "detector_execution_failed".into(),
+                                            severity: Severity::Medium,
+                                            confidence: Confidence::Strong,
+                                            impact: Some(crate::model::Impact::Medium),
+                                            title: "Detector execution failed".into(),
+                                            description: format!(
+                                                "Detector '{}' failed during parallel execution: {}",
+                                                d.id(),
+                                                e
+                                            ),
+                                            objects: vec!["detectors".into()],
+                                            evidence: Vec::new(),
+                                            remediation: Some(
+                                                "Review detector error details and rerun with targeted scope."
+                                                    .into(),
+                                            ),
+                                            meta,
+                                            reader_impacts: Vec::new(),
+                                            action_type: None,
+                                            action_target: None,
+                                            action_initiation: None,
+                                            yara: None,
+                                            position: None,
+                                            positions: Vec::new(),
+                                        };
+                                        let elapsed = start.elapsed();
+                                        Some((
+                                            d.id().to_string(),
+                                            cost_str.to_string(),
+                                            elapsed,
+                                            vec![finding],
+                                        ))
                                     }
                                 }
                             })
@@ -1306,6 +1343,7 @@ fn filter_graph_by_refs<'a>(graph: &ObjectGraph<'a>, keep: &HashSet<ObjRef>) -> 
         startxrefs: graph.startxrefs.clone(),
         xref_sections: graph.xref_sections.clone(),
         deviations: graph.deviations.clone(),
+        telemetry_events: graph.telemetry_events.clone(),
     }
 }
 

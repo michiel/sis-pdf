@@ -54,6 +54,7 @@ pub mod rich_media_analysis;
 pub mod strict;
 pub mod structural_anomalies;
 pub mod supply_chain;
+pub mod telemetry_bridge;
 pub mod uri_classification;
 pub mod vector_graphics;
 pub mod xfa_forms;
@@ -136,6 +137,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(content_phishing::ContentDeceptionDetector),
         Box::new(metadata_analysis::MetadataAnalysisDetector),
         Box::new(strict::StrictParseDeviationDetector),
+        Box::new(telemetry_bridge::TelemetryBridgeDetector),
         Box::new(ir_graph_static::IrGraphStaticDetector),
         Box::new(structural_anomalies::StructuralAnomaliesDetector),
         Box::new(xref_deviation::XrefTrailerSearchDetector),
