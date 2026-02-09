@@ -344,3 +344,65 @@ Fourth batch from the next 10 date folders:
      - top emulation buckets,
      - downloader-loop prevalence.
    - Stop criteria for this phase: error rate <20% for two consecutive batches or no new dominant failure class.
+
+## Fifth sweep (post-callable recovery + triage summary refinements)
+
+## Scope and sample set
+
+Fifth batch from the next 10 date folders:
+
+1. `tmp/javascript-malware-collection/2017/20170313/20170313_0cfcad8dd858daef2558235fa4eeda16.js`
+2. `tmp/javascript-malware-collection/2017/20170314/20170314_9bb8f3a5628be4329860313e6dbd28ed.js`
+3. `tmp/javascript-malware-collection/2017/20170315/20170315_a619b6a40c3be963562cbf54e36b45db.js`
+4. `tmp/javascript-malware-collection/2017/20170317/20170317_d46aac8fea73563ed94cea04f50ec2af.js`
+5. `tmp/javascript-malware-collection/2017/20170318/20170318_3170ec01a7c33215b9b942e6679208b0.js`
+6. `tmp/javascript-malware-collection/2017/20170320/20170320_318f0937aae8425c94f985b30b4b1d75.js`
+7. `tmp/javascript-malware-collection/2017/20170321/20170321_1f9962e3782d65de0ca96cc8ea1525a2.js`
+8. `tmp/javascript-malware-collection/2017/20170322/20170322_4aef2f2f6b431c204b5f11e4e2b29229.js`
+9. `tmp/javascript-malware-collection/2017/20170323/20170323_05a3cc924d4c8c0699f8d72342482e51.js`
+10. `tmp/javascript-malware-collection/2017/20170324/20170324_b37b1f0515d8039249fb472ce670c80b.js`
+
+Execution command remained:
+
+- `cargo run -q -p sis-pdf -- sandbox eval <sample>`
+
+## Results summary
+
+- 7/10 executed; 3/10 timed out.
+- 2/10 executed samples emitted runtime errors.
+- Error buckets were:
+  - `not_callable_function` (1)
+  - `loop_iteration_limit` (1)
+- Repeated downloader-style call chains remain prevalent in executed samples:
+  - `WScript.CreateObject` + repeated `MSXML2.XMLHTTP.open/send` observed in 5/10 samples.
+- Dynamic code generation was present in 1/10 samples (`eval`).
+- Behavioural pattern labels remained concentrated in:
+  - `error_recovery_patterns` (2)
+  - `variable_promotion_detected` (1)
+
+## Observed impact of latest changes
+
+- The dotted-call recovery refinement appears to reduce hard failure spread: only one executed sample now fails with `not_callable_function` despite deep COM chain use.
+- Findings digest extensions (`findings_by_kind`, breakpoint bucket summaries) improve operator visibility for these recurring behaviours without requiring full evidence inspection.
+- Remaining instability is now dominated by execution budget limits (timeouts and loop limits), not broad constructor/callability collapse.
+
+## Updated recommendations (post-fifth sweep)
+
+1. **Timeout and loop-budget telemetry split**
+   - Separate timeout root causes in telemetry/findings (`script_timeout` versus `loop_iteration_limit`) with per-sample counters.
+   - Surface both in batch-level summaries so execution-budget pressure is immediately visible.
+
+2. **Focused scheduler hardening for long-loop downloaders**
+   - Add a bounded yield/checkpoint strategy for repeated `CreateObject` + `XMLHTTP` loops so benign high-iteration emulation paths are less likely to terminate early.
+   - Preserve strict limits and no-unsafe constraints.
+
+3. **Promote timeout-aware confidence adjustments**
+   - When execution times out before behavioural completion, reduce confidence for intent findings that rely on partial dynamic traces.
+   - Keep severity driven by observed high-risk signals (for example downloader cadence) while marking confidence degradation explicitly.
+
+4. **Continue rolling 10-sample sweeps with stop criteria**
+   - Track timeout rate and loop-limit rate as first-class regression metrics.
+   - Stop this hardening stream when two consecutive batches achieve:
+     - timeout rate <=10%
+     - runtime error rate <=20%
+     - no new dominant breakpoint class.
