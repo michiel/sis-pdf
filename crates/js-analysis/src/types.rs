@@ -156,9 +156,17 @@ pub struct ExecutionStats {
 }
 
 #[derive(Debug, Clone)]
+pub struct TimeoutContext {
+    pub runtime_profile: String,
+    pub phase: Option<String>,
+    pub elapsed_ms: Option<u128>,
+    pub budget_ratio: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
 pub enum DynamicOutcome {
     Executed(Box<DynamicSignals>),
-    TimedOut { timeout_ms: u128 },
+    TimedOut { timeout_ms: u128, context: TimeoutContext },
     Skipped { reason: String, limit: usize, actual: usize },
 }
 

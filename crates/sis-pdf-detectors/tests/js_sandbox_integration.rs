@@ -217,6 +217,7 @@ fn sandbox_emits_downloader_loop_pattern_finding() {
         .find(|f| f.kind == "js_runtime_downloader_pattern")
         .expect("js_runtime_downloader_pattern finding");
     assert_eq!(finding.meta.get("js.runtime.downloader.open_calls").map(String::as_str), Some("2"));
+    assert!(matches!(finding.confidence, Confidence::Strong | Confidence::Certain));
 }
 
 #[cfg(feature = "js-sandbox")]

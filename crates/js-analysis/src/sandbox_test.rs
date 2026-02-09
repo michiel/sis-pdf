@@ -66,7 +66,7 @@ mod tests {
                     }
                 }
             }
-            DynamicOutcome::TimedOut { timeout_ms } => {
+            DynamicOutcome::TimedOut { timeout_ms, .. } => {
                 panic!("❌ Sandbox execution timed out after {}ms", timeout_ms);
             }
             DynamicOutcome::Skipped { reason, limit: _, actual: _ } => {

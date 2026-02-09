@@ -20,7 +20,7 @@ fn profile_options(kind: RuntimeKind) -> DynamicOptions {
 fn executed(outcome: DynamicOutcome) -> Box<js_analysis::DynamicSignals> {
     match outcome {
         DynamicOutcome::Executed(signals) => signals,
-        DynamicOutcome::TimedOut { timeout_ms } => {
+        DynamicOutcome::TimedOut { timeout_ms, .. } => {
             panic!("sandbox timed out unexpectedly at {} ms", timeout_ms)
         }
         DynamicOutcome::Skipped { reason, .. } => panic!("sandbox skipped unexpectedly: {reason}"),

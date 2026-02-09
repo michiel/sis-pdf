@@ -27,6 +27,7 @@ struct ProfileRun {
 struct ProfileDivergenceSummary {
     profile_ids: Vec<String>,
     profile_statuses: Vec<String>,
+    timeout_contexts: Vec<String>,
     executed_profiles: Vec<String>,
     executed_count: usize,
     timed_out_count: usize,
@@ -157,9 +158,25 @@ fn execute_profiles(bytes: &[u8]) -> (Vec<ProfileRun>, ProfileDivergenceSummary)
                     profile_id, signals.call_count, has_network, has_file, has_risky
                 ));
             }
-            DynamicOutcome::TimedOut { timeout_ms } => {
+            DynamicOutcome::TimedOut { timeout_ms, context } => {
                 summary.timed_out_count += 1;
-                summary.profile_statuses.push(format!("{}:timeout:{}ms", profile_id, timeout_ms));
+                let phase = context.phase.clone().unwrap_or_else(|| "unknown".to_string());
+                let elapsed = context
+                    .elapsed_ms
+                    .map(|value| format!("{value}ms"))
+                    .unwrap_or_else(|| "unknown".to_string());
+                let ratio = context
+                    .budget_ratio
+                    .map(|value| format!("{value:.2}"))
+                    .unwrap_or_else(|| "unknown".to_string());
+                summary.profile_statuses.push(format!(
+                    "{}:timeout:{}ms:phase={}:elapsed={}:ratio={}",
+                    profile_id, timeout_ms, phase, elapsed, ratio
+                ));
+                summary.timeout_contexts.push(format!(
+                    "{}:phase={}:elapsed={}:ratio={}",
+                    context.runtime_profile, phase, elapsed, ratio
+                ));
             }
             DynamicOutcome::Skipped { reason, .. } => {
                 summary.skipped_count += 1;
@@ -206,6 +223,9 @@ fn insert_profile_meta(
     }
     if !summary.profile_statuses.is_empty() {
         meta.insert("js.runtime.profile_status".into(), summary.profile_statuses.join(" | "));
+    }
+    if !summary.timeout_contexts.is_empty() {
+        meta.insert("js.runtime.timeout_contexts".into(), summary.timeout_contexts.join(" | "));
     }
     meta.insert("js.runtime.profile_divergence".into(), summary.divergence_label().to_string());
     if let Some(value) = summary.network_ratio() {
@@ -524,6 +544,10 @@ fn extend_with_script_timeout_finding(
     base_meta: &std::collections::HashMap<String, String>,
     summary: &ProfileDivergenceSummary,
     timeout_ms: Option<u128>,
+    timeout_runtime_profile: Option<&str>,
+    timeout_phase: Option<&str>,
+    timeout_elapsed_ms: Option<u128>,
+    timeout_budget_ratio: Option<f64>,
     partial: bool,
 ) {
     if summary.timed_out_count == 0 {
@@ -538,6 +562,18 @@ fn extend_with_script_timeout_finding(
     }
     if let Some(ms) = timeout_ms {
         meta.insert("js.sandbox_timeout_ms".into(), ms.to_string());
+    }
+    if let Some(value) = timeout_runtime_profile {
+        meta.insert("js.runtime.timeout_profile".into(), value.to_string());
+    }
+    if let Some(value) = timeout_phase {
+        meta.insert("js.runtime.timeout_phase".into(), value.to_string());
+    }
+    if let Some(value) = timeout_elapsed_ms {
+        meta.insert("js.runtime.timeout_elapsed_ms".into(), value.to_string());
+    }
+    if let Some(value) = timeout_budget_ratio {
+        meta.insert("js.runtime.timeout_budget_ratio".into(), format!("{value:.2}"));
     }
     let (severity, confidence) = apply_profile_scoring_meta(
         &mut meta,
@@ -750,7 +786,7 @@ impl Detector for JavaScriptSandboxDetector {
                         ..Finding::default()
                         });
                     }
-                    DynamicOutcome::TimedOut { timeout_ms } => {
+                    DynamicOutcome::TimedOut { timeout_ms, context } => {
                         let mut meta = std::collections::HashMap::new();
                         if let Some(label) = candidate.source.meta_value() {
                             meta.insert("js.source".into(), label.into());
@@ -763,6 +799,10 @@ impl Detector for JavaScriptSandboxDetector {
                             &meta,
                             &profile_summary,
                             Some(timeout_ms),
+                            Some(&context.runtime_profile),
+                            context.phase.as_deref(),
+                            context.elapsed_ms,
+                            context.budget_ratio,
                             false,
                         );
                     }
@@ -949,6 +989,10 @@ impl Detector for JavaScriptSandboxDetector {
                                 &evidence,
                                 &meta,
                                 &profile_summary,
+                                None,
+                                None,
+                                None,
+                                None,
                                 None,
                                 true,
                             );
@@ -1210,6 +1254,10 @@ impl Detector for JavaScriptSandboxDetector {
                             &base_meta,
                             &profile_summary,
                             None,
+                            None,
+                            None,
+                            None,
+                            None,
                             true,
                         );
                         extend_with_emulation_breakpoint_finding(
@@ -1271,12 +1319,26 @@ impl Detector for JavaScriptSandboxDetector {
                                 Severity::High,
                                 Confidence::Strong,
                             );
+                            let mut final_confidence = confidence;
+                            if signals.errors.is_empty()
+                                && profile_summary.timed_out_count == 0
+                                && loop_hits == 0
+                            {
+                                let promoted = promote_confidence(confidence);
+                                if promoted != confidence {
+                                    final_confidence = promoted;
+                                    meta.insert(
+                                        "js.runtime.clean_execution_confidence_adjusted".into(),
+                                        format!("{:?}->{:?}", confidence, promoted),
+                                    );
+                                }
+                            }
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
                                 kind: "js_runtime_downloader_pattern".into(),
                                 severity,
-                                confidence,
+                                confidence: final_confidence,
                                 impact: None,
                                 title: "Runtime downloader loop pattern".into(),
                                 description: "JavaScript repeatedly created script-host objects and issued XMLHTTP open/send calls, consistent with downloader loop behaviour.".into(),

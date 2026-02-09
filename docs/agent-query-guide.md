@@ -161,6 +161,7 @@ When a finding is produced from JavaScript sandbox execution, `explain` now incl
 - profile fusion telemetry: `js.runtime.profile_count`, `js.runtime.profile_status`, `js.runtime.profile_divergence`
 - scoring adjustments: `js.runtime.profile_consistency_signal`, `js.runtime.profile_consistency_ratio`, `js.runtime.profile_severity_adjusted`, `js.runtime.profile_confidence_adjusted`
 - timeout-aware scoring/coverage telemetry: `js.runtime.script_timeout_profiles`, `js.runtime.script_timeout_ratio`, `js.runtime.timeout_confidence_adjusted`, `js.runtime.loop_iteration_limit_hits`
+- timeout root-cause context (when present): `js.runtime.timeout_profile`, `js.runtime.timeout_phase`, `js.runtime.timeout_elapsed_ms`, `js.runtime.timeout_budget_ratio`
 - integrity metadata: `js.runtime.replay_id`, `js.runtime.ordering`, and `js.runtime.truncation.*`
 
 Example:

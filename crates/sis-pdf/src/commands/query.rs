@@ -7628,6 +7628,24 @@ mod tests {
     }
 
     #[test]
+    fn findings_summary_omits_runtime_budget_without_timeout_or_loop_buckets() {
+        let findings = json!([
+            {"kind": "suspicious", "severity": "High", "surface": "Action"},
+            {
+                "kind": "js_emulation_breakpoint",
+                "severity": "Low",
+                "surface": "JavaScript",
+                "meta": { "js.emulation_breakpoint.buckets": "missing_callable:1" }
+            }
+        ]);
+        let result = QueryResult::Structure(findings);
+        let output = format_json("findings", "sample.pdf", &result).unwrap();
+        let json_value: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let summary = json_value["summary"].as_object().expect("summary present");
+        assert!(summary.get("js_runtime_budget").is_none());
+    }
+
+    #[test]
     fn format_yaml_emits_document() {
         let result = QueryResult::Scalar(ScalarValue::Number(12));
         let output = format_yaml("js.count", "sample.pdf", &result).unwrap();

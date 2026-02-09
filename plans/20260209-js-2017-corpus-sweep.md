@@ -465,3 +465,64 @@ Execution command remained:
 
 4. **Add corpus-regression assertion for runtime-budget telemetry fields**
    - Add a targeted test that validates presence/shape of `js_runtime_budget` summary keys and batch markdown timeout/loop counters so reporting regressions are caught early.
+
+## Seventh sweep (post-timeout-context and confidence policy rollout)
+
+## Scope and sample set
+
+Seventh batch from the next 10 date folders:
+
+1. `tmp/javascript-malware-collection/2017/20170410/20170410_9a7cbdaa66ef8e3cbe080c51f72e79f6.js`
+2. `tmp/javascript-malware-collection/2017/20170412/20170412_5a0493b8e4e62ae6455d848b644c21a3.js`
+3. `tmp/javascript-malware-collection/2017/20170413/20170413_ac9d2fdbb684c00aa1d3f02bd0806898.js`
+4. `tmp/javascript-malware-collection/2017/20170415/20170415_023174de2f005996573953c9d5f6f312.js`
+5. `tmp/javascript-malware-collection/2017/20170416/20170416_68b9d93cf2e09972f4a97556d730e2f2.js`
+6. `tmp/javascript-malware-collection/2017/20170417/20170417_7353fdbf8df5fe2a35327c281d8aa117.js`
+7. `tmp/javascript-malware-collection/2017/20170418/20170418_25b22140b6ec655fcf23fa5e83f3c788.js`
+8. `tmp/javascript-malware-collection/2017/20170419/20170419_8e2474f8a75c75a681a775290ab221c7.js`
+9. `tmp/javascript-malware-collection/2017/20170420/20170420_ad0b38af5cd1190540120802822bbe05.js`
+10. `tmp/javascript-malware-collection/2017/20170421/20170421_a7efce582dbb502f9a4c3cce99e623ea.js`
+
+Execution command remained:
+
+- `cargo run -q -p sis-pdf -- sandbox eval <sample>`
+
+## Results summary
+
+- 10/10 executed; 0/10 timed out; 0/10 skipped.
+- 3/10 executed samples emitted runtime errors.
+- Error bucket profile:
+  - `loop_iteration_limit`: 3
+  - `not_callable_function`: 0
+  - `recursion_limit`: 0
+- API surface in this slice shifted from downloader cadence to host probing:
+  - `ActiveXObject`: 15 total calls
+  - `Scripting.FileSystemObject.FolderExists`: 5 total calls
+- Dynamic code generation absent in this batch (0/10).
+- Behavioural labels:
+  - `error_recovery_patterns`: 3
+  - `variable_promotion_detected`: 0
+
+## Observed impact
+
+- Timeout instrumentation additions did not trigger in this batch (no hard timeouts), which confirms loop-limit and wallclock timeouts are now separable in practice.
+- The dominant failure class changed from timeout pressure to repeated loop-iteration exhaustion in `ActiveXObject`/FSO-heavy scripts.
+- This batch does not introduce new callable/constructor regression; remaining instability is concentrated in runtime-budget policy for tight host-probe loops.
+
+## Updated recommendations (post-seventh sweep)
+
+1. **Targeted loop-budget adaptation for host-probe loops**
+   - Extend adaptive scheduler heuristics beyond downloader signatures to include `ActiveXObject` + `Scripting.FileSystemObject.FolderExists` loop probes.
+   - Keep hard upper bounds and deterministic limits to preserve integrity guarantees.
+
+2. **Loop-limit semantic refinement in findings**
+   - Distinguish repetitive environment-probe loops from generic runtime-limit hits via metadata flags (for example `probe_loop=true`, dominant API, iteration pressure ratio).
+   - Use this signal to keep severity stable while improving confidence calibration.
+
+3. **Early-break emulation guard for low-entropy probe loops**
+   - Consider a safe short-circuit strategy when identical API sequences repeat beyond a threshold with no new side-effects, then emit an explicit partial-execution marker.
+   - This should reduce avoidable loop-limit errors while retaining behavioural evidence quality.
+
+4. **Continue one more 10-sample confirmation run after loop-probe hardening**
+   - Validate that loop-limit error rate drops below 20% while timeout rate remains <=10%.
+   - If both criteria hold for two consecutive batches and no new dominant breakpoint class appears, close this hardening stream.

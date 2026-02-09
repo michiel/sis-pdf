@@ -3607,6 +3607,8 @@ mod tests {
         let markdown = render_batch_markdown(&report);
         assert!(markdown.contains("JS Emulation Breakpoint Buckets"));
         assert!(markdown.contains("JS script timeout findings: 1"));
+        assert!(markdown.contains("Hardening stop criteria (single batch)"));
+        assert!(markdown.contains("runtime_error<=20%=false"));
         assert!(markdown.contains("missing\\_constructor: 3"));
         assert!(markdown.contains("js_breakpoints=missing_callable:1,missing_constructor:3"));
         assert!(markdown.contains("js_script_timeout_findings=1"));

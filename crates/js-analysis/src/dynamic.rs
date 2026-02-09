@@ -10,6 +10,7 @@ mod sandbox_impl {
     use std::collections::BTreeSet;
     use std::rc::Rc;
     use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use boa_engine::object::builtins::JsFunction;
@@ -588,11 +589,19 @@ mod sandbox_impl {
         let opts = options.clone();
         let bytes = bytes.to_vec();
         let (tx, rx) = mpsc::channel();
+        let timeout_context = Arc::new(Mutex::new(crate::types::TimeoutContext {
+            runtime_profile: opts.runtime_profile.id(),
+            phase: None,
+            elapsed_ms: None,
+            budget_ratio: None,
+        }));
+        let timeout_context_thread = Arc::clone(&timeout_context);
         std::thread::spawn(move || {
             let mut initial_log = SandboxLog { options: opts, ..SandboxLog::default() };
             initial_log.runtime_profile = initial_log.options.runtime_profile.id();
             initial_log.replay_id = compute_replay_id(&bytes, &initial_log.options);
             let phase_timeout_ms = initial_log.options.phase_timeout_ms;
+            let timeout_budget_ms = initial_log.options.timeout_ms;
             let phase_plan = phase_order(&initial_log.options);
             // Initialize execution flow tracking
             initial_log.execution_flow.start_time = Some(std::time::Instant::now());
@@ -624,6 +633,9 @@ mod sandbox_impl {
             let mut total_elapsed = 0u128;
             for phase in phase_plan {
                 let phase_name = phase.as_str().to_string();
+                if let Ok(mut context_ref) = timeout_context_thread.lock() {
+                    context_ref.phase = Some(phase_name.clone());
+                }
                 set_phase(&log, &phase_name);
                 let phase_bytes = match phase_script_for(phase) {
                     Some(script) => script.as_bytes().to_vec(),
@@ -635,6 +647,13 @@ mod sandbox_impl {
                 let eval_res = context.eval(source);
                 let elapsed = eval_start.elapsed().as_millis();
                 total_elapsed += elapsed;
+                if let Ok(mut context_ref) = timeout_context_thread.lock() {
+                    context_ref.elapsed_ms = Some(total_elapsed);
+                    if timeout_budget_ms > 0 {
+                        let ratio = total_elapsed as f64 / timeout_budget_ms as f64;
+                        context_ref.budget_ratio = Some(ratio.min(1.0));
+                    }
+                }
                 {
                     let mut log_ref = log.borrow_mut();
                     log_ref.phase_elapsed_ms.insert(phase_name.clone(), elapsed);
@@ -784,9 +803,27 @@ mod sandbox_impl {
                 },
             })),
             Err(RecvTimeoutError::Timeout) => {
-                DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms }
+                let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
+                    crate::types::TimeoutContext {
+                        runtime_profile: options.runtime_profile.id(),
+                        phase: None,
+                        elapsed_ms: None,
+                        budget_ratio: Some(1.0),
+                    },
+                );
+                DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
             }
-            Err(_) => DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms },
+            Err(_) => {
+                let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
+                    crate::types::TimeoutContext {
+                        runtime_profile: options.runtime_profile.id(),
+                        phase: None,
+                        elapsed_ms: None,
+                        budget_ratio: Some(1.0),
+                    },
+                );
+                DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
+            }
         }
     }
 

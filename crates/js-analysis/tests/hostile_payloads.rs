@@ -179,7 +179,7 @@ fn test_heap_spray_exploit() {
             assert!(signals.elapsed_ms.is_some());
             // If it executes, should have loop iterations limited
         }
-        DynamicOutcome::TimedOut { timeout_ms } => {
+        DynamicOutcome::TimedOut { timeout_ms, .. } => {
             // Expected: heap spray may hit timeout
             assert_eq!(timeout_ms, 5000);
         }

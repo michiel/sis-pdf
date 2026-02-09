@@ -55,10 +55,19 @@ struct SandboxEvalReport {
     asset_type: String,
     status: String,
     timeout_ms: Option<u128>,
+    timeout_context: Option<SandboxTimeoutContextReport>,
     skip_reason: Option<String>,
     skip_limit: Option<usize>,
     skip_actual: Option<usize>,
     signals: Option<SandboxSignalsReport>,
+}
+
+#[derive(Serialize)]
+struct SandboxTimeoutContextReport {
+    runtime_profile: String,
+    phase: Option<String>,
+    elapsed_ms: Option<u128>,
+    budget_ratio: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -1211,6 +1220,7 @@ fn run_sandbox_eval(
             asset_type: asset_type.to_string(),
             status: "executed".to_string(),
             timeout_ms: None,
+            timeout_context: None,
             skip_reason: None,
             skip_limit: None,
             skip_actual: None,
@@ -1292,11 +1302,17 @@ fn run_sandbox_eval(
                     .collect(),
             }),
         },
-        DynamicOutcome::TimedOut { timeout_ms } => SandboxEvalReport {
+        DynamicOutcome::TimedOut { timeout_ms, context } => SandboxEvalReport {
             path: path.display().to_string(),
             asset_type: asset_type.to_string(),
             status: "timeout".to_string(),
             timeout_ms: Some(timeout_ms),
+            timeout_context: Some(SandboxTimeoutContextReport {
+                runtime_profile: context.runtime_profile,
+                phase: context.phase,
+                elapsed_ms: context.elapsed_ms,
+                budget_ratio: context.budget_ratio,
+            }),
             skip_reason: None,
             skip_limit: None,
             skip_actual: None,
@@ -1307,6 +1323,7 @@ fn run_sandbox_eval(
             asset_type: asset_type.to_string(),
             status: "skipped".to_string(),
             timeout_ms: None,
+            timeout_context: None,
             skip_reason: Some(reason),
             skip_limit: Some(limit),
             skip_actual: Some(actual),
@@ -4323,6 +4340,21 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     }
     if let Some(value) = finding.meta.get("js.runtime.script_timeout_profiles") {
         println!("Runtime timeout profiles: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_profile") {
+        println!("Runtime timeout profile: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_phase") {
+        println!("Runtime timeout phase: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_elapsed_ms") {
+        println!("Runtime timeout elapsed (ms): {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_budget_ratio") {
+        println!("Runtime timeout budget ratio: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_contexts") {
+        println!("Runtime timeout contexts: {}", escape_terminal(value));
     }
     if let Some(value) = finding.meta.get("js.runtime.script_timeout_ratio") {
         println!("Runtime timeout ratio: {}", escape_terminal(value));
