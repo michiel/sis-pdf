@@ -1297,7 +1297,8 @@ fn image_dict_meta(dict: &PdfDict<'_>) -> Option<ImageDictMeta> {
     let height = dict_int(dict, b"/Height");
     let bits_per_component = dict_int(dict, b"/BitsPerComponent");
     let colour_space = dict_name_or_first_array_name(dict, b"/ColorSpace");
-    if width.is_none() && height.is_none() && bits_per_component.is_none() && colour_space.is_none() {
+    if width.is_none() && height.is_none() && bits_per_component.is_none() && colour_space.is_none()
+    {
         return None;
     }
     Some(ImageDictMeta { width, height, bits_per_component, colour_space })
@@ -1395,8 +1396,7 @@ fn carve_payloads(
                 }
             }
 
-            let scoring =
-                correlate_carved_payload(kind, offset, &mut meta, filters, context, data);
+            let scoring = correlate_carved_payload(kind, offset, &mut meta, filters, context, data);
             let severity = scoring.severity;
             let confidence = scoring.confidence;
             if let Some(summary) = scoring.summary {
@@ -1492,7 +1492,10 @@ fn correlate_carved_payload(
             summary.push("missing /Length".to_string());
         } else if let Some(declared_length) = context.declared_length {
             meta.insert("carve.length.declared".to_string(), declared_length.to_string());
-            meta.insert("carve.length.observed_raw".to_string(), context.observed_length.to_string());
+            meta.insert(
+                "carve.length.observed_raw".to_string(),
+                context.observed_length.to_string(),
+            );
             let length_match = declared_length as usize == context.observed_length;
             meta.insert("carve.length.match".to_string(), length_match.to_string());
             if length_match {
@@ -1511,7 +1514,15 @@ fn correlate_carved_payload(
         }
 
         if let Some(image_meta) = context.image_meta.as_ref() {
-            score += image_metadata_score(kind, offset, data, image_meta, meta, &mut strong_signals, &mut summary);
+            score += image_metadata_score(
+                kind,
+                offset,
+                data,
+                image_meta,
+                meta,
+                &mut strong_signals,
+                &mut summary,
+            );
         } else if matches!(kind, "jpeg" | "png" | "gif") {
             score += 1;
             missing_signals += 1;
@@ -1540,7 +1551,10 @@ fn correlate_carved_payload(
     };
 
     meta.insert("carve.score".to_string(), score.to_string());
-    meta.insert("carve.confidence_basis".to_string(), format!("strong={strong_signals},missing={missing_signals}"));
+    meta.insert(
+        "carve.confidence_basis".to_string(),
+        format!("strong={strong_signals},missing={missing_signals}"),
+    );
     if !summary.is_empty() {
         meta.insert("carve.correlation_summary".to_string(), summary.join("; "));
     }
@@ -1610,7 +1624,9 @@ fn image_metadata_score(
         }
     }
 
-    if let (Some(colour_space), Some(channels)) = (image_meta.colour_space.as_ref(), header.channels) {
+    if let (Some(colour_space), Some(channels)) =
+        (image_meta.colour_space.as_ref(), header.channels)
+    {
         if let Some(expected_channels) = expected_channels_for_colour_space(colour_space) {
             meta.insert("carve.image.colour_space".to_string(), colour_space.clone());
             meta.insert(
@@ -1718,12 +1734,7 @@ fn parse_png_header(bytes: &[u8]) -> Option<ImageHeaderMeta> {
         6 => Some(4),
         _ => None,
     };
-    Some(ImageHeaderMeta {
-        width,
-        height,
-        bits_per_component: Some(bits),
-        channels,
-    })
+    Some(ImageHeaderMeta { width, height, bits_per_component: Some(bits), channels })
 }
 
 fn parse_gif_header(bytes: &[u8]) -> Option<ImageHeaderMeta> {
@@ -2353,7 +2364,10 @@ mod tests {
             finding.meta.get("carve.image.dimensions.match").map(|v| v.as_str()),
             Some("true")
         );
-        assert_eq!(finding.meta.get("carve.image.channels.match").map(|v| v.as_str()), Some("true"));
+        assert_eq!(
+            finding.meta.get("carve.image.channels.match").map(|v| v.as_str()),
+            Some("true")
+        );
     }
 
     #[test]
@@ -2395,7 +2409,10 @@ mod tests {
             finding.meta.get("carve.image.dimensions.match").map(|v| v.as_str()),
             Some("false")
         );
-        assert_eq!(finding.meta.get("carve.image.channels.match").map(|v| v.as_str()), Some("false"));
+        assert_eq!(
+            finding.meta.get("carve.image.channels.match").map(|v| v.as_str()),
+            Some("false")
+        );
     }
 
     #[test]

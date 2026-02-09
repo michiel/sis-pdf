@@ -1108,24 +1108,23 @@ fn infer_js_intent(
 ) -> Option<(&'static str, &'static str, &'static str)> {
     let lower = payload_bytes.to_ascii_lowercase();
 
-    let has_network_tokens = has_any_token(&lower, &[
-        b"app.launchurl(",
-        b"this.submitform(",
-        b"xmlhttp",
-        b"fetch(",
-        b"open(",
-        b"ws://",
-        b"wss://",
-        b"http://",
-        b"https://",
-    ]);
-    let has_ast_network =
-        signals.get("js.ast_urls").map(|v| !v.trim().is_empty()).unwrap_or(false)
-            || signals.get("js.ast_domains").map(|v| !v.trim().is_empty()).unwrap_or(false)
-            || matches!(
-                signals.get("js.encoded_transmission").map(String::as_str),
-                Some("true")
-            );
+    let has_network_tokens = has_any_token(
+        &lower,
+        &[
+            b"app.launchurl(",
+            b"this.submitform(",
+            b"xmlhttp",
+            b"fetch(",
+            b"open(",
+            b"ws://",
+            b"wss://",
+            b"http://",
+            b"https://",
+        ],
+    );
+    let has_ast_network = signals.get("js.ast_urls").map(|v| !v.trim().is_empty()).unwrap_or(false)
+        || signals.get("js.ast_domains").map(|v| !v.trim().is_empty()).unwrap_or(false)
+        || matches!(signals.get("js.encoded_transmission").map(String::as_str), Some("true"));
     if has_network_tokens || has_ast_network {
         return Some((
             "network_access",
@@ -1143,10 +1142,9 @@ fn infer_js_intent(
     }
 
     let has_obfuscation_tokens = has_any_token(&lower, &[b"eval(", b"unescape(", b"fromcharcode"]);
-    let has_obfuscation_signals = matches!(
-        signals.get("js.obfuscation_suspected").map(String::as_str),
-        Some("true")
-    ) || matches!(signals.get("js.contains_eval").map(String::as_str), Some("true"));
+    let has_obfuscation_signals =
+        matches!(signals.get("js.obfuscation_suspected").map(String::as_str), Some("true"))
+            || matches!(signals.get("js.contains_eval").map(String::as_str), Some("true"));
     if has_obfuscation_tokens || has_obfuscation_signals {
         return Some((
             "obfuscation_loader",
@@ -1170,10 +1168,7 @@ fn js_present_severity_from_meta(meta: &std::collections::HashMap<String, String
         "js.dynamic_eval_construction",
         "js.obfuscation_suspected",
     ];
-    if high_risk_flags
-        .iter()
-        .any(|k| matches!(meta.get(*k).map(String::as_str), Some("true")))
-    {
+    if high_risk_flags.iter().any(|k| matches!(meta.get(*k).map(String::as_str), Some("true"))) {
         return Severity::High;
     }
     if matches!(intent, Some("user_interaction")) {
@@ -1186,6 +1181,28 @@ fn has_any_token(haystack: &[u8], needles: &[&[u8]]) -> bool {
     needles
         .iter()
         .any(|needle| !needle.is_empty() && haystack.windows(needle.len()).any(|w| w == *needle))
+}
+
+fn dedupe_evidence_spans(
+    evidence: Vec<sis_pdf_core::model::EvidenceSpan>,
+) -> Vec<sis_pdf_core::model::EvidenceSpan> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for ev in evidence {
+        let source = match ev.source {
+            sis_pdf_core::model::EvidenceSource::File => "file",
+            sis_pdf_core::model::EvidenceSource::Decoded => "decoded",
+        };
+        let origin_key = ev
+            .origin
+            .map(|origin| format!("{}-{}", origin.start, origin.end))
+            .unwrap_or_else(|| "-".into());
+        let key = format!("{}:{}:{}:{}", source, ev.offset, ev.length, origin_key);
+        if seen.insert(key) {
+            out.push(ev);
+        }
+    }
+    out
 }
 
 fn js_payload_candidates_from_action_dict(
@@ -1594,6 +1611,11 @@ impl Detector for JavaScriptDetector {
                             preview_ascii(&payload.bytes, 120),
                         );
                     }
+                    let deduped_evidence = dedupe_evidence_spans(evidence);
+                    let object_ref = format!("{} {} obj", entry.obj, entry.gen);
+                    let mut meta = meta;
+                    meta.insert("object.ref".into(), object_ref.clone());
+                    meta.insert("query.next".into(), format!("object {} {}", entry.obj, entry.gen));
                     let js_present_severity = js_present_severity_from_meta(&meta);
                     if matches!(
                         meta.get("js.intent.primary").map(String::as_str),
@@ -1615,6 +1637,11 @@ impl Detector for JavaScriptDetector {
                         if let Some(preview) = meta.get("payload.decoded_preview") {
                             intent_meta.insert("payload.preview".into(), preview.clone());
                         }
+                        intent_meta.insert("object.ref".into(), object_ref.clone());
+                        intent_meta.insert(
+                            "query.next".into(),
+                            format!("object {} {}", entry.obj, entry.gen),
+                        );
                         findings.push(Finding {
                             id: String::new(),
                             surface: self.surface(),
@@ -1626,8 +1653,8 @@ impl Detector for JavaScriptDetector {
                             description:
                                 "JavaScript uses user interaction primitives (alert/confirm/prompt), consistent with social-engineering lure behaviour."
                                     .into(),
-                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                            evidence: evidence.clone(),
+                            objects: vec![object_ref.clone()],
+                            evidence: deduped_evidence.clone(),
                             remediation: Some(
                                 "Treat as active social-engineering script and validate whether execution is automatic or user-triggered."
                                     .into(),
@@ -1648,8 +1675,8 @@ impl Detector for JavaScriptDetector {
                         impact: None,
                         title: "JavaScript present".into(),
                         description: "Inline or referenced JavaScript detected.".into(),
-                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
-                        evidence,
+                        objects: vec![object_ref],
+                        evidence: deduped_evidence,
                         remediation: Some("Extract and review the JavaScript payload.".into()),
                         meta,
                         yara: None,

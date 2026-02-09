@@ -30,15 +30,28 @@ impl Detector for StructuralAnomaliesDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         let actual_objects = ctx.graph.objects.len() as u64;
+        let canonical_trailer_size = ctx
+            .graph
+            .objects
+            .iter()
+            .map(|entry| entry.obj as u64)
+            .max()
+            .map(|max_obj_id| max_obj_id + 1)
+            .unwrap_or(0);
 
         for (idx, trailer) in ctx.graph.trailers.iter().enumerate() {
             if let Some((_, size_obj)) = trailer.get_first(b"/Size") {
                 if let PdfAtom::Int(declared) = size_obj.atom {
+                    let declared_u64 = declared as u64;
                     if declared as u64 != actual_objects {
                         let mut meta = HashMap::new();
                         meta.insert("trailer.index".into(), idx.to_string());
                         meta.insert("trailer.declared_size".into(), declared.to_string());
                         meta.insert("parser.object_count".into(), actual_objects.to_string());
+                        meta.insert(
+                            "parser.max_object_id_plus_one".into(),
+                            canonical_trailer_size.to_string(),
+                        );
                         meta.insert(
                             "trailer.size_diff".into(),
                             (declared as i64 - actual_objects as i64).abs().to_string(),
@@ -60,6 +73,44 @@ impl Detector for StructuralAnomaliesDetector {
                             evidence: vec![span_to_evidence(trailer.span, "Trailer dictionary")],
                             remediation: Some(
                                 "Inspect xref/trailer sections for tampering.".into(),
+                            ),
+                            meta,
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
+                    }
+                    if declared_u64 != canonical_trailer_size {
+                        let mut meta = HashMap::new();
+                        meta.insert("trailer.index".into(), idx.to_string());
+                        meta.insert("trailer.declared_size".into(), declared.to_string());
+                        meta.insert(
+                            "trailer.canonical_size".into(),
+                            canonical_trailer_size.to_string(),
+                        );
+                        meta.insert("parser.object_count".into(), actual_objects.to_string());
+
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "pdf.trailer_size_noncanonical".into(),
+                            severity: Severity::Low,
+                            confidence: Confidence::Strong,
+                            impact: Some(Impact::Low),
+                            title: "Trailer /Size is non-canonical".into(),
+                            description: format!(
+                                "Trailer {} declares /Size {}, but canonical value from highest object id is {}.",
+                                idx, declared, canonical_trailer_size
+                            ),
+                            objects: vec![format!("trailer.{}", idx)],
+                            evidence: vec![span_to_evidence(trailer.span, "Trailer dictionary")],
+                            remediation: Some(
+                                "Validate trailer /Size against object numbering and xref sections."
+                                    .into(),
                             ),
                             meta,
                             reader_impacts: Vec::new(),

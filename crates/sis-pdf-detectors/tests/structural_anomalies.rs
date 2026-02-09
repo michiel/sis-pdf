@@ -116,3 +116,47 @@ fn strict_detector_flags_missing_length_and_ascii85() {
         "Combined obfuscation finding should be emitted"
     );
 }
+
+#[test]
+fn trailer_size_noncanonical_detected_with_sparse_object_ids() {
+    let bytes = leak_bytes(vec![0u8; 16]);
+    let objects = vec![
+        ObjEntry {
+            obj: 4,
+            gen: 0,
+            atom: PdfAtom::Null,
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        },
+        ObjEntry {
+            obj: 11,
+            gen: 0,
+            atom: PdfAtom::Null,
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        },
+    ];
+    let trailer = PdfDict {
+        span: Span { start: 0, end: 0 },
+        entries: vec![(
+            pdf_name("/Size"),
+            PdfObj { span: Span { start: 0, end: 0 }, atom: PdfAtom::Int(2) },
+        )],
+    };
+    let ctx = build_context(bytes, objects, vec![trailer], vec![0]);
+    let detector = StructuralAnomaliesDetector;
+    let findings = detector.run(&ctx).expect("detector should run");
+
+    assert!(
+        findings.iter().any(|f| f.kind == "pdf.trailer_size_noncanonical"),
+        "Expected canonical trailer /Size mismatch finding"
+    );
+    assert!(
+        !findings.iter().any(|f| f.kind == "pdf.trailer_inconsistent"),
+        "Object-count mismatch finding should not trigger when /Size equals parsed count"
+    );
+}

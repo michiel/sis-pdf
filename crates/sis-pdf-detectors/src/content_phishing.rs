@@ -174,7 +174,8 @@ fn matched_keyword_labels(haystack: &[u8], keywords: &[(&[u8], &str)]) -> Vec<St
 }
 
 fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding> {
-    let patterns: &[&[u8]] = &[b"<script", b"<iframe", b"javascript:", b"<svg", b"onerror=", b"onload="];
+    let patterns: &[&[u8]] =
+        &[b"<script", b"<iframe", b"javascript:", b"<svg", b"onerror=", b"onload="];
     for entry in &ctx.graph.objects {
         for (bytes, span) in extract_strings_with_span(entry) {
             let lower = bytes.to_ascii_lowercase();
