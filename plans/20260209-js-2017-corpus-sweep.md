@@ -526,3 +526,65 @@ Execution command remained:
 4. **Continue one more 10-sample confirmation run after loop-probe hardening**
    - Validate that loop-limit error rate drops below 20% while timeout rate remains <=10%.
    - If both criteria hold for two consecutive batches and no new dominant breakpoint class appears, close this hardening stream.
+
+## Eighth sweep (post-host-probe hardening validation)
+
+## Scope and sample set
+
+Eighth batch from the next 10 date folders:
+
+1. `tmp/javascript-malware-collection/2017/20170422/20170422_8a25642b89768e97cac2248d3ece16ae.js`
+2. `tmp/javascript-malware-collection/2017/20170423/20170423_a889d75d9a46513974670685ef5aa504.js`
+3. `tmp/javascript-malware-collection/2017/20170424/20170424_156a1010d238576eec0219d666e308cf.js`
+4. `tmp/javascript-malware-collection/2017/20170425/20170425_227d9a091d8156e5ebccab7f76e3f79e.js`
+5. `tmp/javascript-malware-collection/2017/20170426/20170426_6d9bc15df6dc1f12c4d0fa4773c99be9.js`
+6. `tmp/javascript-malware-collection/2017/20170427/20170427_661f88e902e0c22a88ef8c53517193ec.js`
+7. `tmp/javascript-malware-collection/2017/20170428/20170428_59f7e8c84a76dd9f76b002faa93f70df.js`
+8. `tmp/javascript-malware-collection/2017/20170429/20170429_3aa18e5e055db7224dcf22bc8f6e10b7.js`
+9. `tmp/javascript-malware-collection/2017/20170430/20170430_acb2d22a30f0863ca73d845ec66bc85e.js`
+10. `tmp/javascript-malware-collection/2017/20170501/20170501_018edd4b581516682574e305c835c5c9.js`
+
+Execution command remained:
+
+- `cargo run -q -p sis-pdf -- sandbox eval <sample>`
+
+## Results summary
+
+- 10/10 executed; 0/10 timed out; 0/10 skipped.
+- 3/10 executed samples emitted runtime errors.
+- Dominant runtime errors:
+  - `loop_iteration_limit` (2)
+  - `null_object_conversion` (1)
+- Dynamic code generation appeared in 3/10 samples.
+- API profile shifted toward host and registry probing:
+  - `ActiveXObject`: 8/10 samples (26 total calls)
+  - `WScript.Shell.RegRead`: 5 total calls
+  - `Scripting.FileSystemObject.FolderExists`: 4 total calls
+- Adaptive loop profile selection observed:
+  - `host_probe`: 5/10 samples (`adaptive_loop_iteration_limit=40000`)
+  - `downloader`: 2/10 samples (`adaptive_loop_iteration_limit=20000`)
+  - `base`: 3/10 samples (`adaptive_loop_iteration_limit=10000`)
+- Probe short-circuit counter remained zero in this slice (`probe_loop_short_circuit_hits=0`).
+
+## Observed impact
+
+- Host-probe loop adaptation is active and stable (no timeouts, deterministic profile selection).
+- Loop-limit pressure persists in a smaller subset of downloader-like loops despite higher budget.
+- New residual issue surfaced: one sample still breaks on null-object conversion in an object-chain path, indicating a return-shape gap rather than scheduler pressure.
+
+## Updated recommendations (post-eighth sweep)
+
+1. **Downloader loop budget second-stage tuning (bounded)**
+   - For scripts already classified as downloader profile and showing repeated `ActiveXObject` + `fromCharCode`/`eval` decoding loops, add a conservative second-stage budget bump (e.g. +25%) with strict hard cap and telemetry marker.
+
+2. **Null-object conversion contract patch (targeted)**
+   - Add a targeted object-return contract for the failing host chain seen in `20170426` so common probe/eval chains do not collapse into null conversion prematurely.
+
+3. **Make probe short-circuit threshold adaptive**
+   - Current static threshold did not trigger in this slice; tune threshold by profile and observed call entropy so repetitive probe loops are cut earlier when no new side effects appear.
+
+4. **Add regression fixture for mixed probe/decode loops**
+   - Add one integration test fixture representing `ActiveXObject + RegRead + fromCharCode + eval` cadence to lock in loop-profile selection, telemetry fields, and non-timeout execution.
+
+5. **Continue one final 10-sample confirmation**
+   - Validate whether loop-limit error rate drops to <=10% with no timeout regressions after the above tuning; if yes and no new dominant breakpoint class emerges, close this hardening track.
