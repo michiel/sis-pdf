@@ -342,7 +342,11 @@ fn extract_js_error_message(raw: &str) -> String {
 
 fn classify_emulation_breakpoint(error_message: &str) -> &'static str {
     let lower = error_message.to_ascii_lowercase();
-    if lower.contains("not a callable function") {
+    if lower.contains("exceeded maximum number of recursive calls")
+        || lower.contains("too much recursion")
+    {
+        "recursion_limit"
+    } else if lower.contains("not a callable function") {
         "missing_callable"
     } else if lower.contains("not a constructor") {
         "missing_constructor"
@@ -359,6 +363,143 @@ fn classify_emulation_breakpoint(error_message: &str) -> &'static str {
         "missing_symbol"
     } else {
         "runtime_error"
+    }
+}
+
+fn recursion_limit_hits(errors: &[String]) -> usize {
+    errors
+        .iter()
+        .map(|raw| extract_js_error_message(raw))
+        .filter(|message| {
+            let lower = message.to_ascii_lowercase();
+            lower.contains("exceeded maximum number of recursive calls")
+                || lower.contains("too much recursion")
+        })
+        .count()
+}
+
+fn likely_non_javascript_payload(bytes: &[u8]) -> Option<&'static str> {
+    let preview = String::from_utf8_lossy(bytes);
+    let trimmed = preview.trim_start_matches(|ch: char| ch.is_whitespace() || ch == '\u{feff}');
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("<!doctype html")
+        || lower.starts_with("<html")
+        || lower.starts_with("<script")
+    {
+        return Some("html_markup");
+    }
+    if lower.starts_with("<?xml") || lower.starts_with("<svg") || lower.starts_with("<!doctype svg")
+    {
+        return Some("xml_markup");
+    }
+    None
+}
+
+fn extend_with_payload_format_finding(
+    findings: &mut Vec<Finding>,
+    detector_surface: AttackSurface,
+    object_ref: String,
+    evidence: &[sis_pdf_core::model::EvidenceSpan],
+    source_label: Option<&'static str>,
+    format_hint: &str,
+    payload_len: usize,
+) {
+    let mut meta = std::collections::HashMap::new();
+    meta.insert("js.sandbox_exec".into(), "false".into());
+    meta.insert("js.payload.format_hint".into(), format_hint.to_string());
+    meta.insert("payload.decoded_len".into(), payload_len.to_string());
+    if let Some(label) = source_label {
+        meta.insert("js.source".into(), label.to_string());
+    }
+    findings.push(Finding {
+        id: String::new(),
+        surface: detector_surface,
+        kind: "js_payload_non_javascript_format".into(),
+        severity: Severity::Medium,
+        confidence: Confidence::Strong,
+        impact: None,
+        title: "JavaScript payload format mismatch".into(),
+        description: "Payload identified as JavaScript appears to be markup or non-JS script format; sandbox parse behaviour may be unreliable.".into(),
+        objects: vec![object_ref],
+        evidence: evidence.to_vec(),
+        remediation: Some(
+            "Review payload source and route to an appropriate parser before JavaScript sandbox execution.".into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    });
+}
+
+fn extend_with_recursion_limit_finding(
+    findings: &mut Vec<Finding>,
+    detector_surface: AttackSurface,
+    object_ref: String,
+    evidence: &[sis_pdf_core::model::EvidenceSpan],
+    base_meta: &std::collections::HashMap<String, String>,
+    summary: &ProfileDivergenceSummary,
+    recursion_hits: usize,
+) {
+    if recursion_hits == 0 {
+        return;
+    }
+    let mut meta = base_meta.clone();
+    meta.insert("js.sandbox_exec".into(), "true".into());
+    meta.insert("js.runtime.recursion_limit_hits".into(), recursion_hits.to_string());
+    let (severity, confidence) = apply_profile_scoring_meta(
+        &mut meta,
+        summary,
+        "js_sandbox_exec",
+        Severity::Medium,
+        Confidence::Strong,
+    );
+    findings.push(Finding {
+        id: String::new(),
+        surface: detector_surface,
+        kind: "js_runtime_recursion_limit".into(),
+        severity,
+        confidence,
+        impact: None,
+        title: "JavaScript recursion limit reached".into(),
+        description: "Sandbox execution hit recursion limits, which may indicate recursion bombs or heavily nested obfuscation.".into(),
+        objects: vec![object_ref],
+        evidence: evidence.to_vec(),
+        remediation: Some("Investigate recursive control-flow and deobfuscate the script to determine intent.".into()),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    });
+}
+
+fn detect_downloader_pattern(calls: &[String]) -> Option<(usize, usize, usize)> {
+    let create_count = calls
+        .iter()
+        .filter(|call| {
+            call.as_str() == "ActiveXObject"
+                || call.as_str() == "WScript.CreateObject"
+                || call.as_str() == "CreateObject"
+        })
+        .count();
+    let open_count = calls
+        .iter()
+        .filter(|call| {
+            call.as_str() == "MSXML2.XMLHTTP.open" || call.as_str() == "MSXML2.XMLHTTP.Open"
+        })
+        .count();
+    let send_count = calls
+        .iter()
+        .filter(|call| {
+            call.as_str() == "MSXML2.XMLHTTP.send" || call.as_str() == "MSXML2.XMLHTTP.Send"
+        })
+        .count();
+    if create_count >= 2 && open_count >= 2 && send_count >= 2 {
+        Some((create_count, open_count, send_count))
+    } else {
+        None
     }
 }
 
@@ -462,6 +603,19 @@ impl Detector for JavaScriptSandboxDetector {
                 let mut evidence = candidate.evidence;
                 if evidence.is_empty() {
                     evidence.push(span_to_evidence(entry.full_span, "JavaScript object"));
+                }
+                let object_ref = format!("{} {} obj", entry.obj, entry.gen);
+                if let Some(format_hint) = likely_non_javascript_payload(&info.bytes) {
+                    extend_with_payload_format_finding(
+                        &mut findings,
+                        self.surface(),
+                        object_ref,
+                        &evidence,
+                        candidate.source.meta_value(),
+                        format_hint,
+                        info.bytes.len(),
+                    );
+                    continue;
                 }
 
                 let (profile_runs, profile_summary) = execute_profiles(&info.bytes);
@@ -690,6 +844,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 }
                             }
                             let object_ref = format!("{} {} obj", entry.obj, entry.gen);
+                            let recursion_hits = recursion_limit_hits(&signals.errors);
                             extend_with_emulation_breakpoint_finding(
                                 &mut findings,
                                 self.surface(),
@@ -698,6 +853,15 @@ impl Detector for JavaScriptSandboxDetector {
                                 &meta,
                                 &signals.errors,
                                 &profile_summary,
+                            );
+                            extend_with_recursion_limit_finding(
+                                &mut findings,
+                                self.surface(),
+                                object_ref.clone(),
+                                &evidence,
+                                &meta,
+                                &profile_summary,
+                                recursion_hits,
                             );
                             let description = if !signals.prop_reads.is_empty() {
                                 "Sandbox executed JS; property accesses observed."
@@ -911,6 +1075,13 @@ impl Detector for JavaScriptSandboxDetector {
                             base_meta.insert("js.source".into(), label.into());
                         }
                         let object_ref = format!("{} {} obj", entry.obj, entry.gen);
+                        let recursion_hits = recursion_limit_hits(&signals.errors);
+                        if recursion_hits > 0 {
+                            base_meta.insert(
+                                "js.runtime.recursion_limit_hits".into(),
+                                recursion_hits.to_string(),
+                            );
+                        }
                         extend_with_emulation_breakpoint_finding(
                             &mut findings,
                             self.surface(),
@@ -919,6 +1090,15 @@ impl Detector for JavaScriptSandboxDetector {
                             &base_meta,
                             &signals.errors,
                             &profile_summary,
+                        );
+                        extend_with_recursion_limit_finding(
+                            &mut findings,
+                            self.surface(),
+                            object_ref.clone(),
+                            &evidence,
+                            &base_meta,
+                            &profile_summary,
+                            recursion_hits,
                         );
                         let mut risky_calls = Vec::new();
                         if signals.calls.iter().any(|c| c.eq_ignore_ascii_case("eval")) {
@@ -937,6 +1117,51 @@ impl Detector for JavaScriptSandboxDetector {
                         }
                         let has_network = signals.calls.iter().any(|c| is_network_call(c));
                         let has_file = signals.calls.iter().any(|c| is_file_call(c));
+                        if let Some((create_count, open_count, send_count)) =
+                            detect_downloader_pattern(&signals.calls)
+                        {
+                            let mut meta = base_meta.clone();
+                            meta.insert("js.sandbox_exec".into(), "true".into());
+                            meta.insert(
+                                "js.runtime.downloader.create_calls".into(),
+                                create_count.to_string(),
+                            );
+                            meta.insert(
+                                "js.runtime.downloader.open_calls".into(),
+                                open_count.to_string(),
+                            );
+                            meta.insert(
+                                "js.runtime.downloader.send_calls".into(),
+                                send_count.to_string(),
+                            );
+                            let (severity, confidence) = apply_profile_scoring_meta(
+                                &mut meta,
+                                &profile_summary,
+                                "js_runtime_network_intent",
+                                Severity::High,
+                                Confidence::Strong,
+                            );
+                            findings.push(Finding {
+                                id: String::new(),
+                                surface: self.surface(),
+                                kind: "js_runtime_downloader_pattern".into(),
+                                severity,
+                                confidence,
+                                impact: None,
+                                title: "Runtime downloader loop pattern".into(),
+                                description: "JavaScript repeatedly created script-host objects and issued XMLHTTP open/send calls, consistent with downloader loop behaviour.".into(),
+                                objects: vec![object_ref.clone()],
+                                evidence: evidence.clone(),
+                                remediation: Some(
+                                    "Inspect request targets, response handling, and follow-on execution/file write operations.".into(),
+                                ),
+                                meta,
+                                yara: None,
+                                position: None,
+                                positions: Vec::new(),
+                                ..Finding::default()
+                            });
+                        }
                         if has_network {
                             let mut meta = base_meta.clone();
                             meta.insert("js.sandbox_exec".into(), "true".into());

