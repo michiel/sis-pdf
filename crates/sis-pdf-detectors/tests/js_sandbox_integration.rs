@@ -114,7 +114,7 @@ fn sandbox_exec_records_calls() {
 #[cfg(feature = "js-sandbox")]
 #[test]
 fn sandbox_exec_demotes_confidence_when_calls_diverge_across_profiles() {
-    let bytes = build_minimal_js_pdf("require\\('fs'\\);");
+    let bytes = build_minimal_js_pdf("process.exit\\(0\\);");
     let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
         vec![Box::new(JavaScriptSandboxDetector)];
     let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
@@ -135,4 +135,30 @@ fn sandbox_exec_demotes_confidence_when_calls_diverge_across_profiles() {
         sandbox.meta.get("js.runtime.profile_divergence").map(String::as_str),
         Some("divergent")
     );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_emulation_breakpoint_finding_for_runtime_errors() {
+    let bytes = build_minimal_js_pdf("function a.b\\(\\) \\{\\}");
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_emulation_breakpoint")
+        .expect("js_emulation_breakpoint finding");
+    assert_eq!(
+        finding.meta.get("js.emulation_breakpoint.buckets").map(String::as_str),
+        Some("parser_dialect_mismatch:1")
+    );
+    assert_eq!(finding.meta.get("js.runtime.error_count").map(String::as_str), Some("1"));
+    assert!(finding
+        .meta
+        .get("js.runtime.error_messages")
+        .map(|value| value.contains("expected token"))
+        .unwrap_or(false));
 }

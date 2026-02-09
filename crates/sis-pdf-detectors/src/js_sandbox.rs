@@ -329,6 +329,103 @@ fn apply_profile_scoring_meta(
     (severity, confidence)
 }
 
+fn extract_js_error_message(raw: &str) -> String {
+    let marker = "message: \"";
+    if let Some(start) = raw.find(marker) {
+        let offset = start + marker.len();
+        if let Some(end_rel) = raw[offset..].find('"') {
+            return raw[offset..offset + end_rel].to_string();
+        }
+    }
+    raw.to_string()
+}
+
+fn classify_emulation_breakpoint(error_message: &str) -> &'static str {
+    let lower = error_message.to_ascii_lowercase();
+    if lower.contains("not a callable function") {
+        "missing_callable"
+    } else if lower.contains("not a constructor") {
+        "missing_constructor"
+    } else if lower.contains("cannot convert 'null' or 'undefined' to object")
+        || lower.contains("cannot convert null")
+    {
+        "null_object_conversion"
+    } else if lower.contains("expected token")
+        || lower.contains("syntax error")
+        || lower.contains("parse")
+    {
+        "parser_dialect_mismatch"
+    } else if lower.contains("is not defined") || lower.contains("undefined") {
+        "missing_symbol"
+    } else {
+        "runtime_error"
+    }
+}
+
+fn extend_with_emulation_breakpoint_finding(
+    findings: &mut Vec<Finding>,
+    detector_surface: AttackSurface,
+    object_ref: String,
+    evidence: &[sis_pdf_core::model::EvidenceSpan],
+    base_meta: &std::collections::HashMap<String, String>,
+    errors: &[String],
+    summary: &ProfileDivergenceSummary,
+) {
+    if errors.is_empty() {
+        return;
+    }
+    let mut bucket_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut normalised = Vec::new();
+    for raw in errors {
+        let message = extract_js_error_message(raw);
+        normalised.push(message.clone());
+        let bucket = classify_emulation_breakpoint(&message).to_string();
+        *bucket_counts.entry(bucket).or_insert(0) += 1;
+    }
+    let mut meta = base_meta.clone();
+    meta.insert("js.sandbox_exec".into(), "true".into());
+    meta.insert("js.runtime.error_count".into(), errors.len().to_string());
+    meta.insert("js.runtime.error_messages".into(), normalised.join(" | "));
+    meta.insert(
+        "js.emulation_breakpoint.buckets".into(),
+        bucket_counts
+            .iter()
+            .map(|(bucket, count)| format!("{bucket}:{count}"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+    let parser_mismatch = bucket_counts.contains_key("parser_dialect_mismatch");
+    let base_severity = if parser_mismatch { Severity::Medium } else { Severity::Low };
+    let base_confidence = if parser_mismatch { Confidence::Strong } else { Confidence::Probable };
+    let (severity, confidence) = apply_profile_scoring_meta(
+        &mut meta,
+        summary,
+        "js_sandbox_exec",
+        base_severity,
+        base_confidence,
+    );
+    findings.push(Finding {
+        id: String::new(),
+        surface: detector_surface,
+        kind: "js_emulation_breakpoint".into(),
+        severity,
+        confidence,
+        impact: None,
+        title: "JavaScript emulation breakpoint".into(),
+        description: "Sandbox execution encountered recoverable runtime errors that may indicate emulation coverage gaps or guarded behaviour.".into(),
+        objects: vec![object_ref],
+        evidence: evidence.to_vec(),
+        remediation: Some(
+            "Review error buckets and extend runtime stubs or parsing support for the affected API/dialect.".into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    });
+}
+
 impl Detector for JavaScriptSandboxDetector {
     fn id(&self) -> &'static str {
         "js_sandbox"
@@ -585,6 +682,16 @@ impl Detector for JavaScriptSandboxDetector {
                                     );
                                 }
                             }
+                            let object_ref = format!("{} {} obj", entry.obj, entry.gen);
+                            extend_with_emulation_breakpoint_finding(
+                                &mut findings,
+                                self.surface(),
+                                object_ref.clone(),
+                                &evidence,
+                                &meta,
+                                &signals.errors,
+                                &profile_summary,
+                            );
                             let description = if !signals.prop_reads.is_empty() {
                                 "Sandbox executed JS; property accesses observed."
                             } else if signals.errors.is_empty() {
@@ -608,7 +715,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 impact: None,
                                 title: "JavaScript sandbox executed".into(),
                                 description: description.into(),
-                                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                objects: vec![object_ref],
                                 evidence: evidence.clone(),
                                 remediation: Some("Review JS payload and runtime errors.".into()),
                                 meta,
@@ -796,6 +903,16 @@ impl Detector for JavaScriptSandboxDetector {
                         if let Some(label) = candidate.source.meta_value() {
                             base_meta.insert("js.source".into(), label.into());
                         }
+                        let object_ref = format!("{} {} obj", entry.obj, entry.gen);
+                        extend_with_emulation_breakpoint_finding(
+                            &mut findings,
+                            self.surface(),
+                            object_ref.clone(),
+                            &evidence,
+                            &base_meta,
+                            &signals.errors,
+                            &profile_summary,
+                        );
                         let mut risky_calls = Vec::new();
                         if signals.calls.iter().any(|c| c.eq_ignore_ascii_case("eval")) {
                             risky_calls.push("eval");
@@ -832,7 +949,7 @@ impl Detector for JavaScriptSandboxDetector {
             impact: None,
                                 title: "Runtime network intent".into(),
                                 description: "JavaScript invoked network-capable APIs during sandboxed execution.".into(),
-                                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                objects: vec![object_ref.clone()],
                                 evidence: evidence.clone(),
                                 remediation: Some("Inspect runtime JS calls and network targets.".into()),
                                 meta,
@@ -861,7 +978,7 @@ impl Detector for JavaScriptSandboxDetector {
             impact: None,
                                 title: "Runtime file or object probe".into(),
                                 description: "JavaScript invoked file or object-related APIs during sandboxed execution.".into(),
-                                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                objects: vec![object_ref.clone()],
                                 evidence: evidence.clone(),
                                 remediation: Some("Review runtime JS calls for file or export operations.".into()),
                                 meta,
@@ -893,7 +1010,7 @@ impl Detector for JavaScriptSandboxDetector {
                                     "JavaScript invoked high-risk calls during sandboxed execution ({}).",
                                     label
                                 ),
-                                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                objects: vec![object_ref.clone()],
                                 evidence: evidence.clone(),
                                 remediation: Some(
                                     "Review high-risk calls and deobfuscate the payload.".into(),
@@ -924,7 +1041,7 @@ impl Detector for JavaScriptSandboxDetector {
             impact: None,
                                 title: "JavaScript sandbox executed".into(),
                                 description: "Sandbox executed JS; monitored API calls were observed but no network/file APIs.".into(),
-                                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                objects: vec![object_ref],
                                 evidence: evidence.clone(),
                                 remediation: Some("Review runtime JS calls for additional behaviour.".into()),
                                 meta,

@@ -1201,6 +1201,198 @@ mod sandbox_impl {
     }
 
     fn register_windows_scripting(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        fn build_com_text_stream(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            ObjectInitializer::new(context)
+                .function(make_fn("TextStream.ReadAll"), JsString::from("ReadAll"), 0)
+                .function(make_fn("TextStream.ReadLine"), JsString::from("ReadLine"), 0)
+                .function(make_fn("TextStream.Write"), JsString::from("Write"), 1)
+                .function(make_fn("TextStream.WriteLine"), JsString::from("WriteLine"), 1)
+                .function(make_fn("TextStream.Close"), JsString::from("Close"), 0)
+                .build()
+        }
+
+        fn build_fso_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            let text_stream = build_com_text_stream(context, log.clone());
+            ObjectInitializer::new(context)
+                .function(
+                    make_fn("Scripting.FileSystemObject.OpenTextFile"),
+                    JsString::from("OpenTextFile"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.CreateTextFile"),
+                    JsString::from("CreateTextFile"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.GetSpecialFolder"),
+                    JsString::from("GetSpecialFolder"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.GetTempName"),
+                    JsString::from("GetTempName"),
+                    0,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.FileExists"),
+                    JsString::from("FileExists"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.FolderExists"),
+                    JsString::from("FolderExists"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.CreateFolder"),
+                    JsString::from("CreateFolder"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.DeleteFile"),
+                    JsString::from("DeleteFile"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.CopyFile"),
+                    JsString::from("CopyFile"),
+                    2,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.MoveFile"),
+                    JsString::from("MoveFile"),
+                    2,
+                )
+                .property(JsString::from("TextStream"), text_stream, Attribute::all())
+                .build()
+        }
+
+        fn build_wscript_shell_object(
+            context: &mut Context,
+            log: Rc<RefCell<SandboxLog>>,
+        ) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            ObjectInitializer::new(context)
+                .function(make_fn("WScript.Shell.Run"), JsString::from("Run"), 1)
+                .function(make_fn("WScript.Shell.Exec"), JsString::from("Exec"), 1)
+                .function(
+                    make_fn("WScript.Shell.ExpandEnvironmentStrings"),
+                    JsString::from("ExpandEnvironmentStrings"),
+                    1,
+                )
+                .function(make_fn("WScript.Shell.RegRead"), JsString::from("RegRead"), 1)
+                .function(make_fn("WScript.Shell.RegWrite"), JsString::from("RegWrite"), 2)
+                .function(
+                    make_fn("WScript.Shell.SpecialFolders"),
+                    JsString::from("SpecialFolders"),
+                    1,
+                )
+                .build()
+        }
+
+        fn build_xmlhttp_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            ObjectInitializer::new(context)
+                .function(make_fn("MSXML2.XMLHTTP.open"), JsString::from("open"), 2)
+                .function(make_fn("MSXML2.XMLHTTP.send"), JsString::from("send"), 1)
+                .function(
+                    make_fn("MSXML2.XMLHTTP.setRequestHeader"),
+                    JsString::from("setRequestHeader"),
+                    2,
+                )
+                .function(
+                    make_fn("MSXML2.XMLHTTP.getResponseHeader"),
+                    JsString::from("getResponseHeader"),
+                    1,
+                )
+                .build()
+        }
+
+        fn build_adodb_stream_object(
+            context: &mut Context,
+            log: Rc<RefCell<SandboxLog>>,
+        ) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            ObjectInitializer::new(context)
+                .function(make_fn("ADODB.Stream.Open"), JsString::from("Open"), 0)
+                .function(make_fn("ADODB.Stream.LoadFromFile"), JsString::from("LoadFromFile"), 1)
+                .function(make_fn("ADODB.Stream.Write"), JsString::from("Write"), 1)
+                .function(make_fn("ADODB.Stream.Read"), JsString::from("Read"), 0)
+                .function(make_fn("ADODB.Stream.SaveToFile"), JsString::from("SaveToFile"), 1)
+                .function(make_fn("ADODB.Stream.Close"), JsString::from("Close"), 0)
+                .build()
+        }
+
+        fn build_com_object_by_prog_id(
+            context: &mut Context,
+            log: Rc<RefCell<SandboxLog>>,
+            prog_id: &str,
+        ) -> JsObject {
+            let pid = prog_id.trim().to_ascii_lowercase();
+            match pid.as_str() {
+                "scripting.filesystemobject" => build_fso_object(context, log),
+                "wscript.shell" => build_wscript_shell_object(context, log),
+                "msxml2.xmlhttp"
+                | "msxml2.xmlhttp.3.0"
+                | "msxml2.xmlhttp.6.0"
+                | "msxml2.serverxmlhttp"
+                | "winhttp.winhttprequest.5.1" => build_xmlhttp_object(context, log),
+                "adodb.stream" => build_adodb_stream_object(context, log),
+                _ => {
+                    let make_fn = |name: &'static str| {
+                        let log = log.clone();
+                        make_native(log, name)
+                    };
+                    ObjectInitializer::new(context)
+                        .function(make_fn("COM.Open"), JsString::from("Open"), 1)
+                        .function(make_fn("COM.Run"), JsString::from("Run"), 1)
+                        .function(make_fn("COM.Exec"), JsString::from("Exec"), 1)
+                        .function(make_fn("COM.Send"), JsString::from("Send"), 1)
+                        .function(make_fn("COM.Write"), JsString::from("Write"), 1)
+                        .function(make_fn("COM.Read"), JsString::from("Read"), 0)
+                        .function(make_fn("COM.Close"), JsString::from("Close"), 0)
+                        .build()
+                }
+            }
+        }
+
+        fn make_com_factory(
+            log: Rc<RefCell<SandboxLog>>,
+            api_name: &'static str,
+        ) -> NativeFunction {
+            unsafe {
+                NativeFunction::from_closure_with_captures(
+                    move |_this, args, captures, ctx| {
+                        record_call(&captures.log, api_name, args, ctx);
+                        let prog_id =
+                            args.get_or_undefined(0).to_string(ctx)?.to_std_string_escaped();
+                        let object =
+                            build_com_object_by_prog_id(ctx, captures.log.clone(), &prog_id);
+                        Ok(JsValue::from(object))
+                    },
+                    LogCapture { log },
+                )
+            }
+        }
+
         let make_fn = |name: &'static str| {
             let log = log.clone();
             make_native(log, name)
@@ -1208,11 +1400,15 @@ mod sandbox_impl {
         let _ = context.register_global_builtin_callable(
             JsString::from("ActiveXObject"),
             1,
-            make_native(log.clone(), "ActiveXObject"),
+            make_com_factory(log.clone(), "ActiveXObject"),
         );
         let wscript = ObjectInitializer::new(context)
             .function(make_fn("WScript.Shell"), JsString::from("Shell"), 0)
-            .function(make_fn("WScript.CreateObject"), JsString::from("CreateObject"), 1)
+            .function(
+                make_com_factory(log.clone(), "WScript.CreateObject"),
+                JsString::from("CreateObject"),
+                1,
+            )
             .function(make_fn("WScript.RegRead"), JsString::from("RegRead"), 1)
             .function(make_fn("WScript.RegWrite"), JsString::from("RegWrite"), 2)
             .build();
@@ -1221,12 +1417,12 @@ mod sandbox_impl {
         let _ = context.register_global_builtin_callable(
             JsString::from("GetObject"),
             1,
-            make_native(log.clone(), "GetObject"),
+            make_com_factory(log.clone(), "GetObject"),
         );
         let _ = context.register_global_builtin_callable(
             JsString::from("CreateObject"),
             1,
-            make_native(log, "CreateObject"),
+            make_com_factory(log, "CreateObject"),
         );
     }
 

@@ -115,6 +115,32 @@ fn pdf_profile_compat_exposes_require_stub() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn pdf_profile_compat_exposes_com_factory_stubs() {
+    let options = profile_options(RuntimeKind::PdfReader);
+    let payload = b"
+        if (typeof ActiveXObject !== 'function') throw new Error('ActiveXObject');
+        if (typeof CreateObject !== 'function') throw new Error('CreateObject');
+        var shell = ActiveXObject('WScript.Shell');
+        if (typeof shell.Run !== 'function') throw new Error('WScript.Shell.Run');
+        shell.Run('cmd /c whoami');
+        var fso = ActiveXObject('Scripting.FileSystemObject');
+        if (typeof fso.OpenTextFile !== 'function') throw new Error('Scripting.FileSystemObject.OpenTextFile');
+        fso.OpenTextFile('C:\\\\temp\\\\x.txt');
+        var stream = CreateObject('ADODB.Stream');
+        if (typeof stream.SaveToFile !== 'function') throw new Error('ADODB.Stream.SaveToFile');
+        stream.SaveToFile('C:\\\\temp\\\\payload.bin');
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(signals.calls.iter().any(|call| call == "ActiveXObject"));
+    assert!(signals.calls.iter().any(|call| call == "CreateObject"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Run"));
+    assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.OpenTextFile"));
+    assert!(signals.calls.iter().any(|call| call == "ADODB.Stream.SaveToFile"));
+    assert!(signals.errors.is_empty(), "unexpected errors: {:?}", signals.errors);
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn browser_profile_missing_pdf_api_has_stable_error_signature() {
     let options = profile_options(RuntimeKind::Browser);
     let payload = b"app.viewerVersion();";
