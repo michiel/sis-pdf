@@ -1395,26 +1395,46 @@ mod sandbox_impl {
                 make_native(log, name)
             };
             let text_stream = build_com_text_stream(context, log.clone());
+            let text_stream_lower = build_com_text_stream(context, log.clone());
+            let create_text_stream = build_com_text_stream(context, log.clone());
+            let create_text_stream_lower = build_com_text_stream(context, log.clone());
+            let text_stream_property = build_com_text_stream(context, log.clone());
             let file_object = build_com_file_object(context, log.clone());
             let file_object_lower = build_com_file_object(context, log.clone());
             ObjectInitializer::new(context)
                 .function(
-                    make_fn("Scripting.FileSystemObject.OpenTextFile"),
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.OpenTextFile",
+                        text_stream,
+                    ),
                     JsString::from("OpenTextFile"),
                     1,
                 )
                 .function(
-                    make_fn("Scripting.FileSystemObject.OpenTextFile"),
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.OpenTextFile",
+                        text_stream_lower,
+                    ),
                     JsString::from("openTextFile"),
                     1,
                 )
                 .function(
-                    make_fn("Scripting.FileSystemObject.CreateTextFile"),
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.CreateTextFile",
+                        create_text_stream,
+                    ),
                     JsString::from("CreateTextFile"),
                     1,
                 )
                 .function(
-                    make_fn("Scripting.FileSystemObject.CreateTextFile"),
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.CreateTextFile",
+                        create_text_stream_lower,
+                    ),
                     JsString::from("createTextFile"),
                     1,
                 )
@@ -1532,7 +1552,11 @@ mod sandbox_impl {
                     JsString::from("getFile"),
                     1,
                 )
-                .property(JsString::from("TextStream"), text_stream, Attribute::all())
+                .property(
+                    JsString::from("TextStream"),
+                    text_stream_property,
+                    Attribute::all(),
+                )
                 .build()
         }
 

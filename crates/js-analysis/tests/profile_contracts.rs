@@ -139,7 +139,9 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
         if (typeof fso.OpenTextFile !== 'function') throw new Error('Scripting.FileSystemObject.OpenTextFile');
         if (typeof fso.GetFile !== 'function') throw new Error('Scripting.FileSystemObject.GetFile');
         if (typeof fso.deleteFile !== 'function') throw new Error('Scripting.FileSystemObject.deleteFile');
-        fso.OpenTextFile('C:\\\\temp\\\\x.txt');
+        var opened = fso.OpenTextFile('C:\\\\temp\\\\x.txt');
+        if (typeof opened.Write !== 'function') throw new Error('Scripting.FileSystemObject.OpenTextFile.Write');
+        opened.Write('abc');
         var file = fso.GetFile('C:\\\\temp\\\\x.txt');
         if (typeof file.OpenAsTextStream !== 'function') throw new Error('Scripting.File.OpenAsTextStream');
         file.OpenAsTextStream(1);
@@ -158,6 +160,7 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
     assert!(signals.calls.iter().any(|call| call == "WScript.Echo"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Sleep"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.OpenTextFile"));
+    assert!(signals.calls.iter().any(|call| call == "TextStream.Write"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.GetFile"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.DeleteFile"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.File.OpenAsTextStream"));

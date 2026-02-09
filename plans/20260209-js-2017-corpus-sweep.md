@@ -710,3 +710,29 @@ Residual issues are now concentrated in:
 
 3. **Timeout mitigation for the 20170320 sample**
    - Capture early-phase telemetry signature and add a profile-specific fast-path (or phase budget split) to reduce `open` phase timeout likelihood without relaxing global limits.
+
+## Ninth sweep follow-up (null-conversion fix)
+
+### Change applied
+
+Implemented deterministic stream-return contract for `Scripting.FileSystemObject.OpenTextFile` / `CreateTextFile` so follow-up method calls (e.g. `.Write`, `.Close`) do not dereference `undefined`.
+
+### Re-run outcome on same 10-sample set
+
+- Executed: `9/10`
+- Timeout: `1/10`
+- Skipped: `0/10`
+- Executed with errors: `1/9` (improved from `2/9`)
+
+Error class breakdown after fix:
+
+- `not a callable function`: `0`
+- `cannot convert 'null' or 'undefined' to object`: `0` (resolved)
+- `Maximum loop iteration limit 20000 exceeded`: `1`
+
+### Interpretation
+
+Null-conversion breakpoints are eliminated for this tracked set. Remaining blockers are now:
+
+1. downloader loop-limit path (`20170412_5a0493...`)
+2. persistent timeout path (`20170320_318f0937...`)
