@@ -55,6 +55,7 @@ struct SandboxEvalReport {
     asset_type: String,
     status: String,
     timeout_ms: Option<u128>,
+    timeout_context: Option<SandboxTimeoutContextReport>,
     skip_reason: Option<String>,
     skip_limit: Option<usize>,
     skip_actual: Option<usize>,
@@ -62,19 +63,68 @@ struct SandboxEvalReport {
 }
 
 #[derive(Serialize)]
+struct SandboxTimeoutContextReport {
+    runtime_profile: String,
+    phase: Option<String>,
+    elapsed_ms: Option<u128>,
+    budget_ratio: Option<f64>,
+}
+
+#[derive(Serialize)]
 struct SandboxSignalsReport {
+    replay_id: String,
+    runtime_profile: String,
     errors: Vec<String>,
     calls: Vec<String>,
     call_args: Vec<String>,
     urls: Vec<String>,
     domains: Vec<String>,
     prop_reads: Vec<String>,
+    prop_writes: Vec<String>,
+    prop_deletes: Vec<String>,
+    reflection_probes: Vec<String>,
+    dynamic_code_calls: Vec<String>,
     call_count: usize,
     unique_calls: usize,
     unique_prop_reads: usize,
     elapsed_ms: Option<u128>,
+    truncation: SandboxTruncationSummaryReport,
+    phases: Vec<SandboxPhaseSummaryReport>,
+    delta_summary: Option<SandboxDeltaSummaryReport>,
     execution_stats: SandboxExecutionStats,
     behavioral_patterns: Vec<SandboxBehaviorPattern>,
+}
+
+#[derive(Serialize)]
+struct SandboxTruncationSummaryReport {
+    calls_dropped: usize,
+    call_args_dropped: usize,
+    prop_reads_dropped: usize,
+    errors_dropped: usize,
+    urls_dropped: usize,
+    domains_dropped: usize,
+}
+
+#[derive(Serialize)]
+struct SandboxPhaseSummaryReport {
+    phase: String,
+    call_count: usize,
+    prop_read_count: usize,
+    error_count: usize,
+    elapsed_ms: u128,
+}
+
+#[derive(Serialize)]
+struct SandboxDeltaSummaryReport {
+    phase: String,
+    trigger_calls: Vec<String>,
+    generated_snippets: usize,
+    added_identifier_count: usize,
+    added_string_literal_count: usize,
+    added_call_count: usize,
+    new_identifiers: Vec<String>,
+    new_string_literals: Vec<String>,
+    new_calls: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -85,6 +135,11 @@ struct SandboxExecutionStats {
     error_recoveries: usize,
     successful_recoveries: usize,
     execution_depth: usize,
+    loop_iteration_limit_hits: usize,
+    adaptive_loop_iteration_limit: usize,
+    adaptive_loop_profile: String,
+    downloader_scheduler_hardening: bool,
+    probe_loop_short_circuit_hits: usize,
 }
 
 #[derive(Serialize)]
@@ -1167,20 +1222,57 @@ fn run_sandbox_eval(
             asset_type: asset_type.to_string(),
             status: "executed".to_string(),
             timeout_ms: None,
+            timeout_context: None,
             skip_reason: None,
             skip_limit: None,
             skip_actual: None,
             signals: Some(SandboxSignalsReport {
+                replay_id: signals.replay_id,
+                runtime_profile: signals.runtime_profile,
                 errors: signals.errors,
                 calls: signals.calls,
                 call_args: signals.call_args,
                 urls: signals.urls,
                 domains: signals.domains,
                 prop_reads: signals.prop_reads,
+                prop_writes: signals.prop_writes,
+                prop_deletes: signals.prop_deletes,
+                reflection_probes: signals.reflection_probes,
+                dynamic_code_calls: signals.dynamic_code_calls,
                 call_count: signals.call_count,
                 unique_calls: signals.unique_calls,
                 unique_prop_reads: signals.unique_prop_reads,
                 elapsed_ms: signals.elapsed_ms,
+                truncation: SandboxTruncationSummaryReport {
+                    calls_dropped: signals.truncation.calls_dropped,
+                    call_args_dropped: signals.truncation.call_args_dropped,
+                    prop_reads_dropped: signals.truncation.prop_reads_dropped,
+                    errors_dropped: signals.truncation.errors_dropped,
+                    urls_dropped: signals.truncation.urls_dropped,
+                    domains_dropped: signals.truncation.domains_dropped,
+                },
+                phases: signals
+                    .phases
+                    .into_iter()
+                    .map(|phase| SandboxPhaseSummaryReport {
+                        phase: phase.phase,
+                        call_count: phase.call_count,
+                        prop_read_count: phase.prop_read_count,
+                        error_count: phase.error_count,
+                        elapsed_ms: phase.elapsed_ms,
+                    })
+                    .collect(),
+                delta_summary: signals.delta_summary.map(|delta| SandboxDeltaSummaryReport {
+                    phase: delta.phase,
+                    trigger_calls: delta.trigger_calls,
+                    generated_snippets: delta.generated_snippets,
+                    added_identifier_count: delta.added_identifier_count,
+                    added_string_literal_count: delta.added_string_literal_count,
+                    added_call_count: delta.added_call_count,
+                    new_identifiers: delta.new_identifiers,
+                    new_string_literals: delta.new_string_literals,
+                    new_calls: delta.new_calls,
+                }),
                 execution_stats: SandboxExecutionStats {
                     total_function_calls: signals.execution_stats.total_function_calls,
                     unique_function_calls: signals.execution_stats.unique_function_calls,
@@ -1188,6 +1280,17 @@ fn run_sandbox_eval(
                     error_recoveries: signals.execution_stats.error_recoveries,
                     successful_recoveries: signals.execution_stats.successful_recoveries,
                     execution_depth: signals.execution_stats.execution_depth,
+                    loop_iteration_limit_hits: signals.execution_stats.loop_iteration_limit_hits,
+                    adaptive_loop_iteration_limit: signals
+                        .execution_stats
+                        .adaptive_loop_iteration_limit,
+                    adaptive_loop_profile: signals.execution_stats.adaptive_loop_profile,
+                    downloader_scheduler_hardening: signals
+                        .execution_stats
+                        .downloader_scheduler_hardening,
+                    probe_loop_short_circuit_hits: signals
+                        .execution_stats
+                        .probe_loop_short_circuit_hits,
                 },
                 behavioral_patterns: signals
                     .behavioral_patterns
@@ -1205,11 +1308,17 @@ fn run_sandbox_eval(
                     .collect(),
             }),
         },
-        DynamicOutcome::TimedOut { timeout_ms } => SandboxEvalReport {
+        DynamicOutcome::TimedOut { timeout_ms, context } => SandboxEvalReport {
             path: path.display().to_string(),
             asset_type: asset_type.to_string(),
             status: "timeout".to_string(),
             timeout_ms: Some(timeout_ms),
+            timeout_context: Some(SandboxTimeoutContextReport {
+                runtime_profile: context.runtime_profile,
+                phase: context.phase,
+                elapsed_ms: context.elapsed_ms,
+                budget_ratio: context.budget_ratio,
+            }),
             skip_reason: None,
             skip_limit: None,
             skip_actual: None,
@@ -1220,6 +1329,7 @@ fn run_sandbox_eval(
             asset_type: asset_type.to_string(),
             status: "skipped".to_string(),
             timeout_ms: None,
+            timeout_context: None,
             skip_reason: Some(reason),
             skip_limit: Some(limit),
             skip_actual: Some(actual),
@@ -4008,11 +4118,23 @@ fn run_scan_batch(
         let duration_ms = start.elapsed().as_millis() as u64;
         let detection_duration_ms = report.detection_duration_ms;
         let summary = report.summary;
+        let js_emulation_breakpoint_buckets =
+            sis_pdf_core::report::js_emulation_breakpoint_bucket_counts(&report.findings);
+        let js_script_timeout_findings =
+            sis_pdf_core::report::js_script_timeout_finding_count(&report.findings);
+        let js_loop_iteration_limit_hits =
+            sis_pdf_core::report::js_loop_iteration_limit_hit_count(&report.findings);
+        let js_runtime_error_findings =
+            sis_pdf_core::report::js_runtime_error_finding_count(&report.findings);
         Ok(sis_pdf_core::report::BatchEntry {
             path: path_str,
             duration_ms,
             summary,
             detection_duration_ms,
+            js_emulation_breakpoint_buckets,
+            js_script_timeout_findings,
+            js_loop_iteration_limit_hits,
+            js_runtime_error_findings,
         })
     };
     let mut entries: Vec<(usize, sis_pdf_core::report::BatchEntry)> = if use_parallel {
@@ -4159,6 +4281,15 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     if let Some(value) = finding.meta.get("js.runtime.calls") {
         println!("Runtime calls: {}", escape_terminal(value));
     }
+    if let Some(value) = finding.meta.get("js.runtime.replay_id") {
+        println!("Runtime replay ID: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.ordering") {
+        println!("Runtime ordering: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile") {
+        println!("Runtime profile: {}", escape_terminal(value));
+    }
     if let Some(value) = finding.meta.get("js.runtime.call_args") {
         println!("Runtime call args: {}", escape_terminal(value));
     }
@@ -4171,6 +4302,18 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     if let Some(value) = finding.meta.get("js.runtime.prop_reads") {
         println!("Runtime property reads: {}", escape_terminal(value));
     }
+    if let Some(value) = finding.meta.get("js.runtime.prop_writes") {
+        println!("Runtime property writes: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.prop_deletes") {
+        println!("Runtime property deletes: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.reflection_probes") {
+        println!("Runtime reflection probes: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.dynamic_code_calls") {
+        println!("Runtime dynamic code calls: {}", escape_terminal(value));
+    }
     if let Some(value) = finding.meta.get("js.runtime.errors") {
         println!("Runtime errors: {}", escape_terminal(value));
     }
@@ -4182,6 +4325,111 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     }
     if let Some(value) = finding.meta.get("js.runtime.unique_prop_reads") {
         println!("Runtime unique property reads: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.phase_order") {
+        println!("Runtime phase order: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.phase_count") {
+        println!("Runtime phase count: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.phase_summaries") {
+        println!("Runtime phase summaries: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_count") {
+        println!("Runtime profile count: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_executed_count") {
+        println!("Runtime profile executed: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_divergence") {
+        println!("Runtime profile divergence: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.script_timeout_profiles") {
+        println!("Runtime timeout profiles: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_profile") {
+        println!("Runtime timeout profile: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_phase") {
+        println!("Runtime timeout phase: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_elapsed_ms") {
+        println!("Runtime timeout elapsed (ms): {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_budget_ratio") {
+        println!("Runtime timeout budget ratio: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_contexts") {
+        println!("Runtime timeout contexts: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.script_timeout_ratio") {
+        println!("Runtime timeout ratio: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.loop_iteration_limit_hits") {
+        println!("Runtime loop iteration limit hits: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_status") {
+        println!("Runtime profile status: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_consistency_signal") {
+        println!("Runtime consistency signal: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_consistency_ratio") {
+        println!("Runtime consistency ratio: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_severity_adjusted") {
+        println!("Runtime severity adjusted: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_confidence_adjusted") {
+        println!("Runtime confidence adjusted: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.timeout_confidence_adjusted") {
+        println!("Runtime timeout confidence adjusted: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.calls_dropped") {
+        println!("Runtime calls dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.call_args_dropped") {
+        println!("Runtime call args dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.prop_reads_dropped") {
+        println!("Runtime property reads dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.errors_dropped") {
+        println!("Runtime errors dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.urls_dropped") {
+        println!("Runtime URLs dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.domains_dropped") {
+        println!("Runtime domains dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.phase") {
+        println!("Runtime delta phase: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.trigger_calls") {
+        println!("Runtime delta trigger calls: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.generated_snippets") {
+        println!("Runtime generated snippets: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.added_identifier_count") {
+        println!("Runtime delta added identifiers: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.added_string_literal_count") {
+        println!("Runtime delta added string literals: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.added_call_count") {
+        println!("Runtime delta added calls: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.new_identifiers") {
+        println!("Runtime delta new identifiers: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.new_string_literals") {
+        println!("Runtime delta new string literals: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.new_calls") {
+        println!("Runtime delta new calls: {}", escape_terminal(value));
     }
     print_finding_context_hints(&finding.meta);
     println!();

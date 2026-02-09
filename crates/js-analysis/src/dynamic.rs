@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::types::{DynamicOptions, DynamicOutcome};
+use crate::types::{DynamicOptions, DynamicOutcome, RuntimeKind, RuntimePhase};
 
 #[cfg(feature = "js-sandbox")]
 mod sandbox_impl {
@@ -10,6 +10,7 @@ mod sandbox_impl {
     use std::collections::BTreeSet;
     use std::rc::Rc;
     use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use boa_engine::object::builtins::JsFunction;
@@ -23,24 +24,58 @@ mod sandbox_impl {
     const CREATOR_PAYLOAD: &str = "z61z70z70z2Ez61z6Cz65z72z74z28z27z68z69z27z29";
     const SUBJECT_PAYLOAD: &str = "Hueputol61Hueputol70Hueputol70Hueputol2EHueputol61Hueputol6CHueputol65Hueputol72Hueputol74Hueputol28Hueputol27Hueputol68Hueputol69Hueputol27Hueputol29";
     const TITLE_PAYLOAD: &str = "%61%6c%65%72%74%28%27%68%69%27%29";
+    const MAX_RECORDED_CALLS: usize = 2_048;
+    const MAX_RECORDED_PROP_READS: usize = 4_096;
+    const MAX_RECORDED_ERRORS: usize = 256;
+    const BASE_LOOP_ITERATION_LIMIT: u64 = 10_000;
+    const DOWNLOADER_LOOP_ITERATION_LIMIT: u64 = 20_000;
+    const HOST_PROBE_LOOP_ITERATION_LIMIT: u64 = 40_000;
+    const SENTINEL_SPIN_LOOP_ITERATION_LIMIT: u64 = 60_000;
+    const BUSY_WAIT_LOOP_ITERATION_LIMIT: u64 = 80_000;
+    const PROBE_EXISTS_TRUE_AFTER: usize = 24;
 
     #[derive(Default, Clone)]
     struct SandboxLog {
+        replay_id: String,
+        runtime_profile: String,
         calls: Vec<String>,
         call_args: Vec<String>,
         urls: Vec<String>,
         domains: Vec<String>,
         errors: Vec<String>,
         prop_reads: Vec<String>,
+        prop_writes: Vec<String>,
+        prop_deletes: Vec<String>,
+        reflection_probes: Vec<String>,
+        dynamic_code_calls: Vec<String>,
         call_count: usize,
         unique_calls: BTreeSet<String>,
+        call_counts_by_name: std::collections::HashMap<String, usize>,
         unique_prop_reads: BTreeSet<String>,
         elapsed_ms: Option<u128>,
+        current_phase: String,
+        phase_sequence: Vec<String>,
+        phase_call_counts: std::collections::BTreeMap<String, usize>,
+        phase_prop_read_counts: std::collections::BTreeMap<String, usize>,
+        phase_error_counts: std::collections::BTreeMap<String, usize>,
+        phase_elapsed_ms: std::collections::BTreeMap<String, u128>,
+        phase_dynamic_code_calls: std::collections::BTreeMap<String, BTreeSet<String>>,
+        calls_dropped: usize,
+        call_args_dropped: usize,
+        prop_reads_dropped: usize,
+        errors_dropped: usize,
+        urls_dropped: usize,
+        domains_dropped: usize,
+        delta_summary: Option<SnapshotDeltaSummary>,
         options: DynamicOptions,
         variable_events: Vec<VariableEvent>,
         scope_transitions: Vec<ScopeTransition>,
         execution_flow: ExecutionFlow,
         behavioral_patterns: Vec<BehaviorObservation>,
+        adaptive_loop_iteration_limit: usize,
+        adaptive_loop_profile: String,
+        downloader_scheduler_hardening: bool,
+        probe_loop_short_circuit_hits: usize,
     }
 
     #[derive(Debug, Clone)]
@@ -149,6 +184,18 @@ mod sandbox_impl {
         empty_trace!();
     }
 
+    #[derive(Finalize)]
+    struct LogObjectCapture {
+        log: Rc<RefCell<SandboxLog>>,
+        object: JsObject,
+    }
+
+    unsafe impl Trace for LogObjectCapture {
+        custom_trace!(this, mark, {
+            mark(&this.object);
+        });
+    }
+
     #[derive(Debug, Clone)]
     struct VariableAccess {
         variable: String,
@@ -213,6 +260,26 @@ mod sandbox_impl {
         Medium,
         High,
         Critical,
+    }
+
+    #[derive(Debug, Clone, Default)]
+    struct JsSnapshot {
+        identifiers: BTreeSet<String>,
+        string_literals: BTreeSet<String>,
+        calls: BTreeSet<String>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct SnapshotDeltaSummary {
+        phase: String,
+        trigger_calls: Vec<String>,
+        generated_snippets: usize,
+        added_identifier_count: usize,
+        added_string_literal_count: usize,
+        added_call_count: usize,
+        new_identifiers: Vec<String>,
+        new_string_literals: Vec<String>,
+        new_calls: Vec<String>,
     }
 
     struct BehaviorAnalyzer {
@@ -529,59 +596,145 @@ mod sandbox_impl {
         let opts = options.clone();
         let bytes = bytes.to_vec();
         let (tx, rx) = mpsc::channel();
+        let timeout_context = Arc::new(Mutex::new(crate::types::TimeoutContext {
+            runtime_profile: opts.runtime_profile.id(),
+            phase: None,
+            elapsed_ms: None,
+            budget_ratio: None,
+        }));
+        let timeout_context_thread = Arc::clone(&timeout_context);
         std::thread::spawn(move || {
             let mut initial_log = SandboxLog { options: opts, ..SandboxLog::default() };
+            initial_log.runtime_profile = initial_log.options.runtime_profile.id();
+            initial_log.replay_id = compute_replay_id(&bytes, &initial_log.options);
+            let phase_timeout_ms = initial_log.options.phase_timeout_ms;
+            let timeout_budget_ms = initial_log.options.timeout_ms;
+            let phase_plan = phase_order(&initial_log.options);
             // Initialize execution flow tracking
             initial_log.execution_flow.start_time = Some(std::time::Instant::now());
             let log = Rc::new(RefCell::new(initial_log));
             let scope = Rc::new(RefCell::new(DynamicScope::default()));
+            let normalised = normalise_js_source(&bytes);
             let mut context = Context::default();
             let mut limits = RuntimeLimits::default();
-            limits.set_loop_iteration_limit(10_000);
+            let (loop_iteration_limit, loop_profile, downloader_scheduler_hardening) =
+                select_loop_iteration_limit(&normalised);
+            {
+                let mut log_ref = log.borrow_mut();
+                log_ref.adaptive_loop_iteration_limit = loop_iteration_limit as usize;
+                log_ref.adaptive_loop_profile = loop_profile.to_string();
+                log_ref.downloader_scheduler_hardening = downloader_scheduler_hardening;
+            }
+            limits.set_loop_iteration_limit(loop_iteration_limit);
             limits.set_recursion_limit(64);
             limits.set_stack_size_limit(512 * 1024);
             context.set_runtime_limits(limits);
-            let doc = register_doc_stub(&mut context, log.clone());
-            register_app(&mut context, log.clone(), Some(doc.clone()));
-            register_util(&mut context, log.clone());
-            register_collab(&mut context, log.clone());
-            register_soap(&mut context, log.clone());
-            register_net(&mut context, log.clone());
-            register_browser_like(&mut context, log.clone());
-            register_windows_scripting(&mut context, log.clone());
-            register_windows_com(&mut context, log.clone());
-            register_windows_wmi(&mut context, log.clone());
-            register_node_like(&mut context, log.clone());
-            let _ = doc;
+            register_profiled_stubs(&mut context, log.clone());
             register_doc_globals(&mut context, log.clone()); // Enable unescape and other globals
             register_pdf_event_context(&mut context, log.clone(), scope.clone()); // Add event object simulation
             register_enhanced_doc_globals(&mut context, log.clone(), scope.clone());
             register_enhanced_eval_v2(&mut context, log.clone(), scope.clone());
             register_enhanced_global_fallback(&mut context, log.clone(), scope.clone());
 
-            let normalised = normalise_js_source(&bytes);
-            let source = Source::from_bytes(&normalised);
-            let eval_start = Instant::now();
-            let eval_res = context.eval(source);
-            let elapsed = eval_start.elapsed().as_millis();
-            let mut eval_error = None;
-            if let Err(err) = eval_res {
-                let code = String::from_utf8_lossy(&normalised).to_string();
-                let recovered =
-                    attempt_error_recovery(&mut context, &err, &code, &scope, &log).is_some();
-                if !recovered {
-                    eval_error = Some(err);
+            let baseline_source = String::from_utf8_lossy(&normalised).to_string();
+            let baseline_snapshot = snapshot_source(&baseline_source);
+            let mut total_elapsed = 0u128;
+            for phase in phase_plan {
+                let phase_name = phase.as_str().to_string();
+                if let Ok(mut context_ref) = timeout_context_thread.lock() {
+                    context_ref.phase = Some(phase_name.clone());
+                }
+                set_phase(&log, &phase_name);
+                let phase_bytes = match phase_script_for(phase) {
+                    Some(script) => script.as_bytes().to_vec(),
+                    None => normalised.clone(),
+                };
+                let phase_code = String::from_utf8_lossy(&phase_bytes).to_string();
+                let source = Source::from_bytes(&phase_bytes);
+                let eval_start = Instant::now();
+                let eval_res = context.eval(source);
+                let elapsed = eval_start.elapsed().as_millis();
+                total_elapsed += elapsed;
+                if let Ok(mut context_ref) = timeout_context_thread.lock() {
+                    context_ref.elapsed_ms = Some(total_elapsed);
+                    if timeout_budget_ms > 0 {
+                        let ratio = total_elapsed as f64 / timeout_budget_ms as f64;
+                        context_ref.budget_ratio = Some(ratio.min(1.0));
+                    }
+                }
+                {
+                    let mut log_ref = log.borrow_mut();
+                    log_ref.phase_elapsed_ms.insert(phase_name.clone(), elapsed);
+                }
+                if elapsed > phase_timeout_ms {
+                    let mut log_ref = log.borrow_mut();
+                    let message = format!(
+                        "phase timeout exceeded: phase={} limit_ms={} observed_ms={}",
+                        phase_name, phase_timeout_ms, elapsed
+                    );
+                    if log_ref.errors.len() < MAX_RECORDED_ERRORS {
+                        log_ref.errors.push(message);
+                    } else {
+                        log_ref.errors_dropped += 1;
+                    }
+                    *log_ref.phase_error_counts.entry(phase_name.clone()).or_insert(0) += 1;
+                }
+                if let Err(err) = eval_res {
+                    let recovered =
+                        attempt_error_recovery(&mut context, &err, &phase_code, &scope, &log)
+                            .is_some();
+                    let error_text = format!("{:?}", err);
+                    let suppress_runtime_limit = {
+                        let log_ref = log.borrow();
+                        should_suppress_runtime_limit(&log_ref, &error_text)
+                    };
+                    if !recovered && !suppress_runtime_limit {
+                        let mut log_ref = log.borrow_mut();
+                        if log_ref.errors.len() < MAX_RECORDED_ERRORS {
+                            log_ref.errors.push(error_text);
+                        } else {
+                            log_ref.errors_dropped += 1;
+                        }
+                        *log_ref.phase_error_counts.entry(phase_name).or_insert(0) += 1;
+                    } else if suppress_runtime_limit {
+                        let mut log_ref = log.borrow_mut();
+                        log_ref.probe_loop_short_circuit_hits += 1;
+                    }
                 }
             }
             {
                 let mut log_ref = log.borrow_mut();
-                log_ref.elapsed_ms = Some(elapsed);
-                if let Some(err) = eval_error {
-                    log_ref.errors.push(format!("{:?}", err));
-                }
+                log_ref.elapsed_ms = Some(total_elapsed);
 
                 // Run behavioral pattern analysis
                 run_behavioral_analysis(&mut log_ref);
+
+                let trigger_calls = dedupe_strings(log_ref.dynamic_code_calls.clone());
+                let trigger_phase = log_ref
+                    .phase_dynamic_code_calls
+                    .iter()
+                    .find(|(_, calls)| !calls.is_empty())
+                    .map(|(phase, _)| phase.clone())
+                    .unwrap_or_else(|| "open".to_string());
+                let dynamic_snippets = extract_dynamic_snippets(&log_ref.call_args);
+                let generated_snippets = dynamic_snippets.len();
+                let augmented_source = if dynamic_snippets.is_empty() {
+                    baseline_source.clone()
+                } else {
+                    let mut augmented = baseline_source.clone();
+                    for snippet in &dynamic_snippets {
+                        augmented.push('\n');
+                        augmented.push_str(snippet);
+                    }
+                    augmented
+                };
+                log_ref.delta_summary = compute_snapshot_delta(
+                    &baseline_snapshot,
+                    &augmented_source,
+                    trigger_phase,
+                    trigger_calls,
+                    generated_snippets,
+                );
             }
             let out = log.borrow().clone();
             let _ = tx.send(out);
@@ -589,16 +742,44 @@ mod sandbox_impl {
 
         match rx.recv_timeout(Duration::from_millis(options.timeout_ms as u64)) {
             Ok(log) => DynamicOutcome::Executed(Box::new(DynamicSignals {
+                replay_id: log.replay_id.clone(),
+                runtime_profile: log.runtime_profile.clone(),
                 calls: log.calls.clone(),
                 call_args: log.call_args.clone(),
                 urls: log.urls.clone(),
                 domains: log.domains.clone(),
                 errors: log.errors.clone(),
                 prop_reads: log.prop_reads.clone(),
+                prop_writes: dedupe_sorted(log.prop_writes.clone()),
+                prop_deletes: dedupe_sorted(log.prop_deletes.clone()),
+                reflection_probes: dedupe_sorted(log.reflection_probes.clone()),
+                dynamic_code_calls: dedupe_sorted(log.dynamic_code_calls.clone()),
                 call_count: log.call_count,
                 unique_calls: log.unique_calls.len(),
                 unique_prop_reads: log.unique_prop_reads.len(),
                 elapsed_ms: log.elapsed_ms,
+                truncation: crate::types::DynamicTruncationSummary {
+                    calls_dropped: log.calls_dropped,
+                    call_args_dropped: log.call_args_dropped,
+                    prop_reads_dropped: log.prop_reads_dropped,
+                    errors_dropped: log.errors_dropped,
+                    urls_dropped: log.urls_dropped,
+                    domains_dropped: log.domains_dropped,
+                },
+                phases: render_phase_summaries(&log),
+                delta_summary: log.delta_summary.as_ref().map(|delta| {
+                    crate::types::DynamicDeltaSummary {
+                        phase: delta.phase.clone(),
+                        trigger_calls: delta.trigger_calls.clone(),
+                        generated_snippets: delta.generated_snippets,
+                        added_identifier_count: delta.added_identifier_count,
+                        added_string_literal_count: delta.added_string_literal_count,
+                        added_call_count: delta.added_call_count,
+                        new_identifiers: delta.new_identifiers.clone(),
+                        new_string_literals: delta.new_string_literals.clone(),
+                        new_calls: delta.new_calls.clone(),
+                    }
+                }),
                 behavioral_patterns: log
                     .behavioral_patterns
                     .iter()
@@ -632,12 +813,35 @@ mod sandbox_impl {
                         .map(|call| call.call_depth)
                         .max()
                         .unwrap_or(0),
+                    loop_iteration_limit_hits: loop_iteration_limit_hits(&log.errors),
+                    adaptive_loop_iteration_limit: log.adaptive_loop_iteration_limit,
+                    adaptive_loop_profile: log.adaptive_loop_profile.clone(),
+                    downloader_scheduler_hardening: log.downloader_scheduler_hardening,
+                    probe_loop_short_circuit_hits: log.probe_loop_short_circuit_hits,
                 },
             })),
             Err(RecvTimeoutError::Timeout) => {
-                DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms }
+                let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
+                    crate::types::TimeoutContext {
+                        runtime_profile: options.runtime_profile.id(),
+                        phase: None,
+                        elapsed_ms: None,
+                        budget_ratio: Some(1.0),
+                    },
+                );
+                DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
             }
-            Err(_) => DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms },
+            Err(_) => {
+                let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
+                    crate::types::TimeoutContext {
+                        runtime_profile: options.runtime_profile.id(),
+                        phase: None,
+                        elapsed_ms: None,
+                        budget_ratio: Some(1.0),
+                    },
+                );
+                DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
+            }
         }
     }
 
@@ -974,8 +1178,11 @@ mod sandbox_impl {
         let beacon = ObjectInitializer::new(context)
             .function(make_fn("navigator.sendBeacon"), JsString::from("sendBeacon"), 2)
             .build();
-        let _ =
-            context.register_global_property(JsString::from("navigator"), beacon, Attribute::all());
+        let _ = context.register_global_property(
+            JsString::from("navigator"),
+            beacon.clone(),
+            Attribute::all(),
+        );
         let storage = ObjectInitializer::new(context)
             .function(make_fn("localStorage.getItem"), JsString::from("getItem"), 1)
             .function(make_fn("localStorage.setItem"), JsString::from("setItem"), 2)
@@ -987,43 +1194,629 @@ mod sandbox_impl {
         );
         let _ = context.register_global_property(
             JsString::from("sessionStorage"),
-            storage,
+            storage.clone(),
             Attribute::all(),
         );
         let doc = ObjectInitializer::new(context)
             .function(make_fn("document.cookie"), JsString::from("cookie"), 0)
             .function(make_fn("document.location"), JsString::from("location"), 0)
             .build();
-        let _ = context.register_global_property(JsString::from("document"), doc, Attribute::all());
+        let _ = context.register_global_property(
+            JsString::from("document"),
+            doc.clone(),
+            Attribute::all(),
+        );
+        let location = ObjectInitializer::new(context)
+            .property(
+                JsString::from("href"),
+                JsValue::from(JsString::from("https://example.test/")),
+                Attribute::all(),
+            )
+            .function(make_fn("window.location.assign"), JsString::from("assign"), 1)
+            .function(make_fn("window.location.replace"), JsString::from("replace"), 1)
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("location"),
+            location.clone(),
+            Attribute::all(),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("setTimeout"),
+            2,
+            make_native(log.clone(), "setTimeout"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("setInterval"),
+            2,
+            make_native(log.clone(), "setInterval"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("clearTimeout"),
+            1,
+            make_native(log.clone(), "clearTimeout"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("clearInterval"),
+            1,
+            make_native(log.clone(), "clearInterval"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("alert"),
+            1,
+            make_native(log.clone(), "alert"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("confirm"),
+            1,
+            make_native(log.clone(), "confirm"),
+        );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("prompt"),
+            2,
+            make_native(log.clone(), "prompt"),
+        );
+        let window = ObjectInitializer::new(context)
+            .property(JsString::from("document"), doc.clone(), Attribute::all())
+            .property(JsString::from("navigator"), beacon.clone(), Attribute::all())
+            .property(JsString::from("localStorage"), storage.clone(), Attribute::all())
+            .property(JsString::from("sessionStorage"), storage, Attribute::all())
+            .property(JsString::from("location"), location, Attribute::all())
+            .function(make_fn("window.addEventListener"), JsString::from("addEventListener"), 2)
+            .function(
+                make_fn("window.removeEventListener"),
+                JsString::from("removeEventListener"),
+                2,
+            )
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("window"),
+            window.clone(),
+            Attribute::all(),
+        );
+        let _ = context.register_global_property(
+            JsString::from("self"),
+            window.clone(),
+            Attribute::all(),
+        );
+        let _ = context.register_global_property(JsString::from("top"), window, Attribute::all());
     }
 
     fn register_windows_scripting(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        fn register_global_constructable_callable(
+            context: &mut Context,
+            name: &'static str,
+            length: usize,
+            function: NativeFunction,
+        ) {
+            let function = FunctionObjectBuilder::new(context.realm(), function)
+                .name(JsString::from(name))
+                .length(length)
+                .constructor(true)
+                .build();
+            let _ =
+                context.register_global_property(JsString::from(name), function, Attribute::all());
+        }
+
+        fn make_native_returning_object(
+            log: Rc<RefCell<SandboxLog>>,
+            name: &'static str,
+            object: JsObject,
+        ) -> NativeFunction {
+            unsafe {
+                NativeFunction::from_closure_with_captures(
+                    move |_this, args, captures, ctx| {
+                        record_call(&captures.log, name, args, ctx);
+                        Ok(JsValue::from(captures.object.clone()))
+                    },
+                    LogObjectCapture { log, object },
+                )
+            }
+        }
+
+        fn expand_windows_env_tokens(raw: &str) -> String {
+            let mut expanded = raw.to_string();
+            let replacements = [
+                ("%TEMP%", r"C:\Windows\Temp"),
+                ("%TMP%", r"C:\Windows\Temp"),
+                ("%APPDATA%", r"C:\Users\Public\AppData\Roaming"),
+                ("%WINDIR%", r"C:\Windows"),
+            ];
+            for (token, value) in replacements {
+                loop {
+                    let haystack = expanded.to_ascii_lowercase();
+                    let needle = token.to_ascii_lowercase();
+                    let Some(position) = haystack.find(&needle) else {
+                        break;
+                    };
+                    expanded.replace_range(position..position + token.len(), value);
+                }
+            }
+            expanded
+        }
+
+        fn make_native_expand_environment_strings(log: Rc<RefCell<SandboxLog>>) -> NativeFunction {
+            unsafe {
+                NativeFunction::from_closure_with_captures(
+                    move |_this, args, captures, ctx| {
+                        record_call(&captures.log, captures.name, args, ctx);
+                        let raw = args.get_or_undefined(0).to_string(ctx)?.to_std_string_escaped();
+                        let expanded = expand_windows_env_tokens(&raw);
+                        Ok(JsValue::from(JsString::from(expanded)))
+                    },
+                    LogNameCapture {
+                        log,
+                        name: "WScript.Shell.ExpandEnvironmentStrings",
+                    },
+                )
+            }
+        }
+
+        fn build_com_text_stream(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            ObjectInitializer::new(context)
+                .function(make_fn("TextStream.ReadAll"), JsString::from("ReadAll"), 0)
+                .function(make_fn("TextStream.ReadLine"), JsString::from("ReadLine"), 0)
+                .function(make_fn("TextStream.Write"), JsString::from("Write"), 1)
+                .function(make_fn("TextStream.WriteLine"), JsString::from("WriteLine"), 1)
+                .function(make_fn("TextStream.Close"), JsString::from("Close"), 0)
+                .build()
+        }
+
+        fn build_com_file_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            let text_stream = build_com_text_stream(context, log.clone());
+            ObjectInitializer::new(context)
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.File.OpenAsTextStream",
+                        text_stream,
+                    ),
+                    JsString::from("OpenAsTextStream"),
+                    1,
+                )
+                .function(make_fn("Scripting.File.Delete"), JsString::from("Delete"), 1)
+                .property(
+                    JsString::from("Path"),
+                    JsString::from(r"C:\Windows\Temp\payload.exe"),
+                    Attribute::all(),
+                )
+                .build()
+        }
+
+        fn build_fso_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            let text_stream = build_com_text_stream(context, log.clone());
+            let text_stream_lower = build_com_text_stream(context, log.clone());
+            let create_text_stream = build_com_text_stream(context, log.clone());
+            let create_text_stream_lower = build_com_text_stream(context, log.clone());
+            let text_stream_property = build_com_text_stream(context, log.clone());
+            let file_object = build_com_file_object(context, log.clone());
+            let file_object_lower = build_com_file_object(context, log.clone());
+            ObjectInitializer::new(context)
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.OpenTextFile",
+                        text_stream,
+                    ),
+                    JsString::from("OpenTextFile"),
+                    1,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.OpenTextFile",
+                        text_stream_lower,
+                    ),
+                    JsString::from("openTextFile"),
+                    1,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.CreateTextFile",
+                        create_text_stream,
+                    ),
+                    JsString::from("CreateTextFile"),
+                    1,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.CreateTextFile",
+                        create_text_stream_lower,
+                    ),
+                    JsString::from("createTextFile"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.GetSpecialFolder"),
+                    JsString::from("GetSpecialFolder"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.GetSpecialFolder"),
+                    JsString::from("getSpecialFolder"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.GetTempName"),
+                    JsString::from("GetTempName"),
+                    0,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.GetTempName"),
+                    JsString::from("getTempName"),
+                    0,
+                )
+                .function(
+                    make_native_probe_exists(
+                        log.clone(),
+                        "Scripting.FileSystemObject.FileExists",
+                        PROBE_EXISTS_TRUE_AFTER,
+                    ),
+                    JsString::from("FileExists"),
+                    1,
+                )
+                .function(
+                    make_native_probe_exists(
+                        log.clone(),
+                        "Scripting.FileSystemObject.FileExists",
+                        PROBE_EXISTS_TRUE_AFTER,
+                    ),
+                    JsString::from("fileExists"),
+                    1,
+                )
+                .function(
+                    make_native_probe_exists(
+                        log.clone(),
+                        "Scripting.FileSystemObject.FolderExists",
+                        PROBE_EXISTS_TRUE_AFTER,
+                    ),
+                    JsString::from("FolderExists"),
+                    1,
+                )
+                .function(
+                    make_native_probe_exists(
+                        log.clone(),
+                        "Scripting.FileSystemObject.FolderExists",
+                        PROBE_EXISTS_TRUE_AFTER,
+                    ),
+                    JsString::from("folderExists"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.CreateFolder"),
+                    JsString::from("CreateFolder"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.CreateFolder"),
+                    JsString::from("createFolder"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.DeleteFile"),
+                    JsString::from("DeleteFile"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.DeleteFile"),
+                    JsString::from("deleteFile"),
+                    1,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.CopyFile"),
+                    JsString::from("CopyFile"),
+                    2,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.CopyFile"),
+                    JsString::from("copyFile"),
+                    2,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.MoveFile"),
+                    JsString::from("MoveFile"),
+                    2,
+                )
+                .function(
+                    make_fn("Scripting.FileSystemObject.MoveFile"),
+                    JsString::from("moveFile"),
+                    2,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.GetFile",
+                        file_object,
+                    ),
+                    JsString::from("GetFile"),
+                    1,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.GetFile",
+                        file_object_lower,
+                    ),
+                    JsString::from("getFile"),
+                    1,
+                )
+                .property(
+                    JsString::from("TextStream"),
+                    text_stream_property,
+                    Attribute::all(),
+                )
+                .build()
+        }
+
+        fn build_wscript_shell_object(
+            context: &mut Context,
+            log: Rc<RefCell<SandboxLog>>,
+        ) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            ObjectInitializer::new(context)
+                .function(make_fn("WScript.Shell.Run"), JsString::from("Run"), 1)
+                .function(make_fn("WScript.Shell.Run"), JsString::from("run"), 1)
+                .function(make_fn("WScript.Shell.Exec"), JsString::from("Exec"), 1)
+                .function(make_fn("WScript.Shell.Exec"), JsString::from("exec"), 1)
+                .function(
+                    make_native_expand_environment_strings(log.clone()),
+                    JsString::from("ExpandEnvironmentStrings"),
+                    1,
+                )
+                .function(
+                    make_native_expand_environment_strings(log.clone()),
+                    JsString::from("expandEnvironmentStrings"),
+                    1,
+                )
+                .function(make_fn("WScript.Shell.RegRead"), JsString::from("RegRead"), 1)
+                .function(make_fn("WScript.Shell.RegRead"), JsString::from("regRead"), 1)
+                .function(make_fn("WScript.Shell.RegWrite"), JsString::from("RegWrite"), 2)
+                .function(make_fn("WScript.Shell.RegWrite"), JsString::from("regWrite"), 2)
+                .function(
+                    make_fn("WScript.Shell.SpecialFolders"),
+                    JsString::from("SpecialFolders"),
+                    1,
+                )
+                .function(
+                    make_fn("WScript.Shell.SpecialFolders"),
+                    JsString::from("specialFolders"),
+                    1,
+                )
+                .build()
+        }
+
+        fn build_shell_application_object(
+            context: &mut Context,
+            log: Rc<RefCell<SandboxLog>>,
+        ) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            let shell_item = ObjectInitializer::new(context)
+                .property(
+                    JsString::from("Path"),
+                    JsString::from(r"C:\Windows\Temp"),
+                    Attribute::all(),
+                )
+                .build();
+            let namespace = ObjectInitializer::new(context)
+                .property(JsString::from("Self"), shell_item, Attribute::all())
+                .property(JsString::from("Title"), JsString::from("Temp"), Attribute::all())
+                .build();
+            ObjectInitializer::new(context)
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Shell.Application.NameSpace",
+                        namespace.clone(),
+                    ),
+                    JsString::from("NameSpace"),
+                    1,
+                )
+                .function(
+                    make_fn("Shell.Application.ShellExecute"),
+                    JsString::from("ShellExecute"),
+                    1,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Shell.Application.BrowseForFolder",
+                        namespace,
+                    ),
+                    JsString::from("BrowseForFolder"),
+                    1,
+                )
+                .build()
+        }
+
+        fn build_xmlhttp_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            ObjectInitializer::new(context)
+                .function(make_fn("MSXML2.XMLHTTP.open"), JsString::from("open"), 2)
+                .function(make_fn("MSXML2.XMLHTTP.Open"), JsString::from("Open"), 2)
+                .function(make_fn("MSXML2.XMLHTTP.send"), JsString::from("send"), 1)
+                .function(make_fn("MSXML2.XMLHTTP.Send"), JsString::from("Send"), 1)
+                .function(
+                    make_fn("MSXML2.XMLHTTP.setRequestHeader"),
+                    JsString::from("setRequestHeader"),
+                    2,
+                )
+                .function(
+                    make_fn("MSXML2.XMLHTTP.SetRequestHeader"),
+                    JsString::from("SetRequestHeader"),
+                    2,
+                )
+                .function(
+                    make_fn("MSXML2.XMLHTTP.getResponseHeader"),
+                    JsString::from("getResponseHeader"),
+                    1,
+                )
+                .function(
+                    make_fn("MSXML2.XMLHTTP.GetResponseHeader"),
+                    JsString::from("GetResponseHeader"),
+                    1,
+                )
+                .build()
+        }
+
+        fn build_adodb_stream_object(
+            context: &mut Context,
+            log: Rc<RefCell<SandboxLog>>,
+        ) -> JsObject {
+            let make_fn = |name: &'static str| {
+                let log = log.clone();
+                make_native(log, name)
+            };
+            ObjectInitializer::new(context)
+                .function(make_fn("ADODB.Stream.Open"), JsString::from("Open"), 0)
+                .function(make_fn("ADODB.Stream.Open"), JsString::from("open"), 0)
+                .function(make_fn("ADODB.Stream.LoadFromFile"), JsString::from("LoadFromFile"), 1)
+                .function(
+                    make_fn("ADODB.Stream.LoadFromFile"),
+                    JsString::from("loadFromFile"),
+                    1,
+                )
+                .function(make_fn("ADODB.Stream.Write"), JsString::from("Write"), 1)
+                .function(make_fn("ADODB.Stream.Write"), JsString::from("write"), 1)
+                .function(make_fn("ADODB.Stream.Read"), JsString::from("Read"), 0)
+                .function(make_fn("ADODB.Stream.Read"), JsString::from("read"), 0)
+                .function(make_fn("ADODB.Stream.SaveToFile"), JsString::from("SaveToFile"), 1)
+                .function(
+                    make_fn("ADODB.Stream.SaveToFile"),
+                    JsString::from("saveToFile"),
+                    1,
+                )
+                .function(make_fn("ADODB.Stream.Close"), JsString::from("Close"), 0)
+                .function(make_fn("ADODB.Stream.Close"), JsString::from("close"), 0)
+                .build()
+        }
+
+        fn build_com_object_by_prog_id(
+            context: &mut Context,
+            log: Rc<RefCell<SandboxLog>>,
+            prog_id: &str,
+        ) -> JsObject {
+            let pid = prog_id.trim().to_ascii_lowercase();
+            match pid.as_str() {
+                "scripting.filesystemobject" => build_fso_object(context, log),
+                "wscript.shell" => build_wscript_shell_object(context, log),
+                "shell.application" => build_shell_application_object(context, log),
+                "msxml2.xmlhttp"
+                | "msxml2.xmlhttp.3.0"
+                | "msxml2.xmlhttp.6.0"
+                | "msxml2.serverxmlhttp"
+                | "winhttp.winhttprequest.5.1" => build_xmlhttp_object(context, log),
+                "adodb.stream" => build_adodb_stream_object(context, log),
+                _ => {
+                    let make_fn = |name: &'static str| {
+                        let log = log.clone();
+                        make_native(log, name)
+                    };
+                    ObjectInitializer::new(context)
+                        .function(make_fn("COM.Open"), JsString::from("Open"), 1)
+                        .function(make_fn("COM.Run"), JsString::from("Run"), 1)
+                        .function(make_fn("COM.Exec"), JsString::from("Exec"), 1)
+                        .function(make_fn("COM.Send"), JsString::from("Send"), 1)
+                        .function(make_fn("COM.Write"), JsString::from("Write"), 1)
+                        .function(make_fn("COM.Read"), JsString::from("Read"), 0)
+                        .function(make_fn("COM.Close"), JsString::from("Close"), 0)
+                        .build()
+                }
+            }
+        }
+
+        fn make_com_factory(
+            log: Rc<RefCell<SandboxLog>>,
+            api_name: &'static str,
+        ) -> NativeFunction {
+            unsafe {
+                NativeFunction::from_closure_with_captures(
+                    move |_this, args, captures, ctx| {
+                        record_call(&captures.log, api_name, args, ctx);
+                        let prog_id =
+                            args.get_or_undefined(0).to_string(ctx)?.to_std_string_escaped();
+                        let object =
+                            build_com_object_by_prog_id(ctx, captures.log.clone(), &prog_id);
+                        Ok(JsValue::from(object))
+                    },
+                    LogCapture { log },
+                )
+            }
+        }
+
         let make_fn = |name: &'static str| {
             let log = log.clone();
             make_native(log, name)
         };
-        let _ = context.register_global_builtin_callable(
-            JsString::from("ActiveXObject"),
+        register_global_constructable_callable(
+            context,
+            "ActiveXObject",
             1,
-            make_native(log.clone(), "ActiveXObject"),
+            make_com_factory(log.clone(), "ActiveXObject"),
         );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("print"),
+            1,
+            make_native(log.clone(), "print"),
+        );
+        let shell_object = build_wscript_shell_object(context, log.clone());
         let wscript = ObjectInitializer::new(context)
-            .function(make_fn("WScript.Shell"), JsString::from("Shell"), 0)
-            .function(make_fn("WScript.CreateObject"), JsString::from("CreateObject"), 1)
+            .function(
+                make_native_returning_object(log.clone(), "WScript.Shell", shell_object),
+                JsString::from("Shell"),
+                0,
+            )
+            .function(
+                make_com_factory(log.clone(), "WScript.CreateObject"),
+                JsString::from("CreateObject"),
+                1,
+            )
+            .function(make_fn("WScript.Echo"), JsString::from("Echo"), 1)
+            .function(make_fn("WScript.Echo"), JsString::from("echo"), 1)
+            .function(make_fn("WScript.Sleep"), JsString::from("Sleep"), 1)
+            .function(make_fn("WScript.Sleep"), JsString::from("sleep"), 1)
             .function(make_fn("WScript.RegRead"), JsString::from("RegRead"), 1)
             .function(make_fn("WScript.RegWrite"), JsString::from("RegWrite"), 2)
+            .property(
+                JsString::from("ScriptFullName"),
+                JsString::from(r"C:\Windows\Temp\stub.js"),
+                Attribute::all(),
+            )
             .build();
         let _ =
             context.register_global_property(JsString::from("WScript"), wscript, Attribute::all());
-        let _ = context.register_global_builtin_callable(
-            JsString::from("GetObject"),
+        register_global_constructable_callable(
+            context,
+            "GetObject",
             1,
-            make_native(log.clone(), "GetObject"),
+            make_com_factory(log.clone(), "GetObject"),
         );
-        let _ = context.register_global_builtin_callable(
-            JsString::from("CreateObject"),
+        register_global_constructable_callable(
+            context,
+            "CreateObject",
             1,
-            make_native(log, "CreateObject"),
+            make_com_factory(log, "CreateObject"),
         );
     }
 
@@ -1174,16 +1967,78 @@ mod sandbox_impl {
         let _ = context.register_global_property(JsString::from("winmgmts"), svc, Attribute::all());
     }
 
+    fn build_buffer_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+        let make_fn = |name: &'static str| {
+            let log = log.clone();
+            make_native(log, name)
+        };
+        ObjectInitializer::new(context)
+            .function(make_fn("Buffer.from"), JsString::from("from"), 1)
+            .function(make_fn("Buffer.alloc"), JsString::from("alloc"), 1)
+            .function(make_fn("Buffer.concat"), JsString::from("concat"), 1)
+            .function(make_fn("Buffer.byteLength"), JsString::from("byteLength"), 1)
+            .build()
+    }
+
+    fn register_buffer_stub(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        let buffer = build_buffer_object(context, log);
+        let _ =
+            context.register_global_property(JsString::from("Buffer"), buffer, Attribute::all());
+    }
+
+    fn register_require_stub(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        let require_fn = unsafe {
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "require", args, ctx);
+                    let module_name =
+                        args.get_or_undefined(0).to_string(ctx)?.to_std_string_escaped();
+                    let make_mod_fn = |name: &'static str| {
+                        let log = captures.log.clone();
+                        make_native(log, name)
+                    };
+                    let module = match module_name.as_str() {
+                        "fs" => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("fs.readFile"), JsString::from("readFile"), 1)
+                            .function(make_mod_fn("fs.writeFile"), JsString::from("writeFile"), 2)
+                            .build(),
+                        "path" => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("path.join"), JsString::from("join"), 2)
+                            .function(make_mod_fn("path.resolve"), JsString::from("resolve"), 2)
+                            .build(),
+                        "os" => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("os.platform"), JsString::from("platform"), 0)
+                            .function(make_mod_fn("os.homedir"), JsString::from("homedir"), 0)
+                            .build(),
+                        "http" => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("http.request"), JsString::from("request"), 1)
+                            .build(),
+                        "https" => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("https.request"), JsString::from("request"), 1)
+                            .build(),
+                        "buffer" => {
+                            let buffer_obj = build_buffer_object(ctx, captures.log.clone());
+                            ObjectInitializer::new(ctx)
+                                .property(JsString::from("Buffer"), buffer_obj, Attribute::all())
+                                .build()
+                        }
+                        _ => ObjectInitializer::new(ctx).build(),
+                    };
+                    Ok(JsValue::from(module))
+                },
+                LogCapture { log },
+            )
+        };
+        let _ = context.register_global_builtin_callable(JsString::from("require"), 1, require_fn);
+    }
+
     fn register_node_like(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
         let make_fn = |name: &'static str| {
             let log = log.clone();
             make_native(log, name)
         };
-        let _ = context.register_global_builtin_callable(
-            JsString::from("require"),
-            1,
-            make_native(log.clone(), "require"),
-        );
+        register_require_stub(context, log.clone());
+        register_buffer_stub(context, log.clone());
         let process = ObjectInitializer::new(context)
             .function(make_fn("process.exit"), JsString::from("exit"), 1)
             .build();
@@ -1203,6 +2058,27 @@ mod sandbox_impl {
             .function(make_fn("fs.writeFile"), JsString::from("writeFile"), 2)
             .build();
         let _ = context.register_global_property(JsString::from("fs"), fs, Attribute::all());
+        let exports_obj = ObjectInitializer::new(context).build();
+        let module = ObjectInitializer::new(context)
+            .property(JsString::from("exports"), exports_obj.clone(), Attribute::all())
+            .build();
+        let _ =
+            context.register_global_property(JsString::from("module"), module, Attribute::all());
+        let _ = context.register_global_property(
+            JsString::from("exports"),
+            exports_obj,
+            Attribute::all(),
+        );
+        let _ = context.register_global_property(
+            JsString::from("__filename"),
+            JsValue::from(JsString::from("/sandbox/input.js")),
+            Attribute::all(),
+        );
+        let _ = context.register_global_property(
+            JsString::from("__dirname"),
+            JsValue::from(JsString::from("/sandbox")),
+            Attribute::all(),
+        );
     }
 
     fn register_doc_globals(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
@@ -1652,7 +2528,7 @@ mod sandbox_impl {
     fn register_enhanced_doc_globals(
         context: &mut Context,
         log: Rc<RefCell<SandboxLog>>,
-        _scope: Rc<RefCell<DynamicScope>>,
+        scope: Rc<RefCell<DynamicScope>>,
     ) {
         let add =
             |ctx: &mut Context, name: &'static str, len: usize, log: Rc<RefCell<SandboxLog>>| {
@@ -1662,17 +2538,42 @@ mod sandbox_impl {
                     make_native(log, name),
                 );
             };
-        let add_callable =
-            |ctx: &mut Context, name: &'static str, len: usize, log: Rc<RefCell<SandboxLog>>| {
-                let _ =
-                    ctx.register_global_callable(JsString::from(name), len, make_native(log, name));
-            };
-
         // Standard JavaScript globals with enhanced tracking
         add(context, "setTimeout", 1, log.clone());
         add(context, "setInterval", 1, log.clone());
         add(context, "confirm", 1, log.clone());
-        add_callable(context, "Function", 1, log.clone());
+        let function_ctor = unsafe {
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, "Function", args, ctx);
+                    let body = args
+                        .last()
+                        .map(|value| value.to_string(ctx))
+                        .transpose()?
+                        .map(|value| value.to_std_string_escaped())
+                        .unwrap_or_default();
+                    let wrapped = format!("(function(){{{body}}})");
+                    let processed = preprocess_eval_code(&wrapped, &captures.scope);
+                    match execute_with_variable_promotion(
+                        ctx,
+                        &processed,
+                        &captures.scope,
+                        &captures.log,
+                    ) {
+                        Ok(result) => Ok(result),
+                        Err(error) => {
+                            let mut log_ref = captures.log.borrow_mut();
+                            log_ref
+                                .errors
+                                .push(format!("Function ctor error (recovered): {:?}", error));
+                            Ok(JsValue::undefined())
+                        }
+                    }
+                },
+                LogScopeCapture { log: log.clone(), scope: scope.clone() },
+            )
+        };
+        let _ = context.register_global_callable(JsString::from("Function"), 1, function_ctor);
 
         // Enhanced string functions
         register_enhanced_string_functions(context, log.clone());
@@ -1981,24 +2882,53 @@ mod sandbox_impl {
     fn normalise_js_source(bytes: &[u8]) -> Vec<u8> {
         if bytes.len() >= 2 {
             if bytes[0] == 0xFF && bytes[1] == 0xFE {
-                return decode_utf16(&bytes[2..], true).unwrap_or_else(|| bytes.to_vec());
+                let decoded = decode_utf16(&bytes[2..], true).unwrap_or_else(|| bytes.to_vec());
+                return apply_source_normalisation(decoded);
             }
             if bytes[0] == 0xFE && bytes[1] == 0xFF {
-                return decode_utf16(&bytes[2..], false).unwrap_or_else(|| bytes.to_vec());
+                let decoded = decode_utf16(&bytes[2..], false).unwrap_or_else(|| bytes.to_vec());
+                return apply_source_normalisation(decoded);
             }
         }
 
         let nul_count = bytes.iter().filter(|b| **b == 0).count();
         if nul_count > bytes.len() / 4 {
             if let Some(decoded) = decode_utf16(bytes, true) {
-                return decoded;
+                return apply_source_normalisation(decoded);
             }
         }
         if nul_count > 0 {
-            return bytes.iter().copied().filter(|b| *b != 0).collect();
+            let filtered: Vec<u8> = bytes.iter().copied().filter(|b| *b != 0).collect();
+            return apply_source_normalisation(filtered);
         }
 
-        bytes.to_vec()
+        apply_source_normalisation(bytes.to_vec())
+    }
+
+    fn apply_source_normalisation(bytes: Vec<u8>) -> Vec<u8> {
+        let source = String::from_utf8_lossy(&bytes).to_string();
+        normalise_busy_wait_loops(&source).into_bytes()
+    }
+
+    fn normalise_busy_wait_loops(source: &str) -> String {
+        let Ok(pattern) = regex::Regex::new(
+            r"while\s*\(\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*<\s*([0-9]{6,})\s*\)\s*\{\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\+\+\s*;?\s*\}",
+        ) else {
+            return source.to_string();
+        };
+        pattern
+            .replace_all(source, |captures: &regex::Captures<'_>| {
+                let loop_var = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
+                let increment_var = captures.get(3).map(|m| m.as_str()).unwrap_or_default();
+                if loop_var != increment_var {
+                    return captures
+                        .get(0)
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default();
+                }
+                format!("while({loop_var}<1024){{{loop_var}++;}}")
+            })
+            .into_owned()
     }
 
     fn decode_utf16(bytes: &[u8], le: bool) -> Option<Vec<u8>> {
@@ -2318,11 +3248,13 @@ mod sandbox_impl {
 
         if error_msg.contains("not a callable function") {
             let call_names = gather_bare_call_names(code);
+            let dotted_paths = gather_dotted_call_paths(code);
             let patched = override_callable_assignments(code, &call_names);
             let mut prelude = String::new();
             for name in &call_names {
                 prelude.push_str(&format!("var {} = function(){{}};", name));
             }
+            prelude.push_str(&build_dotted_call_stub_prelude(&dotted_paths));
             let merged = format!("{}{}", prelude, patched);
             if let Ok(result) = ctx.eval(Source::from_bytes(merged.as_bytes())) {
                 let mut log_ref = log.borrow_mut();
@@ -2384,6 +3316,7 @@ mod sandbox_impl {
                     }
                     if new_error.contains("not a callable function") {
                         let call_names = gather_bare_call_names(code);
+                        let dotted_paths = gather_dotted_call_paths(code);
                         let mut injected = prelude.clone();
                         for name in call_names {
                             if injected.contains(&format!("var {} =", name)) {
@@ -2391,6 +3324,7 @@ mod sandbox_impl {
                             }
                             injected.push_str(&format!("var {} = function(){{}};", name));
                         }
+                        injected.push_str(&build_dotted_call_stub_prelude(&dotted_paths));
                         let merged = format!("{}{}", injected, code);
                         if let Ok(result) = ctx.eval(Source::from_bytes(merged.as_bytes())) {
                             return Some(result);
@@ -2475,6 +3409,54 @@ mod sandbox_impl {
             i += 1;
         }
         names
+    }
+
+    fn gather_dotted_call_paths(code: &str) -> BTreeSet<String> {
+        let mut paths = BTreeSet::new();
+        let Ok(regex) =
+            regex::Regex::new(r"([A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+)\s*\(")
+        else {
+            return paths;
+        };
+        for captures in regex.captures_iter(code) {
+            if let Some(path) = captures.get(1).map(|value| value.as_str()) {
+                if path.starts_with("Math.")
+                    || path.starts_with("JSON.")
+                    || path.starts_with("Object.")
+                    || path.starts_with("String.")
+                {
+                    continue;
+                }
+                paths.insert(path.to_string());
+            }
+        }
+        paths
+    }
+
+    fn build_dotted_call_stub_prelude(paths: &BTreeSet<String>) -> String {
+        let mut prelude = String::new();
+        for path in paths {
+            let parts = path.split('.').collect::<Vec<_>>();
+            if parts.len() < 2 {
+                continue;
+            }
+            let root = parts[0];
+            if root != "this" {
+                prelude.push_str(&format!(
+                    "if(typeof {root}==='undefined'||{root}===null){{{root}={{}};}}"
+                ));
+            }
+            for idx in 1..parts.len() - 1 {
+                let full = parts[..=idx].join(".");
+                let parent = parts[..idx].join(".");
+                let key = parts[idx];
+                prelude.push_str(&format!(
+                    "if(typeof {full}!=='object'&&typeof {full}!=='function'){{{parent}.{key}={{}};}}"
+                ));
+            }
+            prelude.push_str(&format!("if(typeof {path}!=='function'){{{path}=function(){{}};}}"));
+        }
+        prelude
     }
 
     fn override_callable_assignments(code: &str, call_names: &BTreeSet<String>) -> String {
@@ -2713,6 +3695,81 @@ mod sandbox_impl {
         byte.is_ascii_hexdigit()
     }
 
+    fn select_loop_iteration_limit(source: &[u8]) -> (u64, &'static str, bool) {
+        let lower = String::from_utf8_lossy(source).to_ascii_lowercase();
+        let has_busy_wait_increment_loop =
+            regex::Regex::new(
+                r"while\s*\(\s*[a-z_$][a-z0-9_$]*\s*<\s*[0-9]{6,}\s*\)\s*\{\s*[a-z_$][a-z0-9_$]*\s*\+\+\s*;?\s*\}",
+            )
+            .map(|pattern| pattern.is_match(&lower))
+            .unwrap_or(false);
+        let has_downloader_pattern = (lower.contains("wscript.createobject")
+            || lower.contains("activexobject")
+            || lower.contains("createobject("))
+            && (lower.contains("msxml2.xmlhttp") || lower.contains("serverxmlhttp"));
+        let has_host_probe_pattern = (lower.contains("activexobject")
+            || lower.contains("scripting.filesystemobject")
+            || lower.contains("folderexists"))
+            && (lower.contains("folderexists") || lower.contains("fileexists"));
+        let has_sentinel_spin_pattern = (lower.contains("while(true)")
+            || lower.contains("while (true)")
+            || lower.contains("while( true )")
+            || lower.contains("while ( true )"))
+            && regex::Regex::new(r"==\s*[1-9][0-9]{7,}")
+                .map(|pattern| pattern.is_match(&lower))
+                .unwrap_or(false);
+        if has_busy_wait_increment_loop {
+            return (BUSY_WAIT_LOOP_ITERATION_LIMIT, "busy_wait", true);
+        }
+        if has_sentinel_spin_pattern {
+            return (SENTINEL_SPIN_LOOP_ITERATION_LIMIT, "sentinel_spin", true);
+        }
+        if has_host_probe_pattern {
+            return (HOST_PROBE_LOOP_ITERATION_LIMIT, "host_probe", true);
+        }
+        if has_downloader_pattern {
+            (DOWNLOADER_LOOP_ITERATION_LIMIT, "downloader", true)
+        } else {
+            (BASE_LOOP_ITERATION_LIMIT, "base", false)
+        }
+    }
+
+    fn loop_iteration_limit_hits(errors: &[String]) -> usize {
+        errors
+            .iter()
+            .filter(|error| {
+                let lower = error.to_ascii_lowercase();
+                lower.contains("maximum loop iteration limit")
+                    || lower.contains("loop iteration limit")
+            })
+            .count()
+    }
+
+    fn is_runtime_limit_error(error_text: &str) -> bool {
+        let lower = error_text.to_ascii_lowercase();
+        lower.contains("maximum loop iteration limit")
+            || lower.contains("loop iteration limit")
+            || lower.contains("runtimelimit")
+    }
+
+    fn should_suppress_runtime_limit(log: &SandboxLog, error_text: &str) -> bool {
+        if !is_runtime_limit_error(error_text) {
+            return false;
+        }
+        if log.adaptive_loop_profile != "sentinel_spin" {
+            return false;
+        }
+        log.calls.iter().any(|call| {
+            matches!(
+                call.as_str(),
+                "ActiveXObject"
+                    | "WScript.CreateObject"
+                    | "WScript.Shell.ExpandEnvironmentStrings"
+                    | "Shell.Application.NameSpace"
+            )
+        })
+    }
+
     fn make_native(log: Rc<RefCell<SandboxLog>>, name: &'static str) -> NativeFunction {
         unsafe {
             NativeFunction::from_closure_with_captures(
@@ -2723,6 +3780,32 @@ mod sandbox_impl {
                 LogNameCapture { log, name },
             )
         }
+    }
+
+    fn make_native_probe_exists(
+        log: Rc<RefCell<SandboxLog>>,
+        name: &'static str,
+        threshold: usize,
+    ) -> NativeFunction {
+        unsafe {
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, captures.name, args, ctx);
+                    let call_count = current_call_count(&captures.log, captures.name);
+                    let should_exist = call_count >= threshold;
+                    if should_exist {
+                        let mut log_ref = captures.log.borrow_mut();
+                        log_ref.probe_loop_short_circuit_hits += 1;
+                    }
+                    Ok(JsValue::from(should_exist))
+                },
+                LogNameCapture { log, name },
+            )
+        }
+    }
+
+    fn current_call_count(log: &Rc<RefCell<SandboxLog>>, name: &str) -> usize {
+        log.borrow().call_counts_by_name.get(name).copied().unwrap_or(0)
     }
 
     fn make_getter(
@@ -2750,23 +3833,65 @@ mod sandbox_impl {
 
     fn record_call(log: &Rc<RefCell<SandboxLog>>, name: &str, args: &[JsValue], ctx: &mut Context) {
         let mut log_ref = log.borrow_mut();
+        let phase_key = log_ref.current_phase.clone();
         log_ref.call_count += 1;
-        log_ref.calls.push(name.to_string());
+        *log_ref.call_counts_by_name.entry(name.to_string()).or_insert(0) += 1;
+        if log_ref.calls.len() < MAX_RECORDED_CALLS {
+            log_ref.calls.push(name.to_string());
+        } else {
+            log_ref.calls_dropped += 1;
+        }
         log_ref.unique_calls.insert(name.to_string());
+        *log_ref.phase_call_counts.entry(phase_key.clone()).or_insert(0) += 1;
+        if is_reflection_probe_call(name) {
+            if log_ref.reflection_probes.len() < MAX_RECORDED_CALLS {
+                log_ref.reflection_probes.push(name.to_string());
+            } else {
+                log_ref.calls_dropped += 1;
+            }
+        }
+        if is_dynamic_code_call(name) {
+            if log_ref.dynamic_code_calls.len() < MAX_RECORDED_CALLS {
+                log_ref.dynamic_code_calls.push(name.to_string());
+            } else {
+                log_ref.calls_dropped += 1;
+            }
+            log_ref.phase_dynamic_code_calls.entry(phase_key).or_default().insert(name.to_string());
+        }
+        if is_property_delete_call(name) {
+            if log_ref.prop_deletes.len() < MAX_RECORDED_PROP_READS {
+                log_ref.prop_deletes.push(name.to_string());
+            } else {
+                log_ref.prop_reads_dropped += 1;
+            }
+        }
+        if is_property_write_call(name) {
+            if log_ref.prop_writes.len() < MAX_RECORDED_PROP_READS {
+                log_ref.prop_writes.push(name.to_string());
+            } else {
+                log_ref.prop_reads_dropped += 1;
+            }
+        }
         if log_ref.call_args.len() < log_ref.options.max_call_args {
             if let Some(summary) = summarise_args(args, ctx, &log_ref.options) {
                 log_ref.call_args.push(format!("{}({})", name, summary));
             }
+        } else {
+            log_ref.call_args_dropped += 1;
         }
         for arg in args {
             if let Some(value) = js_value_string(arg) {
                 if looks_like_url(&value) {
                     if log_ref.urls.len() < log_ref.options.max_urls {
                         log_ref.urls.push(value.clone());
+                    } else {
+                        log_ref.urls_dropped += 1;
                     }
                     if let Some(domain) = domain_from_url(&value) {
                         if log_ref.domains.len() < log_ref.options.max_domains {
                             log_ref.domains.push(domain);
+                        } else {
+                            log_ref.domains_dropped += 1;
                         }
                     }
                 }
@@ -2776,8 +3901,347 @@ mod sandbox_impl {
 
     fn record_prop(log: &Rc<RefCell<SandboxLog>>, name: &str) {
         let mut log_ref = log.borrow_mut();
-        log_ref.prop_reads.push(name.to_string());
+        if log_ref.prop_reads.len() < MAX_RECORDED_PROP_READS {
+            log_ref.prop_reads.push(name.to_string());
+        } else {
+            log_ref.prop_reads_dropped += 1;
+        }
         log_ref.unique_prop_reads.insert(name.to_string());
+        let phase_key = log_ref.current_phase.clone();
+        *log_ref.phase_prop_read_counts.entry(phase_key).or_insert(0) += 1;
+    }
+
+    fn set_phase(log: &Rc<RefCell<SandboxLog>>, phase: &str) {
+        let mut log_ref = log.borrow_mut();
+        log_ref.current_phase = phase.to_string();
+        if !log_ref.phase_sequence.iter().any(|existing| existing == phase) {
+            log_ref.phase_sequence.push(phase.to_string());
+        }
+    }
+
+    fn phase_script_for(phase: RuntimePhase) -> Option<&'static str> {
+        match phase {
+            RuntimePhase::Open => None,
+            RuntimePhase::Idle => Some(
+                "if (typeof onIdle === 'function') { onIdle(); } if (typeof tick === 'function') { tick(); }",
+            ),
+            RuntimePhase::Click => Some(
+                "if (typeof onClick === 'function') { onClick(); } if (typeof mouseUp === 'function') { mouseUp(); } if (typeof this.mouseUp === 'function') { this.mouseUp(); }",
+            ),
+            RuntimePhase::Form => Some(
+                "if (typeof onSubmit === 'function') { onSubmit(); } if (typeof validate === 'function') { validate(); } if (typeof this.validate === 'function') { this.validate(); }",
+            ),
+        }
+    }
+
+    fn phase_order(options: &DynamicOptions) -> Vec<RuntimePhase> {
+        let mut out = Vec::new();
+        for phase in &options.phases {
+            if !out.iter().any(|existing| existing == phase) {
+                out.push(*phase);
+            }
+        }
+        if out.is_empty() {
+            out.push(RuntimePhase::Open);
+        }
+        out
+    }
+
+    fn render_phase_summaries(log: &SandboxLog) -> Vec<crate::types::DynamicPhaseSummary> {
+        log.phase_sequence
+            .iter()
+            .map(|phase| crate::types::DynamicPhaseSummary {
+                phase: phase.clone(),
+                call_count: *log.phase_call_counts.get(phase).unwrap_or(&0),
+                prop_read_count: *log.phase_prop_read_counts.get(phase).unwrap_or(&0),
+                error_count: *log.phase_error_counts.get(phase).unwrap_or(&0),
+                elapsed_ms: *log.phase_elapsed_ms.get(phase).unwrap_or(&0),
+            })
+            .collect()
+    }
+
+    fn register_profiled_stubs(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        let profile = log.borrow().options.runtime_profile.clone();
+        match profile.kind {
+            RuntimeKind::PdfReader => {
+                let doc = register_doc_stub(context, log.clone());
+                register_app(context, log.clone(), Some(doc));
+                register_util(context, log.clone());
+                register_collab(context, log.clone());
+                register_soap(context, log.clone());
+                register_net(context, log.clone());
+                register_browser_like(context, log.clone());
+                register_require_stub(context, log.clone());
+                register_buffer_stub(context, log.clone());
+                register_windows_scripting(context, log.clone());
+                register_windows_com(context, log.clone());
+                register_windows_wmi(context, log.clone());
+            }
+            RuntimeKind::Browser => {
+                register_browser_like(context, log.clone());
+                register_net(context, log.clone());
+                register_util(context, log.clone());
+            }
+            RuntimeKind::Node => {
+                register_node_like(context, log.clone());
+                register_net(context, log.clone());
+                register_util(context, log.clone());
+            }
+        }
+    }
+
+    fn is_reflection_probe_call(name: &str) -> bool {
+        matches!(
+            name,
+            "hasOwnProperty"
+                | "Object.keys"
+                | "Object.getOwnPropertyNames"
+                | "Object.getOwnPropertyDescriptor"
+                | "Object.getPrototypeOf"
+                | "Object.prototype.toString"
+                | "propertyIsEnumerable"
+        )
+    }
+
+    fn is_dynamic_code_call(name: &str) -> bool {
+        matches!(name, "eval" | "app.eval" | "event.target.eval" | "Function" | "unescape")
+    }
+
+    fn is_property_delete_call(name: &str) -> bool {
+        name.contains("delete") || name == "removeDataObject"
+    }
+
+    fn is_property_write_call(name: &str) -> bool {
+        matches!(
+            name,
+            "createDataObject"
+                | "importDataObject"
+                | "insertPages"
+                | "replacePages"
+                | "newDoc"
+                | "saveAs"
+                | "exportAsFDF"
+                | "exportAsXFDF"
+        )
+    }
+
+    fn dedupe_strings(values: Vec<String>) -> Vec<String> {
+        let mut seen = BTreeSet::new();
+        let mut out = Vec::new();
+        for value in values {
+            if seen.insert(value.clone()) {
+                out.push(value);
+            }
+        }
+        out
+    }
+
+    fn dedupe_sorted(values: Vec<String>) -> Vec<String> {
+        values.into_iter().collect::<BTreeSet<_>>().into_iter().collect()
+    }
+
+    fn fnv1a64(bytes: &[u8]) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+
+    fn compute_replay_id(bytes: &[u8], options: &DynamicOptions) -> String {
+        let phase_text =
+            options.phases.iter().map(|phase| phase.as_str()).collect::<Vec<_>>().join(",");
+        let descriptor = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}",
+            options.runtime_profile.id(),
+            options.max_bytes,
+            options.timeout_ms,
+            options.phase_timeout_ms,
+            options.max_call_args,
+            options.max_urls,
+            options.max_domains,
+            phase_text
+        );
+        let mut input = Vec::with_capacity(bytes.len() + descriptor.len());
+        input.extend_from_slice(bytes);
+        input.extend_from_slice(descriptor.as_bytes());
+        format!("jsr-{hash:016x}", hash = fnv1a64(&input))
+    }
+
+    fn truncate_set(values: BTreeSet<String>, max: usize) -> Vec<String> {
+        values.into_iter().take(max).collect()
+    }
+
+    fn is_identifier_start(ch: char) -> bool {
+        ch == '_' || ch == '$' || ch.is_ascii_alphabetic()
+    }
+
+    fn is_identifier_char(ch: char) -> bool {
+        ch == '_' || ch == '$' || ch.is_ascii_alphanumeric()
+    }
+
+    fn is_call_keyword(token: &str) -> bool {
+        matches!(token, "if" | "for" | "while" | "switch" | "catch" | "return" | "typeof")
+    }
+
+    fn extract_string_literal(
+        chars: &[char],
+        start: usize,
+        quote: char,
+    ) -> Option<(String, usize)> {
+        let mut index = start + 1;
+        let mut escaped = false;
+        let mut out = String::new();
+        while index < chars.len() {
+            let ch = chars[index];
+            if escaped {
+                out.push(ch);
+                escaped = false;
+                index += 1;
+                continue;
+            }
+            if ch == '\\' {
+                escaped = true;
+                index += 1;
+                continue;
+            }
+            if ch == quote {
+                return Some((out, index + 1));
+            }
+            out.push(ch);
+            index += 1;
+        }
+        None
+    }
+
+    fn next_non_whitespace(chars: &[char], mut index: usize) -> Option<char> {
+        while index < chars.len() {
+            let ch = chars[index];
+            if !ch.is_whitespace() {
+                return Some(ch);
+            }
+            index += 1;
+        }
+        None
+    }
+
+    fn take_identifier(chars: &[char], start: usize) -> (String, usize) {
+        let mut index = start;
+        let mut token = String::new();
+        while index < chars.len() && is_identifier_char(chars[index]) {
+            token.push(chars[index]);
+            index += 1;
+        }
+        (token, index)
+    }
+
+    fn snapshot_source(source: &str) -> JsSnapshot {
+        let mut snapshot = JsSnapshot::default();
+        let chars: Vec<char> = source.chars().collect();
+        let mut index = 0usize;
+        while index < chars.len() {
+            let ch = chars[index];
+            if ch == '\'' || ch == '"' || ch == '`' {
+                if let Some((literal, next)) = extract_string_literal(&chars, index, ch) {
+                    if !literal.is_empty() {
+                        snapshot.string_literals.insert(literal);
+                    }
+                    index = next;
+                    continue;
+                }
+            }
+            if is_identifier_start(ch) {
+                let (token, next) = take_identifier(&chars, index);
+                if !token.is_empty() {
+                    snapshot.identifiers.insert(token.clone());
+                    if let Some('(') = next_non_whitespace(&chars, next) {
+                        if !is_call_keyword(&token) {
+                            snapshot.calls.insert(token);
+                        }
+                    }
+                }
+                index = next;
+                continue;
+            }
+            index += 1;
+        }
+        snapshot
+    }
+
+    fn extract_dynamic_snippets(call_args: &[String]) -> Vec<String> {
+        let mut snippets = Vec::new();
+        for entry in call_args {
+            let Some(open) = entry.find('(') else {
+                continue;
+            };
+            if !entry.ends_with(')') || open + 1 >= entry.len() {
+                continue;
+            }
+            let name = &entry[..open];
+            let target = name.trim();
+            if !matches!(
+                target,
+                "eval" | "app.eval" | "event.target.eval" | "Function" | "unescape"
+            ) {
+                continue;
+            }
+            let mut payload = entry[open + 1..entry.len() - 1].trim().to_string();
+            if payload.is_empty() {
+                continue;
+            }
+            if (payload.starts_with('"') && payload.ends_with('"'))
+                || (payload.starts_with('\'') && payload.ends_with('\''))
+                || (payload.starts_with('`') && payload.ends_with('`'))
+            {
+                if payload.len() > 2 {
+                    payload = payload[1..payload.len() - 1].to_string();
+                } else {
+                    payload.clear();
+                }
+            }
+            if !payload.is_empty() {
+                snippets.push(payload);
+            }
+        }
+        dedupe_strings(snippets)
+    }
+
+    fn compute_snapshot_delta(
+        baseline: &JsSnapshot,
+        augmented_source: &str,
+        phase: String,
+        trigger_calls: Vec<String>,
+        generated_snippets: usize,
+    ) -> Option<SnapshotDeltaSummary> {
+        let augmented = snapshot_source(augmented_source);
+        let new_identifiers: BTreeSet<String> =
+            augmented.identifiers.difference(&baseline.identifiers).cloned().collect();
+        let new_literals: BTreeSet<String> =
+            augmented.string_literals.difference(&baseline.string_literals).cloned().collect();
+        let new_calls: BTreeSet<String> =
+            augmented.calls.difference(&baseline.calls).cloned().collect();
+        let added_identifier_count = new_identifiers.len();
+        let added_string_literal_count = new_literals.len();
+        let added_call_count = new_calls.len();
+        if added_identifier_count == 0
+            && added_string_literal_count == 0
+            && added_call_count == 0
+            && generated_snippets == 0
+        {
+            return None;
+        }
+        Some(SnapshotDeltaSummary {
+            phase,
+            trigger_calls,
+            generated_snippets,
+            added_identifier_count,
+            added_string_literal_count,
+            added_call_count,
+            new_identifiers: truncate_set(new_identifiers, 16),
+            new_string_literals: truncate_set(new_literals, 16),
+            new_calls: truncate_set(new_calls, 16),
+        })
     }
 
     fn summarise_args(

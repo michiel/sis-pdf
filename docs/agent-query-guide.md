@@ -137,14 +137,41 @@ sis query sample.pdf actions.chains --chain-summary full
 ```
 
 ### 5) Findings output summary block (JSON/YAML/JSONL)
-`findings` output now includes a top-level summary (`findings_by_severity`, `findings_by_surface`) for quick reporting.
+`findings` output now includes a top-level summary (`findings_by_severity`, `findings_by_surface`, `findings_by_kind`) for quick reporting.
+
+For JavaScript runtime triage, the summary also includes:
+
+- `js_emulation_breakpoints_by_bucket` (for example `missing_callable`, `recursion_limit`, `parser_dialect_mismatch`)
+- `js_runtime_budget` with:
+  - `script_timeout_findings`
+  - `loop_iteration_limit_hits`
 
 ```bash
 sis query sample.pdf findings --format json
+sis query sample.pdf findings --where "kind == 'js_runtime_downloader_pattern'" --format json
 ```
 
 ### 6) Query predicate parity in one-shot and REPL
 Use `--where` in one-shot mode and `:where` in REPL mode for the same query families (including `findings.composite` and xref namespaces).
+
+### 7) Runtime telemetry in `explain` (phase/profile-aware)
+When a finding is produced from JavaScript sandbox execution, `explain` now includes:
+
+- phase telemetry: `js.runtime.phase_order`, `js.runtime.phase_count`, `js.runtime.phase_summaries`
+- profile fusion telemetry: `js.runtime.profile_count`, `js.runtime.profile_status`, `js.runtime.profile_divergence`
+- scoring adjustments: `js.runtime.profile_consistency_signal`, `js.runtime.profile_consistency_ratio`, `js.runtime.profile_severity_adjusted`, `js.runtime.profile_confidence_adjusted`
+- timeout-aware scoring/coverage telemetry: `js.runtime.script_timeout_profiles`, `js.runtime.script_timeout_ratio`, `js.runtime.timeout_confidence_adjusted`, `js.runtime.loop_iteration_limit_hits`
+- timeout root-cause context (when present): `js.runtime.timeout_profile`, `js.runtime.timeout_phase`, `js.runtime.timeout_elapsed_ms`, `js.runtime.timeout_budget_ratio`
+- integrity metadata: `js.runtime.replay_id`, `js.runtime.ordering`, and `js.runtime.truncation.*`
+
+Example:
+
+```bash
+sis query sample.pdf findings
+sis query sample.pdf explain <finding-id>
+```
+
+Use these fields to determine whether behaviour is consistent across emulated environments (`pdf_reader`, `browser`, `node`) and whether final severity/confidence was promoted or demoted by profile consistency scoring.
 
 ## Practical investigation playbook
 

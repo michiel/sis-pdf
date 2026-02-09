@@ -36,6 +36,14 @@ fn main() {
         max_arg_preview: 200,
         max_urls: 50,
         max_domains: 25,
+        phase_timeout_ms: 1_250,
+        phases: vec![
+            js_analysis::types::RuntimePhase::Open,
+            js_analysis::types::RuntimePhase::Idle,
+            js_analysis::types::RuntimePhase::Click,
+            js_analysis::types::RuntimePhase::Form,
+        ],
+        runtime_profile: Default::default(),
     };
 
     eprintln!("Testing: {}", js_file.display());
@@ -107,7 +115,7 @@ fn main() {
                 println!("{}", json);
             }
         }
-        DynamicOutcome::TimedOut { timeout_ms } => {
+        DynamicOutcome::TimedOut { timeout_ms, .. } => {
             eprintln!("⏱️  TIMED OUT after {}ms", timeout_ms);
             println!("{{\"outcome\":\"timed_out\",\"timeout_ms\":{}}}", timeout_ms);
             std::process::exit(0); // Exit 0 so we can collect stats

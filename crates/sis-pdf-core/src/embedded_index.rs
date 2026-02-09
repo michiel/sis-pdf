@@ -196,7 +196,10 @@ mod tests {
                 atom: PdfAtom::Stream(sis_pdf_pdf::object::PdfStream {
                     dict: PdfDict {
                         span: Span { start: 0, end: 0 },
-                        entries: vec![(pdf_name("/Type"), obj(PdfAtom::Name(pdf_name("/EmbeddedFile"))))],
+                        entries: vec![(
+                            pdf_name("/Type"),
+                            obj(PdfAtom::Name(pdf_name("/EmbeddedFile"))),
+                        )],
                     },
                     data_span: Span { start: 0, end: 0 },
                 }),
@@ -267,7 +270,10 @@ mod tests {
                 atom: PdfAtom::Stream(sis_pdf_pdf::object::PdfStream {
                     dict: PdfDict {
                         span: Span { start: 0, end: 0 },
-                        entries: vec![(pdf_name("/Type"), obj(PdfAtom::Name(pdf_name("/EmbeddedFile"))))],
+                        entries: vec![(
+                            pdf_name("/Type"),
+                            obj(PdfAtom::Name(pdf_name("/EmbeddedFile"))),
+                        )],
                     },
                     data_span: Span { start: 0, end: 0 },
                 }),
