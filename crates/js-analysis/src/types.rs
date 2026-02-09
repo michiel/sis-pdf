@@ -1,11 +1,81 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeKind {
+    PdfReader,
+    Browser,
+    Node,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeMode {
+    Strict,
+    Compat,
+    DeceptionHardened,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeProfile {
+    pub kind: RuntimeKind,
+    pub vendor: String,
+    pub version: String,
+    pub mode: RuntimeMode,
+}
+
+impl RuntimeProfile {
+    pub fn id(&self) -> String {
+        format!(
+            "{}:{}:{}:{}",
+            self.kind.as_str(),
+            self.vendor,
+            self.version,
+            self.mode.as_str()
+        )
+    }
+}
+
+impl RuntimeKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RuntimeKind::PdfReader => "pdf_reader",
+            RuntimeKind::Browser => "browser",
+            RuntimeKind::Node => "node",
+        }
+    }
+}
+
+impl RuntimeMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RuntimeMode::Strict => "strict",
+            RuntimeMode::Compat => "compat",
+            RuntimeMode::DeceptionHardened => "deception_hardened",
+        }
+    }
+}
+
+impl Default for RuntimeProfile {
+    fn default() -> Self {
+        Self {
+            kind: RuntimeKind::PdfReader,
+            vendor: "adobe".to_string(),
+            version: "11".to_string(),
+            mode: RuntimeMode::Compat,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DynamicSignals {
+    pub runtime_profile: String,
     pub calls: Vec<String>,
     pub call_args: Vec<String>,
     pub urls: Vec<String>,
     pub domains: Vec<String>,
     pub errors: Vec<String>,
     pub prop_reads: Vec<String>,
+    pub prop_writes: Vec<String>,
+    pub prop_deletes: Vec<String>,
+    pub reflection_probes: Vec<String>,
+    pub dynamic_code_calls: Vec<String>,
     pub call_count: usize,
     pub unique_calls: usize,
     pub unique_prop_reads: usize,
@@ -49,6 +119,7 @@ pub struct DynamicOptions {
     pub max_urls: usize,
     pub max_domains: usize,
     pub max_args_per_call: usize,
+    pub runtime_profile: RuntimeProfile,
 }
 
 impl Default for DynamicOptions {
@@ -61,6 +132,7 @@ impl Default for DynamicOptions {
             max_urls: 48,
             max_domains: 48,
             max_args_per_call: 8,
+            runtime_profile: RuntimeProfile::default(),
         }
     }
 }

@@ -36,6 +36,7 @@ fn main() {
         max_arg_preview: 200,
         max_urls: 50,
         max_domains: 25,
+        runtime_profile: Default::default(),
     };
 
     eprintln!("Testing: {}", js_file.display());

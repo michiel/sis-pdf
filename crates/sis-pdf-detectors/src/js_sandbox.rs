@@ -114,6 +114,7 @@ impl Detector for JavaScriptSandboxDetector {
                         if signals.call_count == 0 {
                             let mut meta = std::collections::HashMap::new();
                             meta.insert("js.sandbox_exec".into(), "true".into());
+                            meta.insert("js.runtime.profile".into(), signals.runtime_profile.clone());
                             if let Some(label) = candidate.source.meta_value() {
                                 meta.insert("js.source".into(), label.into());
                             }
@@ -132,6 +133,30 @@ impl Detector for JavaScriptSandboxDetector {
                             }
                             if !signals.errors.is_empty() {
                                 meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
+                            }
+                            if !signals.prop_writes.is_empty() {
+                                meta.insert(
+                                    "js.runtime.prop_writes".into(),
+                                    signals.prop_writes.join(", "),
+                                );
+                            }
+                            if !signals.prop_deletes.is_empty() {
+                                meta.insert(
+                                    "js.runtime.prop_deletes".into(),
+                                    signals.prop_deletes.join(", "),
+                                );
+                            }
+                            if !signals.reflection_probes.is_empty() {
+                                meta.insert(
+                                    "js.runtime.reflection_probes".into(),
+                                    signals.reflection_probes.join(", "),
+                                );
+                            }
+                            if !signals.dynamic_code_calls.is_empty() {
+                                meta.insert(
+                                    "js.runtime.dynamic_code_calls".into(),
+                                    signals.dynamic_code_calls.join(", "),
+                                );
                             }
                             let description = if !signals.prop_reads.is_empty() {
                                 "Sandbox executed JS; property accesses observed."
@@ -162,6 +187,7 @@ impl Detector for JavaScriptSandboxDetector {
                         }
 
                         let mut base_meta = std::collections::HashMap::new();
+                        base_meta.insert("js.runtime.profile".into(), signals.runtime_profile.clone());
                         base_meta.insert("js.runtime.calls".into(), signals.calls.join(","));
                         base_meta
                             .insert("js.runtime.call_count".into(), signals.call_count.to_string());
@@ -190,6 +216,30 @@ impl Detector for JavaScriptSandboxDetector {
                             base_meta.insert(
                                 "js.runtime.unique_prop_reads".into(),
                                 signals.unique_prop_reads.to_string(),
+                            );
+                        }
+                        if !signals.prop_writes.is_empty() {
+                            base_meta.insert(
+                                "js.runtime.prop_writes".into(),
+                                signals.prop_writes.join(", "),
+                            );
+                        }
+                        if !signals.prop_deletes.is_empty() {
+                            base_meta.insert(
+                                "js.runtime.prop_deletes".into(),
+                                signals.prop_deletes.join(", "),
+                            );
+                        }
+                        if !signals.reflection_probes.is_empty() {
+                            base_meta.insert(
+                                "js.runtime.reflection_probes".into(),
+                                signals.reflection_probes.join(", "),
+                            );
+                        }
+                        if !signals.dynamic_code_calls.is_empty() {
+                            base_meta.insert(
+                                "js.runtime.dynamic_code_calls".into(),
+                                signals.dynamic_code_calls.join(", "),
                             );
                         }
                         if !signals.errors.is_empty() {

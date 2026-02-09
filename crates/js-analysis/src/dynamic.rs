@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::types::{DynamicOptions, DynamicOutcome};
+use crate::types::{DynamicOptions, DynamicOutcome, RuntimeKind};
 
 #[cfg(feature = "js-sandbox")]
 mod sandbox_impl {
@@ -26,12 +26,17 @@ mod sandbox_impl {
 
     #[derive(Default, Clone)]
     struct SandboxLog {
+        runtime_profile: String,
         calls: Vec<String>,
         call_args: Vec<String>,
         urls: Vec<String>,
         domains: Vec<String>,
         errors: Vec<String>,
         prop_reads: Vec<String>,
+        prop_writes: Vec<String>,
+        prop_deletes: Vec<String>,
+        reflection_probes: Vec<String>,
+        dynamic_code_calls: Vec<String>,
         call_count: usize,
         unique_calls: BTreeSet<String>,
         unique_prop_reads: BTreeSet<String>,
@@ -531,6 +536,7 @@ mod sandbox_impl {
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let mut initial_log = SandboxLog { options: opts, ..SandboxLog::default() };
+            initial_log.runtime_profile = initial_log.options.runtime_profile.id();
             // Initialize execution flow tracking
             initial_log.execution_flow.start_time = Some(std::time::Instant::now());
             let log = Rc::new(RefCell::new(initial_log));
@@ -541,18 +547,7 @@ mod sandbox_impl {
             limits.set_recursion_limit(64);
             limits.set_stack_size_limit(512 * 1024);
             context.set_runtime_limits(limits);
-            let doc = register_doc_stub(&mut context, log.clone());
-            register_app(&mut context, log.clone(), Some(doc.clone()));
-            register_util(&mut context, log.clone());
-            register_collab(&mut context, log.clone());
-            register_soap(&mut context, log.clone());
-            register_net(&mut context, log.clone());
-            register_browser_like(&mut context, log.clone());
-            register_windows_scripting(&mut context, log.clone());
-            register_windows_com(&mut context, log.clone());
-            register_windows_wmi(&mut context, log.clone());
-            register_node_like(&mut context, log.clone());
-            let _ = doc;
+            register_profiled_stubs(&mut context, log.clone());
             register_doc_globals(&mut context, log.clone()); // Enable unescape and other globals
             register_pdf_event_context(&mut context, log.clone(), scope.clone()); // Add event object simulation
             register_enhanced_doc_globals(&mut context, log.clone(), scope.clone());
@@ -589,12 +584,17 @@ mod sandbox_impl {
 
         match rx.recv_timeout(Duration::from_millis(options.timeout_ms as u64)) {
             Ok(log) => DynamicOutcome::Executed(Box::new(DynamicSignals {
+                runtime_profile: log.runtime_profile.clone(),
                 calls: log.calls.clone(),
                 call_args: log.call_args.clone(),
                 urls: log.urls.clone(),
                 domains: log.domains.clone(),
                 errors: log.errors.clone(),
                 prop_reads: log.prop_reads.clone(),
+                prop_writes: dedupe_strings(log.prop_writes.clone()),
+                prop_deletes: dedupe_strings(log.prop_deletes.clone()),
+                reflection_probes: dedupe_strings(log.reflection_probes.clone()),
+                dynamic_code_calls: dedupe_strings(log.dynamic_code_calls.clone()),
                 call_count: log.call_count,
                 unique_calls: log.unique_calls.len(),
                 unique_prop_reads: log.unique_prop_reads.len(),
@@ -2753,6 +2753,18 @@ mod sandbox_impl {
         log_ref.call_count += 1;
         log_ref.calls.push(name.to_string());
         log_ref.unique_calls.insert(name.to_string());
+        if is_reflection_probe_call(name) {
+            log_ref.reflection_probes.push(name.to_string());
+        }
+        if is_dynamic_code_call(name) {
+            log_ref.dynamic_code_calls.push(name.to_string());
+        }
+        if is_property_delete_call(name) {
+            log_ref.prop_deletes.push(name.to_string());
+        }
+        if is_property_write_call(name) {
+            log_ref.prop_writes.push(name.to_string());
+        }
         if log_ref.call_args.len() < log_ref.options.max_call_args {
             if let Some(summary) = summarise_args(args, ctx, &log_ref.options) {
                 log_ref.call_args.push(format!("{}({})", name, summary));
@@ -2778,6 +2790,80 @@ mod sandbox_impl {
         let mut log_ref = log.borrow_mut();
         log_ref.prop_reads.push(name.to_string());
         log_ref.unique_prop_reads.insert(name.to_string());
+    }
+
+    fn register_profiled_stubs(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        let profile = log.borrow().options.runtime_profile.clone();
+        match profile.kind {
+            RuntimeKind::PdfReader => {
+                let doc = register_doc_stub(context, log.clone());
+                register_app(context, log.clone(), Some(doc));
+                register_util(context, log.clone());
+                register_collab(context, log.clone());
+                register_soap(context, log.clone());
+                register_net(context, log.clone());
+                register_browser_like(context, log.clone());
+                register_windows_scripting(context, log.clone());
+                register_windows_com(context, log.clone());
+                register_windows_wmi(context, log.clone());
+            }
+            RuntimeKind::Browser => {
+                register_browser_like(context, log.clone());
+                register_net(context, log.clone());
+                register_util(context, log.clone());
+            }
+            RuntimeKind::Node => {
+                register_node_like(context, log.clone());
+                register_net(context, log.clone());
+                register_util(context, log.clone());
+            }
+        }
+    }
+
+    fn is_reflection_probe_call(name: &str) -> bool {
+        matches!(
+            name,
+            "hasOwnProperty"
+                | "Object.keys"
+                | "Object.getOwnPropertyNames"
+                | "Object.getOwnPropertyDescriptor"
+                | "Object.getPrototypeOf"
+                | "Object.prototype.toString"
+                | "propertyIsEnumerable"
+        )
+    }
+
+    fn is_dynamic_code_call(name: &str) -> bool {
+        matches!(name, "eval" | "app.eval" | "event.target.eval" | "Function" | "unescape")
+    }
+
+    fn is_property_delete_call(name: &str) -> bool {
+        name.contains("delete") || name == "removeDataObject"
+    }
+
+    fn is_property_write_call(name: &str) -> bool {
+        matches!(
+            name,
+            "createDataObject"
+                | "importDataObject"
+                | "insertPages"
+                | "replacePages"
+                | "newDoc"
+                | "saveAs"
+                | "exportAsFDF"
+                | "exportAsXFDF"
+        )
+    }
+
+    fn dedupe_strings(values: Vec<String>) -> Vec<String> {
+        let mut seen = BTreeSet::new();
+        let mut out = Vec::new();
+        for value in values {
+            if seen.insert(value.clone()) {
+                out.push(value);
+            }
+        }
+        out
     }
 
     fn summarise_args(

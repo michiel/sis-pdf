@@ -63,12 +63,17 @@ struct SandboxEvalReport {
 
 #[derive(Serialize)]
 struct SandboxSignalsReport {
+    runtime_profile: String,
     errors: Vec<String>,
     calls: Vec<String>,
     call_args: Vec<String>,
     urls: Vec<String>,
     domains: Vec<String>,
     prop_reads: Vec<String>,
+    prop_writes: Vec<String>,
+    prop_deletes: Vec<String>,
+    reflection_probes: Vec<String>,
+    dynamic_code_calls: Vec<String>,
     call_count: usize,
     unique_calls: usize,
     unique_prop_reads: usize,
@@ -1171,12 +1176,17 @@ fn run_sandbox_eval(
             skip_limit: None,
             skip_actual: None,
             signals: Some(SandboxSignalsReport {
+                runtime_profile: signals.runtime_profile,
                 errors: signals.errors,
                 calls: signals.calls,
                 call_args: signals.call_args,
                 urls: signals.urls,
                 domains: signals.domains,
                 prop_reads: signals.prop_reads,
+                prop_writes: signals.prop_writes,
+                prop_deletes: signals.prop_deletes,
+                reflection_probes: signals.reflection_probes,
+                dynamic_code_calls: signals.dynamic_code_calls,
                 call_count: signals.call_count,
                 unique_calls: signals.unique_calls,
                 unique_prop_reads: signals.unique_prop_reads,
@@ -4159,6 +4169,9 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     if let Some(value) = finding.meta.get("js.runtime.calls") {
         println!("Runtime calls: {}", escape_terminal(value));
     }
+    if let Some(value) = finding.meta.get("js.runtime.profile") {
+        println!("Runtime profile: {}", escape_terminal(value));
+    }
     if let Some(value) = finding.meta.get("js.runtime.call_args") {
         println!("Runtime call args: {}", escape_terminal(value));
     }
@@ -4170,6 +4183,18 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     }
     if let Some(value) = finding.meta.get("js.runtime.prop_reads") {
         println!("Runtime property reads: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.prop_writes") {
+        println!("Runtime property writes: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.prop_deletes") {
+        println!("Runtime property deletes: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.reflection_probes") {
+        println!("Runtime reflection probes: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.dynamic_code_calls") {
+        println!("Runtime dynamic code calls: {}", escape_terminal(value));
     }
     if let Some(value) = finding.meta.get("js.runtime.errors") {
         println!("Runtime errors: {}", escape_terminal(value));
