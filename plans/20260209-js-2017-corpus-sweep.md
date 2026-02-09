@@ -736,3 +736,34 @@ Null-conversion breakpoints are eliminated for this tracked set. Remaining block
 
 1. downloader loop-limit path (`20170412_5a0493...`)
 2. persistent timeout path (`20170320_318f0937...`)
+
+## Ninth sweep follow-up (downloader loop-limit fix)
+
+### Change applied
+
+Added busy-wait loop normalisation for high-count increment loops (for example `while(i<999999){i++;}`) so anti-analysis spin preambles do not consume the runtime loop budget before downloader behaviour executes.
+
+### Target validation
+
+`tmp/javascript-malware-collection/2017/20170412/20170412_5a0493b8e4e62ae6455d848b644c21a3.js` now executes without loop-limit errors and records the expected chain:
+
+- `WScript.CreateObject`
+- `MSXML2.XMLHTTP.open`
+- `MSXML2.XMLHTTP.send`
+
+### Re-run outcome on same 10-sample set
+
+- Executed: `9/10`
+- Timeout: `1/10`
+- Skipped: `0/10`
+- Executed with errors: `0/9`
+
+Error class breakdown after fix:
+
+- `not a callable function`: `0`
+- `cannot convert 'null' or 'undefined' to object`: `0`
+- `Maximum loop iteration limit`: `0`
+
+### Remaining blocker
+
+- `20170320_318f0937...` timeout in `open` phase is now the sole unresolved class in this tracked set.

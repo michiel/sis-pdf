@@ -31,6 +31,7 @@ mod sandbox_impl {
     const DOWNLOADER_LOOP_ITERATION_LIMIT: u64 = 20_000;
     const HOST_PROBE_LOOP_ITERATION_LIMIT: u64 = 40_000;
     const SENTINEL_SPIN_LOOP_ITERATION_LIMIT: u64 = 60_000;
+    const BUSY_WAIT_LOOP_ITERATION_LIMIT: u64 = 80_000;
     const PROBE_EXISTS_TRUE_AFTER: usize = 24;
 
     #[derive(Default, Clone)]
@@ -2881,24 +2882,53 @@ mod sandbox_impl {
     fn normalise_js_source(bytes: &[u8]) -> Vec<u8> {
         if bytes.len() >= 2 {
             if bytes[0] == 0xFF && bytes[1] == 0xFE {
-                return decode_utf16(&bytes[2..], true).unwrap_or_else(|| bytes.to_vec());
+                let decoded = decode_utf16(&bytes[2..], true).unwrap_or_else(|| bytes.to_vec());
+                return apply_source_normalisation(decoded);
             }
             if bytes[0] == 0xFE && bytes[1] == 0xFF {
-                return decode_utf16(&bytes[2..], false).unwrap_or_else(|| bytes.to_vec());
+                let decoded = decode_utf16(&bytes[2..], false).unwrap_or_else(|| bytes.to_vec());
+                return apply_source_normalisation(decoded);
             }
         }
 
         let nul_count = bytes.iter().filter(|b| **b == 0).count();
         if nul_count > bytes.len() / 4 {
             if let Some(decoded) = decode_utf16(bytes, true) {
-                return decoded;
+                return apply_source_normalisation(decoded);
             }
         }
         if nul_count > 0 {
-            return bytes.iter().copied().filter(|b| *b != 0).collect();
+            let filtered: Vec<u8> = bytes.iter().copied().filter(|b| *b != 0).collect();
+            return apply_source_normalisation(filtered);
         }
 
-        bytes.to_vec()
+        apply_source_normalisation(bytes.to_vec())
+    }
+
+    fn apply_source_normalisation(bytes: Vec<u8>) -> Vec<u8> {
+        let source = String::from_utf8_lossy(&bytes).to_string();
+        normalise_busy_wait_loops(&source).into_bytes()
+    }
+
+    fn normalise_busy_wait_loops(source: &str) -> String {
+        let Ok(pattern) = regex::Regex::new(
+            r"while\s*\(\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*<\s*([0-9]{6,})\s*\)\s*\{\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\+\+\s*;?\s*\}",
+        ) else {
+            return source.to_string();
+        };
+        pattern
+            .replace_all(source, |captures: &regex::Captures<'_>| {
+                let loop_var = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
+                let increment_var = captures.get(3).map(|m| m.as_str()).unwrap_or_default();
+                if loop_var != increment_var {
+                    return captures
+                        .get(0)
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default();
+                }
+                format!("while({loop_var}<1024){{{loop_var}++;}}")
+            })
+            .into_owned()
     }
 
     fn decode_utf16(bytes: &[u8], le: bool) -> Option<Vec<u8>> {
@@ -3667,6 +3697,12 @@ mod sandbox_impl {
 
     fn select_loop_iteration_limit(source: &[u8]) -> (u64, &'static str, bool) {
         let lower = String::from_utf8_lossy(source).to_ascii_lowercase();
+        let has_busy_wait_increment_loop =
+            regex::Regex::new(
+                r"while\s*\(\s*[a-z_$][a-z0-9_$]*\s*<\s*[0-9]{6,}\s*\)\s*\{\s*[a-z_$][a-z0-9_$]*\s*\+\+\s*;?\s*\}",
+            )
+            .map(|pattern| pattern.is_match(&lower))
+            .unwrap_or(false);
         let has_downloader_pattern = (lower.contains("wscript.createobject")
             || lower.contains("activexobject")
             || lower.contains("createobject("))
@@ -3682,6 +3718,9 @@ mod sandbox_impl {
             && regex::Regex::new(r"==\s*[1-9][0-9]{7,}")
                 .map(|pattern| pattern.is_match(&lower))
                 .unwrap_or(false);
+        if has_busy_wait_increment_loop {
+            return (BUSY_WAIT_LOOP_ITERATION_LIMIT, "busy_wait", true);
+        }
         if has_sentinel_spin_pattern {
             return (SENTINEL_SPIN_LOOP_ITERATION_LIMIT, "sentinel_spin", true);
         }

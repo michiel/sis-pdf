@@ -220,6 +220,37 @@ fn sandbox_suppresses_runtime_limit_for_sentinel_spin_with_wsh_calls() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_handles_busy_wait_increment_loop_profile() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var spin = 0;
+        while (spin < 999999) { spin++; }
+        var xhr = WScript.CreateObject('MSXML2.XMLHTTP');
+        xhr.open('GET', 'http://example.test/counter', false);
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .calls
+                .iter()
+                .any(|call| call == "WScript.CreateObject"));
+            assert!(signals.calls.iter().any(|call| call == "MSXML2.XMLHTTP.open"));
+            assert!(
+                !signals
+                    .errors
+                    .iter()
+                    .any(|error| error.to_ascii_lowercase().contains("loop iteration limit")),
+                "unexpected loop limit error: {:?}",
+                signals.errors
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_deduped_lists_are_deterministically_sorted() {
     let options = DynamicOptions::default();
     let payload = b"
