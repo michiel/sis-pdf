@@ -1,4 +1,4 @@
-use js_analysis::{DynamicOptions, DynamicOutcome};
+use js_analysis::{DynamicOptions, DynamicOutcome, RuntimePhase};
 
 #[cfg(feature = "js-sandbox")]
 #[test]
@@ -39,7 +39,12 @@ fn sandbox_emits_delta_summary_for_dynamic_code() {
     match outcome {
         DynamicOutcome::Executed(signals) => {
             let delta = signals.delta_summary.expect("delta summary");
-            assert_eq!(delta.phase, "eval");
+            assert!(
+                delta.phase == "open"
+                    || delta.phase == "idle"
+                    || delta.phase == "click"
+                    || delta.phase == "form"
+            );
             assert!(delta.generated_snippets >= 1);
             assert!(delta.trigger_calls.iter().any(|call| call == "eval"));
             assert!(delta.added_identifier_count >= 1);
@@ -60,6 +65,56 @@ fn sandbox_omits_delta_summary_without_dynamic_code() {
     match outcome {
         DynamicOutcome::Executed(signals) => {
             assert!(signals.delta_summary.is_none());
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_phase_scoped_telemetry() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        function onIdle() { app.alert('idle'); }
+        function onClick() { app.alert('click'); }
+        function onSubmit() { app.alert('form'); }
+        app.alert('open');
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            let phase_names =
+                signals.phases.iter().map(|phase| phase.phase.as_str()).collect::<Vec<_>>();
+            assert_eq!(phase_names, vec!["open", "idle", "click", "form"]);
+            for phase in &signals.phases {
+                assert!(phase.elapsed_ms <= options.timeout_ms);
+            }
+            let open =
+                signals.phases.iter().find(|phase| phase.phase == "open").expect("open phase");
+            let click =
+                signals.phases.iter().find(|phase| phase.phase == "click").expect("click phase");
+            let form =
+                signals.phases.iter().find(|phase| phase.phase == "form").expect("form phase");
+            assert!(open.call_count >= 1);
+            assert!(click.call_count >= 1);
+            assert!(form.call_count >= 1);
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_respects_custom_phase_selection() {
+    let mut options = DynamicOptions::default();
+    options.phases = vec![RuntimePhase::Open, RuntimePhase::Idle];
+    let payload = b"function onIdle(){app.alert('idle')} app.alert('open')";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            let phase_names =
+                signals.phases.iter().map(|phase| phase.phase.as_str()).collect::<Vec<_>>();
+            assert_eq!(phase_names, vec!["open", "idle"]);
         }
         _ => panic!("expected executed"),
     }

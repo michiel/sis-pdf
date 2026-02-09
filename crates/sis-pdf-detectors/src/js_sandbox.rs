@@ -161,6 +161,35 @@ impl Detector for JavaScriptSandboxDetector {
                                     signals.dynamic_code_calls.join(", "),
                                 );
                             }
+                            if !signals.phases.is_empty() {
+                                let phase_order = signals
+                                    .phases
+                                    .iter()
+                                    .map(|phase| phase.phase.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                let phase_summary = signals
+                                    .phases
+                                    .iter()
+                                    .map(|phase| {
+                                        format!(
+                                            "{}:calls={} props={} errors={} ms={}",
+                                            phase.phase,
+                                            phase.call_count,
+                                            phase.prop_read_count,
+                                            phase.error_count,
+                                            phase.elapsed_ms
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(" | ");
+                                meta.insert("js.runtime.phase_order".into(), phase_order);
+                                meta.insert("js.runtime.phase_summaries".into(), phase_summary);
+                                meta.insert(
+                                    "js.runtime.phase_count".into(),
+                                    signals.phases.len().to_string(),
+                                );
+                            }
                             if let Some(delta) = signals.delta_summary.as_ref() {
                                 meta.insert("js.delta.phase".into(), delta.phase.clone());
                                 if !delta.trigger_calls.is_empty() {
@@ -287,6 +316,35 @@ impl Detector for JavaScriptSandboxDetector {
                             base_meta.insert(
                                 "js.runtime.dynamic_code_calls".into(),
                                 signals.dynamic_code_calls.join(", "),
+                            );
+                        }
+                        if !signals.phases.is_empty() {
+                            let phase_order = signals
+                                .phases
+                                .iter()
+                                .map(|phase| phase.phase.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            let phase_summary = signals
+                                .phases
+                                .iter()
+                                .map(|phase| {
+                                    format!(
+                                        "{}:calls={} props={} errors={} ms={}",
+                                        phase.phase,
+                                        phase.call_count,
+                                        phase.prop_read_count,
+                                        phase.error_count,
+                                        phase.elapsed_ms
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" | ");
+                            base_meta.insert("js.runtime.phase_order".into(), phase_order);
+                            base_meta.insert("js.runtime.phase_summaries".into(), phase_summary);
+                            base_meta.insert(
+                                "js.runtime.phase_count".into(),
+                                signals.phases.len().to_string(),
                             );
                         }
                         if let Some(delta) = signals.delta_summary.as_ref() {

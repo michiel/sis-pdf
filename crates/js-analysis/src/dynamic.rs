@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::types::{DynamicOptions, DynamicOutcome, RuntimeKind};
+use crate::types::{DynamicOptions, DynamicOutcome, RuntimeKind, RuntimePhase};
 
 #[cfg(feature = "js-sandbox")]
 mod sandbox_impl {
@@ -41,6 +41,13 @@ mod sandbox_impl {
         unique_calls: BTreeSet<String>,
         unique_prop_reads: BTreeSet<String>,
         elapsed_ms: Option<u128>,
+        current_phase: String,
+        phase_sequence: Vec<String>,
+        phase_call_counts: std::collections::BTreeMap<String, usize>,
+        phase_prop_read_counts: std::collections::BTreeMap<String, usize>,
+        phase_error_counts: std::collections::BTreeMap<String, usize>,
+        phase_elapsed_ms: std::collections::BTreeMap<String, u128>,
+        phase_dynamic_code_calls: std::collections::BTreeMap<String, BTreeSet<String>>,
         delta_summary: Option<SnapshotDeltaSummary>,
         options: DynamicOptions,
         variable_events: Vec<VariableEvent>,
@@ -558,6 +565,8 @@ mod sandbox_impl {
         std::thread::spawn(move || {
             let mut initial_log = SandboxLog { options: opts, ..SandboxLog::default() };
             initial_log.runtime_profile = initial_log.options.runtime_profile.id();
+            let phase_timeout_ms = initial_log.options.phase_timeout_ms;
+            let phase_plan = phase_order(&initial_log.options);
             // Initialize execution flow tracking
             initial_log.execution_flow.start_time = Some(std::time::Instant::now());
             let log = Rc::new(RefCell::new(initial_log));
@@ -578,30 +587,57 @@ mod sandbox_impl {
             let normalised = normalise_js_source(&bytes);
             let baseline_source = String::from_utf8_lossy(&normalised).to_string();
             let baseline_snapshot = snapshot_source(&baseline_source);
-            let source = Source::from_bytes(&normalised);
-            let eval_start = Instant::now();
-            let eval_res = context.eval(source);
-            let elapsed = eval_start.elapsed().as_millis();
-            let mut eval_error = None;
-            if let Err(err) = eval_res {
-                let code = String::from_utf8_lossy(&normalised).to_string();
-                let recovered =
-                    attempt_error_recovery(&mut context, &err, &code, &scope, &log).is_some();
-                if !recovered {
-                    eval_error = Some(err);
+            let mut total_elapsed = 0u128;
+            for phase in phase_plan {
+                let phase_name = phase.as_str().to_string();
+                set_phase(&log, &phase_name);
+                let phase_bytes = match phase_script_for(phase) {
+                    Some(script) => script.as_bytes().to_vec(),
+                    None => normalised.clone(),
+                };
+                let phase_code = String::from_utf8_lossy(&phase_bytes).to_string();
+                let source = Source::from_bytes(&phase_bytes);
+                let eval_start = Instant::now();
+                let eval_res = context.eval(source);
+                let elapsed = eval_start.elapsed().as_millis();
+                total_elapsed += elapsed;
+                {
+                    let mut log_ref = log.borrow_mut();
+                    log_ref.phase_elapsed_ms.insert(phase_name.clone(), elapsed);
+                }
+                if elapsed > phase_timeout_ms {
+                    let mut log_ref = log.borrow_mut();
+                    log_ref.errors.push(format!(
+                        "phase timeout exceeded: phase={} limit_ms={} observed_ms={}",
+                        phase_name, phase_timeout_ms, elapsed
+                    ));
+                    *log_ref.phase_error_counts.entry(phase_name.clone()).or_insert(0) += 1;
+                }
+                if let Err(err) = eval_res {
+                    let recovered =
+                        attempt_error_recovery(&mut context, &err, &phase_code, &scope, &log)
+                            .is_some();
+                    if !recovered {
+                        let mut log_ref = log.borrow_mut();
+                        log_ref.errors.push(format!("{:?}", err));
+                        *log_ref.phase_error_counts.entry(phase_name).or_insert(0) += 1;
+                    }
                 }
             }
             {
                 let mut log_ref = log.borrow_mut();
-                log_ref.elapsed_ms = Some(elapsed);
-                if let Some(err) = eval_error {
-                    log_ref.errors.push(format!("{:?}", err));
-                }
+                log_ref.elapsed_ms = Some(total_elapsed);
 
                 // Run behavioral pattern analysis
                 run_behavioral_analysis(&mut log_ref);
 
                 let trigger_calls = dedupe_strings(log_ref.dynamic_code_calls.clone());
+                let trigger_phase = log_ref
+                    .phase_dynamic_code_calls
+                    .iter()
+                    .find(|(_, calls)| !calls.is_empty())
+                    .map(|(phase, _)| phase.clone())
+                    .unwrap_or_else(|| "open".to_string());
                 let dynamic_snippets = extract_dynamic_snippets(&log_ref.call_args);
                 let generated_snippets = dynamic_snippets.len();
                 let augmented_source = if dynamic_snippets.is_empty() {
@@ -617,6 +653,7 @@ mod sandbox_impl {
                 log_ref.delta_summary = compute_snapshot_delta(
                     &baseline_snapshot,
                     &augmented_source,
+                    trigger_phase,
                     trigger_calls,
                     generated_snippets,
                 );
@@ -642,6 +679,7 @@ mod sandbox_impl {
                 unique_calls: log.unique_calls.len(),
                 unique_prop_reads: log.unique_prop_reads.len(),
                 elapsed_ms: log.elapsed_ms,
+                phases: render_phase_summaries(&log),
                 delta_summary: log.delta_summary.as_ref().map(|delta| {
                     crate::types::DynamicDeltaSummary {
                         phase: delta.phase.clone(),
@@ -2806,14 +2844,17 @@ mod sandbox_impl {
 
     fn record_call(log: &Rc<RefCell<SandboxLog>>, name: &str, args: &[JsValue], ctx: &mut Context) {
         let mut log_ref = log.borrow_mut();
+        let phase_key = log_ref.current_phase.clone();
         log_ref.call_count += 1;
         log_ref.calls.push(name.to_string());
         log_ref.unique_calls.insert(name.to_string());
+        *log_ref.phase_call_counts.entry(phase_key.clone()).or_insert(0) += 1;
         if is_reflection_probe_call(name) {
             log_ref.reflection_probes.push(name.to_string());
         }
         if is_dynamic_code_call(name) {
             log_ref.dynamic_code_calls.push(name.to_string());
+            log_ref.phase_dynamic_code_calls.entry(phase_key).or_default().insert(name.to_string());
         }
         if is_property_delete_call(name) {
             log_ref.prop_deletes.push(name.to_string());
@@ -2846,6 +2887,57 @@ mod sandbox_impl {
         let mut log_ref = log.borrow_mut();
         log_ref.prop_reads.push(name.to_string());
         log_ref.unique_prop_reads.insert(name.to_string());
+        let phase_key = log_ref.current_phase.clone();
+        *log_ref.phase_prop_read_counts.entry(phase_key).or_insert(0) += 1;
+    }
+
+    fn set_phase(log: &Rc<RefCell<SandboxLog>>, phase: &str) {
+        let mut log_ref = log.borrow_mut();
+        log_ref.current_phase = phase.to_string();
+        if !log_ref.phase_sequence.iter().any(|existing| existing == phase) {
+            log_ref.phase_sequence.push(phase.to_string());
+        }
+    }
+
+    fn phase_script_for(phase: RuntimePhase) -> Option<&'static str> {
+        match phase {
+            RuntimePhase::Open => None,
+            RuntimePhase::Idle => Some(
+                "if (typeof onIdle === 'function') { onIdle(); } if (typeof tick === 'function') { tick(); }",
+            ),
+            RuntimePhase::Click => Some(
+                "if (typeof onClick === 'function') { onClick(); } if (typeof mouseUp === 'function') { mouseUp(); } if (typeof this.mouseUp === 'function') { this.mouseUp(); }",
+            ),
+            RuntimePhase::Form => Some(
+                "if (typeof onSubmit === 'function') { onSubmit(); } if (typeof validate === 'function') { validate(); } if (typeof this.validate === 'function') { this.validate(); }",
+            ),
+        }
+    }
+
+    fn phase_order(options: &DynamicOptions) -> Vec<RuntimePhase> {
+        let mut out = Vec::new();
+        for phase in &options.phases {
+            if !out.iter().any(|existing| existing == phase) {
+                out.push(*phase);
+            }
+        }
+        if out.is_empty() {
+            out.push(RuntimePhase::Open);
+        }
+        out
+    }
+
+    fn render_phase_summaries(log: &SandboxLog) -> Vec<crate::types::DynamicPhaseSummary> {
+        log.phase_sequence
+            .iter()
+            .map(|phase| crate::types::DynamicPhaseSummary {
+                phase: phase.clone(),
+                call_count: *log.phase_call_counts.get(phase).unwrap_or(&0),
+                prop_read_count: *log.phase_prop_read_counts.get(phase).unwrap_or(&0),
+                error_count: *log.phase_error_counts.get(phase).unwrap_or(&0),
+                elapsed_ms: *log.phase_elapsed_ms.get(phase).unwrap_or(&0),
+            })
+            .collect()
     }
 
     fn register_profiled_stubs(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
@@ -3063,6 +3155,7 @@ mod sandbox_impl {
     fn compute_snapshot_delta(
         baseline: &JsSnapshot,
         augmented_source: &str,
+        phase: String,
         trigger_calls: Vec<String>,
         generated_snippets: usize,
     ) -> Option<SnapshotDeltaSummary> {
@@ -3084,7 +3177,7 @@ mod sandbox_impl {
             return None;
         }
         Some(SnapshotDeltaSummary {
-            phase: "eval".to_string(),
+            phase,
             trigger_calls,
             generated_snippets,
             added_identifier_count,

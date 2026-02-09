@@ -78,9 +78,19 @@ struct SandboxSignalsReport {
     unique_calls: usize,
     unique_prop_reads: usize,
     elapsed_ms: Option<u128>,
+    phases: Vec<SandboxPhaseSummaryReport>,
     delta_summary: Option<SandboxDeltaSummaryReport>,
     execution_stats: SandboxExecutionStats,
     behavioral_patterns: Vec<SandboxBehaviorPattern>,
+}
+
+#[derive(Serialize)]
+struct SandboxPhaseSummaryReport {
+    phase: String,
+    call_count: usize,
+    prop_read_count: usize,
+    error_count: usize,
+    elapsed_ms: u128,
 }
 
 #[derive(Serialize)]
@@ -1205,6 +1215,17 @@ fn run_sandbox_eval(
                 unique_calls: signals.unique_calls,
                 unique_prop_reads: signals.unique_prop_reads,
                 elapsed_ms: signals.elapsed_ms,
+                phases: signals
+                    .phases
+                    .into_iter()
+                    .map(|phase| SandboxPhaseSummaryReport {
+                        phase: phase.phase,
+                        call_count: phase.call_count,
+                        prop_read_count: phase.prop_read_count,
+                        error_count: phase.error_count,
+                        elapsed_ms: phase.elapsed_ms,
+                    })
+                    .collect(),
                 delta_summary: signals.delta_summary.map(|delta| SandboxDeltaSummaryReport {
                     phase: delta.phase,
                     trigger_calls: delta.trigger_calls,
@@ -4232,6 +4253,15 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     }
     if let Some(value) = finding.meta.get("js.runtime.unique_prop_reads") {
         println!("Runtime unique property reads: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.phase_order") {
+        println!("Runtime phase order: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.phase_count") {
+        println!("Runtime phase count: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.phase_summaries") {
+        println!("Runtime phase summaries: {}", escape_terminal(value));
     }
     if let Some(value) = finding.meta.get("js.delta.phase") {
         println!("Runtime delta phase: {}", escape_terminal(value));

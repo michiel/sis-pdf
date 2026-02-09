@@ -18,6 +18,13 @@ fn test_options() -> DynamicOptions {
         max_arg_preview: 200,
         max_urls: 50,
         max_domains: 25,
+        phase_timeout_ms: 1_250,
+        phases: vec![
+            js_analysis::types::RuntimePhase::Open,
+            js_analysis::types::RuntimePhase::Idle,
+            js_analysis::types::RuntimePhase::Click,
+            js_analysis::types::RuntimePhase::Form,
+        ],
         runtime_profile: Default::default(),
     }
 }

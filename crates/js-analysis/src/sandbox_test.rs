@@ -26,6 +26,13 @@ mod tests {
             max_arg_preview: 200,
             max_urls: 50,
             max_domains: 25,
+            phase_timeout_ms: 1_250,
+            phases: vec![
+                crate::types::RuntimePhase::Open,
+                crate::types::RuntimePhase::Idle,
+                crate::types::RuntimePhase::Click,
+                crate::types::RuntimePhase::Form,
+            ],
             runtime_profile: Default::default(),
         };
 

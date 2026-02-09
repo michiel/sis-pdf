@@ -49,5 +49,7 @@ fn sandbox_exec_records_calls() {
         report.findings.iter().find(|f| f.kind == "js_sandbox_exec").expect("sandbox exec finding");
     let calls = sandbox.meta.get("js.runtime.calls").expect("runtime calls");
     assert!(calls.contains("alert"));
+    let phase_order = sandbox.meta.get("js.runtime.phase_order").expect("phase order");
+    assert!(phase_order.contains("open"));
     assert_eq!(sandbox.meta.get("js.sandbox_exec").map(String::as_str), Some("true"));
 }

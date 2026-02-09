@@ -256,7 +256,7 @@ Adjust severity/confidence based on:
   - Correlate first-order deltas with runtime phases/events.
   - **Done when**: delta summary metadata is emitted for dynamic code change cases.
 
-- [ ] **PR-07: Behaviour emulation phases**
+- [x] **PR-07: Behaviour emulation phases**
   - Add deterministic phase scheduler (`open`, `idle`, `click`, `form`).
   - Track phase attribution in telemetry.
   - **Done when**: same payload can be evaluated by phase and produces phase-scoped telemetry.

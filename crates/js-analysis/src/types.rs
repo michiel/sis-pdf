@@ -12,6 +12,14 @@ pub enum RuntimeMode {
     DeceptionHardened,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimePhase {
+    Open,
+    Idle,
+    Click,
+    Form,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeProfile {
     pub kind: RuntimeKind,
@@ -46,6 +54,17 @@ impl RuntimeMode {
     }
 }
 
+impl RuntimePhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RuntimePhase::Open => "open",
+            RuntimePhase::Idle => "idle",
+            RuntimePhase::Click => "click",
+            RuntimePhase::Form => "form",
+        }
+    }
+}
+
 impl Default for RuntimeProfile {
     fn default() -> Self {
         Self {
@@ -74,9 +93,19 @@ pub struct DynamicSignals {
     pub unique_calls: usize,
     pub unique_prop_reads: usize,
     pub elapsed_ms: Option<u128>,
+    pub phases: Vec<DynamicPhaseSummary>,
     pub delta_summary: Option<DynamicDeltaSummary>,
     pub behavioral_patterns: Vec<BehaviorPattern>,
     pub execution_stats: ExecutionStats,
+}
+
+#[derive(Debug, Clone)]
+pub struct DynamicPhaseSummary {
+    pub phase: String,
+    pub call_count: usize,
+    pub prop_read_count: usize,
+    pub error_count: usize,
+    pub elapsed_ms: u128,
 }
 
 #[derive(Debug, Clone)]
@@ -127,6 +156,8 @@ pub struct DynamicOptions {
     pub max_urls: usize,
     pub max_domains: usize,
     pub max_args_per_call: usize,
+    pub phase_timeout_ms: u128,
+    pub phases: Vec<RuntimePhase>,
     pub runtime_profile: RuntimeProfile,
 }
 
@@ -140,6 +171,13 @@ impl Default for DynamicOptions {
             max_urls: 48,
             max_domains: 48,
             max_args_per_call: 8,
+            phase_timeout_ms: 1_250,
+            phases: vec![
+                RuntimePhase::Open,
+                RuntimePhase::Idle,
+                RuntimePhase::Click,
+                RuntimePhase::Form,
+            ],
             runtime_profile: RuntimeProfile::default(),
         }
     }

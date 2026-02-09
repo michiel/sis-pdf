@@ -9,6 +9,6 @@ pub use static_analysis::{
     decode_layers, extract_js_signals, extract_js_signals_with_ast, DecodedLayers,
 };
 pub use types::{
-    DynamicDeltaSummary, DynamicOptions, DynamicOutcome, DynamicSignals, RuntimeKind, RuntimeMode,
-    RuntimeProfile,
+    DynamicDeltaSummary, DynamicOptions, DynamicOutcome, DynamicPhaseSummary, DynamicSignals,
+    RuntimeKind, RuntimeMode, RuntimePhase, RuntimeProfile,
 };
