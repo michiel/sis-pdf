@@ -243,3 +243,54 @@ Behavioural pattern labels observed:
 4. **Promote `js_emulation_breakpoint` aggregation in reporting workflows**
    - Use the new bucket metadata to prioritise emulator hardening work by frequency and exploit-family clustering.
    - Report top breakpoint buckets in batch summaries.
+
+## Third sweep (next 10-sample batch, post-hardening repeat)
+
+## Scope and sample set
+
+Third batch from the next 10 date folders:
+
+1. `tmp/javascript-malware-collection/2017/20170214/20170214_02e6a11e1d35346f3754991bff75a0a4.js`
+2. `tmp/javascript-malware-collection/2017/20170215/20170215_3d8e5cd536caf13bd53f1015809f93c6.js`
+3. `tmp/javascript-malware-collection/2017/20170216/20170216_d6c0f10fe507f03db2ca546c3a42ae2f.js`
+4. `tmp/javascript-malware-collection/2017/20170218/20170218_2d2f63d8f4470e88e509c59119635bd9.js`
+5. `tmp/javascript-malware-collection/2017/20170219/20170219_2eb997fab8dc4151b2a936fc513fbc07.js`
+6. `tmp/javascript-malware-collection/2017/20170220/20170220_56d677774c137373f7e9eb5e30e9ab91.js`
+7. `tmp/javascript-malware-collection/2017/20170221/20170221_1486c6103e734fdbafde9c8f93618d03.js`
+8. `tmp/javascript-malware-collection/2017/20170222/20170222_8971850d582ef58c23e954503d21f321.js`
+9. `tmp/javascript-malware-collection/2017/20170223/20170223_2f30562531561e4a1e6eeeaddcb73781.js`
+10. `tmp/javascript-malware-collection/2017/20170225/20170225_3557e92ea687a0986e58b05d7751da70.js`
+
+## Results summary
+
+- 10/10 executed.
+- 3/10 emitted runtime errors (improved from 8/10 in the second sweep batch).
+- 0/10 used `WScript.CreateObject` directly; this batch is mostly `ActiveXObject`/`XMLHTTP`-leaning.
+- 2/10 exhibited dynamic code generation.
+- Dominant error signatures shifted to:
+  - `exceeded maximum number of recursive calls` (2)
+  - `unexpected token '<', primary expression at line 1, col 1` (1)
+
+## Notable changes vs previous sweeps
+
+- Constructor/callable COM hardening appears effective for this segment:
+  - repeated `ActiveXObject -> MSXML2.XMLHTTP.open/send` chains now execute without the earlier `not a constructor` / `not a callable function` dominance.
+- Error profile moved from **emulation shape mismatch** to **runtime limit / parser format mismatch**.
+- This is a positive shift: failures are now concentrated in two more tractable classes.
+
+## Updated recommendations (post-third sweep)
+
+1. **Add explicit recursion-depth telemetry + finding linkage**
+   - Current runtime captures the recursion error text, but we should expose a dedicated `js_runtime_recursion_limit`/`js_emulation_breakpoint` bucket enrichment with depth counters when available.
+   - This helps distinguish adversarial recursion bombs from benign deep utility code.
+
+2. **Add script-format pre-classification before sandbox execution**
+   - The `<` token parse failure indicates HTML/markup-like or non-JS container content entering the JS sandbox path.
+   - Add a light pre-check (for leading markup signatures and MIME/extension hints) and emit a dedicated parse-format finding instead of only runtime parser failure.
+
+3. **Keep strengthening `ActiveXObject` network chain intent extraction**
+   - Even when execution succeeds, many samples repeatedly call `MSXML2.XMLHTTP.open/send`.
+   - Add/raise intent scoring when repeated request loops occur with object-creation cadence consistent with downloader logic.
+
+4. **Batch reporting**
+   - Continue surfacing top emulation-breakpoint buckets in batch summaries (now implemented) and track trend lines across corpus slices.
