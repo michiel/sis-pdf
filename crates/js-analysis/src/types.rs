@@ -22,13 +22,7 @@ pub struct RuntimeProfile {
 
 impl RuntimeProfile {
     pub fn id(&self) -> String {
-        format!(
-            "{}:{}:{}:{}",
-            self.kind.as_str(),
-            self.vendor,
-            self.version,
-            self.mode.as_str()
-        )
+        format!("{}:{}:{}:{}", self.kind.as_str(), self.vendor, self.version, self.mode.as_str())
     }
 }
 
@@ -80,8 +74,22 @@ pub struct DynamicSignals {
     pub unique_calls: usize,
     pub unique_prop_reads: usize,
     pub elapsed_ms: Option<u128>,
+    pub delta_summary: Option<DynamicDeltaSummary>,
     pub behavioral_patterns: Vec<BehaviorPattern>,
     pub execution_stats: ExecutionStats,
+}
+
+#[derive(Debug, Clone)]
+pub struct DynamicDeltaSummary {
+    pub phase: String,
+    pub trigger_calls: Vec<String>,
+    pub generated_snippets: usize,
+    pub added_identifier_count: usize,
+    pub added_string_literal_count: usize,
+    pub added_call_count: usize,
+    pub new_identifiers: Vec<String>,
+    pub new_string_literals: Vec<String>,
+    pub new_calls: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

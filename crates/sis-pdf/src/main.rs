@@ -78,8 +78,22 @@ struct SandboxSignalsReport {
     unique_calls: usize,
     unique_prop_reads: usize,
     elapsed_ms: Option<u128>,
+    delta_summary: Option<SandboxDeltaSummaryReport>,
     execution_stats: SandboxExecutionStats,
     behavioral_patterns: Vec<SandboxBehaviorPattern>,
+}
+
+#[derive(Serialize)]
+struct SandboxDeltaSummaryReport {
+    phase: String,
+    trigger_calls: Vec<String>,
+    generated_snippets: usize,
+    added_identifier_count: usize,
+    added_string_literal_count: usize,
+    added_call_count: usize,
+    new_identifiers: Vec<String>,
+    new_string_literals: Vec<String>,
+    new_calls: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -1191,6 +1205,17 @@ fn run_sandbox_eval(
                 unique_calls: signals.unique_calls,
                 unique_prop_reads: signals.unique_prop_reads,
                 elapsed_ms: signals.elapsed_ms,
+                delta_summary: signals.delta_summary.map(|delta| SandboxDeltaSummaryReport {
+                    phase: delta.phase,
+                    trigger_calls: delta.trigger_calls,
+                    generated_snippets: delta.generated_snippets,
+                    added_identifier_count: delta.added_identifier_count,
+                    added_string_literal_count: delta.added_string_literal_count,
+                    added_call_count: delta.added_call_count,
+                    new_identifiers: delta.new_identifiers,
+                    new_string_literals: delta.new_string_literals,
+                    new_calls: delta.new_calls,
+                }),
                 execution_stats: SandboxExecutionStats {
                     total_function_calls: signals.execution_stats.total_function_calls,
                     unique_function_calls: signals.execution_stats.unique_function_calls,
@@ -4207,6 +4232,33 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     }
     if let Some(value) = finding.meta.get("js.runtime.unique_prop_reads") {
         println!("Runtime unique property reads: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.phase") {
+        println!("Runtime delta phase: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.trigger_calls") {
+        println!("Runtime delta trigger calls: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.generated_snippets") {
+        println!("Runtime generated snippets: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.added_identifier_count") {
+        println!("Runtime delta added identifiers: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.added_string_literal_count") {
+        println!("Runtime delta added string literals: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.added_call_count") {
+        println!("Runtime delta added calls: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.new_identifiers") {
+        println!("Runtime delta new identifiers: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.new_string_literals") {
+        println!("Runtime delta new string literals: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.delta.new_calls") {
+        println!("Runtime delta new calls: {}", escape_terminal(value));
     }
     print_finding_context_hints(&finding.meta);
     println!();

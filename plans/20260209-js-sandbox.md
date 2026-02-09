@@ -251,7 +251,7 @@ Adjust severity/confidence based on:
   - Assert deterministic error signatures and stable return types.
   - **Done when**: profile contract suite validates baseline profiles.
 
-- [ ] **PR-06: AST/graph snapshot and delta scaffolding**
+- [x] **PR-06: AST/graph snapshot and delta scaffolding**
   - Introduce snapshot model and a minimal delta computation pipeline.
   - Correlate first-order deltas with runtime phases/events.
   - **Done when**: delta summary metadata is emitted for dynamic code change cases.

@@ -41,6 +41,7 @@ mod sandbox_impl {
         unique_calls: BTreeSet<String>,
         unique_prop_reads: BTreeSet<String>,
         elapsed_ms: Option<u128>,
+        delta_summary: Option<SnapshotDeltaSummary>,
         options: DynamicOptions,
         variable_events: Vec<VariableEvent>,
         scope_transitions: Vec<ScopeTransition>,
@@ -218,6 +219,26 @@ mod sandbox_impl {
         Medium,
         High,
         Critical,
+    }
+
+    #[derive(Debug, Clone, Default)]
+    struct JsSnapshot {
+        identifiers: BTreeSet<String>,
+        string_literals: BTreeSet<String>,
+        calls: BTreeSet<String>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct SnapshotDeltaSummary {
+        phase: String,
+        trigger_calls: Vec<String>,
+        generated_snippets: usize,
+        added_identifier_count: usize,
+        added_string_literal_count: usize,
+        added_call_count: usize,
+        new_identifiers: Vec<String>,
+        new_string_literals: Vec<String>,
+        new_calls: Vec<String>,
     }
 
     struct BehaviorAnalyzer {
@@ -555,6 +576,8 @@ mod sandbox_impl {
             register_enhanced_global_fallback(&mut context, log.clone(), scope.clone());
 
             let normalised = normalise_js_source(&bytes);
+            let baseline_source = String::from_utf8_lossy(&normalised).to_string();
+            let baseline_snapshot = snapshot_source(&baseline_source);
             let source = Source::from_bytes(&normalised);
             let eval_start = Instant::now();
             let eval_res = context.eval(source);
@@ -577,6 +600,26 @@ mod sandbox_impl {
 
                 // Run behavioral pattern analysis
                 run_behavioral_analysis(&mut log_ref);
+
+                let trigger_calls = dedupe_strings(log_ref.dynamic_code_calls.clone());
+                let dynamic_snippets = extract_dynamic_snippets(&log_ref.call_args);
+                let generated_snippets = dynamic_snippets.len();
+                let augmented_source = if dynamic_snippets.is_empty() {
+                    baseline_source.clone()
+                } else {
+                    let mut augmented = baseline_source.clone();
+                    for snippet in &dynamic_snippets {
+                        augmented.push('\n');
+                        augmented.push_str(snippet);
+                    }
+                    augmented
+                };
+                log_ref.delta_summary = compute_snapshot_delta(
+                    &baseline_snapshot,
+                    &augmented_source,
+                    trigger_calls,
+                    generated_snippets,
+                );
             }
             let out = log.borrow().clone();
             let _ = tx.send(out);
@@ -599,6 +642,19 @@ mod sandbox_impl {
                 unique_calls: log.unique_calls.len(),
                 unique_prop_reads: log.unique_prop_reads.len(),
                 elapsed_ms: log.elapsed_ms,
+                delta_summary: log.delta_summary.as_ref().map(|delta| {
+                    crate::types::DynamicDeltaSummary {
+                        phase: delta.phase.clone(),
+                        trigger_calls: delta.trigger_calls.clone(),
+                        generated_snippets: delta.generated_snippets,
+                        added_identifier_count: delta.added_identifier_count,
+                        added_string_literal_count: delta.added_string_literal_count,
+                        added_call_count: delta.added_call_count,
+                        new_identifiers: delta.new_identifiers.clone(),
+                        new_string_literals: delta.new_string_literals.clone(),
+                        new_calls: delta.new_calls.clone(),
+                    }
+                }),
                 behavioral_patterns: log
                     .behavioral_patterns
                     .iter()
@@ -2864,6 +2920,180 @@ mod sandbox_impl {
             }
         }
         out
+    }
+
+    fn truncate_set(values: BTreeSet<String>, max: usize) -> Vec<String> {
+        values.into_iter().take(max).collect()
+    }
+
+    fn is_identifier_start(ch: char) -> bool {
+        ch == '_' || ch == '$' || ch.is_ascii_alphabetic()
+    }
+
+    fn is_identifier_char(ch: char) -> bool {
+        ch == '_' || ch == '$' || ch.is_ascii_alphanumeric()
+    }
+
+    fn is_call_keyword(token: &str) -> bool {
+        matches!(token, "if" | "for" | "while" | "switch" | "catch" | "return" | "typeof")
+    }
+
+    fn extract_string_literal(
+        chars: &[char],
+        start: usize,
+        quote: char,
+    ) -> Option<(String, usize)> {
+        let mut index = start + 1;
+        let mut escaped = false;
+        let mut out = String::new();
+        while index < chars.len() {
+            let ch = chars[index];
+            if escaped {
+                out.push(ch);
+                escaped = false;
+                index += 1;
+                continue;
+            }
+            if ch == '\\' {
+                escaped = true;
+                index += 1;
+                continue;
+            }
+            if ch == quote {
+                return Some((out, index + 1));
+            }
+            out.push(ch);
+            index += 1;
+        }
+        None
+    }
+
+    fn next_non_whitespace(chars: &[char], mut index: usize) -> Option<char> {
+        while index < chars.len() {
+            let ch = chars[index];
+            if !ch.is_whitespace() {
+                return Some(ch);
+            }
+            index += 1;
+        }
+        None
+    }
+
+    fn take_identifier(chars: &[char], start: usize) -> (String, usize) {
+        let mut index = start;
+        let mut token = String::new();
+        while index < chars.len() && is_identifier_char(chars[index]) {
+            token.push(chars[index]);
+            index += 1;
+        }
+        (token, index)
+    }
+
+    fn snapshot_source(source: &str) -> JsSnapshot {
+        let mut snapshot = JsSnapshot::default();
+        let chars: Vec<char> = source.chars().collect();
+        let mut index = 0usize;
+        while index < chars.len() {
+            let ch = chars[index];
+            if ch == '\'' || ch == '"' || ch == '`' {
+                if let Some((literal, next)) = extract_string_literal(&chars, index, ch) {
+                    if !literal.is_empty() {
+                        snapshot.string_literals.insert(literal);
+                    }
+                    index = next;
+                    continue;
+                }
+            }
+            if is_identifier_start(ch) {
+                let (token, next) = take_identifier(&chars, index);
+                if !token.is_empty() {
+                    snapshot.identifiers.insert(token.clone());
+                    if let Some('(') = next_non_whitespace(&chars, next) {
+                        if !is_call_keyword(&token) {
+                            snapshot.calls.insert(token);
+                        }
+                    }
+                }
+                index = next;
+                continue;
+            }
+            index += 1;
+        }
+        snapshot
+    }
+
+    fn extract_dynamic_snippets(call_args: &[String]) -> Vec<String> {
+        let mut snippets = Vec::new();
+        for entry in call_args {
+            let Some(open) = entry.find('(') else {
+                continue;
+            };
+            if !entry.ends_with(')') || open + 1 >= entry.len() {
+                continue;
+            }
+            let name = &entry[..open];
+            let target = name.trim();
+            if !matches!(
+                target,
+                "eval" | "app.eval" | "event.target.eval" | "Function" | "unescape"
+            ) {
+                continue;
+            }
+            let mut payload = entry[open + 1..entry.len() - 1].trim().to_string();
+            if payload.is_empty() {
+                continue;
+            }
+            if (payload.starts_with('"') && payload.ends_with('"'))
+                || (payload.starts_with('\'') && payload.ends_with('\''))
+                || (payload.starts_with('`') && payload.ends_with('`'))
+            {
+                if payload.len() > 2 {
+                    payload = payload[1..payload.len() - 1].to_string();
+                } else {
+                    payload.clear();
+                }
+            }
+            if !payload.is_empty() {
+                snippets.push(payload);
+            }
+        }
+        dedupe_strings(snippets)
+    }
+
+    fn compute_snapshot_delta(
+        baseline: &JsSnapshot,
+        augmented_source: &str,
+        trigger_calls: Vec<String>,
+        generated_snippets: usize,
+    ) -> Option<SnapshotDeltaSummary> {
+        let augmented = snapshot_source(augmented_source);
+        let new_identifiers: BTreeSet<String> =
+            augmented.identifiers.difference(&baseline.identifiers).cloned().collect();
+        let new_literals: BTreeSet<String> =
+            augmented.string_literals.difference(&baseline.string_literals).cloned().collect();
+        let new_calls: BTreeSet<String> =
+            augmented.calls.difference(&baseline.calls).cloned().collect();
+        let added_identifier_count = new_identifiers.len();
+        let added_string_literal_count = new_literals.len();
+        let added_call_count = new_calls.len();
+        if added_identifier_count == 0
+            && added_string_literal_count == 0
+            && added_call_count == 0
+            && generated_snippets == 0
+        {
+            return None;
+        }
+        Some(SnapshotDeltaSummary {
+            phase: "eval".to_string(),
+            trigger_calls,
+            generated_snippets,
+            added_identifier_count,
+            added_string_literal_count,
+            added_call_count,
+            new_identifiers: truncate_set(new_identifiers, 16),
+            new_string_literals: truncate_set(new_literals, 16),
+            new_calls: truncate_set(new_calls, 16),
+        })
     }
 
     fn summarise_args(

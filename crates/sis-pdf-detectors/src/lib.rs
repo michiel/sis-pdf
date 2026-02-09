@@ -2260,11 +2260,7 @@ fn detect_script_signals(data: &[u8]) -> Vec<(&'static str, &'static str)> {
     }
     if contains_any_ci(
         slice,
-        &[
-            b"vbscript".as_slice(),
-            b"wscript.shell".as_slice(),
-            b"createobject(".as_slice(),
-        ],
+        &[b"vbscript".as_slice(), b"wscript.shell".as_slice(), b"createobject(".as_slice()],
     ) {
         signals.push(("vbscript", "token:vbscript"));
     }
@@ -2283,10 +2279,8 @@ fn printable_ascii_ratio(bytes: &[u8]) -> usize {
     if bytes.is_empty() {
         return 0;
     }
-    let printable = bytes
-        .iter()
-        .filter(|byte| matches!(**byte, b'\t' | b'\n' | b'\r' | 0x20..=0x7E))
-        .count();
+    let printable =
+        bytes.iter().filter(|byte| matches!(**byte, b'\t' | b'\n' | b'\r' | 0x20..=0x7E)).count();
     (printable * 100) / bytes.len()
 }
 
@@ -2380,7 +2374,8 @@ impl Detector for EmbeddedFileDetector {
                     let mut encrypted_container = false;
                     let mut has_double = false;
                     let stream_ref = (entry.obj, entry.gen);
-                    let artefact_ref: Option<&EmbeddedArtefactRef> = embedded_index.get(&stream_ref);
+                    let artefact_ref: Option<&EmbeddedArtefactRef> =
+                        embedded_index.get(&stream_ref);
                     let filename = artefact_ref
                         .and_then(|record| record.filename.clone())
                         .or_else(|| embedded_filename(&st.dict));
@@ -4168,9 +4163,9 @@ fn string_bytes(s: &sis_pdf_pdf::object::PdfStr<'_>) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        assess_xref_conflict, data_uri_payload_from_bytes, extract_xfa_script_payloads,
-        infer_js_intent, javascript_uri_payload_from_bytes, js_present_severity_from_meta,
-        normalise_text_bytes_for_script, classify_embedded_script,
+        assess_xref_conflict, classify_embedded_script, data_uri_payload_from_bytes,
+        extract_xfa_script_payloads, infer_js_intent, javascript_uri_payload_from_bytes,
+        js_present_severity_from_meta, normalise_text_bytes_for_script,
     };
     use sis_pdf_core::model::Severity;
     use sis_pdf_pdf::graph::{Deviation, XrefSectionSummary};

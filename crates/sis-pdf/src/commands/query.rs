@@ -2818,7 +2818,12 @@ fn extract_embedded_files(
                     {
                         embedded.push(format!(
                             "{} ({}_{}, filespec={}_{}, {} bytes)",
-                            name, entry.obj, entry.gen, filespec_obj, filespec_gen, data.len()
+                            name,
+                            entry.obj,
+                            entry.gen,
+                            filespec_obj,
+                            filespec_gen,
+                            data.len()
                         ));
                     } else {
                         embedded.push(format!(

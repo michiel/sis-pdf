@@ -32,6 +32,41 @@ fn sandbox_exec_records_calls() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_emits_delta_summary_for_dynamic_code() {
+    let options = DynamicOptions::default();
+    let payload = br#"eval("var stageTwo = 7; app.alert('stage2');");"#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            let delta = signals.delta_summary.expect("delta summary");
+            assert_eq!(delta.phase, "eval");
+            assert!(delta.generated_snippets >= 1);
+            assert!(delta.trigger_calls.iter().any(|call| call == "eval"));
+            assert!(delta.added_identifier_count >= 1);
+            assert!(
+                delta.new_identifiers.iter().any(|value| value == "stageTwo")
+                    || delta.new_calls.iter().any(|value| value == "alert")
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_omits_delta_summary_without_dynamic_code() {
+    let options = DynamicOptions::default();
+    let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.delta_summary.is_none());
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_handles_app_doc_annots_payload() {
     let options = DynamicOptions::default();
     let payload = b"var z; var y; z = y = app.doc; y = 0; z.syncAnnotScan(); y = z; var p = y.getAnnots({ nPage: 0 }); var s = p[0].subject; var l = s.replace(/z/g, '%'); s = unescape(l); eval(s); s = ''; z = 1;";

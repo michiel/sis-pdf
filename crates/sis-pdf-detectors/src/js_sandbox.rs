@@ -114,7 +114,10 @@ impl Detector for JavaScriptSandboxDetector {
                         if signals.call_count == 0 {
                             let mut meta = std::collections::HashMap::new();
                             meta.insert("js.sandbox_exec".into(), "true".into());
-                            meta.insert("js.runtime.profile".into(), signals.runtime_profile.clone());
+                            meta.insert(
+                                "js.runtime.profile".into(),
+                                signals.runtime_profile.clone(),
+                            );
                             if let Some(label) = candidate.source.meta_value() {
                                 meta.insert("js.source".into(), label.into());
                             }
@@ -158,6 +161,49 @@ impl Detector for JavaScriptSandboxDetector {
                                     signals.dynamic_code_calls.join(", "),
                                 );
                             }
+                            if let Some(delta) = signals.delta_summary.as_ref() {
+                                meta.insert("js.delta.phase".into(), delta.phase.clone());
+                                if !delta.trigger_calls.is_empty() {
+                                    meta.insert(
+                                        "js.delta.trigger_calls".into(),
+                                        delta.trigger_calls.join(", "),
+                                    );
+                                }
+                                meta.insert(
+                                    "js.delta.generated_snippets".into(),
+                                    delta.generated_snippets.to_string(),
+                                );
+                                meta.insert(
+                                    "js.delta.added_identifier_count".into(),
+                                    delta.added_identifier_count.to_string(),
+                                );
+                                meta.insert(
+                                    "js.delta.added_string_literal_count".into(),
+                                    delta.added_string_literal_count.to_string(),
+                                );
+                                meta.insert(
+                                    "js.delta.added_call_count".into(),
+                                    delta.added_call_count.to_string(),
+                                );
+                                if !delta.new_identifiers.is_empty() {
+                                    meta.insert(
+                                        "js.delta.new_identifiers".into(),
+                                        delta.new_identifiers.join(", "),
+                                    );
+                                }
+                                if !delta.new_string_literals.is_empty() {
+                                    meta.insert(
+                                        "js.delta.new_string_literals".into(),
+                                        delta.new_string_literals.join(", "),
+                                    );
+                                }
+                                if !delta.new_calls.is_empty() {
+                                    meta.insert(
+                                        "js.delta.new_calls".into(),
+                                        delta.new_calls.join(", "),
+                                    );
+                                }
+                            }
                             let description = if !signals.prop_reads.is_empty() {
                                 "Sandbox executed JS; property accesses observed."
                             } else if signals.errors.is_empty() {
@@ -187,7 +233,8 @@ impl Detector for JavaScriptSandboxDetector {
                         }
 
                         let mut base_meta = std::collections::HashMap::new();
-                        base_meta.insert("js.runtime.profile".into(), signals.runtime_profile.clone());
+                        base_meta
+                            .insert("js.runtime.profile".into(), signals.runtime_profile.clone());
                         base_meta.insert("js.runtime.calls".into(), signals.calls.join(","));
                         base_meta
                             .insert("js.runtime.call_count".into(), signals.call_count.to_string());
@@ -241,6 +288,49 @@ impl Detector for JavaScriptSandboxDetector {
                                 "js.runtime.dynamic_code_calls".into(),
                                 signals.dynamic_code_calls.join(", "),
                             );
+                        }
+                        if let Some(delta) = signals.delta_summary.as_ref() {
+                            base_meta.insert("js.delta.phase".into(), delta.phase.clone());
+                            if !delta.trigger_calls.is_empty() {
+                                base_meta.insert(
+                                    "js.delta.trigger_calls".into(),
+                                    delta.trigger_calls.join(", "),
+                                );
+                            }
+                            base_meta.insert(
+                                "js.delta.generated_snippets".into(),
+                                delta.generated_snippets.to_string(),
+                            );
+                            base_meta.insert(
+                                "js.delta.added_identifier_count".into(),
+                                delta.added_identifier_count.to_string(),
+                            );
+                            base_meta.insert(
+                                "js.delta.added_string_literal_count".into(),
+                                delta.added_string_literal_count.to_string(),
+                            );
+                            base_meta.insert(
+                                "js.delta.added_call_count".into(),
+                                delta.added_call_count.to_string(),
+                            );
+                            if !delta.new_identifiers.is_empty() {
+                                base_meta.insert(
+                                    "js.delta.new_identifiers".into(),
+                                    delta.new_identifiers.join(", "),
+                                );
+                            }
+                            if !delta.new_string_literals.is_empty() {
+                                base_meta.insert(
+                                    "js.delta.new_string_literals".into(),
+                                    delta.new_string_literals.join(", "),
+                                );
+                            }
+                            if !delta.new_calls.is_empty() {
+                                base_meta.insert(
+                                    "js.delta.new_calls".into(),
+                                    delta.new_calls.join(", "),
+                                );
+                            }
                         }
                         if !signals.errors.is_empty() {
                             base_meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
