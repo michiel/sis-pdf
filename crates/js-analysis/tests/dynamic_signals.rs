@@ -157,6 +157,29 @@ fn sandbox_tracks_truncation_invariants() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_short_circuits_repetitive_probe_loops() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var f = new ActiveXObject('Scripting.FileSystemObject');
+        var i = 0;
+        while (!f.FolderExists('C:/temp') && i < 2000) { i++; }
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .calls
+                .iter()
+                .any(|call| call == "Scripting.FileSystemObject.FolderExists"));
+            assert!(signals.execution_stats.probe_loop_short_circuit_hits > 0);
+            assert_eq!(signals.execution_stats.adaptive_loop_profile, "host_probe");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_deduped_lists_are_deterministically_sorted() {
     let options = DynamicOptions::default();
     let payload = b"

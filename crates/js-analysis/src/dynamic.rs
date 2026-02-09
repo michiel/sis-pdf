@@ -29,6 +29,8 @@ mod sandbox_impl {
     const MAX_RECORDED_ERRORS: usize = 256;
     const BASE_LOOP_ITERATION_LIMIT: u64 = 10_000;
     const DOWNLOADER_LOOP_ITERATION_LIMIT: u64 = 20_000;
+    const HOST_PROBE_LOOP_ITERATION_LIMIT: u64 = 40_000;
+    const PROBE_EXISTS_TRUE_AFTER: usize = 24;
 
     #[derive(Default, Clone)]
     struct SandboxLog {
@@ -46,6 +48,7 @@ mod sandbox_impl {
         dynamic_code_calls: Vec<String>,
         call_count: usize,
         unique_calls: BTreeSet<String>,
+        call_counts_by_name: std::collections::HashMap<String, usize>,
         unique_prop_reads: BTreeSet<String>,
         elapsed_ms: Option<u128>,
         current_phase: String,
@@ -68,7 +71,9 @@ mod sandbox_impl {
         execution_flow: ExecutionFlow,
         behavioral_patterns: Vec<BehaviorObservation>,
         adaptive_loop_iteration_limit: usize,
+        adaptive_loop_profile: String,
         downloader_scheduler_hardening: bool,
+        probe_loop_short_circuit_hits: usize,
     }
 
     #[derive(Debug, Clone)]
@@ -610,11 +615,12 @@ mod sandbox_impl {
             let normalised = normalise_js_source(&bytes);
             let mut context = Context::default();
             let mut limits = RuntimeLimits::default();
-            let (loop_iteration_limit, downloader_scheduler_hardening) =
+            let (loop_iteration_limit, loop_profile, downloader_scheduler_hardening) =
                 select_loop_iteration_limit(&normalised);
             {
                 let mut log_ref = log.borrow_mut();
                 log_ref.adaptive_loop_iteration_limit = loop_iteration_limit as usize;
+                log_ref.adaptive_loop_profile = loop_profile.to_string();
                 log_ref.downloader_scheduler_hardening = downloader_scheduler_hardening;
             }
             limits.set_loop_iteration_limit(loop_iteration_limit);
@@ -799,7 +805,9 @@ mod sandbox_impl {
                         .unwrap_or(0),
                     loop_iteration_limit_hits: loop_iteration_limit_hits(&log.errors),
                     adaptive_loop_iteration_limit: log.adaptive_loop_iteration_limit,
+                    adaptive_loop_profile: log.adaptive_loop_profile.clone(),
                     downloader_scheduler_hardening: log.downloader_scheduler_hardening,
+                    probe_loop_short_circuit_hits: log.probe_loop_short_circuit_hits,
                 },
             })),
             Err(RecvTimeoutError::Timeout) => {
@@ -1337,12 +1345,20 @@ mod sandbox_impl {
                     0,
                 )
                 .function(
-                    make_fn("Scripting.FileSystemObject.FileExists"),
+                    make_native_probe_exists(
+                        log.clone(),
+                        "Scripting.FileSystemObject.FileExists",
+                        PROBE_EXISTS_TRUE_AFTER,
+                    ),
                     JsString::from("FileExists"),
                     1,
                 )
                 .function(
-                    make_fn("Scripting.FileSystemObject.FolderExists"),
+                    make_native_probe_exists(
+                        log.clone(),
+                        "Scripting.FileSystemObject.FolderExists",
+                        PROBE_EXISTS_TRUE_AFTER,
+                    ),
                     JsString::from("FolderExists"),
                     1,
                 )
@@ -3391,16 +3407,23 @@ mod sandbox_impl {
         byte.is_ascii_hexdigit()
     }
 
-    fn select_loop_iteration_limit(source: &[u8]) -> (u64, bool) {
+    fn select_loop_iteration_limit(source: &[u8]) -> (u64, &'static str, bool) {
         let lower = String::from_utf8_lossy(source).to_ascii_lowercase();
         let has_downloader_pattern = (lower.contains("wscript.createobject")
             || lower.contains("activexobject")
             || lower.contains("createobject("))
             && (lower.contains("msxml2.xmlhttp") || lower.contains("serverxmlhttp"));
+        let has_host_probe_pattern = (lower.contains("activexobject")
+            || lower.contains("scripting.filesystemobject")
+            || lower.contains("folderexists"))
+            && (lower.contains("folderexists") || lower.contains("fileexists"));
+        if has_host_probe_pattern {
+            return (HOST_PROBE_LOOP_ITERATION_LIMIT, "host_probe", true);
+        }
         if has_downloader_pattern {
-            (DOWNLOADER_LOOP_ITERATION_LIMIT, true)
+            (DOWNLOADER_LOOP_ITERATION_LIMIT, "downloader", true)
         } else {
-            (BASE_LOOP_ITERATION_LIMIT, false)
+            (BASE_LOOP_ITERATION_LIMIT, "base", false)
         }
     }
 
@@ -3425,6 +3448,32 @@ mod sandbox_impl {
                 LogNameCapture { log, name },
             )
         }
+    }
+
+    fn make_native_probe_exists(
+        log: Rc<RefCell<SandboxLog>>,
+        name: &'static str,
+        threshold: usize,
+    ) -> NativeFunction {
+        unsafe {
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, captures.name, args, ctx);
+                    let call_count = current_call_count(&captures.log, captures.name);
+                    let should_exist = call_count >= threshold;
+                    if should_exist {
+                        let mut log_ref = captures.log.borrow_mut();
+                        log_ref.probe_loop_short_circuit_hits += 1;
+                    }
+                    Ok(JsValue::from(should_exist))
+                },
+                LogNameCapture { log, name },
+            )
+        }
+    }
+
+    fn current_call_count(log: &Rc<RefCell<SandboxLog>>, name: &str) -> usize {
+        log.borrow().call_counts_by_name.get(name).copied().unwrap_or(0)
     }
 
     fn make_getter(
@@ -3454,6 +3503,7 @@ mod sandbox_impl {
         let mut log_ref = log.borrow_mut();
         let phase_key = log_ref.current_phase.clone();
         log_ref.call_count += 1;
+        *log_ref.call_counts_by_name.entry(name.to_string()).or_insert(0) += 1;
         if log_ref.calls.len() < MAX_RECORDED_CALLS {
             log_ref.calls.push(name.to_string());
         } else {

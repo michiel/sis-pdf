@@ -637,6 +637,33 @@ fn detect_downloader_pattern(calls: &[String]) -> Option<(usize, usize, usize)> 
     }
 }
 
+fn detect_probe_loop_context(calls: &[String]) -> Option<(String, usize, usize, f64)> {
+    let probe_apis = [
+        "ActiveXObject",
+        "CreateObject",
+        "WScript.CreateObject",
+        "Scripting.FileSystemObject.FolderExists",
+        "Scripting.FileSystemObject.FileExists",
+    ];
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for call in calls {
+        if probe_apis.iter().any(|api| call == api) {
+            *counts.entry(call.clone()).or_insert(0) += 1;
+        }
+    }
+    if counts.is_empty() {
+        return None;
+    }
+    let total_probe_calls = counts.values().copied().sum::<usize>();
+    let unique_probe_apis = counts.len();
+    let (dominant_api, dominant_count) = counts
+        .into_iter()
+        .max_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)))?;
+    let dominance_ratio =
+        if total_probe_calls == 0 { 0.0 } else { dominant_count as f64 / total_probe_calls as f64 };
+    Some((dominant_api, total_probe_calls, unique_probe_apis, dominance_ratio))
+}
+
 fn extend_with_emulation_breakpoint_finding(
     findings: &mut Vec<Finding>,
     detector_surface: AttackSurface,
@@ -679,13 +706,59 @@ fn extend_with_emulation_breakpoint_finding(
     let parser_mismatch = bucket_counts.contains_key("parser_dialect_mismatch");
     let base_severity = if parser_mismatch { Severity::Medium } else { Severity::Low };
     let base_confidence = if parser_mismatch { Confidence::Strong } else { Confidence::Probable };
-    let (severity, confidence) = apply_profile_scoring_meta(
+    let (severity, mut confidence) = apply_profile_scoring_meta(
         &mut meta,
         summary,
         "js_sandbox_exec",
         base_severity,
         base_confidence,
     );
+    if bucket_counts.contains_key("loop_iteration_limit") {
+        if let Some(calls_raw) = base_meta.get("js.runtime.calls") {
+            let calls = calls_raw
+                .split(',')
+                .map(str::trim)
+                .filter(|token| !token.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            if let Some((dominant_api, total_probe_calls, unique_probe_apis, dominance_ratio)) =
+                detect_probe_loop_context(&calls)
+            {
+                let loop_hits = *bucket_counts.get("loop_iteration_limit").unwrap_or(&0);
+                let pressure_ratio = if total_probe_calls == 0 {
+                    0.0
+                } else {
+                    loop_hits as f64 / total_probe_calls as f64
+                };
+                meta.insert("js.runtime.probe_loop".into(), "true".into());
+                meta.insert("js.runtime.probe_loop_dominant_api".into(), dominant_api);
+                meta.insert(
+                    "js.runtime.probe_loop_call_count".into(),
+                    total_probe_calls.to_string(),
+                );
+                meta.insert(
+                    "js.runtime.probe_loop_unique_api_count".into(),
+                    unique_probe_apis.to_string(),
+                );
+                meta.insert(
+                    "js.runtime.probe_loop_dominance_ratio".into(),
+                    format!("{dominance_ratio:.2}"),
+                );
+                meta.insert(
+                    "js.runtime.loop_iteration_pressure_ratio".into(),
+                    format!("{pressure_ratio:.2}"),
+                );
+                let demoted = demote_confidence(confidence);
+                if demoted != confidence {
+                    meta.insert(
+                        "js.runtime.probe_loop_confidence_adjusted".into(),
+                        format!("{:?}->{:?}", confidence, demoted),
+                    );
+                    confidence = demoted;
+                }
+            }
+        }
+    }
     findings.push(Finding {
         id: String::new(),
         surface: detector_surface,
@@ -821,6 +894,31 @@ impl Detector for JavaScriptSandboxDetector {
                             }
                             if let Some(ms) = signals.elapsed_ms {
                                 meta.insert("js.sandbox_exec_ms".into(), ms.to_string());
+                            }
+                            meta.insert(
+                                "js.runtime.execution.adaptive_loop_iteration_limit".into(),
+                                signals.execution_stats.adaptive_loop_iteration_limit.to_string(),
+                            );
+                            meta.insert(
+                                "js.runtime.execution.adaptive_loop_profile".into(),
+                                signals.execution_stats.adaptive_loop_profile.clone(),
+                            );
+                            meta.insert(
+                                "js.runtime.execution.loop_iteration_limit_hits".into(),
+                                signals.execution_stats.loop_iteration_limit_hits.to_string(),
+                            );
+                            if signals.execution_stats.probe_loop_short_circuit_hits > 0 {
+                                meta.insert(
+                                    "js.runtime.execution.probe_loop_short_circuit_hits".into(),
+                                    signals
+                                        .execution_stats
+                                        .probe_loop_short_circuit_hits
+                                        .to_string(),
+                                );
+                                meta.insert(
+                                    "js.runtime.partial_execution_marker".into(),
+                                    "probe_loop_short_circuit".into(),
+                                );
                             }
                             if !signals.prop_reads.is_empty() {
                                 meta.insert(
@@ -1227,6 +1325,28 @@ impl Detector for JavaScriptSandboxDetector {
                         }
                         if let Some(ms) = signals.elapsed_ms {
                             base_meta.insert("js.sandbox_exec_ms".into(), ms.to_string());
+                        }
+                        base_meta.insert(
+                            "js.runtime.execution.adaptive_loop_iteration_limit".into(),
+                            signals.execution_stats.adaptive_loop_iteration_limit.to_string(),
+                        );
+                        base_meta.insert(
+                            "js.runtime.execution.adaptive_loop_profile".into(),
+                            signals.execution_stats.adaptive_loop_profile.clone(),
+                        );
+                        base_meta.insert(
+                            "js.runtime.execution.loop_iteration_limit_hits".into(),
+                            signals.execution_stats.loop_iteration_limit_hits.to_string(),
+                        );
+                        if signals.execution_stats.probe_loop_short_circuit_hits > 0 {
+                            base_meta.insert(
+                                "js.runtime.execution.probe_loop_short_circuit_hits".into(),
+                                signals.execution_stats.probe_loop_short_circuit_hits.to_string(),
+                            );
+                            base_meta.insert(
+                                "js.runtime.partial_execution_marker".into(),
+                                "probe_loop_short_circuit".into(),
+                            );
                         }
                         if let Some(label) = candidate.source.meta_value() {
                             base_meta.insert("js.source".into(), label.into());

@@ -137,7 +137,9 @@ struct SandboxExecutionStats {
     execution_depth: usize,
     loop_iteration_limit_hits: usize,
     adaptive_loop_iteration_limit: usize,
+    adaptive_loop_profile: String,
     downloader_scheduler_hardening: bool,
+    probe_loop_short_circuit_hits: usize,
 }
 
 #[derive(Serialize)]
@@ -1282,9 +1284,13 @@ fn run_sandbox_eval(
                     adaptive_loop_iteration_limit: signals
                         .execution_stats
                         .adaptive_loop_iteration_limit,
+                    adaptive_loop_profile: signals.execution_stats.adaptive_loop_profile,
                     downloader_scheduler_hardening: signals
                         .execution_stats
                         .downloader_scheduler_hardening,
+                    probe_loop_short_circuit_hits: signals
+                        .execution_stats
+                        .probe_loop_short_circuit_hits,
                 },
                 behavioral_patterns: signals
                     .behavioral_patterns

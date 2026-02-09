@@ -152,7 +152,9 @@ pub struct ExecutionStats {
     pub execution_depth: usize,
     pub loop_iteration_limit_hits: usize,
     pub adaptive_loop_iteration_limit: usize,
+    pub adaptive_loop_profile: String,
     pub downloader_scheduler_hardening: bool,
+    pub probe_loop_short_circuit_hits: usize,
 }
 
 #[derive(Debug, Clone)]
