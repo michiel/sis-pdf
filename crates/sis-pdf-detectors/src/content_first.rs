@@ -4,6 +4,7 @@ use std::io::Read;
 use anyhow::Result;
 use flate2::read::ZlibDecoder;
 
+use crate::dict_int;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::scan::span_to_evidence;
@@ -100,6 +101,7 @@ impl Detector for ContentFirstDetector {
                     let origin_label = blob_origin_label(&blob);
                     let filter_expectations =
                         blob.decode_meta.as_ref().map(|meta| meta.filters.as_slice());
+                    let carve_context = stream_carve_context(stream, &blob);
 
                     if let Some(finding) = label_mismatch_finding(
                         entry.obj,
@@ -159,6 +161,7 @@ impl Detector for ContentFirstDetector {
                         origin_label,
                         "Stream data",
                         filter_expectations,
+                        Some(&carve_context),
                     ));
 
                     findings.extend(script_payload_findings(
@@ -213,6 +216,7 @@ impl Detector for ContentFirstDetector {
                         &bytes,
                         "string",
                         "String data",
+                        None,
                         None,
                     ));
 
@@ -270,6 +274,7 @@ impl Detector for ContentFirstDetector {
                             bytes,
                             "object",
                             "Object data",
+                            None,
                             None,
                         ));
 
@@ -810,6 +815,10 @@ fn declared_filter_invalid_finding(
         return None;
     }
 
+    let empty_output_from_multi_filter_flate = meta.output_len == 0
+        && meta.input_len > 0
+        && meta.filters.len() > 1
+        && meta.filters.iter().any(|filter| matches!(filter.as_str(), "/FlateDecode" | "/Fl"));
     let (title, mut description, confidence) = match &meta.outcome {
         DecodeOutcome::Failed { reason, .. } => (
             "Declared filters failed to decode",
@@ -820,6 +829,12 @@ fn declared_filter_invalid_finding(
             "Declared filters mismatched stream data",
             "Stream content does not match declared filters.".to_string(),
             Confidence::Strong,
+        ),
+        DecodeOutcome::Ok | DecodeOutcome::Truncated if empty_output_from_multi_filter_flate => (
+            "Declared filters produced empty payload",
+            "Declared filters yielded empty decoded output despite non-empty encoded input."
+                .to_string(),
+            Confidence::Probable,
         ),
         _ => return None,
     };
@@ -873,6 +888,8 @@ fn declared_filter_invalid_finding(
             .collect::<Vec<_>>();
         finding_meta.insert("decode.mismatch".to_string(), reasons.join(";"));
     }
+    finding_meta.insert("decode.input_len".to_string(), meta.input_len.to_string());
+    finding_meta.insert("decode.output_len".to_string(), meta.output_len.to_string());
     if !expected_types.is_empty()
         && matches!(meta.outcome, DecodeOutcome::SuspectMismatch | DecodeOutcome::Failed { .. })
     {
@@ -1032,6 +1049,26 @@ mod declared_filter_invalid_tests {
         }
     }
 
+    fn make_empty_decode_blob() -> Blob<'static> {
+        Blob {
+            origin: BlobOrigin::Stream { obj: 1, gen: 0 },
+            pdf_path: vec![],
+            raw: &[0x37, 0x38, 0x39, 0x63],
+            decoded: Some(Vec::new()),
+            decode_meta: Some(DecodeMeta {
+                filters: vec!["/ASCIIHexDecode".into(), "/FlateDecode".into()],
+                mismatches: vec![DecodeMismatch {
+                    filter: "/FlateDecode".into(),
+                    reason: "stream is not zlib-like".into(),
+                }],
+                outcome: DecodeOutcome::Ok,
+                input_len: 4,
+                output_len: 0,
+                recovered_filters: vec![],
+            }),
+        }
+    }
+
     fn classification_map() -> ClassificationMap {
         let mut map = ClassificationMap::new();
         map.insert((1, 0), ClassifiedObject::new(1, 0, PdfObjectType::Stream));
@@ -1117,6 +1154,27 @@ mod declared_filter_invalid_tests {
             &classification_map()
         )
         .is_none());
+    }
+
+    #[test]
+    fn declared_filter_invalid_reports_empty_output_with_mismatch() {
+        let stream =
+            make_stream_with_entry(make_entry(b"/Type", PdfAtom::Name(pdf_name(b"/XObject"))));
+        let finding = declared_filter_invalid_finding(
+            1,
+            0,
+            &stream,
+            &make_empty_decode_blob(),
+            "stream",
+            &classification_map(),
+        )
+        .expect("finding");
+        assert_eq!(finding.kind, "declared_filter_invalid");
+        assert_eq!(finding.meta.get("decode.output_len").map(|value| value.as_str()), Some("0"));
+        assert!(
+            finding.description.contains("empty decoded output")
+                || finding.title.contains("empty payload")
+        );
     }
 }
 
@@ -1246,6 +1304,71 @@ fn outcome_label(outcome: &DecodeOutcome) -> String {
     .to_string()
 }
 
+struct CarveCorrelationContext {
+    decode_outcome: Option<DecodeOutcome>,
+    declared_length: Option<u32>,
+    has_length_entry: bool,
+    observed_length: usize,
+    image_meta: Option<ImageDictMeta>,
+}
+
+struct ImageDictMeta {
+    width: Option<u32>,
+    height: Option<u32>,
+    bits_per_component: Option<u32>,
+    colour_space: Option<String>,
+}
+
+struct ImageHeaderMeta {
+    width: u32,
+    height: u32,
+    bits_per_component: Option<u32>,
+    channels: Option<u8>,
+}
+
+struct CarveScoring {
+    severity: Severity,
+    confidence: Confidence,
+    summary: Option<String>,
+}
+
+fn stream_carve_context(stream: &PdfStream<'_>, blob: &Blob<'_>) -> CarveCorrelationContext {
+    let declared_length = dict_int(&stream.dict, b"/Length");
+    let has_length_entry = stream.dict.get_first(b"/Length").is_some();
+    let image_meta = image_dict_meta(&stream.dict);
+    CarveCorrelationContext {
+        decode_outcome: blob.decode_meta.as_ref().map(|meta| meta.outcome.clone()),
+        declared_length,
+        has_length_entry,
+        observed_length: blob.raw.len(),
+        image_meta,
+    }
+}
+
+fn image_dict_meta(dict: &PdfDict<'_>) -> Option<ImageDictMeta> {
+    let width = dict_int(dict, b"/Width");
+    let height = dict_int(dict, b"/Height");
+    let bits_per_component = dict_int(dict, b"/BitsPerComponent");
+    let colour_space = dict_name_or_first_array_name(dict, b"/ColorSpace");
+    if width.is_none() && height.is_none() && bits_per_component.is_none() && colour_space.is_none()
+    {
+        return None;
+    }
+    Some(ImageDictMeta { width, height, bits_per_component, colour_space })
+}
+
+fn dict_name_or_first_array_name(dict: &PdfDict<'_>, key: &[u8]) -> Option<String> {
+    let (_, obj) = dict.get_first(key)?;
+    match &obj.atom {
+        PdfAtom::Name(name) => Some(name_to_string(name)),
+        PdfAtom::Array(items) => items.iter().find_map(|item| match &item.atom {
+            PdfAtom::Name(name) => Some(name_to_string(name)),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
 fn carve_payloads(
     obj: u32,
     gen: u16,
@@ -1254,6 +1377,7 @@ fn carve_payloads(
     origin: &str,
     label: &str,
     filters: Option<&[String]>,
+    context: Option<&CarveCorrelationContext>,
 ) -> Vec<Finding> {
     let max_scan_bytes = 512 * 1024;
     let max_hits = 3;
@@ -1306,7 +1430,6 @@ fn carve_payloads(
             });
             let mut description =
                 "Detected an embedded payload signature inside another object.".to_string();
-            let mut severity = Severity::High;
             if let Some((expected_kind, filter_name)) = expectation {
                 let match_kind = expected_kind.eq_ignore_ascii_case(kind);
                 meta.insert("carve.filter".to_string(), filter_name.to_string());
@@ -1314,7 +1437,6 @@ fn carve_payloads(
                 meta.insert("carve.match".to_string(), match_kind.to_string());
                 let actual_label = format_signature_kind(kind);
                 if match_kind {
-                    severity = Severity::Info;
                     description = format!(
                         "Embedded {} signature matches declared filter {}.",
                         actual_label, filter_name
@@ -1326,13 +1448,21 @@ fn carve_payloads(
                     );
                 }
             }
+
+            let scoring = correlate_carved_payload(kind, offset, &mut meta, filters, context, data);
+            let severity = scoring.severity;
+            let confidence = scoring.confidence;
+            if let Some(summary) = scoring.summary {
+                description = format!("{description} {summary}");
+            }
+
             meta.insert("blob.origin".to_string(), origin.to_string());
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::StreamsAndFilters,
                 kind: "embedded_payload_carved".to_string(),
                 severity,
-                confidence: Confidence::Probable,
+                confidence,
                 impact: None,
                 title: "Embedded payload carved".to_string(),
                 description,
@@ -1356,6 +1486,326 @@ fn carve_payloads(
         }
     }
     findings
+}
+
+fn correlate_carved_payload(
+    kind: &str,
+    offset: usize,
+    meta: &mut HashMap<String, String>,
+    filters: Option<&[String]>,
+    context: Option<&CarveCorrelationContext>,
+    data: &[u8],
+) -> CarveScoring {
+    let mut score = 0i32;
+    let mut strong_signals = 0usize;
+    let mut missing_signals = 0usize;
+    let mut summary = Vec::new();
+
+    if let Some(filters) = filters {
+        if let Some((expected_kind, filter_name)) = filters.iter().find_map(|filter| {
+            expected_kind_for_filter(filter.as_str()).map(|expected| (expected, filter.as_str()))
+        }) {
+            let matches = expected_kind.eq_ignore_ascii_case(kind);
+            if matches {
+                score -= 2;
+                strong_signals += 1;
+                summary.push(format!("filter {} matches {}", filter_name, expected_kind));
+            } else {
+                score += 3;
+                strong_signals += 1;
+                summary.push(format!("filter {} expects {}", filter_name, expected_kind));
+            }
+        }
+    }
+
+    if let Some(context) = context {
+        if let Some(outcome) = context.decode_outcome.as_ref() {
+            let outcome_str = outcome_label(outcome);
+            meta.insert("carve.decode.outcome".to_string(), outcome_str.clone());
+            match outcome {
+                DecodeOutcome::Ok | DecodeOutcome::Truncated => {
+                    score -= 1;
+                    strong_signals += 1;
+                    summary.push(format!("decode outcome {outcome_str}"));
+                }
+                DecodeOutcome::Failed { .. }
+                | DecodeOutcome::Deferred { .. }
+                | DecodeOutcome::SuspectMismatch => {
+                    score += 2;
+                    strong_signals += 1;
+                    summary.push(format!("decode outcome {outcome_str}"));
+                }
+            }
+        }
+
+        if !context.has_length_entry {
+            meta.insert("carve.length.status".to_string(), "missing".to_string());
+            score += 1;
+            missing_signals += 1;
+            summary.push("missing /Length".to_string());
+        } else if let Some(declared_length) = context.declared_length {
+            meta.insert("carve.length.declared".to_string(), declared_length.to_string());
+            meta.insert(
+                "carve.length.observed_raw".to_string(),
+                context.observed_length.to_string(),
+            );
+            let length_match = declared_length as usize == context.observed_length;
+            meta.insert("carve.length.match".to_string(), length_match.to_string());
+            if length_match {
+                score -= 1;
+                strong_signals += 1;
+                summary.push("declared /Length matches raw stream".to_string());
+            } else {
+                score += 2;
+                strong_signals += 1;
+                summary.push("declared /Length mismatches raw stream".to_string());
+            }
+        } else {
+            meta.insert("carve.length.status".to_string(), "indirect".to_string());
+            missing_signals += 1;
+            summary.push("indirect /Length".to_string());
+        }
+
+        if let Some(image_meta) = context.image_meta.as_ref() {
+            score += image_metadata_score(
+                kind,
+                offset,
+                data,
+                image_meta,
+                meta,
+                &mut strong_signals,
+                &mut summary,
+            );
+        } else if matches!(kind, "jpeg" | "png" | "gif") {
+            score += 1;
+            missing_signals += 1;
+            summary.push("missing image dictionary metadata".to_string());
+        }
+    } else {
+        meta.insert("carve.context".to_string(), "none".to_string());
+    }
+
+    let severity = if score <= -3 {
+        Severity::Info
+    } else if score <= 0 {
+        Severity::Low
+    } else if score <= 2 {
+        Severity::Medium
+    } else {
+        Severity::High
+    };
+
+    let confidence = if strong_signals >= 2 {
+        Confidence::Strong
+    } else if missing_signals >= 2 && strong_signals == 0 {
+        Confidence::Tentative
+    } else {
+        Confidence::Probable
+    };
+
+    meta.insert("carve.score".to_string(), score.to_string());
+    meta.insert(
+        "carve.confidence_basis".to_string(),
+        format!("strong={strong_signals},missing={missing_signals}"),
+    );
+    if !summary.is_empty() {
+        meta.insert("carve.correlation_summary".to_string(), summary.join("; "));
+    }
+
+    CarveScoring {
+        severity,
+        confidence,
+        summary: if summary.is_empty() {
+            None
+        } else {
+            Some(format!("Metadata correlation: {}.", summary.join("; ")))
+        },
+    }
+}
+
+fn image_metadata_score(
+    kind: &str,
+    offset: usize,
+    data: &[u8],
+    image_meta: &ImageDictMeta,
+    meta: &mut HashMap<String, String>,
+    strong_signals: &mut usize,
+    summary: &mut Vec<String>,
+) -> i32 {
+    let mut score = 0i32;
+    let header = parse_image_header(kind, &data[offset..]);
+    let Some(header) = header else {
+        return score;
+    };
+
+    meta.insert("carve.image.header.width".to_string(), header.width.to_string());
+    meta.insert("carve.image.header.height".to_string(), header.height.to_string());
+    if let Some(bits) = header.bits_per_component {
+        meta.insert("carve.image.header.bits_per_component".to_string(), bits.to_string());
+    }
+    if let Some(channels) = header.channels {
+        meta.insert("carve.image.header.channels".to_string(), channels.to_string());
+    }
+
+    if let (Some(width), Some(height)) = (image_meta.width, image_meta.height) {
+        let match_dimensions = width == header.width && height == header.height;
+        meta.insert("carve.image.dimensions.match".to_string(), match_dimensions.to_string());
+        if match_dimensions {
+            score -= 1;
+            *strong_signals += 1;
+            summary.push("image dimensions match dictionary".to_string());
+        } else {
+            score += 2;
+            *strong_signals += 1;
+            summary.push("image dimensions mismatch dictionary".to_string());
+        }
+    }
+
+    if let (Some(declared_bits), Some(header_bits)) =
+        (image_meta.bits_per_component, header.bits_per_component)
+    {
+        let bits_match = declared_bits == header_bits;
+        meta.insert("carve.image.bpc.match".to_string(), bits_match.to_string());
+        if bits_match {
+            score -= 1;
+            *strong_signals += 1;
+            summary.push("bits-per-component matches image header".to_string());
+        } else {
+            score += 1;
+            *strong_signals += 1;
+            summary.push("bits-per-component mismatches image header".to_string());
+        }
+    }
+
+    if let (Some(colour_space), Some(channels)) =
+        (image_meta.colour_space.as_ref(), header.channels)
+    {
+        if let Some(expected_channels) = expected_channels_for_colour_space(colour_space) {
+            meta.insert("carve.image.colour_space".to_string(), colour_space.clone());
+            meta.insert(
+                "carve.image.colour_space.expected_channels".to_string(),
+                expected_channels.to_string(),
+            );
+            let channels_match = channels == expected_channels;
+            meta.insert("carve.image.channels.match".to_string(), channels_match.to_string());
+            if channels_match {
+                score -= 1;
+                *strong_signals += 1;
+                summary.push("colour space channels match image header".to_string());
+            } else {
+                score += 1;
+                *strong_signals += 1;
+                summary.push("colour space channels mismatch image header".to_string());
+            }
+        }
+    }
+
+    score
+}
+
+fn parse_image_header(kind: &str, bytes: &[u8]) -> Option<ImageHeaderMeta> {
+    match kind {
+        "jpeg" => parse_jpeg_header(bytes),
+        "png" => parse_png_header(bytes),
+        "gif" => parse_gif_header(bytes),
+        _ => None,
+    }
+}
+
+fn parse_jpeg_header(bytes: &[u8]) -> Option<ImageHeaderMeta> {
+    if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
+        return None;
+    }
+    let mut index = 2usize;
+    while index + 3 < bytes.len() {
+        if bytes[index] != 0xFF {
+            index += 1;
+            continue;
+        }
+        while index < bytes.len() && bytes[index] == 0xFF {
+            index += 1;
+        }
+        if index >= bytes.len() {
+            return None;
+        }
+        let marker = bytes[index];
+        index += 1;
+        if marker == 0xD9 || marker == 0xDA {
+            return None;
+        }
+        if marker == 0x01 || (0xD0..=0xD7).contains(&marker) {
+            continue;
+        }
+        if index + 1 >= bytes.len() {
+            return None;
+        }
+        let segment_length = u16::from_be_bytes([bytes[index], bytes[index + 1]]) as usize;
+        index += 2;
+        if segment_length < 2 || index + segment_length - 2 > bytes.len() {
+            return None;
+        }
+        if is_jpeg_sof_marker(marker) && segment_length >= 7 {
+            let bits_per_component = bytes[index];
+            let height = u16::from_be_bytes([bytes[index + 1], bytes[index + 2]]) as u32;
+            let width = u16::from_be_bytes([bytes[index + 3], bytes[index + 4]]) as u32;
+            let channels = bytes[index + 5];
+            return Some(ImageHeaderMeta {
+                width,
+                height,
+                bits_per_component: Some(bits_per_component as u32),
+                channels: Some(channels),
+            });
+        }
+        index += segment_length - 2;
+    }
+    None
+}
+
+fn is_jpeg_sof_marker(marker: u8) -> bool {
+    matches!(
+        marker,
+        0xC0 | 0xC1 | 0xC2 | 0xC3 | 0xC5 | 0xC6 | 0xC7 | 0xC9 | 0xCA | 0xCB | 0xCD | 0xCE | 0xCF
+    )
+}
+
+fn parse_png_header(bytes: &[u8]) -> Option<ImageHeaderMeta> {
+    if bytes.len() < 29 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    if &bytes[12..16] != b"IHDR" {
+        return None;
+    }
+    let width = u32::from_be_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+    let height = u32::from_be_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+    let bits = bytes[24] as u32;
+    let colour_type = bytes[25];
+    let channels = match colour_type {
+        0 => Some(1),
+        2 => Some(3),
+        3 => Some(1),
+        4 => Some(2),
+        6 => Some(4),
+        _ => None,
+    };
+    Some(ImageHeaderMeta { width, height, bits_per_component: Some(bits), channels })
+}
+
+fn parse_gif_header(bytes: &[u8]) -> Option<ImageHeaderMeta> {
+    if bytes.len() < 10 || !(bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a")) {
+        return None;
+    }
+    let width = u16::from_le_bytes([bytes[6], bytes[7]]) as u32;
+    let height = u16::from_le_bytes([bytes[8], bytes[9]]) as u32;
+    Some(ImageHeaderMeta { width, height, bits_per_component: None, channels: Some(3) })
+}
+
+fn expected_channels_for_colour_space(colour_space: &str) -> Option<u8> {
+    match colour_space.to_ascii_lowercase().as_str() {
+        "/devicegray" | "/calgray" | "/g" => Some(1),
+        "/devicergb" | "/calrgb" | "/rgb" => Some(3),
+        "/devicecmyk" | "/cmyk" => Some(4),
+        _ => None,
+    }
 }
 
 fn find_pattern(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -1884,14 +2334,22 @@ mod tests {
         let data = b"\xFF\xD8\xFF\xE0\x00\x10";
         let filters = vec!["/DCTDecode".to_string()];
         let span = Span { start: 0, end: data.len() as u64 };
-        let findings =
-            carve_payloads(1, 0, span, data, "stream", "Stream data", Some(filters.as_slice()));
+        let findings = carve_payloads(
+            1,
+            0,
+            span,
+            data,
+            "stream",
+            "Stream data",
+            Some(filters.as_slice()),
+            None,
+        );
         assert_eq!(findings.len(), 1);
         let finding = &findings[0];
-        assert_eq!(finding.severity, Severity::Info);
+        assert_eq!(finding.severity, Severity::Low);
         assert_eq!(
             finding.description,
-            "Embedded JPEG signature matches declared filter /DCTDecode."
+            "Embedded JPEG signature matches declared filter /DCTDecode. Metadata correlation: filter /DCTDecode matches JPEG."
         );
         assert_eq!(finding.meta.get("carve.match").map(|v| v.as_str()), Some("true"));
         assert_eq!(finding.meta.get("carve.expected_kind").map(|v| v.as_str()), Some("JPEG"));
@@ -1902,17 +2360,112 @@ mod tests {
         let data = b"\xFF\xD8\xFF\xE0\x00\x10";
         let filters = vec!["/CCITTFaxDecode".to_string()];
         let span = Span { start: 0, end: data.len() as u64 };
-        let findings =
-            carve_payloads(1, 0, span, data, "stream", "Stream data", Some(filters.as_slice()));
+        let findings = carve_payloads(
+            1,
+            0,
+            span,
+            data,
+            "stream",
+            "Stream data",
+            Some(filters.as_slice()),
+            None,
+        );
         assert_eq!(findings.len(), 1);
         let finding = &findings[0];
         assert_eq!(finding.severity, Severity::High);
         assert_eq!(
             finding.description,
-            "Found a JPEG signature in a stream where we expected TIFF/CCITT."
+            "Found a JPEG signature in a stream where we expected TIFF/CCITT. Metadata correlation: filter /CCITTFaxDecode expects TIFF/CCITT."
         );
         assert_eq!(finding.meta.get("carve.match").map(|v| v.as_str()), Some("false"));
         assert_eq!(finding.meta.get("carve.expected_kind").map(|v| v.as_str()), Some("TIFF/CCITT"));
+    }
+
+    #[test]
+    fn embedded_payload_carved_strong_info_when_stream_metadata_matches() {
+        let data = b"\xFF\xD8\xFF\xC0\x00\x11\x08\x00\x10\x00\x20\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00\xFF\xD9";
+        let filters = vec!["/DCTDecode".to_string()];
+        let context = CarveCorrelationContext {
+            decode_outcome: Some(DecodeOutcome::Ok),
+            declared_length: Some(data.len() as u32),
+            has_length_entry: true,
+            observed_length: data.len(),
+            image_meta: Some(ImageDictMeta {
+                width: Some(32),
+                height: Some(16),
+                bits_per_component: Some(8),
+                colour_space: Some("/DeviceRGB".to_string()),
+            }),
+        };
+        let span = Span { start: 0, end: data.len() as u64 };
+        let findings = carve_payloads(
+            1,
+            0,
+            span,
+            data,
+            "stream",
+            "Stream data",
+            Some(filters.as_slice()),
+            Some(&context),
+        );
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.severity, Severity::Info);
+        assert_eq!(finding.confidence, Confidence::Strong);
+        assert_eq!(finding.meta.get("carve.length.match").map(|v| v.as_str()), Some("true"));
+        assert_eq!(
+            finding.meta.get("carve.image.dimensions.match").map(|v| v.as_str()),
+            Some("true")
+        );
+        assert_eq!(
+            finding.meta.get("carve.image.channels.match").map(|v| v.as_str()),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn embedded_payload_carved_high_when_stream_metadata_conflicts() {
+        let data = b"\xFF\xD8\xFF\xC0\x00\x11\x08\x00\x10\x00\x20\x03\x01\x11\x00\x02\x11\x00\x03\x11\x00\xFF\xD9";
+        let filters = vec!["/DCTDecode".to_string()];
+        let context = CarveCorrelationContext {
+            decode_outcome: Some(DecodeOutcome::Failed {
+                filter: Some("/DCTDecode".to_string()),
+                reason: "simulated failure".to_string(),
+            }),
+            declared_length: Some(1024),
+            has_length_entry: true,
+            observed_length: data.len(),
+            image_meta: Some(ImageDictMeta {
+                width: Some(120),
+                height: Some(16),
+                bits_per_component: Some(1),
+                colour_space: Some("/DeviceCMYK".to_string()),
+            }),
+        };
+        let span = Span { start: 0, end: data.len() as u64 };
+        let findings = carve_payloads(
+            1,
+            0,
+            span,
+            data,
+            "stream",
+            "Stream data",
+            Some(filters.as_slice()),
+            Some(&context),
+        );
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.severity, Severity::High);
+        assert_eq!(finding.confidence, Confidence::Strong);
+        assert_eq!(finding.meta.get("carve.length.match").map(|v| v.as_str()), Some("false"));
+        assert_eq!(
+            finding.meta.get("carve.image.dimensions.match").map(|v| v.as_str()),
+            Some("false")
+        );
+        assert_eq!(
+            finding.meta.get("carve.image.channels.match").map(|v| v.as_str()),
+            Some("false")
+        );
     }
 
     #[test]

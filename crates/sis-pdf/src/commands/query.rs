@@ -4306,6 +4306,7 @@ mod event_tests {
             startxrefs: Vec::new(),
             xref_sections: Vec::new(),
             deviations: Vec::new(),
+            telemetry_events: Vec::new(),
         }
     }
 

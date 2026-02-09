@@ -68,8 +68,10 @@ fn classifies_action_and_payload_labels() {
 fn preserves_custom_action_labels() {
     let mut finding = base_finding("f1", "uri_present", "4 0 obj");
     finding.meta.insert("action.target".into(), "https://example.com".into());
+    finding.meta.insert("payload.type".into(), "stream".into());
     finding.title = "URI present".into();
-    let (chains, _) = synthesise_chains(&[finding], true);
+    let companion = base_finding("f2", "uri_content_analysis", "4 0 obj");
+    let (chains, _) = synthesise_chains(&[finding, companion], true);
     let chain = chains.iter().find(|c| c.notes.contains_key("action.label")).expect("action label");
     assert_eq!(
         chain.notes.get("action.label").map(String::as_str),

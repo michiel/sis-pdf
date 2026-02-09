@@ -18,7 +18,7 @@ impl Detector for ContentPhishingDetector {
         AttackSurface::ContentPhishing
     }
     fn needs(&self) -> Needs {
-        Needs::OBJECT_GRAPH
+        Needs::OBJECT_GRAPH | Needs::STREAM_DECODE
     }
     fn cost(&self) -> Cost {
         Cost::Moderate
@@ -174,7 +174,8 @@ fn matched_keyword_labels(haystack: &[u8], keywords: &[(&[u8], &str)]) -> Vec<St
 }
 
 fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding> {
-    let patterns: &[&[u8]] = &[b"<script", b"<iframe", b"javascript:"];
+    let patterns: &[&[u8]] =
+        &[b"<script", b"<iframe", b"javascript:", b"<svg", b"onerror=", b"onload="];
     for entry in &ctx.graph.objects {
         for (bytes, span) in extract_strings_with_span(entry) {
             let lower = bytes.to_ascii_lowercase();
@@ -204,7 +205,79 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
             }
         }
     }
+    for entry in &ctx.graph.objects {
+        let PdfAtom::Stream(stream) = &entry.atom else {
+            continue;
+        };
+        let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, stream) else {
+            continue;
+        };
+        let Some(marker) = detect_rendered_script_lure(&decoded.data) else {
+            continue;
+        };
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("content.pattern".into(), marker.to_string());
+        meta.insert("content.source".into(), "decoded_stream_text".into());
+        return Some(Finding {
+            id: String::new(),
+            surface: AttackSurface::ContentPhishing,
+            kind: "content_html_payload".into(),
+            severity: Severity::Low,
+            confidence: Confidence::Heuristic,
+            impact: None,
+            title: "HTML-like payload in content".into(),
+            description:
+                "Decoded stream text contains script/HTML-like sequences rendered via text operators."
+                    .into(),
+            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+            evidence: vec![span_to_evidence(stream.data_span, "Decoded content stream text")],
+            remediation: Some(
+                "Review rendered text for social-engineering lures that mimic executable HTML/JavaScript."
+                    .into(),
+            ),
+            meta,
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+        });
+    }
     None
+}
+
+fn detect_rendered_script_lure(bytes: &[u8]) -> Option<&'static str> {
+    let lower = bytes.to_ascii_lowercase();
+    const MARKERS: &[&[u8]] =
+        &[b"<script", b"<iframe", b"javascript:", b"<svg", b"onerror=", b"onload="];
+    for marker in MARKERS {
+        let mut cursor = 0usize;
+        while cursor < lower.len() {
+            let Some(rel) = lower[cursor..].windows(marker.len()).position(|w| w == *marker) else {
+                break;
+            };
+            let marker_pos = cursor + rel;
+            let has_tj_nearby = has_text_operator_context(&lower, marker_pos);
+            if has_tj_nearby {
+                return std::str::from_utf8(marker).ok();
+            }
+            cursor = marker_pos.saturating_add(1);
+        }
+    }
+    None
+}
+
+fn has_text_operator_context(lower: &[u8], marker_pos: usize) -> bool {
+    let context_start = marker_pos.saturating_sub(192);
+    let context_end = (marker_pos + 256).min(lower.len());
+    let context = &lower[context_start..context_end];
+    if !(context.contains(&b'(') && context.contains(&b')')) {
+        return false;
+    }
+    context.windows(2).any(|window| window == b"tj")
+        || context.windows(3).any(|window| window == b" ' " || window == b" \" ")
 }
 
 pub struct ContentDeceptionDetector;
@@ -334,7 +407,7 @@ fn first_coord(page: &sis_pdf_core::content_index::PageContent) -> Option<(f32, 
 
 #[cfg(test)]
 mod tests {
-    use super::uri_note_value;
+    use super::{detect_rendered_script_lure, uri_note_value};
 
     #[test]
     fn uri_note_value_truncates_long_values() {
@@ -348,6 +421,24 @@ mod tests {
     fn uri_note_value_keeps_short_values() {
         let value = "https://example.com/reset";
         assert_eq!(uri_note_value(value), value);
+    }
+
+    #[test]
+    fn rendered_script_lure_detects_script_tag_in_text_operator_context() {
+        let data = b"BT (XSS Payload: <script>alert('x')</script>) Tj ET";
+        assert_eq!(detect_rendered_script_lure(data), Some("<script"));
+    }
+
+    #[test]
+    fn rendered_script_lure_detects_javascript_uri_in_text_operator_context() {
+        let data = b"BT (Click javascript:alert(1) now) Tj ET";
+        assert_eq!(detect_rendered_script_lure(data), Some("javascript:"));
+    }
+
+    #[test]
+    fn rendered_script_lure_ignores_marker_without_text_operator_context() {
+        let data = b"<< /Subtype /XML /Note <script>alert(1)</script> >>";
+        assert_eq!(detect_rendered_script_lure(data), None);
     }
 }
 

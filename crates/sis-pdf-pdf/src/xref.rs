@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 
+use crate::graph::{TelemetryEvent, TelemetryLevel};
 use crate::object::{PdfAtom, PdfDict};
 use crate::parser::{parse_indirect_object_at, Parser};
 use crate::span::Span;
@@ -23,6 +24,7 @@ pub struct XrefSection<'a> {
 pub struct XrefChain<'a> {
     pub sections: Vec<XrefSection<'a>>,
     pub deviations: Vec<XrefDeviation>,
+    pub telemetry_events: Vec<TelemetryEvent>,
 }
 
 #[derive(Debug)]
@@ -37,6 +39,7 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
     let mut next = Some(startxref);
     let mut seen = std::collections::HashSet::new();
     let mut deviations = Vec::new();
+    let mut telemetry_events = Vec::new();
     while let Some(off) = next {
         if !seen.insert(off) {
             warn!(
@@ -46,6 +49,15 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
                 offset = off,
                 "Detected xref loop"
             );
+            telemetry_events.push(TelemetryEvent {
+                level: TelemetryLevel::Warn,
+                domain: "pdf.xref".into(),
+                kind: "xref_loop_detected".into(),
+                message: "Detected xref loop".into(),
+                span: Some(Span { start: off, end: off }),
+                object_ref: Some("xref_chain".into()),
+                meta: std::collections::HashMap::from([("offset".into(), off.to_string())]),
+            });
             break;
         }
         let offset = off as usize;
@@ -58,6 +70,18 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
                 bytes_len = bytes.len(),
                 "Xref offset out of range"
             );
+            telemetry_events.push(TelemetryEvent {
+                level: TelemetryLevel::Warn,
+                domain: "pdf.xref".into(),
+                kind: "xref_offset_oob".into(),
+                message: "Xref offset out of range".into(),
+                span: Some(Span { start: off, end: off }),
+                object_ref: Some("xref_chain".into()),
+                meta: std::collections::HashMap::from([
+                    ("offset".into(), off.to_string()),
+                    ("bytes_len".into(), bytes.len().to_string()),
+                ]),
+            });
             break;
         }
         if bytes[offset..].starts_with(b"xref") {
@@ -78,7 +102,7 @@ pub fn parse_xref_chain<'a>(bytes: &'a [u8], startxref: u64) -> XrefChain<'a> {
         debug!(offset = off, kind = ?XrefKind::Unknown, "Parsed xref with unknown type");
         break;
     }
-    XrefChain { sections, deviations }
+    XrefChain { sections, deviations, telemetry_events }
 }
 
 fn parse_xref_table<'a>(

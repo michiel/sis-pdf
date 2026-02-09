@@ -30,6 +30,23 @@ pub struct Deviation {
     pub note: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TelemetryLevel {
+    Warn,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+pub struct TelemetryEvent {
+    pub level: TelemetryLevel,
+    pub domain: String,
+    pub kind: String,
+    pub message: String,
+    pub span: Option<Span>,
+    pub object_ref: Option<String>,
+    pub meta: HashMap<String, String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct XrefSectionSummary {
     pub offset: u64,
@@ -67,6 +84,7 @@ pub struct ObjectGraph<'a> {
     pub startxrefs: Vec<u64>,
     pub xref_sections: Vec<XrefSectionSummary>,
     pub deviations: Vec<Deviation>,
+    pub telemetry_events: Vec<TelemetryEvent>,
 }
 
 impl<'a> ObjectGraph<'a> {
@@ -137,6 +155,7 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
     let mut trailers = Vec::new();
     let mut xref_sections = Vec::new();
     let mut deviations = Vec::new();
+    let mut telemetry_events = Vec::new();
     if let Some(last) = startxrefs.last().copied() {
         let chain = parse_xref_chain(bytes, last);
         for sec in &chain.sections {
@@ -168,6 +187,7 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
                 note: dev.note,
             });
         }
+        telemetry_events.extend(chain.telemetry_events);
     }
     let (mut objects, mut parser_deviations) =
         scan_indirect_objects(bytes, options.strict, options.max_objects);
@@ -180,15 +200,17 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
 
     // Always expand object streams to detect hidden JavaScript and other content
     // Resource limits (max 100 ObjStm, byte limits) prevent DoS
-    let ObjStmExpansion { objects: mut extra } = expand_objstm(
-        bytes,
-        &objects,
-        options.strict,
-        options.max_objstm_bytes,
-        options.max_objects,
-        options.max_objstm_total_bytes,
-    );
+    let ObjStmExpansion { objects: mut extra, telemetry_events: mut objstm_telemetry } =
+        expand_objstm(
+            bytes,
+            &objects,
+            options.strict,
+            options.max_objstm_bytes,
+            options.max_objects,
+            options.max_objstm_total_bytes,
+        );
     objects.append(&mut extra);
+    telemetry_events.append(&mut objstm_telemetry);
     if options.carve_stream_objects {
         let mut carved = carve_stream_objects(bytes, &objects, &options);
         objects.append(&mut carved);
@@ -203,7 +225,16 @@ pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>>
         trailers = trailers.len(),
         "Parsed PDF object graph"
     );
-    Ok(ObjectGraph { bytes, objects, index, trailers, startxrefs, xref_sections, deviations })
+    Ok(ObjectGraph {
+        bytes,
+        objects,
+        index,
+        trailers,
+        startxrefs,
+        xref_sections,
+        deviations,
+        telemetry_events,
+    })
 }
 
 fn extract_trailer_summary(trailer: &PdfDict<'_>) -> (Option<u64>, Option<u64>, Option<String>) {
