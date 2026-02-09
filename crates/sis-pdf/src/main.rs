@@ -63,6 +63,7 @@ struct SandboxEvalReport {
 
 #[derive(Serialize)]
 struct SandboxSignalsReport {
+    replay_id: String,
     runtime_profile: String,
     errors: Vec<String>,
     calls: Vec<String>,
@@ -78,10 +79,21 @@ struct SandboxSignalsReport {
     unique_calls: usize,
     unique_prop_reads: usize,
     elapsed_ms: Option<u128>,
+    truncation: SandboxTruncationSummaryReport,
     phases: Vec<SandboxPhaseSummaryReport>,
     delta_summary: Option<SandboxDeltaSummaryReport>,
     execution_stats: SandboxExecutionStats,
     behavioral_patterns: Vec<SandboxBehaviorPattern>,
+}
+
+#[derive(Serialize)]
+struct SandboxTruncationSummaryReport {
+    calls_dropped: usize,
+    call_args_dropped: usize,
+    prop_reads_dropped: usize,
+    errors_dropped: usize,
+    urls_dropped: usize,
+    domains_dropped: usize,
 }
 
 #[derive(Serialize)]
@@ -1200,6 +1212,7 @@ fn run_sandbox_eval(
             skip_limit: None,
             skip_actual: None,
             signals: Some(SandboxSignalsReport {
+                replay_id: signals.replay_id,
                 runtime_profile: signals.runtime_profile,
                 errors: signals.errors,
                 calls: signals.calls,
@@ -1215,6 +1228,14 @@ fn run_sandbox_eval(
                 unique_calls: signals.unique_calls,
                 unique_prop_reads: signals.unique_prop_reads,
                 elapsed_ms: signals.elapsed_ms,
+                truncation: SandboxTruncationSummaryReport {
+                    calls_dropped: signals.truncation.calls_dropped,
+                    call_args_dropped: signals.truncation.call_args_dropped,
+                    prop_reads_dropped: signals.truncation.prop_reads_dropped,
+                    errors_dropped: signals.truncation.errors_dropped,
+                    urls_dropped: signals.truncation.urls_dropped,
+                    domains_dropped: signals.truncation.domains_dropped,
+                },
                 phases: signals
                     .phases
                     .into_iter()
@@ -4215,6 +4236,12 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     if let Some(value) = finding.meta.get("js.runtime.calls") {
         println!("Runtime calls: {}", escape_terminal(value));
     }
+    if let Some(value) = finding.meta.get("js.runtime.replay_id") {
+        println!("Runtime replay ID: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.ordering") {
+        println!("Runtime ordering: {}", escape_terminal(value));
+    }
     if let Some(value) = finding.meta.get("js.runtime.profile") {
         println!("Runtime profile: {}", escape_terminal(value));
     }
@@ -4286,6 +4313,24 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     }
     if let Some(value) = finding.meta.get("js.runtime.profile_confidence_adjusted") {
         println!("Runtime confidence adjusted: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.calls_dropped") {
+        println!("Runtime calls dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.call_args_dropped") {
+        println!("Runtime call args dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.prop_reads_dropped") {
+        println!("Runtime property reads dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.errors_dropped") {
+        println!("Runtime errors dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.urls_dropped") {
+        println!("Runtime URLs dropped: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.truncation.domains_dropped") {
+        println!("Runtime domains dropped: {}", escape_terminal(value));
     }
     if let Some(value) = finding.meta.get("js.delta.phase") {
         println!("Runtime delta phase: {}", escape_terminal(value));

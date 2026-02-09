@@ -78,6 +78,7 @@ impl Default for RuntimeProfile {
 
 #[derive(Debug, Clone)]
 pub struct DynamicSignals {
+    pub replay_id: String,
     pub runtime_profile: String,
     pub calls: Vec<String>,
     pub call_args: Vec<String>,
@@ -93,10 +94,21 @@ pub struct DynamicSignals {
     pub unique_calls: usize,
     pub unique_prop_reads: usize,
     pub elapsed_ms: Option<u128>,
+    pub truncation: DynamicTruncationSummary,
     pub phases: Vec<DynamicPhaseSummary>,
     pub delta_summary: Option<DynamicDeltaSummary>,
     pub behavioral_patterns: Vec<BehaviorPattern>,
     pub execution_stats: ExecutionStats,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DynamicTruncationSummary {
+    pub calls_dropped: usize,
+    pub call_args_dropped: usize,
+    pub prop_reads_dropped: usize,
+    pub errors_dropped: usize,
+    pub urls_dropped: usize,
+    pub domains_dropped: usize,
 }
 
 #[derive(Debug, Clone)]

@@ -122,6 +122,63 @@ fn sandbox_respects_custom_phase_selection() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_replay_id_is_stable_for_same_input() {
+    let options = DynamicOptions::default();
+    let payload = b"app.alert('stable');";
+    let first = js_analysis::run_sandbox(payload, &options);
+    let second = js_analysis::run_sandbox(payload, &options);
+    match (first, second) {
+        (DynamicOutcome::Executed(a), DynamicOutcome::Executed(b)) => {
+            assert_eq!(a.replay_id, b.replay_id);
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_tracks_truncation_invariants() {
+    let options = DynamicOptions::default();
+    let mut payload = String::from("for (var i = 0; i < 2600; i++) {");
+    payload.push_str("app.alert(i);");
+    payload.push_str("fetch('https://example.test/' + i);");
+    payload.push_str("}");
+    let outcome = js_analysis::run_sandbox(payload.as_bytes(), &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.truncation.calls_dropped > 0);
+            assert!(signals.truncation.call_args_dropped > 0);
+            assert!(signals.truncation.urls_dropped > 0);
+            assert!(signals.truncation.domains_dropped > 0);
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_deduped_lists_are_deterministically_sorted() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        app.newDoc();
+        app.createDataObject({ cName: 'x' });
+        app.exportAsFDF();
+        app.newDoc();
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            let mut sorted = signals.prop_writes.clone();
+            sorted.sort();
+            sorted.dedup();
+            assert_eq!(signals.prop_writes, sorted);
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_handles_app_doc_annots_payload() {
     let options = DynamicOptions::default();
     let payload = b"var z; var y; z = y = app.doc; y = 0; z.syncAnnotScan(); y = z; var p = y.getAnnots({ nPage: 0 }); var s = p[0].subject; var l = s.replace(/z/g, '%'); s = unescape(l); eval(s); s = ''; z = 1;";

@@ -55,6 +55,8 @@ fn sandbox_exec_records_calls() {
     assert_eq!(sandbox.meta.get("js.runtime.profile_count").map(String::as_str), Some("3"));
     assert!(sandbox.meta.contains_key("js.runtime.profile_divergence"));
     assert!(sandbox.meta.contains_key("js.runtime.profile_status"));
+    assert!(sandbox.meta.contains_key("js.runtime.replay_id"));
+    assert_eq!(sandbox.meta.get("js.runtime.ordering").map(String::as_str), Some("deterministic"));
     assert!(matches!(
         sandbox.confidence,
         Confidence::Probable | Confidence::Tentative | Confidence::Weak

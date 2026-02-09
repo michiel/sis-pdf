@@ -23,9 +23,13 @@ mod sandbox_impl {
     const CREATOR_PAYLOAD: &str = "z61z70z70z2Ez61z6Cz65z72z74z28z27z68z69z27z29";
     const SUBJECT_PAYLOAD: &str = "Hueputol61Hueputol70Hueputol70Hueputol2EHueputol61Hueputol6CHueputol65Hueputol72Hueputol74Hueputol28Hueputol27Hueputol68Hueputol69Hueputol27Hueputol29";
     const TITLE_PAYLOAD: &str = "%61%6c%65%72%74%28%27%68%69%27%29";
+    const MAX_RECORDED_CALLS: usize = 2_048;
+    const MAX_RECORDED_PROP_READS: usize = 4_096;
+    const MAX_RECORDED_ERRORS: usize = 256;
 
     #[derive(Default, Clone)]
     struct SandboxLog {
+        replay_id: String,
         runtime_profile: String,
         calls: Vec<String>,
         call_args: Vec<String>,
@@ -48,6 +52,12 @@ mod sandbox_impl {
         phase_error_counts: std::collections::BTreeMap<String, usize>,
         phase_elapsed_ms: std::collections::BTreeMap<String, u128>,
         phase_dynamic_code_calls: std::collections::BTreeMap<String, BTreeSet<String>>,
+        calls_dropped: usize,
+        call_args_dropped: usize,
+        prop_reads_dropped: usize,
+        errors_dropped: usize,
+        urls_dropped: usize,
+        domains_dropped: usize,
         delta_summary: Option<SnapshotDeltaSummary>,
         options: DynamicOptions,
         variable_events: Vec<VariableEvent>,
@@ -565,6 +575,7 @@ mod sandbox_impl {
         std::thread::spawn(move || {
             let mut initial_log = SandboxLog { options: opts, ..SandboxLog::default() };
             initial_log.runtime_profile = initial_log.options.runtime_profile.id();
+            initial_log.replay_id = compute_replay_id(&bytes, &initial_log.options);
             let phase_timeout_ms = initial_log.options.phase_timeout_ms;
             let phase_plan = phase_order(&initial_log.options);
             // Initialize execution flow tracking
@@ -607,10 +618,15 @@ mod sandbox_impl {
                 }
                 if elapsed > phase_timeout_ms {
                     let mut log_ref = log.borrow_mut();
-                    log_ref.errors.push(format!(
+                    let message = format!(
                         "phase timeout exceeded: phase={} limit_ms={} observed_ms={}",
                         phase_name, phase_timeout_ms, elapsed
-                    ));
+                    );
+                    if log_ref.errors.len() < MAX_RECORDED_ERRORS {
+                        log_ref.errors.push(message);
+                    } else {
+                        log_ref.errors_dropped += 1;
+                    }
                     *log_ref.phase_error_counts.entry(phase_name.clone()).or_insert(0) += 1;
                 }
                 if let Err(err) = eval_res {
@@ -619,7 +635,11 @@ mod sandbox_impl {
                             .is_some();
                     if !recovered {
                         let mut log_ref = log.borrow_mut();
-                        log_ref.errors.push(format!("{:?}", err));
+                        if log_ref.errors.len() < MAX_RECORDED_ERRORS {
+                            log_ref.errors.push(format!("{:?}", err));
+                        } else {
+                            log_ref.errors_dropped += 1;
+                        }
                         *log_ref.phase_error_counts.entry(phase_name).or_insert(0) += 1;
                     }
                 }
@@ -664,6 +684,7 @@ mod sandbox_impl {
 
         match rx.recv_timeout(Duration::from_millis(options.timeout_ms as u64)) {
             Ok(log) => DynamicOutcome::Executed(Box::new(DynamicSignals {
+                replay_id: log.replay_id.clone(),
                 runtime_profile: log.runtime_profile.clone(),
                 calls: log.calls.clone(),
                 call_args: log.call_args.clone(),
@@ -671,14 +692,22 @@ mod sandbox_impl {
                 domains: log.domains.clone(),
                 errors: log.errors.clone(),
                 prop_reads: log.prop_reads.clone(),
-                prop_writes: dedupe_strings(log.prop_writes.clone()),
-                prop_deletes: dedupe_strings(log.prop_deletes.clone()),
-                reflection_probes: dedupe_strings(log.reflection_probes.clone()),
-                dynamic_code_calls: dedupe_strings(log.dynamic_code_calls.clone()),
+                prop_writes: dedupe_sorted(log.prop_writes.clone()),
+                prop_deletes: dedupe_sorted(log.prop_deletes.clone()),
+                reflection_probes: dedupe_sorted(log.reflection_probes.clone()),
+                dynamic_code_calls: dedupe_sorted(log.dynamic_code_calls.clone()),
                 call_count: log.call_count,
                 unique_calls: log.unique_calls.len(),
                 unique_prop_reads: log.unique_prop_reads.len(),
                 elapsed_ms: log.elapsed_ms,
+                truncation: crate::types::DynamicTruncationSummary {
+                    calls_dropped: log.calls_dropped,
+                    call_args_dropped: log.call_args_dropped,
+                    prop_reads_dropped: log.prop_reads_dropped,
+                    errors_dropped: log.errors_dropped,
+                    urls_dropped: log.urls_dropped,
+                    domains_dropped: log.domains_dropped,
+                },
                 phases: render_phase_summaries(&log),
                 delta_summary: log.delta_summary.as_ref().map(|delta| {
                     crate::types::DynamicDeltaSummary {
@@ -2846,36 +2875,62 @@ mod sandbox_impl {
         let mut log_ref = log.borrow_mut();
         let phase_key = log_ref.current_phase.clone();
         log_ref.call_count += 1;
-        log_ref.calls.push(name.to_string());
+        if log_ref.calls.len() < MAX_RECORDED_CALLS {
+            log_ref.calls.push(name.to_string());
+        } else {
+            log_ref.calls_dropped += 1;
+        }
         log_ref.unique_calls.insert(name.to_string());
         *log_ref.phase_call_counts.entry(phase_key.clone()).or_insert(0) += 1;
         if is_reflection_probe_call(name) {
-            log_ref.reflection_probes.push(name.to_string());
+            if log_ref.reflection_probes.len() < MAX_RECORDED_CALLS {
+                log_ref.reflection_probes.push(name.to_string());
+            } else {
+                log_ref.calls_dropped += 1;
+            }
         }
         if is_dynamic_code_call(name) {
-            log_ref.dynamic_code_calls.push(name.to_string());
+            if log_ref.dynamic_code_calls.len() < MAX_RECORDED_CALLS {
+                log_ref.dynamic_code_calls.push(name.to_string());
+            } else {
+                log_ref.calls_dropped += 1;
+            }
             log_ref.phase_dynamic_code_calls.entry(phase_key).or_default().insert(name.to_string());
         }
         if is_property_delete_call(name) {
-            log_ref.prop_deletes.push(name.to_string());
+            if log_ref.prop_deletes.len() < MAX_RECORDED_PROP_READS {
+                log_ref.prop_deletes.push(name.to_string());
+            } else {
+                log_ref.prop_reads_dropped += 1;
+            }
         }
         if is_property_write_call(name) {
-            log_ref.prop_writes.push(name.to_string());
+            if log_ref.prop_writes.len() < MAX_RECORDED_PROP_READS {
+                log_ref.prop_writes.push(name.to_string());
+            } else {
+                log_ref.prop_reads_dropped += 1;
+            }
         }
         if log_ref.call_args.len() < log_ref.options.max_call_args {
             if let Some(summary) = summarise_args(args, ctx, &log_ref.options) {
                 log_ref.call_args.push(format!("{}({})", name, summary));
             }
+        } else {
+            log_ref.call_args_dropped += 1;
         }
         for arg in args {
             if let Some(value) = js_value_string(arg) {
                 if looks_like_url(&value) {
                     if log_ref.urls.len() < log_ref.options.max_urls {
                         log_ref.urls.push(value.clone());
+                    } else {
+                        log_ref.urls_dropped += 1;
                     }
                     if let Some(domain) = domain_from_url(&value) {
                         if log_ref.domains.len() < log_ref.options.max_domains {
                             log_ref.domains.push(domain);
+                        } else {
+                            log_ref.domains_dropped += 1;
                         }
                     }
                 }
@@ -2885,7 +2940,11 @@ mod sandbox_impl {
 
     fn record_prop(log: &Rc<RefCell<SandboxLog>>, name: &str) {
         let mut log_ref = log.borrow_mut();
-        log_ref.prop_reads.push(name.to_string());
+        if log_ref.prop_reads.len() < MAX_RECORDED_PROP_READS {
+            log_ref.prop_reads.push(name.to_string());
+        } else {
+            log_ref.prop_reads_dropped += 1;
+        }
         log_ref.unique_prop_reads.insert(name.to_string());
         let phase_key = log_ref.current_phase.clone();
         *log_ref.phase_prop_read_counts.entry(phase_key).or_insert(0) += 1;
@@ -3012,6 +3071,39 @@ mod sandbox_impl {
             }
         }
         out
+    }
+
+    fn dedupe_sorted(values: Vec<String>) -> Vec<String> {
+        values.into_iter().collect::<BTreeSet<_>>().into_iter().collect()
+    }
+
+    fn fnv1a64(bytes: &[u8]) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+
+    fn compute_replay_id(bytes: &[u8], options: &DynamicOptions) -> String {
+        let phase_text =
+            options.phases.iter().map(|phase| phase.as_str()).collect::<Vec<_>>().join(",");
+        let descriptor = format!(
+            "{}|{}|{}|{}|{}|{}|{}|{}",
+            options.runtime_profile.id(),
+            options.max_bytes,
+            options.timeout_ms,
+            options.phase_timeout_ms,
+            options.max_call_args,
+            options.max_urls,
+            options.max_domains,
+            phase_text
+        );
+        let mut input = Vec::with_capacity(bytes.len() + descriptor.len());
+        input.extend_from_slice(bytes);
+        input.extend_from_slice(descriptor.as_bytes());
+        format!("jsr-{hash:016x}", hash = fnv1a64(&input))
     }
 
     fn truncate_set(values: BTreeSet<String>, max: usize) -> Vec<String> {

@@ -266,7 +266,7 @@ Adjust severity/confidence based on:
   - Adjust confidence/severity using cross-profile consistency.
   - **Done when**: profile-divergence metadata affects final findings confidence/severity.
 
-- [ ] **PR-09: Integrity and hardening pass**
+- [x] **PR-09: Integrity and hardening pass**
   - Remove legacy unsafe capture patterns where upstream APIs now permit safe alternatives.
   - Add invariants for event truncation, deterministic ordering, and replay identifiers.
   - **Done when**: no new unsafe added, and integrity invariants are validated by tests.

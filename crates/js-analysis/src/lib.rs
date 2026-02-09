@@ -10,5 +10,5 @@ pub use static_analysis::{
 };
 pub use types::{
     DynamicDeltaSummary, DynamicOptions, DynamicOutcome, DynamicPhaseSummary, DynamicSignals,
-    RuntimeKind, RuntimeMode, RuntimePhase, RuntimeProfile,
+    DynamicTruncationSummary, RuntimeKind, RuntimeMode, RuntimePhase, RuntimeProfile,
 };

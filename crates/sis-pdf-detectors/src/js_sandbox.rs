@@ -428,6 +428,8 @@ impl Detector for JavaScriptSandboxDetector {
                         if signals.call_count == 0 {
                             let mut meta = std::collections::HashMap::new();
                             meta.insert("js.sandbox_exec".into(), "true".into());
+                            meta.insert("js.runtime.replay_id".into(), signals.replay_id.clone());
+                            meta.insert("js.runtime.ordering".into(), "deterministic".into());
                             meta.insert(
                                 "js.runtime.profile".into(),
                                 signals.runtime_profile.clone(),
@@ -473,6 +475,42 @@ impl Detector for JavaScriptSandboxDetector {
                                 meta.insert(
                                     "js.runtime.dynamic_code_calls".into(),
                                     signals.dynamic_code_calls.join(", "),
+                                );
+                            }
+                            if signals.truncation.calls_dropped > 0 {
+                                meta.insert(
+                                    "js.runtime.truncation.calls_dropped".into(),
+                                    signals.truncation.calls_dropped.to_string(),
+                                );
+                            }
+                            if signals.truncation.call_args_dropped > 0 {
+                                meta.insert(
+                                    "js.runtime.truncation.call_args_dropped".into(),
+                                    signals.truncation.call_args_dropped.to_string(),
+                                );
+                            }
+                            if signals.truncation.prop_reads_dropped > 0 {
+                                meta.insert(
+                                    "js.runtime.truncation.prop_reads_dropped".into(),
+                                    signals.truncation.prop_reads_dropped.to_string(),
+                                );
+                            }
+                            if signals.truncation.errors_dropped > 0 {
+                                meta.insert(
+                                    "js.runtime.truncation.errors_dropped".into(),
+                                    signals.truncation.errors_dropped.to_string(),
+                                );
+                            }
+                            if signals.truncation.urls_dropped > 0 {
+                                meta.insert(
+                                    "js.runtime.truncation.urls_dropped".into(),
+                                    signals.truncation.urls_dropped.to_string(),
+                                );
+                            }
+                            if signals.truncation.domains_dropped > 0 {
+                                meta.insert(
+                                    "js.runtime.truncation.domains_dropped".into(),
+                                    signals.truncation.domains_dropped.to_string(),
                                 );
                             }
                             if !signals.phases.is_empty() {
@@ -583,6 +621,8 @@ impl Detector for JavaScriptSandboxDetector {
                         }
 
                         let mut base_meta = std::collections::HashMap::new();
+                        base_meta.insert("js.runtime.replay_id".into(), signals.replay_id.clone());
+                        base_meta.insert("js.runtime.ordering".into(), "deterministic".into());
                         base_meta
                             .insert("js.runtime.profile".into(), signals.runtime_profile.clone());
                         base_meta.insert("js.runtime.calls".into(), signals.calls.join(","));
@@ -637,6 +677,42 @@ impl Detector for JavaScriptSandboxDetector {
                             base_meta.insert(
                                 "js.runtime.dynamic_code_calls".into(),
                                 signals.dynamic_code_calls.join(", "),
+                            );
+                        }
+                        if signals.truncation.calls_dropped > 0 {
+                            base_meta.insert(
+                                "js.runtime.truncation.calls_dropped".into(),
+                                signals.truncation.calls_dropped.to_string(),
+                            );
+                        }
+                        if signals.truncation.call_args_dropped > 0 {
+                            base_meta.insert(
+                                "js.runtime.truncation.call_args_dropped".into(),
+                                signals.truncation.call_args_dropped.to_string(),
+                            );
+                        }
+                        if signals.truncation.prop_reads_dropped > 0 {
+                            base_meta.insert(
+                                "js.runtime.truncation.prop_reads_dropped".into(),
+                                signals.truncation.prop_reads_dropped.to_string(),
+                            );
+                        }
+                        if signals.truncation.errors_dropped > 0 {
+                            base_meta.insert(
+                                "js.runtime.truncation.errors_dropped".into(),
+                                signals.truncation.errors_dropped.to_string(),
+                            );
+                        }
+                        if signals.truncation.urls_dropped > 0 {
+                            base_meta.insert(
+                                "js.runtime.truncation.urls_dropped".into(),
+                                signals.truncation.urls_dropped.to_string(),
+                            );
+                        }
+                        if signals.truncation.domains_dropped > 0 {
+                            base_meta.insert(
+                                "js.runtime.truncation.domains_dropped".into(),
+                                signals.truncation.domains_dropped.to_string(),
                             );
                         }
                         if !signals.phases.is_empty() {
