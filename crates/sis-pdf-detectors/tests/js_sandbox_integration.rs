@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use sis_pdf_core::model::Confidence;
 use sis_pdf_core::scan::{CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanOptions};
 
 #[cfg(feature = "js-sandbox")]
@@ -51,5 +52,12 @@ fn sandbox_exec_records_calls() {
     assert!(calls.contains("alert"));
     let phase_order = sandbox.meta.get("js.runtime.phase_order").expect("phase order");
     assert!(phase_order.contains("open"));
+    assert_eq!(sandbox.meta.get("js.runtime.profile_count").map(String::as_str), Some("3"));
+    assert!(sandbox.meta.contains_key("js.runtime.profile_divergence"));
+    assert!(sandbox.meta.contains_key("js.runtime.profile_status"));
+    assert!(matches!(
+        sandbox.confidence,
+        Confidence::Probable | Confidence::Tentative | Confidence::Weak
+    ));
     assert_eq!(sandbox.meta.get("js.sandbox_exec").map(String::as_str), Some("true"));
 }

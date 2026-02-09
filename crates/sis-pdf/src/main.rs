@@ -4263,6 +4263,30 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
     if let Some(value) = finding.meta.get("js.runtime.phase_summaries") {
         println!("Runtime phase summaries: {}", escape_terminal(value));
     }
+    if let Some(value) = finding.meta.get("js.runtime.profile_count") {
+        println!("Runtime profile count: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_executed_count") {
+        println!("Runtime profile executed: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_divergence") {
+        println!("Runtime profile divergence: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_status") {
+        println!("Runtime profile status: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_consistency_signal") {
+        println!("Runtime consistency signal: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_consistency_ratio") {
+        println!("Runtime consistency ratio: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_severity_adjusted") {
+        println!("Runtime severity adjusted: {}", escape_terminal(value));
+    }
+    if let Some(value) = finding.meta.get("js.runtime.profile_confidence_adjusted") {
+        println!("Runtime confidence adjusted: {}", escape_terminal(value));
+    }
     if let Some(value) = finding.meta.get("js.delta.phase") {
         println!("Runtime delta phase: {}", escape_terminal(value));
     }

@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use anyhow::Result;
 
-use js_analysis::{is_file_call, is_network_call, run_sandbox, DynamicOptions, DynamicOutcome};
+use js_analysis::{
+    is_file_call, is_network_call, run_sandbox, DynamicOptions, DynamicOutcome, RuntimeKind,
+    RuntimeMode, RuntimeProfile,
+};
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
@@ -14,6 +17,317 @@ pub struct JavaScriptSandboxDetector;
 
 const JS_WALLCLOCK_TIMEOUT: Duration = Duration::from_secs(5);
 const JS_SANDBOX_MAX_BYTES: usize = 256 * 1024;
+
+struct ProfileRun {
+    profile_id: String,
+    outcome: DynamicOutcome,
+}
+
+#[derive(Default)]
+struct ProfileDivergenceSummary {
+    profile_ids: Vec<String>,
+    profile_statuses: Vec<String>,
+    executed_profiles: Vec<String>,
+    executed_count: usize,
+    timed_out_count: usize,
+    skipped_count: usize,
+    network_count: usize,
+    file_count: usize,
+    risky_count: usize,
+    calls_count: usize,
+}
+
+impl ProfileDivergenceSummary {
+    fn total(&self) -> usize {
+        self.profile_ids.len()
+    }
+
+    fn divergence_label(&self) -> &'static str {
+        if self.executed_count < 2 {
+            return "insufficient";
+        }
+        let ratios =
+            [self.network_ratio(), self.file_ratio(), self.risky_ratio(), self.calls_ratio()];
+        let mut seen_present = false;
+        let mut seen_absent = false;
+        for ratio in ratios.into_iter().flatten() {
+            if ratio > 0.0 {
+                seen_present = true;
+            }
+            if ratio < 1.0 {
+                seen_absent = true;
+            }
+        }
+        if seen_present && seen_absent {
+            "divergent"
+        } else {
+            "consistent"
+        }
+    }
+
+    fn network_ratio(&self) -> Option<f64> {
+        ratio(self.network_count, self.executed_count)
+    }
+
+    fn file_ratio(&self) -> Option<f64> {
+        ratio(self.file_count, self.executed_count)
+    }
+
+    fn risky_ratio(&self) -> Option<f64> {
+        ratio(self.risky_count, self.executed_count)
+    }
+
+    fn calls_ratio(&self) -> Option<f64> {
+        ratio(self.calls_count, self.executed_count)
+    }
+}
+
+fn ratio(numerator: usize, denominator: usize) -> Option<f64> {
+    if denominator == 0 {
+        None
+    } else {
+        Some(numerator as f64 / denominator as f64)
+    }
+}
+
+fn configured_profiles() -> [RuntimeProfile; 3] {
+    [
+        RuntimeProfile {
+            kind: RuntimeKind::PdfReader,
+            vendor: "adobe".to_string(),
+            version: "11".to_string(),
+            mode: RuntimeMode::Compat,
+        },
+        RuntimeProfile {
+            kind: RuntimeKind::Browser,
+            vendor: "chromium".to_string(),
+            version: "120".to_string(),
+            mode: RuntimeMode::Compat,
+        },
+        RuntimeProfile {
+            kind: RuntimeKind::Node,
+            vendor: "nodejs".to_string(),
+            version: "20".to_string(),
+            mode: RuntimeMode::Compat,
+        },
+    ]
+}
+
+fn execute_profiles(bytes: &[u8]) -> (Vec<ProfileRun>, ProfileDivergenceSummary) {
+    let mut runs = Vec::new();
+    let mut summary = ProfileDivergenceSummary::default();
+    for profile in configured_profiles() {
+        let profile_id = profile.id();
+        let options = DynamicOptions {
+            max_bytes: JS_SANDBOX_MAX_BYTES,
+            timeout_ms: JS_WALLCLOCK_TIMEOUT.as_millis(),
+            runtime_profile: profile.clone(),
+            ..Default::default()
+        };
+        let outcome = run_sandbox(bytes, &options);
+        summary.profile_ids.push(profile_id.clone());
+        match &outcome {
+            DynamicOutcome::Executed(signals) => {
+                summary.executed_count += 1;
+                summary.executed_profiles.push(profile_id.clone());
+                let has_network = signals.calls.iter().any(|c| is_network_call(c));
+                let has_file = signals.calls.iter().any(|c| is_file_call(c));
+                let has_risky = signals.calls.iter().any(|c| {
+                    c.eq_ignore_ascii_case("eval")
+                        || c.eq_ignore_ascii_case("app.eval")
+                        || c.eq_ignore_ascii_case("event.target.eval")
+                        || c.eq_ignore_ascii_case("unescape")
+                        || c.eq_ignore_ascii_case("Function")
+                });
+                let has_calls = signals.call_count > 0;
+                if has_network {
+                    summary.network_count += 1;
+                }
+                if has_file {
+                    summary.file_count += 1;
+                }
+                if has_risky {
+                    summary.risky_count += 1;
+                }
+                if has_calls {
+                    summary.calls_count += 1;
+                }
+                summary.profile_statuses.push(format!(
+                    "{}:executed:calls={}:network={}:file={}:risky={}",
+                    profile_id, signals.call_count, has_network, has_file, has_risky
+                ));
+            }
+            DynamicOutcome::TimedOut { timeout_ms } => {
+                summary.timed_out_count += 1;
+                summary.profile_statuses.push(format!("{}:timeout:{}ms", profile_id, timeout_ms));
+            }
+            DynamicOutcome::Skipped { reason, .. } => {
+                summary.skipped_count += 1;
+                summary.profile_statuses.push(format!("{}:skipped:{}", profile_id, reason));
+            }
+        }
+        runs.push(ProfileRun { profile_id, outcome });
+    }
+    (runs, summary)
+}
+
+fn select_primary_outcome(runs: &[ProfileRun]) -> Option<DynamicOutcome> {
+    for run in runs {
+        if run.profile_id.starts_with("pdf_reader:") {
+            if let DynamicOutcome::Executed(_) = run.outcome {
+                return Some(run.outcome.clone());
+            }
+        }
+    }
+    for run in runs {
+        if let DynamicOutcome::Executed(_) = run.outcome {
+            return Some(run.outcome.clone());
+        }
+    }
+    for run in runs {
+        if let DynamicOutcome::TimedOut { .. } = run.outcome {
+            return Some(run.outcome.clone());
+        }
+    }
+    runs.first().map(|run| run.outcome.clone())
+}
+
+fn insert_profile_meta(
+    meta: &mut std::collections::HashMap<String, String>,
+    summary: &ProfileDivergenceSummary,
+) {
+    meta.insert("js.runtime.profile_count".into(), summary.total().to_string());
+    meta.insert("js.runtime.profile_executed_count".into(), summary.executed_count.to_string());
+    meta.insert("js.runtime.profile_timed_out_count".into(), summary.timed_out_count.to_string());
+    meta.insert("js.runtime.profile_skipped_count".into(), summary.skipped_count.to_string());
+    meta.insert("js.runtime.profile_ids".into(), summary.profile_ids.join(", "));
+    if !summary.executed_profiles.is_empty() {
+        meta.insert("js.runtime.profile_executed".into(), summary.executed_profiles.join(", "));
+    }
+    if !summary.profile_statuses.is_empty() {
+        meta.insert("js.runtime.profile_status".into(), summary.profile_statuses.join(" | "));
+    }
+    meta.insert("js.runtime.profile_divergence".into(), summary.divergence_label().to_string());
+    if let Some(value) = summary.network_ratio() {
+        meta.insert("js.runtime.profile_network_ratio".into(), format!("{value:.2}"));
+    }
+    if let Some(value) = summary.file_ratio() {
+        meta.insert("js.runtime.profile_file_ratio".into(), format!("{value:.2}"));
+    }
+    if let Some(value) = summary.risky_ratio() {
+        meta.insert("js.runtime.profile_risky_ratio".into(), format!("{value:.2}"));
+    }
+    if let Some(value) = summary.calls_ratio() {
+        meta.insert("js.runtime.profile_calls_ratio".into(), format!("{value:.2}"));
+    }
+}
+
+fn promote_severity(value: Severity) -> Severity {
+    match value {
+        Severity::Info => Severity::Low,
+        Severity::Low => Severity::Medium,
+        Severity::Medium => Severity::High,
+        Severity::High => Severity::Critical,
+        Severity::Critical => Severity::Critical,
+    }
+}
+
+fn demote_severity(value: Severity) -> Severity {
+    match value {
+        Severity::Critical => Severity::High,
+        Severity::High => Severity::Medium,
+        Severity::Medium => Severity::Low,
+        Severity::Low => Severity::Info,
+        Severity::Info => Severity::Info,
+    }
+}
+
+fn promote_confidence(value: Confidence) -> Confidence {
+    match value {
+        Confidence::Certain => Confidence::Certain,
+        Confidence::Strong => Confidence::Certain,
+        Confidence::Probable => Confidence::Strong,
+        Confidence::Tentative => Confidence::Probable,
+        Confidence::Weak => Confidence::Tentative,
+        Confidence::Heuristic => Confidence::Weak,
+    }
+}
+
+fn demote_confidence(value: Confidence) -> Confidence {
+    match value {
+        Confidence::Certain => Confidence::Strong,
+        Confidence::Strong => Confidence::Probable,
+        Confidence::Probable => Confidence::Tentative,
+        Confidence::Tentative => Confidence::Weak,
+        Confidence::Weak => Confidence::Heuristic,
+        Confidence::Heuristic => Confidence::Heuristic,
+    }
+}
+
+fn adjust_by_ratio(
+    base_severity: Severity,
+    base_confidence: Confidence,
+    ratio: Option<f64>,
+) -> (Severity, Confidence) {
+    let Some(value) = ratio else {
+        return (base_severity, base_confidence);
+    };
+    if value >= 0.67 {
+        (promote_severity(base_severity), promote_confidence(base_confidence))
+    } else if value <= 0.34 {
+        (demote_severity(base_severity), demote_confidence(base_confidence))
+    } else {
+        (base_severity, base_confidence)
+    }
+}
+
+fn apply_profile_scoring(
+    kind: &str,
+    base_severity: Severity,
+    base_confidence: Confidence,
+    summary: &ProfileDivergenceSummary,
+) -> (Severity, Confidence, Option<f64>, &'static str) {
+    let (ratio, signal) = match kind {
+        "js_runtime_network_intent" => (summary.network_ratio(), "network"),
+        "js_runtime_file_probe" => (summary.file_ratio(), "file"),
+        "js_runtime_risky_calls" => (summary.risky_ratio(), "risky_calls"),
+        "js_sandbox_exec" => (summary.calls_ratio(), "calls"),
+        _ => (None, "none"),
+    };
+    let (severity, confidence) = adjust_by_ratio(base_severity, base_confidence, ratio);
+    (severity, confidence, ratio, signal)
+}
+
+fn apply_profile_scoring_meta(
+    meta: &mut std::collections::HashMap<String, String>,
+    summary: &ProfileDivergenceSummary,
+    kind: &str,
+    base_severity: Severity,
+    base_confidence: Confidence,
+) -> (Severity, Confidence) {
+    insert_profile_meta(meta, summary);
+    let (severity, confidence, ratio, signal) =
+        apply_profile_scoring(kind, base_severity, base_confidence, summary);
+    if signal != "none" {
+        meta.insert("js.runtime.profile_consistency_signal".into(), signal.to_string());
+    }
+    if let Some(value) = ratio {
+        meta.insert("js.runtime.profile_consistency_ratio".into(), format!("{value:.2}"));
+    }
+    if severity != base_severity {
+        meta.insert(
+            "js.runtime.profile_severity_adjusted".into(),
+            format!("{:?}->{:?}", base_severity, severity),
+        );
+    }
+    if confidence != base_confidence {
+        meta.insert(
+            "js.runtime.profile_confidence_adjusted".into(),
+            format!("{:?}->{:?}", base_confidence, confidence),
+        );
+    }
+    (severity, confidence)
+}
 
 impl Detector for JavaScriptSandboxDetector {
     fn id(&self) -> &'static str {
@@ -46,13 +360,11 @@ impl Detector for JavaScriptSandboxDetector {
                     evidence.push(span_to_evidence(entry.full_span, "JavaScript object"));
                 }
 
-                let options = DynamicOptions {
-                    max_bytes: JS_SANDBOX_MAX_BYTES,
-                    timeout_ms: JS_WALLCLOCK_TIMEOUT.as_millis(),
-                    ..Default::default()
+                let (profile_runs, profile_summary) = execute_profiles(&info.bytes);
+                let Some(primary_outcome) = select_primary_outcome(&profile_runs) else {
+                    continue;
                 };
-
-                match run_sandbox(&info.bytes, &options) {
+                match primary_outcome {
                     DynamicOutcome::Skipped { reason, limit, actual } => {
                         let mut meta = std::collections::HashMap::new();
                         meta.insert("js.sandbox_exec".into(), "false".into());
@@ -62,6 +374,7 @@ impl Detector for JavaScriptSandboxDetector {
                         if let Some(label) = candidate.source.meta_value() {
                             meta.insert("js.source".into(), label.into());
                         }
+                        insert_profile_meta(&mut meta, &profile_summary);
                         findings.push(Finding {
                             id: String::new(),
                             surface: self.surface(),
@@ -89,6 +402,7 @@ impl Detector for JavaScriptSandboxDetector {
                         if let Some(label) = candidate.source.meta_value() {
                             meta.insert("js.source".into(), label.into());
                         }
+                        insert_profile_meta(&mut meta, &profile_summary);
                         findings.push(Finding {
                             id: String::new(),
                             surface: self.surface(),
@@ -240,12 +554,19 @@ impl Detector for JavaScriptSandboxDetector {
                             } else {
                                 "Sandbox executed JS; execution errors observed."
                             };
+                            let (severity, confidence) = apply_profile_scoring_meta(
+                                &mut meta,
+                                &profile_summary,
+                                "js_sandbox_exec",
+                                Severity::Info,
+                                Confidence::Probable,
+                            );
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
                                 kind: "js_sandbox_exec".into(),
-                                severity: Severity::Info,
-                                confidence: Confidence::Probable,
+                                severity,
+                                confidence,
                                 impact: None,
                                 title: "JavaScript sandbox executed".into(),
                                 description: description.into(),
@@ -419,12 +740,19 @@ impl Detector for JavaScriptSandboxDetector {
                         if has_network {
                             let mut meta = base_meta.clone();
                             meta.insert("js.sandbox_exec".into(), "true".into());
+                            let (severity, confidence) = apply_profile_scoring_meta(
+                                &mut meta,
+                                &profile_summary,
+                                "js_runtime_network_intent",
+                                Severity::High,
+                                Confidence::Probable,
+                            );
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
                                 kind: "js_runtime_network_intent".into(),
-                                severity: Severity::High,
-                                confidence: Confidence::Probable,
+                                severity,
+                                confidence,
             impact: None,
                                 title: "Runtime network intent".into(),
                                 description: "JavaScript invoked network-capable APIs during sandboxed execution.".into(),
@@ -441,12 +769,19 @@ impl Detector for JavaScriptSandboxDetector {
                         if has_file {
                             let mut meta = base_meta.clone();
                             meta.insert("js.sandbox_exec".into(), "true".into());
+                            let (severity, confidence) = apply_profile_scoring_meta(
+                                &mut meta,
+                                &profile_summary,
+                                "js_runtime_file_probe",
+                                Severity::Medium,
+                                Confidence::Probable,
+                            );
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
                                 kind: "js_runtime_file_probe".into(),
-                                severity: Severity::Medium,
-                                confidence: Confidence::Probable,
+                                severity,
+                                confidence,
             impact: None,
                                 title: "Runtime file or object probe".into(),
                                 description: "JavaScript invoked file or object-related APIs during sandboxed execution.".into(),
@@ -463,12 +798,19 @@ impl Detector for JavaScriptSandboxDetector {
                         if let Some(label) = risky_call_label.as_ref() {
                             let mut meta = base_meta.clone();
                             meta.insert("js.sandbox_exec".into(), "true".into());
+                            let (severity, confidence) = apply_profile_scoring_meta(
+                                &mut meta,
+                                &profile_summary,
+                                "js_runtime_risky_calls",
+                                Severity::High,
+                                Confidence::Strong,
+                            );
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
                                 kind: "js_runtime_risky_calls".into(),
-                                severity: Severity::High,
-                                confidence: Confidence::Strong,
+                                severity,
+                                confidence,
             impact: None,
                                 title: "Runtime risky JavaScript calls".into(),
                                 description: format!(
@@ -490,12 +832,19 @@ impl Detector for JavaScriptSandboxDetector {
                         if !has_network && !has_file {
                             let mut meta = base_meta;
                             meta.insert("js.sandbox_exec".into(), "true".into());
+                            let (severity, confidence) = apply_profile_scoring_meta(
+                                &mut meta,
+                                &profile_summary,
+                                "js_sandbox_exec",
+                                Severity::Info,
+                                Confidence::Probable,
+                            );
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
                                 kind: "js_sandbox_exec".into(),
-                                severity: Severity::Info,
-                                confidence: Confidence::Probable,
+                                severity,
+                                confidence,
             impact: None,
                                 title: "JavaScript sandbox executed".into(),
                                 description: "Sandbox executed JS; monitored API calls were observed but no network/file APIs.".into(),

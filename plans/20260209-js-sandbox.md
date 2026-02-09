@@ -261,7 +261,7 @@ Adjust severity/confidence based on:
   - Track phase attribution in telemetry.
   - **Done when**: same payload can be evaluated by phase and produces phase-scoped telemetry.
 
-- [ ] **PR-08: Multi-profile fusion + scoring**
+- [x] **PR-08: Multi-profile fusion + scoring**
   - Execute across selected profiles and merge into divergence summary.
   - Adjust confidence/severity using cross-profile consistency.
   - **Done when**: profile-divergence metadata affects final findings confidence/severity.
