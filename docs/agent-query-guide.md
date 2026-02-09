@@ -137,10 +137,15 @@ sis query sample.pdf actions.chains --chain-summary full
 ```
 
 ### 5) Findings output summary block (JSON/YAML/JSONL)
-`findings` output now includes a top-level summary (`findings_by_severity`, `findings_by_surface`) for quick reporting.
+`findings` output now includes a top-level summary (`findings_by_severity`, `findings_by_surface`, `findings_by_kind`) for quick reporting.
+
+For JavaScript runtime triage, the summary also includes:
+
+- `js_emulation_breakpoints_by_bucket` (for example `missing_callable`, `recursion_limit`, `parser_dialect_mismatch`)
 
 ```bash
 sis query sample.pdf findings --format json
+sis query sample.pdf findings --where "kind == 'js_runtime_downloader_pattern'" --format json
 ```
 
 ### 6) Query predicate parity in one-shot and REPL

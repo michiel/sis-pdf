@@ -2893,11 +2893,13 @@ mod sandbox_impl {
 
         if error_msg.contains("not a callable function") {
             let call_names = gather_bare_call_names(code);
+            let dotted_paths = gather_dotted_call_paths(code);
             let patched = override_callable_assignments(code, &call_names);
             let mut prelude = String::new();
             for name in &call_names {
                 prelude.push_str(&format!("var {} = function(){{}};", name));
             }
+            prelude.push_str(&build_dotted_call_stub_prelude(&dotted_paths));
             let merged = format!("{}{}", prelude, patched);
             if let Ok(result) = ctx.eval(Source::from_bytes(merged.as_bytes())) {
                 let mut log_ref = log.borrow_mut();
@@ -2959,6 +2961,7 @@ mod sandbox_impl {
                     }
                     if new_error.contains("not a callable function") {
                         let call_names = gather_bare_call_names(code);
+                        let dotted_paths = gather_dotted_call_paths(code);
                         let mut injected = prelude.clone();
                         for name in call_names {
                             if injected.contains(&format!("var {} =", name)) {
@@ -2966,6 +2969,7 @@ mod sandbox_impl {
                             }
                             injected.push_str(&format!("var {} = function(){{}};", name));
                         }
+                        injected.push_str(&build_dotted_call_stub_prelude(&dotted_paths));
                         let merged = format!("{}{}", injected, code);
                         if let Ok(result) = ctx.eval(Source::from_bytes(merged.as_bytes())) {
                             return Some(result);
@@ -3050,6 +3054,54 @@ mod sandbox_impl {
             i += 1;
         }
         names
+    }
+
+    fn gather_dotted_call_paths(code: &str) -> BTreeSet<String> {
+        let mut paths = BTreeSet::new();
+        let Ok(regex) =
+            regex::Regex::new(r"([A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+)\s*\(")
+        else {
+            return paths;
+        };
+        for captures in regex.captures_iter(code) {
+            if let Some(path) = captures.get(1).map(|value| value.as_str()) {
+                if path.starts_with("Math.")
+                    || path.starts_with("JSON.")
+                    || path.starts_with("Object.")
+                    || path.starts_with("String.")
+                {
+                    continue;
+                }
+                paths.insert(path.to_string());
+            }
+        }
+        paths
+    }
+
+    fn build_dotted_call_stub_prelude(paths: &BTreeSet<String>) -> String {
+        let mut prelude = String::new();
+        for path in paths {
+            let parts = path.split('.').collect::<Vec<_>>();
+            if parts.len() < 2 {
+                continue;
+            }
+            let root = parts[0];
+            if root != "this" {
+                prelude.push_str(&format!(
+                    "if(typeof {root}==='undefined'||{root}===null){{{root}={{}};}}"
+                ));
+            }
+            for idx in 1..parts.len() - 1 {
+                let full = parts[..=idx].join(".");
+                let parent = parts[..idx].join(".");
+                let key = parts[idx];
+                prelude.push_str(&format!(
+                    "if(typeof {full}!=='object'&&typeof {full}!=='function'){{{parent}.{key}={{}};}}"
+                ));
+            }
+            prelude.push_str(&format!("if(typeof {path}!=='function'){{{path}=function(){{}};}}"));
+        }
+        prelude
     }
 
     fn override_callable_assignments(code: &str, call_names: &BTreeSet<String>) -> String {
