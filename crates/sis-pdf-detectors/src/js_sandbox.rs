@@ -664,6 +664,125 @@ fn detect_probe_loop_context(calls: &[String]) -> Option<(String, usize, usize, 
     Some((dominant_api, total_probe_calls, unique_probe_apis, dominance_ratio))
 }
 
+fn severity_from_behavioral(value: &str) -> Severity {
+    match value.to_ascii_lowercase().as_str() {
+        "critical" => Severity::Critical,
+        "high" => Severity::High,
+        "medium" => Severity::Medium,
+        "low" => Severity::Low,
+        _ => Severity::Info,
+    }
+}
+
+fn confidence_from_behavioral(value: f64) -> Confidence {
+    if value >= 0.90 {
+        Confidence::Certain
+    } else if value >= 0.75 {
+        Confidence::Strong
+    } else if value >= 0.60 {
+        Confidence::Probable
+    } else if value >= 0.45 {
+        Confidence::Tentative
+    } else {
+        Confidence::Weak
+    }
+}
+
+fn behavioral_pattern_title(name: &str) -> Option<&'static str> {
+    match name {
+        "wasm_loader_staging" => Some("WASM loader staging observed"),
+        "runtime_dependency_loader_abuse" => Some("Runtime dependency loader abuse"),
+        "credential_harvest_form_emulation" => Some("Credential-harvest form emulation"),
+        _ => None,
+    }
+}
+
+fn behavioral_pattern_kind(name: &str) -> Option<&'static str> {
+    match name {
+        "wasm_loader_staging" => Some("js_runtime_wasm_loader_staging"),
+        "runtime_dependency_loader_abuse" => Some("js_runtime_dependency_loader_abuse"),
+        "credential_harvest_form_emulation" => Some("js_runtime_credential_harvest"),
+        _ => None,
+    }
+}
+
+fn behavioral_pattern_description(name: &str) -> Option<&'static str> {
+    match name {
+        "wasm_loader_staging" => {
+            Some("JavaScript invoked WebAssembly loader APIs in a sequence consistent with staged execution.")
+        }
+        "runtime_dependency_loader_abuse" => {
+            Some("JavaScript dynamically loaded runtime modules and invoked execution or write sinks.")
+        }
+        "credential_harvest_form_emulation" => {
+            Some("JavaScript combined field/form APIs with outbound submission behaviour, consistent with credential harvesting.")
+        }
+        _ => None,
+    }
+}
+
+fn extend_with_behavioral_pattern_findings(
+    findings: &mut Vec<Finding>,
+    surface: AttackSurface,
+    object_ref: &str,
+    evidence: &[sis_pdf_core::model::EvidenceSpan],
+    base_meta: &std::collections::HashMap<String, String>,
+    profile_summary: &ProfileDivergenceSummary,
+    signals: &js_analysis::DynamicSignals,
+) {
+    for pattern in &signals.behavioral_patterns {
+        let Some(kind) = behavioral_pattern_kind(&pattern.name) else {
+            continue;
+        };
+        let Some(title) = behavioral_pattern_title(&pattern.name) else {
+            continue;
+        };
+        let Some(description) = behavioral_pattern_description(&pattern.name) else {
+            continue;
+        };
+
+        let mut meta = base_meta.clone();
+        meta.insert("js.sandbox_exec".into(), "true".into());
+        meta.insert("js.runtime.behavior.name".into(), pattern.name.clone());
+        meta.insert(
+            "js.runtime.behavior.confidence_score".into(),
+            format!("{:.2}", pattern.confidence),
+        );
+        meta.insert("js.runtime.behavior.severity".into(), pattern.severity.clone());
+        meta.insert("js.runtime.behavior.evidence".into(), pattern.evidence.clone());
+        for (key, value) in &pattern.metadata {
+            meta.insert(format!("js.runtime.behavior.meta.{key}"), value.clone());
+        }
+        let base_severity = severity_from_behavioral(&pattern.severity);
+        let base_confidence = confidence_from_behavioral(pattern.confidence);
+        let (severity, confidence) = apply_profile_scoring_meta(
+            &mut meta,
+            profile_summary,
+            kind,
+            base_severity,
+            base_confidence,
+        );
+        findings.push(Finding {
+            id: String::new(),
+            surface,
+            kind: kind.into(),
+            severity,
+            confidence,
+            impact: None,
+            title: title.into(),
+            description: description.into(),
+            objects: vec![object_ref.to_string()],
+            evidence: evidence.to_vec(),
+            remediation: Some("Review dynamic telemetry and correlate with static JS artefacts.".into()),
+            meta,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+            ..Finding::default()
+        });
+    }
+}
+
 fn extend_with_emulation_breakpoint_finding(
     findings: &mut Vec<Finding>,
     detector_surface: AttackSurface,
@@ -1112,6 +1231,15 @@ impl Detector for JavaScriptSandboxDetector {
                                 &profile_summary,
                                 recursion_hits,
                             );
+                            extend_with_behavioral_pattern_findings(
+                                &mut findings,
+                                self.surface(),
+                                &object_ref,
+                                &evidence,
+                                &meta,
+                                &profile_summary,
+                                &signals,
+                            );
                             let description = if !signals.prop_reads.is_empty() {
                                 "Sandbox executed JS; property accesses observed."
                             } else if signals.errors.is_empty() {
@@ -1397,6 +1525,15 @@ impl Detector for JavaScriptSandboxDetector {
                             &base_meta,
                             &profile_summary,
                             recursion_hits,
+                        );
+                        extend_with_behavioral_pattern_findings(
+                            &mut findings,
+                            self.surface(),
+                            &object_ref,
+                            &evidence,
+                            &base_meta,
+                            &profile_summary,
+                            &signals,
                         );
                         let mut risky_calls = Vec::new();
                         if signals.calls.iter().any(|c| c.eq_ignore_ascii_case("eval")) {

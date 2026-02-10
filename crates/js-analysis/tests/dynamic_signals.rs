@@ -382,6 +382,69 @@ fn sandbox_flags_credential_harvest_form_emulation() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_does_not_flag_wasm_loader_staging_for_benign_wasm_absence() {
+    let options = DynamicOptions::default();
+    let payload = b"var x = 1 + 2; app.alert(x);";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                !signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "wasm_loader_staging"),
+                "unexpected wasm loader staging pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_does_not_flag_runtime_dependency_loader_abuse_for_single_safe_require() {
+    let options = DynamicOptions::default();
+    let payload = b"var path = require('path'); path.join('a','b');";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                !signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "runtime_dependency_loader_abuse"),
+                "unexpected runtime dependency loader abuse pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_does_not_flag_credential_harvest_for_field_reads_without_submission() {
+    let options = DynamicOptions::default();
+    let payload = b"addField('note'); getField('note');";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                !signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "credential_harvest_form_emulation"),
+                "unexpected credential harvest pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_calibrates_downloader_chain_confidence_by_completeness() {
     let options = DynamicOptions::default();
     let full_chain = br#"

