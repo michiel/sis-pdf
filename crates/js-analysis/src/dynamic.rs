@@ -882,6 +882,136 @@ mod sandbox_impl {
         }
     }
 
+    struct ComDownloaderDirectExecutionPattern;
+    impl BehaviorPattern for ComDownloaderDirectExecutionPattern {
+        fn name(&self) -> &str {
+            "com_downloader_direct_execution_chain"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let http_open = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.open") || *call == "MSXML2.XMLHTTP.open")
+                .count();
+            let http_send = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
+                .count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+            let stream_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.starts_with("ADODB.Stream."))
+                .count();
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.CreateObject")
+                .count();
+
+            let has_download = http_open > 0 && http_send > 0;
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let has_direct_execute = shell_run > 0;
+            let has_stream_staging = stream_calls > 0;
+
+            if !(has_download && has_com_factory && has_direct_execute) || has_stream_staging {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
+            metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
+            metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
+            metadata.insert("stream_calls".to_string(), stream_calls.to_string());
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.88,
+                evidence: "Observed COM HTTP retrieval followed by direct process execution"
+                    .to_string(),
+                severity: BehaviorSeverity::High,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct WshComProbePattern;
+    impl BehaviorPattern for WshComProbePattern {
+        fn name(&self) -> &str {
+            "wsh_com_object_probe"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.CreateObject")
+                .count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.Shell.Run")
+                .count();
+            let env_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Environment"
+                        || *call == "WScript.Shell.Environment.Item"
+                        || *call == "WScript.Shell.ExpandEnvironmentStrings"
+                })
+                .count();
+            let network_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.contains(".XMLHTTP.") || call.contains("WinHttp"))
+                .count();
+            let stream_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.starts_with("ADODB.Stream."))
+                .count();
+
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let only_probe_surface = shell_run == 0
+                && env_calls == 0
+                && network_calls == 0
+                && stream_calls == 0
+                && log.calls.len() <= 2;
+
+            if !(has_com_factory && only_probe_surface) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("total_calls".to_string(), log.calls.len().to_string());
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.58,
+                evidence: "Observed low-activity COM object probe in WSH context".to_string(),
+                severity: BehaviorSeverity::Low,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     // Behavioral Analysis Engine
     fn run_behavioral_analysis(log: &mut SandboxLog) {
         let patterns: Vec<Box<dyn BehaviorPattern>> = vec![
@@ -892,7 +1022,9 @@ mod sandbox_impl {
             Box::new(ComDownloaderExecutionPattern),
             Box::new(ComDownloaderStagingPattern),
             Box::new(ComDownloaderNetworkPattern),
+            Box::new(ComDownloaderDirectExecutionPattern),
             Box::new(WshEnvironmentGatingPattern),
+            Box::new(WshComProbePattern),
             Box::new(VariablePromotionPattern),
             Box::new(DormantPayloadPattern),
             Box::new(TelemetryBudgetSaturationPattern),
