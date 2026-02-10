@@ -1,8 +1,29 @@
 # Plan: Modern JavaScript Pattern Expansion for `js-analysis`
 
 Date: 2026-02-10  
-Status: Proposed  
+Status: In Progress (Wave 1 + Wave 2 implemented)  
 Scope: `crates/js-analysis` dynamic behavioural pattern coverage
+
+## Implementation status update (2026-02-10)
+
+Implemented:
+
+- **Wave 1**
+  - `indirect_dynamic_eval_dispatch`
+  - `multi_pass_decode_pipeline`
+  - `timing_probe_evasion`
+  - `capability_matrix_fingerprinting`
+- **Wave 2**
+  - `covert_beacon_exfil`
+  - `prototype_chain_execution_hijack`
+  - COM/WSH chain confidence calibration (`calibrate_chain_signal`)
+
+Pending:
+
+- **Wave 3**
+  - `wasm_loader_staging`
+  - `runtime_dependency_loader_abuse`
+  - `credential_harvest_form_emulation`
 
 ## 1) Objective
 
@@ -298,4 +319,3 @@ For each new pattern:
 3. PR-C: `timing_probe_evasion` + `capability_matrix_fingerprinting`.
 4. PR-D: `covert_beacon_exfil` URL-feature scoring.
 5. PR-E: prototype and WASM expansion (gated behind profile options).
-

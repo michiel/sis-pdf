@@ -181,7 +181,13 @@ The engine flow can be treated as ten stages:
   - Obfuscation/dynamic execution:
     - `obfuscated_string_construction`
     - `dynamic_code_generation`
+    - `indirect_dynamic_eval_dispatch`
+    - `multi_pass_decode_pipeline`
     - `environment_fingerprinting`
+    - `capability_matrix_fingerprinting`
+    - `prototype_chain_execution_hijack`
+    - `timing_probe_evasion`
+    - `covert_beacon_exfil`
   - Runtime resilience/quality signals:
     - `error_recovery_patterns`
     - `variable_promotion_detected`
@@ -204,6 +210,12 @@ The engine flow can be treated as ten stages:
     - `wsh_direct_run_execution`
     - `wsh_environment_gating`
     - `wsh_com_object_probe`
+
+### Wave implementation status
+
+- **Wave 1 implemented**: `indirect_dynamic_eval_dispatch`, `multi_pass_decode_pipeline`, `timing_probe_evasion`, `capability_matrix_fingerprinting`.
+- **Wave 2 implemented**: `covert_beacon_exfil`, `prototype_chain_execution_hijack`, plus sequence-based COM/WSH chain confidence calibration.
+- **Wave 3 pending**: `wasm_loader_staging`, `runtime_dependency_loader_abuse`, `credential_harvest_form_emulation`.
 
 **Security effect**
 - Produces robust intent-level signals even when full payload completion is blocked.
