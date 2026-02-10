@@ -2079,14 +2079,77 @@ mod sandbox_impl {
                         "fs" => ObjectInitializer::new(ctx)
                             .function(make_mod_fn("fs.readFile"), JsString::from("readFile"), 1)
                             .function(make_mod_fn("fs.writeFile"), JsString::from("writeFile"), 2)
+                            .function(
+                                make_mod_fn("fs.createReadStream"),
+                                JsString::from("createReadStream"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("fs.createWriteStream"),
+                                JsString::from("createWriteStream"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("fs.existsSync"),
+                                JsString::from("existsSync"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("fs.accessSync"),
+                                JsString::from("accessSync"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("fs.renameSync"),
+                                JsString::from("renameSync"),
+                                2,
+                            )
+                            .function(
+                                make_mod_fn("fs.unlinkSync"),
+                                JsString::from("unlinkSync"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("fs.readdirSync"),
+                                JsString::from("readdirSync"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("fs.readFileSync"),
+                                JsString::from("readFileSync"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("fs.writeFileSync"),
+                                JsString::from("writeFileSync"),
+                                2,
+                            )
                             .build(),
                         "path" => ObjectInitializer::new(ctx)
                             .function(make_mod_fn("path.join"), JsString::from("join"), 2)
                             .function(make_mod_fn("path.resolve"), JsString::from("resolve"), 2)
+                            .function(make_mod_fn("path.dirname"), JsString::from("dirname"), 1)
+                            .function(make_mod_fn("path.basename"), JsString::from("basename"), 1)
+                            .function(make_mod_fn("path.extname"), JsString::from("extname"), 1)
+                            .function(make_mod_fn("path.normalize"), JsString::from("normalize"), 1)
                             .build(),
                         "os" => ObjectInitializer::new(ctx)
                             .function(make_mod_fn("os.platform"), JsString::from("platform"), 0)
                             .function(make_mod_fn("os.homedir"), JsString::from("homedir"), 0)
+                            .function(make_mod_fn("os.hostname"), JsString::from("hostname"), 0)
+                            .function(make_mod_fn("os.type"), JsString::from("type"), 0)
+                            .function(make_mod_fn("os.release"), JsString::from("release"), 0)
+                            .function(make_mod_fn("os.arch"), JsString::from("arch"), 0)
+                            .function(make_mod_fn("os.tmpdir"), JsString::from("tmpdir"), 0)
+                            .function(make_mod_fn("os.cpus"), JsString::from("cpus"), 0)
+                            .function(make_mod_fn("os.uptime"), JsString::from("uptime"), 0)
+                            .function(make_mod_fn("os.totalmem"), JsString::from("totalmem"), 0)
+                            .function(make_mod_fn("os.freemem"), JsString::from("freemem"), 0)
+                            .function(
+                                make_mod_fn("os.networkInterfaces"),
+                                JsString::from("networkInterfaces"),
+                                0,
+                            )
                             .build(),
                         "http" => ObjectInitializer::new(ctx)
                             .function(make_mod_fn("http.request"), JsString::from("request"), 1)
@@ -2100,7 +2163,66 @@ mod sandbox_impl {
                                 .property(JsString::from("Buffer"), buffer_obj, Attribute::all())
                                 .build()
                         }
-                        _ => ObjectInitializer::new(ctx).build(),
+                        "child_process" => ObjectInitializer::new(ctx)
+                            .function(
+                                make_mod_fn("child_process.exec"),
+                                JsString::from("exec"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("child_process.spawn"),
+                                JsString::from("spawn"),
+                                1,
+                            )
+                            .build(),
+                        _ => ObjectInitializer::new(ctx)
+                            .function(make_mod_fn("module.exec"), JsString::from("exec"), 1)
+                            .function(make_mod_fn("module.spawn"), JsString::from("spawn"), 1)
+                            .function(make_mod_fn("module.run"), JsString::from("run"), 1)
+                            .function(make_mod_fn("module.hostname"), JsString::from("hostname"), 0)
+                            .function(make_mod_fn("module.platform"), JsString::from("platform"), 0)
+                            .function(make_mod_fn("module.type"), JsString::from("type"), 0)
+                            .function(make_mod_fn("module.release"), JsString::from("release"), 0)
+                            .function(make_mod_fn("module.arch"), JsString::from("arch"), 0)
+                            .function(make_mod_fn("module.tmpdir"), JsString::from("tmpdir"), 0)
+                            .function(
+                                make_mod_fn("module.existsSync"),
+                                JsString::from("existsSync"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("module.accessSync"),
+                                JsString::from("accessSync"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("module.renameSync"),
+                                JsString::from("renameSync"),
+                                2,
+                            )
+                            .function(
+                                make_mod_fn("module.readFileSync"),
+                                JsString::from("readFileSync"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("module.writeFileSync"),
+                                JsString::from("writeFileSync"),
+                                2,
+                            )
+                            .function(
+                                make_mod_fn("module.createReadStream"),
+                                JsString::from("createReadStream"),
+                                1,
+                            )
+                            .function(
+                                make_mod_fn("module.dirname"),
+                                JsString::from("dirname"),
+                                1,
+                            )
+                            .function(make_mod_fn("module.join"), JsString::from("join"), 2)
+                            .function(make_mod_fn("module.resolve"), JsString::from("resolve"), 2)
+                            .build(),
                     };
                     Ok(JsValue::from(module))
                 },
@@ -2134,6 +2256,15 @@ mod sandbox_impl {
         let fs = ObjectInitializer::new(context)
             .function(make_fn("fs.readFile"), JsString::from("readFile"), 1)
             .function(make_fn("fs.writeFile"), JsString::from("writeFile"), 2)
+            .function(make_fn("fs.createReadStream"), JsString::from("createReadStream"), 1)
+            .function(make_fn("fs.createWriteStream"), JsString::from("createWriteStream"), 1)
+            .function(make_fn("fs.existsSync"), JsString::from("existsSync"), 1)
+            .function(make_fn("fs.accessSync"), JsString::from("accessSync"), 1)
+            .function(make_fn("fs.renameSync"), JsString::from("renameSync"), 2)
+            .function(make_fn("fs.unlinkSync"), JsString::from("unlinkSync"), 1)
+            .function(make_fn("fs.readdirSync"), JsString::from("readdirSync"), 1)
+            .function(make_fn("fs.readFileSync"), JsString::from("readFileSync"), 1)
+            .function(make_fn("fs.writeFileSync"), JsString::from("writeFileSync"), 2)
             .build();
         let _ = context.register_global_property(JsString::from("fs"), fs, Attribute::all());
         let exports_obj = ObjectInitializer::new(context).build();
