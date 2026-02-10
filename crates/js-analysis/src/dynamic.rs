@@ -1358,10 +1358,16 @@ mod sandbox_impl {
             };
             ObjectInitializer::new(context)
                 .function(make_fn("TextStream.ReadAll"), JsString::from("ReadAll"), 0)
+                .function(make_fn("TextStream.ReadAll"), JsString::from("readAll"), 0)
                 .function(make_fn("TextStream.ReadLine"), JsString::from("ReadLine"), 0)
+                .function(make_fn("TextStream.ReadLine"), JsString::from("readLine"), 0)
                 .function(make_fn("TextStream.Write"), JsString::from("Write"), 1)
+                .function(make_fn("TextStream.Write"), JsString::from("write"), 1)
                 .function(make_fn("TextStream.WriteLine"), JsString::from("WriteLine"), 1)
+                .function(make_fn("TextStream.WriteLine"), JsString::from("writeline"), 1)
+                .function(make_fn("TextStream.WriteLine"), JsString::from("writeLine"), 1)
                 .function(make_fn("TextStream.Close"), JsString::from("Close"), 0)
+                .function(make_fn("TextStream.Close"), JsString::from("close"), 0)
                 .build()
         }
 
@@ -1397,8 +1403,10 @@ mod sandbox_impl {
             };
             let text_stream = build_com_text_stream(context, log.clone());
             let text_stream_lower = build_com_text_stream(context, log.clone());
+            let text_stream_lower_all = build_com_text_stream(context, log.clone());
             let create_text_stream = build_com_text_stream(context, log.clone());
             let create_text_stream_lower = build_com_text_stream(context, log.clone());
+            let create_text_stream_lower_all = build_com_text_stream(context, log.clone());
             let text_stream_property = build_com_text_stream(context, log.clone());
             let file_object = build_com_file_object(context, log.clone());
             let file_object_lower = build_com_file_object(context, log.clone());
@@ -1424,6 +1432,15 @@ mod sandbox_impl {
                 .function(
                     make_native_returning_object(
                         log.clone(),
+                        "Scripting.FileSystemObject.OpenTextFile",
+                        text_stream_lower_all,
+                    ),
+                    JsString::from("opentextfile"),
+                    1,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
                         "Scripting.FileSystemObject.CreateTextFile",
                         create_text_stream,
                     ),
@@ -1437,6 +1454,15 @@ mod sandbox_impl {
                         create_text_stream_lower,
                     ),
                     JsString::from("createTextFile"),
+                    1,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "Scripting.FileSystemObject.CreateTextFile",
+                        create_text_stream_lower_all,
+                    ),
+                    JsString::from("createtextfile"),
                     1,
                 )
                 .function(
@@ -1864,8 +1890,28 @@ mod sandbox_impl {
                 1,
             )
             .function(
+                make_fn("Scripting.FileSystemObject.OpenTextFile"),
+                JsString::from("openTextFile"),
+                1,
+            )
+            .function(
+                make_fn("Scripting.FileSystemObject.OpenTextFile"),
+                JsString::from("opentextfile"),
+                1,
+            )
+            .function(
                 make_fn("Scripting.FileSystemObject.CreateTextFile"),
                 JsString::from("CreateTextFile"),
+                1,
+            )
+            .function(
+                make_fn("Scripting.FileSystemObject.CreateTextFile"),
+                JsString::from("createTextFile"),
+                1,
+            )
+            .function(
+                make_fn("Scripting.FileSystemObject.CreateTextFile"),
+                JsString::from("createtextfile"),
                 1,
             )
             .build();
