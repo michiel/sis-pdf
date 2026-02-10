@@ -3503,7 +3503,49 @@ mod sandbox_impl {
             }
         }
 
+        if error_msg.contains("cannot convert 'null' or 'undefined' to object") {
+            let guarded = format!("{}{}", build_null_conversion_guard_prelude(), code);
+            if let Ok(result) = ctx.eval(Source::from_bytes(guarded.as_bytes())) {
+                let mut log_ref = log.borrow_mut();
+                if let Some(last_exception) = log_ref.execution_flow.exception_handling.last_mut() {
+                    last_exception.recovery_successful = true;
+                }
+                return Some(result);
+            }
+            let wrapped = format!("try {{ {} }} catch(__sis_null_conv__) {{}}", guarded);
+            if let Ok(result) = ctx.eval(Source::from_bytes(wrapped.as_bytes())) {
+                let mut log_ref = log.borrow_mut();
+                if let Some(last_exception) = log_ref.execution_flow.exception_handling.last_mut() {
+                    last_exception.recovery_successful = true;
+                }
+                return Some(result);
+            }
+        }
+
         None
+    }
+
+    fn build_null_conversion_guard_prelude() -> String {
+        r#"
+;(function(){
+  var __sis_keys = Object.keys;
+  Object.keys = function(v){ if (v === null || v === undefined) { return []; } return __sis_keys(v); };
+  var __sis_values = Object.values;
+  Object.values = function(v){ if (v === null || v === undefined) { return []; } return __sis_values(v); };
+  var __sis_entries = Object.entries;
+  Object.entries = function(v){ if (v === null || v === undefined) { return []; } return __sis_entries(v); };
+  var __sis_names = Object.getOwnPropertyNames;
+  Object.getOwnPropertyNames = function(v){ if (v === null || v === undefined) { return []; } return __sis_names(v); };
+  var __sis_symbols = Object.getOwnPropertySymbols;
+  Object.getOwnPropertySymbols = function(v){ if (v === null || v === undefined) { return []; } return __sis_symbols(v); };
+  var __sis_assign = Object.assign;
+  Object.assign = function(target){
+    if (target === null || target === undefined) { target = {}; }
+    return __sis_assign.apply(Object, arguments);
+  };
+})();
+"#
+        .to_string()
     }
 
     fn extract_not_callable_hint(error_msg: &str, code: &str) -> Option<String> {

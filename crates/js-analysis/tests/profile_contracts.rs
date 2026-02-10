@@ -313,3 +313,20 @@ fn callable_recovery_emits_unresolved_callee_hint() {
         signals.errors
     );
 }
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn null_conversion_recovery_handles_object_static_calls() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"
+        Object.keys(undefined);
+        Object.values(null);
+        Object.entries(undefined);
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        !signals.errors.iter().any(|error| error.contains("cannot convert 'null' or 'undefined' to object")),
+        "null-conversion error should be recovered: {:?}",
+        signals.errors
+    );
+}
