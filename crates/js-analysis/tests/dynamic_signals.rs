@@ -247,6 +247,33 @@ fn sandbox_flags_com_downloader_network_chain() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_wsh_environment_gating() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var shell = WScript.CreateObject('WScript.Shell');
+        shell.Environment('PROCESS').Item('COMPUTERNAME');
+        shell.ExpandEnvironmentStrings('%TEMP%');
+        WScript.Sleep(50);
+        WScript.Quit(0);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "wsh_environment_gating"),
+                "expected WSH environment gating pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_omits_delta_summary_without_dynamic_code() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);

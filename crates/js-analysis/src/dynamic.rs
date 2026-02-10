@@ -806,6 +806,82 @@ mod sandbox_impl {
         }
     }
 
+    struct WshEnvironmentGatingPattern;
+    impl BehaviorPattern for WshEnvironmentGatingPattern {
+        fn name(&self) -> &str {
+            "wsh_environment_gating"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.CreateObject")
+                .count();
+            let env_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Environment"
+                        || *call == "WScript.Shell.Environment.Item"
+                        || *call == "WScript.Shell.ExpandEnvironmentStrings"
+                })
+                .count();
+            let sleep_calls = log.calls.iter().filter(|call| *call == "WScript.Sleep").count();
+            let quit_calls = log.calls.iter().filter(|call| *call == "WScript.Quit").count();
+            let network_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.contains(".XMLHTTP.") || call.contains("WinHttp"))
+                .count();
+            let staging_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.starts_with("ADODB.Stream."))
+                .count();
+
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let has_env_probe = env_calls > 0;
+            let has_gating = sleep_calls > 0 || quit_calls > 0;
+            let has_higher_signal = network_calls > 0 || staging_calls > 0;
+
+            if !(has_com_factory && has_env_probe) || has_higher_signal {
+                return Vec::new();
+            }
+
+            let confidence = if has_gating { 0.86 } else { 0.74 };
+            let severity = if has_gating {
+                BehaviorSeverity::Medium
+            } else {
+                BehaviorSeverity::Low
+            };
+            let evidence = if has_gating {
+                "Observed WSH environment probing with delay/exit gating behaviour".to_string()
+            } else {
+                "Observed WSH environment probing via COM object factory".to_string()
+            };
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+            metadata.insert("environment_calls".to_string(), env_calls.to_string());
+            metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
+            metadata.insert("quit_calls".to_string(), quit_calls.to_string());
+            metadata.insert("network_calls".to_string(), network_calls.to_string());
+            metadata.insert("staging_calls".to_string(), staging_calls.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence,
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     // Behavioral Analysis Engine
     fn run_behavioral_analysis(log: &mut SandboxLog) {
         let patterns: Vec<Box<dyn BehaviorPattern>> = vec![
@@ -816,6 +892,7 @@ mod sandbox_impl {
             Box::new(ComDownloaderExecutionPattern),
             Box::new(ComDownloaderStagingPattern),
             Box::new(ComDownloaderNetworkPattern),
+            Box::new(WshEnvironmentGatingPattern),
             Box::new(VariablePromotionPattern),
             Box::new(DormantPayloadPattern),
             Box::new(TelemetryBudgetSaturationPattern),
