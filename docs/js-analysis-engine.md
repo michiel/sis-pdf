@@ -183,6 +183,9 @@ The engine flow can be treated as ten stages:
     - `dynamic_code_generation`
     - `indirect_dynamic_eval_dispatch`
     - `multi_pass_decode_pipeline`
+    - `wasm_loader_staging`
+    - `runtime_dependency_loader_abuse`
+    - `credential_harvest_form_emulation`
     - `environment_fingerprinting`
     - `capability_matrix_fingerprinting`
     - `prototype_chain_execution_hijack`
@@ -205,17 +208,13 @@ The engine flow can be treated as ten stages:
     - `com_downloader_direct_execution_chain`
     - `com_downloader_incomplete_network_chain`
     - `com_downloader_incomplete_open_chain`
+    - `com_downloader_partial_staging_chain`
     - `com_network_buffer_staging`
     - `com_file_drop_staging`
     - `wsh_direct_run_execution`
     - `wsh_environment_gating`
     - `wsh_com_object_probe`
-
-### Wave implementation status
-
-- **Wave 1 implemented**: `indirect_dynamic_eval_dispatch`, `multi_pass_decode_pipeline`, `timing_probe_evasion`, `capability_matrix_fingerprinting`.
-- **Wave 2 implemented**: `covert_beacon_exfil`, `prototype_chain_execution_hijack`, plus sequence-based COM/WSH chain confidence calibration.
-- **Wave 3 implemented**: `wasm_loader_staging`, `runtime_dependency_loader_abuse`, `credential_harvest_form_emulation`.
+    - `wsh_filesystem_recon_probe`
 
 **Security effect**
 - Produces robust intent-level signals even when full payload completion is blocked.
@@ -251,9 +250,12 @@ The engine flow can be treated as ten stages:
 |---|---|---|---|
 | Obfuscated string builders | High `fromCharCode`, layered concat/split | Instrumented call capture + obfuscation heuristics | Obfuscation patterns |
 | Dynamic code loaders | `eval`, `Function`, staged snippets | Eval wrappers, delta extraction, phased execution | Dynamic-code + delta signals |
+| Runtime module/bootstrap abuse | `WebAssembly`, `require`, dynamic module loads | Stubbed module surfaces + staged runtime patterning | Loader/staging patterns |
+| Credential-harvest emulation | DOM/form probing + submit/exfil attempts | Form/event stubs + behavioural correlation | Credential-harvest patterns |
 | Environment probes | Host/property checks, anti-VM gates | Profiled stubs + property telemetry + gating patterns | Fingerprinting/gating patterns |
 | COM downloader chains | `XMLHTTP` + `ADODB` + `Run` | COM stub surface + chain classifiers | Downloader chain patterns |
-| Partial/incomplete chains | `open` or `send` without terminal stage | Incomplete-chain detectors + confidence scaling | Medium/low-confidence chain patterns |
+| Partial/incomplete chains | `open`/`send` without terminal stage | Incomplete-chain detectors + confidence scaling | Medium/low-confidence chain patterns |
+| Filesystem reconnaissance | `FileSystemObject.GetFile`/exists probes | Recon-specific COM/FSO classifiers | Recon/probe patterns |
 | File-drop staging | Stream open/write/save without run | File-stage behavioural classifier | Staging patterns |
 | Abort/timing gates | `Sleep`, `Quit`, low-activity stalls | Timing/quit/sleep-only detectors + phase budgets | Gating/abort patterns |
 | Telemetry flooding | Excessive repeated calls/args | Hard caps + dropped counters + saturation pattern | Saturation pattern |
@@ -281,6 +283,9 @@ The engine flow can be treated as ten stages:
 
 - Treat **chain-complete patterns** (for example `com_downloader_execution_chain`, `wsh_direct_run_execution`) as high-priority intent.
 - Treat **incomplete-chain patterns** as potentially obfuscated or gated behaviour requiring correlation with static signals.
+- Treat **loader/bootstrap patterns** (for example `wasm_loader_staging`, `runtime_dependency_loader_abuse`) as strong evidence of staged execution intent.
+- Treat **credential-harvest patterns** as user-targeting behaviours requiring high-priority triage.
+- Treat **filesystem reconnaissance patterns** (for example `wsh_filesystem_recon_probe`) as pre-execution signal that often precedes staging or evasion.
 - Treat **dormant/gating-only patterns** as execution-coverage alerts, not immediate proof of benignity.
 - Treat **telemetry saturation** as a confidence qualifier: behaviour likely exceeds observable budget.
 
