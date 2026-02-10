@@ -1,7 +1,7 @@
 # Plan: Modern JavaScript Pattern Expansion for `js-analysis`
 
 Date: 2026-02-10  
-Status: In Progress (Wave 1 + Wave 2 implemented)  
+Status: Implemented (Wave 1 + Wave 2 + Wave 3)  
 Scope: `crates/js-analysis` dynamic behavioural pattern coverage
 
 ## Implementation status update (2026-02-10)
@@ -20,10 +20,7 @@ Implemented:
 
 Pending:
 
-- **Wave 3**
-  - `wasm_loader_staging`
-  - `runtime_dependency_loader_abuse`
-  - `credential_harvest_form_emulation`
+- None in the original wave scope. Follow-on work should focus on tuning, benign controls, and profile-depth improvements.
 
 ## 1) Objective
 

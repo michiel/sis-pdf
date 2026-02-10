@@ -675,6 +675,248 @@ mod sandbox_impl {
         }
     }
 
+    struct WasmLoaderStagingPattern;
+    impl BehaviorPattern for WasmLoaderStagingPattern {
+        fn name(&self) -> &str {
+            "wasm_loader_staging"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let wasm_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.starts_with("WebAssembly."))
+                .count();
+            if wasm_calls == 0 {
+                return Vec::new();
+            }
+
+            let instantiate_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WebAssembly.instantiate")
+                .count();
+            let module_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WebAssembly.Module")
+                .count();
+            let memory_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WebAssembly.Memory")
+                .count();
+            let dynamic_dispatch = log
+                .calls
+                .iter()
+                .filter(|call| matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval"))
+                .count();
+
+            let component_hits = [
+                instantiate_calls > 0,
+                module_calls > 0,
+                memory_calls > 0,
+                dynamic_dispatch > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.76, BehaviorSeverity::Medium, component_hits, 4);
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("wasm_calls".to_string(), wasm_calls.to_string());
+            metadata.insert("instantiate_calls".to_string(), instantiate_calls.to_string());
+            metadata.insert("module_calls".to_string(), module_calls.to_string());
+            metadata.insert("memory_calls".to_string(), memory_calls.to_string());
+            metadata.insert(
+                "dynamic_dispatch_calls".to_string(),
+                dynamic_dispatch.to_string(),
+            );
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed WebAssembly loader activity potentially used for staged execution"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct RuntimeDependencyLoaderAbusePattern;
+    impl BehaviorPattern for RuntimeDependencyLoaderAbusePattern {
+        fn name(&self) -> &str {
+            "runtime_dependency_loader_abuse"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let require_calls = log.calls.iter().filter(|call| *call == "require").count();
+            if require_calls == 0 {
+                return Vec::new();
+            }
+
+            let exec_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    matches!(
+                        call.as_str(),
+                        "child_process.exec"
+                            | "child_process.spawn"
+                            | "module.exec"
+                            | "module.spawn"
+                            | "module.run"
+                    )
+                })
+                .count();
+            let fs_write_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    matches!(
+                        call.as_str(),
+                        "fs.writeFile"
+                            | "fs.writeFileSync"
+                            | "module.writeFileSync"
+                            | "fs.createWriteStream"
+                    )
+                })
+                .count();
+            let suspicious_require_args = log
+                .call_args
+                .iter()
+                .filter(|entry| entry.starts_with("require("))
+                .filter(|entry| {
+                    let lower = entry.to_ascii_lowercase();
+                    lower.contains("child_process")
+                        || lower.contains("fs")
+                        || lower.contains("http")
+                        || lower.contains("https")
+                        || lower.contains("buffer")
+                        || lower.contains("../")
+                        || lower.contains("./")
+                })
+                .count();
+            let component_hits = [
+                require_calls > 0,
+                suspicious_require_args > 0,
+                exec_calls > 0,
+                fs_write_calls > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            if component_hits < 2 {
+                return Vec::new();
+            }
+            let (confidence, severity) =
+                calibrate_chain_signal(0.74, BehaviorSeverity::Medium, component_hits, 4);
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("require_calls".to_string(), require_calls.to_string());
+            metadata.insert(
+                "suspicious_require_args".to_string(),
+                suspicious_require_args.to_string(),
+            );
+            metadata.insert("exec_calls".to_string(), exec_calls.to_string());
+            metadata.insert("fs_write_calls".to_string(), fs_write_calls.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed dynamic runtime dependency loading correlated with execution or write sinks"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct CredentialHarvestFormEmulationPattern;
+    impl BehaviorPattern for CredentialHarvestFormEmulationPattern {
+        fn name(&self) -> &str {
+            "credential_harvest_form_emulation"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let form_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    matches!(
+                        call.as_str(),
+                        "addField"
+                            | "getField"
+                            | "submitForm"
+                            | "mailDoc"
+                            | "doc.getField"
+                            | "event.target.getField"
+                    )
+                })
+                .count();
+            let network_sinks = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    matches!(
+                        call.as_str(),
+                        "submitForm"
+                            | "mailDoc"
+                            | "fetch"
+                            | "navigator.sendBeacon"
+                            | "XMLHttpRequest.send"
+                            | "MSXML2.XMLHTTP.send"
+                            | "MSXML2.ServerXMLHTTP.send"
+                    )
+                })
+                .count();
+            let prompt_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    matches!(
+                        call.as_str(),
+                        "alert" | "confirm" | "prompt" | "app.alert" | "app.response"
+                    )
+                })
+                .count();
+            let has_form_signal = form_calls >= 2;
+            let has_exfil_signal = network_sinks >= 1;
+            if !(has_form_signal && has_exfil_signal) {
+                return Vec::new();
+            }
+
+            let component_hits = [has_form_signal, has_exfil_signal, prompt_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.79, BehaviorSeverity::High, component_hits, 3);
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("form_calls".to_string(), form_calls.to_string());
+            metadata.insert("network_sinks".to_string(), network_sinks.to_string());
+            metadata.insert("prompt_calls".to_string(), prompt_calls.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed scripted form/field workflow correlated with outbound submission behaviour"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     struct TimingProbeEvasionPattern;
     impl BehaviorPattern for TimingProbeEvasionPattern {
         fn name(&self) -> &str {
@@ -2024,6 +2266,9 @@ mod sandbox_impl {
             Box::new(MultiPassDecodePipelinePattern),
             Box::new(CovertBeaconExfilPattern),
             Box::new(PrototypeChainExecutionHijackPattern),
+            Box::new(WasmLoaderStagingPattern),
+            Box::new(RuntimeDependencyLoaderAbusePattern),
+            Box::new(CredentialHarvestFormEmulationPattern),
             Box::new(TimingProbeEvasionPattern),
             Box::new(CapabilityMatrixFingerprintingPattern),
             Box::new(EnvironmentFingerprinting),
@@ -3627,6 +3872,29 @@ mod sandbox_impl {
         let buffer = build_buffer_object(context, log);
         let _ =
             context.register_global_property(JsString::from("Buffer"), buffer, Attribute::all());
+    }
+
+    fn register_webassembly_stub(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        let make_fn = |name: &'static str| {
+            let log = log.clone();
+            make_native(log, name)
+        };
+        let wasm = ObjectInitializer::new(context)
+            .function(
+                make_fn("WebAssembly.instantiate"),
+                JsString::from("instantiate"),
+                1,
+            )
+            .function(make_fn("WebAssembly.compile"), JsString::from("compile"), 1)
+            .function(make_fn("WebAssembly.Module"), JsString::from("Module"), 1)
+            .function(make_fn("WebAssembly.Instance"), JsString::from("Instance"), 1)
+            .function(make_fn("WebAssembly.Memory"), JsString::from("Memory"), 1)
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("WebAssembly"),
+            wasm,
+            Attribute::all(),
+        );
     }
 
     fn register_require_stub(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
@@ -6027,6 +6295,7 @@ mod sandbox_impl {
                 register_browser_like(context, log.clone());
                 register_require_stub(context, log.clone());
                 register_buffer_stub(context, log.clone());
+                register_webassembly_stub(context, log.clone());
                 register_windows_scripting(context, log.clone());
                 register_windows_com(context, log.clone());
                 register_windows_wmi(context, log.clone());
@@ -6035,11 +6304,13 @@ mod sandbox_impl {
                 register_browser_like(context, log.clone());
                 register_net(context, log.clone());
                 register_util(context, log.clone());
+                register_webassembly_stub(context, log.clone());
             }
             RuntimeKind::Node => {
                 register_node_like(context, log.clone());
                 register_net(context, log.clone());
                 register_util(context, log.clone());
+                register_webassembly_stub(context, log.clone());
             }
         }
     }

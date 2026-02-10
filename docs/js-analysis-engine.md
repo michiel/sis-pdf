@@ -215,7 +215,7 @@ The engine flow can be treated as ten stages:
 
 - **Wave 1 implemented**: `indirect_dynamic_eval_dispatch`, `multi_pass_decode_pipeline`, `timing_probe_evasion`, `capability_matrix_fingerprinting`.
 - **Wave 2 implemented**: `covert_beacon_exfil`, `prototype_chain_execution_hijack`, plus sequence-based COM/WSH chain confidence calibration.
-- **Wave 3 pending**: `wasm_loader_staging`, `runtime_dependency_loader_abuse`, `credential_harvest_form_emulation`.
+- **Wave 3 implemented**: `wasm_loader_staging`, `runtime_dependency_loader_abuse`, `credential_harvest_form_emulation`.
 
 **Security effect**
 - Produces robust intent-level signals even when full payload completion is blocked.
