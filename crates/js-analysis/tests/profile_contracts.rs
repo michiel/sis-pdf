@@ -260,18 +260,24 @@ fn browser_profile_missing_pdf_api_has_stable_error_signature() {
     let options = profile_options(RuntimeKind::Browser);
     let payload = b"app.viewerVersion();";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
-    if signals.errors.is_empty() {
-        return;
+    let has_reader_stub = signals.calls.iter().any(|call| call == "app.viewerVersion");
+    if !signals.errors.is_empty() {
+        let combined = signals.errors.join(" | ").to_ascii_lowercase();
+        assert!(
+            combined.contains("cannot convert")
+                || combined.contains("undefined")
+                || combined.contains("not defined")
+                || combined.contains("not a callable function"),
+            "unexpected error signature: {}",
+            combined
+        );
+    } else {
+        assert!(
+            has_reader_stub || signals.calls.is_empty(),
+            "browser profile should either expose reader stub calls or remain quiescent: {:?}",
+            signals.calls
+        );
     }
-    let combined = signals.errors.join(" | ").to_ascii_lowercase();
-    assert!(
-        combined.contains("cannot convert")
-            || combined.contains("undefined")
-            || combined.contains("not defined")
-            || combined.contains("not a callable function"),
-        "unexpected error signature: {}",
-        combined
-    );
 }
 
 #[cfg(feature = "js-sandbox")]

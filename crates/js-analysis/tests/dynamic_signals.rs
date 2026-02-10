@@ -480,6 +480,12 @@ fn sandbox_calibrates_downloader_chain_confidence_by_completeness() {
                 .map(|pattern| pattern.confidence)
                 .expect("partial chain confidence");
             assert!(full_conf > partial_conf, "full={} partial={}", full_conf, partial_conf);
+            assert!(full_conf >= 0.70, "unexpectedly low full chain confidence: {}", full_conf);
+            assert!(
+                partial_conf <= 0.80,
+                "unexpectedly high partial chain confidence: {}",
+                partial_conf
+            );
         }
         _ => panic!("expected executed outcomes"),
     }
@@ -926,7 +932,7 @@ fn sandbox_flags_wsh_early_quit_gate() {
 #[test]
 fn sandbox_flags_wsh_sleep_only_execution() {
     let options = DynamicOptions::default();
-    let payload = format!("var pad='{}'; WScript.Sleep(1);", "X".repeat(3000));
+    let payload = format!("WScript.Sleep(1);{}", "A".repeat(5000));
     let outcome = js_analysis::run_sandbox(payload.as_bytes(), &options);
     match outcome {
         DynamicOutcome::Executed(signals) => {
@@ -973,7 +979,7 @@ fn sandbox_emits_phase_scoped_telemetry() {
                 signals.phases.iter().map(|phase| phase.phase.as_str()).collect::<Vec<_>>();
             assert_eq!(phase_names, vec!["open", "idle", "click", "form"]);
             for phase in &signals.phases {
-                assert!(phase.elapsed_ms <= options.timeout_ms);
+                assert!(phase.elapsed_ms <= options.phase_timeout_ms);
             }
             let open =
                 signals.phases.iter().find(|phase| phase.phase == "open").expect("open phase");
@@ -1023,6 +1029,20 @@ fn sandbox_replay_id_is_stable_for_same_input() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_replay_id_differs_for_different_inputs() {
+    let options = DynamicOptions::default();
+    let first = js_analysis::run_sandbox(b"app.alert('a')", &options);
+    let second = js_analysis::run_sandbox(b"app.alert('b')", &options);
+    match (first, second) {
+        (DynamicOutcome::Executed(a), DynamicOutcome::Executed(b)) => {
+            assert_ne!(a.replay_id, b.replay_id);
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_tracks_truncation_invariants() {
     let options = DynamicOptions::default();
     let mut payload = String::from("for (var i = 0; i < 2600; i++) {");
@@ -1036,6 +1056,10 @@ fn sandbox_tracks_truncation_invariants() {
             assert!(signals.truncation.call_args_dropped > 0);
             assert!(signals.truncation.urls_dropped > 0);
             assert!(signals.truncation.domains_dropped > 0);
+            assert!(signals.calls.len() <= 2_048);
+            assert!(signals.urls.len() <= options.max_urls);
+            assert!(signals.domains.len() <= options.max_domains);
+            assert!(signals.call_args.len() <= options.max_call_args);
         }
         _ => panic!("expected executed"),
     }
@@ -1138,6 +1162,8 @@ fn sandbox_deduped_lists_are_deterministically_sorted() {
     let options = DynamicOptions::default();
     let payload = b"
         app.newDoc();
+        app.launchURL('http://example.test/a');
+        app.launchURL('http://example.test/a');
         app.createDataObject({ cName: 'x' });
         app.exportAsFDF();
         app.newDoc();
@@ -1145,6 +1171,16 @@ fn sandbox_deduped_lists_are_deterministically_sorted() {
     let outcome = js_analysis::run_sandbox(payload, &options);
     match outcome {
         DynamicOutcome::Executed(signals) => {
+            let mut sorted_urls = signals.urls.clone();
+            sorted_urls.sort();
+            sorted_urls.dedup();
+            assert_eq!(signals.urls, sorted_urls);
+
+            let mut sorted_domains = signals.domains.clone();
+            sorted_domains.sort();
+            sorted_domains.dedup();
+            assert_eq!(signals.domains, sorted_domains);
+
             let mut sorted = signals.prop_writes.clone();
             sorted.sort();
             sorted.dedup();
@@ -1618,6 +1654,154 @@ fn sandbox_flags_modern_fingerprint_evasion() {
                 .any(|pattern| pattern.name == "modern_fingerprint_evasion"));
         }
         _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_dynamic_code_generation_pattern() {
+    let options = DynamicOptions::default();
+    let payload = b"eval('1'); eval('2'); setTimeout(function(){}, 1);";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            let pattern = signals
+                .behavioral_patterns
+                .iter()
+                .find(|pattern| pattern.name == "dynamic_code_generation")
+                .expect("dynamic_code_generation pattern");
+            assert!(pattern.confidence >= 0.4);
+            assert!(pattern.severity == "Medium" || pattern.severity == "High");
+            assert!(pattern.metadata.contains_key("eval_calls"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_obfuscated_string_construction_pattern() {
+    let options = DynamicOptions::default();
+    let payload =
+        b"String.fromCharCode(65,66);String.fromCharCode(67,68);String.fromCharCode(69,70);String.fromCharCode(71,72);String.fromCharCode(73,74);String.fromCharCode(75,76);";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            let pattern = signals
+                .behavioral_patterns
+                .iter()
+                .find(|pattern| pattern.name == "obfuscated_string_construction")
+                .expect("obfuscated_string_construction pattern");
+            assert!(pattern.confidence >= 0.5);
+            assert!(pattern.metadata.contains_key("char_code_calls"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_environment_fingerprinting_pattern() {
+    let options = DynamicOptions::default();
+    let payload = b"var a=info.title; var b=info.author; var c=info.subject;";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            let pattern = signals
+                .behavioral_patterns
+                .iter()
+                .find(|pattern| pattern.name == "environment_fingerprinting")
+                .expect("environment_fingerprinting pattern");
+            assert!(pattern.confidence >= 0.40);
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_error_recovery_patterns() {
+    let options = DynamicOptions::default();
+    let payload = b"var out = missingFn(payloadValue);";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            let pattern = signals
+                .behavioral_patterns
+                .iter()
+                .find(|pattern| pattern.name == "error_recovery_patterns")
+                .expect("error_recovery_patterns pattern");
+            assert!(pattern.confidence >= 0.5);
+            assert!(pattern.metadata.contains_key("recovery_attempts"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_variable_promotion_detected_pattern() {
+    let options = DynamicOptions::default();
+    let payload = b"result = missingPromotedValue;";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            let pattern = signals
+                .behavioral_patterns
+                .iter()
+                .find(|pattern| pattern.name == "variable_promotion_detected")
+                .expect("variable_promotion_detected pattern");
+            assert!(pattern.confidence >= 0.5);
+            assert!(pattern.metadata.contains_key("promoted_variables"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_benign_does_not_flag_high_risk_patterns() {
+    let options = DynamicOptions::default();
+    let payload = b"var a = 1; var b = 2; app.alert(a + b);";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            let disallowed = [
+                "dynamic_code_generation",
+                "obfuscated_string_construction",
+                "com_downloader_execution_chain",
+                "chunked_data_exfil_pipeline",
+                "credential_harvest_form_emulation",
+            ];
+            for name in disallowed {
+                assert!(
+                    !signals.behavioral_patterns.iter().any(|pattern| pattern.name == name),
+                    "benign payload unexpectedly flagged {}: {:?}",
+                    name,
+                    signals.behavioral_patterns
+                );
+            }
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_handles_edge_cases_without_crash() {
+    let options = DynamicOptions::default();
+    let cases: Vec<&[u8]> = vec![
+        b"",
+        "console.log('Привет');".as_bytes(),
+        b"var a = '\0\0\0';",
+        b"function { malformed",
+    ];
+    for case in cases {
+        match js_analysis::run_sandbox(case, &options) {
+            DynamicOutcome::Executed(_)
+            | DynamicOutcome::Skipped { .. }
+            | DynamicOutcome::TimedOut { .. } => {}
+        }
     }
 }
 

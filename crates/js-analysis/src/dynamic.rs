@@ -37,6 +37,7 @@ mod sandbox_impl {
     const SENTINEL_SPIN_LOOP_ITERATION_LIMIT: u64 = 60_000;
     const BUSY_WAIT_LOOP_ITERATION_LIMIT: u64 = 80_000;
     const PROBE_EXISTS_TRUE_AFTER: usize = 24;
+    const MAX_AUGMENTED_SOURCE_BYTES: usize = 128 * 1024;
 
     #[derive(Default, Clone)]
     struct SandboxLog {
@@ -54,7 +55,7 @@ mod sandbox_impl {
         dynamic_code_calls: Vec<String>,
         call_count: usize,
         unique_calls: BTreeSet<String>,
-        call_counts_by_name: std::collections::HashMap<String, usize>,
+        call_counts_by_name: std::collections::BTreeMap<String, usize>,
         unique_prop_reads: BTreeSet<String>,
         elapsed_ms: Option<u128>,
         current_phase: String,
@@ -313,6 +314,10 @@ mod sandbox_impl {
         component_hits: usize,
         component_total: usize,
     ) -> (f64, BehaviorSeverity) {
+        debug_assert!(
+            component_hits <= component_total.max(1),
+            "component_hits must not exceed component_total"
+        );
         let total = component_total.max(1) as f64;
         let coverage = (component_hits as f64 / total).clamp(0.0, 1.0);
         let confidence = (base_confidence * (0.72 + 0.34 * coverage)).clamp(0.35, 0.97);
@@ -321,10 +326,12 @@ mod sandbox_impl {
     }
 
     fn approx_string_entropy(input: &str) -> f64 {
+        // NOTE: entropy uses f64 and may have minor platform rounding differences.
+        // Thresholds are intentionally coarse to avoid practical classification drift.
         if input.is_empty() {
             return 0.0;
         }
-        let mut counts = std::collections::HashMap::new();
+        let mut counts = std::collections::BTreeMap::new();
         for byte in input.bytes() {
             *counts.entry(byte).or_insert(0usize) += 1;
         }
@@ -2051,7 +2058,7 @@ mod sandbox_impl {
             let recovery_attempts =
                 flow.exception_handling.iter().filter(|ex| ex.recovery_attempted).count();
 
-            if error_count > 0 && recovery_attempts > 0 {
+            if recovery_attempts > 0 && (error_count > 0 || !flow.exception_handling.is_empty()) {
                 let confidence = 0.8; // High confidence when we see error recovery
 
                 let mut metadata = std::collections::HashMap::new();
@@ -2087,7 +2094,12 @@ mod sandbox_impl {
             let promotion_count = log
                 .variable_events
                 .iter()
-                .filter(|ve| matches!(ve.event_type, VariableEventType::Declaration))
+                .filter(|ve| {
+                    matches!(
+                        ve.event_type,
+                        VariableEventType::Declaration | VariableEventType::UndefinedAccess
+                    )
+                })
                 .count();
 
             if promotion_count > 0 {
@@ -2275,12 +2287,12 @@ mod sandbox_impl {
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
             let component_hits = [
-                has_download,
-                has_staging,
-                has_execution,
-                has_com_factory,
+                http_open > 0,
+                http_send > 0,
+                stream_open > 0,
                 stream_write > 0 || save_to_file > 0,
-                http_open > 0 && http_send > 0,
+                shell_run > 0,
+                has_com_factory,
             ]
             .iter()
             .filter(|value| **value)
@@ -2350,7 +2362,7 @@ mod sandbox_impl {
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
             let component_hits =
-                [has_download, has_staging, has_com_factory, save_to_file > 0, shell_run > 0]
+                [http_open > 0, http_send > 0, stream_open > 0, has_com_factory, save_to_file > 0]
                     .iter()
                     .filter(|value| **value)
                     .count();
@@ -2414,12 +2426,12 @@ mod sandbox_impl {
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
-            let component_hits = [has_download, has_com_factory, http_open > 0, http_send > 0]
+            let component_hits = [http_open > 0, http_send > 0, has_com_factory]
                 .iter()
                 .filter(|value| **value)
                 .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.68, BehaviorSeverity::Medium, component_hits, 4);
+                calibrate_chain_signal(0.68, BehaviorSeverity::Medium, component_hits, 3);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -2470,9 +2482,13 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let confidence = if has_gating { 0.86 } else { 0.74 };
-            let severity =
-                if has_gating { BehaviorSeverity::Medium } else { BehaviorSeverity::Low };
+            let component_hits =
+                [has_com_factory, has_env_probe, sleep_calls > 0, quit_calls > 0, has_gating]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.78, BehaviorSeverity::Medium, component_hits, 5);
             let evidence = if has_gating {
                 "Observed WSH environment probing with delay/exit gating behaviour".to_string()
             } else {
@@ -2547,12 +2563,12 @@ mod sandbox_impl {
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
             let component_hits =
-                [has_download, has_com_factory, has_direct_execute, http_open > 0, http_send > 0]
+                [http_open > 0, http_send > 0, has_com_factory, has_direct_execute]
                     .iter()
                     .filter(|value| **value)
                     .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.88, BehaviorSeverity::High, component_hits, 5);
+                calibrate_chain_signal(0.88, BehaviorSeverity::High, component_hits, 4);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -2665,18 +2681,13 @@ mod sandbox_impl {
             metadata.insert("network_calls".to_string(), network_calls.to_string());
             metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
 
-            let component_hits = [
-                has_stream_staging,
-                has_com_factory,
-                stream_open > 0,
-                stream_write > 0,
-                save_to_file > 0,
-            ]
-            .iter()
-            .filter(|value| **value)
-            .count();
+            let component_hits =
+                [has_com_factory, stream_open > 0, stream_write > 0 || save_to_file > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.8, BehaviorSeverity::Medium, component_hits, 5);
+                calibrate_chain_signal(0.8, BehaviorSeverity::Medium, component_hits, 3);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -2713,6 +2724,8 @@ mod sandbox_impl {
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
             metadata.insert("total_calls".to_string(), log.calls.len().to_string());
             metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
+            metadata.insert("prop_reads_count".to_string(), log.prop_reads.len().to_string());
+            metadata.insert("errors_count".to_string(), log.errors.len().to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -2781,13 +2794,12 @@ mod sandbox_impl {
             metadata.insert("environment_calls".to_string(), env_calls.to_string());
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
 
-            let component_hits =
-                [http_send > 0, has_com_factory, has_signal, env_calls > 0, sleep_calls > 0]
-                    .iter()
-                    .filter(|value| **value)
-                    .count();
+            let component_hits = [http_send > 0, has_com_factory, env_calls > 0, sleep_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.66, BehaviorSeverity::Medium, component_hits, 5);
+                calibrate_chain_signal(0.66, BehaviorSeverity::Medium, component_hits, 4);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -2922,13 +2934,12 @@ mod sandbox_impl {
             metadata.insert("environment_calls".to_string(), env_calls.to_string());
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
 
-            let component_hits =
-                [http_open > 0, has_com_factory, has_gate_signal, env_calls > 0, sleep_calls > 0]
-                    .iter()
-                    .filter(|value| **value)
-                    .count();
+            let component_hits = [http_open > 0, has_com_factory, env_calls > 0, sleep_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.62, BehaviorSeverity::Low, component_hits, 5);
+                calibrate_chain_signal(0.62, BehaviorSeverity::Low, component_hits, 4);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -3057,18 +3068,13 @@ mod sandbox_impl {
             metadata.insert("save_to_file_calls".to_string(), save_to_file.to_string());
             metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
 
-            let component_hits = [
-                has_com_factory,
-                has_network_to_buffer,
-                stream_open > 0,
-                stream_write > 0,
-                http_send > 0,
-            ]
-            .iter()
-            .filter(|value| **value)
-            .count();
+            let component_hits =
+                [has_com_factory, http_send > 0, stream_open > 0, stream_write > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.72, BehaviorSeverity::Medium, component_hits, 5);
+                calibrate_chain_signal(0.72, BehaviorSeverity::Medium, component_hits, 4);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -3280,8 +3286,7 @@ mod sandbox_impl {
             let sleep_calls = log.calls.iter().filter(|call| *call == "WScript.Sleep").count();
             let has_only_exit_surface =
                 quit_calls > 0 && log.calls.len() <= quit_calls + sleep_calls;
-            let marker_hint = log.dormant_source_markers >= 1;
-            if !has_only_exit_surface || !marker_hint {
+            if !has_only_exit_surface {
                 return Vec::new();
             }
 
@@ -3291,9 +3296,10 @@ mod sandbox_impl {
             metadata.insert("total_calls".to_string(), log.calls.len().to_string());
             metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
 
+            let confidence = if log.dormant_source_markers >= 1 { 0.64 } else { 0.52 };
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
-                confidence: 0.64,
+                confidence,
                 evidence:
                     "Observed early WScript quit with source markers, consistent with gating/abort logic"
                         .to_string(),
@@ -3316,7 +3322,7 @@ mod sandbox_impl {
                 && log.calls.len() == sleep_calls
                 && log.prop_reads.is_empty()
                 && log.errors.is_empty();
-            let has_size_signal = log.input_bytes >= 2_048;
+            let has_size_signal = log.input_bytes >= 4_096 || log.dormant_source_markers >= 1;
             if !(has_sleep_only_surface && has_size_signal) {
                 return Vec::new();
             }
@@ -3325,6 +3331,7 @@ mod sandbox_impl {
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
             metadata.insert("total_calls".to_string(), log.calls.len().to_string());
             metadata.insert("input_bytes".to_string(), log.input_bytes.to_string());
+            metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -3460,6 +3467,13 @@ mod sandbox_impl {
     }
 
     pub fn run_sandbox(bytes: &[u8], options: &DynamicOptions) -> DynamicOutcome {
+        if options.phases.is_empty() {
+            return DynamicOutcome::Skipped {
+                reason: "empty_phase_plan".to_string(),
+                limit: 1,
+                actual: 0,
+            };
+        }
         if bytes.len() > options.max_bytes {
             return DynamicOutcome::Skipped {
                 reason: classify_oversized_payload_reason(bytes).into(),
@@ -3498,6 +3512,11 @@ mod sandbox_impl {
             let normalised = normalise_js_source(&bytes);
             {
                 let lower = String::from_utf8_lossy(&normalised).to_ascii_lowercase();
+                let normalised_escapes = lower
+                    .replace("\\u0028", "(")
+                    .replace("\\u0029", ")")
+                    .replace("\\x28", "(")
+                    .replace("\\x29", ")");
                 let markers = [
                     "/*@cc_on",
                     "eval(",
@@ -3509,7 +3528,8 @@ mod sandbox_impl {
                     "wscript.createobject",
                     "xmlhttp.open",
                 ];
-                let marker_hits = markers.iter().filter(|marker| lower.contains(**marker)).count();
+                let marker_hits =
+                    markers.iter().filter(|marker| normalised_escapes.contains(**marker)).count();
                 log.borrow_mut().dormant_source_markers = marker_hits;
             }
             let mut phase_plan = phase_order(&log.borrow().options);
@@ -3544,6 +3564,15 @@ mod sandbox_impl {
                 let phase_name = phase.as_str().to_string();
                 if let Ok(mut context_ref) = timeout_context_thread.lock() {
                     context_ref.phase = Some(phase_name.clone());
+                } else {
+                    let mut log_ref = log.borrow_mut();
+                    if log_ref.errors.len() < MAX_RECORDED_ERRORS {
+                        log_ref
+                            .errors
+                            .push("timeout context mutex poisoned at phase start".to_string());
+                    } else {
+                        log_ref.errors_dropped += 1;
+                    }
                 }
                 set_phase(&log, &phase_name);
                 let phase_bytes = match phase_script_for(phase) {
@@ -3562,6 +3591,16 @@ mod sandbox_impl {
                         let ratio = total_elapsed as f64 / timeout_budget_ms as f64;
                         context_ref.budget_ratio = Some(ratio.min(1.0));
                     }
+                } else {
+                    let mut log_ref = log.borrow_mut();
+                    if log_ref.errors.len() < MAX_RECORDED_ERRORS {
+                        log_ref.errors.push(
+                            "timeout context mutex poisoned while updating elapsed budget"
+                                .to_string(),
+                        );
+                    } else {
+                        log_ref.errors_dropped += 1;
+                    }
                 }
                 {
                     let mut log_ref = log.borrow_mut();
@@ -3579,6 +3618,7 @@ mod sandbox_impl {
                         log_ref.errors_dropped += 1;
                     }
                     *log_ref.phase_error_counts.entry(phase_name.clone()).or_insert(0) += 1;
+                    break;
                 }
                 if let Err(err) = eval_res {
                     let recovered =
@@ -3624,8 +3664,20 @@ mod sandbox_impl {
                 } else {
                     let mut augmented = baseline_source.clone();
                     for snippet in &dynamic_snippets {
+                        if augmented.len() >= MAX_AUGMENTED_SOURCE_BYTES {
+                            break;
+                        }
                         augmented.push('\n');
-                        augmented.push_str(snippet);
+                        let remaining = MAX_AUGMENTED_SOURCE_BYTES.saturating_sub(augmented.len());
+                        if remaining == 0 {
+                            break;
+                        }
+                        if snippet.len() <= remaining {
+                            augmented.push_str(snippet);
+                        } else {
+                            augmented.push_str(&snippet[..remaining]);
+                            break;
+                        }
                     }
                     augmented
                 };
@@ -3647,8 +3699,8 @@ mod sandbox_impl {
                 runtime_profile: log.runtime_profile.clone(),
                 calls: log.calls.clone(),
                 call_args: log.call_args.clone(),
-                urls: log.urls.clone(),
-                domains: log.domains.clone(),
+                urls: dedupe_sorted(log.urls.clone()),
+                domains: dedupe_sorted(log.domains.clone()),
                 errors: log.errors.clone(),
                 prop_reads: log.prop_reads.clone(),
                 prop_writes: dedupe_sorted(log.prop_writes.clone()),
@@ -3725,9 +3777,9 @@ mod sandbox_impl {
                 let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
                     crate::types::TimeoutContext {
                         runtime_profile: options.runtime_profile.id(),
-                        phase: None,
+                        phase: Some("mutex_poisoned".to_string()),
                         elapsed_ms: None,
-                        budget_ratio: Some(1.0),
+                        budget_ratio: None,
                     },
                 );
                 DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
@@ -3736,9 +3788,9 @@ mod sandbox_impl {
                 let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
                     crate::types::TimeoutContext {
                         runtime_profile: options.runtime_profile.id(),
-                        phase: None,
+                        phase: Some("mutex_poisoned".to_string()),
                         elapsed_ms: None,
-                        budget_ratio: Some(1.0),
+                        budget_ratio: None,
                     },
                 );
                 DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }

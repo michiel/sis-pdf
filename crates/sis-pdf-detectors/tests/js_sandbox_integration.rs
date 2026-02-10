@@ -446,3 +446,26 @@ fn sandbox_emits_lotl_api_chain_execution_finding() {
         Some("lotl_api_chain_execution")
     );
 }
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_marks_oversized_payload_as_skipped() {
+    let large_payload = "a".repeat(300_000);
+    let bytes = build_minimal_js_pdf(&large_payload);
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_sandbox_skipped")
+        .expect("js_sandbox_skipped finding");
+    assert_eq!(finding.meta.get("js.sandbox_exec").map(String::as_str), Some("false"));
+    assert_eq!(
+        finding.meta.get("js.sandbox_skip_reason").map(String::as_str),
+        Some("payload_too_large")
+    );
+    assert_eq!(finding.meta.get("js.runtime.profile_skipped_count").map(String::as_str), Some("3"));
+}
