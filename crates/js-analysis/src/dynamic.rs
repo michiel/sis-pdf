@@ -551,6 +551,44 @@ mod sandbox_impl {
         }
     }
 
+    struct DormantMarkedSmallPayloadPattern;
+    impl BehaviorPattern for DormantMarkedSmallPayloadPattern {
+        fn name(&self) -> &str {
+            "dormant_marked_small_payload"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let has_runtime_activity = !log.calls.is_empty() || !log.prop_reads.is_empty();
+            let marker_gate = log.input_bytes >= 3_072 && log.dormant_source_markers >= 1;
+            let already_classified_large = log.input_bytes >= 8_192 && log.dormant_source_markers >= 2;
+            if has_runtime_activity || !marker_gate || already_classified_large {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("input_bytes".to_string(), log.input_bytes.to_string());
+            metadata.insert(
+                "source_markers".to_string(),
+                log.dormant_source_markers.to_string(),
+            );
+            metadata.insert("call_count".to_string(), log.calls.len().to_string());
+            metadata.insert("prop_read_count".to_string(), log.prop_reads.len().to_string());
+            metadata.insert("error_count".to_string(), log.errors.len().to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.46,
+                evidence: format!(
+                    "No runtime activity in marker-bearing payload ({} bytes); behaviour may be gated",
+                    log.input_bytes
+                ),
+                severity: BehaviorSeverity::Low,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     struct TelemetryBudgetSaturationPattern;
     impl BehaviorPattern for TelemetryBudgetSaturationPattern {
         fn name(&self) -> &str {
@@ -1027,6 +1065,7 @@ mod sandbox_impl {
             Box::new(WshComProbePattern),
             Box::new(VariablePromotionPattern),
             Box::new(DormantPayloadPattern),
+            Box::new(DormantMarkedSmallPayloadPattern),
             Box::new(TelemetryBudgetSaturationPattern),
         ];
 
@@ -1143,6 +1182,10 @@ mod sandbox_impl {
                     "reverse().join(",
                     "fromcharcode",
                     "split(",
+                    "adodb.",
+                    "activexobject",
+                    "wscript.createobject",
+                    "xmlhttp.open",
                 ];
                 let marker_hits = markers.iter().filter(|marker| lower.contains(**marker)).count();
                 log.borrow_mut().dormant_source_markers = marker_hits;

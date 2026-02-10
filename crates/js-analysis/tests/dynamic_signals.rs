@@ -325,6 +325,30 @@ fn sandbox_flags_wsh_com_object_probe() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_dormant_marked_small_payload() {
+    let options = DynamicOptions::default();
+    let payload = format!(
+        "var markerA='ADODB.Stream';var markerB='ActiveXObject';var markerC='MSXML2.XMLHTTP.open';var padding='{}';",
+        "X".repeat(4096)
+    );
+    let outcome = js_analysis::run_sandbox(payload.as_bytes(), &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "dormant_marked_small_payload"),
+                "expected dormant marked small payload pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_omits_delta_summary_without_dynamic_code() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);
