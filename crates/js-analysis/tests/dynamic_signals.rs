@@ -18,6 +18,22 @@ fn sandbox_skips_large_payload() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_classifies_oversized_token_decoder_payload() {
+    let options = DynamicOptions { max_bytes: 32, ..DynamicOptions::default() };
+    let payload = b"/*@cc_on*/var x='a'['split']('!');for(i=0;i<x.length;i++){ }eval(x);";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Skipped { reason, limit, actual } => {
+            assert_eq!(reason, "payload_too_large_token_decoder");
+            assert_eq!(limit, 32);
+            assert_eq!(actual, payload.len());
+        }
+        _ => panic!("expected skip"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_skips_obfuscated_token_decoder_payload() {
     let options = DynamicOptions::default();
     let body = "A!".repeat(24_500);

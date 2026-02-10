@@ -592,7 +592,7 @@ mod sandbox_impl {
     pub fn run_sandbox(bytes: &[u8], options: &DynamicOptions) -> DynamicOutcome {
         if bytes.len() > options.max_bytes {
             return DynamicOutcome::Skipped {
-                reason: "payload_too_large".into(),
+                reason: classify_oversized_payload_reason(bytes).into(),
                 limit: options.max_bytes,
                 actual: bytes.len(),
             };
@@ -4226,6 +4226,22 @@ mod sandbox_impl {
             || lower.contains("['s'+'plit']");
         let has_loop_pattern = lower.contains("for (") || lower.contains("for(");
         has_split_pattern && lower.contains("/*@cc_on") && has_loop_pattern && lower.contains("eval(")
+    }
+
+    fn classify_oversized_payload_reason(bytes: &[u8]) -> &'static str {
+        let probe_len = std::cmp::min(bytes.len(), 96 * 1024);
+        let lower = String::from_utf8_lossy(&bytes[..probe_len]).to_ascii_lowercase();
+        let has_split_pattern = lower.contains("split")
+            || lower.contains("[\"s\"+\"plit\"]")
+            || lower.contains("['s'+'plit']");
+        let has_cc_loop = lower.contains("/*@cc_on")
+            && (lower.contains("for(") || lower.contains("for ("))
+            && lower.contains("eval(");
+        if has_split_pattern && has_cc_loop {
+            "payload_too_large_token_decoder"
+        } else {
+            "payload_too_large"
+        }
     }
 
     fn loop_iteration_limit_hits(errors: &[String]) -> usize {
