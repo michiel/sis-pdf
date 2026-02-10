@@ -298,6 +298,50 @@ mod sandbox_impl {
         fn analyze(&self, flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation>;
     }
 
+    fn lower_severity(level: BehaviorSeverity) -> BehaviorSeverity {
+        match level {
+            BehaviorSeverity::Critical => BehaviorSeverity::High,
+            BehaviorSeverity::High => BehaviorSeverity::Medium,
+            BehaviorSeverity::Medium => BehaviorSeverity::Low,
+            BehaviorSeverity::Low => BehaviorSeverity::Low,
+        }
+    }
+
+    fn calibrate_chain_signal(
+        base_confidence: f64,
+        base_severity: BehaviorSeverity,
+        component_hits: usize,
+        component_total: usize,
+    ) -> (f64, BehaviorSeverity) {
+        let total = component_total.max(1) as f64;
+        let coverage = (component_hits as f64 / total).clamp(0.0, 1.0);
+        let confidence = (base_confidence * (0.72 + 0.34 * coverage)).clamp(0.35, 0.97);
+        let severity = if coverage < 0.55 {
+            lower_severity(base_severity)
+        } else {
+            base_severity
+        };
+        (confidence, severity)
+    }
+
+    fn approx_string_entropy(input: &str) -> f64 {
+        if input.is_empty() {
+            return 0.0;
+        }
+        let mut counts = std::collections::HashMap::new();
+        for byte in input.bytes() {
+            *counts.entry(byte).or_insert(0usize) += 1;
+        }
+        let total = input.len() as f64;
+        counts
+            .values()
+            .map(|count| {
+                let p = *count as f64 / total;
+                -(p * p.log2())
+            })
+            .sum()
+    }
+
     // Concrete Behavioral Patterns
     struct ObfuscatedStringConstruction;
     impl BehaviorPattern for ObfuscatedStringConstruction {
@@ -489,6 +533,142 @@ mod sandbox_impl {
                 evidence:
                     "Observed multi-pass decode pipeline that feeds dynamic execution".to_string(),
                 severity: BehaviorSeverity::High,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct CovertBeaconExfilPattern;
+    impl BehaviorPattern for CovertBeaconExfilPattern {
+        fn name(&self) -> &str {
+            "covert_beacon_exfil"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let beacon_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "navigator.sendBeacon")
+                .count();
+            let fetch_calls = log.calls.iter().filter(|call| *call == "fetch").count();
+            let location_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "window.location.assign" || *call == "window.location.replace"
+                })
+                .count();
+            let network_sinks = beacon_calls + fetch_calls + location_calls;
+            if network_sinks == 0 {
+                return Vec::new();
+            }
+
+            let long_query_urls = log
+                .urls
+                .iter()
+                .filter(|url| url.split_once('?').map(|(_, query)| query.len() >= 48).unwrap_or(false))
+                .count();
+            let high_entropy_domains = log
+                .domains
+                .iter()
+                .filter(|domain| approx_string_entropy(domain) >= 3.4)
+                .count();
+            let high_density_args = log
+                .call_args
+                .iter()
+                .filter(|entry| entry.contains("http://") || entry.contains("https://"))
+                .filter(|entry| entry.len() >= 120)
+                .count();
+            let signal_count = (long_query_urls > 0) as usize
+                + (high_entropy_domains > 0) as usize
+                + (high_density_args > 0) as usize;
+            if signal_count == 0 {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("network_sink_calls".to_string(), network_sinks.to_string());
+            metadata.insert("beacon_calls".to_string(), beacon_calls.to_string());
+            metadata.insert("fetch_calls".to_string(), fetch_calls.to_string());
+            metadata.insert("location_calls".to_string(), location_calls.to_string());
+            metadata.insert("long_query_urls".to_string(), long_query_urls.to_string());
+            metadata.insert("high_entropy_domains".to_string(), high_entropy_domains.to_string());
+            metadata.insert("high_density_args".to_string(), high_density_args.to_string());
+
+            let confidence = (0.68 + signal_count as f64 * 0.08).min(0.9);
+            let severity = if signal_count >= 2 {
+                BehaviorSeverity::High
+            } else {
+                BehaviorSeverity::Medium
+            };
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed beacon-style network exfiltration with encoded/high-density payload traits"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct PrototypeChainExecutionHijackPattern;
+    impl BehaviorPattern for PrototypeChainExecutionHijackPattern {
+        fn name(&self) -> &str {
+            "prototype_chain_execution_hijack"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let prototype_markers = log
+                .call_args
+                .iter()
+                .filter(|entry| {
+                    let lower = entry.to_ascii_lowercase();
+                    lower.contains("__proto__")
+                        || lower.contains("object.prototype")
+                        || lower.contains("constructor.prototype")
+                        || lower.contains("object.setprototypeof")
+                        || lower.contains("object.defineproperty")
+                })
+                .count();
+            let dynamic_dispatch_calls = log
+                .calls
+                .iter()
+                .filter(|call| matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval"))
+                .count();
+            if prototype_markers == 0 || dynamic_dispatch_calls == 0 {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("prototype_markers".to_string(), prototype_markers.to_string());
+            metadata.insert(
+                "dynamic_dispatch_calls".to_string(),
+                dynamic_dispatch_calls.to_string(),
+            );
+            metadata.insert(
+                "reflection_probes".to_string(),
+                log.reflection_probes.len().to_string(),
+            );
+
+            let confidence = (0.7 + (prototype_markers.min(3) as f64 * 0.07)).min(0.9);
+            let severity = if prototype_markers >= 2 {
+                BehaviorSeverity::High
+            } else {
+                BehaviorSeverity::Medium
+            };
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Prototype-chain mutation markers observed alongside dynamic execution dispatch"
+                        .to_string(),
+                severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
             }]
@@ -920,12 +1100,26 @@ mod sandbox_impl {
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
+            let component_hits = [
+                has_download,
+                has_staging,
+                has_execution,
+                has_com_factory,
+                stream_write > 0 || save_to_file > 0,
+                http_open > 0 && http_send > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.93, BehaviorSeverity::High, component_hits, 6);
+
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
-                confidence: 0.93,
+                confidence,
                 evidence:
                     "Observed COM download, file staging, and execution API sequence".to_string(),
-                severity: BehaviorSeverity::High,
+                severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
             }]
@@ -991,12 +1185,25 @@ mod sandbox_impl {
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
+            let component_hits = [
+                has_download,
+                has_staging,
+                has_com_factory,
+                save_to_file > 0,
+                shell_run > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.82, BehaviorSeverity::Medium, component_hits, 5);
+
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
-                confidence: 0.82,
+                confidence,
                 evidence: "Observed COM downloader staging sequence without confirmed execution"
                     .to_string(),
-                severity: BehaviorSeverity::Medium,
+                severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
             }]
@@ -1058,11 +1265,18 @@ mod sandbox_impl {
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
+            let component_hits = [has_download, has_com_factory, http_open > 0, http_send > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.68, BehaviorSeverity::Medium, component_hits, 4);
+
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
-                confidence: 0.68,
+                confidence,
                 evidence: "Observed COM-instantiated HTTP retrieval sequence".to_string(),
-                severity: BehaviorSeverity::Medium,
+                severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
             }]
@@ -1198,12 +1412,25 @@ mod sandbox_impl {
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
+            let component_hits = [
+                has_download,
+                has_com_factory,
+                has_direct_execute,
+                http_open > 0,
+                http_send > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.88, BehaviorSeverity::High, component_hits, 5);
+
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
-                confidence: 0.88,
+                confidence,
                 evidence: "Observed COM HTTP retrieval followed by direct process execution"
                     .to_string(),
-                severity: BehaviorSeverity::High,
+                severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
             }]
@@ -1332,13 +1559,26 @@ mod sandbox_impl {
             metadata.insert("network_calls".to_string(), network_calls.to_string());
             metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
 
+            let component_hits = [
+                has_stream_staging,
+                has_com_factory,
+                stream_open > 0,
+                stream_write > 0,
+                save_to_file > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.8, BehaviorSeverity::Medium, component_hits, 5);
+
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
-                confidence: 0.8,
+                confidence,
                 evidence:
                     "Observed COM stream staging and local file drop without confirmed execution"
                         .to_string(),
-                severity: BehaviorSeverity::Medium,
+                severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
             }]
@@ -1444,13 +1684,20 @@ mod sandbox_impl {
             metadata.insert("environment_calls".to_string(), env_calls.to_string());
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
 
+            let component_hits = [http_send > 0, has_com_factory, has_signal, env_calls > 0, sleep_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.66, BehaviorSeverity::Medium, component_hits, 5);
+
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
-                confidence: 0.66,
+                confidence,
                 evidence:
                     "Observed COM HTTP send path without visible open; chain appears partial or obfuscated"
                         .to_string(),
-                severity: BehaviorSeverity::Medium,
+                severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
             }]
@@ -1518,13 +1765,20 @@ mod sandbox_impl {
             metadata.insert("environment_calls".to_string(), env_calls.to_string());
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
 
+            let component_hits = [http_open > 0, has_com_factory, has_gate_signal, env_calls > 0, sleep_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.62, BehaviorSeverity::Low, component_hits, 5);
+
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
-                confidence: 0.62,
+                confidence,
                 evidence:
                     "Observed COM HTTP open path without send; execution chain appears partial/gated"
                         .to_string(),
-                severity: BehaviorSeverity::Low,
+                severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
             }]
@@ -1584,11 +1838,18 @@ mod sandbox_impl {
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
+            let component_hits = [shell_run > 0, has_com_factory, low_activity]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.85, BehaviorSeverity::High, component_hits, 3);
+
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
-                confidence: 0.85,
+                confidence,
                 evidence: "Observed direct WSH process execution via COM object creation".to_string(),
-                severity: BehaviorSeverity::High,
+                severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
             }]
@@ -1656,13 +1917,26 @@ mod sandbox_impl {
             metadata.insert("save_to_file_calls".to_string(), save_to_file.to_string());
             metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
 
+            let component_hits = [
+                has_com_factory,
+                has_network_to_buffer,
+                stream_open > 0,
+                stream_write > 0,
+                http_send > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.72, BehaviorSeverity::Medium, component_hits, 5);
+
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
-                confidence: 0.72,
+                confidence,
                 evidence:
                     "Observed COM HTTP send feeding ADODB stream buffer without visible final stage"
                         .to_string(),
-                severity: BehaviorSeverity::Medium,
+                severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
             }]
@@ -1748,6 +2022,8 @@ mod sandbox_impl {
             Box::new(DynamicCodeGeneration),
             Box::new(IndirectDynamicEvalDispatchPattern),
             Box::new(MultiPassDecodePipelinePattern),
+            Box::new(CovertBeaconExfilPattern),
+            Box::new(PrototypeChainExecutionHijackPattern),
             Box::new(TimingProbeEvasionPattern),
             Box::new(CapabilityMatrixFingerprintingPattern),
             Box::new(EnvironmentFingerprinting),

