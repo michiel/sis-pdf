@@ -330,3 +330,25 @@ fn null_conversion_recovery_handles_object_static_calls() {
         signals.errors
     );
 }
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn undefined_recovery_handles_long_symbol_chains() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"
+        alpha1();
+        beta2();
+        gamma3();
+        delta4();
+        epsilon5();
+        zeta6();
+        eta7();
+        theta8();
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        !signals.errors.iter().any(|error| error.contains(" is not defined")),
+        "undefined-symbol recovery should resolve chained misses: {:?}",
+        signals.errors
+    );
+}

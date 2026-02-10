@@ -27,6 +27,7 @@ mod sandbox_impl {
     const MAX_RECORDED_CALLS: usize = 2_048;
     const MAX_RECORDED_PROP_READS: usize = 4_096;
     const MAX_RECORDED_ERRORS: usize = 256;
+    const MAX_UNDEFINED_RECOVERY_PASSES: usize = 16;
     const BASE_LOOP_ITERATION_LIMIT: u64 = 10_000;
     const DOWNLOADER_LOOP_ITERATION_LIMIT: u64 = 20_000;
     const HOST_PROBE_LOOP_ITERATION_LIMIT: u64 = 40_000;
@@ -3522,6 +3523,17 @@ mod sandbox_impl {
             }
         }
 
+        if error_msg.contains("is not defined") {
+            let wrapped = format!("try {{ {} }} catch(__sis_ref__) {{}}", code);
+            if let Ok(result) = ctx.eval(Source::from_bytes(wrapped.as_bytes())) {
+                let mut log_ref = log.borrow_mut();
+                if let Some(last_exception) = log_ref.execution_flow.exception_handling.last_mut() {
+                    last_exception.recovery_successful = true;
+                }
+                return Some(result);
+            }
+        }
+
         None
     }
 
@@ -3636,7 +3648,7 @@ mod sandbox_impl {
         let mut seen = BTreeSet::new();
         let mut current_error = error_msg.to_string();
         let mut prelude = String::new();
-        for _ in 0..4 {
+        for _ in 0..MAX_UNDEFINED_RECOVERY_PASSES {
             let var_name = extract_undefined_variable(&current_error)?;
             if !seen.insert(var_name.clone()) {
                 break;
