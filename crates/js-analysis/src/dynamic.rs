@@ -3456,6 +3456,10 @@ mod sandbox_impl {
         }
 
         if error_msg.contains("not a callable function") {
+            if let Some(hint) = extract_not_callable_hint(&error_msg, code) {
+                let mut log_ref = log.borrow_mut();
+                log_ref.errors.push(format!("Callable recovery hint: {}", hint));
+            }
             let call_names = gather_bare_call_names(code);
             let dotted_paths = gather_dotted_call_paths(code);
             let patched = override_callable_assignments(code, &call_names);
@@ -3475,6 +3479,84 @@ mod sandbox_impl {
         }
 
         None
+    }
+
+    fn extract_not_callable_hint(error_msg: &str, code: &str) -> Option<String> {
+        let column_regex = regex::Regex::new(r"column_number:\s*(\d+)").ok()?;
+        let line_regex = regex::Regex::new(r"line_number:\s*(\d+)").ok()?;
+        let columns: Vec<usize> = column_regex
+            .captures_iter(error_msg)
+            .filter_map(|capture| capture.get(1).and_then(|m| m.as_str().parse::<usize>().ok()))
+            .collect();
+        if columns.is_empty() {
+            return None;
+        }
+        let lines: Vec<usize> = line_regex
+            .captures_iter(error_msg)
+            .filter_map(|capture| capture.get(1).and_then(|m| m.as_str().parse::<usize>().ok()))
+            .collect();
+        let line = lines.last().copied().unwrap_or(1);
+        let mut candidates = BTreeSet::new();
+        for column in columns.iter().rev().take(6) {
+            if let Some(expr) = extract_callee_expression(code, line, *column) {
+                if !expr.is_empty() {
+                    candidates.insert(expr);
+                }
+            }
+        }
+        if candidates.is_empty() {
+            return Some(format!("line={} columns={:?} callee=unresolved", line, columns));
+        }
+        Some(format!(
+            "line={} columns={:?} candidate_callees={}",
+            line,
+            columns,
+            candidates.into_iter().collect::<Vec<_>>().join(" | ")
+        ))
+    }
+
+    fn extract_callee_expression(code: &str, line_number: usize, column_number: usize) -> Option<String> {
+        if line_number == 0 || column_number == 0 {
+            return None;
+        }
+        let line = code.lines().nth(line_number.saturating_sub(1))?;
+        let chars: Vec<char> = line.chars().collect();
+        let start = column_number.saturating_sub(1).min(chars.len().saturating_sub(1));
+        let mut open_paren = None;
+        let mut index = start;
+        while index < chars.len() {
+            if chars[index] == '(' {
+                open_paren = Some(index);
+                break;
+            }
+            index += 1;
+        }
+        let open_index = open_paren?;
+        if open_index == 0 {
+            return None;
+        }
+        let mut left = open_index;
+        while left > 0 {
+            let ch = chars[left - 1];
+            if ch == ';'
+                || ch == ','
+                || ch == '{'
+                || ch == '}'
+                || ch == '\n'
+                || ch == '\r'
+                || ch == ':'
+                || ch == '?'
+            {
+                break;
+            }
+            left -= 1;
+        }
+        let raw: String = chars[left..open_index].iter().collect();
+        let candidate = raw.trim();
+        if candidate.is_empty() {
+            return None;
+        }
+        Some(candidate.to_string())
     }
 
     fn recover_undefined_variables(

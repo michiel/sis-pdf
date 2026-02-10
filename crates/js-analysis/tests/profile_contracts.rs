@@ -281,3 +281,30 @@ fn browser_profile_missing_pdf_api_has_stable_error_signature() {
         combined
     );
 }
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn callable_recovery_emits_unresolved_callee_hint() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"
+        var probe = { x: 1 };
+        probe.x();
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        signals
+            .errors
+            .iter()
+            .any(|error| error.contains("Callable recovery hint:")),
+        "expected callable hint in errors: {:?}",
+        signals.errors
+    );
+    assert!(
+        signals
+            .errors
+            .iter()
+            .any(|error| error.contains("candidate_callees=probe.x")),
+        "expected callee path in hint: {:?}",
+        signals.errors
+    );
+}
