@@ -20,6 +20,7 @@ This directory contains the documentation for **Smiley Is Suspicious (sis-pdf)**
 - [Technical Specification](sis-pdf-spec.md)
 - [Findings Catalog](findings.md) - All 72+ detection rules
 - [JavaScript Extraction](JS_EXTRACTION_README.md)
+- [JavaScript Analysis Engine](js-analysis-engine.md) - Sandbox architecture, stages, and countermeasures
 - [Risk Profiling](risk-profiling.md)
 
 ### Machine Learning
