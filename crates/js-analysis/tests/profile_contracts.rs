@@ -352,3 +352,25 @@ fn undefined_recovery_handles_long_symbol_chains() {
         signals.errors
     );
 }
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn syntax_recovery_executes_following_statements() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"
+        var ok = 1;
+        broken = ;
+        fetch('https://example.test/recovered');
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        signals.calls.iter().any(|call| call == "fetch"),
+        "expected fetch call after syntax recovery: {:?}",
+        signals.calls
+    );
+    assert!(
+        !signals.errors.iter().any(|error| error.contains("Syntax")),
+        "syntax errors should be recovered: {:?}",
+        signals.errors
+    );
+}

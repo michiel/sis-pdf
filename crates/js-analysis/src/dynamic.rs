@@ -3479,6 +3479,13 @@ mod sandbox_impl {
                     }
                 }
             }
+            if let Some(result) = recover_syntax_by_statement_slicing(ctx, code) {
+                let mut log_ref = log.borrow_mut();
+                if let Some(last_exception) = log_ref.execution_flow.exception_handling.last_mut() {
+                    last_exception.recovery_successful = true;
+                }
+                return Some(result);
+            }
         }
 
         if error_msg.contains("not a callable function") {
@@ -4026,6 +4033,26 @@ mod sandbox_impl {
         }
 
         result
+    }
+
+    fn recover_syntax_by_statement_slicing(ctx: &mut Context, code: &str) -> Option<JsValue> {
+        let mut recovered = false;
+        let mut executed_any = false;
+        for statement in code.split(';').take(512) {
+            let trimmed = statement.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let wrapped = format!("try {{ {}; }} catch(__sis_syntax__) {{}}", trimmed);
+            if ctx.eval(Source::from_bytes(wrapped.as_bytes())).is_ok() {
+                recovered = true;
+                executed_any = true;
+            }
+        }
+        if recovered || executed_any {
+            return Some(JsValue::undefined());
+        }
+        None
     }
 
     fn scrub_invalid_unicode_escapes(input: &str) -> String {
