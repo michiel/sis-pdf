@@ -316,11 +316,7 @@ mod sandbox_impl {
         let total = component_total.max(1) as f64;
         let coverage = (component_hits as f64 / total).clamp(0.0, 1.0);
         let confidence = (base_confidence * (0.72 + 0.34 * coverage)).clamp(0.35, 0.97);
-        let severity = if coverage < 0.55 {
-            lower_severity(base_severity)
-        } else {
-            base_severity
-        };
+        let severity = if coverage < 0.55 { lower_severity(base_severity) } else { base_severity };
         (confidence, severity)
     }
 
@@ -447,10 +443,7 @@ mod sandbox_impl {
                 .calls
                 .iter()
                 .filter(|call| {
-                    matches!(
-                        call.as_str(),
-                        "eval" | "Function" | "app.eval" | "event.target.eval"
-                    )
+                    matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval")
                 })
                 .count();
             if dynamic_invocations == 0 {
@@ -476,14 +469,9 @@ mod sandbox_impl {
             }
 
             let mut metadata = std::collections::HashMap::new();
-            metadata.insert(
-                "dynamic_invocation_count".to_string(),
-                dynamic_invocations.to_string(),
-            );
-            metadata.insert(
-                "indirect_marker_count".to_string(),
-                indirect_markers.to_string(),
-            );
+            metadata
+                .insert("dynamic_invocation_count".to_string(), dynamic_invocations.to_string());
+            metadata.insert("indirect_marker_count".to_string(), indirect_markers.to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -510,10 +498,9 @@ mod sandbox_impl {
             let from_char_code_calls =
                 log.calls.iter().filter(|call| *call == "String.fromCharCode").count();
             let decode_stage_count = unescape_calls + escape_calls + from_char_code_calls;
-            let has_dynamic_dispatch = log
-                .calls
-                .iter()
-                .any(|call| matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval"));
+            let has_dynamic_dispatch = log.calls.iter().any(|call| {
+                matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval")
+            });
             if decode_stage_count < 3 || !has_dynamic_dispatch {
                 return Vec::new();
             }
@@ -522,16 +509,13 @@ mod sandbox_impl {
             metadata.insert("decode_stage_count".to_string(), decode_stage_count.to_string());
             metadata.insert("unescape_calls".to_string(), unescape_calls.to_string());
             metadata.insert("escape_calls".to_string(), escape_calls.to_string());
-            metadata.insert(
-                "from_char_code_calls".to_string(),
-                from_char_code_calls.to_string(),
-            );
+            metadata.insert("from_char_code_calls".to_string(), from_char_code_calls.to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
                 confidence: 0.8,
-                evidence:
-                    "Observed multi-pass decode pipeline that feeds dynamic execution".to_string(),
+                evidence: "Observed multi-pass decode pipeline that feeds dynamic execution"
+                    .to_string(),
                 severity: BehaviorSeverity::High,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
@@ -546,11 +530,8 @@ mod sandbox_impl {
         }
 
         fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
-            let beacon_calls = log
-                .calls
-                .iter()
-                .filter(|call| *call == "navigator.sendBeacon")
-                .count();
+            let beacon_calls =
+                log.calls.iter().filter(|call| *call == "navigator.sendBeacon").count();
             let fetch_calls = log.calls.iter().filter(|call| *call == "fetch").count();
             let location_calls = log
                 .calls
@@ -567,13 +548,12 @@ mod sandbox_impl {
             let long_query_urls = log
                 .urls
                 .iter()
-                .filter(|url| url.split_once('?').map(|(_, query)| query.len() >= 48).unwrap_or(false))
+                .filter(|url| {
+                    url.split_once('?').map(|(_, query)| query.len() >= 48).unwrap_or(false)
+                })
                 .count();
-            let high_entropy_domains = log
-                .domains
-                .iter()
-                .filter(|domain| approx_string_entropy(domain) >= 3.4)
-                .count();
+            let high_entropy_domains =
+                log.domains.iter().filter(|domain| approx_string_entropy(domain) >= 3.4).count();
             let high_density_args = log
                 .call_args
                 .iter()
@@ -597,11 +577,8 @@ mod sandbox_impl {
             metadata.insert("high_density_args".to_string(), high_density_args.to_string());
 
             let confidence = (0.68 + signal_count as f64 * 0.08).min(0.9);
-            let severity = if signal_count >= 2 {
-                BehaviorSeverity::High
-            } else {
-                BehaviorSeverity::Medium
-            };
+            let severity =
+                if signal_count >= 2 { BehaviorSeverity::High } else { BehaviorSeverity::Medium };
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -638,7 +615,9 @@ mod sandbox_impl {
             let dynamic_dispatch_calls = log
                 .calls
                 .iter()
-                .filter(|call| matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval"))
+                .filter(|call| {
+                    matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval")
+                })
                 .count();
             if prototype_markers == 0 || dynamic_dispatch_calls == 0 {
                 return Vec::new();
@@ -646,14 +625,10 @@ mod sandbox_impl {
 
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("prototype_markers".to_string(), prototype_markers.to_string());
-            metadata.insert(
-                "dynamic_dispatch_calls".to_string(),
-                dynamic_dispatch_calls.to_string(),
-            );
-            metadata.insert(
-                "reflection_probes".to_string(),
-                log.reflection_probes.len().to_string(),
-            );
+            metadata
+                .insert("dynamic_dispatch_calls".to_string(), dynamic_dispatch_calls.to_string());
+            metadata
+                .insert("reflection_probes".to_string(), log.reflection_probes.len().to_string());
 
             let confidence = (0.7 + (prototype_markers.min(3) as f64 * 0.07)).min(0.9);
             let severity = if prototype_markers >= 2 {
@@ -682,45 +657,31 @@ mod sandbox_impl {
         }
 
         fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
-            let wasm_calls = log
-                .calls
-                .iter()
-                .filter(|call| call.starts_with("WebAssembly."))
-                .count();
+            let wasm_calls =
+                log.calls.iter().filter(|call| call.starts_with("WebAssembly.")).count();
             if wasm_calls == 0 {
                 return Vec::new();
             }
 
-            let instantiate_calls = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WebAssembly.instantiate")
-                .count();
-            let module_calls = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WebAssembly.Module")
-                .count();
-            let memory_calls = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WebAssembly.Memory")
-                .count();
+            let instantiate_calls =
+                log.calls.iter().filter(|call| *call == "WebAssembly.instantiate").count();
+            let module_calls =
+                log.calls.iter().filter(|call| *call == "WebAssembly.Module").count();
+            let memory_calls =
+                log.calls.iter().filter(|call| *call == "WebAssembly.Memory").count();
             let dynamic_dispatch = log
                 .calls
                 .iter()
-                .filter(|call| matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval"))
+                .filter(|call| {
+                    matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval")
+                })
                 .count();
 
-            let component_hits = [
-                instantiate_calls > 0,
-                module_calls > 0,
-                memory_calls > 0,
-                dynamic_dispatch > 0,
-            ]
-            .iter()
-            .filter(|value| **value)
-            .count();
+            let component_hits =
+                [instantiate_calls > 0, module_calls > 0, memory_calls > 0, dynamic_dispatch > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
             let (confidence, severity) =
                 calibrate_chain_signal(0.76, BehaviorSeverity::Medium, component_hits, 4);
 
@@ -729,10 +690,7 @@ mod sandbox_impl {
             metadata.insert("instantiate_calls".to_string(), instantiate_calls.to_string());
             metadata.insert("module_calls".to_string(), module_calls.to_string());
             metadata.insert("memory_calls".to_string(), memory_calls.to_string());
-            metadata.insert(
-                "dynamic_dispatch_calls".to_string(),
-                dynamic_dispatch.to_string(),
-            );
+            metadata.insert("dynamic_dispatch_calls".to_string(), dynamic_dispatch.to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -818,10 +776,8 @@ mod sandbox_impl {
 
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("require_calls".to_string(), require_calls.to_string());
-            metadata.insert(
-                "suspicious_require_args".to_string(),
-                suspicious_require_args.to_string(),
-            );
+            metadata
+                .insert("suspicious_require_args".to_string(), suspicious_require_args.to_string());
             metadata.insert("exec_calls".to_string(), exec_calls.to_string());
             metadata.insert("fs_write_calls".to_string(), fs_write_calls.to_string());
 
@@ -940,16 +896,14 @@ mod sandbox_impl {
             metadata.insert("set_timeout_calls".to_string(), timeout_calls.to_string());
             metadata.insert("set_interval_calls".to_string(), interval_calls.to_string());
             metadata.insert("quit_calls".to_string(), quit_calls.to_string());
-            metadata.insert(
-                "source_markers".to_string(),
-                log.dormant_source_markers.to_string(),
-            );
+            metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
                 confidence: 0.74,
-                evidence: "Repeated timer primitives plus gating signals indicate timing-based evasion"
-                    .to_string(),
+                evidence:
+                    "Repeated timer primitives plus gating signals indicate timing-based evasion"
+                        .to_string(),
                 severity: BehaviorSeverity::Medium,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
@@ -978,7 +932,10 @@ mod sandbox_impl {
                 {
                     browser_hits += 1;
                 }
-                if lower.starts_with("app.") || lower.starts_with("doc.") || lower.starts_with("event.target.") {
+                if lower.starts_with("app.")
+                    || lower.starts_with("doc.")
+                    || lower.starts_with("event.target.")
+                {
                     pdf_hits += 1;
                 }
                 if lower.starts_with("wscript.")
@@ -1176,10 +1133,7 @@ mod sandbox_impl {
 
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("input_bytes".to_string(), log.input_bytes.to_string());
-            metadata.insert(
-                "source_markers".to_string(),
-                log.dormant_source_markers.to_string(),
-            );
+            metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
             metadata.insert("call_count".to_string(), log.calls.len().to_string());
             metadata.insert("prop_read_count".to_string(), log.prop_reads.len().to_string());
             metadata.insert("error_count".to_string(), log.errors.len().to_string());
@@ -1207,17 +1161,15 @@ mod sandbox_impl {
         fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
             let has_runtime_activity = !log.calls.is_empty() || !log.prop_reads.is_empty();
             let marker_gate = log.input_bytes >= 3_072 && log.dormant_source_markers >= 1;
-            let already_classified_large = log.input_bytes >= 8_192 && log.dormant_source_markers >= 2;
+            let already_classified_large =
+                log.input_bytes >= 8_192 && log.dormant_source_markers >= 2;
             if has_runtime_activity || !marker_gate || already_classified_large {
                 return Vec::new();
             }
 
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("input_bytes".to_string(), log.input_bytes.to_string());
-            metadata.insert(
-                "source_markers".to_string(),
-                log.dormant_source_markers.to_string(),
-            );
+            metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
             metadata.insert("call_count".to_string(), log.calls.len().to_string());
             metadata.insert("prop_read_count".to_string(), log.prop_reads.len().to_string());
             metadata.insert("error_count".to_string(), log.errors.len().to_string());
@@ -1294,21 +1246,11 @@ mod sandbox_impl {
                 .iter()
                 .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
                 .count();
-            let stream_open = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.Open")
-                .count();
-            let stream_write = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.Write")
-                .count();
-            let save_to_file = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.SaveToFile")
-                .count();
+            let stream_open = log.calls.iter().filter(|call| *call == "ADODB.Stream.Open").count();
+            let stream_write =
+                log.calls.iter().filter(|call| *call == "ADODB.Stream.Write").count();
+            let save_to_file =
+                log.calls.iter().filter(|call| *call == "ADODB.Stream.SaveToFile").count();
             let shell_run = log
                 .calls
                 .iter()
@@ -1317,11 +1259,8 @@ mod sandbox_impl {
                 })
                 .count();
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
 
             let has_download = http_open > 0 && http_send > 0;
             let has_staging = stream_open > 0 && (stream_write > 0 || save_to_file > 0);
@@ -1359,8 +1298,8 @@ mod sandbox_impl {
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
                 confidence,
-                evidence:
-                    "Observed COM download, file staging, and execution API sequence".to_string(),
+                evidence: "Observed COM download, file staging, and execution API sequence"
+                    .to_string(),
                 severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
@@ -1385,16 +1324,9 @@ mod sandbox_impl {
                 .iter()
                 .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
                 .count();
-            let stream_open = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.Open")
-                .count();
-            let save_to_file = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.SaveToFile")
-                .count();
+            let stream_open = log.calls.iter().filter(|call| *call == "ADODB.Stream.Open").count();
+            let save_to_file =
+                log.calls.iter().filter(|call| *call == "ADODB.Stream.SaveToFile").count();
             let shell_run = log
                 .calls
                 .iter()
@@ -1403,11 +1335,8 @@ mod sandbox_impl {
                 })
                 .count();
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
 
             let has_download = http_open > 0 && http_send > 0;
             let has_staging = stream_open > 0;
@@ -1427,16 +1356,11 @@ mod sandbox_impl {
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
-            let component_hits = [
-                has_download,
-                has_staging,
-                has_com_factory,
-                save_to_file > 0,
-                shell_run > 0,
-            ]
-            .iter()
-            .filter(|value| **value)
-            .count();
+            let component_hits =
+                [has_download, has_staging, has_com_factory, save_to_file > 0, shell_run > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
             let (confidence, severity) =
                 calibrate_chain_signal(0.82, BehaviorSeverity::Medium, component_hits, 5);
 
@@ -1469,16 +1393,9 @@ mod sandbox_impl {
                 .iter()
                 .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
                 .count();
-            let stream_open = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.Open")
-                .count();
-            let save_to_file = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.SaveToFile")
-                .count();
+            let stream_open = log.calls.iter().filter(|call| *call == "ADODB.Stream.Open").count();
+            let save_to_file =
+                log.calls.iter().filter(|call| *call == "ADODB.Stream.SaveToFile").count();
             let shell_run = log
                 .calls
                 .iter()
@@ -1487,11 +1404,8 @@ mod sandbox_impl {
                 })
                 .count();
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
 
             let has_download = http_open > 0 && http_send > 0;
             let has_com_factory = activex_create > 0 || wscript_create > 0;
@@ -1533,11 +1447,8 @@ mod sandbox_impl {
 
         fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
             let env_calls = log
                 .calls
                 .iter()
@@ -1554,11 +1465,8 @@ mod sandbox_impl {
                 .iter()
                 .filter(|call| call.contains(".XMLHTTP.") || call.contains("WinHttp"))
                 .count();
-            let staging_calls = log
-                .calls
-                .iter()
-                .filter(|call| call.starts_with("ADODB.Stream."))
-                .count();
+            let staging_calls =
+                log.calls.iter().filter(|call| call.starts_with("ADODB.Stream.")).count();
 
             let has_com_factory = activex_create > 0 || wscript_create > 0;
             let has_env_probe = env_calls > 0;
@@ -1570,11 +1478,8 @@ mod sandbox_impl {
             }
 
             let confidence = if has_gating { 0.86 } else { 0.74 };
-            let severity = if has_gating {
-                BehaviorSeverity::Medium
-            } else {
-                BehaviorSeverity::Low
-            };
+            let severity =
+                if has_gating { BehaviorSeverity::Medium } else { BehaviorSeverity::Low };
             let evidence = if has_gating {
                 "Observed WSH environment probing with delay/exit gating behaviour".to_string()
             } else {
@@ -1625,17 +1530,11 @@ mod sandbox_impl {
                     *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
                 })
                 .count();
-            let stream_calls = log
-                .calls
-                .iter()
-                .filter(|call| call.starts_with("ADODB.Stream."))
-                .count();
+            let stream_calls =
+                log.calls.iter().filter(|call| call.starts_with("ADODB.Stream.")).count();
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
 
             let has_download = http_open > 0 && http_send > 0;
             let has_com_factory = activex_create > 0 || wscript_create > 0;
@@ -1654,16 +1553,11 @@ mod sandbox_impl {
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
 
-            let component_hits = [
-                has_download,
-                has_com_factory,
-                has_direct_execute,
-                http_open > 0,
-                http_send > 0,
-            ]
-            .iter()
-            .filter(|value| **value)
-            .count();
+            let component_hits =
+                [has_download, has_com_factory, has_direct_execute, http_open > 0, http_send > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
             let (confidence, severity) =
                 calibrate_chain_signal(0.88, BehaviorSeverity::High, component_hits, 5);
 
@@ -1687,16 +1581,9 @@ mod sandbox_impl {
 
         fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
-            let shell_run = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.Shell.Run")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
+            let shell_run = log.calls.iter().filter(|call| *call == "WScript.Shell.Run").count();
             let env_calls = log
                 .calls
                 .iter()
@@ -1711,11 +1598,8 @@ mod sandbox_impl {
                 .iter()
                 .filter(|call| call.contains(".XMLHTTP.") || call.contains("WinHttp"))
                 .count();
-            let stream_calls = log
-                .calls
-                .iter()
-                .filter(|call| call.starts_with("ADODB.Stream."))
-                .count();
+            let stream_calls =
+                log.calls.iter().filter(|call| call.starts_with("ADODB.Stream.")).count();
 
             let has_com_factory = activex_create > 0 || wscript_create > 0;
             let only_probe_surface = shell_run == 0
@@ -1751,27 +1635,14 @@ mod sandbox_impl {
         }
 
         fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
-            let stream_open = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.Open")
-                .count();
-            let stream_write = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.Write")
-                .count();
-            let save_to_file = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.SaveToFile")
-                .count();
+            let stream_open = log.calls.iter().filter(|call| *call == "ADODB.Stream.Open").count();
+            let stream_write =
+                log.calls.iter().filter(|call| *call == "ADODB.Stream.Write").count();
+            let save_to_file =
+                log.calls.iter().filter(|call| *call == "ADODB.Stream.SaveToFile").count();
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
             let shell_run = log
                 .calls
                 .iter()
@@ -1848,10 +1719,7 @@ mod sandbox_impl {
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
             metadata.insert("total_calls".to_string(), log.calls.len().to_string());
-            metadata.insert(
-                "source_markers".to_string(),
-                log.dormant_source_markers.to_string(),
-            );
+            metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -1883,11 +1751,8 @@ mod sandbox_impl {
                 .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
                 .count();
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
             let env_calls = log
                 .calls
                 .iter()
@@ -1898,11 +1763,8 @@ mod sandbox_impl {
                 })
                 .count();
             let sleep_calls = log.calls.iter().filter(|call| *call == "WScript.Sleep").count();
-            let stream_calls = log
-                .calls
-                .iter()
-                .filter(|call| call.starts_with("ADODB.Stream."))
-                .count();
+            let stream_calls =
+                log.calls.iter().filter(|call| call.starts_with("ADODB.Stream.")).count();
             let shell_run = log
                 .calls
                 .iter()
@@ -1926,10 +1788,11 @@ mod sandbox_impl {
             metadata.insert("environment_calls".to_string(), env_calls.to_string());
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
 
-            let component_hits = [http_send > 0, has_com_factory, has_signal, env_calls > 0, sleep_calls > 0]
-                .iter()
-                .filter(|value| **value)
-                .count();
+            let component_hits =
+                [http_send > 0, has_com_factory, has_signal, env_calls > 0, sleep_calls > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
             let (confidence, severity) =
                 calibrate_chain_signal(0.66, BehaviorSeverity::Medium, component_hits, 5);
 
@@ -1964,11 +1827,8 @@ mod sandbox_impl {
                 .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
                 .count();
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
             let env_calls = log
                 .calls
                 .iter()
@@ -1979,11 +1839,8 @@ mod sandbox_impl {
                 })
                 .count();
             let sleep_calls = log.calls.iter().filter(|call| *call == "WScript.Sleep").count();
-            let stream_calls = log
-                .calls
-                .iter()
-                .filter(|call| call.starts_with("ADODB.Stream."))
-                .count();
+            let stream_calls =
+                log.calls.iter().filter(|call| call.starts_with("ADODB.Stream.")).count();
             let shell_run = log
                 .calls
                 .iter()
@@ -2007,10 +1864,11 @@ mod sandbox_impl {
             metadata.insert("environment_calls".to_string(), env_calls.to_string());
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
 
-            let component_hits = [http_open > 0, has_com_factory, has_gate_signal, env_calls > 0, sleep_calls > 0]
-                .iter()
-                .filter(|value| **value)
-                .count();
+            let component_hits =
+                [http_open > 0, has_com_factory, has_gate_signal, env_calls > 0, sleep_calls > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
             let (confidence, severity) =
                 calibrate_chain_signal(0.62, BehaviorSeverity::Low, component_hits, 5);
 
@@ -2042,21 +1900,15 @@ mod sandbox_impl {
                 })
                 .count();
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
             let network_calls = log
                 .calls
                 .iter()
                 .filter(|call| call.contains(".XMLHTTP.") || call.contains("WinHttp"))
                 .count();
-            let stream_calls = log
-                .calls
-                .iter()
-                .filter(|call| call.starts_with("ADODB.Stream."))
-                .count();
+            let stream_calls =
+                log.calls.iter().filter(|call| call.starts_with("ADODB.Stream.")).count();
             let env_calls = log
                 .calls
                 .iter()
@@ -2090,7 +1942,8 @@ mod sandbox_impl {
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
                 confidence,
-                evidence: "Observed direct WSH process execution via COM object creation".to_string(),
+                evidence: "Observed direct WSH process execution via COM object creation"
+                    .to_string(),
                 severity,
                 metadata,
                 timestamp: std::time::Duration::from_millis(0),
@@ -2115,21 +1968,11 @@ mod sandbox_impl {
                 .iter()
                 .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
                 .count();
-            let stream_open = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.Open")
-                .count();
-            let stream_write = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.Write")
-                .count();
-            let save_to_file = log
-                .calls
-                .iter()
-                .filter(|call| *call == "ADODB.Stream.SaveToFile")
-                .count();
+            let stream_open = log.calls.iter().filter(|call| *call == "ADODB.Stream.Open").count();
+            let stream_write =
+                log.calls.iter().filter(|call| *call == "ADODB.Stream.Write").count();
+            let save_to_file =
+                log.calls.iter().filter(|call| *call == "ADODB.Stream.SaveToFile").count();
             let shell_run = log
                 .calls
                 .iter()
@@ -2138,11 +1981,8 @@ mod sandbox_impl {
                 })
                 .count();
             let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
-            let wscript_create = log
-                .calls
-                .iter()
-                .filter(|call| *call == "WScript.CreateObject")
-                .count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
 
             let has_com_factory = activex_create > 0 || wscript_create > 0;
             let has_network_to_buffer = http_send > 0 && stream_open > 0 && stream_write > 0;
@@ -2185,6 +2025,192 @@ mod sandbox_impl {
         }
     }
 
+    struct ComDownloaderPartialStagingPattern;
+    impl BehaviorPattern for ComDownloaderPartialStagingPattern {
+        fn name(&self) -> &str {
+            "com_downloader_partial_staging_chain"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let http_open = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.open") || *call == "MSXML2.XMLHTTP.open")
+                .count();
+            let http_send = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
+                .count();
+            let stream_open = log.calls.iter().filter(|call| *call == "ADODB.Stream.Open").count();
+            let stream_write =
+                log.calls.iter().filter(|call| *call == "ADODB.Stream.Write").count();
+            let save_to_file =
+                log.calls.iter().filter(|call| *call == "ADODB.Stream.SaveToFile").count();
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let has_partial_network = http_send > 0 && http_open == 0;
+            let has_stream_staging = stream_open > 0 && (stream_write > 0 || save_to_file > 0);
+            let has_execution = shell_run > 0;
+
+            if !(has_com_factory && has_partial_network && has_stream_staging) || has_execution {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
+            metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
+            metadata.insert("stream_open_calls".to_string(), stream_open.to_string());
+            metadata.insert("stream_write_calls".to_string(), stream_write.to_string());
+            metadata.insert("save_to_file_calls".to_string(), save_to_file.to_string());
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+            metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
+
+            let component_hits = [
+                has_com_factory,
+                has_partial_network,
+                has_stream_staging,
+                stream_write > 0,
+                save_to_file > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.74, BehaviorSeverity::Medium, component_hits, 5);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed COM HTTP send plus ADODB stream staging without visible HTTP open"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct WshFilesystemReconPattern;
+    impl BehaviorPattern for WshFilesystemReconPattern {
+        fn name(&self) -> &str {
+            "wsh_filesystem_recon_probe"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
+            let get_file_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "Scripting.FileSystemObject.GetFile")
+                .count();
+            let file_exists_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "Scripting.FileSystemObject.FileExists")
+                .count();
+            let folder_exists_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "Scripting.FileSystemObject.FolderExists")
+                .count();
+            let special_folder_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "Scripting.FileSystemObject.GetSpecialFolder")
+                .count();
+            let temp_name_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "Scripting.FileSystemObject.GetTempName")
+                .count();
+            let network_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.contains(".XMLHTTP.") || call.contains("WinHttp"))
+                .count();
+            let stream_calls =
+                log.calls.iter().filter(|call| call.starts_with("ADODB.Stream.")).count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+            let write_fso_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "Scripting.FileSystemObject.CreateTextFile"
+                        || *call == "Scripting.FileSystemObject.CreateFolder"
+                        || *call == "Scripting.FileSystemObject.DeleteFile"
+                        || *call == "Scripting.FileSystemObject.CopyFile"
+                        || *call == "Scripting.FileSystemObject.MoveFile"
+                        || *call == "Scripting.FileSystemObject.OpenTextFile"
+                })
+                .count();
+
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let recon_calls = get_file_calls
+                + file_exists_calls
+                + folder_exists_calls
+                + special_folder_calls
+                + temp_name_calls;
+            let has_higher_chain = network_calls > 0 || stream_calls > 0 || shell_run > 0;
+
+            if !(has_com_factory && recon_calls > 0) || has_higher_chain || write_fso_calls > 0 {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+            metadata.insert("fso_get_file_calls".to_string(), get_file_calls.to_string());
+            metadata.insert("fso_file_exists_calls".to_string(), file_exists_calls.to_string());
+            metadata.insert("fso_folder_exists_calls".to_string(), folder_exists_calls.to_string());
+            metadata
+                .insert("fso_special_folder_calls".to_string(), special_folder_calls.to_string());
+            metadata.insert("fso_temp_name_calls".to_string(), temp_name_calls.to_string());
+            metadata.insert("fso_write_calls".to_string(), write_fso_calls.to_string());
+            metadata.insert("network_calls".to_string(), network_calls.to_string());
+            metadata.insert("stream_calls".to_string(), stream_calls.to_string());
+            metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
+
+            let component_hits = [has_com_factory, recon_calls > 0, get_file_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.67, BehaviorSeverity::Low, component_hits, 3);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed COM-instantiated FileSystemObject reconnaissance without follow-on execution"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     struct WshEarlyQuitPattern;
     impl BehaviorPattern for WshEarlyQuitPattern {
         fn name(&self) -> &str {
@@ -2194,7 +2220,8 @@ mod sandbox_impl {
         fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
             let quit_calls = log.calls.iter().filter(|call| *call == "WScript.Quit").count();
             let sleep_calls = log.calls.iter().filter(|call| *call == "WScript.Sleep").count();
-            let has_only_exit_surface = quit_calls > 0 && log.calls.len() <= quit_calls + sleep_calls;
+            let has_only_exit_surface =
+                quit_calls > 0 && log.calls.len() <= quit_calls + sleep_calls;
             let marker_hint = log.dormant_source_markers >= 1;
             if !has_only_exit_surface || !marker_hint {
                 return Vec::new();
@@ -2204,10 +2231,7 @@ mod sandbox_impl {
             metadata.insert("quit_calls".to_string(), quit_calls.to_string());
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
             metadata.insert("total_calls".to_string(), log.calls.len().to_string());
-            metadata.insert(
-                "source_markers".to_string(),
-                log.dormant_source_markers.to_string(),
-            );
+            metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -2285,6 +2309,8 @@ mod sandbox_impl {
             Box::new(ComDownloaderIncompleteOpenPattern),
             Box::new(WshDirectRunPattern),
             Box::new(ComNetworkBufferStagingPattern),
+            Box::new(ComDownloaderPartialStagingPattern),
+            Box::new(WshFilesystemReconPattern),
             Box::new(WshEarlyQuitPattern),
             Box::new(WshSleepOnlyPattern),
             Box::new(VariablePromotionPattern),
@@ -3880,21 +3906,14 @@ mod sandbox_impl {
             make_native(log, name)
         };
         let wasm = ObjectInitializer::new(context)
-            .function(
-                make_fn("WebAssembly.instantiate"),
-                JsString::from("instantiate"),
-                1,
-            )
+            .function(make_fn("WebAssembly.instantiate"), JsString::from("instantiate"), 1)
             .function(make_fn("WebAssembly.compile"), JsString::from("compile"), 1)
             .function(make_fn("WebAssembly.Module"), JsString::from("Module"), 1)
             .function(make_fn("WebAssembly.Instance"), JsString::from("Instance"), 1)
             .function(make_fn("WebAssembly.Memory"), JsString::from("Memory"), 1)
             .build();
-        let _ = context.register_global_property(
-            JsString::from("WebAssembly"),
-            wasm,
-            Attribute::all(),
-        );
+        let _ =
+            context.register_global_property(JsString::from("WebAssembly"), wasm, Attribute::all());
     }
 
     fn register_require_stub(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
@@ -6037,7 +6056,10 @@ mod sandbox_impl {
             || lower.contains("[\"s\"+\"plit\"]")
             || lower.contains("['s'+'plit']");
         let has_loop_pattern = lower.contains("for (") || lower.contains("for(");
-        has_split_pattern && lower.contains("/*@cc_on") && has_loop_pattern && lower.contains("eval(")
+        has_split_pattern
+            && lower.contains("/*@cc_on")
+            && has_loop_pattern
+            && lower.contains("eval(")
     }
 
     fn classify_oversized_payload_reason(bytes: &[u8]) -> &'static str {

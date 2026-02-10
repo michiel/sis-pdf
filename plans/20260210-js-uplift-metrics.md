@@ -63,3 +63,13 @@ Additional low-frequency signals include `com_downloader_execution_chain`, `wsh_
   - `js_runtime_credential_harvest`
 - COM/WSH chain confidence is calibrated by observed chain completeness.
 - Next pass should target the remaining two unresolved samples and add benign-control coverage for any new detector refinements.
+
+## Bucket closure update (2026-02-10)
+
+- The final unresolved pair is now covered by targeted behavioural patterns:
+  - `com_downloader_partial_staging_chain` for COM downloader staging where `send` is observed without visible `open`.
+  - `wsh_filesystem_recon_probe` for low-activity FileSystemObject reconnaissance via COM.
+- Added regression coverage in `crates/js-analysis/tests/dynamic_signals.rs`:
+  - `sandbox_flags_com_downloader_partial_staging_chain`
+  - `sandbox_flags_wsh_filesystem_recon_probe`
+- Focused replay confirms both previously unresolved 2016 samples now emit behavioural patterns (`behavioral_patterns=1`).

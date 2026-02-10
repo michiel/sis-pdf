@@ -773,7 +773,9 @@ fn extend_with_behavioral_pattern_findings(
             description: description.into(),
             objects: vec![object_ref.to_string()],
             evidence: evidence.to_vec(),
-            remediation: Some("Review dynamic telemetry and correlate with static JS artefacts.".into()),
+            remediation: Some(
+                "Review dynamic telemetry and correlate with static JS artefacts.".into(),
+            ),
             meta,
             yara: None,
             position: None,

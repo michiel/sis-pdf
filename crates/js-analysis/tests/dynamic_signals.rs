@@ -712,10 +712,7 @@ fn sandbox_flags_wsh_timing_gate() {
     match outcome {
         DynamicOutcome::Executed(signals) => {
             assert!(
-                signals
-                    .behavioral_patterns
-                    .iter()
-                    .any(|pattern| pattern.name == "wsh_timing_gate"),
+                signals.behavioral_patterns.iter().any(|pattern| pattern.name == "wsh_timing_gate"),
                 "expected WSH timing gate pattern: {:?}",
                 signals.behavioral_patterns
             );
@@ -821,6 +818,58 @@ fn sandbox_flags_com_network_buffer_staging() {
                     .iter()
                     .any(|pattern| pattern.name == "com_network_buffer_staging"),
                 "expected COM network-buffer staging pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_com_downloader_partial_staging_chain() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var xhr = WScript.CreateObject('MSXML2.XMLHTTP');
+        var stream = WScript.CreateObject('ADODB.Stream');
+        xhr.send();
+        stream.Open();
+        stream.Write('MZ');
+        stream.SaveToFile('C:\\Temp\\drop.bin', 2);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "com_downloader_partial_staging_chain"),
+                "expected COM partial staging pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_wsh_filesystem_recon_probe() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var fso = new ActiveXObject('Scripting.FileSystemObject');
+        fso.GetFile('C:\\Windows\\System32\\cmd.exe');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "wsh_filesystem_recon_probe"),
+                "expected WSH filesystem recon pattern: {:?}",
                 signals.behavioral_patterns
             );
         }

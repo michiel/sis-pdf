@@ -230,11 +230,7 @@ fn sandbox_emulation_breakpoint_tracks_loop_iteration_limit_bucket() {
     let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
         .expect("scan");
 
-    if let Some(finding) = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "js_emulation_breakpoint")
-    {
+    if let Some(finding) = report.findings.iter().find(|f| f.kind == "js_emulation_breakpoint") {
         assert!(finding
             .meta
             .get("js.emulation_breakpoint.buckets")
@@ -247,10 +243,7 @@ fn sandbox_emulation_breakpoint_tracks_loop_iteration_limit_bucket() {
             .find(|f| f.kind == "js_sandbox_exec")
             .expect("js_sandbox_exec fallback finding");
         assert!(
-            sandbox_exec
-                .meta
-                .get("js.runtime.execution.adaptive_loop_profile")
-                .is_some(),
+            sandbox_exec.meta.get("js.runtime.execution.adaptive_loop_profile").is_some(),
             "expected adaptive loop metadata in fallback path"
         );
     }
