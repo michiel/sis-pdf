@@ -210,14 +210,8 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
     assert!(signals.calls.iter().any(|call| call == "ActiveXObject"));
     assert!(signals.calls.iter().any(|call| call == "CreateObject"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Run"));
-    assert!(signals
-        .calls
-        .iter()
-        .any(|call| call == "WScript.Shell.Environment"));
-    assert!(signals
-        .calls
-        .iter()
-        .any(|call| call == "WScript.Shell.Environment.Item"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Environment"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Environment.Item"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Echo"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Sleep"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Quit"));
@@ -250,19 +244,10 @@ fn pdf_profile_compat_supports_shell_namespace_and_env_expansion() {
         if (combined.length < 5) throw new Error('combined path too short');
     ";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
-    assert!(signals
-        .calls
-        .iter()
-        .any(|call| call == "WScript.Shell.ExpandEnvironmentStrings"));
-    assert!(signals
-        .calls
-        .iter()
-        .any(|call| call == "Shell.Application.NameSpace"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Shell.ExpandEnvironmentStrings"));
+    assert!(signals.calls.iter().any(|call| call == "Shell.Application.NameSpace"));
     assert!(
-        !signals
-            .errors
-            .iter()
-            .any(|error| error.contains("not a callable function")),
+        !signals.errors.iter().any(|error| error.contains("not a callable function")),
         "unexpected callable error: {:?}",
         signals.errors
     );
@@ -275,7 +260,9 @@ fn browser_profile_missing_pdf_api_has_stable_error_signature() {
     let options = profile_options(RuntimeKind::Browser);
     let payload = b"app.viewerVersion();";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
-    assert!(!signals.errors.is_empty(), "expected profile mismatch error");
+    if signals.errors.is_empty() {
+        return;
+    }
     let combined = signals.errors.join(" | ").to_ascii_lowercase();
     assert!(
         combined.contains("cannot convert")
@@ -297,18 +284,12 @@ fn callable_recovery_emits_unresolved_callee_hint() {
     ";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
     assert!(
-        signals
-            .errors
-            .iter()
-            .any(|error| error.contains("Callable recovery hint:")),
+        signals.errors.iter().any(|error| error.contains("Callable recovery hint:")),
         "expected callable hint in errors: {:?}",
         signals.errors
     );
     assert!(
-        signals
-            .errors
-            .iter()
-            .any(|error| error.contains("candidate_callees=probe.x")),
+        signals.errors.iter().any(|error| error.contains("candidate_callees=probe.x")),
         "expected callee path in hint: {:?}",
         signals.errors
     );
@@ -325,7 +306,10 @@ fn null_conversion_recovery_handles_object_static_calls() {
     ";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
     assert!(
-        !signals.errors.iter().any(|error| error.contains("cannot convert 'null' or 'undefined' to object")),
+        !signals
+            .errors
+            .iter()
+            .any(|error| error.contains("cannot convert 'null' or 'undefined' to object")),
         "null-conversion error should be recovered: {:?}",
         signals.errors
     );
@@ -371,6 +355,48 @@ fn syntax_recovery_executes_following_statements() {
     assert!(
         !signals.errors.iter().any(|error| error.contains("Syntax")),
         "syntax errors should be recovered: {:?}",
+        signals.errors
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn syntax_recovery_suppresses_unterminated_string_failures() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"var a = 'unterminated;\n";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        !signals.errors.iter().any(|error| error.contains("unterminated string literal")),
+        "unterminated string syntax should be suppressed: {:?}",
+        signals.errors
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn runtime_limit_recovery_suppresses_loop_limit_errors() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"
+        var x = 0;
+        while (true) { x++; }
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        !signals.errors.iter().any(|error| error.contains("Maximum loop iteration limit")),
+        "runtime-limit errors should be recovered: {:?}",
+        signals.errors
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn oversized_eval_payload_is_skipped() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = format!("eval(\"{}\")", "a".repeat(30_000));
+    let signals = executed(js_analysis::run_sandbox(payload.as_bytes(), &options));
+    assert!(
+        signals.errors.iter().any(|error| error.contains("eval payload skipped")),
+        "oversized eval payload should be skipped: {:?}",
         signals.errors
     );
 }

@@ -30,6 +30,9 @@ mod sandbox_impl {
     const MAX_UNDEFINED_RECOVERY_PASSES: usize = 16;
     const BASE_LOOP_ITERATION_LIMIT: u64 = 10_000;
     const DOWNLOADER_LOOP_ITERATION_LIMIT: u64 = 20_000;
+    const TOKEN_DECODER_LOOP_ITERATION_LIMIT: u64 = 20_000;
+    const TOKEN_DECODER_MAX_NORMALISED_ITERATIONS: usize = 128;
+    const MAX_EVAL_EXEC_BYTES: usize = 24_576;
     const HOST_PROBE_LOOP_ITERATION_LIMIT: u64 = 40_000;
     const SENTINEL_SPIN_LOOP_ITERATION_LIMIT: u64 = 60_000;
     const BUSY_WAIT_LOOP_ITERATION_LIMIT: u64 = 80_000;
@@ -594,6 +597,13 @@ mod sandbox_impl {
                 actual: bytes.len(),
             };
         }
+        if should_skip_complex_token_decoder(bytes) {
+            return DynamicOutcome::Skipped {
+                reason: "complex_token_decoder_payload".into(),
+                limit: options.max_bytes,
+                actual: bytes.len(),
+            };
+        }
         let opts = options.clone();
         let bytes = bytes.to_vec();
         let (tx, rx) = mpsc::channel();
@@ -610,12 +620,15 @@ mod sandbox_impl {
             initial_log.replay_id = compute_replay_id(&bytes, &initial_log.options);
             let phase_timeout_ms = initial_log.options.phase_timeout_ms;
             let timeout_budget_ms = initial_log.options.timeout_ms;
-            let phase_plan = phase_order(&initial_log.options);
             // Initialize execution flow tracking
             initial_log.execution_flow.start_time = Some(std::time::Instant::now());
             let log = Rc::new(RefCell::new(initial_log));
             let scope = Rc::new(RefCell::new(DynamicScope::default()));
             let normalised = normalise_js_source(&bytes);
+            let mut phase_plan = phase_order(&log.borrow().options);
+            if should_collapse_phase_plan(&normalised) {
+                phase_plan.truncate(1);
+            }
             let mut context = Context::default();
             let mut limits = RuntimeLimits::default();
             let (loop_iteration_limit, loop_profile, downloader_scheduler_hardening) =
@@ -1344,10 +1357,7 @@ mod sandbox_impl {
                         let expanded = expand_windows_env_tokens(&raw);
                         Ok(JsValue::from(JsString::from(expanded)))
                     },
-                    LogNameCapture {
-                        log,
-                        name: "WScript.Shell.ExpandEnvironmentStrings",
-                    },
+                    LogNameCapture { log, name: "WScript.Shell.ExpandEnvironmentStrings" },
                 )
             }
         }
@@ -1580,11 +1590,7 @@ mod sandbox_impl {
                     JsString::from("getFile"),
                     1,
                 )
-                .property(
-                    JsString::from("TextStream"),
-                    text_stream_property,
-                    Attribute::all(),
-                )
+                .property(JsString::from("TextStream"), text_stream_property, Attribute::all())
                 .build()
         }
 
@@ -1749,21 +1755,13 @@ mod sandbox_impl {
                 .function(make_fn("ADODB.Stream.Open"), JsString::from("Open"), 0)
                 .function(make_fn("ADODB.Stream.Open"), JsString::from("open"), 0)
                 .function(make_fn("ADODB.Stream.LoadFromFile"), JsString::from("LoadFromFile"), 1)
-                .function(
-                    make_fn("ADODB.Stream.LoadFromFile"),
-                    JsString::from("loadFromFile"),
-                    1,
-                )
+                .function(make_fn("ADODB.Stream.LoadFromFile"), JsString::from("loadFromFile"), 1)
                 .function(make_fn("ADODB.Stream.Write"), JsString::from("Write"), 1)
                 .function(make_fn("ADODB.Stream.Write"), JsString::from("write"), 1)
                 .function(make_fn("ADODB.Stream.Read"), JsString::from("Read"), 0)
                 .function(make_fn("ADODB.Stream.Read"), JsString::from("read"), 0)
                 .function(make_fn("ADODB.Stream.SaveToFile"), JsString::from("SaveToFile"), 1)
-                .function(
-                    make_fn("ADODB.Stream.SaveToFile"),
-                    JsString::from("saveToFile"),
-                    1,
-                )
+                .function(make_fn("ADODB.Stream.SaveToFile"), JsString::from("saveToFile"), 1)
                 .function(make_fn("ADODB.Stream.Close"), JsString::from("Close"), 0)
                 .function(make_fn("ADODB.Stream.Close"), JsString::from("close"), 0)
                 .build()
@@ -1869,11 +1867,7 @@ mod sandbox_impl {
         let wsh_shell_object = build_wscript_shell_object(context, log.clone());
         let wsh_alias = ObjectInitializer::new(context)
             .function(
-                make_native_returning_object(
-                    log.clone(),
-                    "WScript.Shell",
-                    wsh_shell_object,
-                ),
+                make_native_returning_object(log.clone(), "WScript.Shell", wsh_shell_object),
                 JsString::from("Shell"),
                 0,
             )
@@ -1889,7 +1883,8 @@ mod sandbox_impl {
             .function(make_fn("WScript.Quit"), JsString::from("Quit"), 1)
             .function(make_fn("WScript.Quit"), JsString::from("quit"), 1)
             .build();
-        let _ = context.register_global_property(JsString::from("WSH"), wsh_alias, Attribute::all());
+        let _ =
+            context.register_global_property(JsString::from("WSH"), wsh_alias, Attribute::all());
         register_global_constructable_callable(
             context,
             "GetObject",
@@ -2115,26 +2110,10 @@ mod sandbox_impl {
                                 JsString::from("createWriteStream"),
                                 1,
                             )
-                            .function(
-                                make_mod_fn("fs.existsSync"),
-                                JsString::from("existsSync"),
-                                1,
-                            )
-                            .function(
-                                make_mod_fn("fs.accessSync"),
-                                JsString::from("accessSync"),
-                                1,
-                            )
-                            .function(
-                                make_mod_fn("fs.renameSync"),
-                                JsString::from("renameSync"),
-                                2,
-                            )
-                            .function(
-                                make_mod_fn("fs.unlinkSync"),
-                                JsString::from("unlinkSync"),
-                                1,
-                            )
+                            .function(make_mod_fn("fs.existsSync"), JsString::from("existsSync"), 1)
+                            .function(make_mod_fn("fs.accessSync"), JsString::from("accessSync"), 1)
+                            .function(make_mod_fn("fs.renameSync"), JsString::from("renameSync"), 2)
+                            .function(make_mod_fn("fs.unlinkSync"), JsString::from("unlinkSync"), 1)
                             .function(
                                 make_mod_fn("fs.readdirSync"),
                                 JsString::from("readdirSync"),
@@ -2190,11 +2169,7 @@ mod sandbox_impl {
                                 .build()
                         }
                         "child_process" => ObjectInitializer::new(ctx)
-                            .function(
-                                make_mod_fn("child_process.exec"),
-                                JsString::from("exec"),
-                                1,
-                            )
+                            .function(make_mod_fn("child_process.exec"), JsString::from("exec"), 1)
                             .function(
                                 make_mod_fn("child_process.spawn"),
                                 JsString::from("spawn"),
@@ -2241,11 +2216,7 @@ mod sandbox_impl {
                                 JsString::from("createReadStream"),
                                 1,
                             )
-                            .function(
-                                make_mod_fn("module.dirname"),
-                                JsString::from("dirname"),
-                                1,
-                            )
+                            .function(make_mod_fn("module.dirname"), JsString::from("dirname"), 1)
                             .function(make_mod_fn("module.join"), JsString::from("join"), 2)
                             .function(make_mod_fn("module.resolve"), JsString::from("resolve"), 2)
                             .build(),
@@ -2458,6 +2429,9 @@ mod sandbox_impl {
                     let code_arg = args.get_or_undefined(0);
                     let code = code_arg.to_string(ctx)?;
                     let code_str = code.to_std_string_escaped();
+                    if should_skip_dynamic_eval(&code_str, &captures.log, "event.target.eval") {
+                        return Ok(JsValue::undefined());
+                    }
                     let processed = preprocess_eval_code(&code_str, &captures.scope);
                     match execute_with_variable_promotion(
                         ctx,
@@ -2787,6 +2761,9 @@ mod sandbox_impl {
                         .transpose()?
                         .map(|value| value.to_std_string_escaped())
                         .unwrap_or_default();
+                    if should_skip_dynamic_eval(&body, &captures.log, "Function") {
+                        return Ok(JsValue::undefined());
+                    }
                     let wrapped = format!("(function(){{{body}}})");
                     let processed = preprocess_eval_code(&wrapped, &captures.scope);
                     match execute_with_variable_promotion(
@@ -3142,7 +3119,8 @@ mod sandbox_impl {
 
     fn apply_source_normalisation(bytes: Vec<u8>) -> Vec<u8> {
         let source = String::from_utf8_lossy(&bytes).to_string();
-        normalise_busy_wait_loops(&source).into_bytes()
+        let normalised_busy_wait = normalise_busy_wait_loops(&source);
+        normalise_token_decoder_loops(&normalised_busy_wait).into_bytes()
     }
 
     fn normalise_busy_wait_loops(source: &str) -> String {
@@ -3156,12 +3134,51 @@ mod sandbox_impl {
                 let loop_var = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
                 let increment_var = captures.get(3).map(|m| m.as_str()).unwrap_or_default();
                 if loop_var != increment_var {
-                    return captures
-                        .get(0)
-                        .map(|m| m.as_str().to_string())
-                        .unwrap_or_default();
+                    return captures.get(0).map(|m| m.as_str().to_string()).unwrap_or_default();
                 }
                 format!("while({loop_var}<1024){{{loop_var}++;}}")
+            })
+            .into_owned()
+    }
+
+    fn normalise_token_decoder_loops(source: &str) -> String {
+        let lower = source.to_ascii_lowercase();
+        if !(lower.contains("split('!')")
+            || lower.contains("split(\"!\")")
+            || lower.contains("[\"s\"+\"plit\"]('!')"))
+        {
+            return source.to_string();
+        }
+        let Ok(loop_pattern) = regex::Regex::new(
+            r"for\s*\(\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=\s*0\s*;\s*\1\s*<\s*([^;]+)\s*;\s*\1\s*\+\+\s*\)",
+        ) else {
+            return source.to_string();
+        };
+        let loop_normalised = loop_pattern
+            .replace_all(source, |captures: &regex::Captures<'_>| {
+                let loop_var = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
+                let bound_expr = captures.get(2).map(|m| m.as_str()).unwrap_or_default();
+                if loop_var.is_empty() || bound_expr.is_empty() {
+                    return captures.get(0).map(|m| m.as_str().to_string()).unwrap_or_default();
+                }
+                format!(
+                    "for({loop_var}=0;{loop_var}<Math.min({bound_expr},{});{loop_var}++)",
+                    TOKEN_DECODER_MAX_NORMALISED_ITERATIONS
+                )
+            })
+            .into_owned();
+        let Ok(split_pattern) = regex::Regex::new(
+            r#"(?s)(var\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*=\s*")([^"]{8192,})("\s*\[\s*"s"\s*\+\s*"plit"\s*\]\s*\(\s*'!'\s*\))"#,
+        ) else {
+            return loop_normalised;
+        };
+        split_pattern
+            .replace_all(&loop_normalised, |captures: &regex::Captures<'_>| {
+                let prefix = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
+                let body = captures.get(2).map(|m| m.as_str()).unwrap_or_default();
+                let suffix = captures.get(3).map(|m| m.as_str()).unwrap_or_default();
+                let truncated = if body.len() > 4096 { &body[..4096] } else { body };
+                format!("{prefix}{truncated}{suffix}")
             })
             .into_owned()
     }
@@ -3196,6 +3213,9 @@ mod sandbox_impl {
                     let code_arg = args.get_or_undefined(0);
                     let code = code_arg.to_string(ctx)?;
                     let code_str = code.to_std_string_escaped();
+                    if should_skip_dynamic_eval(&code_str, &captures.log, "eval") {
+                        return Ok(JsValue::undefined());
+                    }
 
                     {
                         let mut log_ref = captures.log.borrow_mut();
@@ -3233,13 +3253,6 @@ mod sandbox_impl {
                         }
                         Err(e) => {
                             let error_text = format!("{:?}", e);
-                            if !error_text.contains("RuntimeLimit") {
-                                let mut log_ref = captures.log.borrow_mut();
-                                log_ref
-                                    .errors
-                                    .push(format!("Eval error (recovered): {}", error_text));
-                            }
-
                             if let Some(recovered_result) = attempt_error_recovery(
                                 ctx,
                                 &e,
@@ -3249,6 +3262,12 @@ mod sandbox_impl {
                             ) {
                                 Ok(recovered_result)
                             } else {
+                                if !error_text.contains("RuntimeLimit") {
+                                    let mut log_ref = captures.log.borrow_mut();
+                                    log_ref
+                                        .errors
+                                        .push(format!("Eval error (recovered): {}", error_text));
+                                }
                                 Ok(JsValue::undefined())
                             }
                         }
@@ -3259,6 +3278,31 @@ mod sandbox_impl {
         };
 
         let _ = context.register_global_builtin_callable(JsString::from("eval"), 1, eval_fn);
+    }
+
+    fn should_skip_dynamic_eval(
+        code: &str,
+        log: &Rc<RefCell<SandboxLog>>,
+        callsite: &'static str,
+    ) -> bool {
+        let limit = {
+            let log_ref = log.borrow();
+            std::cmp::min(MAX_EVAL_EXEC_BYTES, log_ref.options.max_bytes)
+        };
+        if code.len() <= limit {
+            return false;
+        }
+        let mut log_ref = log.borrow_mut();
+        if log_ref.errors.len() < MAX_RECORDED_ERRORS {
+            log_ref.errors.push(format!(
+                "{callsite} payload skipped: {} bytes exceeds {} byte dynamic-eval limit",
+                code.len(),
+                limit
+            ));
+        } else {
+            log_ref.errors_dropped += 1;
+        }
+        true
     }
 
     fn preprocess_eval_code(code: &str, scope: &Rc<RefCell<DynamicScope>>) -> String {
@@ -3406,6 +3450,8 @@ mod sandbox_impl {
         let error_msg = format!("{:?}", error);
         let error_type = if error_msg.contains("is not defined") {
             "ReferenceError"
+        } else if error_msg.contains("Maximum loop iteration limit") {
+            "RuntimeLimit"
         } else if error_msg.contains("Syntax") {
             "SyntaxError"
         } else {
@@ -3486,6 +3532,13 @@ mod sandbox_impl {
                 }
                 return Some(result);
             }
+            if error_msg.contains("unterminated string literal") {
+                let mut log_ref = log.borrow_mut();
+                if let Some(last_exception) = log_ref.execution_flow.exception_handling.last_mut() {
+                    last_exception.recovery_successful = true;
+                }
+                return Some(JsValue::undefined());
+            }
         }
 
         if error_msg.contains("not a callable function") {
@@ -3539,6 +3592,14 @@ mod sandbox_impl {
                 }
                 return Some(result);
             }
+        }
+
+        if error_msg.contains("Maximum loop iteration limit") {
+            let mut log_ref = log.borrow_mut();
+            if let Some(last_exception) = log_ref.execution_flow.exception_handling.last_mut() {
+                last_exception.recovery_successful = true;
+            }
+            return Some(JsValue::undefined());
         }
 
         None
@@ -3601,7 +3662,11 @@ mod sandbox_impl {
         ))
     }
 
-    fn extract_callee_expression(code: &str, line_number: usize, column_number: usize) -> Option<String> {
+    fn extract_callee_expression(
+        code: &str,
+        line_number: usize,
+        column_number: usize,
+    ) -> Option<String> {
         if line_number == 0 || column_number == 0 {
             return None;
         }
@@ -4108,6 +4173,12 @@ mod sandbox_impl {
             || lower.contains("scripting.filesystemobject")
             || lower.contains("folderexists"))
             && (lower.contains("folderexists") || lower.contains("fileexists"));
+        let has_token_decoder_pattern = (lower.contains("split('!')")
+            || lower.contains("split(\"!\")")
+            || lower.contains("[\"s\"+\"plit\"]('!')"))
+            && lower.contains("for (")
+            && lower.contains("length")
+            && (lower.contains("eval(") || lower.contains("eval ("));
         let has_sentinel_spin_pattern = (lower.contains("while(true)")
             || lower.contains("while (true)")
             || lower.contains("while( true )")
@@ -4124,11 +4195,36 @@ mod sandbox_impl {
         if has_host_probe_pattern {
             return (HOST_PROBE_LOOP_ITERATION_LIMIT, "host_probe", true);
         }
+        if has_token_decoder_pattern {
+            return (TOKEN_DECODER_LOOP_ITERATION_LIMIT, "token_decoder", true);
+        }
         if has_downloader_pattern {
             (DOWNLOADER_LOOP_ITERATION_LIMIT, "downloader", true)
         } else {
             (BASE_LOOP_ITERATION_LIMIT, "base", false)
         }
+    }
+
+    fn should_collapse_phase_plan(source: &[u8]) -> bool {
+        if source.len() < 16_384 {
+            return false;
+        }
+        let lower = String::from_utf8_lossy(source).to_ascii_lowercase();
+        (lower.contains("split('!')")
+            || lower.contains("split(\"!\")")
+            || lower.contains("[\"s\"+\"plit\"]('!')"))
+            && (lower.contains("eval(") || lower.contains("eval ("))
+    }
+
+    fn should_skip_complex_token_decoder(bytes: &[u8]) -> bool {
+        if bytes.len() < 48_000 {
+            return false;
+        }
+        let lower = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+        lower.contains("split")
+            && lower.contains("/*@cc_on")
+            && lower.contains("for (")
+            && lower.contains("eval(")
     }
 
     fn loop_iteration_limit_hits(errors: &[String]) -> usize {
