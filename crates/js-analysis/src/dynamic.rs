@@ -669,6 +669,143 @@ mod sandbox_impl {
         }
     }
 
+    struct ComDownloaderStagingPattern;
+    impl BehaviorPattern for ComDownloaderStagingPattern {
+        fn name(&self) -> &str {
+            "com_downloader_staging_chain"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let http_open = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.open") || *call == "MSXML2.XMLHTTP.open")
+                .count();
+            let http_send = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
+                .count();
+            let stream_open = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.Open")
+                .count();
+            let save_to_file = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.SaveToFile")
+                .count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.CreateObject")
+                .count();
+
+            let has_download = http_open > 0 && http_send > 0;
+            let has_staging = stream_open > 0;
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let has_execution_chain = save_to_file > 0 && shell_run > 0;
+
+            if !(has_download && has_staging && has_com_factory) || has_execution_chain {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
+            metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
+            metadata.insert("stream_open_calls".to_string(), stream_open.to_string());
+            metadata.insert("save_to_file_calls".to_string(), save_to_file.to_string());
+            metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.82,
+                evidence: "Observed COM downloader staging sequence without confirmed execution"
+                    .to_string(),
+                severity: BehaviorSeverity::Medium,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct ComDownloaderNetworkPattern;
+    impl BehaviorPattern for ComDownloaderNetworkPattern {
+        fn name(&self) -> &str {
+            "com_downloader_network_chain"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let http_open = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.open") || *call == "MSXML2.XMLHTTP.open")
+                .count();
+            let http_send = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
+                .count();
+            let stream_open = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.Open")
+                .count();
+            let save_to_file = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.SaveToFile")
+                .count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.CreateObject")
+                .count();
+
+            let has_download = http_open > 0 && http_send > 0;
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let has_higher_signal = stream_open > 0 || save_to_file > 0 || shell_run > 0;
+
+            if !(has_download && has_com_factory) || has_higher_signal {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
+            metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.68,
+                evidence: "Observed COM-instantiated HTTP retrieval sequence".to_string(),
+                severity: BehaviorSeverity::Medium,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     // Behavioral Analysis Engine
     fn run_behavioral_analysis(log: &mut SandboxLog) {
         let patterns: Vec<Box<dyn BehaviorPattern>> = vec![
@@ -677,6 +814,8 @@ mod sandbox_impl {
             Box::new(EnvironmentFingerprinting),
             Box::new(ErrorRecoveryPattern),
             Box::new(ComDownloaderExecutionPattern),
+            Box::new(ComDownloaderStagingPattern),
+            Box::new(ComDownloaderNetworkPattern),
             Box::new(VariablePromotionPattern),
             Box::new(DormantPayloadPattern),
             Box::new(TelemetryBudgetSaturationPattern),
