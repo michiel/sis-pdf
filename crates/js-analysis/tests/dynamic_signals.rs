@@ -750,6 +750,30 @@ fn sandbox_flags_com_downloader_incomplete_network_chain() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_com_downloader_send_only_chain() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var xhr = WScript.CreateObject('MSXML2.XMLHTTP');
+        xhr.send();
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "com_downloader_send_only_chain"),
+                "expected send-only downloader chain pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_flags_com_downloader_incomplete_open_chain() {
     let options = DynamicOptions::default();
     let payload = br#"

@@ -2802,6 +2802,71 @@ mod sandbox_impl {
         }
     }
 
+    struct ComDownloaderSendOnlyPattern;
+    impl BehaviorPattern for ComDownloaderSendOnlyPattern {
+        fn name(&self) -> &str {
+            "com_downloader_send_only_chain"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let http_open = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.open") || *call == "MSXML2.XMLHTTP.open")
+                .count();
+            let http_send = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
+                .count();
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create =
+                log.calls.iter().filter(|call| *call == "WScript.CreateObject").count();
+            let stream_calls =
+                log.calls.iter().filter(|call| call.starts_with("ADODB.Stream.")).count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let has_send_only = http_send > 0 && http_open == 0;
+            let has_higher_chain = stream_calls > 0 || shell_run > 0;
+            if !(has_com_factory && has_send_only) || has_higher_chain {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
+            metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+            metadata.insert("stream_calls".to_string(), stream_calls.to_string());
+            metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
+
+            let component_hits = [has_com_factory, has_send_only, http_send > 1]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.62, BehaviorSeverity::Low, component_hits, 3);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed COM-instantiated HTTP send path without visible open/staging execution chain"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     struct ComDownloaderIncompleteOpenPattern;
     impl BehaviorPattern for ComDownloaderIncompleteOpenPattern {
         fn name(&self) -> &str {
@@ -3312,6 +3377,7 @@ mod sandbox_impl {
             Box::new(ComFileDropStagingPattern),
             Box::new(WshTimingGatePattern),
             Box::new(ComDownloaderIncompleteNetworkPattern),
+            Box::new(ComDownloaderSendOnlyPattern),
             Box::new(ComDownloaderIncompleteOpenPattern),
             Box::new(WshDirectRunPattern),
             Box::new(ComNetworkBufferStagingPattern),
