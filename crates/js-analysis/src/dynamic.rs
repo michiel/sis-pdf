@@ -1296,6 +1296,117 @@ mod sandbox_impl {
         }
     }
 
+    struct ComNetworkBufferStagingPattern;
+    impl BehaviorPattern for ComNetworkBufferStagingPattern {
+        fn name(&self) -> &str {
+            "com_network_buffer_staging"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let http_open = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.open") || *call == "MSXML2.XMLHTTP.open")
+                .count();
+            let http_send = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
+                .count();
+            let stream_open = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.Open")
+                .count();
+            let stream_write = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.Write")
+                .count();
+            let save_to_file = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.SaveToFile")
+                .count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.CreateObject")
+                .count();
+
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let has_network_to_buffer = http_send > 0 && stream_open > 0 && stream_write > 0;
+            let has_higher_chain = http_open > 0 || save_to_file > 0 || shell_run > 0;
+            if !(has_com_factory && has_network_to_buffer) || has_higher_chain {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
+            metadata.insert("stream_open_calls".to_string(), stream_open.to_string());
+            metadata.insert("stream_write_calls".to_string(), stream_write.to_string());
+            metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
+            metadata.insert("save_to_file_calls".to_string(), save_to_file.to_string());
+            metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.72,
+                evidence:
+                    "Observed COM HTTP send feeding ADODB stream buffer without visible final stage"
+                        .to_string(),
+                severity: BehaviorSeverity::Medium,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct WshEarlyQuitPattern;
+    impl BehaviorPattern for WshEarlyQuitPattern {
+        fn name(&self) -> &str {
+            "wsh_early_quit_gate"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let quit_calls = log.calls.iter().filter(|call| *call == "WScript.Quit").count();
+            let sleep_calls = log.calls.iter().filter(|call| *call == "WScript.Sleep").count();
+            let has_only_exit_surface = quit_calls > 0 && log.calls.len() <= quit_calls + sleep_calls;
+            let marker_hint = log.dormant_source_markers >= 1;
+            if !has_only_exit_surface || !marker_hint {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("quit_calls".to_string(), quit_calls.to_string());
+            metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
+            metadata.insert("total_calls".to_string(), log.calls.len().to_string());
+            metadata.insert(
+                "source_markers".to_string(),
+                log.dormant_source_markers.to_string(),
+            );
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.64,
+                evidence:
+                    "Observed early WScript quit with source markers, consistent with gating/abort logic"
+                        .to_string(),
+                severity: BehaviorSeverity::Low,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     // Behavioral Analysis Engine
     fn run_behavioral_analysis(log: &mut SandboxLog) {
         let patterns: Vec<Box<dyn BehaviorPattern>> = vec![
@@ -1313,6 +1424,8 @@ mod sandbox_impl {
             Box::new(WshTimingGatePattern),
             Box::new(ComDownloaderIncompleteNetworkPattern),
             Box::new(WshDirectRunPattern),
+            Box::new(ComNetworkBufferStagingPattern),
+            Box::new(WshEarlyQuitPattern),
             Box::new(VariablePromotionPattern),
             Box::new(DormantPayloadPattern),
             Box::new(DormantMarkedSmallPayloadPattern),

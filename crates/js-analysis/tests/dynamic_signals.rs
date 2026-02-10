@@ -448,6 +448,55 @@ fn sandbox_flags_wsh_direct_run_execution() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_com_network_buffer_staging() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var xhr = WScript.CreateObject('MSXML2.XMLHTTP');
+        var stream = WScript.CreateObject('ADODB.Stream');
+        xhr.send();
+        stream.Open();
+        stream.Write('MZ');
+        stream.Close();
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "com_network_buffer_staging"),
+                "expected COM network-buffer staging pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_wsh_early_quit_gate() {
+    let options = DynamicOptions::default();
+    let payload = b"var marker='split(' + 'x)'; WScript.Quit(1);";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "wsh_early_quit_gate"),
+                "expected WSH early-quit gate pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_omits_delta_summary_without_dynamic_code() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);
