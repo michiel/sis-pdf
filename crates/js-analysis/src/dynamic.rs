@@ -911,6 +911,639 @@ mod sandbox_impl {
         }
     }
 
+    struct ServiceWorkerPersistenceAbusePattern;
+    impl BehaviorPattern for ServiceWorkerPersistenceAbusePattern {
+        fn name(&self) -> &str {
+            "service_worker_persistence_abuse"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let sw_register =
+                log.calls.iter().filter(|call| *call == "navigator.serviceWorker.register").count();
+            let sw_get_registration = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "navigator.serviceWorker.getRegistration"
+                        || *call == "navigator.serviceWorker.getRegistrations"
+                })
+                .count();
+            let sw_update =
+                log.calls.iter().filter(|call| *call == "navigator.serviceWorker.update").count();
+            let cache_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "caches.open"
+                        || *call == "caches.put"
+                        || *call == "caches.match"
+                        || *call == "caches.delete"
+                })
+                .count();
+
+            let has_registration = sw_register > 0;
+            let has_persistence_surface =
+                cache_calls > 0 || sw_get_registration > 0 || sw_update > 0;
+            if !(has_registration && has_persistence_surface) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("sw_register_calls".to_string(), sw_register.to_string());
+            metadata
+                .insert("sw_get_registration_calls".to_string(), sw_get_registration.to_string());
+            metadata.insert("sw_update_calls".to_string(), sw_update.to_string());
+            metadata.insert("cache_calls".to_string(), cache_calls.to_string());
+
+            let component_hits =
+                [has_registration, sw_get_registration > 0, sw_update > 0, cache_calls > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.84, BehaviorSeverity::High, component_hits, 4);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence: "Observed service worker registration with cache/registration lifecycle activity"
+                    .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct WebCryptoKeyStagingExfilPattern;
+    impl BehaviorPattern for WebCryptoKeyStagingExfilPattern {
+        fn name(&self) -> &str {
+            "webcrypto_key_staging_exfil"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let key_material_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "crypto.subtle.generateKey"
+                        || *call == "crypto.subtle.importKey"
+                        || *call == "crypto.subtle.deriveKey"
+                })
+                .count();
+            let export_calls =
+                log.calls.iter().filter(|call| *call == "crypto.subtle.exportKey").count();
+            let exfil_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "navigator.sendBeacon"
+                        || *call == "fetch"
+                        || *call == "WebSocket.send"
+                        || *call == "XMLHttpRequest.send"
+                        || call.ends_with(".XMLHTTP.send")
+                })
+                .count();
+
+            if !(key_material_calls > 0 && export_calls > 0 && exfil_calls > 0) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata
+                .insert("crypto_key_material_calls".to_string(), key_material_calls.to_string());
+            metadata.insert("crypto_export_calls".to_string(), export_calls.to_string());
+            metadata.insert("exfil_calls".to_string(), exfil_calls.to_string());
+
+            let component_hits = [key_material_calls > 0, export_calls > 0, exfil_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.88, BehaviorSeverity::High, component_hits, 3);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed WebCrypto key material handling followed by outbound transmission"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct StorageBackedPayloadStagingPattern;
+    impl BehaviorPattern for StorageBackedPayloadStagingPattern {
+        fn name(&self) -> &str {
+            "storage_backed_payload_staging"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let storage_write_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "localStorage.setItem"
+                        || *call == "sessionStorage.setItem"
+                        || *call == "IDBObjectStore.put"
+                        || *call == "IDBObjectStore.add"
+                })
+                .count();
+            let storage_read_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "localStorage.getItem"
+                        || *call == "sessionStorage.getItem"
+                        || *call == "IDBObjectStore.get"
+                })
+                .count();
+            let decode_or_exec_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "eval"
+                        || *call == "Function"
+                        || *call == "unescape"
+                        || *call == "String.fromCharCode"
+                })
+                .count();
+
+            let has_storage_staging = storage_write_calls > 0 && storage_read_calls > 0;
+            let has_execution = decode_or_exec_calls > 0;
+            if !(has_storage_staging && has_execution) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("storage_write_calls".to_string(), storage_write_calls.to_string());
+            metadata.insert("storage_read_calls".to_string(), storage_read_calls.to_string());
+            metadata.insert("decode_or_exec_calls".to_string(), decode_or_exec_calls.to_string());
+
+            let component_hits = [has_storage_staging, has_execution, storage_write_calls > 1]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.76, BehaviorSeverity::Medium, component_hits, 3);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence: "Observed payload staging in browser storage followed by decode/execution primitives"
+                    .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct DynamicModuleGraphEvasionPattern;
+    impl BehaviorPattern for DynamicModuleGraphEvasionPattern {
+        fn name(&self) -> &str {
+            "dynamic_module_graph_evasion"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let module_loader_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "require" || *call == "__dynamicImport")
+                .count();
+            let module_graph_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    call.starts_with("path.")
+                        || call.starts_with("fs.")
+                        || *call == "Buffer.from"
+                        || *call == "Buffer.concat"
+                })
+                .count();
+            let exec_calls =
+                log.calls.iter().filter(|call| *call == "eval" || *call == "Function").count();
+
+            if !(module_loader_calls > 1 && module_graph_calls > 0 && exec_calls > 0) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("module_loader_calls".to_string(), module_loader_calls.to_string());
+            metadata.insert("module_graph_calls".to_string(), module_graph_calls.to_string());
+            metadata.insert("exec_calls".to_string(), exec_calls.to_string());
+
+            let component_hits = [module_loader_calls > 1, module_graph_calls > 0, exec_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.79, BehaviorSeverity::Medium, component_hits, 3);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed dynamic module loading with graph traversal and execution sinks"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct CovertRealtimeChannelAbusePattern;
+    impl BehaviorPattern for CovertRealtimeChannelAbusePattern {
+        fn name(&self) -> &str {
+            "covert_realtime_channel_abuse"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let channel_setup_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "RTCPeerConnection.createDataChannel"
+                        || *call == "RTCPeerConnection.createOffer"
+                        || *call == "WebSocket.send"
+                })
+                .count();
+            let channel_send_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "RTCDataChannel.send" || *call == "WebSocket.send")
+                .count();
+            let encoding_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "btoa"
+                        || *call == "atob"
+                        || *call == "unescape"
+                        || *call == "String.fromCharCode"
+                })
+                .count();
+
+            if !(channel_setup_calls > 0 && channel_send_calls > 0 && encoding_calls > 0) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("channel_setup_calls".to_string(), channel_setup_calls.to_string());
+            metadata.insert("channel_send_calls".to_string(), channel_send_calls.to_string());
+            metadata.insert("encoding_calls".to_string(), encoding_calls.to_string());
+
+            let component_hits =
+                [channel_setup_calls > 0, channel_send_calls > 0, encoding_calls > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.85, BehaviorSeverity::High, component_hits, 3);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed encoded payload handling with real-time channel setup/transmission"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct ClipboardSessionHijackPattern;
+    impl BehaviorPattern for ClipboardSessionHijackPattern {
+        fn name(&self) -> &str {
+            "clipboard_session_hijack_behaviour"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let clipboard_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "navigator.clipboard.readText"
+                        || *call == "navigator.clipboard.writeText"
+                        || *call == "navigator.clipboard.read"
+                        || *call == "navigator.clipboard.write"
+                })
+                .count();
+            let session_source_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "document.cookie"
+                        || *call == "localStorage.getItem"
+                        || *call == "sessionStorage.getItem"
+                })
+                .count();
+            let exfil_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "navigator.sendBeacon"
+                        || *call == "fetch"
+                        || *call == "WebSocket.send"
+                        || *call == "XMLHttpRequest.send"
+                })
+                .count();
+
+            if !(clipboard_calls > 0 && session_source_calls > 0 && exfil_calls > 0) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("clipboard_calls".to_string(), clipboard_calls.to_string());
+            metadata.insert("session_source_calls".to_string(), session_source_calls.to_string());
+            metadata.insert("exfil_calls".to_string(), exfil_calls.to_string());
+
+            let component_hits = [clipboard_calls > 0, session_source_calls > 0, exfil_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.86, BehaviorSeverity::High, component_hits, 3);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed clipboard/session collection combined with outbound channel use"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct DomSinkPolicyBypassPattern;
+    impl BehaviorPattern for DomSinkPolicyBypassPattern {
+        fn name(&self) -> &str {
+            "dom_sink_policy_bypass_attempt"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let dom_sink_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "document.write"
+                        || *call == "document.setInnerHTML"
+                        || *call == "document.insertAdjacentHTML"
+                        || *call == "window.location.assign"
+                        || *call == "window.location.replace"
+                })
+                .count();
+            let policy_calls =
+                log.calls.iter().filter(|call| *call == "trustedTypes.createPolicy").count();
+            let obfuscation_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "eval"
+                        || *call == "Function"
+                        || *call == "unescape"
+                        || *call == "String.fromCharCode"
+                })
+                .count();
+
+            if !(dom_sink_calls > 0 && obfuscation_calls > 0) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("dom_sink_calls".to_string(), dom_sink_calls.to_string());
+            metadata.insert("policy_calls".to_string(), policy_calls.to_string());
+            metadata.insert("obfuscation_calls".to_string(), obfuscation_calls.to_string());
+
+            let component_hits = [dom_sink_calls > 0, policy_calls > 0, obfuscation_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.73, BehaviorSeverity::Medium, component_hits, 3);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence: "Observed obfuscated input path into sensitive DOM/script sink surface"
+                    .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct WasmMemoryUnpackerPipelinePattern;
+    impl BehaviorPattern for WasmMemoryUnpackerPipelinePattern {
+        fn name(&self) -> &str {
+            "wasm_memory_unpacker_pipeline"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let wasm_loader_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WebAssembly.instantiate"
+                        || *call == "WebAssembly.compile"
+                        || *call == "WebAssembly.Module"
+                })
+                .count();
+            let wasm_memory_calls =
+                log.calls.iter().filter(|call| *call == "WebAssembly.Memory").count();
+            let unpack_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "Buffer.from"
+                        || *call == "Buffer.concat"
+                        || *call == "String.fromCharCode"
+                        || *call == "unescape"
+                })
+                .count();
+            let exec_calls =
+                log.calls.iter().filter(|call| *call == "eval" || *call == "Function").count();
+
+            if !(wasm_loader_calls > 0
+                && wasm_memory_calls > 0
+                && unpack_calls > 0
+                && exec_calls > 0)
+            {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("wasm_loader_calls".to_string(), wasm_loader_calls.to_string());
+            metadata.insert("wasm_memory_calls".to_string(), wasm_memory_calls.to_string());
+            metadata.insert("unpack_calls".to_string(), unpack_calls.to_string());
+            metadata.insert("exec_calls".to_string(), exec_calls.to_string());
+
+            let component_hits =
+                [wasm_loader_calls > 0, wasm_memory_calls > 0, unpack_calls > 0, exec_calls > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.9, BehaviorSeverity::High, component_hits, 4);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence: "Observed WASM load/memory activity with unpacking and dynamic execution handoff"
+                    .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct ExtensionApiAbuseProbePattern;
+    impl BehaviorPattern for ExtensionApiAbuseProbePattern {
+        fn name(&self) -> &str {
+            "extension_api_abuse_probe"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let runtime_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "chrome.runtime.sendMessage"
+                        || *call == "chrome.runtime.connect"
+                        || *call == "browser.runtime.sendMessage"
+                        || *call == "browser.runtime.connect"
+                })
+                .count();
+            let storage_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "chrome.storage.local.get" || *call == "chrome.storage.local.set"
+                })
+                .count();
+            let has_high_risk_chain = log.calls.iter().any(|call| {
+                *call == "eval"
+                    || *call == "Function"
+                    || *call == "WebSocket.send"
+                    || *call == "navigator.sendBeacon"
+            });
+
+            if runtime_calls == 0 || has_high_risk_chain {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("extension_runtime_calls".to_string(), runtime_calls.to_string());
+            metadata.insert("extension_storage_calls".to_string(), storage_calls.to_string());
+
+            let component_hits =
+                [runtime_calls > 0, storage_calls > 0].iter().filter(|value| **value).count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.58, BehaviorSeverity::Low, component_hits, 2);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed browser extension runtime probing with low-activity capability checks"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct ModernFingerprintEvasionPattern;
+    impl BehaviorPattern for ModernFingerprintEvasionPattern {
+        fn name(&self) -> &str {
+            "modern_fingerprint_evasion"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let ua_probe_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "navigator.userAgentData.getHighEntropyValues")
+                .count();
+            let permissions_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "permissions.query" || *call == "navigator.permissions.query"
+                })
+                .count();
+            let webgl_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WebGLRenderingContext.getParameter"
+                        || *call == "WebGLRenderingContext.getSupportedExtensions"
+                })
+                .count();
+            let audio_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "AudioContext.createAnalyser" || *call == "AudioContext.resume"
+                })
+                .count();
+            let gating_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "setTimeout" || *call == "setInterval" || *call == "WScript.Sleep"
+                })
+                .count();
+
+            let probe_families =
+                [ua_probe_calls > 0, permissions_calls > 0, webgl_calls > 0, audio_calls > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
+            if !(probe_families >= 2 && gating_calls > 0) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("ua_probe_calls".to_string(), ua_probe_calls.to_string());
+            metadata.insert("permissions_calls".to_string(), permissions_calls.to_string());
+            metadata.insert("webgl_calls".to_string(), webgl_calls.to_string());
+            metadata.insert("audio_calls".to_string(), audio_calls.to_string());
+            metadata.insert("gating_calls".to_string(), gating_calls.to_string());
+            metadata.insert("probe_families".to_string(), probe_families.to_string());
+
+            let component_hits = [probe_families >= 2, probe_families >= 3, gating_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.74, BehaviorSeverity::Medium, component_hits, 3);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed modern environment fingerprint probes combined with execution gating"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     struct CapabilityMatrixFingerprintingPattern;
     impl BehaviorPattern for CapabilityMatrixFingerprintingPattern {
         fn name(&self) -> &str {
@@ -2293,6 +2926,16 @@ mod sandbox_impl {
             Box::new(WasmLoaderStagingPattern),
             Box::new(RuntimeDependencyLoaderAbusePattern),
             Box::new(CredentialHarvestFormEmulationPattern),
+            Box::new(ServiceWorkerPersistenceAbusePattern),
+            Box::new(WebCryptoKeyStagingExfilPattern),
+            Box::new(StorageBackedPayloadStagingPattern),
+            Box::new(DynamicModuleGraphEvasionPattern),
+            Box::new(CovertRealtimeChannelAbusePattern),
+            Box::new(ClipboardSessionHijackPattern),
+            Box::new(DomSinkPolicyBypassPattern),
+            Box::new(WasmMemoryUnpackerPipelinePattern),
+            Box::new(ExtensionApiAbuseProbePattern),
+            Box::new(ModernFingerprintEvasionPattern),
             Box::new(TimingProbeEvasionPattern),
             Box::new(CapabilityMatrixFingerprintingPattern),
             Box::new(EnvironmentFingerprinting),
@@ -3004,8 +3647,121 @@ mod sandbox_impl {
             .function(make_fn("WebSocket.send"), JsString::from("send"), 1)
             .build();
         let _ = context.register_global_property(JsString::from("WebSocket"), ws, Attribute::all());
+        let rtc_data_channel = ObjectInitializer::new(context)
+            .function(make_fn("RTCDataChannel.send"), JsString::from("send"), 1)
+            .function(make_fn("RTCDataChannel.close"), JsString::from("close"), 0)
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("RTCDataChannel"),
+            rtc_data_channel.clone(),
+            Attribute::all(),
+        );
+        let rtc_peer = ObjectInitializer::new(context)
+            .function(
+                make_fn("RTCPeerConnection.createDataChannel"),
+                JsString::from("createDataChannel"),
+                1,
+            )
+            .function(make_fn("RTCPeerConnection.createOffer"), JsString::from("createOffer"), 0)
+            .function(make_fn("RTCPeerConnection.createAnswer"), JsString::from("createAnswer"), 0)
+            .function(
+                make_fn("RTCPeerConnection.setLocalDescription"),
+                JsString::from("setLocalDescription"),
+                1,
+            )
+            .function(
+                make_fn("RTCPeerConnection.addIceCandidate"),
+                JsString::from("addIceCandidate"),
+                1,
+            )
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("RTCPeerConnection"),
+            rtc_peer.clone(),
+            Attribute::all(),
+        );
+        let cache_storage = ObjectInitializer::new(context)
+            .function(make_fn("caches.open"), JsString::from("open"), 1)
+            .function(make_fn("caches.match"), JsString::from("match"), 1)
+            .function(make_fn("caches.put"), JsString::from("put"), 2)
+            .function(make_fn("caches.delete"), JsString::from("delete"), 1)
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("caches"),
+            cache_storage,
+            Attribute::all(),
+        );
+        let idb_store = ObjectInitializer::new(context)
+            .function(make_fn("IDBObjectStore.get"), JsString::from("get"), 1)
+            .function(make_fn("IDBObjectStore.put"), JsString::from("put"), 2)
+            .function(make_fn("IDBObjectStore.add"), JsString::from("add"), 2)
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("IDBObjectStore"),
+            idb_store,
+            Attribute::all(),
+        );
+        let indexed_db = ObjectInitializer::new(context)
+            .function(make_fn("indexedDB.open"), JsString::from("open"), 1)
+            .function(make_fn("indexedDB.deleteDatabase"), JsString::from("deleteDatabase"), 1)
+            .function(make_fn("indexedDB.databases"), JsString::from("databases"), 0)
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("indexedDB"),
+            indexed_db,
+            Attribute::all(),
+        );
+        let subtle = ObjectInitializer::new(context)
+            .function(make_fn("crypto.subtle.generateKey"), JsString::from("generateKey"), 1)
+            .function(make_fn("crypto.subtle.importKey"), JsString::from("importKey"), 1)
+            .function(make_fn("crypto.subtle.exportKey"), JsString::from("exportKey"), 1)
+            .function(make_fn("crypto.subtle.deriveKey"), JsString::from("deriveKey"), 1)
+            .function(make_fn("crypto.subtle.encrypt"), JsString::from("encrypt"), 1)
+            .function(make_fn("crypto.subtle.decrypt"), JsString::from("decrypt"), 1)
+            .build();
+        let crypto = ObjectInitializer::new(context)
+            .property(JsString::from("subtle"), subtle, Attribute::all())
+            .function(make_fn("crypto.getRandomValues"), JsString::from("getRandomValues"), 1)
+            .build();
+        let _ =
+            context.register_global_property(JsString::from("crypto"), crypto, Attribute::all());
+        let clipboard = ObjectInitializer::new(context)
+            .function(make_fn("navigator.clipboard.readText"), JsString::from("readText"), 0)
+            .function(make_fn("navigator.clipboard.writeText"), JsString::from("writeText"), 1)
+            .function(make_fn("navigator.clipboard.read"), JsString::from("read"), 0)
+            .function(make_fn("navigator.clipboard.write"), JsString::from("write"), 1)
+            .build();
+        let service_worker = ObjectInitializer::new(context)
+            .function(make_fn("navigator.serviceWorker.register"), JsString::from("register"), 1)
+            .function(
+                make_fn("navigator.serviceWorker.getRegistration"),
+                JsString::from("getRegistration"),
+                1,
+            )
+            .function(
+                make_fn("navigator.serviceWorker.getRegistrations"),
+                JsString::from("getRegistrations"),
+                0,
+            )
+            .function(make_fn("navigator.serviceWorker.ready"), JsString::from("ready"), 0)
+            .function(make_fn("navigator.serviceWorker.update"), JsString::from("update"), 0)
+            .build();
+        let user_agent_data = ObjectInitializer::new(context)
+            .function(
+                make_fn("navigator.userAgentData.getHighEntropyValues"),
+                JsString::from("getHighEntropyValues"),
+                1,
+            )
+            .build();
+        let permissions = ObjectInitializer::new(context)
+            .function(make_fn("navigator.permissions.query"), JsString::from("query"), 1)
+            .build();
         let beacon = ObjectInitializer::new(context)
             .function(make_fn("navigator.sendBeacon"), JsString::from("sendBeacon"), 2)
+            .property(JsString::from("clipboard"), clipboard.clone(), Attribute::all())
+            .property(JsString::from("serviceWorker"), service_worker.clone(), Attribute::all())
+            .property(JsString::from("userAgentData"), user_agent_data.clone(), Attribute::all())
+            .property(JsString::from("permissions"), permissions.clone(), Attribute::all())
             .build();
         let _ = context.register_global_property(
             JsString::from("navigator"),
@@ -3029,6 +3785,15 @@ mod sandbox_impl {
         let doc = ObjectInitializer::new(context)
             .function(make_fn("document.cookie"), JsString::from("cookie"), 0)
             .function(make_fn("document.location"), JsString::from("location"), 0)
+            .function(make_fn("document.write"), JsString::from("write"), 1)
+            .function(make_fn("document.setInnerHTML"), JsString::from("setInnerHTML"), 1)
+            .function(
+                make_fn("document.insertAdjacentHTML"),
+                JsString::from("insertAdjacentHTML"),
+                2,
+            )
+            .function(make_fn("document.querySelector"), JsString::from("querySelector"), 1)
+            .function(make_fn("document.getElementById"), JsString::from("getElementById"), 1)
             .build();
         let _ = context.register_global_property(
             JsString::from("document"),
@@ -3084,12 +3849,102 @@ mod sandbox_impl {
             2,
             make_native(log.clone(), "prompt"),
         );
+        let _ = context.register_global_builtin_callable(
+            JsString::from("__dynamicImport"),
+            1,
+            make_native(log.clone(), "__dynamicImport"),
+        );
+        let trusted_types = ObjectInitializer::new(context)
+            .function(make_fn("trustedTypes.createPolicy"), JsString::from("createPolicy"), 2)
+            .function(make_fn("trustedTypes.getPolicyNames"), JsString::from("getPolicyNames"), 0)
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("trustedTypes"),
+            trusted_types.clone(),
+            Attribute::all(),
+        );
+        let webgl = ObjectInitializer::new(context)
+            .function(
+                make_fn("WebGLRenderingContext.getParameter"),
+                JsString::from("getParameter"),
+                1,
+            )
+            .function(
+                make_fn("WebGLRenderingContext.getSupportedExtensions"),
+                JsString::from("getSupportedExtensions"),
+                0,
+            )
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("WebGLRenderingContext"),
+            webgl.clone(),
+            Attribute::all(),
+        );
+        let audio_context = ObjectInitializer::new(context)
+            .function(make_fn("AudioContext.createAnalyser"), JsString::from("createAnalyser"), 0)
+            .function(
+                make_fn("AudioContext.createOscillator"),
+                JsString::from("createOscillator"),
+                0,
+            )
+            .function(make_fn("AudioContext.resume"), JsString::from("resume"), 0)
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("AudioContext"),
+            audio_context.clone(),
+            Attribute::all(),
+        );
+        let chrome_runtime = ObjectInitializer::new(context)
+            .function(make_fn("chrome.runtime.sendMessage"), JsString::from("sendMessage"), 1)
+            .function(make_fn("chrome.runtime.connect"), JsString::from("connect"), 1)
+            .build();
+        let chrome_storage_local = ObjectInitializer::new(context)
+            .function(make_fn("chrome.storage.local.get"), JsString::from("get"), 1)
+            .function(make_fn("chrome.storage.local.set"), JsString::from("set"), 1)
+            .build();
+        let chrome_storage = ObjectInitializer::new(context)
+            .property(JsString::from("local"), chrome_storage_local, Attribute::all())
+            .build();
+        let chrome = ObjectInitializer::new(context)
+            .property(JsString::from("runtime"), chrome_runtime, Attribute::all())
+            .property(JsString::from("storage"), chrome_storage, Attribute::all())
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("chrome"),
+            chrome.clone(),
+            Attribute::all(),
+        );
+        let browser_runtime = ObjectInitializer::new(context)
+            .function(make_fn("browser.runtime.sendMessage"), JsString::from("sendMessage"), 1)
+            .function(make_fn("browser.runtime.connect"), JsString::from("connect"), 1)
+            .build();
+        let browser = ObjectInitializer::new(context)
+            .property(JsString::from("runtime"), browser_runtime, Attribute::all())
+            .build();
+        let _ = context.register_global_property(
+            JsString::from("browser"),
+            browser.clone(),
+            Attribute::all(),
+        );
+        let _ = context.register_global_property(
+            JsString::from("permissions"),
+            permissions.clone(),
+            Attribute::all(),
+        );
         let window = ObjectInitializer::new(context)
             .property(JsString::from("document"), doc.clone(), Attribute::all())
             .property(JsString::from("navigator"), beacon.clone(), Attribute::all())
             .property(JsString::from("localStorage"), storage.clone(), Attribute::all())
             .property(JsString::from("sessionStorage"), storage, Attribute::all())
             .property(JsString::from("location"), location, Attribute::all())
+            .property(JsString::from("trustedTypes"), trusted_types, Attribute::all())
+            .property(JsString::from("chrome"), chrome, Attribute::all())
+            .property(JsString::from("browser"), browser, Attribute::all())
+            .property(JsString::from("WebGLRenderingContext"), webgl, Attribute::all())
+            .property(JsString::from("AudioContext"), audio_context, Attribute::all())
+            .property(JsString::from("RTCPeerConnection"), rtc_peer, Attribute::all())
+            .property(JsString::from("RTCDataChannel"), rtc_data_channel, Attribute::all())
+            .property(JsString::from("permissions"), permissions, Attribute::all())
             .function(make_fn("window.addEventListener"), JsString::from("addEventListener"), 2)
             .function(
                 make_fn("window.removeEventListener"),

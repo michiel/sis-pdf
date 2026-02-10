@@ -693,6 +693,16 @@ fn behavioral_pattern_title(name: &str) -> Option<&'static str> {
         "wasm_loader_staging" => Some("WASM loader staging observed"),
         "runtime_dependency_loader_abuse" => Some("Runtime dependency loader abuse"),
         "credential_harvest_form_emulation" => Some("Credential-harvest form emulation"),
+        "service_worker_persistence_abuse" => Some("Service worker persistence abuse"),
+        "webcrypto_key_staging_exfil" => Some("WebCrypto key staging and exfiltration"),
+        "storage_backed_payload_staging" => Some("Storage-backed payload staging"),
+        "dynamic_module_graph_evasion" => Some("Dynamic module graph evasion"),
+        "covert_realtime_channel_abuse" => Some("Covert realtime channel abuse"),
+        "clipboard_session_hijack_behaviour" => Some("Clipboard/session hijack behaviour"),
+        "dom_sink_policy_bypass_attempt" => Some("DOM sink policy bypass attempt"),
+        "wasm_memory_unpacker_pipeline" => Some("WASM memory unpacker pipeline"),
+        "extension_api_abuse_probe" => Some("Extension API abuse probe"),
+        "modern_fingerprint_evasion" => Some("Modern fingerprinting evasion"),
         _ => None,
     }
 }
@@ -702,6 +712,16 @@ fn behavioral_pattern_kind(name: &str) -> Option<&'static str> {
         "wasm_loader_staging" => Some("js_runtime_wasm_loader_staging"),
         "runtime_dependency_loader_abuse" => Some("js_runtime_dependency_loader_abuse"),
         "credential_harvest_form_emulation" => Some("js_runtime_credential_harvest"),
+        "service_worker_persistence_abuse" => Some("js_runtime_service_worker_persistence"),
+        "webcrypto_key_staging_exfil" => Some("js_runtime_webcrypto_key_staging"),
+        "storage_backed_payload_staging" => Some("js_runtime_storage_payload_staging"),
+        "dynamic_module_graph_evasion" => Some("js_runtime_dynamic_module_evasion"),
+        "covert_realtime_channel_abuse" => Some("js_runtime_realtime_channel_abuse"),
+        "clipboard_session_hijack_behaviour" => Some("js_runtime_clipboard_session_hijack"),
+        "dom_sink_policy_bypass_attempt" => Some("js_runtime_dom_policy_bypass"),
+        "wasm_memory_unpacker_pipeline" => Some("js_runtime_wasm_memory_unpacker"),
+        "extension_api_abuse_probe" => Some("js_runtime_extension_api_abuse"),
+        "modern_fingerprint_evasion" => Some("js_runtime_modern_fingerprint_evasion"),
         _ => None,
     }
 }
@@ -716,6 +736,36 @@ fn behavioral_pattern_description(name: &str) -> Option<&'static str> {
         }
         "credential_harvest_form_emulation" => {
             Some("JavaScript combined field/form APIs with outbound submission behaviour, consistent with credential harvesting.")
+        }
+        "service_worker_persistence_abuse" => {
+            Some("JavaScript used service worker lifecycle and cache APIs in a persistence-oriented sequence.")
+        }
+        "webcrypto_key_staging_exfil" => {
+            Some("JavaScript handled WebCrypto key material and then attempted outbound transmission.")
+        }
+        "storage_backed_payload_staging" => {
+            Some("JavaScript staged payload content in browser storage before decode or execution.")
+        }
+        "dynamic_module_graph_evasion" => {
+            Some("JavaScript performed dynamic module loading and graph traversal with execution sinks.")
+        }
+        "covert_realtime_channel_abuse" => {
+            Some("JavaScript prepared encoded data and sent it through realtime communication channels.")
+        }
+        "clipboard_session_hijack_behaviour" => {
+            Some("JavaScript accessed clipboard/session artefacts and attempted outbound transfer.")
+        }
+        "dom_sink_policy_bypass_attempt" => {
+            Some("JavaScript routed obfuscated input into sensitive DOM or script sink surfaces.")
+        }
+        "wasm_memory_unpacker_pipeline" => {
+            Some("JavaScript combined WebAssembly memory operations with unpacking and dynamic execution.")
+        }
+        "extension_api_abuse_probe" => {
+            Some("JavaScript probed extension runtime APIs, indicating privilege and environment reconnaissance.")
+        }
+        "modern_fingerprint_evasion" => {
+            Some("JavaScript performed modern fingerprint probes with timing or gating behaviour.")
         }
         _ => None,
     }

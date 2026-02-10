@@ -1248,6 +1248,116 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: WebAssembly can be used as an intermediate decode/dispatch layer.
   - Chain usage: used as payload staging before dynamic execution.
 
+## js_runtime_service_worker_persistence
+
+- ID: `js_runtime_service_worker_persistence`
+- Label: Service worker persistence abuse
+- Description: JavaScript used service worker lifecycle and cache APIs in a persistence-oriented sequence.
+- Tags: javascript, persistence, runtime
+- Details:
+  - Relevance: browser persistence and cache-backed staging.
+  - Meaning: service worker registration is combined with lifecycle/cache operations to maintain foothold or staged content.
+  - Chain usage: used as persistence and payload-resume stage.
+
+## js_runtime_webcrypto_key_staging
+
+- ID: `js_runtime_webcrypto_key_staging`
+- Label: WebCrypto key staging and exfiltration
+- Description: JavaScript handled WebCrypto key material and then attempted outbound transmission.
+- Tags: crypto, javascript, runtime
+- Details:
+  - Relevance: cryptographic material access and transfer.
+  - Meaning: key generation/import/export is coupled with network-capable sinks.
+  - Chain usage: used as credential/key capture and exfiltration stage.
+
+## js_runtime_storage_payload_staging
+
+- ID: `js_runtime_storage_payload_staging`
+- Label: Storage-backed payload staging
+- Description: JavaScript staged payload content in browser storage before decode or execution.
+- Tags: javascript, runtime, staging
+- Details:
+  - Relevance: local persistence and delayed execution.
+  - Meaning: browser storage APIs are used as intermediate payload buffers.
+  - Chain usage: used as staging and delayed activation stage.
+
+## js_runtime_dynamic_module_evasion
+
+- ID: `js_runtime_dynamic_module_evasion`
+- Label: Dynamic module graph evasion
+- Description: JavaScript performed dynamic module loading and graph traversal with execution sinks.
+- Tags: javascript, module-loading, runtime
+- Details:
+  - Relevance: runtime capability expansion and evasion.
+  - Meaning: module resolution is used to assemble execution paths at runtime.
+  - Chain usage: used as loader/expansion stage before payload dispatch.
+
+## js_runtime_realtime_channel_abuse
+
+- ID: `js_runtime_realtime_channel_abuse`
+- Label: Covert realtime channel abuse
+- Description: JavaScript prepared encoded data and sent it through realtime communication channels.
+- Tags: javascript, network, runtime
+- Details:
+  - Relevance: low-latency command-and-control or exfiltration.
+  - Meaning: WebSocket/WebRTC-like channels are used to move staged content.
+  - Chain usage: used as outbound communication stage.
+
+## js_runtime_clipboard_session_hijack
+
+- ID: `js_runtime_clipboard_session_hijack`
+- Label: Clipboard/session hijack behaviour
+- Description: JavaScript accessed clipboard/session artefacts and attempted outbound transfer.
+- Tags: javascript, runtime, session
+- Details:
+  - Relevance: data theft and user-session abuse.
+  - Meaning: clipboard or session sources are paired with exfiltration sinks.
+  - Chain usage: used as collection and theft stage.
+
+## js_runtime_dom_policy_bypass
+
+- ID: `js_runtime_dom_policy_bypass`
+- Label: DOM sink policy bypass attempt
+- Description: JavaScript routed obfuscated input into sensitive DOM or script sink surfaces.
+- Tags: javascript, runtime, xss
+- Details:
+  - Relevance: script injection and policy bypass.
+  - Meaning: sink APIs are reached through obfuscated or dynamic construction paths.
+  - Chain usage: used as execution and injection stage.
+
+## js_runtime_wasm_memory_unpacker
+
+- ID: `js_runtime_wasm_memory_unpacker`
+- Label: WASM memory unpacker pipeline
+- Description: JavaScript combined WebAssembly memory operations with unpacking and dynamic execution.
+- Tags: javascript, runtime, wasm
+- Details:
+  - Relevance: staged unpacking and evasive execution.
+  - Meaning: WASM memory surfaces are combined with decode and dynamic execution sinks.
+  - Chain usage: used as packed payload decode and dispatch stage.
+
+## js_runtime_extension_api_abuse
+
+- ID: `js_runtime_extension_api_abuse`
+- Label: Extension API abuse probe
+- Description: JavaScript probed extension runtime APIs, indicating privilege and environment reconnaissance.
+- Tags: javascript, runtime, reconnaissance
+- Details:
+  - Relevance: privilege and environment capability checks.
+  - Meaning: extension runtime/storage surfaces are enumerated prior to higher-risk actions.
+  - Chain usage: used as reconnaissance and environment validation stage.
+
+## js_runtime_modern_fingerprint_evasion
+
+- ID: `js_runtime_modern_fingerprint_evasion`
+- Label: Modern fingerprinting evasion
+- Description: JavaScript performed modern fingerprint probes with timing or gating behaviour.
+- Tags: evasion, javascript, runtime
+- Details:
+  - Relevance: anti-analysis and environment filtering.
+  - Meaning: modern browser fingerprint APIs are used to gate payload execution.
+  - Chain usage: used as anti-analysis and conditional execution stage.
+
 ## js_time_evasion
 
 - ID: `js_time_evasion`

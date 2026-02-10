@@ -1,7 +1,7 @@
 # JavaScript Sandbox Modern Pattern Roadmap
 
 Date: 2026-02-11  
-Status: Proposed  
+Status: Implemented (runtime + detector baseline)  
 Owner: `js-analysis` + `sis-pdf-detectors`
 
 ## 1. Objective
@@ -175,9 +175,9 @@ Batch validation:
 
 ## 11. Deliverables checklist
 
-- [ ] Runtime patterns implemented (10/10)
-- [ ] Detector mappings added (10/10)
-- [ ] Findings documentation updated
+- [x] Runtime patterns implemented (10/10)
+- [x] Detector mappings added (10/10)
+- [x] Findings documentation updated
 - [ ] Query guide updated with examples
 - [ ] Corpus sweep results documented
 - [ ] Unresolved bucket count reduced vs baseline
