@@ -1158,6 +1158,144 @@ mod sandbox_impl {
         }
     }
 
+    struct ComDownloaderIncompleteNetworkPattern;
+    impl BehaviorPattern for ComDownloaderIncompleteNetworkPattern {
+        fn name(&self) -> &str {
+            "com_downloader_incomplete_network_chain"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let http_open = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.open") || *call == "MSXML2.XMLHTTP.open")
+                .count();
+            let http_send = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
+                .count();
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.CreateObject")
+                .count();
+            let env_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Environment"
+                        || *call == "WScript.Shell.Environment.Item"
+                        || *call == "WScript.Shell.ExpandEnvironmentStrings"
+                })
+                .count();
+            let sleep_calls = log.calls.iter().filter(|call| *call == "WScript.Sleep").count();
+            let stream_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.starts_with("ADODB.Stream."))
+                .count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let has_signal = env_calls > 0 || sleep_calls > 0;
+            let has_higher_chain = http_open > 0 || stream_calls > 0 || shell_run > 0;
+            if !(http_send > 0 && has_com_factory && has_signal) || has_higher_chain {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
+            metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+            metadata.insert("environment_calls".to_string(), env_calls.to_string());
+            metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.66,
+                evidence:
+                    "Observed COM HTTP send path without visible open; chain appears partial or obfuscated"
+                        .to_string(),
+                severity: BehaviorSeverity::Medium,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct WshDirectRunPattern;
+    impl BehaviorPattern for WshDirectRunPattern {
+        fn name(&self) -> &str {
+            "wsh_direct_run_execution"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.CreateObject")
+                .count();
+            let network_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.contains(".XMLHTTP.") || call.contains("WinHttp"))
+                .count();
+            let stream_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.starts_with("ADODB.Stream."))
+                .count();
+            let env_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Environment"
+                        || *call == "WScript.Shell.Environment.Item"
+                        || *call == "WScript.Shell.ExpandEnvironmentStrings"
+                })
+                .count();
+
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let low_activity = log.calls.len() <= 4;
+            let has_higher_chain = network_calls > 0 || stream_calls > 0 || env_calls > 0;
+            if !(shell_run > 0 && has_com_factory && low_activity) || has_higher_chain {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
+            metadata.insert("total_calls".to_string(), log.calls.len().to_string());
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.85,
+                evidence: "Observed direct WSH process execution via COM object creation".to_string(),
+                severity: BehaviorSeverity::High,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     // Behavioral Analysis Engine
     fn run_behavioral_analysis(log: &mut SandboxLog) {
         let patterns: Vec<Box<dyn BehaviorPattern>> = vec![
@@ -1173,6 +1311,8 @@ mod sandbox_impl {
             Box::new(WshComProbePattern),
             Box::new(ComFileDropStagingPattern),
             Box::new(WshTimingGatePattern),
+            Box::new(ComDownloaderIncompleteNetworkPattern),
+            Box::new(WshDirectRunPattern),
             Box::new(VariablePromotionPattern),
             Box::new(DormantPayloadPattern),
             Box::new(DormantMarkedSmallPayloadPattern),

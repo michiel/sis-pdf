@@ -397,6 +397,57 @@ fn sandbox_flags_wsh_timing_gate() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_com_downloader_incomplete_network_chain() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var xhr = WScript.CreateObject('MSXML2.XMLHTTP');
+        var shell = WScript.CreateObject('WScript.Shell');
+        shell.ExpandEnvironmentStrings('%TEMP%');
+        WScript.Sleep(1);
+        xhr.send();
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "com_downloader_incomplete_network_chain"),
+                "expected incomplete downloader chain pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_wsh_direct_run_execution() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var shell = WScript.CreateObject('WScript.Shell');
+        shell.Run('cmd.exe /c calc.exe', 0, false);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "wsh_direct_run_execution"),
+                "expected WSH direct-run pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_omits_delta_summary_without_dynamic_code() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);
