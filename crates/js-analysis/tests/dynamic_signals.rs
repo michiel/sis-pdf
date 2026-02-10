@@ -93,6 +93,27 @@ fn sandbox_emits_delta_summary_for_dynamic_code() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_dormant_large_payloads() {
+    let options = DynamicOptions::default();
+    let payload = "/* large inert */".repeat(2_000);
+    let outcome = js_analysis::run_sandbox(payload.as_bytes(), &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "dormant_or_gated_execution"),
+                "expected dormant-or-gated pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_omits_delta_summary_without_dynamic_code() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);

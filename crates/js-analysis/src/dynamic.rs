@@ -80,6 +80,7 @@ mod sandbox_impl {
         adaptive_loop_profile: String,
         downloader_scheduler_hardening: bool,
         probe_loop_short_circuit_hits: usize,
+        input_bytes: usize,
     }
 
     #[derive(Debug, Clone)]
@@ -511,6 +512,38 @@ mod sandbox_impl {
         }
     }
 
+    struct DormantPayloadPattern;
+    impl BehaviorPattern for DormantPayloadPattern {
+        fn name(&self) -> &str {
+            "dormant_or_gated_execution"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let has_runtime_activity = !log.calls.is_empty() || !log.prop_reads.is_empty();
+            if log.input_bytes < 16_384 || has_runtime_activity {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("input_bytes".to_string(), log.input_bytes.to_string());
+            metadata.insert("call_count".to_string(), log.calls.len().to_string());
+            metadata.insert("prop_read_count".to_string(), log.prop_reads.len().to_string());
+            metadata.insert("error_count".to_string(), log.errors.len().to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.55,
+                evidence: format!(
+                    "Large payload ({} bytes) produced no runtime activity; execution may be gated",
+                    log.input_bytes
+                ),
+                severity: BehaviorSeverity::Low,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     // Behavioral Analysis Engine
     fn run_behavioral_analysis(log: &mut SandboxLog) {
         let patterns: Vec<Box<dyn BehaviorPattern>> = vec![
@@ -519,6 +552,7 @@ mod sandbox_impl {
             Box::new(EnvironmentFingerprinting),
             Box::new(ErrorRecoveryPattern),
             Box::new(VariablePromotionPattern),
+            Box::new(DormantPayloadPattern),
         ];
 
         let mut all_observations = Vec::new();
@@ -616,6 +650,7 @@ mod sandbox_impl {
         let timeout_context_thread = Arc::clone(&timeout_context);
         std::thread::spawn(move || {
             let mut initial_log = SandboxLog { options: opts, ..SandboxLog::default() };
+            initial_log.input_bytes = bytes.len();
             initial_log.runtime_profile = initial_log.options.runtime_profile.id();
             initial_log.replay_id = compute_replay_id(&bytes, &initial_log.options);
             let phase_timeout_ms = initial_log.options.phase_timeout_ms;
