@@ -137,6 +137,27 @@ fn sandbox_flags_dormant_marker_rich_mid_sized_payloads() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_telemetry_budget_saturation() {
+    let options = DynamicOptions::default();
+    let payload = "for (var i = 0; i < 5000; i++) { app.alert('x'); }";
+    let outcome = js_analysis::run_sandbox(payload.as_bytes(), &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "telemetry_budget_saturation"),
+                "expected telemetry saturation pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_omits_delta_summary_without_dynamic_code() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);

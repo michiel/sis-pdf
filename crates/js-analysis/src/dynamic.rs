@@ -551,6 +551,47 @@ mod sandbox_impl {
         }
     }
 
+    struct TelemetryBudgetSaturationPattern;
+    impl BehaviorPattern for TelemetryBudgetSaturationPattern {
+        fn name(&self) -> &str {
+            "telemetry_budget_saturation"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let dropped_total = log.calls_dropped
+                + log.call_args_dropped
+                + log.prop_reads_dropped
+                + log.errors_dropped
+                + log.urls_dropped
+                + log.domains_dropped;
+            let saturated = dropped_total > 0 || log.calls.len() >= MAX_RECORDED_CALLS;
+            if !saturated {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("calls_recorded".to_string(), log.calls.len().to_string());
+            metadata.insert("calls_dropped".to_string(), log.calls_dropped.to_string());
+            metadata.insert("call_args_dropped".to_string(), log.call_args_dropped.to_string());
+            metadata.insert("prop_reads_dropped".to_string(), log.prop_reads_dropped.to_string());
+            metadata.insert("errors_dropped".to_string(), log.errors_dropped.to_string());
+            metadata.insert("urls_dropped".to_string(), log.urls_dropped.to_string());
+            metadata.insert("domains_dropped".to_string(), log.domains_dropped.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.9,
+                evidence: format!(
+                    "Telemetry limits reached; {} events were truncated",
+                    dropped_total
+                ),
+                severity: BehaviorSeverity::Low,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     // Behavioral Analysis Engine
     fn run_behavioral_analysis(log: &mut SandboxLog) {
         let patterns: Vec<Box<dyn BehaviorPattern>> = vec![
@@ -560,6 +601,7 @@ mod sandbox_impl {
             Box::new(ErrorRecoveryPattern),
             Box::new(VariablePromotionPattern),
             Box::new(DormantPayloadPattern),
+            Box::new(TelemetryBudgetSaturationPattern),
         ];
 
         let mut all_observations = Vec::new();
