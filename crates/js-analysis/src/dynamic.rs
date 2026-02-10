@@ -392,6 +392,231 @@ mod sandbox_impl {
         }
     }
 
+    struct IndirectDynamicEvalDispatchPattern;
+    impl BehaviorPattern for IndirectDynamicEvalDispatchPattern {
+        fn name(&self) -> &str {
+            "indirect_dynamic_eval_dispatch"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let dynamic_invocations = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    matches!(
+                        call.as_str(),
+                        "eval" | "Function" | "app.eval" | "event.target.eval"
+                    )
+                })
+                .count();
+            if dynamic_invocations == 0 {
+                return Vec::new();
+            }
+
+            let mut indirect_markers = 0usize;
+            for arg in &log.call_args {
+                let lower = arg.to_ascii_lowercase();
+                if lower.contains("return this")
+                    || lower.contains("constructor(")
+                    || lower.contains("['ev'+")
+                    || lower.contains("(0, eval")
+                    || lower.contains(".call(")
+                    || lower.contains(".apply(")
+                {
+                    indirect_markers += 1;
+                }
+            }
+
+            if indirect_markers == 0 {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert(
+                "dynamic_invocation_count".to_string(),
+                dynamic_invocations.to_string(),
+            );
+            metadata.insert(
+                "indirect_marker_count".to_string(),
+                indirect_markers.to_string(),
+            );
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.83,
+                evidence:
+                    "Dynamic code execution used indirection markers (constructor/alias/call-apply)"
+                        .to_string(),
+                severity: BehaviorSeverity::High,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct MultiPassDecodePipelinePattern;
+    impl BehaviorPattern for MultiPassDecodePipelinePattern {
+        fn name(&self) -> &str {
+            "multi_pass_decode_pipeline"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let unescape_calls = log.calls.iter().filter(|call| *call == "unescape").count();
+            let escape_calls = log.calls.iter().filter(|call| *call == "escape").count();
+            let from_char_code_calls =
+                log.calls.iter().filter(|call| *call == "String.fromCharCode").count();
+            let decode_stage_count = unescape_calls + escape_calls + from_char_code_calls;
+            let has_dynamic_dispatch = log
+                .calls
+                .iter()
+                .any(|call| matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval"));
+            if decode_stage_count < 3 || !has_dynamic_dispatch {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("decode_stage_count".to_string(), decode_stage_count.to_string());
+            metadata.insert("unescape_calls".to_string(), unescape_calls.to_string());
+            metadata.insert("escape_calls".to_string(), escape_calls.to_string());
+            metadata.insert(
+                "from_char_code_calls".to_string(),
+                from_char_code_calls.to_string(),
+            );
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.8,
+                evidence:
+                    "Observed multi-pass decode pipeline that feeds dynamic execution".to_string(),
+                severity: BehaviorSeverity::High,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct TimingProbeEvasionPattern;
+    impl BehaviorPattern for TimingProbeEvasionPattern {
+        fn name(&self) -> &str {
+            "timing_probe_evasion"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let sleep_calls = log.calls.iter().filter(|call| *call == "WScript.Sleep").count();
+            let timeout_calls = log.calls.iter().filter(|call| *call == "setTimeout").count();
+            let interval_calls = log.calls.iter().filter(|call| *call == "setInterval").count();
+            let quit_calls = log.calls.iter().filter(|call| *call == "WScript.Quit").count();
+            let timer_total = sleep_calls + timeout_calls + interval_calls;
+            let has_gate_context = quit_calls > 0 || log.dormant_source_markers >= 1;
+            if timer_total < 2 || !has_gate_context {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("timer_total".to_string(), timer_total.to_string());
+            metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
+            metadata.insert("set_timeout_calls".to_string(), timeout_calls.to_string());
+            metadata.insert("set_interval_calls".to_string(), interval_calls.to_string());
+            metadata.insert("quit_calls".to_string(), quit_calls.to_string());
+            metadata.insert(
+                "source_markers".to_string(),
+                log.dormant_source_markers.to_string(),
+            );
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.74,
+                evidence: "Repeated timer primitives plus gating signals indicate timing-based evasion"
+                    .to_string(),
+                severity: BehaviorSeverity::Medium,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct CapabilityMatrixFingerprintingPattern;
+    impl BehaviorPattern for CapabilityMatrixFingerprintingPattern {
+        fn name(&self) -> &str {
+            "capability_matrix_fingerprinting"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let mut browser_hits = 0usize;
+            let mut pdf_hits = 0usize;
+            let mut wsh_hits = 0usize;
+            let mut node_hits = 0usize;
+
+            for call in &log.calls {
+                let lower = call.to_ascii_lowercase();
+                if lower.starts_with("window.")
+                    || lower.starts_with("document.")
+                    || lower.starts_with("navigator.")
+                    || lower.contains("location")
+                {
+                    browser_hits += 1;
+                }
+                if lower.starts_with("app.") || lower.starts_with("doc.") || lower.starts_with("event.target.") {
+                    pdf_hits += 1;
+                }
+                if lower.starts_with("wscript.")
+                    || lower == "activexobject"
+                    || lower.starts_with("msxml2.")
+                    || lower.starts_with("adodb.")
+                    || lower.starts_with("shell.application.")
+                {
+                    wsh_hits += 1;
+                }
+                if lower == "require"
+                    || lower.starts_with("process.")
+                    || lower.starts_with("buffer.")
+                    || lower.starts_with("module.")
+                {
+                    node_hits += 1;
+                }
+            }
+
+            let mut domain_count = 0usize;
+            if browser_hits > 0 {
+                domain_count += 1;
+            }
+            if pdf_hits > 0 {
+                domain_count += 1;
+            }
+            if wsh_hits > 0 {
+                domain_count += 1;
+            }
+            if node_hits > 0 {
+                domain_count += 1;
+            }
+
+            let probe_support = log.reflection_probes.len() + log.prop_reads.len();
+            let cross_domain_activity = log.calls.len() >= 3;
+            if domain_count < 2 || (!cross_domain_activity && probe_support == 0) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("domain_count".to_string(), domain_count.to_string());
+            metadata.insert("browser_hits".to_string(), browser_hits.to_string());
+            metadata.insert("pdf_hits".to_string(), pdf_hits.to_string());
+            metadata.insert("wsh_hits".to_string(), wsh_hits.to_string());
+            metadata.insert("node_hits".to_string(), node_hits.to_string());
+            metadata.insert("probe_support".to_string(), probe_support.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.78,
+                evidence:
+                    "Cross-domain capability probing observed before or alongside execution logic"
+                        .to_string(),
+                severity: BehaviorSeverity::Medium,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     struct EnvironmentFingerprinting;
     impl BehaviorPattern for EnvironmentFingerprinting {
         fn name(&self) -> &str {
@@ -1521,6 +1746,10 @@ mod sandbox_impl {
         let patterns: Vec<Box<dyn BehaviorPattern>> = vec![
             Box::new(ObfuscatedStringConstruction),
             Box::new(DynamicCodeGeneration),
+            Box::new(IndirectDynamicEvalDispatchPattern),
+            Box::new(MultiPassDecodePipelinePattern),
+            Box::new(TimingProbeEvasionPattern),
+            Box::new(CapabilityMatrixFingerprintingPattern),
             Box::new(EnvironmentFingerprinting),
             Box::new(ErrorRecoveryPattern),
             Box::new(ComDownloaderExecutionPattern),

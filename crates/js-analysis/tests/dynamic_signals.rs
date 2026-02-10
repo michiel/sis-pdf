@@ -158,6 +158,107 @@ fn sandbox_flags_telemetry_budget_saturation() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_indirect_dynamic_eval_dispatch() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var root = Function('return this')();
+        root['ev' + 'al'](\"app.alert('indirect')\");
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "indirect_dynamic_eval_dispatch"),
+                "expected indirect dynamic eval dispatch pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_multi_pass_decode_pipeline() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var a = unescape('%61%6c%65%72%74%28%31%29');
+        var b = unescape('%27%78%27');
+        var c = String.fromCharCode(97,108,101,114,116,40,39,120,39,41);
+        eval(a);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "multi_pass_decode_pipeline"),
+                "expected multi-pass decode pipeline pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_timing_probe_evasion() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        setTimeout(function(){}, 1);
+        setInterval(function(){}, 2);
+        WScript.Quit(1);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "timing_probe_evasion"),
+                "expected timing probe evasion pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_capability_matrix_fingerprinting() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        Object.keys(this);
+        app.alert('x');
+        navigator.sendBeacon('https://example.invalid/beacon');
+        WScript.CreateObject('Scripting.FileSystemObject');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "capability_matrix_fingerprinting"),
+                "expected capability matrix fingerprinting pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_flags_com_downloader_execution_chain() {
     let options = DynamicOptions::default();
     let payload = br#"
