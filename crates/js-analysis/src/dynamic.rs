@@ -1777,6 +1777,7 @@ mod sandbox_impl {
             match pid.as_str() {
                 "scripting.filesystemobject" => build_fso_object(context, log),
                 "wscript.shell" => build_wscript_shell_object(context, log),
+                "wsh.shell" | "wshshell" => build_wscript_shell_object(context, log),
                 "shell.application" => build_shell_application_object(context, log),
                 "msxml2.xmlhttp"
                 | "msxml2.xmlhttp.3.0"
@@ -1864,6 +1865,30 @@ mod sandbox_impl {
             .build();
         let _ =
             context.register_global_property(JsString::from("WScript"), wscript, Attribute::all());
+        let wsh_shell_object = build_wscript_shell_object(context, log.clone());
+        let wsh_alias = ObjectInitializer::new(context)
+            .function(
+                make_native_returning_object(
+                    log.clone(),
+                    "WScript.Shell",
+                    wsh_shell_object,
+                ),
+                JsString::from("Shell"),
+                0,
+            )
+            .function(
+                make_com_factory(log.clone(), "WScript.CreateObject"),
+                JsString::from("CreateObject"),
+                1,
+            )
+            .function(make_fn("WScript.Echo"), JsString::from("Echo"), 1)
+            .function(make_fn("WScript.Echo"), JsString::from("echo"), 1)
+            .function(make_fn("WScript.Sleep"), JsString::from("Sleep"), 1)
+            .function(make_fn("WScript.Sleep"), JsString::from("sleep"), 1)
+            .function(make_fn("WScript.Quit"), JsString::from("Quit"), 1)
+            .function(make_fn("WScript.Quit"), JsString::from("quit"), 1)
+            .build();
+        let _ = context.register_global_property(JsString::from("WSH"), wsh_alias, Attribute::all());
         register_global_constructable_callable(
             context,
             "GetObject",

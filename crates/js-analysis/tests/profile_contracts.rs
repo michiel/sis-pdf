@@ -161,6 +161,8 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
         if (typeof WScript.Echo !== 'function') throw new Error('WScript.Echo');
         if (typeof WScript.Sleep !== 'function') throw new Error('WScript.Sleep');
         if (typeof WScript.Quit !== 'function') throw new Error('WScript.Quit');
+        if (typeof WSH !== 'object') throw new Error('WSH');
+        if (typeof WSH.CreateObject !== 'function') throw new Error('WSH.CreateObject');
         if (typeof WScript.echo !== 'function') throw new Error('WScript.echo');
         if (typeof WScript.sleep !== 'function') throw new Error('WScript.sleep');
         print('sandbox');
@@ -174,6 +176,8 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
         WScript.echo('probe-lower');
         WScript.sleep(1);
         WScript.Quit(0);
+        var wshShell = WSH.CreateObject('WSH.Shell');
+        wshShell.Run('cmd /c whoami');
         var fso = ActiveXObject('Scripting.FileSystemObject');
         if (typeof fso.OpenTextFile !== 'function') throw new Error('Scripting.FileSystemObject.OpenTextFile');
         if (typeof fso.opentextfile !== 'function') throw new Error('Scripting.FileSystemObject.opentextfile');
@@ -217,6 +221,7 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
     assert!(signals.calls.iter().any(|call| call == "WScript.Echo"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Sleep"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Quit"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.CreateObject"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.OpenTextFile"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.CreateTextFile"));
     assert!(signals.calls.iter().any(|call| call == "TextStream.Write"));
