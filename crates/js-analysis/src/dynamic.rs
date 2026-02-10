@@ -81,6 +81,7 @@ mod sandbox_impl {
         downloader_scheduler_hardening: bool,
         probe_loop_short_circuit_hits: usize,
         input_bytes: usize,
+        dormant_source_markers: usize,
     }
 
     #[derive(Debug, Clone)]
@@ -520,12 +521,18 @@ mod sandbox_impl {
 
         fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
             let has_runtime_activity = !log.calls.is_empty() || !log.prop_reads.is_empty();
-            if log.input_bytes < 16_384 || has_runtime_activity {
+            let size_gate = log.input_bytes >= 16_384;
+            let marker_gate = log.input_bytes >= 8_192 && log.dormant_source_markers >= 2;
+            if (!size_gate && !marker_gate) || has_runtime_activity {
                 return Vec::new();
             }
 
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("input_bytes".to_string(), log.input_bytes.to_string());
+            metadata.insert(
+                "source_markers".to_string(),
+                log.dormant_source_markers.to_string(),
+            );
             metadata.insert("call_count".to_string(), log.calls.len().to_string());
             metadata.insert("prop_read_count".to_string(), log.prop_reads.len().to_string());
             metadata.insert("error_count".to_string(), log.errors.len().to_string());
@@ -660,6 +667,18 @@ mod sandbox_impl {
             let log = Rc::new(RefCell::new(initial_log));
             let scope = Rc::new(RefCell::new(DynamicScope::default()));
             let normalised = normalise_js_source(&bytes);
+            {
+                let lower = String::from_utf8_lossy(&normalised).to_ascii_lowercase();
+                let markers = [
+                    "/*@cc_on",
+                    "eval(",
+                    "reverse().join(",
+                    "fromcharcode",
+                    "split(",
+                ];
+                let marker_hits = markers.iter().filter(|marker| lower.contains(**marker)).count();
+                log.borrow_mut().dormant_source_markers = marker_hits;
+            }
             let mut phase_plan = phase_order(&log.borrow().options);
             if should_collapse_phase_plan(&normalised) {
                 phase_plan.truncate(1);

@@ -114,6 +114,29 @@ fn sandbox_flags_dormant_large_payloads() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_dormant_marker_rich_mid_sized_payloads() {
+    let options = DynamicOptions::default();
+    let mut payload = "/*@cc_on*/".to_string();
+    payload.push_str(&"A".repeat(9_000));
+    payload.push_str("/* marker */eval('x');'abc'.split('').reverse().join('');");
+    let outcome = js_analysis::run_sandbox(payload.as_bytes(), &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "dormant_or_gated_execution"),
+                "expected dormant-or-gated pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_omits_delta_summary_without_dynamic_code() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);
