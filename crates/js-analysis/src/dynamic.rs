@@ -4221,10 +4221,11 @@ mod sandbox_impl {
             return false;
         }
         let lower = String::from_utf8_lossy(bytes).to_ascii_lowercase();
-        lower.contains("split")
-            && lower.contains("/*@cc_on")
-            && lower.contains("for (")
-            && lower.contains("eval(")
+        let has_split_pattern = lower.contains("split")
+            || lower.contains("[\"s\"+\"plit\"]")
+            || lower.contains("['s'+'plit']");
+        let has_loop_pattern = lower.contains("for (") || lower.contains("for(");
+        has_split_pattern && lower.contains("/*@cc_on") && has_loop_pattern && lower.contains("eval(")
     }
 
     fn loop_iteration_limit_hits(errors: &[String]) -> usize {

@@ -18,6 +18,24 @@ fn sandbox_skips_large_payload() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_skips_obfuscated_token_decoder_payload() {
+    let options = DynamicOptions::default();
+    let body = "A!".repeat(24_500);
+    let payload = format!(
+        "var U='';var V=\"{}\"[\"s\"+\"plit\"]('!');/*@cc_on\nfor(i=0;i<V.length;i++){{U+=V[i];}}\n@*/eval(U);",
+        body
+    );
+    let outcome = js_analysis::run_sandbox(payload.as_bytes(), &options);
+    match outcome {
+        DynamicOutcome::Skipped { reason, .. } => {
+            assert_eq!(reason, "complex_token_decoder_payload");
+        }
+        _ => panic!("expected skip"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_exec_records_calls() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hi')", &options);
@@ -231,10 +249,7 @@ fn sandbox_handles_busy_wait_increment_loop_profile() {
     let outcome = js_analysis::run_sandbox(payload, &options);
     match outcome {
         DynamicOutcome::Executed(signals) => {
-            assert!(signals
-                .calls
-                .iter()
-                .any(|call| call == "WScript.CreateObject"));
+            assert!(signals.calls.iter().any(|call| call == "WScript.CreateObject"));
             assert!(signals.calls.iter().any(|call| call == "MSXML2.XMLHTTP.open"));
             assert!(
                 !signals
