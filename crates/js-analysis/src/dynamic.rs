@@ -1050,6 +1050,114 @@ mod sandbox_impl {
         }
     }
 
+    struct ComFileDropStagingPattern;
+    impl BehaviorPattern for ComFileDropStagingPattern {
+        fn name(&self) -> &str {
+            "com_file_drop_staging"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let stream_open = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.Open")
+                .count();
+            let stream_write = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.Write")
+                .count();
+            let save_to_file = log
+                .calls
+                .iter()
+                .filter(|call| *call == "ADODB.Stream.SaveToFile")
+                .count();
+            let activex_create = log.calls.iter().filter(|call| *call == "ActiveXObject").count();
+            let wscript_create = log
+                .calls
+                .iter()
+                .filter(|call| *call == "WScript.CreateObject")
+                .count();
+            let shell_run = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run" || *call == "Shell.Application.ShellExecute"
+                })
+                .count();
+            let network_calls = log
+                .calls
+                .iter()
+                .filter(|call| call.contains(".XMLHTTP.") || call.contains("WinHttp"))
+                .count();
+
+            let has_stream_staging = stream_open > 0 && (stream_write > 0 || save_to_file > 0);
+            let has_com_factory = activex_create > 0 || wscript_create > 0;
+            let has_higher_chain = shell_run > 0 || network_calls > 0;
+            if !(has_stream_staging && has_com_factory) || has_higher_chain {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("stream_open_calls".to_string(), stream_open.to_string());
+            metadata.insert("stream_write_calls".to_string(), stream_write.to_string());
+            metadata.insert("save_to_file_calls".to_string(), save_to_file.to_string());
+            metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
+            metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
+            metadata.insert("network_calls".to_string(), network_calls.to_string());
+            metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.8,
+                evidence:
+                    "Observed COM stream staging and local file drop without confirmed execution"
+                        .to_string(),
+                severity: BehaviorSeverity::Medium,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct WshTimingGatePattern;
+    impl BehaviorPattern for WshTimingGatePattern {
+        fn name(&self) -> &str {
+            "wsh_timing_gate"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let sleep_calls = log.calls.iter().filter(|call| *call == "WScript.Sleep").count();
+            let has_runtime_activity = !log.calls.is_empty() || !log.prop_reads.is_empty();
+            let only_sleep_surface = sleep_calls > 0
+                && log.calls.len() <= sleep_calls + 1
+                && log.prop_reads.is_empty()
+                && log.errors.is_empty();
+            let marker_hint = log.dormant_source_markers >= 1;
+            if !has_runtime_activity || !only_sleep_surface || !marker_hint {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
+            metadata.insert("total_calls".to_string(), log.calls.len().to_string());
+            metadata.insert(
+                "source_markers".to_string(),
+                log.dormant_source_markers.to_string(),
+            );
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence: 0.62,
+                evidence: "Observed sleep-only runtime activity with source execution markers"
+                    .to_string(),
+                severity: BehaviorSeverity::Low,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
     // Behavioral Analysis Engine
     fn run_behavioral_analysis(log: &mut SandboxLog) {
         let patterns: Vec<Box<dyn BehaviorPattern>> = vec![
@@ -1063,6 +1171,8 @@ mod sandbox_impl {
             Box::new(ComDownloaderDirectExecutionPattern),
             Box::new(WshEnvironmentGatingPattern),
             Box::new(WshComProbePattern),
+            Box::new(ComFileDropStagingPattern),
+            Box::new(WshTimingGatePattern),
             Box::new(VariablePromotionPattern),
             Box::new(DormantPayloadPattern),
             Box::new(DormantMarkedSmallPayloadPattern),
