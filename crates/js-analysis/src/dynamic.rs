@@ -1569,11 +1569,41 @@ mod sandbox_impl {
                 let log = log.clone();
                 make_native(log, name)
             };
+            let env_accessor = build_callable_value(
+                context,
+                log.clone(),
+                "WScript.Shell.Environment.Item",
+                JsValue::from(JsString::from("AMD64")),
+            );
+            let env_accessor_lower = build_callable_value(
+                context,
+                log.clone(),
+                "WScript.Shell.Environment.Item",
+                JsValue::from(JsString::from("AMD64")),
+            );
             ObjectInitializer::new(context)
                 .function(make_fn("WScript.Shell.Run"), JsString::from("Run"), 1)
                 .function(make_fn("WScript.Shell.Run"), JsString::from("run"), 1)
                 .function(make_fn("WScript.Shell.Exec"), JsString::from("Exec"), 1)
                 .function(make_fn("WScript.Shell.Exec"), JsString::from("exec"), 1)
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "WScript.Shell.Environment",
+                        env_accessor,
+                    ),
+                    JsString::from("Environment"),
+                    1,
+                )
+                .function(
+                    make_native_returning_object(
+                        log.clone(),
+                        "WScript.Shell.Environment",
+                        env_accessor_lower,
+                    ),
+                    JsString::from("environment"),
+                    1,
+                )
                 .function(
                     make_native_expand_environment_strings(log.clone()),
                     JsString::from("ExpandEnvironmentStrings"),
@@ -1796,6 +1826,8 @@ mod sandbox_impl {
             .function(make_fn("WScript.Echo"), JsString::from("echo"), 1)
             .function(make_fn("WScript.Sleep"), JsString::from("Sleep"), 1)
             .function(make_fn("WScript.Sleep"), JsString::from("sleep"), 1)
+            .function(make_fn("WScript.Quit"), JsString::from("Quit"), 1)
+            .function(make_fn("WScript.Quit"), JsString::from("quit"), 1)
             .function(make_fn("WScript.RegRead"), JsString::from("RegRead"), 1)
             .function(make_fn("WScript.RegWrite"), JsString::from("RegWrite"), 2)
             .property(

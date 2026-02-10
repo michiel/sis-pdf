@@ -124,17 +124,23 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
         var shell = new ActiveXObject('WScript.Shell');
         if (typeof shell.Run !== 'function') throw new Error('WScript.Shell.Run');
         if (typeof shell.run !== 'function') throw new Error('WScript.Shell.run');
+        if (typeof shell.Environment !== 'function') throw new Error('WScript.Shell.Environment');
         if (typeof WScript.Echo !== 'function') throw new Error('WScript.Echo');
         if (typeof WScript.Sleep !== 'function') throw new Error('WScript.Sleep');
+        if (typeof WScript.Quit !== 'function') throw new Error('WScript.Quit');
         if (typeof WScript.echo !== 'function') throw new Error('WScript.echo');
         if (typeof WScript.sleep !== 'function') throw new Error('WScript.sleep');
         print('sandbox');
         shell.Run('cmd /c whoami');
         shell.run('cmd /c whoami');
+        var env = shell.Environment('System');
+        if (typeof env !== 'function') throw new Error('WScript.Shell.Environment.Item');
+        env('PROCESSOR_ARCHITECTURE');
         WScript.Echo('probe');
         WScript.Sleep(1);
         WScript.echo('probe-lower');
         WScript.sleep(1);
+        WScript.Quit(0);
         var fso = ActiveXObject('Scripting.FileSystemObject');
         if (typeof fso.OpenTextFile !== 'function') throw new Error('Scripting.FileSystemObject.OpenTextFile');
         if (typeof fso.GetFile !== 'function') throw new Error('Scripting.FileSystemObject.GetFile');
@@ -157,8 +163,17 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
     assert!(signals.calls.iter().any(|call| call == "ActiveXObject"));
     assert!(signals.calls.iter().any(|call| call == "CreateObject"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Run"));
+    assert!(signals
+        .calls
+        .iter()
+        .any(|call| call == "WScript.Shell.Environment"));
+    assert!(signals
+        .calls
+        .iter()
+        .any(|call| call == "WScript.Shell.Environment.Item"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Echo"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Sleep"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Quit"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.OpenTextFile"));
     assert!(signals.calls.iter().any(|call| call == "TextStream.Write"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.GetFile"));
