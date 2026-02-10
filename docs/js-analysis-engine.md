@@ -196,11 +196,14 @@ The engine flow can be treated as ten stages:
     - `storage_backed_payload_staging`
     - `dynamic_module_graph_evasion`
     - `covert_realtime_channel_abuse`
+    - `chunked_data_exfil_pipeline`
     - `clipboard_session_hijack_behaviour`
+    - `interaction_coercion_loop`
     - `dom_sink_policy_bypass_attempt`
     - `wasm_memory_unpacker_pipeline`
     - `extension_api_abuse_probe`
     - `modern_fingerprint_evasion`
+    - `lotl_api_chain_execution`
   - Runtime resilience/quality signals:
     - `error_recovery_patterns`
     - `variable_promotion_detected`

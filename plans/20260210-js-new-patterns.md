@@ -22,6 +22,17 @@ Pending:
 
 - None in the original wave scope. Follow-on work should focus on tuning, benign controls, and profile-depth improvements.
 
+Follow-on status (2026-02-11):
+
+- Implemented additional recommendation patterns:
+  - `chunked_data_exfil_pipeline`
+  - `interaction_coercion_loop`
+  - `lotl_api_chain_execution`
+- PR-D completed: expanded `covert_beacon_exfil` URL-feature scoring (`deep_label_domains`, `dense_query_key_urls`, encoded argument markers) with calibrated severity/confidence.
+- PR-E completed: expanded prototype/WASM coverage and profile gating:
+  - prototype mutation calls and property-write markers are now incorporated with profile-aware thresholds.
+  - WASM coverage now includes `instantiateStreaming`, `compileStreaming`, and `WebAssembly.Table` with profile-aware scoring metadata.
+
 ## 1) Objective
 
 Expand sandbox detection coverage for modern malware and fraud patterns that are under-represented in the current pattern set, while preserving:

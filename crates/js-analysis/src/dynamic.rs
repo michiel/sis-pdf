@@ -552,8 +552,33 @@ mod sandbox_impl {
                     url.split_once('?').map(|(_, query)| query.len() >= 48).unwrap_or(false)
                 })
                 .count();
+            let deep_label_domains = log
+                .domains
+                .iter()
+                .filter(|domain| domain.split('.').filter(|part| !part.is_empty()).count() >= 4)
+                .count();
             let high_entropy_domains =
                 log.domains.iter().filter(|domain| approx_string_entropy(domain) >= 3.4).count();
+            let encoded_url_args = log
+                .call_args
+                .iter()
+                .filter(|entry| {
+                    let lower = entry.to_ascii_lowercase();
+                    lower.contains("%2f")
+                        || lower.contains("%3d")
+                        || lower.contains("%2b")
+                        || lower.contains("base64")
+                })
+                .count();
+            let dense_query_key_urls = log
+                .urls
+                .iter()
+                .filter(|url| {
+                    url.split_once('?')
+                        .map(|(_, query)| query.matches('=').count() >= 4)
+                        .unwrap_or(false)
+                })
+                .count();
             let high_density_args = log
                 .call_args
                 .iter()
@@ -561,7 +586,10 @@ mod sandbox_impl {
                 .filter(|entry| entry.len() >= 120)
                 .count();
             let signal_count = (long_query_urls > 0) as usize
+                + (deep_label_domains > 0) as usize
                 + (high_entropy_domains > 0) as usize
+                + (encoded_url_args > 0) as usize
+                + (dense_query_key_urls > 0) as usize
                 + (high_density_args > 0) as usize;
             if signal_count == 0 {
                 return Vec::new();
@@ -573,12 +601,14 @@ mod sandbox_impl {
             metadata.insert("fetch_calls".to_string(), fetch_calls.to_string());
             metadata.insert("location_calls".to_string(), location_calls.to_string());
             metadata.insert("long_query_urls".to_string(), long_query_urls.to_string());
+            metadata.insert("deep_label_domains".to_string(), deep_label_domains.to_string());
             metadata.insert("high_entropy_domains".to_string(), high_entropy_domains.to_string());
+            metadata.insert("encoded_url_args".to_string(), encoded_url_args.to_string());
+            metadata.insert("dense_query_key_urls".to_string(), dense_query_key_urls.to_string());
             metadata.insert("high_density_args".to_string(), high_density_args.to_string());
 
-            let confidence = (0.68 + signal_count as f64 * 0.08).min(0.9);
-            let severity =
-                if signal_count >= 2 { BehaviorSeverity::High } else { BehaviorSeverity::Medium };
+            let (confidence, severity) =
+                calibrate_chain_signal(0.7, BehaviorSeverity::High, signal_count.min(6), 6);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -599,7 +629,7 @@ mod sandbox_impl {
             "prototype_chain_execution_hijack"
         }
 
-        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+        fn analyze(&self, flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
             let prototype_markers = log
                 .call_args
                 .iter()
@@ -612,6 +642,29 @@ mod sandbox_impl {
                         || lower.contains("object.defineproperty")
                 })
                 .count();
+            let prototype_mutation_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    matches!(
+                        call.as_str(),
+                        "Object.setPrototypeOf"
+                            | "Reflect.setPrototypeOf"
+                            | "Object.defineProperty"
+                            | "Object.defineProperties"
+                    )
+                })
+                .count();
+            let prototype_write_markers = log
+                .prop_writes
+                .iter()
+                .filter(|entry| {
+                    let lower = entry.to_ascii_lowercase();
+                    lower.contains("prototype")
+                        || lower.contains("__proto__")
+                        || lower.contains("constructor")
+                })
+                .count();
             let dynamic_dispatch_calls = log
                 .calls
                 .iter()
@@ -619,23 +672,61 @@ mod sandbox_impl {
                     matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval")
                 })
                 .count();
-            if prototype_markers == 0 || dynamic_dispatch_calls == 0 {
+            let eval_source_markers = flow
+                .variable_timeline
+                .iter()
+                .filter(|event| event.variable == "eval_execution")
+                .filter(|event| {
+                    let lower = event.value.to_ascii_lowercase();
+                    lower.contains("__proto__")
+                        || lower.contains("object.prototype")
+                        || lower.contains("constructor.prototype")
+                        || lower.contains("object.setprototypeof")
+                        || lower.contains("object.defineproperty")
+                })
+                .count();
+            let profile = &log.options.runtime_profile;
+            let expanded_profile = matches!(profile.kind, RuntimeKind::Browser | RuntimeKind::Node)
+                || profile.mode == crate::types::RuntimeMode::DeceptionHardened;
+            let marker_total = prototype_markers
+                + prototype_mutation_calls
+                + prototype_write_markers
+                + eval_source_markers;
+            let dispatch_required = if expanded_profile || marker_total >= 2 { 1 } else { 2 };
+            if marker_total == 0 || dynamic_dispatch_calls < dispatch_required {
                 return Vec::new();
             }
 
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("prototype_markers".to_string(), prototype_markers.to_string());
+            metadata.insert(
+                "prototype_mutation_calls".to_string(),
+                prototype_mutation_calls.to_string(),
+            );
+            metadata
+                .insert("prototype_write_markers".to_string(), prototype_write_markers.to_string());
+            metadata.insert("eval_source_markers".to_string(), eval_source_markers.to_string());
             metadata
                 .insert("dynamic_dispatch_calls".to_string(), dynamic_dispatch_calls.to_string());
             metadata
                 .insert("reflection_probes".to_string(), log.reflection_probes.len().to_string());
+            metadata.insert("profile_kind".to_string(), profile.kind.as_str().to_string());
+            metadata.insert("profile_mode".to_string(), profile.mode.as_str().to_string());
+            metadata.insert("expanded_profile".to_string(), expanded_profile.to_string());
 
-            let confidence = (0.7 + (prototype_markers.min(3) as f64 * 0.07)).min(0.9);
-            let severity = if prototype_markers >= 2 {
-                BehaviorSeverity::High
-            } else {
-                BehaviorSeverity::Medium
-            };
+            let component_hits = [
+                marker_total > 0,
+                prototype_mutation_calls > 0,
+                prototype_write_markers > 0,
+                eval_source_markers > 0,
+                dynamic_dispatch_calls > 0,
+                dynamic_dispatch_calls > 1,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.74, BehaviorSeverity::High, component_hits, 6);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -667,6 +758,7 @@ mod sandbox_impl {
                 log.calls.iter().filter(|call| *call == "WebAssembly.instantiate").count();
             let module_calls =
                 log.calls.iter().filter(|call| *call == "WebAssembly.Module").count();
+            let table_calls = log.calls.iter().filter(|call| *call == "WebAssembly.Table").count();
             let memory_calls =
                 log.calls.iter().filter(|call| *call == "WebAssembly.Memory").count();
             let dynamic_dispatch = log
@@ -676,21 +768,48 @@ mod sandbox_impl {
                     matches!(call.as_str(), "eval" | "Function" | "app.eval" | "event.target.eval")
                 })
                 .count();
+            let unpack_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "Buffer.from"
+                        || *call == "Buffer.concat"
+                        || *call == "String.fromCharCode"
+                        || *call == "unescape"
+                })
+                .count();
+            let profile = &log.options.runtime_profile;
+            let expanded_profile = matches!(profile.kind, RuntimeKind::Browser | RuntimeKind::Node)
+                || profile.mode == crate::types::RuntimeMode::DeceptionHardened;
 
-            let component_hits =
-                [instantiate_calls > 0, module_calls > 0, memory_calls > 0, dynamic_dispatch > 0]
-                    .iter()
-                    .filter(|value| **value)
-                    .count();
+            let component_hits = [
+                instantiate_calls > 0,
+                module_calls > 0,
+                table_calls > 0,
+                memory_calls > 0,
+                unpack_calls > 0,
+                dynamic_dispatch > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            let base_confidence = if expanded_profile { 0.79 } else { 0.7 };
+            let base_severity =
+                if expanded_profile { BehaviorSeverity::High } else { BehaviorSeverity::Medium };
             let (confidence, severity) =
-                calibrate_chain_signal(0.76, BehaviorSeverity::Medium, component_hits, 4);
+                calibrate_chain_signal(base_confidence, base_severity, component_hits, 6);
 
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("wasm_calls".to_string(), wasm_calls.to_string());
             metadata.insert("instantiate_calls".to_string(), instantiate_calls.to_string());
             metadata.insert("module_calls".to_string(), module_calls.to_string());
+            metadata.insert("table_calls".to_string(), table_calls.to_string());
             metadata.insert("memory_calls".to_string(), memory_calls.to_string());
+            metadata.insert("unpack_calls".to_string(), unpack_calls.to_string());
             metadata.insert("dynamic_dispatch_calls".to_string(), dynamic_dispatch.to_string());
+            metadata.insert("profile_kind".to_string(), profile.kind.as_str().to_string());
+            metadata.insert("profile_mode".to_string(), profile.mode.as_str().to_string());
+            metadata.insert("expanded_profile".to_string(), expanded_profile.to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -786,6 +905,247 @@ mod sandbox_impl {
                 confidence,
                 evidence:
                     "Observed dynamic runtime dependency loading correlated with execution or write sinks"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct ChunkedDataExfilPipelinePattern;
+    impl BehaviorPattern for ChunkedDataExfilPipelinePattern {
+        fn name(&self) -> &str {
+            "chunked_data_exfil_pipeline"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let send_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "navigator.sendBeacon"
+                        || *call == "fetch"
+                        || *call == "WebSocket.send"
+                        || *call == "RTCDataChannel.send"
+                })
+                .count();
+            if send_calls < 2 {
+                return Vec::new();
+            }
+            let append_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "Array.push"
+                        || *call == "Buffer.concat"
+                        || *call == "String.concat"
+                        || *call == "localStorage.setItem"
+                        || *call == "sessionStorage.setItem"
+                })
+                .count();
+            let encode_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "btoa"
+                        || *call == "atob"
+                        || *call == "encodeURIComponent"
+                        || *call == "unescape"
+                })
+                .count();
+            let encoded_arg_markers = log
+                .call_args
+                .iter()
+                .filter(|entry| {
+                    let lower = entry.to_ascii_lowercase();
+                    lower.contains("base64")
+                        || lower.contains("%2f")
+                        || lower.contains("%3d")
+                        || lower.contains("==")
+                })
+                .count();
+            let repeated_domains =
+                log.domains.iter().collect::<std::collections::HashSet<_>>().len()
+                    < log.domains.len();
+            let multi_url_targets = log.urls.len() >= 2;
+            let staged_chunk_markers =
+                (append_calls > 1 && encode_calls > 0) || encoded_arg_markers > 0;
+            let outbound_target_visibility = !log.domains.is_empty() || !log.urls.is_empty();
+            if !((staged_chunk_markers && (repeated_domains || multi_url_targets))
+                || (send_calls >= 2 && outbound_target_visibility))
+            {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("append_calls".to_string(), append_calls.to_string());
+            metadata.insert("encode_calls".to_string(), encode_calls.to_string());
+            metadata.insert("send_calls".to_string(), send_calls.to_string());
+            metadata.insert("encoded_arg_markers".to_string(), encoded_arg_markers.to_string());
+            metadata.insert("repeated_domains".to_string(), repeated_domains.to_string());
+            metadata.insert("multi_url_targets".to_string(), multi_url_targets.to_string());
+            metadata.insert(
+                "outbound_target_visibility".to_string(),
+                outbound_target_visibility.to_string(),
+            );
+
+            let component_hits = [
+                send_calls > 1,
+                staged_chunk_markers,
+                repeated_domains,
+                multi_url_targets,
+                outbound_target_visibility,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.78, BehaviorSeverity::High, component_hits, 5);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence: "Observed staged append/encode/send loop consistent with chunked data exfiltration"
+                    .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct InteractionCoercionLoopPattern;
+    impl BehaviorPattern for InteractionCoercionLoopPattern {
+        fn name(&self) -> &str {
+            "interaction_coercion_loop"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let dialog_calls = log
+                .calls
+                .iter()
+                .filter(|call| *call == "alert" || *call == "confirm" || *call == "prompt")
+                .count();
+            let gating_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "setTimeout" || *call == "setInterval" || *call == "WScript.Sleep"
+                })
+                .count();
+            let branch_markers = log
+                .call_args
+                .iter()
+                .filter(|entry| {
+                    let lower = entry.to_ascii_lowercase();
+                    lower.contains("retry")
+                        || lower.contains("again")
+                        || lower.contains("continue")
+                        || lower.contains("allow")
+                        || lower.contains("enable")
+                })
+                .count();
+            let repeated_modal_surface = dialog_calls >= 3;
+            if !(repeated_modal_surface && (gating_calls > 0 || branch_markers > 0)) {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("dialog_calls".to_string(), dialog_calls.to_string());
+            metadata.insert("gating_calls".to_string(), gating_calls.to_string());
+            metadata.insert("branch_markers".to_string(), branch_markers.to_string());
+
+            let component_hits =
+                [repeated_modal_surface, dialog_calls >= 5, gating_calls > 0, branch_markers > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.75, BehaviorSeverity::Medium, component_hits, 4);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence: "Observed repeated user-dialog primitives with coercive loop/gating cues"
+                    .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct LotlApiChainExecutionPattern;
+    impl BehaviorPattern for LotlApiChainExecutionPattern {
+        fn name(&self) -> &str {
+            "lotl_api_chain_execution"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let env_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.ExpandEnvironmentStrings"
+                        || *call == "WScript.Shell.Environment"
+                        || *call == "Scripting.FileSystemObject.GetSpecialFolder"
+                        || *call == "Scripting.FileSystemObject.GetTempName"
+                })
+                .count();
+            let file_staging_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "ADODB.Stream.Open"
+                        || *call == "ADODB.Stream.Write"
+                        || *call == "ADODB.Stream.SaveToFile"
+                        || *call == "Scripting.FileSystemObject.CopyFile"
+                        || *call == "Scripting.FileSystemObject.MoveFile"
+                })
+                .count();
+            let exec_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    *call == "WScript.Shell.Run"
+                        || *call == "Shell.Application.ShellExecute"
+                        || *call == "PowerShell.Invoke"
+                })
+                .count();
+            let direct_network_calls = log
+                .calls
+                .iter()
+                .filter(|call| {
+                    call.contains(".XMLHTTP.")
+                        || *call == "fetch"
+                        || *call == "navigator.sendBeacon"
+                })
+                .count();
+
+            let has_lotl_chain = env_calls > 0 && file_staging_calls > 0 && exec_calls > 0;
+            if !has_lotl_chain || direct_network_calls > 0 {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::HashMap::new();
+            metadata.insert("env_calls".to_string(), env_calls.to_string());
+            metadata.insert("file_staging_calls".to_string(), file_staging_calls.to_string());
+            metadata.insert("exec_calls".to_string(), exec_calls.to_string());
+            metadata.insert("direct_network_calls".to_string(), direct_network_calls.to_string());
+
+            let component_hits = [env_calls > 0, file_staging_calls > 0, exec_calls > 0]
+                .iter()
+                .filter(|value| **value)
+                .count();
+            let (confidence, severity) =
+                calibrate_chain_signal(0.83, BehaviorSeverity::High, component_hits, 3);
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed living-off-the-land API chain from environment and staging surfaces to execution"
                         .to_string(),
                 severity,
                 metadata,
@@ -2922,6 +3282,9 @@ mod sandbox_impl {
             Box::new(IndirectDynamicEvalDispatchPattern),
             Box::new(MultiPassDecodePipelinePattern),
             Box::new(CovertBeaconExfilPattern),
+            Box::new(ChunkedDataExfilPipelinePattern),
+            Box::new(InteractionCoercionLoopPattern),
+            Box::new(LotlApiChainExecutionPattern),
             Box::new(PrototypeChainExecutionHijackPattern),
             Box::new(WasmLoaderStagingPattern),
             Box::new(RuntimeDependencyLoaderAbusePattern),
@@ -4762,10 +5125,21 @@ mod sandbox_impl {
         };
         let wasm = ObjectInitializer::new(context)
             .function(make_fn("WebAssembly.instantiate"), JsString::from("instantiate"), 1)
+            .function(
+                make_fn("WebAssembly.instantiateStreaming"),
+                JsString::from("instantiateStreaming"),
+                1,
+            )
             .function(make_fn("WebAssembly.compile"), JsString::from("compile"), 1)
+            .function(
+                make_fn("WebAssembly.compileStreaming"),
+                JsString::from("compileStreaming"),
+                1,
+            )
             .function(make_fn("WebAssembly.Module"), JsString::from("Module"), 1)
             .function(make_fn("WebAssembly.Instance"), JsString::from("Instance"), 1)
             .function(make_fn("WebAssembly.Memory"), JsString::from("Memory"), 1)
+            .function(make_fn("WebAssembly.Table"), JsString::from("Table"), 1)
             .build();
         let _ =
             context.register_global_property(JsString::from("WebAssembly"), wasm, Attribute::all());

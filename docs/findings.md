@@ -1358,6 +1358,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: modern browser fingerprint APIs are used to gate payload execution.
   - Chain usage: used as anti-analysis and conditional execution stage.
 
+## js_runtime_chunked_data_exfil
+
+- ID: `js_runtime_chunked_data_exfil`
+- Label: Chunked data exfiltration pipeline
+- Description: JavaScript staged data in chunks and transmitted it across repeated outbound sends.
+- Tags: exfiltration, javascript, runtime
+- Details:
+  - Relevance: staged data theft and covert transfer.
+  - Meaning: data is buffered/encoded and exfiltrated in repeated transmissions.
+  - Chain usage: used as chunked exfiltration stage.
+
+## js_runtime_interaction_coercion
+
+- ID: `js_runtime_interaction_coercion`
+- Label: Interaction coercion loop
+- Description: JavaScript repeatedly invoked dialog primitives with loop or gating cues consistent with coercive lures.
+- Tags: javascript, runtime, social-engineering
+- Details:
+  - Relevance: user-pressure and lure behaviour.
+  - Meaning: repeated alert/confirm/prompt patterns are used to force user action.
+  - Chain usage: used as social-engineering and execution-enable stage.
+
+## js_runtime_lotl_api_chain_execution
+
+- ID: `js_runtime_lotl_api_chain_execution`
+- Label: Living-off-the-land API chain execution
+- Description: JavaScript chained benign host APIs from environment and staging surfaces into execution behaviour.
+- Tags: javascript, lotl, runtime
+- Details:
+  - Relevance: low-noise abuse of legitimate APIs.
+  - Meaning: environment + file staging + execution chain occurs without direct downloader API dependence.
+  - Chain usage: used as stealthy staging-to-execution path.
+
 ## js_time_evasion
 
 - ID: `js_time_evasion`

@@ -693,6 +693,9 @@ fn behavioral_pattern_title(name: &str) -> Option<&'static str> {
         "wasm_loader_staging" => Some("WASM loader staging observed"),
         "runtime_dependency_loader_abuse" => Some("Runtime dependency loader abuse"),
         "credential_harvest_form_emulation" => Some("Credential-harvest form emulation"),
+        "chunked_data_exfil_pipeline" => Some("Chunked data exfiltration pipeline"),
+        "interaction_coercion_loop" => Some("Interaction coercion loop"),
+        "lotl_api_chain_execution" => Some("Living-off-the-land API chain execution"),
         "service_worker_persistence_abuse" => Some("Service worker persistence abuse"),
         "webcrypto_key_staging_exfil" => Some("WebCrypto key staging and exfiltration"),
         "storage_backed_payload_staging" => Some("Storage-backed payload staging"),
@@ -712,6 +715,9 @@ fn behavioral_pattern_kind(name: &str) -> Option<&'static str> {
         "wasm_loader_staging" => Some("js_runtime_wasm_loader_staging"),
         "runtime_dependency_loader_abuse" => Some("js_runtime_dependency_loader_abuse"),
         "credential_harvest_form_emulation" => Some("js_runtime_credential_harvest"),
+        "chunked_data_exfil_pipeline" => Some("js_runtime_chunked_data_exfil"),
+        "interaction_coercion_loop" => Some("js_runtime_interaction_coercion"),
+        "lotl_api_chain_execution" => Some("js_runtime_lotl_api_chain_execution"),
         "service_worker_persistence_abuse" => Some("js_runtime_service_worker_persistence"),
         "webcrypto_key_staging_exfil" => Some("js_runtime_webcrypto_key_staging"),
         "storage_backed_payload_staging" => Some("js_runtime_storage_payload_staging"),
@@ -736,6 +742,15 @@ fn behavioral_pattern_description(name: &str) -> Option<&'static str> {
         }
         "credential_harvest_form_emulation" => {
             Some("JavaScript combined field/form APIs with outbound submission behaviour, consistent with credential harvesting.")
+        }
+        "chunked_data_exfil_pipeline" => {
+            Some("JavaScript staged data in chunks and transmitted it across repeated outbound sends.")
+        }
+        "interaction_coercion_loop" => {
+            Some("JavaScript repeatedly invoked dialog primitives with loop or gating cues consistent with coercive lures.")
+        }
+        "lotl_api_chain_execution" => {
+            Some("JavaScript chained benign host APIs from environment and staging surfaces into execution behaviour.")
         }
         "service_worker_persistence_abuse" => {
             Some("JavaScript used service worker lifecycle and cache APIs in a persistence-oriented sequence.")
