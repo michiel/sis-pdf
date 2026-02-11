@@ -115,11 +115,11 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Implement S4-5 revision anomaly scoring.
 
 ## PR-17: Linearisation and parser divergence
-- [ ] Implement PDF plan S5-1 `linearization_integrity`.
-- [ ] Implement S5-2 `duplicate_stream_filters`.
-- [ ] Implement S5-3 `parser_divergence_risk`.
-- [ ] Implement S5-4 `content_stream_anomaly`.
-- [ ] Add known-divergence fixture tests.
+- [x] Implement PDF plan S5-1 `linearization_integrity`.
+- [x] Implement S5-2 `duplicate_stream_filters`.
+- [x] Implement S5-3 `parser_divergence_risk`.
+- [x] Implement S5-4 `content_stream_anomaly`.
+- [x] Add known-divergence fixture tests.
 
 ## PR-18: Advanced obfuscation resilience
 - [ ] Implement JS plan S4-1 enhanced CFF detection.
@@ -262,9 +262,14 @@ Gate D (after PR-20):
 - `PR-16`: wired `revisions.detail` query in `crates/sis-pdf/src/commands/query.rs` using timeline data, and upgraded `revisions` output with anomaly and diff counters.
 - `PR-16`: added detector integration tests in `crates/sis-pdf-detectors/tests/revision_forensics.rs` and query execution coverage for `revisions.detail`.
 - `PR-16`: finding documentation added in `docs/findings.md`.
+- `PR-17`: extended `LinearizationDetector` with `linearization_integrity` checks covering `/L` vs file length, `/H` structure and bounds, `/E` relation to `startxref`, and `/O` ordering.
+- `PR-17`: added `ParserDivergenceDetector` in `crates/sis-pdf-detectors/src/parser_divergence.rs` with findings `duplicate_stream_filters`, `content_stream_anomaly`, and `parser_divergence_risk`.
+- `PR-17`: wired parser-divergence detector into `default_detectors`.
+- `PR-17`: added known-divergence synthetic fixture tests in `crates/sis-pdf-detectors/tests/parser_divergence.rs`.
+- `PR-17`: finding documentation added in `docs/findings.md` for all new IDs.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-17` linearisation and parser divergence enhancements.
+- Start `PR-18` advanced obfuscation resilience.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

@@ -2445,6 +2445,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
+## linearization_integrity
+
+- ID: `linearization_integrity`
+- Label: Linearization integrity anomaly
+- Description: Linearization dictionary integrity checks failed (size, hint offsets, xref relation, or object ordering).
+- Tags: evasion, structure
+- Details:
+  - Relevance: parser differential/evasion risk.
+  - Meaning: linearisation metadata is inconsistent with file layout and may yield reader-specific object loading.
+  - Chain usage: used as structural parser-divergence context.
+
 ## linearization_multiple
 
 - ID: `linearization_multiple`
@@ -2896,6 +2907,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser disagreement can indicate hidden revisions or parsing tricks.
   - Meaning: carved object definitions differ from the primary parser view.
   - Chain usage: highlights stealthy payload delivery.
+
+## parser_divergence_risk
+
+- ID: `parser_divergence_risk`
+- Label: Parser divergence risk
+- Description: Multiple divergence indicators suggest the PDF may render differently across readers or parser strictness levels.
+- Tags: evasion, parser, structure
+- Details:
+  - Relevance: reader-dependent rendering and detection bypass risk.
+  - Meaning: combined indicators (filter divergence, content anomalies, xref/linearisation signals) exceed the divergence threshold.
+  - Chain usage: aggregate parser-evasion indicator.
+
+## duplicate_stream_filters
+
+- ID: `duplicate_stream_filters`
+- Label: Duplicate stream payload with divergent filters
+- Description: Identical stream payload bytes are present under different filter chains.
+- Tags: evasion, filters, parser
+- Details:
+  - Relevance: parser-dependent decode behaviour.
+  - Meaning: the same payload is wrapped with conflicting filter declarations.
+  - Chain usage: low-level parser divergence building block.
+
+## content_stream_anomaly
+
+- ID: `content_stream_anomaly`
+- Label: Content stream syntax anomaly
+- Description: Decoded content stream contains unknown operators or suspicious operand counts.
+- Tags: content, evasion, parser
+- Details:
+  - Relevance: malformed content streams can render differently across readers.
+  - Meaning: operator set or operand arity deviates from expected content syntax.
+  - Chain usage: parser-divergence signal for triage and replay.
 
 ## signature_present
 

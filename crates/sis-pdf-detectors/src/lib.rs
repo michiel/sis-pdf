@@ -51,6 +51,7 @@ pub mod object_cycles;
 pub mod objstm_summary;
 pub mod objstm_torture;
 pub mod page_tree_anomalies;
+pub mod parser_divergence;
 pub mod polyglot;
 pub mod quantum_risk;
 pub mod revision_forensics;
@@ -92,6 +93,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(shadow_attacks::ShadowAttackDetector),
         Box::new(revision_forensics::RevisionForensicsDetector),
         Box::new(linearization::LinearizationDetector),
+        Box::new(parser_divergence::ParserDivergenceDetector),
         Box::new(ObjStmDensityDetector),
         Box::new(objstm_summary::ObjStmSummaryDetector),
         Box::new(OpenActionDetector),
