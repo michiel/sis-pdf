@@ -28,6 +28,7 @@ mod sandbox_impl {
     const MAX_RECORDED_CALLS: usize = 2_048;
     const MAX_RECORDED_PROP_READS: usize = 4_096;
     const MAX_RECORDED_ERRORS: usize = 256;
+    const MAX_RECORDED_HEAP_EVENTS: usize = 1_024;
     const MAX_UNDEFINED_RECOVERY_PASSES: usize = 16;
     const BASE_LOOP_ITERATION_LIMIT: u64 = 10_000;
     const DOWNLOADER_LOOP_ITERATION_LIMIT: u64 = 20_000;
@@ -56,6 +57,12 @@ mod sandbox_impl {
         prop_deletes: Vec<String>,
         reflection_probes: Vec<String>,
         dynamic_code_calls: Vec<String>,
+        heap_allocations: Vec<String>,
+        heap_views: Vec<String>,
+        heap_accesses: Vec<String>,
+        heap_allocation_count: usize,
+        heap_view_count: usize,
+        heap_access_count: usize,
         call_count: usize,
         unique_calls: BTreeSet<String>,
         call_counts_by_name: std::collections::BTreeMap<String, usize>,
@@ -74,6 +81,9 @@ mod sandbox_impl {
         errors_dropped: usize,
         urls_dropped: usize,
         domains_dropped: usize,
+        heap_allocations_dropped: usize,
+        heap_views_dropped: usize,
+        heap_accesses_dropped: usize,
         delta_summary: Option<SnapshotDeltaSummary>,
         options: DynamicOptions,
         variable_events: Vec<VariableEvent>,
@@ -2497,7 +2507,10 @@ mod sandbox_impl {
                 + log.prop_reads_dropped
                 + log.errors_dropped
                 + log.urls_dropped
-                + log.domains_dropped;
+                + log.domains_dropped
+                + log.heap_allocations_dropped
+                + log.heap_views_dropped
+                + log.heap_accesses_dropped;
             let saturated = dropped_total > 0 || log.calls.len() >= MAX_RECORDED_CALLS;
             if !saturated {
                 return Vec::new();
@@ -2511,6 +2524,13 @@ mod sandbox_impl {
             metadata.insert("errors_dropped".to_string(), log.errors_dropped.to_string());
             metadata.insert("urls_dropped".to_string(), log.urls_dropped.to_string());
             metadata.insert("domains_dropped".to_string(), log.domains_dropped.to_string());
+            metadata.insert(
+                "heap_allocations_dropped".to_string(),
+                log.heap_allocations_dropped.to_string(),
+            );
+            metadata.insert("heap_views_dropped".to_string(), log.heap_views_dropped.to_string());
+            metadata
+                .insert("heap_accesses_dropped".to_string(), log.heap_accesses_dropped.to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -4022,6 +4042,12 @@ mod sandbox_impl {
                 prop_deletes: dedupe_sorted(log.prop_deletes.clone()),
                 reflection_probes: dedupe_sorted(log.reflection_probes.clone()),
                 dynamic_code_calls: dedupe_sorted(log.dynamic_code_calls.clone()),
+                heap_allocations: log.heap_allocations.clone(),
+                heap_views: log.heap_views.clone(),
+                heap_accesses: log.heap_accesses.clone(),
+                heap_allocation_count: log.heap_allocation_count,
+                heap_view_count: log.heap_view_count,
+                heap_access_count: log.heap_access_count,
                 call_count: log.call_count,
                 unique_calls: log.unique_calls.len(),
                 unique_prop_reads: log.unique_prop_reads.len(),
@@ -4033,6 +4059,9 @@ mod sandbox_impl {
                     errors_dropped: log.errors_dropped,
                     urls_dropped: log.urls_dropped,
                     domains_dropped: log.domains_dropped,
+                    heap_allocations_dropped: log.heap_allocations_dropped,
+                    heap_views_dropped: log.heap_views_dropped,
+                    heap_accesses_dropped: log.heap_accesses_dropped,
                 },
                 phases: render_phase_summaries(&log),
                 delta_summary: log.delta_summary.as_ref().map(|delta| {
@@ -5566,6 +5595,129 @@ mod sandbox_impl {
         let buffer = build_buffer_object(context, log);
         let _ =
             context.register_global_property(JsString::from("Buffer"), buffer, Attribute::all());
+    }
+
+    fn register_global_constructable_callable(
+        context: &mut Context,
+        name: &'static str,
+        length: usize,
+        function: NativeFunction,
+    ) {
+        let function = FunctionObjectBuilder::new(context.realm(), function)
+            .name(JsString::from(name))
+            .length(length)
+            .constructor(true)
+            .build();
+        let _ = context.register_global_property(JsString::from(name), function, Attribute::all());
+    }
+
+    fn build_array_buffer_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+        let make_fn = |name: &'static str| {
+            let log = log.clone();
+            make_native(log, name)
+        };
+        ObjectInitializer::new(context)
+            .function(make_fn("ArrayBuffer.slice"), JsString::from("slice"), 2)
+            .function(make_fn("ArrayBuffer.transfer"), JsString::from("transfer"), 1)
+            .build()
+    }
+
+    fn build_typed_array_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+        let make_fn = |name: &'static str| {
+            let log = log.clone();
+            make_native(log, name)
+        };
+        ObjectInitializer::new(context)
+            .function(make_fn("TypedArray.set"), JsString::from("set"), 1)
+            .function(make_fn("TypedArray.subarray"), JsString::from("subarray"), 2)
+            .function(make_fn("TypedArray.slice"), JsString::from("slice"), 2)
+            .function(make_fn("TypedArray.fill"), JsString::from("fill"), 1)
+            .function(make_fn("TypedArray.copyWithin"), JsString::from("copyWithin"), 2)
+            .function(make_fn("TypedArray.at"), JsString::from("at"), 1)
+            .build()
+    }
+
+    fn build_data_view_object(context: &mut Context, log: Rc<RefCell<SandboxLog>>) -> JsObject {
+        let make_fn = |name: &'static str| {
+            let log = log.clone();
+            make_native(log, name)
+        };
+        ObjectInitializer::new(context)
+            .function(make_fn("DataView.getInt8"), JsString::from("getInt8"), 1)
+            .function(make_fn("DataView.getUint8"), JsString::from("getUint8"), 1)
+            .function(make_fn("DataView.getInt16"), JsString::from("getInt16"), 1)
+            .function(make_fn("DataView.getUint16"), JsString::from("getUint16"), 1)
+            .function(make_fn("DataView.getInt32"), JsString::from("getInt32"), 1)
+            .function(make_fn("DataView.getUint32"), JsString::from("getUint32"), 1)
+            .function(make_fn("DataView.getFloat32"), JsString::from("getFloat32"), 1)
+            .function(make_fn("DataView.getFloat64"), JsString::from("getFloat64"), 1)
+            .function(make_fn("DataView.setInt8"), JsString::from("setInt8"), 2)
+            .function(make_fn("DataView.setUint8"), JsString::from("setUint8"), 2)
+            .function(make_fn("DataView.setInt16"), JsString::from("setInt16"), 2)
+            .function(make_fn("DataView.setUint16"), JsString::from("setUint16"), 2)
+            .function(make_fn("DataView.setInt32"), JsString::from("setInt32"), 2)
+            .function(make_fn("DataView.setUint32"), JsString::from("setUint32"), 2)
+            .function(make_fn("DataView.setFloat32"), JsString::from("setFloat32"), 2)
+            .function(make_fn("DataView.setFloat64"), JsString::from("setFloat64"), 2)
+            .build()
+    }
+
+    fn make_heap_constructor(
+        log: Rc<RefCell<SandboxLog>>,
+        constructor_name: &'static str,
+        object_builder: fn(&mut Context, Rc<RefCell<SandboxLog>>) -> JsObject,
+    ) -> NativeFunction {
+        unsafe {
+            NativeFunction::from_closure_with_captures(
+                move |_this, args, captures, ctx| {
+                    record_call(&captures.log, captures.name, args, ctx);
+                    let object = object_builder(ctx, captures.log.clone());
+                    Ok(JsValue::from(object))
+                },
+                LogNameCapture { log, name: constructor_name },
+            )
+        }
+    }
+
+    fn register_heap_runtime_stubs(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
+        register_global_constructable_callable(
+            context,
+            "ArrayBuffer",
+            1,
+            make_heap_constructor(log.clone(), "ArrayBuffer", build_array_buffer_object),
+        );
+        register_global_constructable_callable(
+            context,
+            "SharedArrayBuffer",
+            1,
+            make_heap_constructor(log.clone(), "SharedArrayBuffer", build_array_buffer_object),
+        );
+        register_global_constructable_callable(
+            context,
+            "DataView",
+            3,
+            make_heap_constructor(log.clone(), "DataView", build_data_view_object),
+        );
+        for typed_name in [
+            "Int8Array",
+            "Uint8Array",
+            "Uint8ClampedArray",
+            "Int16Array",
+            "Uint16Array",
+            "Int32Array",
+            "Uint32Array",
+            "Float32Array",
+            "Float64Array",
+            "BigInt64Array",
+            "BigUint64Array",
+        ] {
+            register_global_constructable_callable(
+                context,
+                typed_name,
+                1,
+                make_heap_constructor(log.clone(), typed_name, build_typed_array_object),
+            );
+        }
     }
 
     fn register_webassembly_stub(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
@@ -7901,12 +8053,46 @@ mod sandbox_impl {
                 log_ref.prop_reads_dropped += 1;
             }
         }
+        let arg_summary = summarise_args(args, ctx, &log_ref.options);
         if log_ref.call_args.len() < log_ref.options.max_call_args {
-            if let Some(summary) = summarise_args(args, ctx, &log_ref.options) {
+            if let Some(summary) = arg_summary.as_ref() {
                 log_ref.call_args.push(format!("{}({})", name, summary));
             }
         } else {
             log_ref.call_args_dropped += 1;
+        }
+        let heap_entry = if let Some(summary) = arg_summary.as_ref() {
+            if summary.is_empty() {
+                name.to_string()
+            } else {
+                format!("{name}({summary})")
+            }
+        } else {
+            name.to_string()
+        };
+        if is_heap_allocation_call(name) {
+            log_ref.heap_allocation_count += 1;
+            if log_ref.heap_allocations.len() < MAX_RECORDED_HEAP_EVENTS {
+                log_ref.heap_allocations.push(heap_entry.clone());
+            } else {
+                log_ref.heap_allocations_dropped += 1;
+            }
+        }
+        if is_heap_view_call(name) {
+            log_ref.heap_view_count += 1;
+            if log_ref.heap_views.len() < MAX_RECORDED_HEAP_EVENTS {
+                log_ref.heap_views.push(heap_entry.clone());
+            } else {
+                log_ref.heap_views_dropped += 1;
+            }
+        }
+        if is_heap_access_call(name) {
+            log_ref.heap_access_count += 1;
+            if log_ref.heap_accesses.len() < MAX_RECORDED_HEAP_EVENTS {
+                log_ref.heap_accesses.push(heap_entry);
+            } else {
+                log_ref.heap_accesses_dropped += 1;
+            }
         }
         for arg in args {
             if let Some(value) = js_value_string(arg) {
@@ -8258,6 +8444,7 @@ mod sandbox_impl {
                 register_browser_like(context, log.clone());
                 register_require_stub(context, log.clone());
                 register_buffer_stub(context, log.clone());
+                register_heap_runtime_stubs(context, log.clone());
                 register_webassembly_stub(context, log.clone());
                 register_windows_scripting(context, log.clone());
                 register_windows_com(context, log.clone());
@@ -8267,12 +8454,14 @@ mod sandbox_impl {
                 register_browser_like(context, log.clone());
                 register_net(context, log.clone());
                 register_util(context, log.clone());
+                register_heap_runtime_stubs(context, log.clone());
                 register_webassembly_stub(context, log.clone());
             }
             RuntimeKind::Node => {
                 register_node_like(context, log.clone());
                 register_net(context, log.clone());
                 register_util(context, log.clone());
+                register_heap_runtime_stubs(context, log.clone());
                 register_webassembly_stub(context, log.clone());
             }
             RuntimeKind::Bun => {
@@ -8280,6 +8469,7 @@ mod sandbox_impl {
                 register_browser_like(context, log.clone());
                 register_net(context, log.clone());
                 register_util(context, log.clone());
+                register_heap_runtime_stubs(context, log.clone());
                 register_webassembly_stub(context, log.clone());
             }
         }
@@ -8317,6 +8507,83 @@ mod sandbox_impl {
                 | "saveAs"
                 | "exportAsFDF"
                 | "exportAsXFDF"
+        )
+    }
+
+    fn is_heap_allocation_call(name: &str) -> bool {
+        matches!(
+            name,
+            "ArrayBuffer"
+                | "SharedArrayBuffer"
+                | "Buffer.alloc"
+                | "Buffer.from"
+                | "WebAssembly.Memory"
+                | "Int8Array"
+                | "Uint8Array"
+                | "Uint8ClampedArray"
+                | "Int16Array"
+                | "Uint16Array"
+                | "Int32Array"
+                | "Uint32Array"
+                | "Float32Array"
+                | "Float64Array"
+                | "BigInt64Array"
+                | "BigUint64Array"
+        )
+    }
+
+    fn is_heap_view_call(name: &str) -> bool {
+        matches!(
+            name,
+            "DataView"
+                | "DataView.getInt8"
+                | "DataView.getUint8"
+                | "DataView.getInt16"
+                | "DataView.getUint16"
+                | "DataView.getInt32"
+                | "DataView.getUint32"
+                | "DataView.getFloat32"
+                | "DataView.getFloat64"
+                | "DataView.setInt8"
+                | "DataView.setUint8"
+                | "DataView.setInt16"
+                | "DataView.setUint16"
+                | "DataView.setInt32"
+                | "DataView.setUint32"
+                | "DataView.setFloat32"
+                | "DataView.setFloat64"
+                | "ArrayBuffer.slice"
+                | "TypedArray.subarray"
+                | "TypedArray.slice"
+                | "TypedArray.set"
+        )
+    }
+
+    fn is_heap_access_call(name: &str) -> bool {
+        matches!(
+            name,
+            "DataView.getInt8"
+                | "DataView.getUint8"
+                | "DataView.getInt16"
+                | "DataView.getUint16"
+                | "DataView.getInt32"
+                | "DataView.getUint32"
+                | "DataView.getFloat32"
+                | "DataView.getFloat64"
+                | "DataView.setInt8"
+                | "DataView.setUint8"
+                | "DataView.setInt16"
+                | "DataView.setUint16"
+                | "DataView.setInt32"
+                | "DataView.setUint32"
+                | "DataView.setFloat32"
+                | "DataView.setFloat64"
+                | "TypedArray.set"
+                | "TypedArray.copyWithin"
+                | "TypedArray.fill"
+                | "TypedArray.at"
+                | "TypedArray.subarray"
+                | "TypedArray.slice"
         )
     }
 

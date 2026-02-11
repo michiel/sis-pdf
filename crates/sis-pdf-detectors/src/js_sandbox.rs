@@ -101,6 +101,7 @@ fn impact_for_kind(kind: &str) -> Option<Impact> {
         "js_runtime_network_intent" => Some(Impact::High),
         "js_runtime_file_probe" => Some(Impact::Low),
         "js_runtime_risky_calls" => Some(Impact::Medium),
+        "js_runtime_heap_manipulation" => Some(Impact::Medium),
         "js_sandbox_timeout" => Some(Impact::None),
         "js_runtime_recursion_limit" => Some(Impact::Low),
         "js_emulation_breakpoint" => Some(Impact::Low),
@@ -300,6 +301,27 @@ fn populate_base_metadata(
     if !signals.dynamic_code_calls.is_empty() {
         meta.insert("js.runtime.dynamic_code_calls".into(), signals.dynamic_code_calls.join(", "));
     }
+    if signals.heap_allocation_count > 0 {
+        meta.insert(
+            "js.runtime.heap.allocation_count".into(),
+            signals.heap_allocation_count.to_string(),
+        );
+        if !signals.heap_allocations.is_empty() {
+            meta.insert("js.runtime.heap.allocations".into(), signals.heap_allocations.join(" | "));
+        }
+    }
+    if signals.heap_view_count > 0 {
+        meta.insert("js.runtime.heap.view_count".into(), signals.heap_view_count.to_string());
+        if !signals.heap_views.is_empty() {
+            meta.insert("js.runtime.heap.views".into(), signals.heap_views.join(" | "));
+        }
+    }
+    if signals.heap_access_count > 0 {
+        meta.insert("js.runtime.heap.access_count".into(), signals.heap_access_count.to_string());
+        if !signals.heap_accesses.is_empty() {
+            meta.insert("js.runtime.heap.accesses".into(), signals.heap_accesses.join(" | "));
+        }
+    }
     if !signals.errors.is_empty() {
         meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
     }
@@ -365,6 +387,24 @@ fn populate_base_metadata(
         meta.insert(
             "js.runtime.truncation.domains_dropped".into(),
             signals.truncation.domains_dropped.to_string(),
+        );
+    }
+    if signals.truncation.heap_allocations_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.heap_allocations_dropped".into(),
+            signals.truncation.heap_allocations_dropped.to_string(),
+        );
+    }
+    if signals.truncation.heap_views_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.heap_views_dropped".into(),
+            signals.truncation.heap_views_dropped.to_string(),
+        );
+    }
+    if signals.truncation.heap_accesses_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.heap_accesses_dropped".into(),
+            signals.truncation.heap_accesses_dropped.to_string(),
         );
     }
     if !signals.phases.is_empty() {
@@ -1126,6 +1166,76 @@ fn extend_with_behavioral_pattern_findings(
     }
 }
 
+fn extend_with_heap_manipulation_finding(
+    findings: &mut Vec<Finding>,
+    detector_surface: AttackSurface,
+    object_ref: &str,
+    evidence: &[sis_pdf_core::model::EvidenceSpan],
+    base_meta: &std::collections::HashMap<String, String>,
+    summary: &ProfileDivergenceSummary,
+    signals: &js_analysis::DynamicSignals,
+) {
+    let allocation_count = signals.heap_allocation_count;
+    let view_count = signals.heap_view_count;
+    let access_count = signals.heap_access_count;
+    if allocation_count == 0 && view_count == 0 && access_count == 0 {
+        return;
+    }
+    let mut stages = 0usize;
+    if allocation_count > 0 {
+        stages += 1;
+    }
+    if view_count > 0 {
+        stages += 1;
+    }
+    if access_count > 0 {
+        stages += 1;
+    }
+    let mut meta = base_meta.clone();
+    meta.insert("js.sandbox_exec".into(), "true".into());
+    meta.insert("js.runtime.heap.stage_count".into(), stages.to_string());
+    let base_severity =
+        if stages >= 3 || access_count >= 8 { Severity::Medium } else { Severity::Low };
+    let base_confidence = if stages >= 3 {
+        Confidence::Strong
+    } else if stages == 2 {
+        Confidence::Probable
+    } else {
+        Confidence::Tentative
+    };
+    let (severity, confidence) = apply_profile_scoring_meta(
+        &mut meta,
+        summary,
+        "js_runtime_heap_manipulation",
+        base_severity,
+        base_confidence,
+    );
+    findings.push(Finding {
+        id: String::new(),
+        surface: detector_surface,
+        kind: "js_runtime_heap_manipulation".into(),
+        severity,
+        confidence,
+        impact: impact_for_kind("js_runtime_heap_manipulation"),
+        title: "Runtime heap manipulation primitives".into(),
+        description: format!(
+            "JavaScript exercised heap-related primitives (allocations={}, views={}, accesses={}).",
+            allocation_count, view_count, access_count
+        ),
+        objects: vec![object_ref.to_string()],
+        evidence: evidence.to_vec(),
+        remediation: Some(
+            "Review typed-array/DataView usage and correlate with decoder or execution-stage behaviour."
+                .into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    });
+}
+
 fn extend_with_emulation_breakpoint_finding(
     findings: &mut Vec<Finding>,
     detector_surface: AttackSurface,
@@ -1402,6 +1512,15 @@ impl Detector for JavaScriptSandboxDetector {
                                 &profile_summary,
                                 &signals,
                             );
+                            extend_with_heap_manipulation_finding(
+                                &mut findings,
+                                self.surface(),
+                                &object_ref,
+                                &evidence,
+                                &meta,
+                                &profile_summary,
+                                &signals,
+                            );
                             let description = if !signals.prop_reads.is_empty() {
                                 "Sandbox executed JS; property accesses observed."
                             } else if signals.errors.is_empty() {
@@ -1493,6 +1612,15 @@ impl Detector for JavaScriptSandboxDetector {
                             recursion_hits,
                         );
                         extend_with_behavioral_pattern_findings(
+                            &mut findings,
+                            self.surface(),
+                            &object_ref,
+                            &evidence,
+                            &base_meta,
+                            &profile_summary,
+                            &signals,
+                        );
+                        extend_with_heap_manipulation_finding(
                             &mut findings,
                             self.surface(),
                             &object_ref,

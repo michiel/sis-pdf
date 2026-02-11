@@ -273,6 +273,33 @@ fn sandbox_emits_wasm_loader_staging_finding() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_emits_heap_manipulation_runtime_finding() {
+    let bytes = build_minimal_js_pdf(
+        "var b=new ArrayBuffer\\(32\\);var u=new Uint8Array\\(b\\);u.set\\([1,2,3]\\);var d=new DataView\\(b\\);d.setUint8\\(0,65\\);d.getUint8\\(0\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_heap_manipulation")
+        .expect("js_runtime_heap_manipulation finding");
+    assert_eq!(finding.meta.get("js.runtime.heap.allocation_count").map(String::as_str), Some("2"));
+    assert!(
+        finding
+            .meta
+            .get("js.runtime.heap.access_count")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(0)
+            >= 2
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_emits_runtime_dependency_loader_abuse_finding() {
     let bytes = build_minimal_js_pdf(
         "var cp=require\\('child_process'\\);cp.exec\\('cmd /c whoami'\\);var fs=require\\('fs'\\);fs.writeFileSync\\('a',\\'b\\'\\);",

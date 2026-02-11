@@ -1332,6 +1332,25 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: script-driven forms or fields are paired with submission/network sinks.
   - Chain usage: used as social-engineering and data-capture stage.
 
+## js_runtime_heap_manipulation
+
+- ID: `js_runtime_heap_manipulation`
+- Label: Runtime heap manipulation primitives
+- Description: JavaScript exercised heap-related primitives during sandbox execution.
+- Tags: javascript, memory, runtime
+- Details:
+  - Relevance: runtime heap shaping can support staged decode, exploitation, or obfuscated dispatch.
+  - Meaning: allocation, view creation, and byte-level access primitives were observed (for example `ArrayBuffer`, typed arrays, `DataView`).
+  - Chain usage: used as exploitation-preparation context and correlated with decode/execution findings.
+  - Metadata highlights:
+    - `js.runtime.heap.allocation_count`
+    - `js.runtime.heap.view_count`
+    - `js.runtime.heap.access_count`
+    - `js.runtime.heap.allocations`
+    - `js.runtime.heap.views`
+    - `js.runtime.heap.accesses`
+    - `js.runtime.truncation.heap_accesses_dropped`
+
 ## js_runtime_wasm_loader_staging
 
 - ID: `js_runtime_wasm_loader_staging`

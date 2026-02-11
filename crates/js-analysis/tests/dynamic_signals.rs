@@ -2380,6 +2380,51 @@ fn benign_table_of_contents_builder_no_false_positives() {
     }
 }
 
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_tracks_heap_allocation_view_and_access_telemetry() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var buf = new ArrayBuffer(64);
+        var view = new Uint8Array(buf);
+        view.set([1, 2, 3, 4]);
+        var dv = new DataView(buf);
+        dv.setUint8(0, 0x41);
+        dv.getUint8(0);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals.heap_allocation_count >= 2);
+            assert!(signals.heap_view_count >= 1);
+            assert!(signals.heap_access_count >= 2);
+            assert!(signals.heap_allocations.iter().any(|entry| entry.starts_with("ArrayBuffer")));
+            assert!(signals.heap_allocations.iter().any(|entry| entry.starts_with("Uint8Array")));
+            assert!(signals.heap_views.iter().any(|entry| entry.starts_with("DataView")));
+            assert!(signals.heap_accesses.iter().any(|entry| entry.contains("DataView.setUint8")));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_tracks_heap_telemetry_truncation_caps() {
+    let options = DynamicOptions::default();
+    let mut payload = String::from("var b=new ArrayBuffer(8);var d=new DataView(b);");
+    for _ in 0..1_300 {
+        payload.push_str("d.getUint8(0);");
+    }
+    let outcome = js_analysis::run_sandbox(payload.as_bytes(), &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_eq!(signals.heap_accesses.len(), 1_024);
+            assert!(signals.truncation.heap_accesses_dropped > 0);
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
 #[cfg(not(feature = "js-sandbox"))]
 #[test]
 fn sandbox_reports_unavailable_without_feature() {

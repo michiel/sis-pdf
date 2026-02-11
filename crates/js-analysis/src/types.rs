@@ -111,6 +111,12 @@ pub struct DynamicSignals {
     pub prop_deletes: Vec<String>,
     pub reflection_probes: Vec<String>,
     pub dynamic_code_calls: Vec<String>,
+    pub heap_allocations: Vec<String>,
+    pub heap_views: Vec<String>,
+    pub heap_accesses: Vec<String>,
+    pub heap_allocation_count: usize,
+    pub heap_view_count: usize,
+    pub heap_access_count: usize,
     pub call_count: usize,
     pub unique_calls: usize,
     pub unique_prop_reads: usize,
@@ -130,6 +136,9 @@ pub struct DynamicTruncationSummary {
     pub errors_dropped: usize,
     pub urls_dropped: usize,
     pub domains_dropped: usize,
+    pub heap_allocations_dropped: usize,
+    pub heap_views_dropped: usize,
+    pub heap_accesses_dropped: usize,
 }
 
 #[derive(Debug, Clone)]

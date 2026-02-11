@@ -77,10 +77,10 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add per-indicator fixtures.
 
 ## PR-11: Dynamic heap telemetry stubs
-- [ ] Implement JS plan S3-5 ArrayBuffer/TypedArray/DataView runtime stubs.
-- [ ] Track allocation/view/access telemetry.
-- [ ] Emit `js_runtime_heap_manipulation` runtime finding.
-- [ ] Add bounded telemetry caps and truncation tests.
+- [x] Implement JS plan S3-5 ArrayBuffer/TypedArray/DataView runtime stubs.
+- [x] Track allocation/view/access telemetry.
+- [x] Emit `js_runtime_heap_manipulation` runtime finding.
+- [x] Add bounded telemetry caps and truncation tests.
 
 ## PR-12: Static modern heap exploitation detectors
 - [ ] Implement JS plan S3-1 `js.heap_grooming`.
@@ -235,9 +235,14 @@ Gate D (after PR-20):
 - `PR-10`: added `PdfjsRenderingIndicatorDetector` in `crates/sis-pdf-detectors/src/lib.rs` with findings `pdfjs_annotation_injection`, `pdfjs_form_injection`, and `pdfjs_eval_path_risk`.
 - `PR-10`: added per-indicator fixture coverage in `crates/sis-pdf-detectors/tests/pdfjs_rendering_indicators.rs`, including a benign annotation/form control.
 - `PR-10`: finding documentation added in `docs/findings.md`.
+- `PR-11`: added constructable runtime stubs for `ArrayBuffer`, `SharedArrayBuffer`, `DataView`, and typed arrays in `crates/js-analysis/src/dynamic.rs`.
+- `PR-11`: added bounded heap telemetry capture (`allocations`, `views`, `accesses`) with explicit truncation counters in `DynamicSignals` and `DynamicTruncationSummary`.
+- `PR-11`: added detector finding `js_runtime_heap_manipulation` with metadata-backed stage scoring in `crates/sis-pdf-detectors/src/js_sandbox.rs`.
+- `PR-11`: added focused tests in `crates/js-analysis/tests/dynamic_signals.rs` and `crates/sis-pdf-detectors/tests/js_sandbox_integration.rs`.
+- Validation completed: `cargo test -p js-analysis --features js-sandbox --test dynamic_signals` and `cargo test -p sis-pdf-detectors --features js-sandbox --test js_sandbox_integration`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-11` dynamic heap telemetry stubs.
+- Start `PR-12` static modern heap exploitation detectors.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.
