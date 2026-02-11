@@ -150,7 +150,7 @@ cargo run --release --features js-sandbox --example test_hostile -- \
 | heap_spray_exploit | ⏱️ May Timeout | Intensive loops may hit 5s limit |
 | whitespace_obfuscation | ✅ Executed / ⏭️ May Skip | Large file may hit size limit |
 
-**Success Rate Target**: ≥70% executed successfully (not timed out or skipped)
+**Success Rate Target**: ≥90% executed successfully (not timed out or skipped)
 
 ## Adding New Fixtures
 

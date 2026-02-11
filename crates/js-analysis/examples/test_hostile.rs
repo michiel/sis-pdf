@@ -44,6 +44,7 @@ fn main() {
             js_analysis::types::RuntimePhase::Form,
         ],
         runtime_profile: Default::default(),
+        lifecycle_context: None,
     };
 
     eprintln!("Testing: {}", js_file.display());

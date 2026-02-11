@@ -3440,6 +3440,9 @@ fn print_repl_help() {
     println!("  xref.trailers      - List trailer dictionary summaries");
     println!("  xref.deviations    - List xref parser deviations");
     println!("  revisions          - List revision summaries derived from xref/trailer state");
+    println!(
+        "  revisions.detail   - Detailed revision timeline with per-revision structural diffs"
+    );
     println!();
     println!("Advanced queries:");
     println!("  chains             - Describe action chains (rich JSON output)");

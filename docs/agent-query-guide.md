@@ -49,6 +49,7 @@ sis query sample.pdf xref.startxrefs
 sis query sample.pdf xref.sections
 sis query sample.pdf xref.deviations
 sis query sample.pdf revisions
+sis query sample.pdf revisions.detail
 ```
 
 ## Stream and artefact extraction
@@ -103,6 +104,7 @@ sis query sample.pdf xref.sections --where "kind == 'stream'"
 sis query sample.pdf xref.trailers
 sis query sample.pdf xref.deviations
 sis query sample.pdf revisions
+sis query sample.pdf revisions.detail --where "anomaly_score >= 4"
 ```
 
 Typical use: validate whether a warning is benign incremental history or suspicious chain inconsistency.
@@ -149,6 +151,9 @@ For JavaScript runtime triage, the summary also includes:
 ```bash
 sis query sample.pdf findings --format json
 sis query sample.pdf findings --where "kind == 'js_runtime_downloader_pattern'" --format json
+sis query sample.pdf findings --where "kind == 'js_runtime_wasm_loader_staging'" --format json
+sis query sample.pdf findings --where "kind == 'js_runtime_dependency_loader_abuse'" --format json
+sis query sample.pdf findings --where "kind == 'js_runtime_credential_harvest'" --format json
 ```
 
 ### 6) Query predicate parity in one-shot and REPL
@@ -163,6 +168,10 @@ When a finding is produced from JavaScript sandbox execution, `explain` now incl
 - timeout-aware scoring/coverage telemetry: `js.runtime.script_timeout_profiles`, `js.runtime.script_timeout_ratio`, `js.runtime.timeout_confidence_adjusted`, `js.runtime.loop_iteration_limit_hits`
 - timeout root-cause context (when present): `js.runtime.timeout_profile`, `js.runtime.timeout_phase`, `js.runtime.timeout_elapsed_ms`, `js.runtime.timeout_budget_ratio`
 - integrity metadata: `js.runtime.replay_id`, `js.runtime.ordering`, and `js.runtime.truncation.*`
+- behaviour-derived metadata (when applicable): `js.runtime.behavior.name`, `js.runtime.behavior.confidence_score`, `js.runtime.behavior.severity`, `js.runtime.behavior.evidence`, `js.runtime.behavior.meta.*`
+- service worker lifecycle telemetry (when applicable): `js.runtime.service_worker.*`
+- realtime channel telemetry (when applicable): `js.runtime.realtime.*`
+- lifecycle hook telemetry (when applicable): `js.runtime.lifecycle.phase`, `js.runtime.lifecycle.hook_calls`, `js.runtime.lifecycle.background_attempts`
 
 Example:
 
@@ -171,7 +180,7 @@ sis query sample.pdf findings
 sis query sample.pdf explain <finding-id>
 ```
 
-Use these fields to determine whether behaviour is consistent across emulated environments (`pdf_reader`, `browser`, `node`) and whether final severity/confidence was promoted or demoted by profile consistency scoring.
+Use these fields to determine whether behaviour is consistent across emulated environments (`pdf_reader`, `browser`, `node`, `bun`) and whether final severity/confidence was promoted or demoted by profile consistency scoring.
 
 ## Practical investigation playbook
 

@@ -840,6 +840,68 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: embedded fonts can trigger vulnerable code paths.
   - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
 
+## pdfjs_font_injection
+
+- ID: `pdfjs_font_injection`
+- Label: PDF.js font injection risk
+- Description: Font-related structures include payload-like values associated with browser PDF.js injection paths.
+- Tags: font, pdfjs, evasion
+- Details:
+  - Relevance: browser-based PDF rendering attack surface.
+  - Meaning: detector emits `pdfjs.subsignal` for one of `fontmatrix_non_numeric`, `fontbbox_non_numeric`, `encoding_string_values`, or `cmap_script_tokens`.
+  - Chain usage: renderer-targeted exploitation signal; prioritise when combined with JavaScript/action findings.
+  - Metadata:
+    - `pdfjs.affected_versions`: currently `<4.2.67`
+    - `reader_impacts`: includes browser-oriented impact notes.
+
+## pdfjs_annotation_injection
+
+- ID: `pdfjs_annotation_injection`
+- Label: PDF.js annotation injection indicator
+- Description: Annotation appearance/content fields contain script-like payload tokens.
+- Tags: annotation, pdfjs, injection
+- Details:
+  - Relevance: browser annotation rendering can expose script injection surfaces.
+  - Meaning: `/AP` or annotation content fields include executable-style token patterns.
+  - Chain usage: browser-render path indicator; correlate with action and JavaScript findings.
+
+## pdfjs_form_injection
+
+- ID: `pdfjs_form_injection`
+- Label: PDF.js form injection indicator
+- Description: Form value/appearance fields contain script-like payload tokens.
+- Tags: forms, pdfjs, injection
+- Details:
+  - Relevance: interactive forms can carry payload material into rendered contexts.
+  - Meaning: `/V`, `/DV`, or `/AP` form fields include injection-like script tokens.
+  - Chain usage: form-stage injection indicator; prioritise with external action or JS findings.
+
+## pdfjs_eval_path_risk
+
+- ID: `pdfjs_eval_path_risk`
+- Label: PDF.js eval-path risk indicator
+- Description: Document contains font structures commonly associated with PDF.js eval-render paths.
+- Tags: font, pdfjs, info
+- Details:
+  - Relevance: complex font rendering paths can increase browser-side attack exposure.
+  - Meaning: font subtype/encoding structure suggests higher-sensitivity render pathways.
+  - Chain usage: informational context signal for triage and environment-specific risk assessment.
+
+## font_js_exploitation_bridge
+
+- ID: `font_js_exploitation_bridge`
+- Label: Correlated font and JavaScript exploitation indicators
+- Description: Suspicious font structures co-occur with executable JavaScript indicators in the same PDF.
+- Tags: font, javascript, correlation
+- Details:
+  - Relevance: combined font and JS signals strongly suggest staged renderer exploitation attempts.
+  - Meaning: bridge correlation requires both suspicious font indicators and JavaScript execution-capable indicators.
+  - Chain usage: prioritisation signal for analyst triage; confidence is uplifted only when both domains match.
+  - Metadata:
+    - `bridge.font_indicators`
+    - `bridge.js_indicators`
+    - `bridge.confidence_adjusted`
+
 ## gotor_present
 
 - ID: `gotor_present`
@@ -1149,6 +1211,83 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: heap spray prepares memory for vulnerability exploitation.
   - Chain usage: used as the exploitation stage targeting renderer memory corruption.
 
+## js_heap_grooming
+
+- ID: `js_heap_grooming`
+- Label: Heap grooming pattern detected
+- Description: JavaScript shows repeated heap allocation and view-shaping patterns consistent with grooming.
+- Tags: exploit, javascript, memory
+- Details:
+  - Relevance: modern memory exploitation preparation.
+  - Meaning: repeated `ArrayBuffer`/typed-array shaping patterns may prepare deterministic heap layout.
+  - Chain usage: used as pre-exploitation staging context.
+
+## js_lfh_priming
+
+- ID: `js_lfh_priming`
+- Label: LFH priming pattern detected
+- Description: JavaScript appears to prime allocation buckets through repeated allocation/free cycles.
+- Tags: exploit, javascript, memory
+- Details:
+  - Relevance: low-fragmentation heap preparation in modern exploit chains.
+  - Meaning: repeated same-size allocation cycles are followed by targeted placement allocations.
+  - Chain usage: used as exploitation-preparation context.
+
+## js_rop_chain_construction
+
+- ID: `js_rop_chain_construction`
+- Label: ROP chain construction pattern detected
+- Description: JavaScript uses address arithmetic and sequential write patterns consistent with ROP chain staging.
+- Tags: exploit, javascript, memory
+- Details:
+  - Relevance: strong exploitation signal.
+  - Meaning: gadget-style address maths and sequential memory writes indicate control-flow hijack preparation.
+  - Chain usage: used as direct exploitation-stage indicator.
+
+## js_info_leak_primitive
+
+- ID: `js_info_leak_primitive`
+- Label: Info-leak primitive pattern detected
+- Description: JavaScript exhibits ArrayBuffer/TypedArray patterns consistent with out-of-bounds memory disclosure primitives.
+- Tags: exploit, javascript, memory
+- Details:
+  - Relevance: memory disclosure often precedes reliable code execution.
+  - Meaning: length/byteLength mismatch and indexed read patterns suggest leak primitive construction.
+  - Chain usage: used as exploitation precondition context.
+
+## js_aaencode_encoding
+
+- ID: `js_aaencode_encoding`
+- Label: AAEncode encoding detected
+- Description: JavaScript appears obfuscated with AAEncode fullwidth/emoticon-style encoding.
+- Tags: evasion, javascript, obfuscation
+- Details:
+  - Relevance: concealment of executable intent.
+  - Meaning: AAEncode-style payloads hide readable logic behind non-standard character encodings.
+  - Chain usage: used as a staged obfuscation layer before runtime materialisation.
+
+## js_jjencode_encoding
+
+- ID: `js_jjencode_encoding`
+- Label: JJEncode encoding detected
+- Description: JavaScript appears obfuscated with JJEncode symbol-heavy encoding.
+- Tags: evasion, javascript, obfuscation
+- Details:
+  - Relevance: concealment of executable intent.
+  - Meaning: JJEncode-style symbol density indicates deliberate anti-analysis obfuscation.
+  - Chain usage: used as a staged obfuscation layer prior to decode/execute phases.
+
+## js_jsfuck_encoding
+
+- ID: `js_jsfuck_encoding`
+- Label: JSFuck encoding detected
+- Description: JavaScript appears obfuscated with JSFuck character-restricted encoding.
+- Tags: evasion, javascript, obfuscation
+- Details:
+  - Relevance: concealment of executable intent.
+  - Meaning: JSFuck payloads encode logic with restricted punctuation, impairing direct static review.
+  - Chain usage: used as a pre-execution obfuscation stage that often pairs with dynamic eval sinks.
+
 ## js_multi_stage_decode
 
 - ID: `js_multi_stage_decode`
@@ -1214,6 +1353,272 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: scriptable execution.
   - Meaning: JavaScript executes in the viewer context and may be obfuscated or evasive.
   - Chain usage: used as the action/payload stage and to model evasive or staged execution.
+
+## js_runtime_dependency_loader_abuse
+
+- ID: `js_runtime_dependency_loader_abuse`
+- Label: Runtime dependency loader abuse
+- Description: JavaScript dynamically loaded runtime modules and invoked execution or write sinks.
+- Tags: javascript, runtime, supply-chain
+- Details:
+  - Relevance: dynamic module loading in Node-like environments.
+  - Meaning: runtime dependency resolution is used to reach sensitive APIs (for example process execution or filesystem writes).
+  - Chain usage: used as staging/execution capability expansion before payload actions.
+
+## js_runtime_credential_harvest
+
+- ID: `js_runtime_credential_harvest`
+- Label: Credential-harvest form emulation
+- Description: JavaScript combined field/form APIs with outbound submission behaviour, consistent with credential harvesting.
+- Tags: javascript, phishing, runtime
+- Details:
+  - Relevance: interactive lure and exfiltration behaviour.
+  - Meaning: script-driven forms or fields are paired with submission/network sinks.
+  - Chain usage: used as social-engineering and data-capture stage.
+
+## js_runtime_heap_manipulation
+
+- ID: `js_runtime_heap_manipulation`
+- Label: Runtime heap manipulation primitives
+- Description: JavaScript exercised heap-related primitives during sandbox execution.
+- Tags: javascript, memory, runtime
+- Details:
+  - Relevance: runtime heap shaping can support staged decode, exploitation, or obfuscated dispatch.
+  - Meaning: allocation, view creation, and byte-level access primitives were observed (for example `ArrayBuffer`, typed arrays, `DataView`).
+  - Chain usage: used as exploitation-preparation context and correlated with decode/execution findings.
+  - Metadata highlights:
+    - `js.runtime.heap.allocation_count`
+    - `js.runtime.heap.view_count`
+    - `js.runtime.heap.access_count`
+    - `js.runtime.heap.allocations`
+    - `js.runtime.heap.views`
+    - `js.runtime.heap.accesses`
+    - `js.runtime.truncation.heap_accesses_dropped`
+
+## js_runtime_wasm_loader_staging
+
+- ID: `js_runtime_wasm_loader_staging`
+- Label: WASM loader staging observed
+- Description: JavaScript invoked WebAssembly loader APIs in a sequence consistent with staged execution.
+- Tags: javascript, runtime, wasm
+- Details:
+  - Relevance: staged or evasive runtime execution.
+  - Meaning: WebAssembly can be used as an intermediate decode/dispatch layer.
+  - Chain usage: used as payload staging before dynamic execution.
+
+## js_runtime_service_worker_persistence
+
+- ID: `js_runtime_service_worker_persistence`
+- Label: Service worker persistence abuse
+- Description: JavaScript used service worker lifecycle and cache APIs in a persistence-oriented sequence.
+- Tags: javascript, persistence, runtime
+- Details:
+  - Relevance: browser persistence and cache-backed staging.
+  - Meaning: service worker registration is combined with lifecycle/cache operations to maintain foothold or staged content.
+  - Chain usage: used as persistence and payload-resume stage.
+  - Metadata highlights:
+    - `js.runtime.service_worker.registration_calls`
+    - `js.runtime.service_worker.update_calls`
+    - `js.runtime.service_worker.event_handlers_registered`
+    - `js.runtime.service_worker.lifecycle_events_executed`
+    - `js.runtime.service_worker.cache_calls`
+    - `js.runtime.service_worker.indexeddb_calls`
+
+## js_runtime_webcrypto_key_staging
+
+- ID: `js_runtime_webcrypto_key_staging`
+- Label: WebCrypto key staging and exfiltration
+- Description: JavaScript handled WebCrypto key material and then attempted outbound transmission.
+- Tags: crypto, javascript, runtime
+- Details:
+  - Relevance: cryptographic material access and transfer.
+  - Meaning: key generation/import/export is coupled with network-capable sinks.
+  - Chain usage: used as credential/key capture and exfiltration stage.
+
+## js_runtime_storage_payload_staging
+
+- ID: `js_runtime_storage_payload_staging`
+- Label: Storage-backed payload staging
+- Description: JavaScript staged payload content in browser storage before decode or execution.
+- Tags: javascript, runtime, staging
+- Details:
+  - Relevance: local persistence and delayed execution.
+  - Meaning: browser storage APIs are used as intermediate payload buffers.
+  - Chain usage: used as staging and delayed activation stage.
+
+## js_runtime_dynamic_module_evasion
+
+- ID: `js_runtime_dynamic_module_evasion`
+- Label: Dynamic module graph evasion
+- Description: JavaScript performed dynamic module loading and graph traversal with execution sinks.
+- Tags: javascript, module-loading, runtime
+- Details:
+  - Relevance: runtime capability expansion and evasion.
+  - Meaning: module resolution is used to assemble execution paths at runtime.
+  - Chain usage: used as loader/expansion stage before payload dispatch.
+
+## js_runtime_realtime_channel_abuse
+
+- ID: `js_runtime_realtime_channel_abuse`
+- Label: Covert realtime channel abuse
+- Description: JavaScript prepared encoded data and sent it through realtime communication channels.
+- Tags: javascript, network, runtime
+- Details:
+  - Relevance: low-latency command-and-control or exfiltration.
+  - Meaning: WebSocket/WebRTC-like channels are used to move staged content.
+  - Chain usage: used as outbound communication stage.
+  - Metadata highlights:
+    - `js.runtime.realtime.session_count`
+    - `js.runtime.realtime.unique_targets`
+    - `js.runtime.realtime.send_count`
+    - `js.runtime.realtime.avg_payload_len`
+    - `js.runtime.realtime.channel_types`
+
+## js_runtime_clipboard_session_hijack
+
+- ID: `js_runtime_clipboard_session_hijack`
+- Label: Clipboard/session hijack behaviour
+- Description: JavaScript accessed clipboard/session artefacts and attempted outbound transfer.
+- Tags: javascript, runtime, session
+- Details:
+  - Relevance: data theft and user-session abuse.
+  - Meaning: clipboard or session sources are paired with exfiltration sinks.
+  - Chain usage: used as collection and theft stage.
+
+## js_runtime_dom_policy_bypass
+
+- ID: `js_runtime_dom_policy_bypass`
+- Label: DOM sink policy bypass attempt
+- Description: JavaScript routed obfuscated input into sensitive DOM or script sink surfaces.
+- Tags: javascript, runtime, xss
+- Details:
+  - Relevance: script injection and policy bypass.
+  - Meaning: sink APIs are reached through obfuscated or dynamic construction paths.
+  - Chain usage: used as execution and injection stage.
+
+## js_runtime_wasm_memory_unpacker
+
+- ID: `js_runtime_wasm_memory_unpacker`
+- Label: WASM memory unpacker pipeline
+- Description: JavaScript combined WebAssembly memory operations with unpacking and dynamic execution.
+- Tags: javascript, runtime, wasm
+- Details:
+  - Relevance: staged unpacking and evasive execution.
+  - Meaning: WASM memory surfaces are combined with decode and dynamic execution sinks.
+  - Chain usage: used as packed payload decode and dispatch stage.
+
+## js_runtime_extension_api_abuse
+
+- ID: `js_runtime_extension_api_abuse`
+- Label: Extension API abuse probe
+- Description: JavaScript probed extension runtime APIs, indicating privilege and environment reconnaissance.
+- Tags: javascript, runtime, reconnaissance
+- Details:
+  - Relevance: privilege and environment capability checks.
+  - Meaning: extension runtime/storage surfaces are enumerated prior to higher-risk actions.
+  - Chain usage: used as reconnaissance and environment validation stage.
+
+## js_runtime_modern_fingerprint_evasion
+
+- ID: `js_runtime_modern_fingerprint_evasion`
+- Label: Modern fingerprinting evasion
+- Description: JavaScript performed modern fingerprint probes with timing or gating behaviour.
+- Tags: evasion, javascript, runtime
+- Details:
+  - Relevance: anti-analysis and environment filtering.
+  - Meaning: modern browser fingerprint APIs are used to gate payload execution.
+  - Chain usage: used as anti-analysis and conditional execution stage.
+
+## js_runtime_chunked_data_exfil
+
+- ID: `js_runtime_chunked_data_exfil`
+- Label: Chunked data exfiltration pipeline
+- Description: JavaScript staged data in chunks and transmitted it across repeated outbound sends.
+- Tags: exfiltration, javascript, runtime
+- Details:
+  - Relevance: staged data theft and covert transfer.
+  - Meaning: data is buffered/encoded and exfiltrated in repeated transmissions.
+  - Chain usage: used as chunked exfiltration stage.
+  - Metadata highlights:
+    - `taint_edges` (behaviour metadata key)
+    - exfil scoring/feature fields (`query_entropy`, `target_repetition`, `exfil_score`)
+
+## js_runtime_interaction_coercion
+
+- ID: `js_runtime_interaction_coercion`
+- Label: Interaction coercion loop
+- Description: JavaScript repeatedly invoked dialog primitives with loop or gating cues consistent with coercive lures.
+- Tags: javascript, runtime, social-engineering
+- Details:
+  - Relevance: user-pressure and lure behaviour.
+  - Meaning: repeated alert/confirm/prompt patterns are used to force user action.
+  - Chain usage: used as social-engineering and execution-enable stage.
+
+## js_runtime_lotl_api_chain_execution
+
+- ID: `js_runtime_lotl_api_chain_execution`
+- Label: Living-off-the-land API chain execution
+- Description: JavaScript chained benign host APIs from environment and staging surfaces into execution behaviour.
+- Tags: javascript, lotl, runtime
+- Details:
+  - Relevance: low-noise abuse of legitimate APIs.
+  - Meaning: environment + file staging + execution chain occurs without direct downloader API dependence.
+  - Chain usage: used as stealthy staging-to-execution path.
+
+## js_runtime_api_sequence_malicious
+
+- ID: `js_runtime_api_sequence_malicious`
+- Label: Suspicious API call sequence
+- Description: JavaScript executed a suspicious source/transform/sink API sequence consistent with staged malicious intent.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: resilient detection against syntactic rewrites.
+  - Meaning: source acquisition APIs are chained with transformation calls and sensitive sinks.
+  - Chain usage: used as a sequence-level intent signal for rewritten malware.
+
+## js_runtime_source_sink_complexity
+
+- ID: `js_runtime_source_sink_complexity`
+- Label: Complex source-to-sink data flow
+- Description: JavaScript routed data from acquisition sources to sensitive sinks with a multi-step transformation chain.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: obfuscation-resilient flow analysis.
+  - Meaning: multi-step transforms between source and sink increase suspicion even when individual calls look benign.
+  - Chain usage: used to prioritise staged source-to-sink flows.
+
+## js_runtime_entropy_at_sink
+
+- ID: `js_runtime_entropy_at_sink`
+- Label: High-entropy payload at execution sink
+- Description: JavaScript passed high-entropy runtime strings into execution sinks, consistent with obfuscated payload staging.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: detects encoded/packed payload material reaching execution.
+  - Meaning: high-entropy sink arguments indicate likely hidden executable content.
+  - Chain usage: used as execution-stage obfuscation signal.
+
+## js_runtime_dynamic_string_materialisation
+
+- ID: `js_runtime_dynamic_string_materialisation`
+- Label: Dynamic string materialisation into execution sink
+- Description: JavaScript dynamically materialised executable strings before invoking execution sinks.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: runtime reconstruction of payload content.
+  - Meaning: decoded or constructed strings are staged then executed.
+  - Chain usage: used as runtime payload build-and-exec signal.
+
+## js_semantic_source_to_sink_flow
+
+- ID: `js_semantic_source_to_sink_flow`
+- Label: Semantic source-to-sink flow detected
+- Description: AST semantic call graph indicates a source-to-sink flow with transformation depth, resilient to syntactic rewrites.
+- Tags: ast, javascript, semantic
+- Details:
+  - Relevance: semantics-first detection for rewritten malware.
+  - Meaning: call graph analysis links source calls to sinks through transformation steps.
+  - Chain usage: used as static semantic corroboration for behavioural findings.
 
 ## js_time_evasion
 
@@ -1291,6 +1696,28 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: advanced obfuscation.
   - Meaning: large switch statements or dispatchers hide actual program flow.
   - Chain usage: used as an obfuscation technique to evade analysis.
+
+## js_dead_code_injection
+
+- ID: `js_dead_code_injection`
+- Label: Dead code injection obfuscation
+- Description: JavaScript contains unreachable branches or post-terminator code consistent with anti-analysis dead-code injection.
+- Tags: evasion, javascript, obfuscation
+- Details:
+  - Relevance: anti-analysis and analyst time-wasting technique.
+  - Meaning: deliberately unreachable logic is mixed with live code to obscure payload intent.
+  - Chain usage: used as a structural obfuscation layer prior to execution stages.
+
+## js_array_rotation_decode
+
+- ID: `js_array_rotation_decode`
+- Label: Array rotation decode pattern
+- Description: JavaScript contains string-array rotation decode patterns common in obfuscator-style loaders.
+- Tags: evasion, javascript, obfuscation
+- Details:
+  - Relevance: common string decryption and payload materialisation primitive.
+  - Meaning: push/shift rotation with indexed lookup suggests staged deobfuscation.
+  - Chain usage: used as an intermediate decode stage before dynamic eval or sink invocation.
 
 ## js_credential_harvesting
 
@@ -2095,6 +2522,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
+## linearization_integrity
+
+- ID: `linearization_integrity`
+- Label: Linearization integrity anomaly
+- Description: Linearization dictionary integrity checks failed (size, hint offsets, xref relation, or object ordering).
+- Tags: evasion, structure
+- Details:
+  - Relevance: parser differential/evasion risk.
+  - Meaning: linearisation metadata is inconsistent with file layout and may yield reader-specific object loading.
+  - Chain usage: used as structural parser-divergence context.
+
 ## linearization_multiple
 
 - ID: `linearization_multiple`
@@ -2448,6 +2886,94 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: object bodies disagree on detected content type.
   - Chain usage: signals evasive or staged payload tactics.
 
+## shadow_hide_attack
+
+- ID: `shadow_hide_attack`
+- Label: Shadow hide attack indicators
+- Description: Post-signature revision added overlay annotation/form appearances that can obscure signed content.
+- Tags: evasion, signature, structure
+- Details:
+  - Relevance: signed-content integrity bypass.
+  - Meaning: overlays added after signing can hide previously signed visual content.
+  - Chain usage: used as post-signature tampering indicator.
+
+## shadow_replace_attack
+
+- ID: `shadow_replace_attack`
+- Label: Shadow replace attack indicators
+- Description: Post-signature revision changed page/content object semantics compared with the signed revision.
+- Tags: evasion, signature, structure
+- Details:
+  - Relevance: signed-content integrity bypass.
+  - Meaning: shadowed page/content objects differ across the signature boundary.
+  - Chain usage: used as post-signature replacement indicator.
+
+## shadow_hide_replace_attack
+
+- ID: `shadow_hide_replace_attack`
+- Label: Shadow hide-and-replace attack indicators
+- Description: Post-signature revision combines overlay additions with content replacement.
+- Tags: evasion, signature, structure
+- Details:
+  - Relevance: high-confidence signed-content tampering.
+  - Meaning: both hide and replace patterns are present across the signature boundary.
+  - Chain usage: used as critical shadow-attack composite indicator.
+
+## certified_doc_manipulation
+
+- ID: `certified_doc_manipulation`
+- Label: Certified document manipulation indicators
+- Description: Post-certification visual updates were detected and assessed against DocMDP permission constraints.
+- Tags: crypto, evasion, signature, structure
+- Details:
+  - Relevance: certification-integrity bypass and trust abuse.
+  - Meaning: annotation and/or signature-field overlays were added after certification, with severity/confidence adjusted by P1-P3 policy compliance.
+  - Chain usage: used as certified tampering indicator with cross-revision diff context.
+
+## revision_page_content_changed
+
+- ID: `revision_page_content_changed`
+- Label: Revision page content changed
+- Description: Page/content objects changed across revisions, indicating likely visual content modification.
+- Tags: evasion, revision, structure
+- Details:
+  - Relevance: post-revision visual tampering risk.
+  - Meaning: /Page or content-related object semantics differ between revision boundaries.
+  - Chain usage: used as revision-level visual mutation indicator.
+
+## revision_annotations_changed
+
+- ID: `revision_annotations_changed`
+- Label: Revision annotations changed
+- Description: Annotation objects were added or modified across revisions.
+- Tags: evasion, revision, structure
+- Details:
+  - Relevance: overlay and interaction-surface mutation risk.
+  - Meaning: annotation deltas were observed in incremental updates.
+  - Chain usage: used as annotation-based evasion/tampering indicator.
+
+## revision_catalog_changed
+
+- ID: `revision_catalog_changed`
+- Label: Revision catalog changed
+- Description: Document catalog/root structures changed across revisions.
+- Tags: evasion, revision, structure
+- Details:
+  - Relevance: behaviour-level document mutation.
+  - Meaning: catalog-level semantics changed (e.g., action roots or document structure controls).
+  - Chain usage: used as high-signal structural tampering indicator.
+
+## revision_anomaly_scoring
+
+- ID: `revision_anomaly_scoring`
+- Label: Revision anomaly scoring
+- Description: Revision-level anomaly scoring indicates unusual incremental-update mutation patterns.
+- Tags: evasion, revision, scoring
+- Details:
+  - Relevance: prioritised triage for suspicious update sequences.
+  - Meaning: one or more revisions exceed anomaly thresholds based on weighted structural/behavioural deltas.
+  - Chain usage: used as aggregate revision-risk indicator.
+
 ## parse_disagreement
 
 - ID: `parse_disagreement`
@@ -2458,6 +2984,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser disagreement can indicate hidden revisions or parsing tricks.
   - Meaning: carved object definitions differ from the primary parser view.
   - Chain usage: highlights stealthy payload delivery.
+
+## parser_divergence_risk
+
+- ID: `parser_divergence_risk`
+- Label: Parser divergence risk
+- Description: Multiple divergence indicators suggest the PDF may render differently across readers or parser strictness levels.
+- Tags: evasion, parser, structure
+- Details:
+  - Relevance: reader-dependent rendering and detection bypass risk.
+  - Meaning: combined indicators (filter divergence, content anomalies, xref/linearisation signals) exceed the divergence threshold.
+  - Chain usage: aggregate parser-evasion indicator.
+
+## duplicate_stream_filters
+
+- ID: `duplicate_stream_filters`
+- Label: Duplicate stream payload with divergent filters
+- Description: Identical stream payload bytes are present under different filter chains.
+- Tags: evasion, filters, parser
+- Details:
+  - Relevance: parser-dependent decode behaviour.
+  - Meaning: the same payload is wrapped with conflicting filter declarations.
+  - Chain usage: low-level parser divergence building block.
+
+## content_stream_anomaly
+
+- ID: `content_stream_anomaly`
+- Label: Content stream syntax anomaly
+- Description: Decoded content stream contains unknown operators or suspicious operand counts.
+- Tags: content, evasion, parser
+- Details:
+  - Relevance: malformed content streams can render differently across readers.
+  - Meaning: operator set or operand arity deviates from expected content syntax.
+  - Chain usage: parser-divergence signal for triage and replay.
 
 ## signature_present
 
@@ -2797,6 +3356,28 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: the finding collects `uri.count_*`, `uri.schemes`, and `uri.domains_sample` plus `uri.list.*` metadata (preview/canonical/chain_depth/visibility/trigger/suspicious) so downstream consumers can inspect every URI without flooding the report. `uri.suspicious_count` highlights how many URIs matched the `UriContentDetector` heuristics.
   - Chain usage: acts as a summary node that can be joined with other findings (e.g., suspicious URIs, action chains) and remains low-noise even when hundreds of links are present.
 
+## xref_phantom_entries
+
+- ID: `xref_phantom_entries`
+- Label: Xref phantom entries detected
+- Description: Xref deviations indicate offsets or trailer references that do not resolve cleanly.
+- Tags: evasion, structure, xref
+- Details:
+  - Relevance: malformed xref structures can be used to confuse parsers and hide malicious content.
+  - Meaning: offsets or trailer lookups in the xref chain are inconsistent with parseable object structure.
+  - Chain usage: structural evasion indicator; combine with other findings for escalation.
+
+## empty_objstm_padding
+
+- ID: `empty_objstm_padding`
+- Label: Sparse ObjStm padding detected
+- Description: One or more object streams declare many embedded objects but contain little or no expanded content.
+- Tags: evasion, structure, objstm
+- Details:
+  - Relevance: sparse object streams can be used as structural padding to dilute suspicious content density.
+  - Meaning: declared embedded-object counts are inconsistent with expanded object presence.
+  - Chain usage: structural evasion indicator; correlate with other concealment findings.
+
 ## xfa_present
 
 - ID: `xfa_present`
@@ -2818,6 +3399,61 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
+
+## trailer_root_conflict
+
+- ID: `trailer_root_conflict`
+- Label: Conflicting trailer /Root references
+- Description: Multiple xref sections declare different trailer /Root references.
+- Tags: evasion, structure, trailer
+- Details:
+  - Relevance: conflicting root references can steer different parsers to different document states.
+  - Meaning: incremental update chain has inconsistent catalogue root targets.
+  - Chain usage: structural evasion indicator; useful when correlating revision tampering.
+
+## null_object_density
+
+- ID: `null_object_density`
+- Label: High null object density
+- Description: Object graph contains an unusually high density of null placeholder objects.
+- Tags: evasion, structure
+- Details:
+  - Relevance: null-padding can dilute malicious signal density and hinder triage.
+  - Meaning: a large fraction of objects are structural placeholders with no content.
+  - Chain usage: low-confidence structural evasion signal that should be aggregated with other indicators.
+
+## structural_decoy_objects
+
+- ID: `structural_decoy_objects`
+- Label: Unreachable decoy object cluster
+- Description: A substantial set of non-null objects is unreachable from the catalog root.
+- Tags: evasion, structure
+- Details:
+  - Relevance: unreachable object clusters may hide alternate payload paths or padded decoys.
+  - Meaning: reachability walk from trailer `/Root` does not include a large object subset.
+  - Chain usage: structural evasion indicator suited for composite scoring.
+
+## structural_decoy_objects_scan_limited
+
+- ID: `structural_decoy_objects_scan_limited`
+- Label: Structural decoy scan limited
+- Description: Decoy object reachability scan was skipped because object count exceeded the configured cap.
+- Tags: diagnostic, performance, structure
+- Details:
+  - Relevance: large object graphs can exceed safe detector budgets.
+  - Meaning: analysis is intentionally bounded to protect throughput and stability.
+  - Chain usage: operational signal indicating partial structural coverage.
+
+## structural_evasion_composite
+
+- ID: `structural_evasion_composite`
+- Label: Composite structural evasion pattern
+- Description: Detected 3 or more structural evasion indicators in the same document.
+- Tags: evasion, structure, composite
+- Details:
+  - Relevance: multiple weak structural indicators together substantially increase malicious-evasion likelihood.
+  - Meaning: detector aggregates distinct structural signals (`evasion.composite_indicators`) using a threshold gate.
+  - Chain usage: prioritisation finding for analyst triage and correlation workflows.
 
 ## launch_obfuscated_executable
 

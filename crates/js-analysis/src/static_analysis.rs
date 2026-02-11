@@ -9,6 +9,9 @@ pub struct DecodedLayers {
     pub layers: usize,
 }
 
+const MAX_DECODE_LAYERS_HARD: usize = 8;
+const MAX_DECODE_BYTES_PER_LAYER: usize = 256 * 1024;
+
 pub fn extract_js_signals(data: &[u8]) -> HashMap<String, String> {
     extract_js_signals_with_ast(data, true)
 }
@@ -65,6 +68,9 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
         "js.environment_fingerprinting".into(),
         bool_str(contains_environment_fingerprinting(data)),
     );
+    out.insert("js.jsfuck_encoding".into(), bool_str(detect_jsfuck_encoding(data)));
+    out.insert("js.jjencode_encoding".into(), bool_str(detect_jjencode_encoding(data)));
+    out.insert("js.aaencode_encoding".into(), bool_str(detect_aaencode_encoding(data)));
     out.insert("js.string_concat_density".into(), format!("{:.3}", byte_density(data, b'+')));
     out.insert("js.escape_density".into(), format!("{:.3}", byte_density(data, b'\\')));
     out.insert("js.regex_packing".into(), bool_str(contains_regex_packing(data)));
@@ -78,6 +84,10 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
     out.insert("js.type_confusion_risk".into(), bool_str(detect_type_confusion(data)));
     out.insert("js.integer_overflow_setup".into(), bool_str(detect_integer_overflow(data)));
     out.insert("js.array_manipulation_exploit".into(), bool_str(detect_array_manipulation(data)));
+    out.insert("js.heap_grooming".into(), bool_str(detect_heap_grooming(data)));
+    out.insert("js.lfh_priming".into(), bool_str(detect_lfh_priming(data)));
+    out.insert("js.rop_chain_construction".into(), bool_str(detect_rop_chain_construction(data)));
+    out.insert("js.info_leak_primitive".into(), bool_str(detect_info_leak_primitive(data)));
 
     // Anti-analysis techniques
     out.insert("js.debugger_detection".into(), bool_str(detect_debugger_detection(data)));
@@ -92,6 +102,8 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
 
     // Advanced obfuscation
     out.insert("js.control_flow_flattening".into(), bool_str(detect_control_flow_flattening(data)));
+    out.insert("js.dead_code_injection".into(), bool_str(detect_dead_code_injection(data)));
+    out.insert("js.array_rotation_decode".into(), bool_str(detect_array_rotation_decode(data)));
     out.insert("js.opaque_predicates".into(), bool_str(detect_opaque_predicates(data)));
     out.insert("js.identifier_mangling".into(), bool_str(detect_identifier_mangling(data)));
 
@@ -197,6 +209,13 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
 
     out.insert("js.ast_parsed".into(), "false".into());
     out.insert("js.sandbox_exec".into(), "false".into());
+    out.insert("js.semantic_source_to_sink_flow".into(), "false".into());
+    out.insert("js.semantic_call_graph_nodes".into(), "0".into());
+    out.insert("js.semantic_call_graph_edges".into(), "0".into());
+    out.insert("js.semantic_source_calls".into(), "0".into());
+    out.insert("js.semantic_sink_calls".into(), "0".into());
+    out.insert("js.semantic_transform_calls".into(), "0".into());
+    out.insert("js.semantic_flow_complexity".into(), "0".into());
     #[cfg(feature = "js-ast")]
     {
         if enable_ast {
@@ -215,6 +234,24 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
                     out.insert("js.ast_domains".into(), summary.domains.join(", "));
                 }
             }
+            if let Some(metrics) = semantic_call_graph_metrics(data) {
+                out.insert("js.semantic_call_graph_nodes".into(), metrics.node_count.to_string());
+                out.insert("js.semantic_call_graph_edges".into(), metrics.edge_count.to_string());
+                out.insert("js.semantic_source_calls".into(), metrics.source_calls.to_string());
+                out.insert("js.semantic_sink_calls".into(), metrics.sink_calls.to_string());
+                out.insert(
+                    "js.semantic_transform_calls".into(),
+                    metrics.transform_calls.to_string(),
+                );
+                out.insert(
+                    "js.semantic_flow_complexity".into(),
+                    metrics.max_transform_depth.to_string(),
+                );
+                out.insert(
+                    "js.semantic_source_to_sink_flow".into(),
+                    bool_str(metrics.has_source_sink_flow),
+                );
+            }
         }
     }
 
@@ -226,11 +263,15 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
 pub fn decode_layers(data: &[u8], max_layers: usize) -> DecodedLayers {
     let mut current = data.to_vec();
     let mut layers = 0usize;
+    let target_layers = max_layers.min(MAX_DECODE_LAYERS_HARD);
     loop {
-        if layers >= max_layers {
+        if layers >= target_layers {
             break;
         }
         if let Some(next) = decode_once(&current) {
+            if next.len() > MAX_DECODE_BYTES_PER_LAYER {
+                break;
+            }
             current = next;
             layers += 1;
             continue;
@@ -241,20 +282,95 @@ pub fn decode_layers(data: &[u8], max_layers: usize) -> DecodedLayers {
 }
 
 fn decode_once(data: &[u8]) -> Option<Vec<u8>> {
+    if let Some(inner) = extract_wrapped_literal(
+        data,
+        &["eval(unescape(", "unescape(", "decodeURIComponent(", "decodeURI("],
+    ) {
+        if let Some(decoded) = decode_percent_escapes(inner.as_bytes()) {
+            return Some(decoded);
+        }
+    }
+    if let Some(decoded) = decode_percent_escapes(data) {
+        return Some(decoded);
+    }
     if let Some(decoded) = decode_js_escapes(data) {
+        return Some(decoded);
+    }
+    if let Some(inner) =
+        extract_wrapped_literal(data, &["eval(atob(", "atob(", "window.atob(", "self.atob("])
+    {
+        if looks_encoded_base64(inner.as_bytes()) {
+            if let Ok(decoded) = STANDARD.decode(inner.as_bytes()) {
+                if decoded.len() > 4 {
+                    return Some(decoded);
+                }
+            }
+        }
+    }
+    if let Some(decoded) = decode_from_charcode_string(data) {
         return Some(decoded);
     }
     if let Some(decoded) = decode_hex_string(data) {
         return Some(decoded);
     }
-    if is_base64_like(data) {
+    if let Some(literal) = extract_long_base64_literal(data) {
+        if let Ok(decoded) = STANDARD.decode(literal.as_bytes()) {
+            if decoded.len() > 8 {
+                return Some(decoded);
+            }
+        }
+    }
+    if looks_encoded_base64(data) {
         if let Ok(decoded) = STANDARD.decode(data) {
-            if decoded.len() > 16 {
+            if decoded.len() > 4 {
                 return Some(decoded);
             }
         }
     }
     None
+}
+
+fn decode_from_charcode_string(data: &[u8]) -> Option<Vec<u8>> {
+    let text = std::str::from_utf8(data).ok()?;
+    let mut values = Vec::new();
+    for (idx, _) in text.match_indices("fromCharCode(") {
+        let start = idx + "fromCharCode(".len();
+        let Some(end) = text[start..].find(')') else {
+            continue;
+        };
+        let args = &text[start..start + end];
+        let mut decoded = String::new();
+        let mut all_numeric = true;
+        for token in args.split(',').map(str::trim).filter(|token| !token.is_empty()) {
+            let numeric = token.trim_matches('\'').trim_matches('"');
+            let value = if let Some(hex) = numeric.strip_prefix("0x") {
+                i64::from_str_radix(hex, 16).ok()
+            } else {
+                numeric.parse::<i64>().ok()
+            };
+            let Some(code) = value else {
+                all_numeric = false;
+                break;
+            };
+            if !(0..=0x10FFFF).contains(&code) {
+                all_numeric = false;
+                break;
+            }
+            let Some(ch) = char::from_u32(code as u32) else {
+                all_numeric = false;
+                break;
+            };
+            decoded.push(ch);
+        }
+        if all_numeric && !decoded.is_empty() {
+            values.push(decoded);
+        }
+    }
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.join("").into_bytes())
+    }
 }
 
 fn decode_js_escapes(data: &[u8]) -> Option<Vec<u8>> {
@@ -278,7 +394,9 @@ fn decode_js_escapes(data: &[u8]) -> Option<Vec<u8>> {
                     if let Ok(hex_digits) = std::str::from_utf8(&data[i + 2..i + 6]) {
                         if let Ok(v) = u16::from_str_radix(hex_digits, 16) {
                             if let Some(s) = std::char::from_u32(v as u32) {
-                                out.push(s as u8);
+                                let mut encoded = [0u8; 4];
+                                let utf8 = s.encode_utf8(&mut encoded);
+                                out.extend_from_slice(utf8.as_bytes());
                                 i += 6;
                                 changed = true;
                                 continue;
@@ -297,6 +415,111 @@ fn decode_js_escapes(data: &[u8]) -> Option<Vec<u8>> {
     } else {
         None
     }
+}
+
+fn decode_percent_escapes(data: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(data.len());
+    let mut changed = false;
+    let mut index = 0usize;
+    while index < data.len() {
+        if data[index] == b'%' && index + 2 < data.len() {
+            if data[index + 1] == b'u' || data[index + 1] == b'U' {
+                if index + 5 < data.len() {
+                    if let Ok(hex_digits) = std::str::from_utf8(&data[index + 2..index + 6]) {
+                        if let Ok(value) = u16::from_str_radix(hex_digits, 16) {
+                            if let Some(ch) = char::from_u32(value as u32) {
+                                let mut encoded = [0u8; 4];
+                                let utf8 = ch.encode_utf8(&mut encoded);
+                                out.extend_from_slice(utf8.as_bytes());
+                                index += 6;
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                }
+            } else if let Ok(hex_digits) = std::str::from_utf8(&data[index + 1..index + 3]) {
+                if let Ok(value) = u8::from_str_radix(hex_digits, 16) {
+                    out.push(value);
+                    index += 3;
+                    changed = true;
+                    continue;
+                }
+            }
+        }
+        out.push(data[index]);
+        index += 1;
+    }
+    if changed {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+fn extract_wrapped_literal(data: &[u8], prefixes: &[&str]) -> Option<String> {
+    let text = std::str::from_utf8(data).ok()?;
+    for prefix in prefixes {
+        if let Some(start_idx) = text.find(prefix) {
+            let mut cursor = start_idx + prefix.len();
+            while cursor < text.len() && text.as_bytes()[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            let quote = text.as_bytes().get(cursor).copied()?;
+            if quote != b'\'' && quote != b'"' {
+                continue;
+            }
+            cursor += 1;
+            let mut escaped = false;
+            let mut end = cursor;
+            while end < text.len() {
+                let byte = text.as_bytes()[end];
+                if byte == b'\\' && !escaped {
+                    escaped = true;
+                    end += 1;
+                    continue;
+                }
+                if byte == quote && !escaped {
+                    return Some(text[cursor..end].to_string());
+                }
+                escaped = false;
+                end += 1;
+            }
+        }
+    }
+    None
+}
+
+fn extract_long_base64_literal(data: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(data).ok()?;
+    let bytes = text.as_bytes();
+    let mut idx = 0usize;
+    while idx < bytes.len() {
+        if bytes[idx] != b'\'' && bytes[idx] != b'"' {
+            idx += 1;
+            continue;
+        }
+        let quote = bytes[idx];
+        idx += 1;
+        let start = idx;
+        while idx < bytes.len() && bytes[idx] != quote {
+            idx += 1;
+        }
+        if idx <= start || idx >= bytes.len() {
+            break;
+        }
+        let candidate = &text[start..idx];
+        if candidate.len() >= 24
+            && candidate
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '/' | '='))
+            && candidate.contains('=')
+        {
+            return Some(candidate.to_string());
+        }
+        idx += 1;
+    }
+    None
 }
 
 fn decode_hex_string(data: &[u8]) -> Option<Vec<u8>> {
@@ -331,6 +554,15 @@ fn is_base64_like(data: &[u8]) -> bool {
             || *b == b'='
             || b.is_ascii_whitespace()
     })
+}
+
+fn looks_encoded_base64(data: &[u8]) -> bool {
+    let has_marker = data.iter().any(|byte| matches!(byte, b'=' | b'+' | b'/'));
+    let has_digit = data.iter().any(|byte| byte.is_ascii_digit());
+    let has_upper = data.iter().any(|byte| byte.is_ascii_uppercase());
+    let has_lower = data.iter().any(|byte| byte.is_ascii_lowercase());
+    let markerless_candidate = has_digit && has_upper && has_lower && data.len() >= 16;
+    is_base64_like(data) && (has_marker || markerless_candidate) && data.len() >= 8
 }
 
 fn count_base64_like_runs(data: &[u8], min_len: usize) -> usize {
@@ -457,6 +689,105 @@ fn contains_environment_fingerprinting(data: &[u8]) -> bool {
     has_fingerprinting && has_conditional
 }
 
+fn detect_jsfuck_encoding(data: &[u8]) -> bool {
+    let mut token_chars = 0usize;
+    let mut allowed_chars = 0usize;
+
+    for &byte in data {
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        if !byte.is_ascii() {
+            return false;
+        }
+        token_chars += 1;
+        if matches!(byte, b'[' | b']' | b'(' | b')' | b'!' | b'+') {
+            allowed_chars += 1;
+        }
+    }
+
+    if token_chars < 50 {
+        return false;
+    }
+    allowed_chars.saturating_mul(100) / token_chars >= 80
+}
+
+fn detect_jjencode_encoding(data: &[u8]) -> bool {
+    let text = match std::str::from_utf8(data) {
+        Ok(text) => text,
+        Err(_) => return false,
+    };
+
+    let has_signature_preamble = text.contains("$=~[]") || text.contains("$_");
+    let mut token_chars = 0usize;
+    let mut charset_chars = 0usize;
+    let mut bracket_pairs = 0usize;
+    for byte in text.bytes() {
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        token_chars += 1;
+        if matches!(
+            byte,
+            b'[' | b']'
+                | b'('
+                | b')'
+                | b'!'
+                | b'+'
+                | b','
+                | b'"'
+                | b'$'
+                | b'.'
+                | b':'
+                | b';'
+                | b'_'
+                | b'{'
+                | b'}'
+                | b'~'
+                | b'='
+        ) {
+            charset_chars += 1;
+        }
+        if byte == b'[' || byte == b']' {
+            bracket_pairs += 1;
+        }
+    }
+
+    if token_chars < 60 {
+        return false;
+    }
+    let charset_dense = charset_chars.saturating_mul(100) / token_chars >= 70;
+    has_signature_preamble || (charset_dense && bracket_pairs >= 12)
+}
+
+fn detect_aaencode_encoding(data: &[u8]) -> bool {
+    let text = match std::str::from_utf8(data) {
+        Ok(text) => text,
+        Err(_) => return false,
+    };
+
+    let mut fullwidth_count = 0usize;
+    let mut visible_count = 0usize;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            continue;
+        }
+        visible_count += 1;
+        if ('\u{ff00}'..='\u{ffef}').contains(&ch) {
+            fullwidth_count += 1;
+        }
+    }
+    if visible_count == 0 {
+        return false;
+    }
+
+    let fullwidth_dense =
+        fullwidth_count >= 8 && fullwidth_count.saturating_mul(100) / visible_count >= 8;
+    fullwidth_dense
+        && text.contains("(function(")
+        && text.to_ascii_lowercase().contains("constructor")
+}
+
 fn byte_density(data: &[u8], byte: u8) -> f64 {
     if data.is_empty() {
         return 0.0;
@@ -509,6 +840,174 @@ struct AstSummary {
     call_args: Vec<String>,
     urls: Vec<String>,
     domains: Vec<String>,
+}
+
+#[cfg(feature = "js-ast")]
+struct SemanticCallGraphMetrics {
+    node_count: usize,
+    edge_count: usize,
+    source_calls: usize,
+    sink_calls: usize,
+    transform_calls: usize,
+    max_transform_depth: usize,
+    has_source_sink_flow: bool,
+}
+
+#[cfg(feature = "js-ast")]
+fn is_semantic_source_call(name: &str) -> bool {
+    matches!(
+        name,
+        "getAnnots"
+            | "doc.getAnnots"
+            | "event.target.getAnnots"
+            | "getAnnot"
+            | "doc.getAnnot"
+            | "event.target.getAnnot"
+            | "getField"
+            | "doc.getField"
+            | "event.target.getField"
+            | "document.cookie"
+            | "localStorage.getItem"
+            | "sessionStorage.getItem"
+            | "navigator.clipboard.readText"
+            | "navigator.clipboard.read"
+    )
+}
+
+#[cfg(feature = "js-ast")]
+fn is_semantic_sink_call(name: &str) -> bool {
+    matches!(
+        name,
+        "eval"
+            | "Function"
+            | "app.eval"
+            | "event.target.eval"
+            | "submitForm"
+            | "mailDoc"
+            | "launchURL"
+            | "app.launchURL"
+            | "fetch"
+            | "navigator.sendBeacon"
+            | "WebSocket.send"
+            | "RTCDataChannel.send"
+            | "XMLHttpRequest.send"
+            | "MSXML2.XMLHTTP.send"
+    )
+}
+
+#[cfg(feature = "js-ast")]
+fn is_semantic_transform_call(name: &str) -> bool {
+    matches!(
+        name,
+        "unescape"
+            | "escape"
+            | "decodeURI"
+            | "decodeURIComponent"
+            | "encodeURI"
+            | "encodeURIComponent"
+            | "atob"
+            | "btoa"
+            | "String.fromCharCode"
+            | "String.substr"
+            | "String.concat"
+            | "replace"
+            | "split"
+            | "join"
+    )
+}
+
+#[cfg(feature = "js-ast")]
+fn semantic_call_graph_metrics(data: &[u8]) -> Option<SemanticCallGraphMetrics> {
+    use boa_ast::expression::Call;
+    use boa_ast::scope::Scope;
+    use boa_ast::visitor::{VisitWith, Visitor};
+    use boa_interner::{Interner, ToInternedString};
+    use boa_parser::{Parser, Source};
+    use std::collections::BTreeSet;
+
+    let src = std::str::from_utf8(data).ok()?;
+    let mut interner = Interner::default();
+    let source = Source::from_bytes(src);
+    let mut parser = Parser::new(source);
+    let scope = Scope::new_global();
+    let script = parser.parse_script(&scope, &mut interner).ok()?;
+
+    struct SequenceVisitor<'a> {
+        interner: &'a Interner,
+        sequence: Vec<String>,
+    }
+
+    impl<'ast, 'a> Visitor<'ast> for SequenceVisitor<'a> {
+        type BreakTy = ();
+
+        fn visit_call(&mut self, node: &'ast Call) -> std::ops::ControlFlow<Self::BreakTy> {
+            let name = node.function().to_interned_string(self.interner);
+            if !name.is_empty() {
+                self.sequence.push(name);
+            }
+            node.visit_with(self)
+        }
+    }
+
+    let mut visitor = SequenceVisitor { interner: &interner, sequence: Vec::new() };
+    let _ = script.visit_with(&mut visitor);
+    if visitor.sequence.is_empty() {
+        return Some(SemanticCallGraphMetrics {
+            node_count: 0,
+            edge_count: 0,
+            source_calls: 0,
+            sink_calls: 0,
+            transform_calls: 0,
+            max_transform_depth: 0,
+            has_source_sink_flow: false,
+        });
+    }
+
+    let node_count = visitor.sequence.len();
+    let edge_count = node_count.saturating_sub(1);
+    let source_calls = visitor.sequence.iter().filter(|name| is_semantic_source_call(name)).count();
+    let sink_calls = visitor.sequence.iter().filter(|name| is_semantic_sink_call(name)).count();
+    let transform_calls =
+        visitor.sequence.iter().filter(|name| is_semantic_transform_call(name)).count();
+
+    let source_indices: Vec<usize> = visitor
+        .sequence
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| if is_semantic_source_call(name) { Some(index) } else { None })
+        .collect();
+    let sink_indices: Vec<usize> = visitor
+        .sequence
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| if is_semantic_sink_call(name) { Some(index) } else { None })
+        .collect();
+    let mut has_flow = false;
+    let mut max_transform_depth = 0usize;
+    for sink_idx in sink_indices {
+        if let Some(source_idx) =
+            source_indices.iter().copied().filter(|source_idx| *source_idx < sink_idx).max()
+        {
+            has_flow = true;
+            let mut transforms = BTreeSet::new();
+            for name in visitor.sequence.iter().take(sink_idx).skip(source_idx + 1) {
+                if is_semantic_transform_call(name) {
+                    transforms.insert(name.clone());
+                }
+            }
+            max_transform_depth = max_transform_depth.max(transforms.len());
+        }
+    }
+
+    Some(SemanticCallGraphMetrics {
+        node_count,
+        edge_count,
+        source_calls,
+        sink_calls,
+        transform_calls,
+        max_transform_depth,
+        has_source_sink_flow: has_flow && max_transform_depth > 0,
+    })
 }
 
 #[cfg(feature = "js-ast")]
@@ -719,15 +1218,53 @@ fn reconstruct_payloads(data: &[u8]) -> Option<ReconstructedPayloads> {
 
     let _ = script.visit_with(&mut visitor);
 
-    Some(ReconstructedPayloads {
-        from_charcode: visitor.from_charcode,
-        concatenations: Vec::new(), // Will be implemented in Phase 2.1
-    })
+    let concatenations = reconstruct_concatenations_ast_and_regex(src);
+    Some(ReconstructedPayloads { from_charcode: visitor.from_charcode, concatenations })
 }
 
 #[cfg(not(feature = "js-ast"))]
 fn reconstruct_payloads(_data: &[u8]) -> Option<ReconstructedPayloads> {
     None
+}
+
+#[cfg(feature = "js-ast")]
+fn reconstruct_concatenations_ast_and_regex(source: &str) -> Vec<String> {
+    let mut out = Vec::new();
+
+    for line in source.lines() {
+        let bytes = line.as_bytes();
+        let mut index = 0usize;
+        let mut parts = Vec::new();
+        while index < bytes.len() {
+            if bytes[index] == b'\'' || bytes[index] == b'"' {
+                let quote = bytes[index];
+                index += 1;
+                let start = index;
+                while index < bytes.len() && bytes[index] != quote {
+                    if bytes[index] == b'\\' {
+                        index = index.saturating_add(2);
+                        continue;
+                    }
+                    index += 1;
+                }
+                if index <= bytes.len() {
+                    let literal = &line[start..index.min(bytes.len())];
+                    parts.push(literal.to_string());
+                }
+            }
+            index += 1;
+        }
+        if parts.len() >= 2 && line.contains('+') {
+            let joined = parts.join("");
+            if !joined.is_empty() {
+                out.push(joined);
+            }
+        }
+    }
+
+    out.sort();
+    out.dedup();
+    out
 }
 
 #[cfg(feature = "js-ast")]
@@ -971,6 +1508,112 @@ fn detect_array_manipulation(data: &[u8]) -> bool {
     count >= 4
 }
 
+fn detect_heap_grooming(data: &[u8]) -> bool {
+    let has_loop = find_token(data, b"for(")
+        || find_token(data, b"for (")
+        || find_token(data, b"while(")
+        || find_token(data, b"while (");
+    let alloc_loop = has_loop && find_token(data, b"ArrayBuffer(");
+    let typed_view_with_offset = (find_token(data, b"new Uint8Array(")
+        || find_token(data, b"new Uint16Array(")
+        || find_token(data, b"new Uint32Array(")
+        || find_token(data, b"new Float64Array("))
+        && (find_token(data, b"byteOffset")
+            || find_token(data, b"subarray(")
+            || find_token(data, b", 0x")
+            || find_token(data, b",0x")
+            || find_token(data, b", 0,")
+            || find_token(data, b",0,"));
+    let dataview_computed_offsets = find_token(data, b"new DataView(")
+        && (find_token(data, b"setUint32(")
+            || find_token(data, b"setUint16(")
+            || find_token(data, b"setFloat64(")
+            || find_token(data, b"getUint32(")
+            || find_token(data, b"getFloat64("))
+        && (find_token(data, b"+ 0x") || find_token(data, b"<<") || find_token(data, b"offset"));
+
+    let indicators = [alloc_loop, typed_view_with_offset, dataview_computed_offsets]
+        .iter()
+        .filter(|flag| **flag)
+        .count();
+    indicators >= 2
+}
+
+fn detect_lfh_priming(data: &[u8]) -> bool {
+    let repeated_alloc = find_token(data, b"ArrayBuffer(")
+        && (find_token(data, b"for(")
+            || find_token(data, b"for (")
+            || find_token(data, b"while(")
+            || find_token(data, b"while (")
+            || find_token(data, b"do{")
+            || find_token(data, b"do {"));
+    let free_cycle = find_token(data, b"= null")
+        || find_token(data, b".fill(0)")
+        || find_token(data, b".splice(")
+        || find_token(data, b".length = 0");
+    let targeted_follow_up = find_token(data, b"new DataView(")
+        || find_token(data, b"new Uint32Array(")
+        || find_token(data, b"new Float64Array(");
+
+    repeated_alloc && free_cycle && targeted_follow_up
+}
+
+fn detect_rop_chain_construction(data: &[u8]) -> bool {
+    let base_address_arithmetic = (find_token(data, b"0x7ff")
+        || find_token(data, b"0x10000000")
+        || find_token(data, b"0x140000000")
+        || find_token(data, b"kernel32")
+        || find_token(data, b"ntdll"))
+        && (find_token(data, b"+ 0x")
+            || find_token(data, b"- 0x")
+            || find_token(data, b"<<")
+            || find_token(data, b">>>"));
+    let gadget_write_sequence = (find_token(data, b"setUint32(")
+        || find_token(data, b"setBigUint64(")
+        || find_token(data, b"setFloat64("))
+        && (find_token(data, b"rop")
+            || find_token(data, b"gadget")
+            || find_token(data, b"chain")
+            || find_token(data, b"pivot")
+            || find_token(data, b"returnAddress"));
+    let address_like_constants =
+        data.windows(2).filter(|window| window.eq_ignore_ascii_case(b"0x")).count() >= 6;
+    let sequential_writes = find_token(data, b"setUint32(i")
+        || find_token(data, b"setUint32(idx")
+        || find_token(data, b"setBigUint64(i")
+        || find_token(data, b"setFloat64(i");
+
+    (base_address_arithmetic && gadget_write_sequence)
+        || (address_like_constants && sequential_writes && find_token(data, b"DataView"))
+}
+
+fn detect_info_leak_primitive(data: &[u8]) -> bool {
+    let has_buffer_and_view = find_token(data, b"ArrayBuffer(")
+        && (find_token(data, b"Uint8Array(")
+            || find_token(data, b"Uint32Array(")
+            || find_token(data, b"Float64Array(")
+            || find_token(data, b"DataView("));
+    let length_mutation_or_compare = find_token(data, b".length")
+        && (find_token(data, b"byteLength")
+            || find_token(data, b"!=")
+            || find_token(data, b">")
+            || find_token(data, b"<"));
+    let out_of_bounds_style_access = find_token(data, b"[i + ")
+        || find_token(data, b"[idx + ")
+        || find_token(data, b"[offset + ")
+        || find_token(data, b"getUint32(")
+        || find_token(data, b"getFloat64(");
+    let corruption_markers = find_token(data, b"oob")
+        || find_token(data, b"outOfBounds")
+        || find_token(data, b"leak")
+        || find_token(data, b"addrOf")
+        || find_token(data, b"fakeobj");
+
+    has_buffer_and_view
+        && length_mutation_or_compare
+        && ((out_of_bounds_style_access && find_token(data, b"byteLength")) || corruption_markers)
+}
+
 // ============================================================================
 // Anti-Analysis Techniques
 // ============================================================================
@@ -1073,6 +1716,7 @@ fn detect_encoded_transmission(data: &[u8]) -> bool {
 // ============================================================================
 
 fn detect_control_flow_flattening(data: &[u8]) -> bool {
+    let source = String::from_utf8_lossy(data);
     let switch_count = data.windows(6).filter(|w| w == b"switch").count();
 
     // Large switch statements (potential dispatcher)
@@ -1081,8 +1725,101 @@ fn detect_control_flow_flattening(data: &[u8]) -> bool {
     }
 
     // Check for while(true) with switch (common flattening pattern)
-    let has_infinite_loop = find_token(data, b"while(true)") || find_token(data, b"while(1)");
-    has_infinite_loop && switch_count >= 1
+    let has_infinite_loop = find_token(data, b"while(true)")
+        || find_token(data, b"while(1)")
+        || find_token(data, b"while (true)")
+        || find_token(data, b"while (1)");
+    let has_while_switch_dispatch = has_infinite_loop && switch_count >= 1;
+    if has_while_switch_dispatch {
+        return true;
+    }
+
+    let has_state_dispatch = source.contains("[state++]")
+        || source.contains("[++state]")
+        || source.contains("[idx++]")
+        || source.contains("[++idx]")
+        || source.contains("[i++]");
+    let has_dispatch_call = source.contains("](") || source.contains("]();");
+    if has_state_dispatch && has_dispatch_call {
+        return true;
+    }
+
+    source.contains("[keys[") && source.contains("]](")
+}
+
+fn detect_dead_code_injection(data: &[u8]) -> bool {
+    let source = String::from_utf8_lossy(data);
+    let unreachable_condition_markers =
+        ["if(false)", "if (false)", "if(0)", "if (0)", "while(false)", "while (false)"];
+    let marker_count = unreachable_condition_markers
+        .iter()
+        .map(|marker| source.match_indices(marker).count())
+        .sum::<usize>();
+    let post_terminator_count = count_unreachable_after_terminator(source.as_ref());
+    let dead_markers = marker_count + post_terminator_count;
+    let live_markers = source.matches("if(").count()
+        + source.matches("if (").count()
+        + source.matches("for(").count()
+        + source.matches("while(").count()
+        + source.matches("function ").count()
+        + source.matches("=>").count();
+    let denominator = live_markers.max(1);
+    let ratio = dead_markers as f64 / denominator as f64;
+    (dead_markers >= 2 && ratio >= 0.3) || dead_markers >= 4
+}
+
+fn count_unreachable_after_terminator(source: &str) -> usize {
+    let mut count = 0usize;
+    let bytes = source.as_bytes();
+    let mut index = 0usize;
+    while index + 6 < bytes.len() {
+        let remainder = &bytes[index..];
+        let terminator_len = if remainder.starts_with(b"return") {
+            6
+        } else if remainder.starts_with(b"throw") {
+            5
+        } else {
+            index += 1;
+            continue;
+        };
+        let mut semicolon = index + terminator_len;
+        while semicolon < bytes.len() && bytes[semicolon] != b';' && bytes[semicolon] != b'\n' {
+            semicolon += 1;
+        }
+        if semicolon >= bytes.len() {
+            break;
+        }
+        let mut probe = semicolon + 1;
+        while probe < bytes.len() && bytes[probe].is_ascii_whitespace() {
+            probe += 1;
+        }
+        if probe < bytes.len()
+            && bytes[probe] != b'}'
+            && bytes[probe] != b'/'
+            && bytes[probe] != b';'
+        {
+            count += 1;
+        }
+        index = semicolon + 1;
+    }
+    count
+}
+
+fn detect_array_rotation_decode(data: &[u8]) -> bool {
+    let source = String::from_utf8_lossy(data);
+    let has_rotation = source.contains(".push(") && source.contains(".shift(");
+    let has_iife_wrapper =
+        source.contains("(function(") && (source.contains("})(") || source.contains("}("));
+    let has_hex_seed = source.contains("0x");
+    let has_indexed_lookup = source.contains("[_0x")
+        || source.contains("[arr[")
+        || source.contains("[0x")
+        || source.contains("[0X");
+    let has_rotation_loop =
+        source.contains("while(--") || source.contains("while (--)") || source.contains("for(;--");
+
+    (has_rotation && has_iife_wrapper && (has_hex_seed || has_rotation_loop))
+        || (has_rotation && has_indexed_lookup && has_hex_seed)
 }
 
 fn detect_opaque_predicates(data: &[u8]) -> bool {

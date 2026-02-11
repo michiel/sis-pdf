@@ -85,6 +85,140 @@ impl Detector for JsPolymorphicDetector {
                         positions: Vec::new(),
                     });
                 }
+                for (meta_key, kind, title, description) in [
+                    (
+                        "js.jsfuck_encoding",
+                        "js_jsfuck_encoding",
+                        "JSFuck encoding detected",
+                        "JavaScript appears obfuscated with JSFuck character-restricted encoding.",
+                    ),
+                    (
+                        "js.jjencode_encoding",
+                        "js_jjencode_encoding",
+                        "JJEncode encoding detected",
+                        "JavaScript appears obfuscated with JJEncode symbol-heavy encoding.",
+                    ),
+                    (
+                        "js.aaencode_encoding",
+                        "js_aaencode_encoding",
+                        "AAEncode encoding detected",
+                        "JavaScript appears obfuscated with AAEncode fullwidth/emoticon-style encoding.",
+                    ),
+                    (
+                        "js.control_flow_flattening",
+                        "js_control_flow_flattening",
+                        "Control flow flattening detected",
+                        "JavaScript uses control-flow flattening dispatcher patterns consistent with advanced obfuscation.",
+                    ),
+                    (
+                        "js.dead_code_injection",
+                        "js_dead_code_injection",
+                        "Dead code injection detected",
+                        "JavaScript contains unreachable code blocks consistent with anti-analysis dead-code injection.",
+                    ),
+                    (
+                        "js.array_rotation_decode",
+                        "js_array_rotation_decode",
+                        "Array rotation decode pattern detected",
+                        "JavaScript contains array rotation string-decoding patterns common in obfuscator-style loaders.",
+                    ),
+                    (
+                        "js.semantic_source_to_sink_flow",
+                        "js_semantic_source_to_sink_flow",
+                        "Semantic source-to-sink flow detected",
+                        "AST semantic call graph indicates a source-to-sink flow with transformation depth, resilient to syntactic rewrites.",
+                    ),
+                ] {
+                    if matches!(meta.get(meta_key).map(String::as_str), Some("true")) {
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: kind.into(),
+                            severity: Severity::Medium,
+                            confidence: Confidence::Strong,
+                            impact: None,
+                            title: title.into(),
+                            description: description.into(),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence: evidence.clone(),
+                            remediation: Some(
+                                "Deobfuscate the payload and inspect decoded execution paths."
+                                    .into(),
+                            ),
+                            meta: meta.clone(),
+
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
+                    }
+                }
+                for (meta_key, kind, title, description, severity, confidence) in [
+                    (
+                        "js.heap_grooming",
+                        "js_heap_grooming",
+                        "Heap grooming pattern detected",
+                        "JavaScript shows repeated heap allocation and view-shaping patterns consistent with grooming.",
+                        Severity::High,
+                        Confidence::Probable,
+                    ),
+                    (
+                        "js.lfh_priming",
+                        "js_lfh_priming",
+                        "LFH priming pattern detected",
+                        "JavaScript appears to prime allocation buckets through repeated allocation/free cycles.",
+                        Severity::Medium,
+                        Confidence::Probable,
+                    ),
+                    (
+                        "js.rop_chain_construction",
+                        "js_rop_chain_construction",
+                        "ROP chain construction pattern detected",
+                        "JavaScript uses address arithmetic and sequential write patterns consistent with ROP chain staging.",
+                        Severity::High,
+                        Confidence::Strong,
+                    ),
+                    (
+                        "js.info_leak_primitive",
+                        "js_info_leak_primitive",
+                        "Info-leak primitive pattern detected",
+                        "JavaScript exhibits ArrayBuffer/TypedArray patterns consistent with out-of-bounds memory disclosure primitives.",
+                        Severity::High,
+                        Confidence::Probable,
+                    ),
+                ] {
+                    if matches!(meta.get(meta_key).map(String::as_str), Some("true")) {
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: kind.into(),
+                            severity,
+                            confidence,
+                            impact: None,
+                            title: title.into(),
+                            description: description.into(),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence: evidence.clone(),
+                            remediation: Some(
+                                "Review heap allocation/view/write logic and correlate with dynamic runtime telemetry."
+                                    .into(),
+                            ),
+                            meta: meta.clone(),
+
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
+                    }
+                }
                 if multi_stage {
                     let mut meta2 = meta.clone();
                     meta2.insert(

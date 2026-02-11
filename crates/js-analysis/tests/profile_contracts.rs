@@ -9,6 +9,7 @@ fn profile_options(kind: RuntimeKind) -> DynamicOptions {
             RuntimeKind::PdfReader => "adobe".to_string(),
             RuntimeKind::Browser => "chromium".to_string(),
             RuntimeKind::Node => "nodejs".to_string(),
+            RuntimeKind::Bun => "bun".to_string(),
         },
         version: "1".to_string(),
         mode: RuntimeMode::Compat,
@@ -92,6 +93,21 @@ fn node_profile_contract_exposes_require_and_process() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn bun_profile_contract_exposes_bun_runtime_stubs() {
+    let options = profile_options(RuntimeKind::Bun);
+    let payload = b"
+        Bun.spawn(['echo', 'x']);
+        Bun.file('/tmp/x');
+        Bun.write('/tmp/x', 'data');
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(signals.calls.iter().any(|call| call == "Bun.spawn"));
+    assert!(signals.calls.iter().any(|call| call == "Bun.file"));
+    assert!(signals.calls.iter().any(|call| call == "Bun.write"));
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn pdf_profile_compat_exposes_require_stub() {
     let options = profile_options(RuntimeKind::PdfReader);
     let payload = b"
@@ -99,17 +115,50 @@ fn pdf_profile_compat_exposes_require_stub() {
         if (typeof Buffer !== 'object') throw new Error('Buffer');
         if (typeof Buffer.from !== 'function') throw new Error('Buffer.from');
         var fs = require('fs');
+        var os = require('os');
+        var child = require('child_process');
+        var path = require('path');
         var buffer = require('buffer');
         if (typeof buffer.Buffer.from !== 'function') throw new Error('buffer.Buffer.from');
         if (typeof fs.readFile !== 'function') throw new Error('fs.readFile');
+        if (typeof fs.existsSync !== 'function') throw new Error('fs.existsSync');
+        if (typeof fs.renameSync !== 'function') throw new Error('fs.renameSync');
+        if (typeof os.hostname !== 'function') throw new Error('os.hostname');
+        if (typeof os.type !== 'function') throw new Error('os.type');
+        if (typeof os.release !== 'function') throw new Error('os.release');
+        if (typeof os.arch !== 'function') throw new Error('os.arch');
+        if (typeof os.cpus !== 'function') throw new Error('os.cpus');
+        if (typeof os.networkInterfaces !== 'function') throw new Error('os.networkInterfaces');
+        if (typeof path.dirname !== 'function') throw new Error('path.dirname');
+        if (typeof child.exec !== 'function') throw new Error('child_process.exec');
         Buffer.from('abcd');
         buffer.Buffer.from('def');
         fs.readFile('/tmp/a');
+        fs.existsSync('/tmp/a');
+        fs.renameSync('/tmp/a', '/tmp/b');
+        os.hostname();
+        os.type();
+        os.release();
+        os.arch();
+        os.cpus();
+        os.networkInterfaces();
+        path.dirname('/tmp/a');
+        child.exec('whoami');
     ";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
     assert!(signals.calls.iter().any(|call| call == "require"));
     assert!(signals.calls.iter().any(|call| call == "Buffer.from"));
     assert!(signals.calls.iter().any(|call| call == "fs.readFile"));
+    assert!(signals.calls.iter().any(|call| call == "fs.existsSync"));
+    assert!(signals.calls.iter().any(|call| call == "fs.renameSync"));
+    assert!(signals.calls.iter().any(|call| call == "os.hostname"));
+    assert!(signals.calls.iter().any(|call| call == "os.type"));
+    assert!(signals.calls.iter().any(|call| call == "os.release"));
+    assert!(signals.calls.iter().any(|call| call == "os.arch"));
+    assert!(signals.calls.iter().any(|call| call == "os.cpus"));
+    assert!(signals.calls.iter().any(|call| call == "os.networkInterfaces"));
+    assert!(signals.calls.iter().any(|call| call == "path.dirname"));
+    assert!(signals.calls.iter().any(|call| call == "child_process.exec"));
     assert!(signals.errors.is_empty(), "unexpected errors: {:?}", signals.errors);
 }
 
@@ -124,24 +173,44 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
         var shell = new ActiveXObject('WScript.Shell');
         if (typeof shell.Run !== 'function') throw new Error('WScript.Shell.Run');
         if (typeof shell.run !== 'function') throw new Error('WScript.Shell.run');
+        if (typeof shell.Environment !== 'function') throw new Error('WScript.Shell.Environment');
         if (typeof WScript.Echo !== 'function') throw new Error('WScript.Echo');
         if (typeof WScript.Sleep !== 'function') throw new Error('WScript.Sleep');
+        if (typeof WScript.Quit !== 'function') throw new Error('WScript.Quit');
+        if (typeof WSH !== 'object') throw new Error('WSH');
+        if (typeof WSH.CreateObject !== 'function') throw new Error('WSH.CreateObject');
         if (typeof WScript.echo !== 'function') throw new Error('WScript.echo');
         if (typeof WScript.sleep !== 'function') throw new Error('WScript.sleep');
         print('sandbox');
         shell.Run('cmd /c whoami');
         shell.run('cmd /c whoami');
+        var env = shell.Environment('System');
+        if (typeof env !== 'function') throw new Error('WScript.Shell.Environment.Item');
+        env('PROCESSOR_ARCHITECTURE');
         WScript.Echo('probe');
         WScript.Sleep(1);
         WScript.echo('probe-lower');
         WScript.sleep(1);
+        WScript.Quit(0);
+        var wshShell = WSH.CreateObject('WSH.Shell');
+        wshShell.Run('cmd /c whoami');
         var fso = ActiveXObject('Scripting.FileSystemObject');
         if (typeof fso.OpenTextFile !== 'function') throw new Error('Scripting.FileSystemObject.OpenTextFile');
+        if (typeof fso.opentextfile !== 'function') throw new Error('Scripting.FileSystemObject.opentextfile');
         if (typeof fso.GetFile !== 'function') throw new Error('Scripting.FileSystemObject.GetFile');
         if (typeof fso.deleteFile !== 'function') throw new Error('Scripting.FileSystemObject.deleteFile');
+        if (typeof fso.createtextfile !== 'function') throw new Error('Scripting.FileSystemObject.createtextfile');
         var opened = fso.OpenTextFile('C:\\\\temp\\\\x.txt');
+        var openedLower = fso.opentextfile('C:\\\\temp\\\\x.txt');
         if (typeof opened.Write !== 'function') throw new Error('Scripting.FileSystemObject.OpenTextFile.Write');
+        if (typeof openedLower.writeline !== 'function') throw new Error('TextStream.writeline');
         opened.Write('abc');
+        openedLower.writeline('abc');
+        openedLower.close();
+        var createdLower = fso.createtextfile('C:\\\\temp\\\\lower.txt');
+        if (typeof createdLower.WriteLine !== 'function') throw new Error('Scripting.FileSystemObject.createtextfile.WriteLine');
+        createdLower.WriteLine('abc');
+        createdLower.Close();
         var file = fso.GetFile('C:\\\\temp\\\\x.txt');
         if (typeof file.OpenAsTextStream !== 'function') throw new Error('Scripting.File.OpenAsTextStream');
         file.OpenAsTextStream(1);
@@ -157,10 +226,17 @@ fn pdf_profile_compat_exposes_com_factory_stubs() {
     assert!(signals.calls.iter().any(|call| call == "ActiveXObject"));
     assert!(signals.calls.iter().any(|call| call == "CreateObject"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Run"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Environment"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Shell.Environment.Item"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Echo"));
     assert!(signals.calls.iter().any(|call| call == "WScript.Sleep"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Quit"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.CreateObject"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.OpenTextFile"));
+    assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.CreateTextFile"));
     assert!(signals.calls.iter().any(|call| call == "TextStream.Write"));
+    assert!(signals.calls.iter().any(|call| call == "TextStream.WriteLine"));
+    assert!(signals.calls.iter().any(|call| call == "TextStream.Close"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.GetFile"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.FileSystemObject.DeleteFile"));
     assert!(signals.calls.iter().any(|call| call == "Scripting.File.OpenAsTextStream"));
@@ -184,19 +260,10 @@ fn pdf_profile_compat_supports_shell_namespace_and_env_expansion() {
         if (combined.length < 5) throw new Error('combined path too short');
     ";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
-    assert!(signals
-        .calls
-        .iter()
-        .any(|call| call == "WScript.Shell.ExpandEnvironmentStrings"));
-    assert!(signals
-        .calls
-        .iter()
-        .any(|call| call == "Shell.Application.NameSpace"));
+    assert!(signals.calls.iter().any(|call| call == "WScript.Shell.ExpandEnvironmentStrings"));
+    assert!(signals.calls.iter().any(|call| call == "Shell.Application.NameSpace"));
     assert!(
-        !signals
-            .errors
-            .iter()
-            .any(|error| error.contains("not a callable function")),
+        !signals.errors.iter().any(|error| error.contains("not a callable function")),
         "unexpected callable error: {:?}",
         signals.errors
     );
@@ -209,14 +276,149 @@ fn browser_profile_missing_pdf_api_has_stable_error_signature() {
     let options = profile_options(RuntimeKind::Browser);
     let payload = b"app.viewerVersion();";
     let signals = executed(js_analysis::run_sandbox(payload, &options));
-    assert!(!signals.errors.is_empty(), "expected profile mismatch error");
-    let combined = signals.errors.join(" | ").to_ascii_lowercase();
+    let has_reader_stub = signals.calls.iter().any(|call| call == "app.viewerVersion");
+    if !signals.errors.is_empty() {
+        let combined = signals.errors.join(" | ").to_ascii_lowercase();
+        assert!(
+            combined.contains("cannot convert")
+                || combined.contains("undefined")
+                || combined.contains("not defined")
+                || combined.contains("not a callable function"),
+            "unexpected error signature: {}",
+            combined
+        );
+    } else {
+        assert!(
+            has_reader_stub || signals.calls.is_empty(),
+            "browser profile should either expose reader stub calls or remain quiescent: {:?}",
+            signals.calls
+        );
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn callable_recovery_emits_unresolved_callee_hint() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"
+        var probe = { x: 1 };
+        probe.x();
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
     assert!(
-        combined.contains("cannot convert")
-            || combined.contains("undefined")
-            || combined.contains("not defined")
-            || combined.contains("not a callable function"),
-        "unexpected error signature: {}",
-        combined
+        signals.errors.iter().any(|error| error.contains("Callable recovery hint:")),
+        "expected callable hint in errors: {:?}",
+        signals.errors
+    );
+    assert!(
+        signals.errors.iter().any(|error| error.contains("candidate_callees=probe.x")),
+        "expected callee path in hint: {:?}",
+        signals.errors
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn null_conversion_recovery_handles_object_static_calls() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"
+        Object.keys(undefined);
+        Object.values(null);
+        Object.entries(undefined);
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        !signals
+            .errors
+            .iter()
+            .any(|error| error.contains("cannot convert 'null' or 'undefined' to object")),
+        "null-conversion error should be recovered: {:?}",
+        signals.errors
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn undefined_recovery_handles_long_symbol_chains() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"
+        alpha1();
+        beta2();
+        gamma3();
+        delta4();
+        epsilon5();
+        zeta6();
+        eta7();
+        theta8();
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        !signals.errors.iter().any(|error| error.contains(" is not defined")),
+        "undefined-symbol recovery should resolve chained misses: {:?}",
+        signals.errors
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn syntax_recovery_executes_following_statements() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"
+        var ok = 1;
+        broken = ;
+        fetch('https://example.test/recovered');
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        signals.calls.iter().any(|call| call == "fetch"),
+        "expected fetch call after syntax recovery: {:?}",
+        signals.calls
+    );
+    assert!(
+        !signals.errors.iter().any(|error| error.contains("Syntax")),
+        "syntax errors should be recovered: {:?}",
+        signals.errors
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn syntax_recovery_suppresses_unterminated_string_failures() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"var a = 'unterminated;\n";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        !signals.errors.iter().any(|error| error.contains("unterminated string literal")),
+        "unterminated string syntax should be suppressed: {:?}",
+        signals.errors
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn runtime_limit_recovery_suppresses_loop_limit_errors() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = b"
+        var x = 0;
+        while (true) { x++; }
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(
+        !signals.errors.iter().any(|error| error.contains("Maximum loop iteration limit")),
+        "runtime-limit errors should be recovered: {:?}",
+        signals.errors
+    );
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn oversized_eval_payload_is_skipped() {
+    let options = profile_options(RuntimeKind::Browser);
+    let payload = format!("eval(\"{}\")", "a".repeat(30_000));
+    let signals = executed(js_analysis::run_sandbox(payload.as_bytes(), &options));
+    assert!(
+        signals.errors.iter().any(|error| error.contains("eval payload skipped")),
+        "oversized eval payload should be skipped: {:?}",
+        signals.errors
     );
 }

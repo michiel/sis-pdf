@@ -32,6 +32,7 @@ _"Smiley is suspicious, Percy"_
 - [IR/ORG Graph Model](ir-org-graph.md) - Internal representation and object reference graph
 - [Graph Model Schema](graph-model-schema.md) - Schema documentation for the graph model
 - [Analysis Overview](analysis.md) - Analysis architecture and approach
+- [JavaScript Analysis Engine](js-analysis-engine.md) - MECE architecture and sandbox stage model
 
 ### Features & Capabilities
 

@@ -11,7 +11,9 @@ use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::embedded_index::{build_embedded_artefact_index, EmbeddedArtefactRef};
 use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii, EvidenceBuilder};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{
+    AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
+};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
 use sis_pdf_core::timeout::TimeoutChecker;
@@ -49,9 +51,12 @@ pub mod object_cycles;
 pub mod objstm_summary;
 pub mod objstm_torture;
 pub mod page_tree_anomalies;
+pub mod parser_divergence;
 pub mod polyglot;
 pub mod quantum_risk;
+pub mod revision_forensics;
 pub mod rich_media_analysis;
+pub mod shadow_attacks;
 pub mod strict;
 pub mod structural_anomalies;
 pub mod supply_chain;
@@ -85,7 +90,10 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(IncrementalUpdateDetector),
         Box::new(ObjectIdShadowingDetector),
         Box::new(ShadowObjectDivergenceDetector),
+        Box::new(shadow_attacks::ShadowAttackDetector),
+        Box::new(revision_forensics::RevisionForensicsDetector),
         Box::new(linearization::LinearizationDetector),
+        Box::new(parser_divergence::ParserDivergenceDetector),
         Box::new(ObjStmDensityDetector),
         Box::new(objstm_summary::ObjStmSummaryDetector),
         Box::new(OpenActionDetector),
@@ -109,6 +117,9 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(SubmitFormDetector),
         Box::new(external_context::ExternalActionContextDetector),
         Box::new(FontMatrixDetector),
+        Box::new(PdfjsFontInjectionDetector),
+        Box::new(FontJsExploitationBridgeDetector { enable_ast: settings.js_ast }),
+        Box::new(PdfjsRenderingIndicatorDetector),
         Box::new(font_exploits::FontExploitDetector),
         Box::new(font_external_ref::FontExternalReferenceDetector),
         Box::new(image_analysis::ImageAnalysisDetector),
@@ -2079,6 +2090,118 @@ fn enrich_uri_context(meta: &mut std::collections::HashMap<String, String>, uri:
     parts.join(", ")
 }
 
+struct PdfjsFontInjectionDetector;
+
+impl Detector for PdfjsFontInjectionDetector {
+    fn id(&self) -> &'static str {
+        "pdfjs_font_injection"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Metadata
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Cheap
+    }
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            let mut add_subsignal = |subsignal: &str,
+                                     title: &str,
+                                     description: &str,
+                                     evidence_note: &str| {
+                let mut meta = std::collections::HashMap::new();
+                meta.insert("pdfjs.subsignal".into(), subsignal.into());
+                meta.insert("pdfjs.affected_versions".into(), "<4.2.67".into());
+                meta.insert("reader_impacts".into(), "pdfjs<4.2.67".into());
+
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: self.surface(),
+                    kind: "pdfjs_font_injection".into(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::Strong,
+                    impact: Some(Impact::Medium),
+                    title: title.into(),
+                    description: description.into(),
+                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                    evidence: vec![span_to_evidence(dict.span, evidence_note)],
+                    remediation: Some(
+                        "Review PDF.js-targeted font and rendering structures for script-capable payloads."
+                            .into(),
+                    ),
+                    meta,
+                    reader_impacts: vec![ReaderImpact {
+                        profile: ReaderProfile::Pdfium,
+                        surface: AttackSurface::Metadata,
+                        severity: Severity::Medium,
+                        impact: Impact::Medium,
+                        note: Some("Pattern is associated with browser-side PDF.js rendering paths (<4.2.67).".into()),
+                    }],
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+            };
+
+            if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
+                if array_has_non_numeric(obj) {
+                    add_subsignal(
+                        "fontmatrix_non_numeric",
+                        "PDF.js font injection risk (FontMatrix)",
+                        "FontMatrix contains non-numeric entries in a font dictionary.",
+                        "FontMatrix entry",
+                    );
+                }
+            }
+
+            if let Some((_, obj)) = dict.get_first(b"/FontBBox") {
+                if array_has_non_numeric(obj) {
+                    add_subsignal(
+                        "fontbbox_non_numeric",
+                        "PDF.js font injection risk (FontBBox)",
+                        "FontBBox contains non-numeric entries in a font dictionary.",
+                        "FontBBox entry",
+                    );
+                }
+            }
+
+            if let Some((_, encoding_obj)) = dict.get_first(b"/Encoding") {
+                if encoding_contains_string_values(encoding_obj, ctx) {
+                    add_subsignal(
+                        "encoding_string_values",
+                        "PDF.js font injection risk (Encoding)",
+                        "Font /Encoding contains string-like values where numeric/name operands are expected.",
+                        "Encoding entry",
+                    );
+                }
+            }
+
+            if is_cmap_stream(entry) {
+                if let Some(payload) = entry_payload_bytes(ctx.bytes, entry) {
+                    if contains_pdfjs_injection_tokens(payload) {
+                        add_subsignal(
+                            "cmap_script_tokens",
+                            "PDF.js font injection risk (CMap)",
+                            "CMap stream contains script-like tokens consistent with injection payloads.",
+                            "CMap stream",
+                        );
+                    }
+                }
+            }
+        }
+        Ok(findings)
+    }
+}
+
 struct FontMatrixDetector;
 
 impl Detector for FontMatrixDetector {
@@ -2130,6 +2253,489 @@ impl Detector for FontMatrixDetector {
         }
         Ok(findings)
     }
+}
+
+struct FontJsExploitationBridgeDetector {
+    enable_ast: bool,
+}
+
+impl Detector for FontJsExploitationBridgeDetector {
+    fn id(&self) -> &'static str {
+        "font_js_exploitation_bridge"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Metadata
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Moderate
+    }
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        let mut font_indicators = HashSet::new();
+        let mut font_objects = HashSet::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            let mut local = Vec::new();
+            if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
+                if array_has_non_numeric(obj) {
+                    local.push("fontmatrix_non_numeric");
+                }
+            }
+            if let Some((_, obj)) = dict.get_first(b"/FontBBox") {
+                if array_has_non_numeric(obj) {
+                    local.push("fontbbox_non_numeric");
+                }
+            }
+            if let Some((_, obj)) = dict.get_first(b"/Encoding") {
+                if encoding_contains_string_values(obj, ctx) {
+                    local.push("encoding_string_values");
+                }
+            }
+            if is_cmap_stream(entry) {
+                if let Some(payload) = entry_payload_bytes(ctx.bytes, entry) {
+                    if contains_pdfjs_injection_tokens(payload) {
+                        local.push("cmap_script_tokens");
+                    }
+                }
+            }
+            if !local.is_empty() {
+                font_objects.insert(format!("{} {} obj", entry.obj, entry.gen));
+                for indicator in local {
+                    font_indicators.insert(indicator);
+                }
+            }
+        }
+
+        let mut js_indicators = HashSet::new();
+        let mut js_objects = HashSet::new();
+        let mut js_high_risk = false;
+        for entry in &ctx.graph.objects {
+            let candidates = js_payload_candidates_from_entry(ctx, entry);
+            if candidates.is_empty() {
+                continue;
+            }
+            js_objects.insert(format!("{} {} obj", entry.obj, entry.gen));
+            js_indicators.insert("js_payload_present");
+            for candidate in candidates {
+                let signals = js_analysis::static_analysis::extract_js_signals_with_ast(
+                    &candidate.payload.bytes,
+                    self.enable_ast,
+                );
+                if matches!(signals.get("js.contains_eval").map(String::as_str), Some("true"))
+                    || matches!(
+                        signals.get("js.dynamic_eval_construction").map(String::as_str),
+                        Some("true")
+                    )
+                {
+                    js_indicators.insert("js_dynamic_eval");
+                    js_high_risk = true;
+                }
+                if matches!(
+                    signals.get("js.obfuscation_suspected").map(String::as_str),
+                    Some("true")
+                ) || matches!(
+                    signals.get("js.contains_fromcharcode").map(String::as_str),
+                    Some("true")
+                ) || matches!(
+                    signals.get("js.contains_unescape").map(String::as_str),
+                    Some("true")
+                ) {
+                    js_indicators.insert("js_obfuscation");
+                }
+                if matches!(
+                    signals.get("js.environment_fingerprinting").map(String::as_str),
+                    Some("true")
+                ) {
+                    js_indicators.insert("js_environment_fingerprinting");
+                }
+            }
+        }
+
+        if !font_indicators.is_empty() && !js_indicators.is_empty() {
+            let confidence = if font_indicators.len() >= 2 && js_high_risk {
+                Confidence::Certain
+            } else {
+                Confidence::Strong
+            };
+            let mut meta = std::collections::HashMap::new();
+            let mut font_indicator_list = font_indicators.into_iter().collect::<Vec<_>>();
+            font_indicator_list.sort_unstable();
+            let mut js_indicator_list = js_indicators.into_iter().collect::<Vec<_>>();
+            js_indicator_list.sort_unstable();
+            meta.insert("bridge.kind".into(), "font_js_exploitation_bridge".into());
+            meta.insert("bridge.confidence_adjusted".into(), "true".into());
+            meta.insert("bridge.font_indicators".into(), font_indicator_list.join(","));
+            meta.insert("bridge.js_indicators".into(), js_indicator_list.join(","));
+            meta.insert(
+                "bridge.font_indicator_count".into(),
+                font_indicator_list.len().to_string(),
+            );
+            meta.insert("bridge.js_indicator_count".into(), js_indicator_list.len().to_string());
+            meta.insert("bridge.js_high_risk".into(), js_high_risk.to_string());
+
+            let mut objects = font_objects.into_iter().collect::<Vec<_>>();
+            objects.extend(js_objects);
+            objects.sort();
+            objects.dedup();
+
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Metadata,
+                kind: "font_js_exploitation_bridge".into(),
+                severity: Severity::Medium,
+                confidence,
+                impact: Some(Impact::High),
+                title: "Correlated font and JavaScript exploitation indicators".into(),
+                description:
+                    "Suspicious font structures co-occur with executable JavaScript indicators in the same PDF."
+                        .into(),
+                objects,
+                evidence: vec![span_to_evidence(
+                    sis_pdf_pdf::span::Span { start: 0, end: ctx.bytes.len() as u64 },
+                    "Font/JavaScript correlation",
+                )],
+                remediation: Some(
+                    "Prioritise combined triage of font dictionaries and JavaScript payload behaviour."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        Ok(findings)
+    }
+}
+
+struct PdfjsRenderingIndicatorDetector;
+
+impl Detector for PdfjsRenderingIndicatorDetector {
+    fn id(&self) -> &'static str {
+        "pdfjs_rendering_indicators"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Metadata
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Cheap
+    }
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        let mut annotation_objects = Vec::new();
+        let mut form_objects = Vec::new();
+        let mut eval_path_objects = Vec::new();
+
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            if is_annotation_dict(dict) {
+                let has_annotation_payload = dict
+                    .get_first(b"/AP")
+                    .map(|(_, obj)| obj_contains_pdfjs_injection_tokens(obj, ctx, 0))
+                    .unwrap_or(false)
+                    || dict
+                        .get_first(b"/Contents")
+                        .map(|(_, obj)| obj_contains_pdfjs_injection_tokens(obj, ctx, 0))
+                        .unwrap_or(false);
+                if has_annotation_payload {
+                    annotation_objects.push(format!("{} {} obj", entry.obj, entry.gen));
+                }
+            }
+
+            if is_form_dict(dict) {
+                let has_form_payload = dict
+                    .get_first(b"/V")
+                    .map(|(_, obj)| obj_contains_pdfjs_injection_tokens(obj, ctx, 0))
+                    .unwrap_or(false)
+                    || dict
+                        .get_first(b"/DV")
+                        .map(|(_, obj)| obj_contains_pdfjs_injection_tokens(obj, ctx, 0))
+                        .unwrap_or(false)
+                    || dict
+                        .get_first(b"/AP")
+                        .map(|(_, obj)| obj_contains_pdfjs_injection_tokens(obj, ctx, 0))
+                        .unwrap_or(false);
+                if has_form_payload {
+                    form_objects.push(format!("{} {} obj", entry.obj, entry.gen));
+                }
+            }
+
+            if is_pdfjs_eval_path_font(dict) {
+                eval_path_objects.push(format!("{} {} obj", entry.obj, entry.gen));
+            }
+        }
+
+        annotation_objects.sort();
+        annotation_objects.dedup();
+        form_objects.sort();
+        form_objects.dedup();
+        eval_path_objects.sort();
+        eval_path_objects.dedup();
+
+        if !annotation_objects.is_empty() {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("pdfjs.affected_versions".into(), "<4.2.67".into());
+            meta.insert(
+                "pdfjs.annotation_object_count".into(),
+                annotation_objects.len().to_string(),
+            );
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Actions,
+                kind: "pdfjs_annotation_injection".into(),
+                severity: Severity::Medium,
+                confidence: Confidence::Strong,
+                impact: Some(Impact::Medium),
+                title: "PDF.js annotation injection indicator".into(),
+                description:
+                    "Annotation appearance/content fields contain script-like payload tokens.".into(),
+                objects: annotation_objects,
+                evidence: keyword_evidence(ctx.bytes, b"/AP", "Annotation appearance", 3),
+                remediation: Some(
+                    "Review annotation appearance and content payloads for browser-rendered script injection."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: vec![ReaderImpact {
+                    profile: ReaderProfile::Pdfium,
+                    surface: AttackSurface::Actions,
+                    severity: Severity::Medium,
+                    impact: Impact::Medium,
+                    note: Some("Annotation rendering paths can expose browser-side injection behaviour.".into()),
+                }],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        if !form_objects.is_empty() {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("pdfjs.affected_versions".into(), "<4.2.67".into());
+            meta.insert("pdfjs.form_object_count".into(), form_objects.len().to_string());
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Forms,
+                kind: "pdfjs_form_injection".into(),
+                severity: Severity::Medium,
+                confidence: Confidence::Probable,
+                impact: Some(Impact::Medium),
+                title: "PDF.js form injection indicator".into(),
+                description:
+                    "Form value/appearance fields contain script-like payload tokens.".into(),
+                objects: form_objects,
+                evidence: keyword_evidence(ctx.bytes, b"/AcroForm", "Form dictionary", 2),
+                remediation: Some(
+                    "Inspect form default/value and appearance entries for injected payload content."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: vec![ReaderImpact {
+                    profile: ReaderProfile::Pdfium,
+                    surface: AttackSurface::Forms,
+                    severity: Severity::Medium,
+                    impact: Impact::Medium,
+                    note: Some("Browser-rendered form values may expose DOM or script injection surfaces.".into()),
+                }],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        if !eval_path_objects.is_empty() {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("pdfjs.affected_versions".into(), "<4.2.67".into());
+            meta.insert("pdfjs.eval_path_object_count".into(), eval_path_objects.len().to_string());
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Metadata,
+                kind: "pdfjs_eval_path_risk".into(),
+                severity: Severity::Info,
+                confidence: Confidence::Strong,
+                impact: Some(Impact::Low),
+                title: "PDF.js eval-path risk indicator".into(),
+                description:
+                    "Document contains font structures commonly associated with PDF.js eval-render paths."
+                        .into(),
+                objects: eval_path_objects,
+                evidence: keyword_evidence(ctx.bytes, b"/Font", "Font dictionary", 3),
+                remediation: Some(
+                    "Review font subtype and encoding complexity when triaging browser PDF.js exposure."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: vec![ReaderImpact {
+                    profile: ReaderProfile::Pdfium,
+                    surface: AttackSurface::Metadata,
+                    severity: Severity::Low,
+                    impact: Impact::Low,
+                    note: Some("Indicator is informational and highlights potentially sensitive rendering paths.".into()),
+                }],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        Ok(findings)
+    }
+}
+
+fn is_annotation_dict(dict: &PdfDict<'_>) -> bool {
+    dict.has_name(b"/Subtype", b"/Annot")
+        || dict.has_name(b"/Type", b"/Annot")
+        || dict.get_first(b"/Annots").is_some()
+}
+
+fn is_form_dict(dict: &PdfDict<'_>) -> bool {
+    dict.get_first(b"/AcroForm").is_some()
+        || dict.get_first(b"/FT").is_some()
+        || dict.get_first(b"/T").is_some()
+        || dict.get_first(b"/Kids").is_some()
+}
+
+fn is_pdfjs_eval_path_font(dict: &PdfDict<'_>) -> bool {
+    let font_like = dict.has_name(b"/Type", b"/Font");
+    let subtype_risky = dict.has_name(b"/Subtype", b"/Type1")
+        || dict.has_name(b"/Subtype", b"/Type0")
+        || dict.has_name(b"/Subtype", b"/CIDFontType0")
+        || dict.has_name(b"/Subtype", b"/CIDFontType2");
+    let has_custom_encoding = dict.get_first(b"/Encoding").is_some();
+    let has_cmap_path =
+        dict.get_first(b"/ToUnicode").is_some() || dict.get_first(b"/DescendantFonts").is_some();
+    font_like && (subtype_risky || has_custom_encoding || has_cmap_path)
+}
+
+fn obj_contains_pdfjs_injection_tokens(
+    obj: &PdfObj<'_>,
+    ctx: &sis_pdf_core::scan::ScanContext,
+    depth: usize,
+) -> bool {
+    if depth >= 8 {
+        return false;
+    }
+    match &obj.atom {
+        PdfAtom::Str(s) => contains_pdfjs_injection_tokens(&string_bytes(s)),
+        PdfAtom::Name(name) => contains_pdfjs_injection_tokens(&name.decoded),
+        PdfAtom::Array(values) => {
+            values.iter().any(|value| obj_contains_pdfjs_injection_tokens(value, ctx, depth + 1))
+        }
+        PdfAtom::Dict(dict) => dict
+            .entries
+            .iter()
+            .any(|(_, value)| obj_contains_pdfjs_injection_tokens(value, ctx, depth + 1)),
+        PdfAtom::Stream(stream) => {
+            let start = stream.data_span.start as usize;
+            let end = stream.data_span.end as usize;
+            let has_stream_payload = if start < end && end <= ctx.bytes.len() {
+                contains_pdfjs_injection_tokens(&ctx.bytes[start..end])
+            } else {
+                false
+            };
+            has_stream_payload
+                || stream
+                    .dict
+                    .entries
+                    .iter()
+                    .any(|(_, value)| obj_contains_pdfjs_injection_tokens(value, ctx, depth + 1))
+        }
+        PdfAtom::Ref { .. } => ctx
+            .graph
+            .resolve_ref(obj)
+            .map(|resolved| {
+                let resolved_obj = PdfObj { span: resolved.body_span, atom: resolved.atom };
+                obj_contains_pdfjs_injection_tokens(&resolved_obj, ctx, depth + 1)
+            })
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+fn array_has_non_numeric(obj: &PdfObj<'_>) -> bool {
+    match &obj.atom {
+        PdfAtom::Array(values) => {
+            values.iter().any(|value| !matches!(value.atom, PdfAtom::Int(_) | PdfAtom::Real(_)))
+        }
+        _ => false,
+    }
+}
+
+fn encoding_contains_string_values(
+    obj: &PdfObj<'_>,
+    ctx: &sis_pdf_core::scan::ScanContext,
+) -> bool {
+    encoding_contains_string_values_with_depth(obj, ctx, 0)
+}
+
+fn encoding_contains_string_values_with_depth(
+    obj: &PdfObj<'_>,
+    ctx: &sis_pdf_core::scan::ScanContext,
+    depth: usize,
+) -> bool {
+    if depth >= 8 {
+        return false;
+    }
+    match &obj.atom {
+        PdfAtom::Str(_) => true,
+        PdfAtom::Array(values) => values
+            .iter()
+            .any(|value| encoding_contains_string_values_with_depth(value, ctx, depth + 1)),
+        PdfAtom::Dict(dict) => dict
+            .entries
+            .iter()
+            .any(|(_, value)| encoding_contains_string_values_with_depth(value, ctx, depth + 1)),
+        PdfAtom::Ref { .. } => ctx
+            .graph
+            .resolve_ref(obj)
+            .map(|resolved| {
+                let resolved_obj = PdfObj { span: resolved.body_span, atom: resolved.atom };
+                encoding_contains_string_values_with_depth(&resolved_obj, ctx, depth + 1)
+            })
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+fn is_cmap_stream(entry: &ObjEntry<'_>) -> bool {
+    let PdfAtom::Stream(stream) = &entry.atom else {
+        return false;
+    };
+    stream.dict.has_name(b"/Type", b"/CMap")
+        || stream.dict.get_first(b"/CMapName").is_some()
+        || stream.dict.get_first(b"/CIDSystemInfo").is_some()
+}
+
+fn contains_pdfjs_injection_tokens(payload: &[u8]) -> bool {
+    let lower = payload.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<u8>>();
+    let needles: &[&[u8]] = &[b"javascript", b"app.alert", b"eval(", b"function(", b"constructor("];
+    needles.iter().any(|needle| {
+        !needle.is_empty() && lower.windows(needle.len()).any(|window| window == *needle)
+    })
 }
 
 struct SubmitFormDetector;

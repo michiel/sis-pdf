@@ -26,6 +26,7 @@ fn test_options() -> DynamicOptions {
             js_analysis::types::RuntimePhase::Form,
         ],
         runtime_profile: Default::default(),
+        lifecycle_context: None,
     }
 }
 
@@ -237,10 +238,10 @@ fn test_all_fixtures_no_crash() {
         }
     }
 
-    // At least 70% should execute successfully (not timeout or skip)
+    // At least 90% should execute successfully (not timeout or skip)
     let success_rate = executed as f64 / fixtures.len() as f64;
     assert!(
-        success_rate >= 0.7,
+        success_rate >= 0.9,
         "Success rate too low: {}/{} = {:.1}%",
         executed,
         fixtures.len(),

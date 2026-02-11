@@ -3,12 +3,12 @@ use std::time::Duration;
 use anyhow::Result;
 
 use js_analysis::{
-    is_file_call, is_network_call, run_sandbox, DynamicOptions, DynamicOutcome, RuntimeKind,
-    RuntimeMode, RuntimeProfile,
+    is_file_call, is_network_call, run_sandbox, DynamicOptions, DynamicOutcome, DynamicSignals,
+    RuntimeKind, RuntimeMode, RuntimeProfile,
 };
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 
 use crate::js_payload_candidates_from_entry;
@@ -49,17 +49,9 @@ impl ProfileDivergenceSummary {
         }
         let ratios =
             [self.network_ratio(), self.file_ratio(), self.risky_ratio(), self.calls_ratio()];
-        let mut seen_present = false;
-        let mut seen_absent = false;
-        for ratio in ratios.into_iter().flatten() {
-            if ratio > 0.0 {
-                seen_present = true;
-            }
-            if ratio < 1.0 {
-                seen_absent = true;
-            }
-        }
-        if seen_present && seen_absent {
+        let has_divergent_band =
+            ratios.into_iter().flatten().any(|ratio| (0.2..=0.6).contains(&ratio));
+        if has_divergent_band {
             "divergent"
         } else {
             "consistent"
@@ -91,7 +83,34 @@ fn ratio(numerator: usize, denominator: usize) -> Option<f64> {
     }
 }
 
-fn configured_profiles() -> [RuntimeProfile; 3] {
+fn is_risky_call(name: &str) -> bool {
+    name.eq_ignore_ascii_case("eval")
+        || name.eq_ignore_ascii_case("app.eval")
+        || name.eq_ignore_ascii_case("event.target.eval")
+        || name.eq_ignore_ascii_case("unescape")
+        || name.eq_ignore_ascii_case("function")
+}
+
+fn impact_for_kind(kind: &str) -> Option<Impact> {
+    match kind {
+        "js_payload_non_javascript_format" => Some(Impact::Low),
+        "js_sandbox_exec" => Some(Impact::None),
+        "js_sandbox_skipped" => Some(Impact::None),
+        "js_runtime_unknown_behaviour_pattern" => Some(Impact::Low),
+        "js_runtime_downloader_pattern" => Some(Impact::Critical),
+        "js_runtime_network_intent" => Some(Impact::High),
+        "js_runtime_file_probe" => Some(Impact::Low),
+        "js_runtime_risky_calls" => Some(Impact::Medium),
+        "js_runtime_heap_manipulation" => Some(Impact::Medium),
+        "js_sandbox_timeout" => Some(Impact::None),
+        "js_runtime_recursion_limit" => Some(Impact::Low),
+        "js_emulation_breakpoint" => Some(Impact::Low),
+        value if value.starts_with("js_runtime_") => Some(Impact::Medium),
+        _ => Some(Impact::None),
+    }
+}
+
+fn configured_profiles() -> [RuntimeProfile; 4] {
     [
         RuntimeProfile {
             kind: RuntimeKind::PdfReader,
@@ -109,6 +128,12 @@ fn configured_profiles() -> [RuntimeProfile; 3] {
             kind: RuntimeKind::Node,
             vendor: "nodejs".to_string(),
             version: "20".to_string(),
+            mode: RuntimeMode::Compat,
+        },
+        RuntimeProfile {
+            kind: RuntimeKind::Bun,
+            vendor: "bun".to_string(),
+            version: "1.1".to_string(),
             mode: RuntimeMode::Compat,
         },
     ]
@@ -133,13 +158,7 @@ fn execute_profiles(bytes: &[u8]) -> (Vec<ProfileRun>, ProfileDivergenceSummary)
                 summary.executed_profiles.push(profile_id.clone());
                 let has_network = signals.calls.iter().any(|c| is_network_call(c));
                 let has_file = signals.calls.iter().any(|c| is_file_call(c));
-                let has_risky = signals.calls.iter().any(|c| {
-                    c.eq_ignore_ascii_case("eval")
-                        || c.eq_ignore_ascii_case("app.eval")
-                        || c.eq_ignore_ascii_case("event.target.eval")
-                        || c.eq_ignore_ascii_case("unescape")
-                        || c.eq_ignore_ascii_case("Function")
-                });
+                let has_risky = signals.calls.iter().any(|c| is_risky_call(c));
                 let has_calls = signals.call_count > 0;
                 if has_network {
                     summary.network_count += 1;
@@ -242,7 +261,301 @@ fn insert_profile_meta(
     }
 }
 
+fn populate_base_metadata(
+    meta: &mut std::collections::HashMap<String, String>,
+    signals: &DynamicSignals,
+    source_label: Option<&str>,
+    timed_out_profiles: usize,
+    include_calls: bool,
+) {
+    meta.insert("js.runtime.replay_id".into(), signals.replay_id.clone());
+    meta.insert("js.runtime.ordering".into(), "deterministic".into());
+    meta.insert("js.runtime.profile".into(), signals.runtime_profile.clone());
+    if include_calls {
+        meta.insert("js.runtime.calls".into(), signals.calls.join(","));
+        meta.insert("js.runtime.call_count".into(), signals.call_count.to_string());
+        meta.insert("js.runtime.unique_calls".into(), signals.unique_calls.to_string());
+        if !signals.call_args.is_empty() {
+            meta.insert("js.runtime.call_args".into(), signals.call_args.join("; "));
+        }
+        if !signals.urls.is_empty() {
+            meta.insert("js.runtime.urls".into(), signals.urls.join(", "));
+        }
+        if !signals.domains.is_empty() {
+            meta.insert("js.runtime.domains".into(), signals.domains.join(", "));
+        }
+    }
+    if !signals.prop_reads.is_empty() {
+        meta.insert("js.runtime.prop_reads".into(), signals.prop_reads.join(", "));
+        meta.insert("js.runtime.unique_prop_reads".into(), signals.unique_prop_reads.to_string());
+    }
+    if !signals.prop_writes.is_empty() {
+        meta.insert("js.runtime.prop_writes".into(), signals.prop_writes.join(", "));
+    }
+    if !signals.prop_deletes.is_empty() {
+        meta.insert("js.runtime.prop_deletes".into(), signals.prop_deletes.join(", "));
+    }
+    if !signals.reflection_probes.is_empty() {
+        meta.insert("js.runtime.reflection_probes".into(), signals.reflection_probes.join(", "));
+    }
+    if !signals.dynamic_code_calls.is_empty() {
+        meta.insert("js.runtime.dynamic_code_calls".into(), signals.dynamic_code_calls.join(", "));
+    }
+    if signals.heap_allocation_count > 0 {
+        meta.insert(
+            "js.runtime.heap.allocation_count".into(),
+            signals.heap_allocation_count.to_string(),
+        );
+        if !signals.heap_allocations.is_empty() {
+            meta.insert("js.runtime.heap.allocations".into(), signals.heap_allocations.join(" | "));
+        }
+    }
+    if signals.heap_view_count > 0 {
+        meta.insert("js.runtime.heap.view_count".into(), signals.heap_view_count.to_string());
+        if !signals.heap_views.is_empty() {
+            meta.insert("js.runtime.heap.views".into(), signals.heap_views.join(" | "));
+        }
+    }
+    if signals.heap_access_count > 0 {
+        meta.insert("js.runtime.heap.access_count".into(), signals.heap_access_count.to_string());
+        if !signals.heap_accesses.is_empty() {
+            meta.insert("js.runtime.heap.accesses".into(), signals.heap_accesses.join(" | "));
+        }
+    }
+    if !signals.errors.is_empty() {
+        meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
+    }
+    if timed_out_profiles > 0 {
+        meta.insert("js.runtime.script_timeout_profiles".into(), timed_out_profiles.to_string());
+    }
+    if let Some(ms) = signals.elapsed_ms {
+        meta.insert("js.sandbox_exec_ms".into(), ms.to_string());
+    }
+    meta.insert(
+        "js.runtime.execution.adaptive_loop_iteration_limit".into(),
+        signals.execution_stats.adaptive_loop_iteration_limit.to_string(),
+    );
+    meta.insert(
+        "js.runtime.execution.adaptive_loop_profile".into(),
+        signals.execution_stats.adaptive_loop_profile.clone(),
+    );
+    meta.insert(
+        "js.runtime.execution.loop_iteration_limit_hits".into(),
+        signals.execution_stats.loop_iteration_limit_hits.to_string(),
+    );
+    if signals.execution_stats.probe_loop_short_circuit_hits > 0 {
+        meta.insert(
+            "js.runtime.execution.probe_loop_short_circuit_hits".into(),
+            signals.execution_stats.probe_loop_short_circuit_hits.to_string(),
+        );
+        meta.insert(
+            "js.runtime.partial_execution_marker".into(),
+            "probe_loop_short_circuit".into(),
+        );
+    }
+    if signals.truncation.calls_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.calls_dropped".into(),
+            signals.truncation.calls_dropped.to_string(),
+        );
+    }
+    if signals.truncation.call_args_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.call_args_dropped".into(),
+            signals.truncation.call_args_dropped.to_string(),
+        );
+    }
+    if signals.truncation.prop_reads_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.prop_reads_dropped".into(),
+            signals.truncation.prop_reads_dropped.to_string(),
+        );
+    }
+    if signals.truncation.errors_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.errors_dropped".into(),
+            signals.truncation.errors_dropped.to_string(),
+        );
+    }
+    if signals.truncation.urls_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.urls_dropped".into(),
+            signals.truncation.urls_dropped.to_string(),
+        );
+    }
+    if signals.truncation.domains_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.domains_dropped".into(),
+            signals.truncation.domains_dropped.to_string(),
+        );
+    }
+    if signals.truncation.heap_allocations_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.heap_allocations_dropped".into(),
+            signals.truncation.heap_allocations_dropped.to_string(),
+        );
+    }
+    if signals.truncation.heap_views_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.heap_views_dropped".into(),
+            signals.truncation.heap_views_dropped.to_string(),
+        );
+    }
+    if signals.truncation.heap_accesses_dropped > 0 {
+        meta.insert(
+            "js.runtime.truncation.heap_accesses_dropped".into(),
+            signals.truncation.heap_accesses_dropped.to_string(),
+        );
+    }
+    if !signals.phases.is_empty() {
+        let phase_order =
+            signals.phases.iter().map(|phase| phase.phase.as_str()).collect::<Vec<_>>().join(", ");
+        let phase_summary = signals
+            .phases
+            .iter()
+            .map(|phase| {
+                format!(
+                    "{}:calls={} props={} errors={} ms={}",
+                    phase.phase,
+                    phase.call_count,
+                    phase.prop_read_count,
+                    phase.error_count,
+                    phase.elapsed_ms
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        meta.insert("js.runtime.phase_order".into(), phase_order);
+        meta.insert("js.runtime.phase_summaries".into(), phase_summary);
+        meta.insert("js.runtime.phase_count".into(), signals.phases.len().to_string());
+    }
+    let sw_registration_calls = signals
+        .calls
+        .iter()
+        .filter(|call| call.as_str() == "navigator.serviceWorker.register")
+        .count();
+    let sw_update_calls = signals
+        .calls
+        .iter()
+        .filter(|call| call.as_str() == "navigator.serviceWorker.update")
+        .count();
+    let sw_handler_calls =
+        signals.calls.iter().filter(|call| call.as_str() == "self.addEventListener").count();
+    let sw_cache_calls = signals.calls.iter().filter(|call| call.starts_with("caches.")).count();
+    let sw_indexeddb_calls = signals
+        .calls
+        .iter()
+        .filter(|call| call.starts_with("indexedDB.") || call.starts_with("IDBObjectStore."))
+        .count();
+    let sw_lifecycle_events =
+        signals.phases.iter().filter(|phase| phase.phase.starts_with("sw_")).count();
+    if sw_registration_calls > 0 || sw_lifecycle_events > 0 {
+        meta.insert(
+            "js.runtime.service_worker.registration_calls".into(),
+            sw_registration_calls.to_string(),
+        );
+        meta.insert("js.runtime.service_worker.update_calls".into(), sw_update_calls.to_string());
+        meta.insert(
+            "js.runtime.service_worker.event_handlers_registered".into(),
+            sw_handler_calls.to_string(),
+        );
+        meta.insert(
+            "js.runtime.service_worker.lifecycle_events_executed".into(),
+            sw_lifecycle_events.to_string(),
+        );
+        meta.insert("js.runtime.service_worker.cache_calls".into(), sw_cache_calls.to_string());
+        meta.insert(
+            "js.runtime.service_worker.indexeddb_calls".into(),
+            sw_indexeddb_calls.to_string(),
+        );
+    }
+    let realtime_send_count = signals
+        .calls
+        .iter()
+        .filter(|call| call.as_str() == "WebSocket.send" || call.as_str() == "RTCDataChannel.send")
+        .count();
+    let mut channel_types = std::collections::BTreeSet::new();
+    if signals.calls.iter().any(|call| call.starts_with("WebSocket")) {
+        channel_types.insert("websocket");
+    }
+    if signals.calls.iter().any(|call| call.starts_with("RTC")) {
+        channel_types.insert("rtc_datachannel");
+    }
+    if realtime_send_count > 0 || !channel_types.is_empty() {
+        meta.insert("js.runtime.realtime.session_count".into(), channel_types.len().to_string());
+        meta.insert("js.runtime.realtime.unique_targets".into(), signals.urls.len().to_string());
+        meta.insert("js.runtime.realtime.send_count".into(), realtime_send_count.to_string());
+        meta.insert("js.runtime.realtime.avg_payload_len".into(), "0.0".to_string());
+        meta.insert(
+            "js.runtime.realtime.channel_types".into(),
+            channel_types.into_iter().collect::<Vec<_>>().join(", "),
+        );
+    }
+    let lifecycle_phase = signals
+        .phases
+        .iter()
+        .find(|phase| phase.phase.starts_with("npm.") || phase.phase == "bun.install")
+        .map(|phase| phase.phase.clone());
+    if let Some(phase) = lifecycle_phase {
+        meta.insert("js.runtime.lifecycle.phase".into(), phase);
+        let hook_calls = signals
+            .calls
+            .iter()
+            .filter(|call| {
+                matches!(
+                    call.as_str(),
+                    "require" | "child_process.exec" | "child_process.spawn" | "Bun.spawn"
+                )
+            })
+            .count();
+        meta.insert("js.runtime.lifecycle.hook_calls".into(), hook_calls.to_string());
+        let background_attempts = signals
+            .calls
+            .iter()
+            .filter(|call| {
+                matches!(call.as_str(), "child_process.exec" | "child_process.spawn" | "Bun.spawn")
+            })
+            .count();
+        meta.insert(
+            "js.runtime.lifecycle.background_attempts".into(),
+            background_attempts.to_string(),
+        );
+    }
+    if let Some(delta) = signals.delta_summary.as_ref() {
+        meta.insert("js.delta.phase".into(), delta.phase.clone());
+        if !delta.trigger_calls.is_empty() {
+            meta.insert("js.delta.trigger_calls".into(), delta.trigger_calls.join(", "));
+        }
+        meta.insert("js.delta.generated_snippets".into(), delta.generated_snippets.to_string());
+        meta.insert(
+            "js.delta.added_identifier_count".into(),
+            delta.added_identifier_count.to_string(),
+        );
+        meta.insert(
+            "js.delta.added_string_literal_count".into(),
+            delta.added_string_literal_count.to_string(),
+        );
+        meta.insert("js.delta.added_call_count".into(), delta.added_call_count.to_string());
+        if !delta.new_identifiers.is_empty() {
+            meta.insert("js.delta.new_identifiers".into(), delta.new_identifiers.join(", "));
+        }
+        if !delta.new_string_literals.is_empty() {
+            meta.insert(
+                "js.delta.new_string_literals".into(),
+                delta.new_string_literals.join(", "),
+            );
+        }
+        if !delta.new_calls.is_empty() {
+            meta.insert("js.delta.new_calls".into(), delta.new_calls.join(", "));
+        }
+    }
+    if let Some(label) = source_label {
+        meta.insert("js.source".into(), label.into());
+    }
+}
+
 fn promote_severity(value: Severity) -> Severity {
+    // Symmetric ladder with floor/ceiling handled by enum extremes.
     match value {
         Severity::Info => Severity::Low,
         Severity::Low => Severity::Medium,
@@ -253,6 +566,7 @@ fn promote_severity(value: Severity) -> Severity {
 }
 
 fn demote_severity(value: Severity) -> Severity {
+    // Symmetric ladder with floor/ceiling handled by enum extremes.
     match value {
         Severity::Critical => Severity::High,
         Severity::High => Severity::Medium,
@@ -292,7 +606,7 @@ fn adjust_by_ratio(
     let Some(value) = ratio else {
         return (base_severity, base_confidence);
     };
-    if value >= 0.67 {
+    if value >= 0.6 {
         (promote_severity(base_severity), promote_confidence(base_confidence))
     } else if value <= 0.34 {
         (demote_severity(base_severity), demote_confidence(base_confidence))
@@ -478,7 +792,7 @@ fn extend_with_payload_format_finding(
         kind: "js_payload_non_javascript_format".into(),
         severity: Severity::Medium,
         confidence: Confidence::Strong,
-        impact: None,
+        impact: impact_for_kind("js_payload_non_javascript_format"),
         title: "JavaScript payload format mismatch".into(),
         description: "Payload identified as JavaScript appears to be markup or non-JS script format; sandbox parse behaviour may be unreliable.".into(),
         objects: vec![object_ref],
@@ -522,7 +836,7 @@ fn extend_with_recursion_limit_finding(
         kind: "js_runtime_recursion_limit".into(),
         severity,
         confidence,
-        impact: None,
+        impact: impact_for_kind("js_runtime_recursion_limit"),
         title: "JavaScript recursion limit reached".into(),
         description: "Sandbox execution hit recursion limits, which may indicate recursion bombs or heavily nested obfuscation.".into(),
         objects: vec![object_ref],
@@ -575,11 +889,13 @@ fn extend_with_script_timeout_finding(
     if let Some(value) = timeout_budget_ratio {
         meta.insert("js.runtime.timeout_budget_ratio".into(), format!("{value:.2}"));
     }
+    let timeout_base_severity =
+        if summary.timed_out_count == summary.total() { Severity::Medium } else { Severity::Low };
     let (severity, confidence) = apply_profile_scoring_meta(
         &mut meta,
         summary,
         "js_sandbox_exec",
-        Severity::Low,
+        timeout_base_severity,
         Confidence::Probable,
     );
     findings.push(Finding {
@@ -588,7 +904,7 @@ fn extend_with_script_timeout_finding(
         kind: "js_sandbox_timeout".into(),
         severity,
         confidence,
-        impact: None,
+        impact: impact_for_kind("js_sandbox_timeout"),
         title: "JavaScript sandbox timeout".into(),
         description: if partial {
             "Sandbox execution timed out in one or more runtime profiles; dynamic trace may be partial.".into()
@@ -664,6 +980,284 @@ fn detect_probe_loop_context(calls: &[String]) -> Option<(String, usize, usize, 
     Some((dominant_api, total_probe_calls, unique_probe_apis, dominance_ratio))
 }
 
+fn severity_from_behavioral(value: &str) -> Severity {
+    match value.to_ascii_lowercase().as_str() {
+        "critical" => Severity::Critical,
+        "high" => Severity::High,
+        "medium" => Severity::Medium,
+        "low" => Severity::Low,
+        _ => Severity::Info,
+    }
+}
+
+fn confidence_from_behavioral(value: f64) -> Confidence {
+    if value >= 0.90 {
+        Confidence::Certain
+    } else if value >= 0.75 {
+        Confidence::Strong
+    } else if value >= 0.60 {
+        Confidence::Probable
+    } else if value >= 0.45 {
+        Confidence::Tentative
+    } else if value >= 0.30 {
+        Confidence::Weak
+    } else {
+        Confidence::Heuristic
+    }
+}
+
+fn behavioral_pattern_title(name: &str) -> Option<&'static str> {
+    match name {
+        "wasm_loader_staging" => Some("WASM loader staging observed"),
+        "runtime_dependency_loader_abuse" => Some("Runtime dependency loader abuse"),
+        "credential_harvest_form_emulation" => Some("Credential-harvest form emulation"),
+        "chunked_data_exfil_pipeline" => Some("Chunked data exfiltration pipeline"),
+        "interaction_coercion_loop" => Some("Interaction coercion loop"),
+        "lotl_api_chain_execution" => Some("Living-off-the-land API chain execution"),
+        "service_worker_persistence_abuse" => Some("Service worker persistence abuse"),
+        "webcrypto_key_staging_exfil" => Some("WebCrypto key staging and exfiltration"),
+        "storage_backed_payload_staging" => Some("Storage-backed payload staging"),
+        "dynamic_module_graph_evasion" => Some("Dynamic module graph evasion"),
+        "covert_realtime_channel_abuse" => Some("Covert realtime channel abuse"),
+        "clipboard_session_hijack_behaviour" => Some("Clipboard/session hijack behaviour"),
+        "dom_sink_policy_bypass_attempt" => Some("DOM sink policy bypass attempt"),
+        "wasm_memory_unpacker_pipeline" => Some("WASM memory unpacker pipeline"),
+        "extension_api_abuse_probe" => Some("Extension API abuse probe"),
+        "modern_fingerprint_evasion" => Some("Modern fingerprinting evasion"),
+        "api_call_sequence_malicious" => Some("Suspicious API call sequence"),
+        "source_sink_complexity" => Some("Complex source-to-sink data flow"),
+        "entropy_at_sink" => Some("High-entropy payload at execution sink"),
+        "dynamic_string_materialisation_sink" => {
+            Some("Dynamic string materialisation into execution sink")
+        }
+        _ => None,
+    }
+}
+
+fn behavioral_pattern_kind(name: &str) -> Option<&'static str> {
+    match name {
+        "wasm_loader_staging" => Some("js_runtime_wasm_loader_staging"),
+        "runtime_dependency_loader_abuse" => Some("js_runtime_dependency_loader_abuse"),
+        "credential_harvest_form_emulation" => Some("js_runtime_credential_harvest"),
+        "chunked_data_exfil_pipeline" => Some("js_runtime_chunked_data_exfil"),
+        "interaction_coercion_loop" => Some("js_runtime_interaction_coercion"),
+        "lotl_api_chain_execution" => Some("js_runtime_lotl_api_chain_execution"),
+        "service_worker_persistence_abuse" => Some("js_runtime_service_worker_persistence"),
+        "webcrypto_key_staging_exfil" => Some("js_runtime_webcrypto_key_staging"),
+        "storage_backed_payload_staging" => Some("js_runtime_storage_payload_staging"),
+        "dynamic_module_graph_evasion" => Some("js_runtime_dynamic_module_evasion"),
+        "covert_realtime_channel_abuse" => Some("js_runtime_realtime_channel_abuse"),
+        "clipboard_session_hijack_behaviour" => Some("js_runtime_clipboard_session_hijack"),
+        "dom_sink_policy_bypass_attempt" => Some("js_runtime_dom_policy_bypass"),
+        "wasm_memory_unpacker_pipeline" => Some("js_runtime_wasm_memory_unpacker"),
+        "extension_api_abuse_probe" => Some("js_runtime_extension_api_abuse"),
+        "modern_fingerprint_evasion" => Some("js_runtime_modern_fingerprint_evasion"),
+        "api_call_sequence_malicious" => Some("js_runtime_api_sequence_malicious"),
+        "source_sink_complexity" => Some("js_runtime_source_sink_complexity"),
+        "entropy_at_sink" => Some("js_runtime_entropy_at_sink"),
+        "dynamic_string_materialisation_sink" => Some("js_runtime_dynamic_string_materialisation"),
+        _ => None,
+    }
+}
+
+fn behavioral_pattern_description(name: &str) -> Option<&'static str> {
+    match name {
+        "wasm_loader_staging" => {
+            Some("JavaScript invoked WebAssembly loader APIs in a sequence consistent with staged execution.")
+        }
+        "runtime_dependency_loader_abuse" => {
+            Some("JavaScript dynamically loaded runtime modules and invoked execution or write sinks.")
+        }
+        "credential_harvest_form_emulation" => {
+            Some("JavaScript combined field/form APIs with outbound submission behaviour, consistent with credential harvesting.")
+        }
+        "chunked_data_exfil_pipeline" => {
+            Some("JavaScript staged data in chunks and transmitted it across repeated outbound sends.")
+        }
+        "interaction_coercion_loop" => {
+            Some("JavaScript repeatedly invoked dialog primitives with loop or gating cues consistent with coercive lures.")
+        }
+        "lotl_api_chain_execution" => {
+            Some("JavaScript chained benign host APIs from environment and staging surfaces into execution behaviour.")
+        }
+        "service_worker_persistence_abuse" => {
+            Some("JavaScript used service worker lifecycle and cache APIs in a persistence-oriented sequence.")
+        }
+        "webcrypto_key_staging_exfil" => {
+            Some("JavaScript handled WebCrypto key material and then attempted outbound transmission.")
+        }
+        "storage_backed_payload_staging" => {
+            Some("JavaScript staged payload content in browser storage before decode or execution.")
+        }
+        "dynamic_module_graph_evasion" => {
+            Some("JavaScript performed dynamic module loading and graph traversal with execution sinks.")
+        }
+        "covert_realtime_channel_abuse" => {
+            Some("JavaScript prepared encoded data and sent it through realtime communication channels.")
+        }
+        "clipboard_session_hijack_behaviour" => {
+            Some("JavaScript accessed clipboard/session artefacts and attempted outbound transfer.")
+        }
+        "dom_sink_policy_bypass_attempt" => {
+            Some("JavaScript routed obfuscated input into sensitive DOM or script sink surfaces.")
+        }
+        "wasm_memory_unpacker_pipeline" => {
+            Some("JavaScript combined WebAssembly memory operations with unpacking and dynamic execution.")
+        }
+        "extension_api_abuse_probe" => {
+            Some("JavaScript probed extension runtime APIs, indicating privilege and environment reconnaissance.")
+        }
+        "modern_fingerprint_evasion" => {
+            Some("JavaScript performed modern fingerprint probes with timing or gating behaviour.")
+        }
+        "api_call_sequence_malicious" => {
+            Some("JavaScript executed a suspicious source/transform/sink API sequence consistent with staged malicious intent.")
+        }
+        "source_sink_complexity" => {
+            Some("JavaScript routed data from acquisition sources to sensitive sinks with a multi-step transformation chain.")
+        }
+        "entropy_at_sink" => {
+            Some("JavaScript passed high-entropy runtime strings into execution sinks, consistent with obfuscated payload staging.")
+        }
+        "dynamic_string_materialisation_sink" => {
+            Some("JavaScript dynamically materialised executable strings before invoking execution sinks.")
+        }
+        _ => None,
+    }
+}
+
+fn extend_with_behavioral_pattern_findings(
+    findings: &mut Vec<Finding>,
+    surface: AttackSurface,
+    object_ref: &str,
+    evidence: &[sis_pdf_core::model::EvidenceSpan],
+    base_meta: &std::collections::HashMap<String, String>,
+    profile_summary: &ProfileDivergenceSummary,
+    signals: &js_analysis::DynamicSignals,
+) {
+    for pattern in &signals.behavioral_patterns {
+        let kind = behavioral_pattern_kind(&pattern.name)
+            .unwrap_or("js_runtime_unknown_behaviour_pattern");
+        let title =
+            behavioral_pattern_title(&pattern.name).unwrap_or("Unknown runtime behaviour pattern");
+        let description = behavioral_pattern_description(&pattern.name).unwrap_or(
+            "Sandbox reported a behavioural pattern that is not yet mapped in detector metadata.",
+        );
+
+        let mut meta = base_meta.clone();
+        meta.insert("js.sandbox_exec".into(), "true".into());
+        meta.insert("js.runtime.behavior.name".into(), pattern.name.clone());
+        meta.insert(
+            "js.runtime.behavior.confidence_score".into(),
+            format!("{:.2}", pattern.confidence),
+        );
+        meta.insert("js.runtime.behavior.severity".into(), pattern.severity.clone());
+        meta.insert("js.runtime.behavior.evidence".into(), pattern.evidence.clone());
+        for (key, value) in &pattern.metadata {
+            meta.insert(format!("js.runtime.behavior.meta.{key}"), value.clone());
+        }
+        let base_severity = severity_from_behavioral(&pattern.severity);
+        let base_confidence = confidence_from_behavioral(pattern.confidence);
+        let (severity, confidence) = apply_profile_scoring_meta(
+            &mut meta,
+            profile_summary,
+            kind,
+            base_severity,
+            base_confidence,
+        );
+        findings.push(Finding {
+            id: String::new(),
+            surface,
+            kind: kind.into(),
+            severity,
+            confidence,
+            impact: impact_for_kind(kind),
+            title: title.into(),
+            description: description.into(),
+            objects: vec![object_ref.to_string()],
+            evidence: evidence.to_vec(),
+            remediation: Some(
+                "Review dynamic telemetry and correlate with static JS artefacts.".into(),
+            ),
+            meta,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+            ..Finding::default()
+        });
+    }
+}
+
+fn extend_with_heap_manipulation_finding(
+    findings: &mut Vec<Finding>,
+    detector_surface: AttackSurface,
+    object_ref: &str,
+    evidence: &[sis_pdf_core::model::EvidenceSpan],
+    base_meta: &std::collections::HashMap<String, String>,
+    summary: &ProfileDivergenceSummary,
+    signals: &js_analysis::DynamicSignals,
+) {
+    let allocation_count = signals.heap_allocation_count;
+    let view_count = signals.heap_view_count;
+    let access_count = signals.heap_access_count;
+    if allocation_count == 0 && view_count == 0 && access_count == 0 {
+        return;
+    }
+    let mut stages = 0usize;
+    if allocation_count > 0 {
+        stages += 1;
+    }
+    if view_count > 0 {
+        stages += 1;
+    }
+    if access_count > 0 {
+        stages += 1;
+    }
+    let mut meta = base_meta.clone();
+    meta.insert("js.sandbox_exec".into(), "true".into());
+    meta.insert("js.runtime.heap.stage_count".into(), stages.to_string());
+    let base_severity =
+        if stages >= 3 || access_count >= 8 { Severity::Medium } else { Severity::Low };
+    let base_confidence = if stages >= 3 {
+        Confidence::Strong
+    } else if stages == 2 {
+        Confidence::Probable
+    } else {
+        Confidence::Tentative
+    };
+    let (severity, confidence) = apply_profile_scoring_meta(
+        &mut meta,
+        summary,
+        "js_runtime_heap_manipulation",
+        base_severity,
+        base_confidence,
+    );
+    findings.push(Finding {
+        id: String::new(),
+        surface: detector_surface,
+        kind: "js_runtime_heap_manipulation".into(),
+        severity,
+        confidence,
+        impact: impact_for_kind("js_runtime_heap_manipulation"),
+        title: "Runtime heap manipulation primitives".into(),
+        description: format!(
+            "JavaScript exercised heap-related primitives (allocations={}, views={}, accesses={}).",
+            allocation_count, view_count, access_count
+        ),
+        objects: vec![object_ref.to_string()],
+        evidence: evidence.to_vec(),
+        remediation: Some(
+            "Review typed-array/DataView usage and correlate with decoder or execution-stage behaviour."
+                .into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    });
+}
+
 fn extend_with_emulation_breakpoint_finding(
     findings: &mut Vec<Finding>,
     detector_surface: AttackSurface,
@@ -704,8 +1298,8 @@ fn extend_with_emulation_breakpoint_finding(
         meta.insert("js.emulation_breakpoint.top_bucket_count".into(), top_count.to_string());
     }
     let parser_mismatch = bucket_counts.contains_key("parser_dialect_mismatch");
-    let base_severity = if parser_mismatch { Severity::Medium } else { Severity::Low };
-    let base_confidence = if parser_mismatch { Confidence::Strong } else { Confidence::Probable };
+    let base_severity = if parser_mismatch { Severity::Low } else { Severity::Low };
+    let base_confidence = if parser_mismatch { Confidence::Probable } else { Confidence::Probable };
     let (severity, mut confidence) = apply_profile_scoring_meta(
         &mut meta,
         summary,
@@ -765,7 +1359,7 @@ fn extend_with_emulation_breakpoint_finding(
         kind: "js_emulation_breakpoint".into(),
         severity,
         confidence,
-        impact: None,
+        impact: impact_for_kind("js_emulation_breakpoint"),
         title: "JavaScript emulation breakpoint".into(),
         description: "Sandbox execution encountered recoverable runtime errors that may indicate emulation coverage gaps or guarded behaviour.".into(),
         objects: vec![object_ref],
@@ -846,7 +1440,7 @@ impl Detector for JavaScriptSandboxDetector {
                             kind: "js_sandbox_skipped".into(),
                             severity: Severity::Info,
                             confidence: Confidence::Probable,
-            impact: None,
+                            impact: impact_for_kind("js_sandbox_skipped"),
                             title: "JavaScript sandbox skipped".into(),
                             description: "Sandbox skipped because the JS payload exceeds the size limit or sandbox is unavailable.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -883,194 +1477,13 @@ impl Detector for JavaScriptSandboxDetector {
                         if signals.call_count == 0 {
                             let mut meta = std::collections::HashMap::new();
                             meta.insert("js.sandbox_exec".into(), "true".into());
-                            meta.insert("js.runtime.replay_id".into(), signals.replay_id.clone());
-                            meta.insert("js.runtime.ordering".into(), "deterministic".into());
-                            meta.insert(
-                                "js.runtime.profile".into(),
-                                signals.runtime_profile.clone(),
+                            populate_base_metadata(
+                                &mut meta,
+                                &signals,
+                                candidate.source.meta_value(),
+                                profile_summary.timed_out_count,
+                                false,
                             );
-                            if let Some(label) = candidate.source.meta_value() {
-                                meta.insert("js.source".into(), label.into());
-                            }
-                            if let Some(ms) = signals.elapsed_ms {
-                                meta.insert("js.sandbox_exec_ms".into(), ms.to_string());
-                            }
-                            meta.insert(
-                                "js.runtime.execution.adaptive_loop_iteration_limit".into(),
-                                signals.execution_stats.adaptive_loop_iteration_limit.to_string(),
-                            );
-                            meta.insert(
-                                "js.runtime.execution.adaptive_loop_profile".into(),
-                                signals.execution_stats.adaptive_loop_profile.clone(),
-                            );
-                            meta.insert(
-                                "js.runtime.execution.loop_iteration_limit_hits".into(),
-                                signals.execution_stats.loop_iteration_limit_hits.to_string(),
-                            );
-                            if signals.execution_stats.probe_loop_short_circuit_hits > 0 {
-                                meta.insert(
-                                    "js.runtime.execution.probe_loop_short_circuit_hits".into(),
-                                    signals
-                                        .execution_stats
-                                        .probe_loop_short_circuit_hits
-                                        .to_string(),
-                                );
-                                meta.insert(
-                                    "js.runtime.partial_execution_marker".into(),
-                                    "probe_loop_short_circuit".into(),
-                                );
-                            }
-                            if !signals.prop_reads.is_empty() {
-                                meta.insert(
-                                    "js.runtime.prop_reads".into(),
-                                    signals.prop_reads.join(", "),
-                                );
-                                meta.insert(
-                                    "js.runtime.unique_prop_reads".into(),
-                                    signals.unique_prop_reads.to_string(),
-                                );
-                            }
-                            if !signals.errors.is_empty() {
-                                meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
-                            }
-                            if profile_summary.timed_out_count > 0 {
-                                meta.insert(
-                                    "js.runtime.script_timeout_profiles".into(),
-                                    profile_summary.timed_out_count.to_string(),
-                                );
-                            }
-                            if !signals.prop_writes.is_empty() {
-                                meta.insert(
-                                    "js.runtime.prop_writes".into(),
-                                    signals.prop_writes.join(", "),
-                                );
-                            }
-                            if !signals.prop_deletes.is_empty() {
-                                meta.insert(
-                                    "js.runtime.prop_deletes".into(),
-                                    signals.prop_deletes.join(", "),
-                                );
-                            }
-                            if !signals.reflection_probes.is_empty() {
-                                meta.insert(
-                                    "js.runtime.reflection_probes".into(),
-                                    signals.reflection_probes.join(", "),
-                                );
-                            }
-                            if !signals.dynamic_code_calls.is_empty() {
-                                meta.insert(
-                                    "js.runtime.dynamic_code_calls".into(),
-                                    signals.dynamic_code_calls.join(", "),
-                                );
-                            }
-                            if signals.truncation.calls_dropped > 0 {
-                                meta.insert(
-                                    "js.runtime.truncation.calls_dropped".into(),
-                                    signals.truncation.calls_dropped.to_string(),
-                                );
-                            }
-                            if signals.truncation.call_args_dropped > 0 {
-                                meta.insert(
-                                    "js.runtime.truncation.call_args_dropped".into(),
-                                    signals.truncation.call_args_dropped.to_string(),
-                                );
-                            }
-                            if signals.truncation.prop_reads_dropped > 0 {
-                                meta.insert(
-                                    "js.runtime.truncation.prop_reads_dropped".into(),
-                                    signals.truncation.prop_reads_dropped.to_string(),
-                                );
-                            }
-                            if signals.truncation.errors_dropped > 0 {
-                                meta.insert(
-                                    "js.runtime.truncation.errors_dropped".into(),
-                                    signals.truncation.errors_dropped.to_string(),
-                                );
-                            }
-                            if signals.truncation.urls_dropped > 0 {
-                                meta.insert(
-                                    "js.runtime.truncation.urls_dropped".into(),
-                                    signals.truncation.urls_dropped.to_string(),
-                                );
-                            }
-                            if signals.truncation.domains_dropped > 0 {
-                                meta.insert(
-                                    "js.runtime.truncation.domains_dropped".into(),
-                                    signals.truncation.domains_dropped.to_string(),
-                                );
-                            }
-                            if !signals.phases.is_empty() {
-                                let phase_order = signals
-                                    .phases
-                                    .iter()
-                                    .map(|phase| phase.phase.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join(", ");
-                                let phase_summary = signals
-                                    .phases
-                                    .iter()
-                                    .map(|phase| {
-                                        format!(
-                                            "{}:calls={} props={} errors={} ms={}",
-                                            phase.phase,
-                                            phase.call_count,
-                                            phase.prop_read_count,
-                                            phase.error_count,
-                                            phase.elapsed_ms
-                                        )
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join(" | ");
-                                meta.insert("js.runtime.phase_order".into(), phase_order);
-                                meta.insert("js.runtime.phase_summaries".into(), phase_summary);
-                                meta.insert(
-                                    "js.runtime.phase_count".into(),
-                                    signals.phases.len().to_string(),
-                                );
-                            }
-                            if let Some(delta) = signals.delta_summary.as_ref() {
-                                meta.insert("js.delta.phase".into(), delta.phase.clone());
-                                if !delta.trigger_calls.is_empty() {
-                                    meta.insert(
-                                        "js.delta.trigger_calls".into(),
-                                        delta.trigger_calls.join(", "),
-                                    );
-                                }
-                                meta.insert(
-                                    "js.delta.generated_snippets".into(),
-                                    delta.generated_snippets.to_string(),
-                                );
-                                meta.insert(
-                                    "js.delta.added_identifier_count".into(),
-                                    delta.added_identifier_count.to_string(),
-                                );
-                                meta.insert(
-                                    "js.delta.added_string_literal_count".into(),
-                                    delta.added_string_literal_count.to_string(),
-                                );
-                                meta.insert(
-                                    "js.delta.added_call_count".into(),
-                                    delta.added_call_count.to_string(),
-                                );
-                                if !delta.new_identifiers.is_empty() {
-                                    meta.insert(
-                                        "js.delta.new_identifiers".into(),
-                                        delta.new_identifiers.join(", "),
-                                    );
-                                }
-                                if !delta.new_string_literals.is_empty() {
-                                    meta.insert(
-                                        "js.delta.new_string_literals".into(),
-                                        delta.new_string_literals.join(", "),
-                                    );
-                                }
-                                if !delta.new_calls.is_empty() {
-                                    meta.insert(
-                                        "js.delta.new_calls".into(),
-                                        delta.new_calls.join(", "),
-                                    );
-                                }
-                            }
                             let object_ref = format!("{} {} obj", entry.obj, entry.gen);
                             let recursion_hits = recursion_limit_hits(&signals.errors);
                             let loop_hits = loop_iteration_limit_hits(&signals.errors);
@@ -1112,6 +1525,24 @@ impl Detector for JavaScriptSandboxDetector {
                                 &profile_summary,
                                 recursion_hits,
                             );
+                            extend_with_behavioral_pattern_findings(
+                                &mut findings,
+                                self.surface(),
+                                &object_ref,
+                                &evidence,
+                                &meta,
+                                &profile_summary,
+                                &signals,
+                            );
+                            extend_with_heap_manipulation_finding(
+                                &mut findings,
+                                self.surface(),
+                                &object_ref,
+                                &evidence,
+                                &meta,
+                                &profile_summary,
+                                &signals,
+                            );
                             let description = if !signals.prop_reads.is_empty() {
                                 "Sandbox executed JS; property accesses observed."
                             } else if signals.errors.is_empty() {
@@ -1132,7 +1563,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_sandbox_exec".into(),
                                 severity,
                                 confidence,
-                                impact: None,
+                                impact: impact_for_kind("js_sandbox_exec"),
                                 title: "JavaScript sandbox executed".into(),
                                 description: description.into(),
                                 objects: vec![object_ref],
@@ -1148,209 +1579,13 @@ impl Detector for JavaScriptSandboxDetector {
                         }
 
                         let mut base_meta = std::collections::HashMap::new();
-                        base_meta.insert("js.runtime.replay_id".into(), signals.replay_id.clone());
-                        base_meta.insert("js.runtime.ordering".into(), "deterministic".into());
-                        base_meta
-                            .insert("js.runtime.profile".into(), signals.runtime_profile.clone());
-                        base_meta.insert("js.runtime.calls".into(), signals.calls.join(","));
-                        base_meta
-                            .insert("js.runtime.call_count".into(), signals.call_count.to_string());
-                        base_meta.insert(
-                            "js.runtime.unique_calls".into(),
-                            signals.unique_calls.to_string(),
+                        populate_base_metadata(
+                            &mut base_meta,
+                            &signals,
+                            candidate.source.meta_value(),
+                            profile_summary.timed_out_count,
+                            true,
                         );
-                        if !signals.call_args.is_empty() {
-                            base_meta.insert(
-                                "js.runtime.call_args".into(),
-                                signals.call_args.join("; "),
-                            );
-                        }
-                        if !signals.urls.is_empty() {
-                            base_meta.insert("js.runtime.urls".into(), signals.urls.join(", "));
-                        }
-                        if !signals.domains.is_empty() {
-                            base_meta
-                                .insert("js.runtime.domains".into(), signals.domains.join(", "));
-                        }
-                        if !signals.prop_reads.is_empty() {
-                            base_meta.insert(
-                                "js.runtime.prop_reads".into(),
-                                signals.prop_reads.join(", "),
-                            );
-                            base_meta.insert(
-                                "js.runtime.unique_prop_reads".into(),
-                                signals.unique_prop_reads.to_string(),
-                            );
-                        }
-                        if !signals.prop_writes.is_empty() {
-                            base_meta.insert(
-                                "js.runtime.prop_writes".into(),
-                                signals.prop_writes.join(", "),
-                            );
-                        }
-                        if !signals.prop_deletes.is_empty() {
-                            base_meta.insert(
-                                "js.runtime.prop_deletes".into(),
-                                signals.prop_deletes.join(", "),
-                            );
-                        }
-                        if !signals.reflection_probes.is_empty() {
-                            base_meta.insert(
-                                "js.runtime.reflection_probes".into(),
-                                signals.reflection_probes.join(", "),
-                            );
-                        }
-                        if !signals.dynamic_code_calls.is_empty() {
-                            base_meta.insert(
-                                "js.runtime.dynamic_code_calls".into(),
-                                signals.dynamic_code_calls.join(", "),
-                            );
-                        }
-                        if signals.truncation.calls_dropped > 0 {
-                            base_meta.insert(
-                                "js.runtime.truncation.calls_dropped".into(),
-                                signals.truncation.calls_dropped.to_string(),
-                            );
-                        }
-                        if signals.truncation.call_args_dropped > 0 {
-                            base_meta.insert(
-                                "js.runtime.truncation.call_args_dropped".into(),
-                                signals.truncation.call_args_dropped.to_string(),
-                            );
-                        }
-                        if signals.truncation.prop_reads_dropped > 0 {
-                            base_meta.insert(
-                                "js.runtime.truncation.prop_reads_dropped".into(),
-                                signals.truncation.prop_reads_dropped.to_string(),
-                            );
-                        }
-                        if signals.truncation.errors_dropped > 0 {
-                            base_meta.insert(
-                                "js.runtime.truncation.errors_dropped".into(),
-                                signals.truncation.errors_dropped.to_string(),
-                            );
-                        }
-                        if signals.truncation.urls_dropped > 0 {
-                            base_meta.insert(
-                                "js.runtime.truncation.urls_dropped".into(),
-                                signals.truncation.urls_dropped.to_string(),
-                            );
-                        }
-                        if signals.truncation.domains_dropped > 0 {
-                            base_meta.insert(
-                                "js.runtime.truncation.domains_dropped".into(),
-                                signals.truncation.domains_dropped.to_string(),
-                            );
-                        }
-                        if !signals.phases.is_empty() {
-                            let phase_order = signals
-                                .phases
-                                .iter()
-                                .map(|phase| phase.phase.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            let phase_summary = signals
-                                .phases
-                                .iter()
-                                .map(|phase| {
-                                    format!(
-                                        "{}:calls={} props={} errors={} ms={}",
-                                        phase.phase,
-                                        phase.call_count,
-                                        phase.prop_read_count,
-                                        phase.error_count,
-                                        phase.elapsed_ms
-                                    )
-                                })
-                                .collect::<Vec<_>>()
-                                .join(" | ");
-                            base_meta.insert("js.runtime.phase_order".into(), phase_order);
-                            base_meta.insert("js.runtime.phase_summaries".into(), phase_summary);
-                            base_meta.insert(
-                                "js.runtime.phase_count".into(),
-                                signals.phases.len().to_string(),
-                            );
-                        }
-                        if let Some(delta) = signals.delta_summary.as_ref() {
-                            base_meta.insert("js.delta.phase".into(), delta.phase.clone());
-                            if !delta.trigger_calls.is_empty() {
-                                base_meta.insert(
-                                    "js.delta.trigger_calls".into(),
-                                    delta.trigger_calls.join(", "),
-                                );
-                            }
-                            base_meta.insert(
-                                "js.delta.generated_snippets".into(),
-                                delta.generated_snippets.to_string(),
-                            );
-                            base_meta.insert(
-                                "js.delta.added_identifier_count".into(),
-                                delta.added_identifier_count.to_string(),
-                            );
-                            base_meta.insert(
-                                "js.delta.added_string_literal_count".into(),
-                                delta.added_string_literal_count.to_string(),
-                            );
-                            base_meta.insert(
-                                "js.delta.added_call_count".into(),
-                                delta.added_call_count.to_string(),
-                            );
-                            if !delta.new_identifiers.is_empty() {
-                                base_meta.insert(
-                                    "js.delta.new_identifiers".into(),
-                                    delta.new_identifiers.join(", "),
-                                );
-                            }
-                            if !delta.new_string_literals.is_empty() {
-                                base_meta.insert(
-                                    "js.delta.new_string_literals".into(),
-                                    delta.new_string_literals.join(", "),
-                                );
-                            }
-                            if !delta.new_calls.is_empty() {
-                                base_meta.insert(
-                                    "js.delta.new_calls".into(),
-                                    delta.new_calls.join(", "),
-                                );
-                            }
-                        }
-                        if !signals.errors.is_empty() {
-                            base_meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
-                        }
-                        if profile_summary.timed_out_count > 0 {
-                            base_meta.insert(
-                                "js.runtime.script_timeout_profiles".into(),
-                                profile_summary.timed_out_count.to_string(),
-                            );
-                        }
-                        if let Some(ms) = signals.elapsed_ms {
-                            base_meta.insert("js.sandbox_exec_ms".into(), ms.to_string());
-                        }
-                        base_meta.insert(
-                            "js.runtime.execution.adaptive_loop_iteration_limit".into(),
-                            signals.execution_stats.adaptive_loop_iteration_limit.to_string(),
-                        );
-                        base_meta.insert(
-                            "js.runtime.execution.adaptive_loop_profile".into(),
-                            signals.execution_stats.adaptive_loop_profile.clone(),
-                        );
-                        base_meta.insert(
-                            "js.runtime.execution.loop_iteration_limit_hits".into(),
-                            signals.execution_stats.loop_iteration_limit_hits.to_string(),
-                        );
-                        if signals.execution_stats.probe_loop_short_circuit_hits > 0 {
-                            base_meta.insert(
-                                "js.runtime.execution.probe_loop_short_circuit_hits".into(),
-                                signals.execution_stats.probe_loop_short_circuit_hits.to_string(),
-                            );
-                            base_meta.insert(
-                                "js.runtime.partial_execution_marker".into(),
-                                "probe_loop_short_circuit".into(),
-                            );
-                        }
-                        if let Some(label) = candidate.source.meta_value() {
-                            base_meta.insert("js.source".into(), label.into());
-                        }
                         let object_ref = format!("{} {} obj", entry.obj, entry.gen);
                         let recursion_hits = recursion_limit_hits(&signals.errors);
                         let loop_hits = loop_iteration_limit_hits(&signals.errors);
@@ -1398,13 +1633,34 @@ impl Detector for JavaScriptSandboxDetector {
                             &profile_summary,
                             recursion_hits,
                         );
-                        let mut risky_calls = Vec::new();
-                        if signals.calls.iter().any(|c| c.eq_ignore_ascii_case("eval")) {
-                            risky_calls.push("eval");
-                        }
-                        if signals.calls.iter().any(|c| c.eq_ignore_ascii_case("unescape")) {
-                            risky_calls.push("unescape");
-                        }
+                        extend_with_behavioral_pattern_findings(
+                            &mut findings,
+                            self.surface(),
+                            &object_ref,
+                            &evidence,
+                            &base_meta,
+                            &profile_summary,
+                            &signals,
+                        );
+                        extend_with_heap_manipulation_finding(
+                            &mut findings,
+                            self.surface(),
+                            &object_ref,
+                            &evidence,
+                            &base_meta,
+                            &profile_summary,
+                            &signals,
+                        );
+                        let mut risky_calls = signals
+                            .calls
+                            .iter()
+                            .filter(|call| is_risky_call(call))
+                            .map(|call| call.as_str())
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .into_iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>();
+                        risky_calls.sort();
                         let risky_call_label = if risky_calls.is_empty() {
                             None
                         } else {
@@ -1459,7 +1715,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_runtime_downloader_pattern".into(),
                                 severity,
                                 confidence: final_confidence,
-                                impact: None,
+                                impact: impact_for_kind("js_runtime_downloader_pattern"),
                                 title: "Runtime downloader loop pattern".into(),
                                 description: "JavaScript repeatedly created script-host objects and issued XMLHTTP open/send calls, consistent with downloader loop behaviour.".into(),
                                 objects: vec![object_ref.clone()],
@@ -1481,7 +1737,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 &mut meta,
                                 &profile_summary,
                                 "js_runtime_network_intent",
-                                Severity::High,
+                                Severity::Medium,
                                 Confidence::Probable,
                             );
                             findings.push(Finding {
@@ -1490,7 +1746,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_runtime_network_intent".into(),
                                 severity,
                                 confidence,
-            impact: None,
+                                impact: impact_for_kind("js_runtime_network_intent"),
                                 title: "Runtime network intent".into(),
                                 description: "JavaScript invoked network-capable APIs during sandboxed execution.".into(),
                                 objects: vec![object_ref.clone()],
@@ -1519,7 +1775,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_runtime_file_probe".into(),
                                 severity,
                                 confidence,
-            impact: None,
+                                impact: impact_for_kind("js_runtime_file_probe"),
                                 title: "Runtime file or object probe".into(),
                                 description: "JavaScript invoked file or object-related APIs during sandboxed execution.".into(),
                                 objects: vec![object_ref.clone()],
@@ -1548,7 +1804,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_runtime_risky_calls".into(),
                                 severity,
                                 confidence,
-            impact: None,
+                                impact: impact_for_kind("js_runtime_risky_calls"),
                                 title: "Runtime risky JavaScript calls".into(),
                                 description: format!(
                                     "JavaScript invoked high-risk calls during sandboxed execution ({}).",
@@ -1582,7 +1838,7 @@ impl Detector for JavaScriptSandboxDetector {
                                 kind: "js_sandbox_exec".into(),
                                 severity,
                                 confidence,
-            impact: None,
+                                impact: impact_for_kind("js_sandbox_exec"),
                                 title: "JavaScript sandbox executed".into(),
                                 description: "Sandbox executed JS; monitored API calls were observed but no network/file APIs.".into(),
                                 objects: vec![object_ref],
@@ -1600,5 +1856,75 @@ impl Detector for JavaScriptSandboxDetector {
             }
         }
         Ok(findings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_profile_timeouts_raise_timeout_finding_severity() {
+        let mut findings = Vec::new();
+        let mut base_meta = std::collections::HashMap::new();
+        base_meta.insert("js.source".into(), "inline".into());
+        let summary = ProfileDivergenceSummary {
+            profile_ids: vec![
+                "pdf_reader:adobe:11:compat".into(),
+                "browser:chromium:120:compat".into(),
+                "node:nodejs:20:compat".into(),
+            ],
+            timed_out_count: 3,
+            ..ProfileDivergenceSummary::default()
+        };
+        extend_with_script_timeout_finding(
+            &mut findings,
+            AttackSurface::JavaScript,
+            "5 0 obj".into(),
+            &[],
+            &base_meta,
+            &summary,
+            Some(5000),
+            Some("pdf_reader:adobe:11:compat"),
+            Some("open"),
+            Some(5000),
+            Some(1.0),
+            true,
+        );
+        let finding = findings.first().expect("timeout finding");
+        assert_eq!(finding.kind, "js_sandbox_timeout");
+        assert_eq!(finding.severity, Severity::Medium);
+        assert!(matches!(
+            finding.confidence,
+            Confidence::Probable | Confidence::Tentative | Confidence::Weak
+        ));
+    }
+
+    #[test]
+    fn downloader_pattern_timeout_demotes_confidence() {
+        let summary = ProfileDivergenceSummary {
+            profile_ids: vec![
+                "pdf_reader:adobe:11:compat".into(),
+                "browser:chromium:120:compat".into(),
+                "node:nodejs:20:compat".into(),
+            ],
+            executed_count: 2,
+            timed_out_count: 1,
+            network_count: 2,
+            ..ProfileDivergenceSummary::default()
+        };
+        let mut meta = std::collections::HashMap::new();
+        let (_, confidence) = apply_profile_scoring_meta(
+            &mut meta,
+            &summary,
+            "js_runtime_downloader_pattern",
+            Severity::High,
+            Confidence::Strong,
+        );
+        assert_eq!(confidence, Confidence::Probable);
+        assert_eq!(
+            meta.get("js.runtime.timeout_confidence_adjusted").map(String::as_str),
+            Some("Strong->Probable")
+        );
     }
 }
