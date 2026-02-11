@@ -45,6 +45,7 @@ pub mod redteam;
 pub mod report;
 pub mod response;
 pub mod revision_extract;
+pub mod revision_timeline;
 pub mod rich_media;
 pub mod runner;
 pub mod sarif;

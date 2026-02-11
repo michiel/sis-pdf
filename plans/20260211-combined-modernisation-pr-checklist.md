@@ -108,11 +108,11 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add post-certification annotation/signature field tests.
 
 ## PR-16: Cross-revision forensic analysis
-- [ ] Implement PDF plan S4-1 revision timeline query.
-- [ ] Implement S4-2 page content changed indicator.
-- [ ] Implement S4-3 annotation diff indicator.
-- [ ] Implement S4-4 catalog diff indicator.
-- [ ] Implement S4-5 revision anomaly scoring.
+- [x] Implement PDF plan S4-1 revision timeline query.
+- [x] Implement S4-2 page content changed indicator.
+- [x] Implement S4-3 annotation diff indicator.
+- [x] Implement S4-4 catalog diff indicator.
+- [x] Implement S4-5 revision anomaly scoring.
 
 ## PR-17: Linearisation and parser divergence
 - [ ] Implement PDF plan S5-1 `linearization_integrity`.
@@ -257,9 +257,14 @@ Gate D (after PR-20):
 - `PR-15`: added cross-revision diff summary metadata to shadow/certified findings (`shadow.diff.objects_added`, `shadow.diff.objects_modified`, `shadow.diff.annotations_added`, `shadow.diff.form_fields_added`, `shadow.diff.signature_fields_added`).
 - `PR-15`: added certified document tests in `crates/sis-pdf-detectors/tests/shadow_attacks.rs` for disallowed (P1) and allowed-but-suspicious (P3) post-certification overlays.
 - `PR-15`: finding documentation added in `docs/findings.md` for `certified_doc_manipulation`.
+- `PR-16`: added shared revision timeline utility in `crates/sis-pdf-core/src/revision_timeline.rs` (capped analysis, signature coverage context, per-revision diff summaries).
+- `PR-16`: added `RevisionForensicsDetector` in `crates/sis-pdf-detectors/src/revision_forensics.rs` with findings `revision_page_content_changed`, `revision_annotations_changed`, `revision_catalog_changed`, and `revision_anomaly_scoring`.
+- `PR-16`: wired `revisions.detail` query in `crates/sis-pdf/src/commands/query.rs` using timeline data, and upgraded `revisions` output with anomaly and diff counters.
+- `PR-16`: added detector integration tests in `crates/sis-pdf-detectors/tests/revision_forensics.rs` and query execution coverage for `revisions.detail`.
+- `PR-16`: finding documentation added in `docs/findings.md`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-16` cross-revision forensic analysis.
+- Start `PR-17` linearisation and parser divergence enhancements.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

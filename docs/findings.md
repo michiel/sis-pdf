@@ -2842,6 +2842,50 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: annotation and/or signature-field overlays were added after certification, with severity/confidence adjusted by P1-P3 policy compliance.
   - Chain usage: used as certified tampering indicator with cross-revision diff context.
 
+## revision_page_content_changed
+
+- ID: `revision_page_content_changed`
+- Label: Revision page content changed
+- Description: Page/content objects changed across revisions, indicating likely visual content modification.
+- Tags: evasion, revision, structure
+- Details:
+  - Relevance: post-revision visual tampering risk.
+  - Meaning: /Page or content-related object semantics differ between revision boundaries.
+  - Chain usage: used as revision-level visual mutation indicator.
+
+## revision_annotations_changed
+
+- ID: `revision_annotations_changed`
+- Label: Revision annotations changed
+- Description: Annotation objects were added or modified across revisions.
+- Tags: evasion, revision, structure
+- Details:
+  - Relevance: overlay and interaction-surface mutation risk.
+  - Meaning: annotation deltas were observed in incremental updates.
+  - Chain usage: used as annotation-based evasion/tampering indicator.
+
+## revision_catalog_changed
+
+- ID: `revision_catalog_changed`
+- Label: Revision catalog changed
+- Description: Document catalog/root structures changed across revisions.
+- Tags: evasion, revision, structure
+- Details:
+  - Relevance: behaviour-level document mutation.
+  - Meaning: catalog-level semantics changed (e.g., action roots or document structure controls).
+  - Chain usage: used as high-signal structural tampering indicator.
+
+## revision_anomaly_scoring
+
+- ID: `revision_anomaly_scoring`
+- Label: Revision anomaly scoring
+- Description: Revision-level anomaly scoring indicates unusual incremental-update mutation patterns.
+- Tags: evasion, revision, scoring
+- Details:
+  - Relevance: prioritised triage for suspicious update sequences.
+  - Meaning: one or more revisions exceed anomaly thresholds based on weighted structural/behavioural deltas.
+  - Chain usage: used as aggregate revision-risk indicator.
+
 ## parse_disagreement
 
 - ID: `parse_disagreement`

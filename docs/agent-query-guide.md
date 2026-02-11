@@ -49,6 +49,7 @@ sis query sample.pdf xref.startxrefs
 sis query sample.pdf xref.sections
 sis query sample.pdf xref.deviations
 sis query sample.pdf revisions
+sis query sample.pdf revisions.detail
 ```
 
 ## Stream and artefact extraction
@@ -103,6 +104,7 @@ sis query sample.pdf xref.sections --where "kind == 'stream'"
 sis query sample.pdf xref.trailers
 sis query sample.pdf xref.deviations
 sis query sample.pdf revisions
+sis query sample.pdf revisions.detail --where "anomaly_score >= 4"
 ```
 
 Typical use: validate whether a warning is benign incremental history or suspicious chain inconsistency.

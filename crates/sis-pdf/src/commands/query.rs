@@ -20,6 +20,7 @@ use sis_pdf_core::model::{
     AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
 };
 use sis_pdf_core::reader_context;
+use sis_pdf_core::revision_timeline::{build_revision_timeline, DEFAULT_MAX_REVISIONS};
 use sis_pdf_core::rich_media::{
     analyze_swf, detect_3d_format, detect_media_format, SWF_DECODE_TIMEOUT_MS,
 };
@@ -197,6 +198,7 @@ pub enum Query {
     XrefDeviations,
     XrefDeviationsCount,
     Revisions,
+    RevisionsDetail,
     RevisionsCount,
 
     // Content queries
@@ -478,6 +480,7 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "xref.deviations" => Ok(Query::XrefDeviations),
         "xref.deviations.count" => Ok(Query::XrefDeviationsCount),
         "revisions" => Ok(Query::Revisions),
+        "revisions.detail" => Ok(Query::RevisionsDetail),
         "revisions.count" => Ok(Query::RevisionsCount),
 
         // Content
@@ -2135,6 +2138,10 @@ pub fn execute_query_with_context(
             }
             Query::Revisions => {
                 let revisions = list_revisions(ctx, predicate)?;
+                Ok(QueryResult::Structure(json!(revisions)))
+            }
+            Query::RevisionsDetail => {
+                let revisions = list_revisions_detail(ctx, predicate)?;
                 Ok(QueryResult::Structure(json!(revisions)))
             }
             Query::RevisionsCount => {
@@ -4081,6 +4088,7 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::XrefDeviations
         | Query::XrefDeviationsCount
         | Query::Revisions
+        | Query::RevisionsDetail
         | Query::RevisionsCount => Ok(()),
         _ => Err(anyhow!(
             "Predicate filtering is only supported for js, embedded, urls, images, events, findings, correlations, objects, xref, and revisions queries"
@@ -6174,22 +6182,12 @@ fn list_revisions(
     ctx: &ScanContext,
     predicate: Option<&PredicateExpr>,
 ) -> Result<Vec<serde_json::Value>> {
+    let timeline = build_revision_timeline(ctx, DEFAULT_MAX_REVISIONS);
     let mut records = Vec::new();
-    let count = usize::max(ctx.graph.startxrefs.len(), ctx.graph.trailers.len());
-    for idx in 0..count {
-        let startxref = ctx.graph.startxrefs.get(idx).copied();
-        let trailer = ctx.graph.trailers.get(idx);
-        let root = trailer.and_then(|dict| trailer_ref_value(dict, b"/Root"));
-        let has_incremental_update = idx > 0;
-
-        let mut meta = HashMap::new();
-        meta.insert("revision".into(), idx.to_string());
-        if let Some(offset) = startxref {
-            meta.insert("startxref".into(), offset.to_string());
-        }
-        if let Some(value) = &root {
-            meta.insert("root".into(), value.clone());
-        }
+    for record in &timeline.revisions {
+        let mut meta = revision_meta(record, &timeline);
+        meta.insert("revision".into(), record.revision.to_string());
+        meta.insert("startxref".into(), record.startxref.to_string());
 
         let predicate_context = PredicateContext {
             length: 0,
@@ -6200,14 +6198,14 @@ fn list_revisions(
             width: 0,
             height: 0,
             pixels: 0,
-            risky: has_incremental_update,
+            risky: record.has_incremental_update && record.anomaly_score >= 4,
             severity: None,
             confidence: None,
             surface: None,
             kind: Some("revision".to_string()),
-            object_count: 0,
+            object_count: record.objects_added + record.objects_modified,
             evidence_count: 0,
-            name: Some(format!("revision#{idx}")),
+            name: Some(format!("revision#{}", record.revision)),
             magic: None,
             hash: None,
             impact: None,
@@ -6218,15 +6216,105 @@ fn list_revisions(
         };
         if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
             records.push(json!({
-                "revision": idx,
-                "startxref": startxref,
-                "trailer_index": trailer.map(|_| idx),
-                "root": root,
-                "has_incremental_update": has_incremental_update,
+                "revision": record.revision,
+                "startxref": record.startxref,
+                "has_incremental_update": record.has_incremental_update,
+                "covered_by_signature": record.covered_by_signature,
+                "objects_added": record.objects_added,
+                "objects_modified": record.objects_modified,
+                "objects_removed": record.objects_removed,
+                "anomaly_score": record.anomaly_score,
             }));
         }
     }
     Ok(records)
+}
+
+fn list_revisions_detail(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<Vec<serde_json::Value>> {
+    let timeline = build_revision_timeline(ctx, DEFAULT_MAX_REVISIONS);
+    let mut records = Vec::new();
+    for record in &timeline.revisions {
+        let mut meta = revision_meta(record, &timeline);
+        meta.insert("revision".into(), record.revision.to_string());
+        meta.insert("startxref".into(), record.startxref.to_string());
+
+        let predicate_context = PredicateContext {
+            length: 0,
+            filter: None,
+            type_name: "Revision".to_string(),
+            subtype: Some("revision".to_string()),
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: record.has_incremental_update && record.anomaly_score >= 4,
+            severity: None,
+            confidence: None,
+            surface: None,
+            kind: Some("revision".to_string()),
+            object_count: record.objects_added + record.objects_modified,
+            evidence_count: 0,
+            name: Some(format!("revision#{}", record.revision)),
+            magic: None,
+            hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            meta,
+        };
+        if predicate.map(|pred| pred.evaluate(&predicate_context)).unwrap_or(true) {
+            records.push(json!({
+                "revision": record.revision,
+                "startxref": record.startxref,
+                "has_incremental_update": record.has_incremental_update,
+                "covered_by_signature": record.covered_by_signature,
+                "objects_added": record.objects_added,
+                "objects_modified": record.objects_modified,
+                "objects_removed": record.objects_removed,
+                "page_content_changed": record.page_content_changed,
+                "annotations_added": record.annotations_added,
+                "annotations_modified": record.annotations_modified,
+                "catalog_changed": record.catalog_changed,
+                "action_or_js_changed": record.action_or_js_changed,
+                "anomaly_score": record.anomaly_score,
+                "anomaly_reasons": record.anomaly_reasons,
+                "objects_added_refs": record.objects_added_refs,
+                "objects_modified_refs": record.objects_modified_refs,
+                "page_content_changed_refs": record.page_content_changed_refs,
+                "annotation_added_refs": record.annotation_added_refs,
+                "annotation_modified_refs": record.annotation_modified_refs,
+                "catalog_changed_refs": record.catalog_changed_refs,
+                "action_or_js_changed_refs": record.action_or_js_changed_refs,
+                "total_revisions": timeline.total_revisions,
+                "skipped_revisions": timeline.skipped_revisions,
+                "timeline_capped": timeline.capped,
+                "signature_boundaries": timeline.signature_boundaries,
+                "prev_chain_valid": timeline.prev_chain_valid,
+                "prev_chain_errors": timeline.prev_chain_errors,
+            }));
+        }
+    }
+    Ok(records)
+}
+
+fn revision_meta(
+    record: &sis_pdf_core::revision_timeline::RevisionRecord,
+    timeline: &sis_pdf_core::revision_timeline::RevisionTimeline,
+) -> HashMap<String, String> {
+    let mut meta = HashMap::new();
+    meta.insert("revision.objects_added".into(), record.objects_added.to_string());
+    meta.insert("revision.objects_modified".into(), record.objects_modified.to_string());
+    meta.insert("revision.anomaly_score".into(), record.anomaly_score.to_string());
+    meta.insert("revision.page_content_changed".into(), record.page_content_changed.to_string());
+    meta.insert("revision.annotations_added".into(), record.annotations_added.to_string());
+    meta.insert("revision.catalog_changed".into(), record.catalog_changed.to_string());
+    meta.insert("revision.timeline_capped".into(), timeline.capped.to_string());
+    meta.insert("revision.timeline_skipped".into(), timeline.skipped_revisions.to_string());
+    meta
 }
 
 fn trailer_int_value(trailer: &sis_pdf_pdf::object::PdfDict<'_>, key: &[u8]) -> Option<u64> {
@@ -8111,6 +8199,10 @@ mod tests {
             Query::XrefDeviations
         ));
         assert!(matches!(parse_query("revisions").expect("revisions"), Query::Revisions));
+        assert!(matches!(
+            parse_query("revisions.detail").expect("revisions.detail"),
+            Query::RevisionsDetail
+        ));
     }
 
     #[test]
@@ -8120,6 +8212,7 @@ mod tests {
         assert!(ensure_predicate_supported(&Query::XrefTrailers).is_ok());
         assert!(ensure_predicate_supported(&Query::XrefDeviations).is_ok());
         assert!(ensure_predicate_supported(&Query::Revisions).is_ok());
+        assert!(ensure_predicate_supported(&Query::RevisionsDetail).is_ok());
         assert!(ensure_predicate_supported(&Query::Xref).is_err());
     }
 
@@ -8141,6 +8234,32 @@ mod tests {
                     let items = value.as_array().expect("array");
                     assert!(!items.is_empty());
                     assert!(items[0].get("offset").is_some());
+                }
+                other => panic!("Unexpected result type: {other:?}"),
+            }
+        });
+    }
+
+    #[test]
+    fn execute_query_returns_revision_detail_records() {
+        with_fixture_context("actions/launch_cve_2010_1240.pdf", |ctx| {
+            let query = parse_query("revisions.detail").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::Structure(value) => {
+                    let items = value.as_array().expect("array");
+                    assert!(!items.is_empty());
+                    assert!(items[0].get("revision").is_some());
+                    assert!(items[0].get("objects_added").is_some());
+                    assert!(items[0].get("anomaly_score").is_some());
                 }
                 other => panic!("Unexpected result type: {other:?}"),
             }
