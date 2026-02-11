@@ -1,6 +1,6 @@
 use anyhow::Result;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::revision_extract::extract_revision_content;
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
@@ -43,6 +43,9 @@ impl Detector for ShadowAttackDetector {
 
         let mut replace_targets = Vec::new();
         let mut overlay_objects = Vec::new();
+        let mut annotation_overlays = Vec::new();
+        let mut form_field_overlays = Vec::new();
+        let mut signature_field_overlays = Vec::new();
 
         for ((obj, gen), idxs) in &ctx.graph.index {
             if idxs.len() <= 1 {
@@ -78,17 +81,28 @@ impl Detector for ShadowAttackDetector {
             let Some(dict) = entry_dict(entry) else {
                 continue;
             };
-            if is_overlay_annotation_or_field(dict) {
-                overlay_objects.push(format!("{} {} obj", entry.obj, entry.gen));
+            let object_ref = format!("{} {} obj", entry.obj, entry.gen);
+            if !is_overlay_annotation_or_field(dict) {
+                continue;
+            }
+            overlay_objects.push(object_ref.clone());
+            if is_signature_field_overlay(dict) {
+                signature_field_overlays.push(object_ref);
+            } else if is_form_field_overlay(dict) {
+                form_field_overlays.push(object_ref);
+            } else if is_annotation_overlay(dict) {
+                annotation_overlays.push(object_ref);
             }
         }
 
+        let diff_summary = build_diff_summary(ctx, signature_boundary);
         let mut findings = Vec::new();
         let post_update_bytes = ctx.bytes.len() as u64 - signature_boundary;
         let mut base_meta = std::collections::HashMap::new();
         base_meta.insert("shadow.signature_boundary".into(), signature_boundary.to_string());
         base_meta.insert("shadow.post_update_bytes".into(), post_update_bytes.to_string());
         base_meta.insert("shadow.prev_chain_valid".into(), extraction.prev_chain_valid.to_string());
+        merge_diff_summary_meta(&mut base_meta, &diff_summary);
         if !extraction.prev_chain_errors.is_empty() {
             base_meta.insert(
                 "shadow.prev_chain_errors".into(),
@@ -134,6 +148,16 @@ impl Detector for ShadowAttackDetector {
             });
         }
 
+        if let Some(certified_finding) = build_certified_doc_finding(
+            ctx,
+            &base_meta,
+            signature_boundary,
+            &annotation_overlays,
+            &signature_field_overlays,
+        ) {
+            findings.push(certified_finding);
+        }
+
         if !replace_targets.is_empty() {
             let mut meta = base_meta.clone();
             meta.insert("shadow.replace_count".into(), replace_targets.len().to_string());
@@ -176,6 +200,12 @@ impl Detector for ShadowAttackDetector {
             let mut meta = base_meta;
             meta.insert("shadow.overlay_count".into(), overlay_objects.len().to_string());
             meta.insert("shadow.replace_count".into(), replace_targets.len().to_string());
+            meta.insert("shadow.annotations_added".into(), annotation_overlays.len().to_string());
+            meta.insert("shadow.form_fields_added".into(), form_field_overlays.len().to_string());
+            meta.insert(
+                "shadow.signature_fields_added".into(),
+                signature_field_overlays.len().to_string(),
+            );
             findings.push(Finding {
                 id: String::new(),
                 surface: self.surface(),
@@ -228,12 +258,23 @@ fn is_page_or_content_object(entry: &sis_pdf_pdf::graph::ObjEntry<'_>) -> bool {
 }
 
 fn is_overlay_annotation_or_field(dict: &PdfDict<'_>) -> bool {
-    let is_annotation =
-        dict.get_first(b"/Subtype").is_some() || dict.get_first(b"/Annot").is_some();
-    let is_form = dict.get_first(b"/FT").is_some();
+    let is_annotation = is_annotation_overlay(dict);
+    let is_form = is_form_field_overlay(dict);
     let has_appearance = dict.get_first(b"/AP").is_some();
     let has_rect = has_non_trivial_rect(dict);
     (is_annotation || is_form) && has_appearance && has_rect
+}
+
+fn is_annotation_overlay(dict: &PdfDict<'_>) -> bool {
+    dict.get_first(b"/Subtype").is_some() || dict.get_first(b"/Annot").is_some()
+}
+
+fn is_form_field_overlay(dict: &PdfDict<'_>) -> bool {
+    dict.get_first(b"/FT").is_some()
+}
+
+fn is_signature_field_overlay(dict: &PdfDict<'_>) -> bool {
+    dict.has_name(b"/FT", b"/Sig")
 }
 
 fn has_non_trivial_rect(dict: &PdfDict<'_>) -> bool {
@@ -314,4 +355,331 @@ fn parse_obj_ref(value: &str) -> Option<(u32, u16)> {
     let obj = parts.next()?.parse::<u32>().ok()?;
     let gen = parts.next()?.parse::<u16>().ok()?;
     Some((obj, gen))
+}
+
+#[derive(Default)]
+struct DiffSummary {
+    objects_added: Vec<String>,
+    objects_modified: Vec<String>,
+    objects_removed_estimate: usize,
+    annotations_added: Vec<String>,
+    form_fields_added: Vec<String>,
+    signature_fields_added: Vec<String>,
+}
+
+fn build_diff_summary(
+    ctx: &sis_pdf_core::scan::ScanContext<'_>,
+    signature_boundary: u64,
+) -> DiffSummary {
+    let mut summary = DiffSummary::default();
+    for ((obj, gen), idxs) in &ctx.graph.index {
+        let versions =
+            idxs.iter().filter_map(|idx| ctx.graph.objects.get(*idx)).collect::<Vec<_>>();
+        let pre = versions
+            .iter()
+            .filter(|entry| entry.full_span.start < signature_boundary)
+            .max_by_key(|entry| entry.full_span.start)
+            .copied();
+        let post = versions
+            .iter()
+            .filter(|entry| entry.full_span.start >= signature_boundary)
+            .max_by_key(|entry| entry.full_span.start)
+            .copied();
+        let object_ref = format!("{obj} {gen} obj");
+
+        match (pre, post) {
+            (None, Some(post_entry)) => {
+                summary.objects_added.push(object_ref.clone());
+                if let Some(dict) = entry_dict(post_entry) {
+                    if is_annotation_overlay(&dict) {
+                        summary.annotations_added.push(object_ref.clone());
+                    }
+                    if is_form_field_overlay(&dict) {
+                        summary.form_fields_added.push(object_ref.clone());
+                    }
+                    if is_signature_field_overlay(&dict) {
+                        summary.signature_fields_added.push(object_ref.clone());
+                    }
+                }
+            }
+            (Some(pre_entry), Some(post_entry)) => {
+                if object_semantic_fingerprint(pre_entry) != object_semantic_fingerprint(post_entry)
+                {
+                    summary.objects_modified.push(object_ref);
+                }
+            }
+            (Some(_), None) | (None, None) => {}
+        }
+    }
+    summary
+}
+
+fn merge_diff_summary_meta(
+    meta: &mut std::collections::HashMap<String, String>,
+    summary: &DiffSummary,
+) {
+    meta.insert("shadow.diff.objects_added".into(), summary.objects_added.len().to_string());
+    meta.insert("shadow.diff.objects_modified".into(), summary.objects_modified.len().to_string());
+    meta.insert("shadow.diff.objects_removed".into(), summary.objects_removed_estimate.to_string());
+    meta.insert(
+        "shadow.diff.objects_removed_note".into(),
+        "not_observable_in_incremental_updates".into(),
+    );
+    meta.insert(
+        "shadow.diff.annotations_added".into(),
+        summary.annotations_added.len().to_string(),
+    );
+    meta.insert(
+        "shadow.diff.form_fields_added".into(),
+        summary.form_fields_added.len().to_string(),
+    );
+    meta.insert(
+        "shadow.diff.signature_fields_added".into(),
+        summary.signature_fields_added.len().to_string(),
+    );
+    if !summary.objects_added.is_empty() {
+        meta.insert(
+            "shadow.diff.objects_added_refs".into(),
+            list_preview(summary.objects_added.as_slice(), 12),
+        );
+    }
+    if !summary.objects_modified.is_empty() {
+        meta.insert(
+            "shadow.diff.objects_modified_refs".into(),
+            list_preview(summary.objects_modified.as_slice(), 12),
+        );
+    }
+    if !summary.annotations_added.is_empty() {
+        meta.insert(
+            "shadow.diff.annotations_added_refs".into(),
+            list_preview(summary.annotations_added.as_slice(), 12),
+        );
+    }
+    if !summary.form_fields_added.is_empty() {
+        meta.insert(
+            "shadow.diff.form_fields_added_refs".into(),
+            list_preview(summary.form_fields_added.as_slice(), 12),
+        );
+    }
+}
+
+fn list_preview(values: &[String], max_items: usize) -> String {
+    if values.len() <= max_items {
+        return values.join(", ");
+    }
+    let shown = values.iter().take(max_items).cloned().collect::<Vec<_>>().join(", ");
+    format!("{shown} (+{} more)", values.len() - max_items)
+}
+
+fn build_certified_doc_finding(
+    ctx: &sis_pdf_core::scan::ScanContext<'_>,
+    base_meta: &std::collections::HashMap<String, String>,
+    signature_boundary: u64,
+    annotation_overlays: &[String],
+    signature_field_overlays: &[String],
+) -> Option<Finding> {
+    let certification = extract_certification_policy(ctx, signature_boundary)?;
+    if annotation_overlays.is_empty() && signature_field_overlays.is_empty() {
+        return None;
+    }
+
+    let mut disallowed_changes = Vec::new();
+    if certification.permission_level <= 2 && !annotation_overlays.is_empty() {
+        disallowed_changes.push("annotations");
+    }
+    if certification.permission_level <= 1 && !signature_field_overlays.is_empty() {
+        disallowed_changes.push("signature_fields");
+    }
+    let has_disallowed = !disallowed_changes.is_empty();
+    let (severity, confidence) = if has_disallowed {
+        if certification.permission_level <= 1 {
+            (Severity::High, Confidence::Strong)
+        } else {
+            (Severity::High, Confidence::Probable)
+        }
+    } else {
+        (Severity::Medium, Confidence::Tentative)
+    };
+
+    let mut objects = annotation_overlays.to_vec();
+    objects.extend(signature_field_overlays.iter().cloned());
+    objects.sort();
+    objects.dedup();
+
+    let mut evidence = Vec::new();
+    for object_ref in &objects {
+        if let Some((obj, gen)) = parse_obj_ref(object_ref) {
+            if let Some(entry) = ctx.graph.get_object(obj, gen) {
+                evidence
+                    .push(span_to_evidence(entry.full_span, "Post-certification visual object"));
+            }
+        }
+    }
+
+    let mut meta = base_meta.clone();
+    meta.insert("certified.permission_level".into(), certification.permission_level.to_string());
+    meta.insert("certified.signature_object".into(), certification.signature_object);
+    if let Some(perms_source) = certification.perms_source {
+        meta.insert("certified.perms_source".into(), perms_source);
+    }
+    meta.insert("certified.annotations_added".into(), annotation_overlays.len().to_string());
+    meta.insert(
+        "certified.signature_fields_added".into(),
+        signature_field_overlays.len().to_string(),
+    );
+    if has_disallowed {
+        meta.insert("certified.permission_violation".into(), "true".into());
+        meta.insert("certified.disallowed_changes".into(), disallowed_changes.join(","));
+    } else {
+        meta.insert("certified.permission_violation".into(), "false".into());
+    }
+
+    Some(Finding {
+        id: String::new(),
+        surface: AttackSurface::CryptoSignatures,
+        kind: "certified_doc_manipulation".into(),
+        severity,
+        confidence,
+        impact: Some(Impact::High),
+        title: "Certified document manipulation indicators".into(),
+        description: "Certified document received post-certification visual updates (annotation/signature overlays) inconsistent with DocMDP permissions or analyst trust expectations.".into(),
+        objects,
+        evidence,
+        remediation: Some(
+            "Validate DocMDP permission level (P1-P3), review incremental updates, and treat post-certification overlays as potential tampering."
+                .into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    })
+}
+
+struct CertificationPolicy {
+    permission_level: i64,
+    signature_object: String,
+    perms_source: Option<String>,
+}
+
+fn extract_certification_policy(
+    ctx: &sis_pdf_core::scan::ScanContext<'_>,
+    signature_boundary: u64,
+) -> Option<CertificationPolicy> {
+    let mut candidate: Option<CertificationPolicy> = None;
+
+    if let Some(catalog) = catalog_object_dict(ctx) {
+        if let Some((_, perms_obj)) = catalog.get_first(b"/Perms") {
+            if let Some(perms_dict) = resolve_dict(ctx, perms_obj) {
+                if let Some((_, docmdp_obj)) = perms_dict.get_first(b"/DocMDP") {
+                    if let Some(signature_entry) = ctx.graph.resolve_ref(docmdp_obj) {
+                        if signature_entry.full_span.start < signature_boundary {
+                            if let Some(dict) = entry_dict(&signature_entry) {
+                                if let Some(level) =
+                                    extract_docmdp_permission_from_signature(ctx, &dict)
+                                {
+                                    candidate = Some(CertificationPolicy {
+                                        permission_level: level,
+                                        signature_object: format!(
+                                            "{} {} obj",
+                                            signature_entry.obj, signature_entry.gen
+                                        ),
+                                        perms_source: Some("/Catalog/Perms/DocMDP".into()),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if candidate.is_some() {
+        return candidate;
+    }
+
+    for entry in &ctx.graph.objects {
+        if entry.full_span.start >= signature_boundary {
+            continue;
+        }
+        let Some(dict) = entry_dict(entry) else {
+            continue;
+        };
+        if !is_signature_dict(&dict) {
+            continue;
+        }
+        if let Some(level) = extract_docmdp_permission_from_signature(ctx, &dict) {
+            return Some(CertificationPolicy {
+                permission_level: level,
+                signature_object: format!("{} {} obj", entry.obj, entry.gen),
+                perms_source: Some("signature.Reference.DocMDP".into()),
+            });
+        }
+    }
+
+    None
+}
+
+fn catalog_object_dict<'a>(ctx: &'a sis_pdf_core::scan::ScanContext<'a>) -> Option<PdfDict<'a>> {
+    for entry in &ctx.graph.objects {
+        let Some(dict) = entry_dict(entry) else {
+            continue;
+        };
+        if dict.has_name(b"/Type", b"/Catalog") {
+            return Some(dict.clone());
+        }
+    }
+    None
+}
+
+fn extract_docmdp_permission_from_signature(
+    ctx: &sis_pdf_core::scan::ScanContext<'_>,
+    signature_dict: &PdfDict<'_>,
+) -> Option<i64> {
+    let (_, reference_obj) = signature_dict.get_first(b"/Reference")?;
+    let PdfAtom::Array(reference_items) = &reference_obj.atom else {
+        return None;
+    };
+    for reference in reference_items {
+        let Some(reference_dict) = resolve_dict(ctx, reference) else {
+            continue;
+        };
+        if !reference_dict.has_name(b"/TransformMethod", b"/DocMDP") {
+            continue;
+        }
+        let (_, transform_obj) = reference_dict.get_first(b"/TransformParams")?;
+        let Some(transform_dict) = resolve_dict(ctx, transform_obj) else {
+            continue;
+        };
+        if let Some((_, p_obj)) = transform_dict.get_first(b"/P") {
+            if let PdfAtom::Int(value) = p_obj.atom {
+                if (1..=3).contains(&value) {
+                    return Some(value);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn resolve_dict<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
+    obj: &PdfObj<'a>,
+) -> Option<PdfDict<'a>> {
+    match &obj.atom {
+        PdfAtom::Dict(dict) => Some(dict.clone()),
+        PdfAtom::Stream(stream) => Some(stream.dict.clone()),
+        PdfAtom::Ref { .. } => ctx.graph.resolve_ref(obj).and_then(|entry| match &entry.atom {
+            PdfAtom::Dict(dict) => Some(dict.clone()),
+            PdfAtom::Stream(stream) => Some(stream.dict.clone()),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+fn is_signature_dict(dict: &PdfDict<'_>) -> bool {
+    dict.has_name(b"/Type", b"/Sig") || dict.get_first(b"/ByteRange").is_some()
 }

@@ -102,10 +102,10 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add synthetic signed fixtures and benign signed controls.
 
 ## PR-15: Certified document attack detector + diff summary
-- [ ] Implement PDF plan S2-5 `certified_doc_manipulation`.
-- [ ] Implement PDF plan S2-6 cross-revision diff metadata.
-- [ ] Add permission-level logic (P1-P3) checks.
-- [ ] Add post-certification annotation/signature field tests.
+- [x] Implement PDF plan S2-5 `certified_doc_manipulation`.
+- [x] Implement PDF plan S2-6 cross-revision diff metadata.
+- [x] Add permission-level logic (P1-P3) checks.
+- [x] Add post-certification annotation/signature field tests.
 
 ## PR-16: Cross-revision forensic analysis
 - [ ] Implement PDF plan S4-1 revision timeline query.
@@ -253,9 +253,13 @@ Gate D (after PR-20):
 - `PR-14`: implemented `shadow_hide_attack`, `shadow_replace_attack`, and `shadow_hide_replace_attack` findings by correlating signature boundary extraction with post-signature overlays and shadowed content replacements.
 - `PR-14`: added synthetic incremental signed fixtures in `crates/sis-pdf-detectors/tests/shadow_attacks.rs` covering hide-only, replace-only, and combined cases.
 - `PR-14`: finding documentation added in `docs/findings.md`.
+- `PR-15`: extended `ShadowAttackDetector` with `certified_doc_manipulation` (DocMDP P1-P3 permission-aware) in `crates/sis-pdf-detectors/src/shadow_attacks.rs`.
+- `PR-15`: added cross-revision diff summary metadata to shadow/certified findings (`shadow.diff.objects_added`, `shadow.diff.objects_modified`, `shadow.diff.annotations_added`, `shadow.diff.form_fields_added`, `shadow.diff.signature_fields_added`).
+- `PR-15`: added certified document tests in `crates/sis-pdf-detectors/tests/shadow_attacks.rs` for disallowed (P1) and allowed-but-suspicious (P3) post-certification overlays.
+- `PR-15`: finding documentation added in `docs/findings.md` for `certified_doc_manipulation`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-15` certified document attack detector + diff summary.
+- Start `PR-16` cross-revision forensic analysis.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

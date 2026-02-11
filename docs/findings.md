@@ -2831,6 +2831,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: both hide and replace patterns are present across the signature boundary.
   - Chain usage: used as critical shadow-attack composite indicator.
 
+## certified_doc_manipulation
+
+- ID: `certified_doc_manipulation`
+- Label: Certified document manipulation indicators
+- Description: Post-certification visual updates were detected and assessed against DocMDP permission constraints.
+- Tags: crypto, evasion, signature, structure
+- Details:
+  - Relevance: certification-integrity bypass and trust abuse.
+  - Meaning: annotation and/or signature-field overlays were added after certification, with severity/confidence adjusted by P1-P3 policy compliance.
+  - Chain usage: used as certified tampering indicator with cross-revision diff context.
+
 ## parse_disagreement
 
 - ID: `parse_disagreement`
