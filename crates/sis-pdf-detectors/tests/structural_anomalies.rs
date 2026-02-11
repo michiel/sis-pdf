@@ -24,6 +24,14 @@ fn pdf_name(name: &'static str) -> PdfName<'static> {
         decoded: name.as_bytes().to_vec(),
     }
 }
+
+fn pdf_ref(obj: u32, gen: u16) -> PdfObj<'static> {
+    PdfObj { span: Span { start: 0, end: 0 }, atom: PdfAtom::Ref { obj, gen } }
+}
+
+fn pdf_int(value: i64) -> PdfObj<'static> {
+    PdfObj { span: Span { start: 0, end: 0 }, atom: PdfAtom::Int(value) }
+}
 fn build_context(
     bytes: &'static [u8],
     objects: Vec<ObjEntry<'static>>,
@@ -254,4 +262,187 @@ fn emits_null_object_density_when_ratio_is_high() {
         .find(|finding| finding.kind == "null_object_density")
         .expect("expected null_object_density");
     assert_eq!(finding.meta.get("evasion.null_object_density").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn emits_empty_objstm_padding_for_sparse_object_streams() {
+    let bytes = leak_bytes(b"%PDF-1.7\n/ObjStm\n".to_vec());
+    let objstm_dict = PdfDict {
+        span: Span { start: 0, end: 0 },
+        entries: vec![
+            (
+                pdf_name("/Type"),
+                PdfObj {
+                    span: Span { start: 0, end: 0 },
+                    atom: PdfAtom::Name(pdf_name("/ObjStm")),
+                },
+            ),
+            (pdf_name("/N"), pdf_int(9)),
+        ],
+    };
+    let objstm = ObjEntry {
+        obj: 20,
+        gen: 0,
+        atom: PdfAtom::Stream(PdfStream {
+            dict: objstm_dict,
+            data_span: Span { start: 0, end: 8 },
+        }),
+        header_span: Span { start: 0, end: 0 },
+        body_span: Span { start: 0, end: 0 },
+        full_span: Span { start: 0, end: 0 },
+        provenance: ObjProvenance::Indirect,
+    };
+    let ctx = build_context(bytes, vec![objstm], Vec::new(), vec![0]);
+    let detector = StructuralAnomaliesDetector;
+    let findings = detector.run(&ctx).expect("detector should run");
+    let finding = findings
+        .iter()
+        .find(|finding| finding.kind == "empty_objstm_padding")
+        .expect("expected empty_objstm_padding");
+    assert_eq!(finding.meta.get("evasion.empty_objstm_padding").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn emits_structural_decoy_objects_when_unreachable_cluster_exists() {
+    let bytes = leak_bytes(vec![0u8; 64]);
+    let mut objects = vec![
+        ObjEntry {
+            obj: 1,
+            gen: 0,
+            atom: PdfAtom::Dict(PdfDict {
+                span: Span { start: 0, end: 0 },
+                entries: vec![
+                    (
+                        pdf_name("/Type"),
+                        PdfObj {
+                            span: Span { start: 0, end: 0 },
+                            atom: PdfAtom::Name(pdf_name("/Catalog")),
+                        },
+                    ),
+                    (pdf_name("/Pages"), pdf_ref(2, 0)),
+                ],
+            }),
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        },
+        ObjEntry {
+            obj: 2,
+            gen: 0,
+            atom: PdfAtom::Dict(PdfDict {
+                span: Span { start: 0, end: 0 },
+                entries: vec![
+                    (
+                        pdf_name("/Type"),
+                        PdfObj {
+                            span: Span { start: 0, end: 0 },
+                            atom: PdfAtom::Name(pdf_name("/Pages")),
+                        },
+                    ),
+                    (
+                        pdf_name("/Kids"),
+                        PdfObj {
+                            span: Span { start: 0, end: 0 },
+                            atom: PdfAtom::Array(vec![pdf_ref(3, 0)]),
+                        },
+                    ),
+                ],
+            }),
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        },
+        ObjEntry {
+            obj: 3,
+            gen: 0,
+            atom: PdfAtom::Dict(PdfDict {
+                span: Span { start: 0, end: 0 },
+                entries: vec![(
+                    pdf_name("/Type"),
+                    PdfObj {
+                        span: Span { start: 0, end: 0 },
+                        atom: PdfAtom::Name(pdf_name("/Page")),
+                    },
+                )],
+            }),
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        },
+    ];
+    for obj in 10..=16 {
+        objects.push(ObjEntry {
+            obj,
+            gen: 0,
+            atom: PdfAtom::Dict(PdfDict {
+                span: Span { start: 0, end: 0 },
+                entries: vec![(
+                    pdf_name("/Type"),
+                    PdfObj {
+                        span: Span { start: 0, end: 0 },
+                        atom: PdfAtom::Name(pdf_name("/XObject")),
+                    },
+                )],
+            }),
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        });
+    }
+    let trailer = PdfDict {
+        span: Span { start: 0, end: 0 },
+        entries: vec![(pdf_name("/Root"), pdf_ref(1, 0))],
+    };
+    let ctx = build_context(bytes, objects, vec![trailer], vec![0]);
+    let detector = StructuralAnomaliesDetector;
+    let findings = detector.run(&ctx).expect("detector should run");
+    let finding = findings
+        .iter()
+        .find(|finding| finding.kind == "structural_decoy_objects")
+        .expect("expected structural_decoy_objects");
+    assert_eq!(
+        finding.meta.get("evasion.structural_decoy_objects").map(String::as_str),
+        Some("true")
+    );
+}
+
+#[test]
+fn emits_structural_decoy_scan_limited_when_object_cap_exceeded() {
+    let bytes = leak_bytes(vec![0u8; 16]);
+    let mut objects = Vec::new();
+    for obj in 1..=10_001u32 {
+        objects.push(ObjEntry {
+            obj,
+            gen: 0,
+            atom: PdfAtom::Dict(PdfDict {
+                span: Span { start: 0, end: 0 },
+                entries: vec![(
+                    pdf_name("/Type"),
+                    PdfObj {
+                        span: Span { start: 0, end: 0 },
+                        atom: PdfAtom::Name(pdf_name("/XObject")),
+                    },
+                )],
+            }),
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        });
+    }
+    let ctx = build_context(bytes, objects, Vec::new(), vec![0]);
+    let detector = StructuralAnomaliesDetector;
+    let findings = detector.run(&ctx).expect("detector should run");
+    let finding = findings
+        .iter()
+        .find(|finding| finding.kind == "structural_decoy_objects_scan_limited")
+        .expect("expected structural_decoy_objects_scan_limited");
+    assert_eq!(
+        finding.meta.get("evasion.decoy_scan_skip_reason").map(String::as_str),
+        Some("object_count_cap")
+    );
 }

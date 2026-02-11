@@ -47,10 +47,10 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add detector integration tests.
 
 ## PR-06: Structural evasion primitives B
-- [ ] Implement PDF plan S1-1 `empty_objstm_padding`.
-- [ ] Implement PDF plan S1-3 `structural_decoy_objects` with bounded reachability walk.
-- [ ] Add object-count caps and skip reasons for large documents.
-- [ ] Add performance-focused tests.
+- [x] Implement PDF plan S1-1 `empty_objstm_padding`.
+- [x] Implement PDF plan S1-3 `structural_decoy_objects` with bounded reachability walk.
+- [x] Add object-count caps and skip reasons for large documents.
+- [x] Add performance-focused tests.
 
 ## PR-07: Structural evasion composite
 - [ ] Implement PDF plan S1-6 `structural_evasion_composite`.
@@ -215,9 +215,13 @@ Gate D (after PR-20):
 - `PR-05`: detector integration coverage added in `crates/sis-pdf-detectors/tests/structural_anomalies.rs`.
 - `PR-05`: finding documentation added in `docs/findings.md` for the new IDs.
 - Validation completed: `cargo test -p sis-pdf-detectors --test structural_anomalies`.
+- `PR-06`: implemented `empty_objstm_padding`, `structural_decoy_objects`, and `structural_decoy_objects_scan_limited` in `crates/sis-pdf-detectors/src/structural_anomalies.rs` with bounded reachability analysis.
+- `PR-06`: added object cap controls (`DECOY_SCAN_MAX_OBJECTS`) and explicit skip metadata (`evasion.decoy_scan_skip_reason=object_count_cap`).
+- `PR-06`: added performance-focused tests in `crates/sis-pdf-detectors/tests/structural_anomalies.rs` for cap-exceeded behaviour and decoy detection.
+- `PR-06`: finding documentation added in `docs/findings.md` for new structural evasion IDs.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-06` structural evasion primitives B (`empty_objstm_padding`, `structural_decoy_objects`).
+- Start `PR-07` structural evasion composite (`3+` indicator threshold).
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

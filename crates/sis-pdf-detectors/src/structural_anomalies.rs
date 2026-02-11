@@ -2,13 +2,17 @@ use anyhow::Result;
 use std::collections::HashMap;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
+use sis_pdf_core::graph_walk::{build_adjacency, reachable_from, ObjRef};
 use sis_pdf_core::model::{
     AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Impact, Severity,
 };
 use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_pdf::graph::ObjProvenance;
 use sis_pdf_pdf::object::PdfAtom;
 
 pub struct StructuralAnomaliesDetector;
+const DECOY_SCAN_MAX_OBJECTS: usize = 10_000;
+const DECOY_SCAN_DEPTH: usize = 12;
 
 impl Detector for StructuralAnomaliesDetector {
     fn id(&self) -> &'static str {
@@ -41,6 +45,44 @@ impl Detector for StructuralAnomaliesDetector {
             .max()
             .map(|max_obj_id| max_obj_id + 1)
             .unwrap_or(0);
+        let mut objstm_declared_total = 0u64;
+        let mut objstm_embedded_total = 0u64;
+        let mut suspicious_objstm_count = 0u64;
+        for entry in &ctx.graph.objects {
+            if let PdfAtom::Stream(stream) = &entry.atom {
+                if !stream.dict.has_name(b"/Type", b"/ObjStm") {
+                    continue;
+                }
+                let declared = stream
+                    .dict
+                    .get_first(b"/N")
+                    .and_then(|(_, obj)| match obj.atom {
+                        PdfAtom::Int(value) if value > 0 => Some(value as u64),
+                        _ => None,
+                    })
+                    .unwrap_or(0);
+                if declared == 0 {
+                    continue;
+                }
+                objstm_declared_total += declared;
+                let embedded = ctx
+                    .graph
+                    .objects
+                    .iter()
+                    .filter(|candidate| {
+                        matches!(
+                            candidate.provenance,
+                            ObjProvenance::ObjStm { obj, gen }
+                                if obj == entry.obj && gen == entry.gen
+                        )
+                    })
+                    .count() as u64;
+                objstm_embedded_total += embedded;
+                if declared >= 6 && embedded <= 1 {
+                    suspicious_objstm_count += 1;
+                }
+            }
+        }
 
         for (idx, trailer) in ctx.graph.trailers.iter().enumerate() {
             if let Some((_, size_obj)) = trailer.get_first(b"/Size") {
@@ -168,6 +210,44 @@ impl Detector for StructuralAnomaliesDetector {
                     positions: Vec::new(),
                 });
             }
+        }
+        if suspicious_objstm_count > 0 {
+            let mut meta = HashMap::new();
+            meta.insert("evasion.indicator".into(), "empty_objstm_padding".into());
+            meta.insert("evasion.empty_objstm_padding".into(), "true".into());
+            meta.insert(
+                "evasion.objstm_suspicious_count".into(),
+                suspicious_objstm_count.to_string(),
+            );
+            meta.insert("evasion.objstm_declared_total".into(), objstm_declared_total.to_string());
+            meta.insert("evasion.objstm_embedded_total".into(), objstm_embedded_total.to_string());
+
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::ObjectStreams,
+                kind: "empty_objstm_padding".into(),
+                severity: Severity::Low,
+                confidence: Confidence::Probable,
+                impact: Some(Impact::Low),
+                title: "Sparse ObjStm padding detected".into(),
+                description:
+                    "One or more object streams declare many embedded objects but contain little or no expanded content."
+                        .into(),
+                objects: vec!["/ObjStm".into()],
+                evidence: keyword_evidence(ctx.bytes, b"/ObjStm", "ObjStm marker", 3),
+                remediation: Some(
+                    "Inspect object stream dictionaries and expansion output for padding-oriented evasion."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
         }
 
         let phantom_deviations = ctx
@@ -321,6 +401,118 @@ impl Detector for StructuralAnomaliesDetector {
             }
         }
 
+        if ctx.graph.objects.len() > DECOY_SCAN_MAX_OBJECTS {
+            let mut meta = HashMap::new();
+            meta.insert("evasion.indicator".into(), "structural_decoy_objects".into());
+            meta.insert("evasion.structural_decoy_objects".into(), "skipped".into());
+            meta.insert("evasion.decoy_scan_skip_reason".into(), "object_count_cap".into());
+            meta.insert(
+                "evasion.decoy_scan_object_count".into(),
+                ctx.graph.objects.len().to_string(),
+            );
+            meta.insert("evasion.decoy_scan_object_cap".into(), DECOY_SCAN_MAX_OBJECTS.to_string());
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::FileStructure,
+                kind: "structural_decoy_objects_scan_limited".into(),
+                severity: Severity::Info,
+                confidence: Confidence::Strong,
+                impact: Some(Impact::None),
+                title: "Structural decoy scan limited".into(),
+                description:
+                    "Decoy object reachability scan was skipped because object count exceeded the configured cap."
+                        .into(),
+                objects: vec!["object_graph".into()],
+                evidence: vec![span_to_evidence(
+                    sis_pdf_pdf::span::Span { start: 0, end: ctx.bytes.len() as u64 },
+                    "Object graph summary",
+                )],
+                remediation: Some(
+                    "Run focused analysis on reduced object sets or increase decoy scan limits for this document."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        } else {
+            let roots = catalog_roots(&ctx.graph.trailers);
+            if !roots.is_empty() {
+                let adjacency = build_adjacency(&ctx.graph.objects);
+                let reachable = reachable_from(&adjacency, &roots, DECOY_SCAN_DEPTH);
+                let decoy_count = ctx
+                    .graph
+                    .objects
+                    .iter()
+                    .filter(|entry| {
+                        let obj_ref = ObjRef { obj: entry.obj, gen: entry.gen };
+                        !reachable.contains(&obj_ref)
+                            && !matches!(entry.atom, PdfAtom::Null)
+                            && !matches!(entry.provenance, ObjProvenance::ObjStm { .. })
+                    })
+                    .count();
+                let total = ctx.graph.objects.len();
+                if total > 0 {
+                    let ratio = decoy_count as f64 / total as f64;
+                    if decoy_count >= 6 && ratio >= 0.20 {
+                        let mut meta = HashMap::new();
+                        meta.insert("evasion.indicator".into(), "structural_decoy_objects".into());
+                        meta.insert("evasion.structural_decoy_objects".into(), "true".into());
+                        meta.insert("evasion.decoy_object_count".into(), decoy_count.to_string());
+                        meta.insert(
+                            "evasion.reachable_object_count".into(),
+                            reachable.len().to_string(),
+                        );
+                        meta.insert("evasion.total_object_count".into(), total.to_string());
+                        meta.insert("evasion.decoy_ratio".into(), format!("{ratio:.3}"));
+                        meta.insert(
+                            "evasion.decoy_scan_depth".into(),
+                            DECOY_SCAN_DEPTH.to_string(),
+                        );
+                        meta.insert(
+                            "evasion.decoy_scan_object_cap".into(),
+                            DECOY_SCAN_MAX_OBJECTS.to_string(),
+                        );
+
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: AttackSurface::FileStructure,
+                            kind: "structural_decoy_objects".into(),
+                            severity: Severity::Low,
+                            confidence: Confidence::Probable,
+                            impact: Some(Impact::Low),
+                            title: "Unreachable decoy object cluster".into(),
+                            description:
+                                "A substantial set of non-null objects is unreachable from the catalog root."
+                                    .into(),
+                            objects: vec!["object_graph".into()],
+                            evidence: vec![span_to_evidence(
+                                sis_pdf_pdf::span::Span { start: 0, end: ctx.bytes.len() as u64 },
+                                "Object graph reachability",
+                            )],
+                            remediation: Some(
+                                "Review unreachable objects for hidden payloads, shadow content, or evasive padding."
+                                    .into(),
+                            ),
+                            meta,
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
+                    }
+                }
+            }
+        }
+
         Ok(findings)
     }
 }
@@ -351,4 +543,16 @@ fn keyword_evidence(
         }
     }
     out
+}
+
+fn catalog_roots(trailers: &[sis_pdf_pdf::object::PdfDict<'_>]) -> Vec<ObjRef> {
+    let mut roots = Vec::new();
+    for trailer in trailers {
+        if let Some((_, obj)) = trailer.get_first(b"/Root") {
+            if let PdfAtom::Ref { obj, gen } = obj.atom {
+                roots.push(ObjRef { obj, gen });
+            }
+        }
+    }
+    roots
 }

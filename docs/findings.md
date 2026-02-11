@@ -3033,6 +3033,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: offsets or trailer lookups in the xref chain are inconsistent with parseable object structure.
   - Chain usage: structural evasion indicator; combine with other findings for escalation.
 
+## empty_objstm_padding
+
+- ID: `empty_objstm_padding`
+- Label: Sparse ObjStm padding detected
+- Description: One or more object streams declare many embedded objects but contain little or no expanded content.
+- Tags: evasion, structure, objstm
+- Details:
+  - Relevance: sparse object streams can be used as structural padding to dilute suspicious content density.
+  - Meaning: declared embedded-object counts are inconsistent with expanded object presence.
+  - Chain usage: structural evasion indicator; correlate with other concealment findings.
+
 ## xfa_present
 
 - ID: `xfa_present`
@@ -3076,6 +3087,28 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: null-padding can dilute malicious signal density and hinder triage.
   - Meaning: a large fraction of objects are structural placeholders with no content.
   - Chain usage: low-confidence structural evasion signal that should be aggregated with other indicators.
+
+## structural_decoy_objects
+
+- ID: `structural_decoy_objects`
+- Label: Unreachable decoy object cluster
+- Description: A substantial set of non-null objects is unreachable from the catalog root.
+- Tags: evasion, structure
+- Details:
+  - Relevance: unreachable object clusters may hide alternate payload paths or padded decoys.
+  - Meaning: reachability walk from trailer `/Root` does not include a large object subset.
+  - Chain usage: structural evasion indicator suited for composite scoring.
+
+## structural_decoy_objects_scan_limited
+
+- ID: `structural_decoy_objects_scan_limited`
+- Label: Structural decoy scan limited
+- Description: Decoy object reachability scan was skipped because object count exceeded the configured cap.
+- Tags: diagnostic, performance, structure
+- Details:
+  - Relevance: large object graphs can exceed safe detector budgets.
+  - Meaning: analysis is intentionally bounded to protect throughput and stability.
+  - Chain usage: operational signal indicating partial structural coverage.
 
 ## launch_obfuscated_executable
 
