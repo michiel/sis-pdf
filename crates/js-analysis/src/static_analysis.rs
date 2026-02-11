@@ -102,6 +102,8 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
 
     // Advanced obfuscation
     out.insert("js.control_flow_flattening".into(), bool_str(detect_control_flow_flattening(data)));
+    out.insert("js.dead_code_injection".into(), bool_str(detect_dead_code_injection(data)));
+    out.insert("js.array_rotation_decode".into(), bool_str(detect_array_rotation_decode(data)));
     out.insert("js.opaque_predicates".into(), bool_str(detect_opaque_predicates(data)));
     out.insert("js.identifier_mangling".into(), bool_str(detect_identifier_mangling(data)));
 
@@ -255,8 +257,30 @@ pub fn decode_layers(data: &[u8], max_layers: usize) -> DecodedLayers {
 }
 
 fn decode_once(data: &[u8]) -> Option<Vec<u8>> {
+    if let Some(inner) = extract_wrapped_literal(
+        data,
+        &["eval(unescape(", "unescape(", "decodeURIComponent(", "decodeURI("],
+    ) {
+        if let Some(decoded) = decode_percent_escapes(inner.as_bytes()) {
+            return Some(decoded);
+        }
+    }
+    if let Some(decoded) = decode_percent_escapes(data) {
+        return Some(decoded);
+    }
     if let Some(decoded) = decode_js_escapes(data) {
         return Some(decoded);
+    }
+    if let Some(inner) =
+        extract_wrapped_literal(data, &["eval(atob(", "atob(", "window.atob(", "self.atob("])
+    {
+        if looks_encoded_base64(inner.as_bytes()) {
+            if let Ok(decoded) = STANDARD.decode(inner.as_bytes()) {
+                if decoded.len() > 4 {
+                    return Some(decoded);
+                }
+            }
+        }
     }
     if let Some(decoded) = decode_from_charcode_string(data) {
         return Some(decoded);
@@ -264,9 +288,16 @@ fn decode_once(data: &[u8]) -> Option<Vec<u8>> {
     if let Some(decoded) = decode_hex_string(data) {
         return Some(decoded);
     }
-    if is_base64_like(data) {
+    if let Some(literal) = extract_long_base64_literal(data) {
+        if let Ok(decoded) = STANDARD.decode(literal.as_bytes()) {
+            if decoded.len() > 8 {
+                return Some(decoded);
+            }
+        }
+    }
+    if looks_encoded_base64(data) {
         if let Ok(decoded) = STANDARD.decode(data) {
-            if decoded.len() > 16 {
+            if decoded.len() > 4 {
                 return Some(decoded);
             }
         }
@@ -338,7 +369,9 @@ fn decode_js_escapes(data: &[u8]) -> Option<Vec<u8>> {
                     if let Ok(hex_digits) = std::str::from_utf8(&data[i + 2..i + 6]) {
                         if let Ok(v) = u16::from_str_radix(hex_digits, 16) {
                             if let Some(s) = std::char::from_u32(v as u32) {
-                                out.push(s as u8);
+                                let mut encoded = [0u8; 4];
+                                let utf8 = s.encode_utf8(&mut encoded);
+                                out.extend_from_slice(utf8.as_bytes());
                                 i += 6;
                                 changed = true;
                                 continue;
@@ -357,6 +390,111 @@ fn decode_js_escapes(data: &[u8]) -> Option<Vec<u8>> {
     } else {
         None
     }
+}
+
+fn decode_percent_escapes(data: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(data.len());
+    let mut changed = false;
+    let mut index = 0usize;
+    while index < data.len() {
+        if data[index] == b'%' && index + 2 < data.len() {
+            if data[index + 1] == b'u' || data[index + 1] == b'U' {
+                if index + 5 < data.len() {
+                    if let Ok(hex_digits) = std::str::from_utf8(&data[index + 2..index + 6]) {
+                        if let Ok(value) = u16::from_str_radix(hex_digits, 16) {
+                            if let Some(ch) = char::from_u32(value as u32) {
+                                let mut encoded = [0u8; 4];
+                                let utf8 = ch.encode_utf8(&mut encoded);
+                                out.extend_from_slice(utf8.as_bytes());
+                                index += 6;
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                }
+            } else if let Ok(hex_digits) = std::str::from_utf8(&data[index + 1..index + 3]) {
+                if let Ok(value) = u8::from_str_radix(hex_digits, 16) {
+                    out.push(value);
+                    index += 3;
+                    changed = true;
+                    continue;
+                }
+            }
+        }
+        out.push(data[index]);
+        index += 1;
+    }
+    if changed {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+fn extract_wrapped_literal(data: &[u8], prefixes: &[&str]) -> Option<String> {
+    let text = std::str::from_utf8(data).ok()?;
+    for prefix in prefixes {
+        if let Some(start_idx) = text.find(prefix) {
+            let mut cursor = start_idx + prefix.len();
+            while cursor < text.len() && text.as_bytes()[cursor].is_ascii_whitespace() {
+                cursor += 1;
+            }
+            let quote = text.as_bytes().get(cursor).copied()?;
+            if quote != b'\'' && quote != b'"' {
+                continue;
+            }
+            cursor += 1;
+            let mut escaped = false;
+            let mut end = cursor;
+            while end < text.len() {
+                let byte = text.as_bytes()[end];
+                if byte == b'\\' && !escaped {
+                    escaped = true;
+                    end += 1;
+                    continue;
+                }
+                if byte == quote && !escaped {
+                    return Some(text[cursor..end].to_string());
+                }
+                escaped = false;
+                end += 1;
+            }
+        }
+    }
+    None
+}
+
+fn extract_long_base64_literal(data: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(data).ok()?;
+    let bytes = text.as_bytes();
+    let mut idx = 0usize;
+    while idx < bytes.len() {
+        if bytes[idx] != b'\'' && bytes[idx] != b'"' {
+            idx += 1;
+            continue;
+        }
+        let quote = bytes[idx];
+        idx += 1;
+        let start = idx;
+        while idx < bytes.len() && bytes[idx] != quote {
+            idx += 1;
+        }
+        if idx <= start || idx >= bytes.len() {
+            break;
+        }
+        let candidate = &text[start..idx];
+        if candidate.len() >= 24
+            && candidate
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '/' | '='))
+            && candidate.contains('=')
+        {
+            return Some(candidate.to_string());
+        }
+        idx += 1;
+    }
+    None
 }
 
 fn decode_hex_string(data: &[u8]) -> Option<Vec<u8>> {
@@ -391,6 +529,15 @@ fn is_base64_like(data: &[u8]) -> bool {
             || *b == b'='
             || b.is_ascii_whitespace()
     })
+}
+
+fn looks_encoded_base64(data: &[u8]) -> bool {
+    let has_marker = data.iter().any(|byte| matches!(byte, b'=' | b'+' | b'/'));
+    let has_digit = data.iter().any(|byte| byte.is_ascii_digit());
+    let has_upper = data.iter().any(|byte| byte.is_ascii_uppercase());
+    let has_lower = data.iter().any(|byte| byte.is_ascii_lowercase());
+    let markerless_candidate = has_digit && has_upper && has_lower && data.len() >= 16;
+    is_base64_like(data) && (has_marker || markerless_candidate) && data.len() >= 8
 }
 
 fn count_base64_like_runs(data: &[u8], min_len: usize) -> usize {
@@ -1376,6 +1523,7 @@ fn detect_encoded_transmission(data: &[u8]) -> bool {
 // ============================================================================
 
 fn detect_control_flow_flattening(data: &[u8]) -> bool {
+    let source = String::from_utf8_lossy(data);
     let switch_count = data.windows(6).filter(|w| w == b"switch").count();
 
     // Large switch statements (potential dispatcher)
@@ -1384,8 +1532,101 @@ fn detect_control_flow_flattening(data: &[u8]) -> bool {
     }
 
     // Check for while(true) with switch (common flattening pattern)
-    let has_infinite_loop = find_token(data, b"while(true)") || find_token(data, b"while(1)");
-    has_infinite_loop && switch_count >= 1
+    let has_infinite_loop = find_token(data, b"while(true)")
+        || find_token(data, b"while(1)")
+        || find_token(data, b"while (true)")
+        || find_token(data, b"while (1)");
+    let has_while_switch_dispatch = has_infinite_loop && switch_count >= 1;
+    if has_while_switch_dispatch {
+        return true;
+    }
+
+    let has_state_dispatch = source.contains("[state++]")
+        || source.contains("[++state]")
+        || source.contains("[idx++]")
+        || source.contains("[++idx]")
+        || source.contains("[i++]");
+    let has_dispatch_call = source.contains("](") || source.contains("]();");
+    if has_state_dispatch && has_dispatch_call {
+        return true;
+    }
+
+    source.contains("[keys[") && source.contains("]](")
+}
+
+fn detect_dead_code_injection(data: &[u8]) -> bool {
+    let source = String::from_utf8_lossy(data);
+    let unreachable_condition_markers =
+        ["if(false)", "if (false)", "if(0)", "if (0)", "while(false)", "while (false)"];
+    let marker_count = unreachable_condition_markers
+        .iter()
+        .map(|marker| source.match_indices(marker).count())
+        .sum::<usize>();
+    let post_terminator_count = count_unreachable_after_terminator(source.as_ref());
+    let dead_markers = marker_count + post_terminator_count;
+    let live_markers = source.matches("if(").count()
+        + source.matches("if (").count()
+        + source.matches("for(").count()
+        + source.matches("while(").count()
+        + source.matches("function ").count()
+        + source.matches("=>").count();
+    let denominator = live_markers.max(1);
+    let ratio = dead_markers as f64 / denominator as f64;
+    (dead_markers >= 2 && ratio >= 0.3) || dead_markers >= 4
+}
+
+fn count_unreachable_after_terminator(source: &str) -> usize {
+    let mut count = 0usize;
+    let bytes = source.as_bytes();
+    let mut index = 0usize;
+    while index + 6 < bytes.len() {
+        let remainder = &bytes[index..];
+        let terminator_len = if remainder.starts_with(b"return") {
+            6
+        } else if remainder.starts_with(b"throw") {
+            5
+        } else {
+            index += 1;
+            continue;
+        };
+        let mut semicolon = index + terminator_len;
+        while semicolon < bytes.len() && bytes[semicolon] != b';' && bytes[semicolon] != b'\n' {
+            semicolon += 1;
+        }
+        if semicolon >= bytes.len() {
+            break;
+        }
+        let mut probe = semicolon + 1;
+        while probe < bytes.len() && bytes[probe].is_ascii_whitespace() {
+            probe += 1;
+        }
+        if probe < bytes.len()
+            && bytes[probe] != b'}'
+            && bytes[probe] != b'/'
+            && bytes[probe] != b';'
+        {
+            count += 1;
+        }
+        index = semicolon + 1;
+    }
+    count
+}
+
+fn detect_array_rotation_decode(data: &[u8]) -> bool {
+    let source = String::from_utf8_lossy(data);
+    let has_rotation = source.contains(".push(") && source.contains(".shift(");
+    let has_iife_wrapper =
+        source.contains("(function(") && (source.contains("})(") || source.contains("}("));
+    let has_hex_seed = source.contains("0x");
+    let has_indexed_lookup = source.contains("[_0x")
+        || source.contains("[arr[")
+        || source.contains("[0x")
+        || source.contains("[0X");
+    let has_rotation_loop =
+        source.contains("while(--") || source.contains("while (--)") || source.contains("for(;--");
+
+    (has_rotation && has_iife_wrapper && (has_hex_seed || has_rotation_loop))
+        || (has_rotation && has_indexed_lookup && has_hex_seed)
 }
 
 fn detect_opaque_predicates(data: &[u8]) -> bool {

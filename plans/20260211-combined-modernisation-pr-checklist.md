@@ -122,11 +122,11 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add known-divergence fixture tests.
 
 ## PR-18: Advanced obfuscation resilience
-- [ ] Implement JS plan S4-1 enhanced CFF detection.
-- [ ] Implement JS plan S4-2 dead code injection detector.
-- [ ] Implement JS plan S4-3 array rotation decode detector.
-- [ ] Implement JS plan S4-5 deeper multi-layer decode limits.
-- [ ] Implement JS plan S4-6 fixture pack.
+- [x] Implement JS plan S4-1 enhanced CFF detection.
+- [x] Implement JS plan S4-2 dead code injection detector.
+- [x] Implement JS plan S4-3 array rotation decode detector.
+- [x] Implement JS plan S4-5 deeper multi-layer decode limits.
+- [x] Implement JS plan S4-6 fixture pack.
 
 ## PR-19: Behavioural resilience uplift
 - [ ] Implement JS plan S5-1 API call sequence matching.
@@ -267,9 +267,15 @@ Gate D (after PR-20):
 - `PR-17`: wired parser-divergence detector into `default_detectors`.
 - `PR-17`: added known-divergence synthetic fixture tests in `crates/sis-pdf-detectors/tests/parser_divergence.rs`.
 - `PR-17`: finding documentation added in `docs/findings.md` for all new IDs.
+- `PR-18`: enhanced CFF signal logic in `crates/js-analysis/src/static_analysis.rs` to include dispatcher-table and computed-property dispatch patterns.
+- `PR-18`: added new static signals `js.dead_code_injection` and `js.array_rotation_decode` in `crates/js-analysis/src/static_analysis.rs` and emitted findings `js_dead_code_injection` / `js_array_rotation_decode` via `crates/sis-pdf-detectors/src/js_polymorphic.rs`.
+- `PR-18`: deepened decode chain support in `decode_once` for nested `unescape`/URI escapes, wrapped `atob` literals, and long embedded base64 literals while retaining hard bounds (`MAX_DECODE_LAYERS_HARD=8`, `MAX_DECODE_BYTES_PER_LAYER=256KiB`).
+- `PR-18`: added fixture pack under `crates/js-analysis/tests/fixtures/encoded/` (`advanced_cff_dispatch.js`, `advanced_dead_code_injection.js`, `advanced_array_rotation.js`, `advanced_multilayer_decode_eval.js`).
+- `PR-18`: added test coverage in `crates/js-analysis/tests/static_signals.rs`, `crates/js-analysis/tests/encoded_fixtures.rs`, and `crates/sis-pdf-detectors/tests/js_polymorphic_integration.rs`.
+- `PR-18`: finding documentation added in `docs/findings.md` for `js_dead_code_injection` and `js_array_rotation_decode`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-18` advanced obfuscation resilience.
+- Start `PR-19` behavioural resilience uplift.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

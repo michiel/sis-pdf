@@ -1642,6 +1642,28 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: large switch statements or dispatchers hide actual program flow.
   - Chain usage: used as an obfuscation technique to evade analysis.
 
+## js_dead_code_injection
+
+- ID: `js_dead_code_injection`
+- Label: Dead code injection obfuscation
+- Description: JavaScript contains unreachable branches or post-terminator code consistent with anti-analysis dead-code injection.
+- Tags: evasion, javascript, obfuscation
+- Details:
+  - Relevance: anti-analysis and analyst time-wasting technique.
+  - Meaning: deliberately unreachable logic is mixed with live code to obscure payload intent.
+  - Chain usage: used as a structural obfuscation layer prior to execution stages.
+
+## js_array_rotation_decode
+
+- ID: `js_array_rotation_decode`
+- Label: Array rotation decode pattern
+- Description: JavaScript contains string-array rotation decode patterns common in obfuscator-style loaders.
+- Tags: evasion, javascript, obfuscation
+- Details:
+  - Relevance: common string decryption and payload materialisation primitive.
+  - Meaning: push/shift rotation with indexed lookup suggests staged deobfuscation.
+  - Chain usage: used as an intermediate decode stage before dynamic eval or sink invocation.
+
 ## js_credential_harvesting
 
 - ID: `js_credential_harvesting`

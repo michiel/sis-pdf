@@ -70,3 +70,31 @@ fn decode_then_analyse_keeps_benign_payload_below_eval_threshold() {
     let decoded_signals = extract_js_signals_with_ast(&decoded.bytes, false);
     assert_ne!(decoded_signals.get("js.contains_eval").map(String::as_str), Some("true"));
 }
+
+#[test]
+fn advanced_obfuscation_fixtures_raise_expected_signals() {
+    let cases = [
+        ("advanced_cff_dispatch.js", "js.control_flow_flattening"),
+        ("advanced_dead_code_injection.js", "js.dead_code_injection"),
+        ("advanced_array_rotation.js", "js.array_rotation_decode"),
+    ];
+
+    for (fixture, signal) in cases {
+        let bytes = read_fixture_bytes(fixture);
+        let signals = extract_js_signals_with_ast(&bytes, false);
+        assert_eq!(
+            signals.get(signal).map(String::as_str),
+            Some("true"),
+            "fixture {fixture} should raise {signal}"
+        );
+    }
+}
+
+#[test]
+fn deep_multi_layer_fixture_decodes_to_eval_payload() {
+    let bytes = read_fixture_bytes("advanced_multilayer_decode_eval.js");
+    let decoded = decode_layers(&trim_ascii_whitespace(&bytes), 8);
+    assert!(decoded.layers >= 3, "expected at least three decode layers");
+    let decoded_signals = extract_js_signals_with_ast(&decoded.bytes, false);
+    assert_eq!(decoded_signals.get("js.contains_eval").map(String::as_str), Some("true"));
+}

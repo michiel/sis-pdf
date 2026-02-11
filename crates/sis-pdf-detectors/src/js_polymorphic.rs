@@ -104,6 +104,24 @@ impl Detector for JsPolymorphicDetector {
                         "AAEncode encoding detected",
                         "JavaScript appears obfuscated with AAEncode fullwidth/emoticon-style encoding.",
                     ),
+                    (
+                        "js.control_flow_flattening",
+                        "js_control_flow_flattening",
+                        "Control flow flattening detected",
+                        "JavaScript uses control-flow flattening dispatcher patterns consistent with advanced obfuscation.",
+                    ),
+                    (
+                        "js.dead_code_injection",
+                        "js_dead_code_injection",
+                        "Dead code injection detected",
+                        "JavaScript contains unreachable code blocks consistent with anti-analysis dead-code injection.",
+                    ),
+                    (
+                        "js.array_rotation_decode",
+                        "js_array_rotation_decode",
+                        "Array rotation decode pattern detected",
+                        "JavaScript contains array rotation string-decoding patterns common in obfuscator-style loaders.",
+                    ),
                 ] {
                     if matches!(meta.get(meta_key).map(String::as_str), Some("true")) {
                         findings.push(Finding {

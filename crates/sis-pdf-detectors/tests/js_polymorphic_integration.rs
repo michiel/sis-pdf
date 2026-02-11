@@ -130,3 +130,35 @@ fn emits_rop_and_info_leak_findings() {
     assert!(report.findings.iter().any(|f| f.kind == "js_rop_chain_construction"));
     assert!(report.findings.iter().any(|f| f.kind == "js_info_leak_primitive"));
 }
+
+#[test]
+fn emits_advanced_obfuscation_findings() {
+    let payload = r#"
+        var state = 0;
+        while (true) {
+            switch (state) {
+                case 0: state = 1; break;
+                case 1: state = 2; break;
+                case 2: break;
+            }
+            if (state === 2) { break; }
+        }
+        if (false) { var hidden = 1; }
+        if (0) { var hidden2 = 2; }
+        return;
+        var never = 3;
+        var _0xabc=['a','b','c'];
+        (function(_0xarr,_0xseed){ while(--_0xseed){ _0xarr.push(_0xarr.shift()); } }(_0xabc,0x9));
+        var out=_0xabc[0x1];
+    "#;
+    let bytes = build_minimal_js_pdf(payload);
+    let detectors = default_detectors();
+
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    assert!(report.findings.iter().any(|f| f.kind == "js_control_flow_flattening"));
+    assert!(report.findings.iter().any(|f| f.kind == "js_dead_code_injection"));
+    assert!(report.findings.iter().any(|f| f.kind == "js_array_rotation_decode"));
+}

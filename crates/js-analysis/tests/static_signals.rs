@@ -33,6 +33,14 @@ fn decode_layers_honours_hard_layer_cap() {
 }
 
 #[test]
+fn decode_layers_handles_nested_percent_and_base64_wrappers() {
+    let data = b"eval(atob('U0dWc2JHOD0='))";
+    let decoded = decode_layers(data, 8);
+    assert!(decoded.layers >= 2);
+    assert_eq!(decoded.bytes, b"Hello");
+}
+
+#[test]
 fn detects_jsfuck_encoding_signal() {
     let data = b"[]+[]+(![]+[])[+[]]+([][[]]+[])[+!![]]+(![]+[])[!![]+!![]]+(!![]+[])[+[]]";
     let signals = extract_js_signals_with_ast(data, false);
@@ -125,6 +133,49 @@ fn detects_info_leak_primitive_signal() {
     let data = include_bytes!("fixtures/modern_heap/cve_2023_26369_sanitised.js");
     let signals = extract_js_signals_with_ast(data, false);
     assert_eq!(signals.get("js.info_leak_primitive").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn detects_enhanced_control_flow_flattening_signal() {
+    let data = br#"
+        var state = 0;
+        while (true) {
+            switch(state) {
+                case 0: state = 1; break;
+                case 1: state = 2; break;
+                case 2: return;
+            }
+        }
+    "#;
+    let signals = extract_js_signals_with_ast(data, false);
+    assert_eq!(signals.get("js.control_flow_flattening").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn detects_dead_code_injection_signal() {
+    let data = br#"
+        function run() {
+            if (false) { var a = 1; var b = 2; }
+            if (0) { console.log('dead'); }
+            return;
+            var never = 123;
+        }
+    "#;
+    let signals = extract_js_signals_with_ast(data, false);
+    assert_eq!(signals.get("js.dead_code_injection").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn detects_array_rotation_decode_signal() {
+    let data = br#"
+        var _0xabc=['a','b','c'];
+        (function(_0xarr,_0xseed){
+            while(--_0xseed){ _0xarr.push(_0xarr.shift()); }
+        }(_0xabc,0x12));
+        var out = _0xabc[0x1];
+    "#;
+    let signals = extract_js_signals_with_ast(data, false);
+    assert_eq!(signals.get("js.array_rotation_decode").map(String::as_str), Some("true"));
 }
 
 #[test]

@@ -1,0 +1,7 @@
+var _0xabc = ['open', 'alert', 'payload', 'decode'];
+(function (_0xarr, _0xseed) {
+    while (--_0xseed) {
+        _0xarr.push(_0xarr.shift());
+    }
+}(_0xabc, 0x10));
+var value = _0xabc[0x1];
