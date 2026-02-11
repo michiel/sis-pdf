@@ -5,6 +5,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import shutil
 import subprocess
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -318,12 +319,8 @@ def update_latest_symlink(corpus_root: Path, latest_dir: Path) -> None:
         if link_path.is_symlink() or link_path.is_file():
             link_path.unlink()
         else:
-            # remove directory if leftover
             if link_path.is_dir():
-                for child in link_path.iterdir():
-                    if child.is_dir():
-                        os.rmdir(child)
-                link_path.rmdir()
+                shutil.rmtree(link_path)
     os.symlink(latest_dir.resolve(), link_path)
 
 

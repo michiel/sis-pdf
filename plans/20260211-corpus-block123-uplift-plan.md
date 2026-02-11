@@ -59,7 +59,7 @@ Primary goal: lift malicious-PDF detection quality while reducing deep-scan tail
 ## PR-A: Runtime unknown eradication loop
 
 Objective: keep unknown runtime behaviour at zero in corpus sweeps.
-Status: in progress (2026-02-11)
+Status: done (2026-02-11)
 
 Changes:
 1. Add automated extraction of unknown behaviour names + evidence from sweep outputs.
@@ -68,13 +68,15 @@ Changes:
    - fail CI on newly observed unknown names in curated corpus replay.
    - Implemented as `--fail-on-unknown-runtime-behaviour` with allow-list support.
 3. Promote recurring unknown names to dedicated findings when semantically stable.
-   - Pending.
+   - Completed for previously recurring names (`error_recovery_patterns`, `dormant_or_gated_execution`) and enforced via guardrail replay.
 
 Validation:
 1. New integration test fixture in `crates/js-analysis/tests/` for unknown-name extraction.
    - Replaced with detector-level unit guardrails for metadata preservation + mapping completeness.
 2. `cargo test -p sis-pdf-detectors js_sandbox`.
 3. 30-file random sweep gate: unknown count must be 0.
+   - Guardrail validated on curated replay with local binary:
+     - `python scripts/mwb_corpus_pipeline.py --corpus-root tmp/corpus --output-root /tmp/pr_a_guardrail_local --date 2026-01-19 --deep --sis-bin target/debug/sis --fail-on-unknown-runtime-behaviour`
 
 ## PR-B: `parser_resource_exhaustion` attribution hardening
 
