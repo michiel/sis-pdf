@@ -149,6 +149,34 @@ fn correlate_obfuscated_payload() {
 }
 
 #[test]
+fn correlate_image_decoder_exploit_chain() {
+    let jbig2 = make_finding(
+        "image.zero_click_jbig2",
+        &["11 0 obj"],
+        &[("image.format", "JBIG2")],
+        AttackSurface::Images,
+    );
+    let decoder = make_finding(
+        "decoder_risk_present",
+        &["11 0 obj"],
+        &[("decoder.risk.score", "0.95")],
+        AttackSurface::StreamsAndFilters,
+    );
+    let exhaustion = make_finding(
+        "parser_resource_exhaustion",
+        &["parser"],
+        &[("resource_consumption.total_ms", "9000")],
+        AttackSurface::FileStructure,
+    );
+
+    let composites = correlation::correlate_findings(
+        &[jbig2, decoder, exhaustion],
+        &CorrelationOptions::default(),
+    );
+    assert!(composites.iter().any(|f| f.kind == "image_decoder_exploit_chain"));
+}
+
+#[test]
 fn correlation_launch_obfuscated_integration() {
     let detectors = default_detectors();
     let report = run_scan_with_detectors(

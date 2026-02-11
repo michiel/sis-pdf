@@ -13,6 +13,7 @@ pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> 
     composites.extend(correlate_xfa_data_exfiltration(findings, config));
     composites.extend(correlate_encrypted_payload_delivery(findings, config));
     composites.extend(correlate_obfuscated_payload(findings, config));
+    composites.extend(correlate_image_decoder_exploit_chain(findings));
     composites
 }
 
@@ -223,6 +224,49 @@ fn correlate_obfuscated_payload(findings: &[Finding], config: &CorrelationOption
             }
         }
     }
+
+    composites
+}
+
+fn correlate_image_decoder_exploit_chain(findings: &[Finding]) -> Vec<Finding> {
+    let mut composites = Vec::new();
+    let jbig2 = findings
+        .iter()
+        .filter(|finding| finding.kind == "image.zero_click_jbig2")
+        .collect::<Vec<_>>();
+    let decoder = findings
+        .iter()
+        .filter(|finding| finding.kind == "decoder_risk_present")
+        .collect::<Vec<_>>();
+    let exhaustion = findings
+        .iter()
+        .filter(|finding| finding.kind == "parser_resource_exhaustion")
+        .collect::<Vec<_>>();
+
+    if jbig2.is_empty() || decoder.is_empty() || exhaustion.is_empty() {
+        return composites;
+    }
+
+    let mut sources = Vec::new();
+    sources.extend(jbig2.iter().copied());
+    sources.extend(decoder.iter().copied());
+    sources.extend(exhaustion.iter().copied());
+
+    composites.push(build_composite(CompositeConfig {
+        kind: "image_decoder_exploit_chain",
+        title: "Image decoder exploit chain indicators",
+        description:
+            "JBIG2 exploit indicators coincide with decoder risk and parser resource exhaustion.",
+        surface: AttackSurface::Images,
+        severity: Severity::High,
+        confidence: Confidence::Strong,
+        sources: &sources,
+        extra_meta: vec![
+            ("chain.image.zero_click_jbig2_count", Some(jbig2.len().to_string())),
+            ("chain.decoder_risk_count", Some(decoder.len().to_string())),
+            ("chain.parser_exhaustion_count", Some(exhaustion.len().to_string())),
+        ],
+    }));
 
     composites
 }

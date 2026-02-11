@@ -249,6 +249,8 @@ enum Command {
         ungroup_chains: bool,
         #[arg(long)]
         json: bool,
+        #[arg(long, help = "Reduce output to high-priority and runtime-gap triage findings")]
+        focused_triage: bool,
         #[arg(long)]
         jsonl: bool,
         #[arg(long, help = "Emit JSONL findings with input path per entry")]
@@ -891,6 +893,7 @@ fn main() -> Result<()> {
             no_recover,
             ungroup_chains,
             json,
+            focused_triage,
             jsonl,
             jsonl_findings,
             sarif,
@@ -957,6 +960,7 @@ fn main() -> Result<()> {
                 !no_recover,
                 !ungroup_chains,
                 json,
+                focused_triage,
                 jsonl,
                 jsonl_findings,
                 sarif,
@@ -3533,6 +3537,7 @@ fn run_scan(
     recover_xref: bool,
     group_chains: bool,
     json: bool,
+    focused_triage: bool,
     jsonl: bool,
     jsonl_findings: bool,
     sarif: bool,
@@ -3709,6 +3714,7 @@ fn run_scan(
             opts,
             &detectors,
             json,
+            focused_triage,
             jsonl,
             jsonl_findings,
             sarif,
@@ -3727,6 +3733,9 @@ fn run_scan(
     let sandbox_summary = sis_pdf_detectors::sandbox_summary(js_sandbox);
     let mut report =
         run_scan_single(&bytes, pdf, &opts, &detectors)?.with_sandbox_summary(sandbox_summary);
+    if focused_triage {
+        sis_pdf_core::report::apply_focused_triage(&mut report);
+    }
     if ml_inference_requested {
         match run_ml_inference_for_scan(
             &bytes,
@@ -3982,6 +3991,7 @@ fn run_scan_batch(
     opts: sis_pdf_core::scan::ScanOptions,
     detectors: &[Box<dyn sis_pdf_core::detect::Detector>],
     json: bool,
+    focused_triage: bool,
     jsonl: bool,
     jsonl_findings: bool,
     sarif: bool,
@@ -4110,6 +4120,10 @@ fn run_scan_batch(
             report = Some(rep.with_input_path(Some(path_str.clone())));
         }
         let report = report.ok_or_else(|| anyhow!("report not produced for {}", path.display()))?;
+        let mut report = report;
+        if focused_triage {
+            sis_pdf_core::report::apply_focused_triage(&mut report);
+        }
         if let Some(writer) = intent_writer.as_ref() {
             let mut guard = writer.lock().map_err(|_| anyhow!("intent writer lock poisoned"))?;
             write_intents_jsonl(&report, guard.as_mut(), intents_derived)?;

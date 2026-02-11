@@ -7,7 +7,7 @@ use anyhow::Result;
 use crate::chain::{ChainTemplate, ExploitChain};
 use crate::chain_render::{chain_action_label, chain_payload_label, chain_trigger_label};
 use crate::intent::IntentSummary;
-use crate::model::{AttackSurface, Finding, Severity};
+use crate::model::{AttackSurface, Confidence, Finding, Severity};
 use crate::reader_context;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -644,6 +644,217 @@ pub fn write_jsonl_findings(report: &Report, writer: &mut dyn Write) -> Result<(
 pub fn print_jsonl_findings(report: &Report) -> Result<()> {
     let mut writer = std::io::stdout();
     write_jsonl_findings(report, &mut writer)
+}
+
+pub fn apply_focused_triage(report: &mut Report) {
+    let mut focused = Vec::new();
+    let mut uri_present = Vec::new();
+    let mut annotation_chains = Vec::new();
+
+    for finding in &report.findings {
+        match finding.kind.as_str() {
+            "uri_present" => uri_present.push(finding.clone()),
+            "annotation_action_chain" => annotation_chains.push(finding.clone()),
+            _ if is_focused_triage_finding(finding) => focused.push(finding.clone()),
+            _ => {}
+        }
+    }
+
+    if let Some(aggregate) = aggregate_uri_present(&uri_present) {
+        focused.push(aggregate);
+    }
+    if let Some(aggregate) = aggregate_annotation_action_chains(&annotation_chains) {
+        focused.push(aggregate);
+    }
+
+    focused.sort_by(|a, b| {
+        severity_score(b.severity)
+            .cmp(&severity_score(a.severity))
+            .then_with(|| a.kind.cmp(&b.kind))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    report.findings = focused;
+    report.summary = summary_from_findings(&report.findings);
+    report.grouped = grouped_from_findings(&report.findings);
+}
+
+fn is_focused_triage_finding(finding: &Finding) -> bool {
+    if matches!(finding.severity, Severity::High | Severity::Critical) {
+        return true;
+    }
+
+    if matches!(
+        finding.kind.as_str(),
+        "js_emulation_breakpoint"
+            | "js_runtime_unknown_behaviour_pattern"
+            | "js_sandbox_timeout"
+            | "js_runtime_error"
+    ) {
+        return true;
+    }
+
+    matches!(
+        finding.kind.as_str(),
+        "launch_external_program"
+            | "launch_embedded_file"
+            | "action_chain_malicious"
+            | "launch_obfuscated_executable"
+            | "encrypted_payload_delivery"
+            | "image_decoder_exploit_chain"
+            | "embedded_file_present"
+    )
+}
+
+fn aggregate_uri_present(findings: &[Finding]) -> Option<Finding> {
+    if findings.is_empty() {
+        return None;
+    }
+
+    let mut unique_domains = BTreeSet::new();
+    let mut unique_urls = BTreeSet::new();
+    let mut sample_objects = BTreeSet::new();
+    let mut evidence = Vec::new();
+    for finding in findings {
+        if let Some(domain) = finding.meta.get("uri.domain") {
+            unique_domains.insert(domain.clone());
+        }
+        if let Some(url) = finding.meta.get("url") {
+            unique_urls.insert(url.clone());
+        }
+        for object in finding.objects.iter().take(3) {
+            sample_objects.insert(object.clone());
+        }
+        if evidence.len() < 4 {
+            evidence.extend(finding.evidence.iter().take(1).cloned());
+        }
+    }
+
+    let total = findings.len();
+    let domain_count = unique_domains.len();
+    let severity = if total >= 50 || domain_count >= 20 {
+        Severity::High
+    } else if total >= 25 || domain_count >= 10 {
+        Severity::Medium
+    } else {
+        Severity::Low
+    };
+    let confidence = if total >= 25 { Confidence::Strong } else { Confidence::Probable };
+
+    let mut meta = HashMap::new();
+    meta.insert("aggregate.kind".into(), "uri_present".into());
+    meta.insert("aggregate.count".into(), total.to_string());
+    meta.insert("aggregate.unique_domain_count".into(), domain_count.to_string());
+    meta.insert("aggregate.unique_uri_count".into(), unique_urls.len().to_string());
+    meta.insert(
+        "aggregate.sample_objects".into(),
+        sample_objects.iter().take(12).cloned().collect::<Vec<_>>().join(","),
+    );
+    if !unique_domains.is_empty() {
+        meta.insert(
+            "aggregate.sample_domains".into(),
+            unique_domains.iter().take(12).cloned().collect::<Vec<_>>().join(","),
+        );
+    }
+
+    Some(Finding {
+        id: String::new(),
+        surface: AttackSurface::Actions,
+        kind: "uri_present_aggregate".into(),
+        severity,
+        confidence,
+        impact: None,
+        title: "URI actions aggregated".into(),
+        description: format!(
+            "Aggregated {} URI findings across {} unique domains.",
+            total, domain_count
+        ),
+        objects: sample_objects.into_iter().take(12).collect(),
+        evidence,
+        remediation: Some(
+            "Review sampled objects and domains, then pivot with query filters.".into(),
+        ),
+        meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    })
+}
+
+fn aggregate_annotation_action_chains(findings: &[Finding]) -> Option<Finding> {
+    if findings.is_empty() {
+        return None;
+    }
+
+    let mut sample_objects = BTreeSet::new();
+    let mut pages = BTreeSet::new();
+    let mut evidence = Vec::new();
+    for finding in findings {
+        for object in finding.objects.iter().take(3) {
+            sample_objects.insert(object.clone());
+        }
+        if let Some(page) = finding.meta.get("page.number") {
+            pages.insert(page.clone());
+        }
+        if evidence.len() < 4 {
+            evidence.extend(finding.evidence.iter().take(1).cloned());
+        }
+    }
+    let total = findings.len();
+    let severity = if total >= 40 {
+        Severity::High
+    } else if total >= 20 {
+        Severity::Medium
+    } else {
+        Severity::Low
+    };
+    let confidence = if total >= 20 { Confidence::Strong } else { Confidence::Probable };
+
+    let mut meta = HashMap::new();
+    meta.insert("aggregate.kind".into(), "annotation_action_chain".into());
+    meta.insert("aggregate.count".into(), total.to_string());
+    meta.insert("aggregate.unique_page_count".into(), pages.len().to_string());
+    meta.insert(
+        "aggregate.sample_objects".into(),
+        sample_objects.iter().take(12).cloned().collect::<Vec<_>>().join(","),
+    );
+    if !pages.is_empty() {
+        meta.insert(
+            "aggregate.sample_pages".into(),
+            pages.iter().take(12).cloned().collect::<Vec<_>>().join(","),
+        );
+    }
+
+    Some(Finding {
+        id: String::new(),
+        surface: AttackSurface::Actions,
+        kind: "annotation_action_chain_aggregate".into(),
+        severity,
+        confidence,
+        impact: None,
+        title: "Annotation action chains aggregated".into(),
+        description: format!(
+            "Aggregated {} annotation action-chain findings for focused triage.",
+            total
+        ),
+        objects: sample_objects.into_iter().take(12).collect(),
+        evidence,
+        remediation: Some(
+            "Inspect sampled annotation objects and correlate with action and URI findings.".into(),
+        ),
+        meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    })
 }
 
 pub use crate::sarif::sarif_rule_count;
@@ -3552,8 +3763,9 @@ fn format_node_preview(node: &str, position_previews: &BTreeMap<String, String>)
 #[cfg(test)]
 mod tests {
     use super::{
-        escape_control, js_emulation_breakpoint_bucket_counts, render_batch_markdown,
-        AttackSurface, BatchEntry, BatchReport, BatchTiming, Finding, Severity, Summary,
+        apply_focused_triage, escape_control, js_emulation_breakpoint_bucket_counts,
+        render_batch_markdown, AttackSurface, BatchEntry, BatchReport, BatchTiming, Finding,
+        Report, Severity, Summary,
     };
     use crate::model::Confidence;
     use std::collections::BTreeMap;
@@ -3613,6 +3825,54 @@ mod tests {
         assert!(markdown.contains("js_breakpoints=missing_callable:1,missing_constructor:3"));
         assert!(markdown.contains("js_script_timeout_findings=1"));
     }
+
+    #[test]
+    fn focused_triage_aggregates_uri_and_keeps_runtime_gaps() {
+        let mut uri = Finding::template(
+            AttackSurface::Actions,
+            "uri_present",
+            Severity::Info,
+            Confidence::Probable,
+            "URI present",
+            "URI action present",
+        );
+        uri.objects = vec!["4 0 obj".into()];
+        uri.meta.insert("uri.domain".into(), "evil.example".into());
+        uri.meta.insert("url".into(), "https://evil.example".into());
+
+        let runtime_gap = Finding::template(
+            AttackSurface::JavaScript,
+            "js_emulation_breakpoint",
+            Severity::Medium,
+            Confidence::Strong,
+            "JS emulation breakpoint",
+            "breakpoint",
+        );
+        let mut report = Report::from_findings(
+            vec![uri, runtime_gap],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+        );
+
+        apply_focused_triage(&mut report);
+
+        assert!(report.findings.iter().any(|finding| finding.kind == "js_emulation_breakpoint"));
+        let uri_aggregate = report
+            .findings
+            .iter()
+            .find(|finding| finding.kind == "uri_present_aggregate")
+            .expect("uri_present_aggregate should be present");
+        assert_eq!(uri_aggregate.meta.get("aggregate.count"), Some(&"1".to_string()));
+        assert!(report.findings.iter().all(|finding| finding.kind != "uri_present"));
+    }
 }
 
 fn summary_from_findings(findings: &[Finding]) -> Summary {
@@ -3626,6 +3886,20 @@ fn summary_from_findings(findings: &[Finding]) -> Summary {
         }
     }
     summary
+}
+
+fn grouped_from_findings(findings: &[Finding]) -> BTreeMap<String, BTreeMap<String, Vec<String>>> {
+    let mut grouped: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+    for finding in findings {
+        let surface = attack_surface_name(finding.surface);
+        grouped
+            .entry(surface)
+            .or_default()
+            .entry(finding.kind.clone())
+            .or_default()
+            .push(finding.id.clone());
+    }
+    grouped
 }
 
 pub fn attack_surface_name(surface: AttackSurface) -> String {

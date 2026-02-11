@@ -341,6 +341,7 @@ pub fn run_scan_with_detectors(
         }
     }
     maybe_record_parser_resource_exhaustion(&mut findings, detection_duration_ms);
+    escalate_declared_filter_invalid_with_context(&mut findings);
 
     let font_findings = findings.iter().filter(|f| f.kind.starts_with("font.")).count();
     let js_findings = findings
@@ -1318,6 +1319,57 @@ fn maybe_record_parser_resource_exhaustion(
     });
 }
 
+fn escalate_declared_filter_invalid_with_context(findings: &mut [Finding]) {
+    let has_js_runtime_anomaly = findings.iter().any(|finding| {
+        matches!(
+            finding.kind.as_str(),
+            "js_emulation_breakpoint"
+                | "js_runtime_unknown_behaviour_pattern"
+                | "js_sandbox_timeout"
+                | "js_runtime_error"
+        )
+    });
+    let has_decoder_pressure = findings.iter().any(|finding| {
+        matches!(
+            finding.kind.as_str(),
+            "decoder_risk_present"
+                | "decompression_ratio_suspicious"
+                | "parser_resource_exhaustion"
+        )
+    });
+
+    if !has_js_runtime_anomaly && !has_decoder_pressure {
+        return;
+    }
+
+    for finding in findings.iter_mut().filter(|finding| finding.kind == "declared_filter_invalid") {
+        let (new_severity, new_confidence, reason) =
+            match (has_js_runtime_anomaly, has_decoder_pressure) {
+                (true, true) => (
+                    Severity::Critical,
+                    Confidence::Certain,
+                    "paired_with_js_runtime_anomaly_and_decoder_pressure",
+                ),
+                (true, false) => {
+                    (Severity::High, Confidence::Strong, "paired_with_js_runtime_anomaly")
+                }
+                (false, true) => {
+                    (Severity::High, Confidence::Strong, "paired_with_decoder_pressure")
+                }
+                (false, false) => continue,
+            };
+
+        if finding.severity < new_severity {
+            finding.severity = new_severity;
+        }
+        if finding.confidence > new_confidence {
+            finding.confidence = new_confidence;
+        }
+        finding.meta.insert("triage.severity_escalated".into(), "true".into());
+        finding.meta.insert("triage.escalation_reason".into(), reason.to_string());
+    }
+}
+
 fn collect_refs_from_obj(obj: &PdfObj<'_>, out: &mut Vec<ObjRef>) {
     if let PdfAtom::Ref { obj, gen } = obj.atom {
         out.push(ObjRef { obj, gen });
@@ -1540,5 +1592,48 @@ mod tests {
         let last = findings.last().expect("finding added");
         assert_eq!(last.kind, "parser_resource_exhaustion");
         assert_eq!(last.meta.get("structural_finding_count"), Some(&"1".to_string()));
+    }
+
+    #[test]
+    fn declared_filter_invalid_escalates_with_runtime_and_decoder_context() {
+        let mut findings = vec![
+            Finding::template(
+                AttackSurface::StreamsAndFilters,
+                "declared_filter_invalid",
+                Severity::High,
+                Confidence::Probable,
+                "Declared filters mismatched stream data",
+                "Test",
+            ),
+            Finding::template(
+                AttackSurface::JavaScript,
+                "js_emulation_breakpoint",
+                Severity::Medium,
+                Confidence::Probable,
+                "JS emulation breakpoint",
+                "Test",
+            ),
+            Finding::template(
+                AttackSurface::StreamsAndFilters,
+                "decoder_risk_present",
+                Severity::High,
+                Confidence::Strong,
+                "Decoder risk present",
+                "Test",
+            ),
+        ];
+
+        escalate_declared_filter_invalid_with_context(&mut findings);
+
+        let finding = findings
+            .iter()
+            .find(|finding| finding.kind == "declared_filter_invalid")
+            .expect("declared_filter_invalid finding should exist");
+        assert_eq!(finding.severity, Severity::Critical);
+        assert_eq!(finding.confidence, Confidence::Certain);
+        assert_eq!(
+            finding.meta.get("triage.escalation_reason"),
+            Some(&"paired_with_js_runtime_anomaly_and_decoder_pressure".to_string())
+        );
     }
 }

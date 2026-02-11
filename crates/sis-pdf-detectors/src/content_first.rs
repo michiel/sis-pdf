@@ -17,6 +17,10 @@ use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj, PdfStr, PdfStream};
 
 pub struct ContentFirstDetector;
 
+const CONTENT_FIRST_STREAM_BUDGET_DEEP: usize = 2_500;
+const CONTENT_FIRST_STREAM_BUDGET_SHALLOW: usize = 1_000;
+const CONTENT_FIRST_HIGH_RISK_THRESHOLD: usize = 8;
+
 impl Detector for ContentFirstDetector {
     fn id(&self) -> &'static str {
         "content_first_stage1"
@@ -36,6 +40,20 @@ impl Detector for ContentFirstDetector {
 
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+        let total_streams = ctx
+            .graph
+            .objects
+            .iter()
+            .filter(|entry| matches!(&entry.atom, PdfAtom::Stream(_)))
+            .count();
+        let stream_budget = if ctx.options.deep {
+            CONTENT_FIRST_STREAM_BUDGET_DEEP
+        } else {
+            CONTENT_FIRST_STREAM_BUDGET_SHALLOW
+        };
+        let mut processed_streams = 0usize;
+        let mut high_risk_findings = 0usize;
+        let mut truncated = false;
         let limits = DecodeLimits {
             max_decoded_bytes: ctx.options.max_decode_bytes,
             ..DecodeLimits::default()
@@ -48,8 +66,17 @@ impl Detector for ContentFirstDetector {
         let classifications = ctx.classifications();
 
         for entry in &ctx.graph.objects {
+            if processed_streams >= stream_budget
+                && high_risk_findings >= CONTENT_FIRST_HIGH_RISK_THRESHOLD
+            {
+                truncated = true;
+                break;
+            }
+
+            let findings_before_entry = findings.len();
             match &entry.atom {
                 PdfAtom::Stream(stream) => {
+                    processed_streams += 1;
                     let blob = match xfa_map.get(&(entry.obj, entry.gen)) {
                         Some(container) => Blob::from_xfa_package(
                             ctx.bytes,
@@ -310,6 +337,50 @@ impl Detector for ContentFirstDetector {
                     }
                 }
             }
+            high_risk_findings += findings[findings_before_entry..]
+                .iter()
+                .filter(|finding| matches!(finding.severity, Severity::High | Severity::Critical))
+                .count();
+        }
+
+        if truncated {
+            let mut meta = HashMap::new();
+            meta.insert("analysis_truncated".into(), "true".into());
+            meta.insert(
+                "truncation_reason".into(),
+                "content_first_stream_budget_reached_with_high_risk_signals".into(),
+            );
+            meta.insert("content_first.stream_budget".into(), stream_budget.to_string());
+            meta.insert("content_first.processed_streams".into(), processed_streams.to_string());
+            meta.insert("content_first.total_streams".into(), total_streams.to_string());
+            meta.insert("content_first.high_risk_findings".into(), high_risk_findings.to_string());
+
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::StreamsAndFilters,
+                kind: "content_first_analysis_truncated".into(),
+                severity: Severity::Medium,
+                confidence: Confidence::Strong,
+                impact: None,
+                title: "Content-first analysis truncated".into(),
+                description:
+                    "Content-first analysis stopped early after high-risk indicators exceeded the stream budget."
+                        .into(),
+                objects: vec!["content_first".into()],
+                evidence: Vec::new(),
+                remediation: Some(
+                    "Run targeted follow-up queries on suspicious objects or increase scan budgets."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
         }
 
         Ok(findings)
