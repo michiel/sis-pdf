@@ -98,6 +98,7 @@ fn impact_for_kind(kind: &str) -> Option<Impact> {
         "js_sandbox_skipped" => Some(Impact::None),
         "js_runtime_unknown_behaviour_pattern" => Some(Impact::Low),
         "js_runtime_error_recovery_patterns" => Some(Impact::Low),
+        "js_runtime_dormant_or_gated_execution" => Some(Impact::Medium),
         "js_runtime_downloader_pattern" => Some(Impact::Critical),
         "js_runtime_network_intent" => Some(Impact::High),
         "js_runtime_file_probe" => Some(Impact::Low),
@@ -1032,6 +1033,7 @@ fn behavioral_pattern_title(name: &str) -> Option<&'static str> {
             Some("Dynamic string materialisation into execution sink")
         }
         "error_recovery_patterns" => Some("Runtime error recovery patterning"),
+        "dormant_or_gated_execution" => Some("Dormant or gated execution behaviour"),
         _ => None,
     }
 }
@@ -1059,6 +1061,7 @@ fn behavioral_pattern_kind(name: &str) -> Option<&'static str> {
         "entropy_at_sink" => Some("js_runtime_entropy_at_sink"),
         "dynamic_string_materialisation_sink" => Some("js_runtime_dynamic_string_materialisation"),
         "error_recovery_patterns" => Some("js_runtime_error_recovery_patterns"),
+        "dormant_or_gated_execution" => Some("js_runtime_dormant_or_gated_execution"),
         _ => None,
     }
 }
@@ -1127,6 +1130,9 @@ fn behavioral_pattern_description(name: &str) -> Option<&'static str> {
         }
         "error_recovery_patterns" => {
             Some("JavaScript repeatedly triggered errors and immediately pivoted to fallback execution paths, consistent with runtime adaptation or anti-analysis behaviour.")
+        }
+        "dormant_or_gated_execution" => {
+            Some("JavaScript payload appears dormant under current emulation and may require specific runtime gates, interaction, or environment triggers to activate.")
         }
         _ => None,
     }
@@ -1945,5 +1951,18 @@ mod tests {
             Some("Runtime error recovery patterning")
         );
         assert!(behavioral_pattern_description("error_recovery_patterns").is_some());
+    }
+
+    #[test]
+    fn maps_dormant_or_gated_execution_to_dedicated_kind() {
+        assert_eq!(
+            behavioral_pattern_kind("dormant_or_gated_execution"),
+            Some("js_runtime_dormant_or_gated_execution")
+        );
+        assert_eq!(
+            behavioral_pattern_title("dormant_or_gated_execution"),
+            Some("Dormant or gated execution behaviour")
+        );
+        assert!(behavioral_pattern_description("dormant_or_gated_execution").is_some());
     }
 }

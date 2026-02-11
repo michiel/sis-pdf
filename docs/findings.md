@@ -1620,6 +1620,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: repeated error/recovery loops indicate adaptive control flow rather than simple script failure.
   - Chain usage: used as robustness/evasion context when correlating runtime intent.
 
+## js_runtime_dormant_or_gated_execution
+
+- ID: `js_runtime_dormant_or_gated_execution`
+- Label: Dormant or gated execution behaviour
+- Description: JavaScript payload appears dormant under current emulation and may require specific runtime gates, interaction, or environment triggers to activate.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: identifies likely delayed or environment-gated payload activation.
+  - Meaning: large or complex script content produced little/no runtime activity in current profile set.
+  - Chain usage: used as a follow-up triage signal to prioritise deeper environment/profile replay.
+
 ## js_semantic_source_to_sink_flow
 
 - ID: `js_semantic_source_to_sink_flow`
