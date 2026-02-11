@@ -35,9 +35,9 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add threshold calibration tests.
 
 ## PR-04: Encoded fixture pack
-- [ ] Implement JS plan S2-5 fixtures (benign + malicious).
-- [ ] Add decode-then-analyse integration tests.
-- [ ] Add false-positive controls.
+- [x] Implement JS plan S2-5 fixtures (benign + malicious).
+- [x] Add decode-then-analyse integration tests.
+- [x] Add false-positive controls.
 
 ## PR-05: Structural evasion primitives A
 - [ ] Implement PDF plan S1-2 `xref_phantom_entries`.
@@ -207,9 +207,12 @@ Gate D (after PR-20):
 - `PR-03`: detector findings added in `crates/sis-pdf-detectors/src/js_polymorphic.rs`: `js_jsfuck_encoding`, `js_jjencode_encoding`, `js_aaencode_encoding`.
 - `PR-03`: finding documentation added in `docs/findings.md` for all three new IDs.
 - Validation completed: `cargo test -p js-analysis --test static_signals`, `cargo test -p js-analysis --features js-ast --test static_signals`, and `cargo test -p sis-pdf-detectors --test js_polymorphic_integration`.
+- `PR-04`: encoded fixture pack added under `crates/js-analysis/tests/fixtures/encoded/` with malicious and benign esoteric samples plus nested-decode fixtures.
+- `PR-04`: integration tests added in `crates/js-analysis/tests/encoded_fixtures.rs` covering decode-then-analyse and false-positive controls.
+- Validation completed: `cargo test -p js-analysis --test encoded_fixtures`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-04` encoded fixture pack (benign + malicious decode-then-analyse).
+- Start `PR-05` structural evasion primitives A (`xref_phantom_entries`, `trailer_root_conflict`, `null_object_density`).
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.
