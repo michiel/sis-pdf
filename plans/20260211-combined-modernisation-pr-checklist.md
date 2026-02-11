@@ -59,10 +59,10 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Update findings documentation.
 
 ## PR-08: PDF.js font injection extension
-- [ ] Implement PDF plan S3-1 `pdfjs_font_injection` sub-signals.
-- [ ] Cover FontMatrix/FontBBox/CMap/Encoding cases.
-- [ ] Add `reader_impacts` metadata for affected PDF.js versions.
-- [ ] Add benign Type1 false-positive control.
+- [x] Implement PDF plan S3-1 `pdfjs_font_injection` sub-signals.
+- [x] Cover FontMatrix/FontBBox/CMap/Encoding cases.
+- [x] Add `reader_impacts` metadata for affected PDF.js versions.
+- [x] Add benign Type1 false-positive control.
 
 ## PR-09: Font-to-JS bridge correlation
 - [ ] Implement PDF plan S3-5 `font_js_exploitation_bridge`.
@@ -223,9 +223,14 @@ Gate D (after PR-20):
 - `PR-07`: calibration logic added (`3 indicators => Medium/Probable`, `4+ indicators => High/Strong`).
 - `PR-07`: calibration tests added in `crates/sis-pdf-detectors/tests/structural_anomalies.rs`.
 - `PR-07`: finding documentation added in `docs/findings.md`.
+- `PR-08`: added `PdfjsFontInjectionDetector` and `pdfjs_font_injection` finding in `crates/sis-pdf-detectors/src/lib.rs`.
+- `PR-08`: implemented sub-signals `fontmatrix_non_numeric`, `fontbbox_non_numeric`, `encoding_string_values`, and `cmap_script_tokens`.
+- `PR-08`: populated affected-version metadata (`pdfjs.affected_versions=<4.2.67`) and `reader_impacts` notes for browser rendering risk.
+- `PR-08`: added integration coverage in `crates/sis-pdf-detectors/tests/pdfjs_font_injection.rs`, including benign Type1 false-positive control.
+- `PR-08`: finding documentation added in `docs/findings.md`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-08` PDF.js font injection extension.
+- Start `PR-09` font-to-JS bridge correlation.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

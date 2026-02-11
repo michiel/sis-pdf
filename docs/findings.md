@@ -840,6 +840,20 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: embedded fonts can trigger vulnerable code paths.
   - Chain usage: treated as a payload stage targeting renderer vulnerabilities.
 
+## pdfjs_font_injection
+
+- ID: `pdfjs_font_injection`
+- Label: PDF.js font injection risk
+- Description: Font-related structures include payload-like values associated with browser PDF.js injection paths.
+- Tags: font, pdfjs, evasion
+- Details:
+  - Relevance: browser-based PDF rendering attack surface.
+  - Meaning: detector emits `pdfjs.subsignal` for one of `fontmatrix_non_numeric`, `fontbbox_non_numeric`, `encoding_string_values`, or `cmap_script_tokens`.
+  - Chain usage: renderer-targeted exploitation signal; prioritise when combined with JavaScript/action findings.
+  - Metadata:
+    - `pdfjs.affected_versions`: currently `<4.2.67`
+    - `reader_impacts`: includes browser-oriented impact notes.
+
 ## gotor_present
 
 - ID: `gotor_present`

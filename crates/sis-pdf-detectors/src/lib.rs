@@ -11,7 +11,9 @@ use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::embedded_index::{build_embedded_artefact_index, EmbeddedArtefactRef};
 use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii, EvidenceBuilder};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{
+    AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
+};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
 use sis_pdf_core::timeout::TimeoutChecker;
@@ -109,6 +111,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(SubmitFormDetector),
         Box::new(external_context::ExternalActionContextDetector),
         Box::new(FontMatrixDetector),
+        Box::new(PdfjsFontInjectionDetector),
         Box::new(font_exploits::FontExploitDetector),
         Box::new(font_external_ref::FontExternalReferenceDetector),
         Box::new(image_analysis::ImageAnalysisDetector),
@@ -2079,6 +2082,118 @@ fn enrich_uri_context(meta: &mut std::collections::HashMap<String, String>, uri:
     parts.join(", ")
 }
 
+struct PdfjsFontInjectionDetector;
+
+impl Detector for PdfjsFontInjectionDetector {
+    fn id(&self) -> &'static str {
+        "pdfjs_font_injection"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Metadata
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Cheap
+    }
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            let mut add_subsignal = |subsignal: &str,
+                                     title: &str,
+                                     description: &str,
+                                     evidence_note: &str| {
+                let mut meta = std::collections::HashMap::new();
+                meta.insert("pdfjs.subsignal".into(), subsignal.into());
+                meta.insert("pdfjs.affected_versions".into(), "<4.2.67".into());
+                meta.insert("reader_impacts".into(), "pdfjs<4.2.67".into());
+
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: self.surface(),
+                    kind: "pdfjs_font_injection".into(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::Strong,
+                    impact: Some(Impact::Medium),
+                    title: title.into(),
+                    description: description.into(),
+                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                    evidence: vec![span_to_evidence(dict.span, evidence_note)],
+                    remediation: Some(
+                        "Review PDF.js-targeted font and rendering structures for script-capable payloads."
+                            .into(),
+                    ),
+                    meta,
+                    reader_impacts: vec![ReaderImpact {
+                        profile: ReaderProfile::Pdfium,
+                        surface: AttackSurface::Metadata,
+                        severity: Severity::Medium,
+                        impact: Impact::Medium,
+                        note: Some("Pattern is associated with browser-side PDF.js rendering paths (<4.2.67).".into()),
+                    }],
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+            };
+
+            if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
+                if array_has_non_numeric(obj) {
+                    add_subsignal(
+                        "fontmatrix_non_numeric",
+                        "PDF.js font injection risk (FontMatrix)",
+                        "FontMatrix contains non-numeric entries in a font dictionary.",
+                        "FontMatrix entry",
+                    );
+                }
+            }
+
+            if let Some((_, obj)) = dict.get_first(b"/FontBBox") {
+                if array_has_non_numeric(obj) {
+                    add_subsignal(
+                        "fontbbox_non_numeric",
+                        "PDF.js font injection risk (FontBBox)",
+                        "FontBBox contains non-numeric entries in a font dictionary.",
+                        "FontBBox entry",
+                    );
+                }
+            }
+
+            if let Some((_, encoding_obj)) = dict.get_first(b"/Encoding") {
+                if encoding_contains_string_values(encoding_obj, ctx) {
+                    add_subsignal(
+                        "encoding_string_values",
+                        "PDF.js font injection risk (Encoding)",
+                        "Font /Encoding contains string-like values where numeric/name operands are expected.",
+                        "Encoding entry",
+                    );
+                }
+            }
+
+            if is_cmap_stream(entry) {
+                if let Some(payload) = entry_payload_bytes(ctx.bytes, entry) {
+                    if contains_pdfjs_injection_tokens(payload) {
+                        add_subsignal(
+                            "cmap_script_tokens",
+                            "PDF.js font injection risk (CMap)",
+                            "CMap stream contains script-like tokens consistent with injection payloads.",
+                            "CMap stream",
+                        );
+                    }
+                }
+            }
+        }
+        Ok(findings)
+    }
+}
+
 struct FontMatrixDetector;
 
 impl Detector for FontMatrixDetector {
@@ -2130,6 +2245,68 @@ impl Detector for FontMatrixDetector {
         }
         Ok(findings)
     }
+}
+
+fn array_has_non_numeric(obj: &PdfObj<'_>) -> bool {
+    match &obj.atom {
+        PdfAtom::Array(values) => {
+            values.iter().any(|value| !matches!(value.atom, PdfAtom::Int(_) | PdfAtom::Real(_)))
+        }
+        _ => false,
+    }
+}
+
+fn encoding_contains_string_values(
+    obj: &PdfObj<'_>,
+    ctx: &sis_pdf_core::scan::ScanContext,
+) -> bool {
+    encoding_contains_string_values_with_depth(obj, ctx, 0)
+}
+
+fn encoding_contains_string_values_with_depth(
+    obj: &PdfObj<'_>,
+    ctx: &sis_pdf_core::scan::ScanContext,
+    depth: usize,
+) -> bool {
+    if depth >= 8 {
+        return false;
+    }
+    match &obj.atom {
+        PdfAtom::Str(_) => true,
+        PdfAtom::Array(values) => values
+            .iter()
+            .any(|value| encoding_contains_string_values_with_depth(value, ctx, depth + 1)),
+        PdfAtom::Dict(dict) => dict
+            .entries
+            .iter()
+            .any(|(_, value)| encoding_contains_string_values_with_depth(value, ctx, depth + 1)),
+        PdfAtom::Ref { .. } => ctx
+            .graph
+            .resolve_ref(obj)
+            .map(|resolved| {
+                let resolved_obj = PdfObj { span: resolved.body_span, atom: resolved.atom };
+                encoding_contains_string_values_with_depth(&resolved_obj, ctx, depth + 1)
+            })
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+fn is_cmap_stream(entry: &ObjEntry<'_>) -> bool {
+    let PdfAtom::Stream(stream) = &entry.atom else {
+        return false;
+    };
+    stream.dict.has_name(b"/Type", b"/CMap")
+        || stream.dict.get_first(b"/CMapName").is_some()
+        || stream.dict.get_first(b"/CIDSystemInfo").is_some()
+}
+
+fn contains_pdfjs_injection_tokens(payload: &[u8]) -> bool {
+    let lower = payload.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<u8>>();
+    let needles: &[&[u8]] = &[b"javascript", b"app.alert", b"eval(", b"function(", b"constructor("];
+    needles.iter().any(|needle| {
+        !needle.is_empty() && lower.windows(needle.len()).any(|window| window == *needle)
+    })
 }
 
 struct SubmitFormDetector;
