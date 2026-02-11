@@ -9,6 +9,7 @@ fn profile_options(kind: RuntimeKind) -> DynamicOptions {
             RuntimeKind::PdfReader => "adobe".to_string(),
             RuntimeKind::Browser => "chromium".to_string(),
             RuntimeKind::Node => "nodejs".to_string(),
+            RuntimeKind::Bun => "bun".to_string(),
         },
         version: "1".to_string(),
         mode: RuntimeMode::Compat,
@@ -88,6 +89,21 @@ fn node_profile_contract_exposes_require_and_process() {
     assert!(signals.calls.iter().any(|call| call == "Buffer.from"));
     assert!(signals.calls.iter().any(|call| call == "process.exit"));
     assert!(signals.errors.is_empty(), "unexpected errors: {:?}", signals.errors);
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn bun_profile_contract_exposes_bun_runtime_stubs() {
+    let options = profile_options(RuntimeKind::Bun);
+    let payload = b"
+        Bun.spawn(['echo', 'x']);
+        Bun.file('/tmp/x');
+        Bun.write('/tmp/x', 'data');
+    ";
+    let signals = executed(js_analysis::run_sandbox(payload, &options));
+    assert!(signals.calls.iter().any(|call| call == "Bun.spawn"));
+    assert!(signals.calls.iter().any(|call| call == "Bun.file"));
+    assert!(signals.calls.iter().any(|call| call == "Bun.write"));
 }
 
 #[cfg(feature = "js-sandbox")]

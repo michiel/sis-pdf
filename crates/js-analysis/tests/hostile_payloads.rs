@@ -26,6 +26,7 @@ fn test_options() -> DynamicOptions {
             js_analysis::types::RuntimePhase::Form,
         ],
         runtime_profile: Default::default(),
+        lifecycle_context: None,
     }
 }
 

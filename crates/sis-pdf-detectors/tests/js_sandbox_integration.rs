@@ -99,7 +99,7 @@ fn sandbox_exec_records_calls() {
     assert!(calls.contains("alert"));
     let phase_order = sandbox.meta.get("js.runtime.phase_order").expect("phase order");
     assert!(phase_order.contains("open"));
-    assert_eq!(sandbox.meta.get("js.runtime.profile_count").map(String::as_str), Some("3"));
+    assert_eq!(sandbox.meta.get("js.runtime.profile_count").map(String::as_str), Some("4"));
     assert!(sandbox.meta.contains_key("js.runtime.profile_divergence"));
     assert!(sandbox.meta.contains_key("js.runtime.profile_status"));
     assert!(sandbox.meta.contains_key("js.runtime.replay_id"));
@@ -122,14 +122,14 @@ fn sandbox_exec_demotes_confidence_when_calls_diverge_across_profiles() {
 
     let sandbox =
         report.findings.iter().find(|f| f.kind == "js_sandbox_exec").expect("sandbox exec finding");
-    assert_eq!(sandbox.confidence, Confidence::Tentative);
+    assert_eq!(sandbox.confidence, Confidence::Probable);
     assert_eq!(
         sandbox.meta.get("js.runtime.profile_consistency_signal").map(String::as_str),
         Some("calls")
     );
     assert_eq!(
         sandbox.meta.get("js.runtime.profile_consistency_ratio").map(String::as_str),
-        Some("0.33")
+        Some("0.50")
     );
     assert_eq!(
         sandbox.meta.get("js.runtime.profile_divergence").map(String::as_str),
@@ -319,7 +319,7 @@ fn sandbox_emits_credential_harvest_finding() {
 #[test]
 fn sandbox_emits_service_worker_persistence_finding() {
     let bytes = build_minimal_js_pdf(
-        "navigator.serviceWorker.register\\('/sw.js'\\);navigator.serviceWorker.getRegistrations\\(\\);caches.open\\('v1'\\);",
+        "navigator.serviceWorker.register\\('/sw.js'\\);navigator.serviceWorker.getRegistrations\\(\\);self.addEventListener\\('fetch',function\\(\\)\\{\\}\\);caches.open\\('v1'\\);",
     );
     let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
         vec![Box::new(JavaScriptSandboxDetector)];
@@ -334,6 +334,20 @@ fn sandbox_emits_service_worker_persistence_finding() {
     assert_eq!(
         finding.meta.get("js.runtime.behavior.name").map(String::as_str),
         Some("service_worker_persistence_abuse")
+    );
+    assert_eq!(
+        finding
+            .meta
+            .get("js.runtime.behavior.meta.js.runtime.service_worker.registration_calls")
+            .map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        finding
+            .meta
+            .get("js.runtime.behavior.meta.js.runtime.service_worker.event_handlers_registered")
+            .map(String::as_str),
+        Some("1")
     );
 }
 
@@ -401,6 +415,7 @@ fn sandbox_emits_chunked_data_exfil_finding() {
         finding.meta.get("js.runtime.behavior.name").map(String::as_str),
         Some("chunked_data_exfil_pipeline")
     );
+    assert!(finding.meta.contains_key("js.runtime.behavior.meta.taint_edges"));
 }
 
 #[cfg(feature = "js-sandbox")]
@@ -467,5 +482,5 @@ fn sandbox_marks_oversized_payload_as_skipped() {
         finding.meta.get("js.sandbox_skip_reason").map(String::as_str),
         Some("payload_too_large")
     );
-    assert_eq!(finding.meta.get("js.runtime.profile_skipped_count").map(String::as_str), Some("3"));
+    assert_eq!(finding.meta.get("js.runtime.profile_skipped_count").map(String::as_str), Some("4"));
 }

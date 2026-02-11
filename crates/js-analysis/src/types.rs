@@ -3,6 +3,7 @@ pub enum RuntimeKind {
     PdfReader,
     Browser,
     Node,
+    Bun,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +41,26 @@ impl RuntimeKind {
             RuntimeKind::PdfReader => "pdf_reader",
             RuntimeKind::Browser => "browser",
             RuntimeKind::Node => "node",
+            RuntimeKind::Bun => "bun",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecycleContext {
+    NpmPreinstall,
+    NpmInstall,
+    NpmPostinstall,
+    BunInstall,
+}
+
+impl LifecycleContext {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LifecycleContext::NpmPreinstall => "npm.preinstall",
+            LifecycleContext::NpmInstall => "npm.install",
+            LifecycleContext::NpmPostinstall => "npm.postinstall",
+            LifecycleContext::BunInstall => "bun.install",
         }
     }
 }
@@ -184,6 +205,7 @@ pub struct DynamicOptions {
     pub phase_timeout_ms: u128,
     pub phases: Vec<RuntimePhase>,
     pub runtime_profile: RuntimeProfile,
+    pub lifecycle_context: Option<LifecycleContext>,
 }
 
 impl Default for DynamicOptions {
@@ -204,6 +226,7 @@ impl Default for DynamicOptions {
                 RuntimePhase::Form,
             ],
             runtime_profile: RuntimeProfile::default(),
+            lifecycle_context: None,
         }
     }
 }

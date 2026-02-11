@@ -1043,6 +1043,39 @@ fn sandbox_replay_id_differs_for_different_inputs() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_executes_lifecycle_micro_phase_when_context_configured() {
+    let options = DynamicOptions {
+        lifecycle_context: Some(js_analysis::types::LifecycleContext::NpmInstall),
+        runtime_profile: js_analysis::types::RuntimeProfile {
+            kind: js_analysis::types::RuntimeKind::Node,
+            vendor: "nodejs".to_string(),
+            version: "20".to_string(),
+            mode: js_analysis::types::RuntimeMode::Compat,
+        },
+        ..DynamicOptions::default()
+    };
+    let payload = b"
+        function install() {
+            require('child_process');
+            child_process.exec('echo test');
+        }
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                signals.phases.iter().any(|phase| phase.phase == "npm.install"),
+                "expected npm.install phase in {:?}",
+                signals.phases
+            );
+            assert!(signals.calls.iter().any(|call| call == "child_process.exec"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_tracks_truncation_invariants() {
     let options = DynamicOptions::default();
     let mut payload = String::from("for (var i = 0; i < 2600; i++) {");
@@ -1451,12 +1484,33 @@ fn sandbox_flags_service_worker_persistence_abuse() {
     let payload = br#"
         navigator.serviceWorker.register('/sw.js');
         navigator.serviceWorker.getRegistrations();
+        self.addEventListener('fetch', function () {});
         caches.open('v1');
     "#;
     let outcome = js_analysis::run_sandbox(payload, &options);
     match outcome {
         DynamicOutcome::Executed(signals) => {
             assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "service_worker_persistence_abuse"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_does_not_flag_service_worker_persistence_without_lifecycle_evidence() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        navigator.serviceWorker.register('/sw.js');
+        caches.open('v1');
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(!signals
                 .behavioral_patterns
                 .iter()
                 .any(|pattern| pattern.name == "service_worker_persistence_abuse"));
@@ -1541,10 +1595,13 @@ fn sandbox_flags_covert_realtime_channel_abuse() {
     let outcome = js_analysis::run_sandbox(payload, &options);
     match outcome {
         DynamicOutcome::Executed(signals) => {
-            assert!(signals
+            let pattern = signals
                 .behavioral_patterns
                 .iter()
-                .any(|pattern| pattern.name == "covert_realtime_channel_abuse"));
+                .find(|pattern| pattern.name == "covert_realtime_channel_abuse")
+                .expect("covert_realtime_channel_abuse");
+            assert!(pattern.metadata.contains_key("js.runtime.realtime.session_count"));
+            assert!(pattern.metadata.contains_key("js.runtime.realtime.channel_types"));
         }
         _ => panic!("expected executed"),
     }
@@ -1820,10 +1877,12 @@ fn sandbox_flags_chunked_data_exfil_pipeline() {
     let outcome = js_analysis::run_sandbox(payload, &options);
     match outcome {
         DynamicOutcome::Executed(signals) => {
-            assert!(signals
+            let pattern = signals
                 .behavioral_patterns
                 .iter()
-                .any(|pattern| pattern.name == "chunked_data_exfil_pipeline"));
+                .find(|pattern| pattern.name == "chunked_data_exfil_pipeline")
+                .expect("chunked_data_exfil_pipeline");
+            assert!(pattern.metadata.contains_key("taint_edges"));
         }
         _ => panic!("expected executed"),
     }

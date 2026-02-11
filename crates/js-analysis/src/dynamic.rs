@@ -6,6 +6,7 @@ use crate::types::{DynamicOptions, DynamicOutcome, RuntimeKind, RuntimePhase};
 mod sandbox_impl {
     use super::*;
     use crate::types::DynamicSignals;
+    use crate::wasm_features::{extract_wasm_static_features, WasmStaticFeatures};
     use std::cell::RefCell;
     use std::collections::BTreeSet;
     use std::rc::Rc;
@@ -38,6 +39,8 @@ mod sandbox_impl {
     const BUSY_WAIT_LOOP_ITERATION_LIMIT: u64 = 80_000;
     const PROBE_EXISTS_TRUE_AFTER: usize = 24;
     const MAX_AUGMENTED_SOURCE_BYTES: usize = 128 * 1024;
+    const MAX_TAINT_EDGES: usize = 64;
+    const MAX_TAINT_CALL_DISTANCE: usize = 512;
 
     #[derive(Default, Clone)]
     struct SandboxLog {
@@ -83,7 +86,111 @@ mod sandbox_impl {
         probe_loop_short_circuit_hits: usize,
         input_bytes: usize,
         dormant_source_markers: usize,
+        worker_registration_observed: bool,
+        sw_registration_calls: usize,
+        sw_update_calls: usize,
+        sw_event_handlers_registered: usize,
+        sw_lifecycle_events_executed: usize,
+        sw_cache_calls: usize,
+        sw_indexeddb_calls: usize,
+        realtime_targets: BTreeSet<String>,
+        realtime_channel_types: BTreeSet<String>,
+        realtime_send_count: usize,
+        realtime_payload_bytes: usize,
+        taint_sources: Vec<TaintEvent>,
+        taint_sinks: Vec<TaintEvent>,
+        taint_edges: Vec<TaintEdge>,
+        lifecycle_context_observed: Option<String>,
+        lifecycle_hook_calls: usize,
+        lifecycle_background_attempts: usize,
+        wasm_static_features: WasmStaticFeatures,
     }
+
+    #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+    enum TaintEventKind {
+        Cookie,
+        LocalStorage,
+        SessionStorage,
+        FormField,
+        Clipboard,
+        Eval,
+        Function,
+        Fetch,
+        SendBeacon,
+        WebSocketSend,
+        RtcDataChannelSend,
+        XmlHttpSend,
+    }
+
+    impl TaintEventKind {
+        fn as_str(self) -> &'static str {
+            match self {
+                TaintEventKind::Cookie => "cookie",
+                TaintEventKind::LocalStorage => "local_storage",
+                TaintEventKind::SessionStorage => "session_storage",
+                TaintEventKind::FormField => "form_field",
+                TaintEventKind::Clipboard => "clipboard",
+                TaintEventKind::Eval => "eval",
+                TaintEventKind::Function => "function",
+                TaintEventKind::Fetch => "fetch",
+                TaintEventKind::SendBeacon => "send_beacon",
+                TaintEventKind::WebSocketSend => "websocket_send",
+                TaintEventKind::RtcDataChannelSend => "rtc_datachannel_send",
+                TaintEventKind::XmlHttpSend => "xmlhttp_send",
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct TaintEvent {
+        kind: TaintEventKind,
+        call_index: usize,
+        phase: String,
+    }
+
+    #[derive(Debug, Clone)]
+    struct TaintEdge {
+        source: TaintEventKind,
+        sink: TaintEventKind,
+        call_distance: usize,
+        phase_source: String,
+        phase_sink: String,
+    }
+
+    #[derive(Debug, Clone, Default)]
+    struct ExfilUrlFeatures {
+        query_length: usize,
+        key_value_density: f64,
+        label_depth: usize,
+        subdomain_entropy: f64,
+        query_entropy: f64,
+        encoded_token_count: usize,
+        target_repetition: usize,
+    }
+
+    struct GadgetEntry {
+        family: &'static str,
+        sink_call: &'static str,
+    }
+
+    const GADGET_CATALOGUE: &[GadgetEntry] = &[
+        GadgetEntry { family: "dom_sink", sink_call: "document.setInnerHTML" },
+        GadgetEntry { family: "dom_sink", sink_call: "document.insertAdjacentHTML" },
+        GadgetEntry { family: "dom_sink", sink_call: "document.write" },
+        GadgetEntry { family: "execution", sink_call: "eval" },
+        GadgetEntry { family: "execution", sink_call: "Function" },
+        GadgetEntry { family: "execution", sink_call: "app.eval" },
+        GadgetEntry { family: "execution", sink_call: "event.target.eval" },
+        GadgetEntry { family: "server", sink_call: "child_process.exec" },
+        GadgetEntry { family: "server", sink_call: "child_process.spawn" },
+        GadgetEntry { family: "server", sink_call: "fs.writeFileSync" },
+        GadgetEntry { family: "server", sink_call: "fs.writeFile" },
+        GadgetEntry { family: "server", sink_call: "Bun.spawn" },
+        GadgetEntry { family: "network", sink_call: "fetch" },
+        GadgetEntry { family: "network", sink_call: "navigator.sendBeacon" },
+        GadgetEntry { family: "network", sink_call: "WebSocket.send" },
+        GadgetEntry { family: "network", sink_call: "RTCDataChannel.send" },
+    ];
 
     #[derive(Debug, Clone)]
     struct VariableEvent {
@@ -551,54 +658,25 @@ mod sandbox_impl {
             if network_sinks == 0 {
                 return Vec::new();
             }
-
-            let long_query_urls = log
-                .urls
-                .iter()
-                .filter(|url| {
-                    url.split_once('?').map(|(_, query)| query.len() >= 48).unwrap_or(false)
-                })
-                .count();
-            let deep_label_domains = log
-                .domains
-                .iter()
-                .filter(|domain| domain.split('.').filter(|part| !part.is_empty()).count() >= 4)
-                .count();
-            let high_entropy_domains =
-                log.domains.iter().filter(|domain| approx_string_entropy(domain) >= 3.4).count();
-            let encoded_url_args = log
-                .call_args
-                .iter()
-                .filter(|entry| {
-                    let lower = entry.to_ascii_lowercase();
-                    lower.contains("%2f")
-                        || lower.contains("%3d")
-                        || lower.contains("%2b")
-                        || lower.contains("base64")
-                })
-                .count();
-            let dense_query_key_urls = log
-                .urls
-                .iter()
-                .filter(|url| {
-                    url.split_once('?')
-                        .map(|(_, query)| query.matches('=').count() >= 4)
-                        .unwrap_or(false)
-                })
-                .count();
-            let high_density_args = log
-                .call_args
-                .iter()
-                .filter(|entry| entry.contains("http://") || entry.contains("https://"))
-                .filter(|entry| entry.len() >= 120)
-                .count();
-            let signal_count = (long_query_urls > 0) as usize
-                + (deep_label_domains > 0) as usize
-                + (high_entropy_domains > 0) as usize
-                + (encoded_url_args > 0) as usize
-                + (dense_query_key_urls > 0) as usize
-                + (high_density_args > 0) as usize;
-            if signal_count == 0 {
+            if log.urls.is_empty() {
+                return Vec::new();
+            }
+            let mut repetition = std::collections::BTreeMap::<String, usize>::new();
+            for url in &log.urls {
+                *repetition.entry(url.clone()).or_insert(0usize) += 1;
+            }
+            let mut max_features = ExfilUrlFeatures::default();
+            let mut max_score = 0f64;
+            for url in &log.urls {
+                let reps = repetition.get(url).copied().unwrap_or(1);
+                let features = exfil_url_features(url, reps);
+                let score = exfil_score_components(network_sinks > 0, &features).values().sum();
+                if score > max_score {
+                    max_score = score;
+                    max_features = features;
+                }
+            }
+            if max_score < 2.0 {
                 return Vec::new();
             }
 
@@ -607,15 +685,29 @@ mod sandbox_impl {
             metadata.insert("beacon_calls".to_string(), beacon_calls.to_string());
             metadata.insert("fetch_calls".to_string(), fetch_calls.to_string());
             metadata.insert("location_calls".to_string(), location_calls.to_string());
-            metadata.insert("long_query_urls".to_string(), long_query_urls.to_string());
-            metadata.insert("deep_label_domains".to_string(), deep_label_domains.to_string());
-            metadata.insert("high_entropy_domains".to_string(), high_entropy_domains.to_string());
-            metadata.insert("encoded_url_args".to_string(), encoded_url_args.to_string());
-            metadata.insert("dense_query_key_urls".to_string(), dense_query_key_urls.to_string());
-            metadata.insert("high_density_args".to_string(), high_density_args.to_string());
+            metadata.insert("query_length".to_string(), max_features.query_length.to_string());
+            metadata.insert("label_depth".to_string(), max_features.label_depth.to_string());
+            metadata
+                .insert("query_entropy".to_string(), format!("{:.3}", max_features.query_entropy));
+            metadata.insert(
+                "subdomain_entropy".to_string(),
+                format!("{:.3}", max_features.subdomain_entropy),
+            );
+            metadata.insert(
+                "encoded_token_count".to_string(),
+                max_features.encoded_token_count.to_string(),
+            );
+            metadata.insert(
+                "target_repetition".to_string(),
+                max_features.target_repetition.to_string(),
+            );
+            metadata.insert("exfil_score".to_string(), format!("{:.2}", max_score));
 
-            let (confidence, severity) =
-                calibrate_chain_signal(0.7, BehaviorSeverity::High, signal_count.min(6), 6);
+            let (confidence, severity) = if max_score >= 4.0 {
+                calibrate_chain_signal(0.86, BehaviorSeverity::High, 6, 6)
+            } else {
+                calibrate_chain_signal(0.72, BehaviorSeverity::Medium, 4, 6)
+            };
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -693,14 +785,38 @@ mod sandbox_impl {
                 })
                 .count();
             let profile = &log.options.runtime_profile;
-            let expanded_profile = matches!(profile.kind, RuntimeKind::Browser | RuntimeKind::Node)
-                || profile.mode == crate::types::RuntimeMode::DeceptionHardened;
+            let expanded_profile =
+                matches!(profile.kind, RuntimeKind::Browser | RuntimeKind::Node | RuntimeKind::Bun)
+                    || profile.mode == crate::types::RuntimeMode::DeceptionHardened;
             let marker_total = prototype_markers
                 + prototype_mutation_calls
                 + prototype_write_markers
                 + eval_source_markers;
+            let first_mutation_index = log.calls.iter().position(|call| {
+                matches!(
+                    call.as_str(),
+                    "Object.setPrototypeOf"
+                        | "Reflect.setPrototypeOf"
+                        | "Object.defineProperty"
+                        | "Object.defineProperties"
+                )
+            });
+            let mut gadget_family_hits = BTreeSet::new();
+            let mut mutation_to_sink_distance = usize::MAX;
+            for entry in GADGET_CATALOGUE {
+                if let Some(index) = log.calls.iter().position(|call| call == entry.sink_call) {
+                    gadget_family_hits.insert(entry.family.to_string());
+                    if let Some(mutation_index) = first_mutation_index {
+                        if index >= mutation_index {
+                            mutation_to_sink_distance =
+                                mutation_to_sink_distance.min(index.saturating_sub(mutation_index));
+                        }
+                    }
+                }
+            }
+            let has_gadget_sink = !gadget_family_hits.is_empty();
             let dispatch_required = if expanded_profile || marker_total >= 2 { 1 } else { 2 };
-            if marker_total == 0 || dynamic_dispatch_calls < dispatch_required {
+            if marker_total == 0 || dynamic_dispatch_calls < dispatch_required || !has_gadget_sink {
                 return Vec::new();
             }
 
@@ -720,6 +836,16 @@ mod sandbox_impl {
             metadata.insert("profile_kind".to_string(), profile.kind.as_str().to_string());
             metadata.insert("profile_mode".to_string(), profile.mode.as_str().to_string());
             metadata.insert("expanded_profile".to_string(), expanded_profile.to_string());
+            metadata.insert(
+                "gadget_family_hits".to_string(),
+                gadget_family_hits.into_iter().collect::<Vec<_>>().join(", "),
+            );
+            if mutation_to_sink_distance != usize::MAX {
+                metadata.insert(
+                    "mutation_to_sink_distance".to_string(),
+                    mutation_to_sink_distance.to_string(),
+                );
+            }
 
             let component_hits = [
                 marker_total > 0,
@@ -728,12 +854,14 @@ mod sandbox_impl {
                 eval_source_markers > 0,
                 dynamic_dispatch_calls > 0,
                 dynamic_dispatch_calls > 1,
+                has_gadget_sink,
+                mutation_to_sink_distance <= 32,
             ]
             .iter()
             .filter(|value| **value)
             .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.74, BehaviorSeverity::High, component_hits, 6);
+                calibrate_chain_signal(0.74, BehaviorSeverity::High, component_hits, 8);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -786,8 +914,9 @@ mod sandbox_impl {
                 })
                 .count();
             let profile = &log.options.runtime_profile;
-            let expanded_profile = matches!(profile.kind, RuntimeKind::Browser | RuntimeKind::Node)
-                || profile.mode == crate::types::RuntimeMode::DeceptionHardened;
+            let expanded_profile =
+                matches!(profile.kind, RuntimeKind::Browser | RuntimeKind::Node | RuntimeKind::Bun)
+                    || profile.mode == crate::types::RuntimeMode::DeceptionHardened;
 
             let component_hits = [
                 instantiate_calls > 0,
@@ -817,6 +946,25 @@ mod sandbox_impl {
             metadata.insert("profile_kind".to_string(), profile.kind.as_str().to_string());
             metadata.insert("profile_mode".to_string(), profile.mode.as_str().to_string());
             metadata.insert("expanded_profile".to_string(), expanded_profile.to_string());
+            metadata.insert(
+                "js.runtime.wasm.static.section_count".to_string(),
+                log.wasm_static_features.section_count.to_string(),
+            );
+            metadata.insert(
+                "js.runtime.wasm.static.memory_sections".to_string(),
+                log.wasm_static_features.memory_sections.to_string(),
+            );
+            metadata.insert(
+                "js.runtime.wasm.static.suspicious_imports".to_string(),
+                log.wasm_static_features.suspicious_imports.join(", "),
+            );
+            let correlation_score = (log.wasm_static_features.preamble_detected as usize)
+                + (!log.wasm_static_features.suspicious_imports.is_empty() as usize)
+                + (dynamic_dispatch > 0) as usize;
+            metadata.insert(
+                "js.runtime.wasm.correlation_score".to_string(),
+                correlation_score.to_string(),
+            );
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -979,6 +1127,27 @@ mod sandbox_impl {
             let staged_chunk_markers =
                 (append_calls > 1 && encode_calls > 0) || encoded_arg_markers > 0;
             let outbound_target_visibility = !log.domains.is_empty() || !log.urls.is_empty();
+            let taint_edge_count = log
+                .taint_edges
+                .iter()
+                .filter(|edge| {
+                    matches!(
+                        edge.source,
+                        TaintEventKind::Cookie
+                            | TaintEventKind::LocalStorage
+                            | TaintEventKind::SessionStorage
+                            | TaintEventKind::FormField
+                            | TaintEventKind::Clipboard
+                    ) && matches!(
+                        edge.sink,
+                        TaintEventKind::Fetch
+                            | TaintEventKind::SendBeacon
+                            | TaintEventKind::WebSocketSend
+                            | TaintEventKind::RtcDataChannelSend
+                            | TaintEventKind::XmlHttpSend
+                    )
+                })
+                .count();
             if !((staged_chunk_markers && (repeated_domains || multi_url_targets))
                 || (send_calls >= 2 && outbound_target_visibility))
             {
@@ -996,6 +1165,7 @@ mod sandbox_impl {
                 "outbound_target_visibility".to_string(),
                 outbound_target_visibility.to_string(),
             );
+            metadata.insert("taint_edges".to_string(), taint_edge_count.to_string());
 
             let component_hits = [
                 send_calls > 1,
@@ -1003,12 +1173,13 @@ mod sandbox_impl {
                 repeated_domains,
                 multi_url_targets,
                 outbound_target_visibility,
+                taint_edge_count > 0,
             ]
             .iter()
             .filter(|value| **value)
             .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.78, BehaviorSeverity::High, component_hits, 5);
+                calibrate_chain_signal(0.78, BehaviorSeverity::High, component_hits, 6);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -1211,21 +1382,38 @@ mod sandbox_impl {
                 .count();
             let has_form_signal = form_calls >= 2;
             let has_exfil_signal = network_sinks >= 1;
+            let taint_edge_count = log
+                .taint_edges
+                .iter()
+                .filter(|edge| {
+                    matches!(edge.source, TaintEventKind::FormField)
+                        && matches!(
+                            edge.sink,
+                            TaintEventKind::Fetch
+                                | TaintEventKind::SendBeacon
+                                | TaintEventKind::WebSocketSend
+                                | TaintEventKind::RtcDataChannelSend
+                                | TaintEventKind::XmlHttpSend
+                        )
+                })
+                .count();
             if !(has_form_signal && has_exfil_signal) {
                 return Vec::new();
             }
 
-            let component_hits = [has_form_signal, has_exfil_signal, prompt_calls > 0]
-                .iter()
-                .filter(|value| **value)
-                .count();
+            let component_hits =
+                [has_form_signal, has_exfil_signal, prompt_calls > 0, taint_edge_count > 0]
+                    .iter()
+                    .filter(|value| **value)
+                    .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.79, BehaviorSeverity::High, component_hits, 3);
+                calibrate_chain_signal(0.79, BehaviorSeverity::High, component_hits, 4);
 
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("form_calls".to_string(), form_calls.to_string());
             metadata.insert("network_sinks".to_string(), network_sinks.to_string());
             metadata.insert("prompt_calls".to_string(), prompt_calls.to_string());
+            metadata.insert("taint_edges".to_string(), taint_edge_count.to_string());
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -1308,27 +1496,60 @@ mod sandbox_impl {
                 })
                 .count();
 
+            let lifecycle_events = log.sw_lifecycle_events_executed;
+            let event_handlers = log.sw_event_handlers_registered;
             let has_registration = sw_register > 0;
-            let has_persistence_surface =
-                cache_calls > 0 || sw_get_registration > 0 || sw_update > 0;
-            if !(has_registration && has_persistence_surface) {
+            let has_persistence_surface = cache_calls > 0
+                || sw_get_registration > 0
+                || sw_update > 0
+                || log.sw_indexeddb_calls > 0;
+            let has_lifecycle_evidence = lifecycle_events > 0 || event_handlers > 0;
+            if !(has_registration && has_persistence_surface && has_lifecycle_evidence) {
                 return Vec::new();
             }
 
             let mut metadata = std::collections::HashMap::new();
-            metadata.insert("sw_register_calls".to_string(), sw_register.to_string());
-            metadata
-                .insert("sw_get_registration_calls".to_string(), sw_get_registration.to_string());
-            metadata.insert("sw_update_calls".to_string(), sw_update.to_string());
-            metadata.insert("cache_calls".to_string(), cache_calls.to_string());
+            metadata.insert(
+                "js.runtime.service_worker.registration_calls".to_string(),
+                sw_register.to_string(),
+            );
+            metadata.insert(
+                "js.runtime.service_worker.update_calls".to_string(),
+                sw_update.to_string(),
+            );
+            metadata.insert(
+                "js.runtime.service_worker.event_handlers_registered".to_string(),
+                event_handlers.to_string(),
+            );
+            metadata.insert(
+                "js.runtime.service_worker.lifecycle_events_executed".to_string(),
+                lifecycle_events.to_string(),
+            );
+            metadata.insert(
+                "js.runtime.service_worker.cache_calls".to_string(),
+                cache_calls.to_string(),
+            );
+            metadata.insert(
+                "js.runtime.service_worker.indexeddb_calls".to_string(),
+                log.sw_indexeddb_calls.to_string(),
+            );
+            metadata.insert(
+                "js.runtime.service_worker.get_registration_calls".to_string(),
+                sw_get_registration.to_string(),
+            );
 
-            let component_hits =
-                [has_registration, sw_get_registration > 0, sw_update > 0, cache_calls > 0]
-                    .iter()
-                    .filter(|value| **value)
-                    .count();
+            let component_hits = [
+                has_registration,
+                sw_get_registration > 0,
+                sw_update > 0,
+                cache_calls > 0 || log.sw_indexeddb_calls > 0,
+                lifecycle_events > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.84, BehaviorSeverity::High, component_hits, 4);
+                calibrate_chain_signal(0.84, BehaviorSeverity::High, component_hits, 5);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -1536,7 +1757,7 @@ mod sandbox_impl {
                 .filter(|call| {
                     *call == "RTCPeerConnection.createDataChannel"
                         || *call == "RTCPeerConnection.createOffer"
-                        || *call == "WebSocket.send"
+                        || *call == "WebSocket"
                 })
                 .count();
             let channel_send_calls = log
@@ -1555,22 +1776,52 @@ mod sandbox_impl {
                 })
                 .count();
 
-            if !(channel_setup_calls > 0 && channel_send_calls > 0 && encoding_calls > 0) {
+            let has_active_transfer = channel_send_calls > 0;
+            if !(channel_setup_calls > 0 && has_active_transfer && encoding_calls > 0) {
                 return Vec::new();
             }
+            let avg_payload_len = if log.realtime_send_count == 0 {
+                0.0
+            } else {
+                log.realtime_payload_bytes as f64 / log.realtime_send_count as f64
+            };
 
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("channel_setup_calls".to_string(), channel_setup_calls.to_string());
             metadata.insert("channel_send_calls".to_string(), channel_send_calls.to_string());
             metadata.insert("encoding_calls".to_string(), encoding_calls.to_string());
+            metadata.insert(
+                "js.runtime.realtime.session_count".to_string(),
+                log.realtime_channel_types.len().to_string(),
+            );
+            metadata.insert(
+                "js.runtime.realtime.unique_targets".to_string(),
+                log.realtime_targets.len().to_string(),
+            );
+            metadata.insert(
+                "js.runtime.realtime.send_count".to_string(),
+                log.realtime_send_count.to_string(),
+            );
+            metadata.insert(
+                "js.runtime.realtime.avg_payload_len".to_string(),
+                format!("{avg_payload_len:.1}"),
+            );
+            metadata.insert(
+                "js.runtime.realtime.channel_types".to_string(),
+                log.realtime_channel_types.iter().cloned().collect::<Vec<_>>().join(", "),
+            );
 
-            let component_hits =
-                [channel_setup_calls > 0, channel_send_calls > 0, encoding_calls > 0]
-                    .iter()
-                    .filter(|value| **value)
-                    .count();
+            let component_hits = [
+                channel_setup_calls > 0,
+                channel_send_calls > 0,
+                encoding_calls > 0,
+                log.realtime_send_count > 1,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.85, BehaviorSeverity::High, component_hits, 3);
+                calibrate_chain_signal(0.85, BehaviorSeverity::High, component_hits, 4);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -1621,6 +1872,21 @@ mod sandbox_impl {
                         || *call == "XMLHttpRequest.send"
                 })
                 .count();
+            let taint_edge_count = log
+                .taint_edges
+                .iter()
+                .filter(|edge| {
+                    edge.source == TaintEventKind::Clipboard
+                        && matches!(
+                            edge.sink,
+                            TaintEventKind::Fetch
+                                | TaintEventKind::SendBeacon
+                                | TaintEventKind::WebSocketSend
+                                | TaintEventKind::RtcDataChannelSend
+                                | TaintEventKind::XmlHttpSend
+                        )
+                })
+                .count();
 
             if !(clipboard_calls > 0 && session_source_calls > 0 && exfil_calls > 0) {
                 return Vec::new();
@@ -1630,13 +1896,19 @@ mod sandbox_impl {
             metadata.insert("clipboard_calls".to_string(), clipboard_calls.to_string());
             metadata.insert("session_source_calls".to_string(), session_source_calls.to_string());
             metadata.insert("exfil_calls".to_string(), exfil_calls.to_string());
+            metadata.insert("taint_edges".to_string(), taint_edge_count.to_string());
 
-            let component_hits = [clipboard_calls > 0, session_source_calls > 0, exfil_calls > 0]
-                .iter()
-                .filter(|value| **value)
-                .count();
+            let component_hits = [
+                clipboard_calls > 0,
+                session_source_calls > 0,
+                exfil_calls > 0,
+                taint_edge_count > 0,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.86, BehaviorSeverity::High, component_hits, 3);
+                calibrate_chain_signal(0.86, BehaviorSeverity::High, component_hits, 4);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -1754,14 +2026,34 @@ mod sandbox_impl {
             metadata.insert("wasm_memory_calls".to_string(), wasm_memory_calls.to_string());
             metadata.insert("unpack_calls".to_string(), unpack_calls.to_string());
             metadata.insert("exec_calls".to_string(), exec_calls.to_string());
+            metadata.insert(
+                "js.runtime.wasm.static.suspicious_imports".to_string(),
+                log.wasm_static_features.suspicious_imports.join(", "),
+            );
+            metadata.insert(
+                "js.runtime.wasm.static.section_count".to_string(),
+                log.wasm_static_features.section_count.to_string(),
+            );
+            let correlation_score = (log.wasm_static_features.preamble_detected as usize)
+                + (!log.wasm_static_features.suspicious_imports.is_empty() as usize)
+                + (exec_calls > 0) as usize;
+            metadata.insert(
+                "js.runtime.wasm.correlation_score".to_string(),
+                correlation_score.to_string(),
+            );
 
-            let component_hits =
-                [wasm_loader_calls > 0, wasm_memory_calls > 0, unpack_calls > 0, exec_calls > 0]
-                    .iter()
-                    .filter(|value| **value)
-                    .count();
+            let component_hits = [
+                wasm_loader_calls > 0,
+                wasm_memory_calls > 0,
+                unpack_calls > 0,
+                exec_calls > 0,
+                correlation_score >= 2,
+            ]
+            .iter()
+            .filter(|value| **value)
+            .count();
             let (confidence, severity) =
-                calibrate_chain_signal(0.9, BehaviorSeverity::High, component_hits, 4);
+                calibrate_chain_signal(0.9, BehaviorSeverity::High, component_hits, 5);
 
             vec![BehaviorObservation {
                 pattern_name: self.name().to_string(),
@@ -3556,6 +3848,10 @@ mod sandbox_impl {
             register_enhanced_doc_globals(&mut context, log.clone(), scope.clone());
             register_enhanced_eval_v2(&mut context, log.clone(), scope.clone());
             register_enhanced_global_fallback(&mut context, log.clone(), scope.clone());
+            {
+                let inferred = infer_lifecycle_context(&normalised, &log.borrow().options);
+                log.borrow_mut().lifecycle_context_observed = inferred;
+            }
 
             let baseline_source = String::from_utf8_lossy(&normalised).to_string();
             let baseline_snapshot = snapshot_source(&baseline_source);
@@ -3643,9 +3939,28 @@ mod sandbox_impl {
                     }
                 }
             }
+            maybe_execute_service_worker_micro_phases(
+                &mut context,
+                &normalised,
+                &log,
+                &timeout_context_thread,
+                timeout_budget_ms,
+                phase_timeout_ms,
+                &mut total_elapsed,
+            );
+            maybe_execute_lifecycle_micro_phases(
+                &mut context,
+                &log,
+                &timeout_context_thread,
+                timeout_budget_ms,
+                phase_timeout_ms,
+                &mut total_elapsed,
+            );
             {
                 let mut log_ref = log.borrow_mut();
                 log_ref.elapsed_ms = Some(total_elapsed);
+                correlate_taint_edges(&mut log_ref);
+                log_ref.wasm_static_features = extract_wasm_static_features(&normalised);
 
                 // Run behavioral pattern analysis
                 run_behavioral_analysis(&mut log_ref);
@@ -4212,6 +4527,19 @@ mod sandbox_impl {
             .function(make_fn("navigator.clipboard.read"), JsString::from("read"), 0)
             .function(make_fn("navigator.clipboard.write"), JsString::from("write"), 1)
             .build();
+        let sw_registration = ObjectInitializer::new(context)
+            .function(make_fn("ServiceWorkerRegistration.update"), JsString::from("update"), 0)
+            .function(
+                make_fn("ServiceWorkerRegistration.unregister"),
+                JsString::from("unregister"),
+                0,
+            )
+            .function(
+                make_fn("ServiceWorkerRegistration.showNotification"),
+                JsString::from("showNotification"),
+                2,
+            )
+            .build();
         let service_worker = ObjectInitializer::new(context)
             .function(make_fn("navigator.serviceWorker.register"), JsString::from("register"), 1)
             .function(
@@ -4226,6 +4554,7 @@ mod sandbox_impl {
             )
             .function(make_fn("navigator.serviceWorker.ready"), JsString::from("ready"), 0)
             .function(make_fn("navigator.serviceWorker.update"), JsString::from("update"), 0)
+            .property(JsString::from("ready"), sw_registration.clone(), Attribute::all())
             .build();
         let user_agent_data = ObjectInitializer::new(context)
             .function(
@@ -4438,11 +4767,14 @@ mod sandbox_impl {
             window.clone(),
             Attribute::all(),
         );
-        let _ = context.register_global_property(
-            JsString::from("self"),
-            window.clone(),
-            Attribute::all(),
-        );
+        let self_obj = ObjectInitializer::new(context)
+            .property(JsString::from("navigator"), beacon.clone(), Attribute::all())
+            .function(make_fn("self.addEventListener"), JsString::from("addEventListener"), 2)
+            .function(make_fn("self.removeEventListener"), JsString::from("removeEventListener"), 2)
+            .function(make_fn("self.skipWaiting"), JsString::from("skipWaiting"), 0)
+            .build();
+        let _ =
+            context.register_global_property(JsString::from("self"), self_obj, Attribute::all());
         let _ = context.register_global_property(JsString::from("top"), window, Attribute::all());
     }
 
@@ -5463,6 +5795,12 @@ mod sandbox_impl {
             JsValue::from(JsString::from("/sandbox")),
             Attribute::all(),
         );
+        let bun = ObjectInitializer::new(context)
+            .function(make_fn("Bun.spawn"), JsString::from("spawn"), 1)
+            .function(make_fn("Bun.file"), JsString::from("file"), 1)
+            .function(make_fn("Bun.write"), JsString::from("write"), 2)
+            .build();
+        let _ = context.register_global_property(JsString::from("Bun"), bun, Attribute::all());
     }
 
     fn register_doc_globals(context: &mut Context, log: Rc<RefCell<SandboxLog>>) {
@@ -7572,6 +7910,13 @@ mod sandbox_impl {
         }
         for arg in args {
             if let Some(value) = js_value_string(arg) {
+                if (name == "WebSocket.send" || name == "RTCDataChannel.send") && !value.is_empty()
+                {
+                    log_ref.realtime_payload_bytes += value.len();
+                }
+                if name == "WebSocket" && looks_like_url(&value) {
+                    log_ref.realtime_targets.insert(value.clone());
+                }
                 if looks_like_url(&value) {
                     if log_ref.urls.len() < log_ref.options.max_urls {
                         log_ref.urls.push(value.clone());
@@ -7587,6 +7932,79 @@ mod sandbox_impl {
                     }
                 }
             }
+        }
+        if name.starts_with("navigator.serviceWorker.") {
+            match name {
+                "navigator.serviceWorker.register" => {
+                    log_ref.worker_registration_observed = true;
+                    log_ref.sw_registration_calls += 1;
+                }
+                "navigator.serviceWorker.update" => {
+                    log_ref.sw_update_calls += 1;
+                }
+                _ => {}
+            }
+        }
+        if name.starts_with("self.addEventListener") {
+            log_ref.sw_event_handlers_registered += 1;
+        }
+        if name.starts_with("caches.") {
+            log_ref.sw_cache_calls += 1;
+        }
+        if name.starts_with("indexedDB.") || name.starts_with("IDBObjectStore.") {
+            log_ref.sw_indexeddb_calls += 1;
+        }
+        if name == "WebSocket.send" || name == "RTCDataChannel.send" {
+            log_ref.realtime_send_count += 1;
+        }
+        if name.starts_with("WebSocket") {
+            log_ref.realtime_channel_types.insert("websocket".to_string());
+        }
+        if name.starts_with("RTC") {
+            log_ref.realtime_channel_types.insert("rtc_datachannel".to_string());
+        }
+        if name == "child_process.exec" || name == "child_process.spawn" || name == "Bun.spawn" {
+            log_ref.lifecycle_background_attempts += 1;
+        }
+        if matches!(
+            log_ref.current_phase.as_str(),
+            "npm.preinstall" | "npm.install" | "npm.postinstall" | "bun.install"
+        ) {
+            log_ref.lifecycle_hook_calls += 1;
+        }
+        let taint_source = match name {
+            "document.cookie" => Some(TaintEventKind::Cookie),
+            "localStorage.getItem" => Some(TaintEventKind::LocalStorage),
+            "sessionStorage.getItem" => Some(TaintEventKind::SessionStorage),
+            "getField" | "document.querySelector" | "document.getElementById" => {
+                Some(TaintEventKind::FormField)
+            }
+            "navigator.clipboard.readText" | "navigator.clipboard.read" => {
+                Some(TaintEventKind::Clipboard)
+            }
+            _ => None,
+        };
+        if let Some(kind) = taint_source {
+            let call_index = log_ref.call_count;
+            let phase = log_ref.current_phase.clone();
+            log_ref.taint_sources.push(TaintEvent { kind, call_index, phase });
+        }
+        let taint_sink = match name {
+            "eval" | "app.eval" | "event.target.eval" => Some(TaintEventKind::Eval),
+            "Function" => Some(TaintEventKind::Function),
+            "fetch" => Some(TaintEventKind::Fetch),
+            "navigator.sendBeacon" => Some(TaintEventKind::SendBeacon),
+            "WebSocket.send" => Some(TaintEventKind::WebSocketSend),
+            "RTCDataChannel.send" => Some(TaintEventKind::RtcDataChannelSend),
+            "XMLHttpRequest.send" | "MSXML2.XMLHTTP.send" | "MSXML2.XMLHTTP.Send" => {
+                Some(TaintEventKind::XmlHttpSend)
+            }
+            _ => None,
+        };
+        if let Some(kind) = taint_sink {
+            let call_index = log_ref.call_count;
+            let phase = log_ref.current_phase.clone();
+            log_ref.taint_sinks.push(TaintEvent { kind, call_index, phase });
         }
     }
 
@@ -7608,6 +8026,177 @@ mod sandbox_impl {
         if !log_ref.phase_sequence.iter().any(|existing| existing == phase) {
             log_ref.phase_sequence.push(phase.to_string());
         }
+    }
+
+    fn infer_lifecycle_context(bytes: &[u8], options: &DynamicOptions) -> Option<String> {
+        if let Some(context) = options.lifecycle_context {
+            return Some(context.as_str().to_string());
+        }
+        let text = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+        if text.contains("process.env.npm_lifecycle_event") {
+            if text.contains("preinstall") {
+                return Some("npm.preinstall".to_string());
+            }
+            if text.contains("postinstall") {
+                return Some("npm.postinstall".to_string());
+            }
+            return Some("npm.install".to_string());
+        }
+        if text.contains("#!/usr/bin/env bun") {
+            return Some("bun.install".to_string());
+        }
+        if text.contains("#!/usr/bin/env node") {
+            return Some("npm.install".to_string());
+        }
+        None
+    }
+
+    fn maybe_execute_service_worker_micro_phases(
+        context: &mut Context,
+        normalised: &[u8],
+        log: &Rc<RefCell<SandboxLog>>,
+        timeout_context_thread: &Arc<Mutex<crate::types::TimeoutContext>>,
+        timeout_budget_ms: u128,
+        phase_timeout_ms: u128,
+        total_elapsed: &mut u128,
+    ) {
+        let should_run = { log.borrow().worker_registration_observed };
+        if !should_run {
+            return;
+        }
+        let phases = [
+            ("sw_install", "if (typeof self.oninstall === 'function') { self.oninstall(); }"),
+            ("sw_activate", "if (typeof self.onactivate === 'function') { self.onactivate(); }"),
+            ("sw_fetch", "if (typeof self.onfetch === 'function') { self.onfetch(); }"),
+            ("sw_push", "if (typeof self.onpush === 'function') { self.onpush(); }"),
+            ("sw_sync", "if (typeof self.onsync === 'function') { self.onsync(); }"),
+        ];
+        for (phase, script) in phases {
+            execute_micro_phase(
+                context,
+                log,
+                timeout_context_thread,
+                timeout_budget_ms,
+                phase_timeout_ms,
+                total_elapsed,
+                phase,
+                script,
+            );
+        }
+        let mut log_ref = log.borrow_mut();
+        let lower = String::from_utf8_lossy(normalised).to_ascii_lowercase();
+        log_ref.sw_lifecycle_events_executed += phases
+            .iter()
+            .filter(|(name, _)| lower.contains(name.trim_start_matches("sw_")))
+            .count();
+    }
+
+    fn maybe_execute_lifecycle_micro_phases(
+        context: &mut Context,
+        log: &Rc<RefCell<SandboxLog>>,
+        timeout_context_thread: &Arc<Mutex<crate::types::TimeoutContext>>,
+        timeout_budget_ms: u128,
+        phase_timeout_ms: u128,
+        total_elapsed: &mut u128,
+    ) {
+        let Some(context_name) = log.borrow().lifecycle_context_observed.clone() else {
+            return;
+        };
+        let script = "if (typeof preinstall === 'function') { preinstall(); } if (typeof install === 'function') { install(); } if (typeof postinstall === 'function') { postinstall(); } if (typeof Bun !== 'undefined' && Bun && typeof Bun.spawn === 'function') { Bun.spawn(['echo']); }";
+        execute_micro_phase(
+            context,
+            log,
+            timeout_context_thread,
+            timeout_budget_ms,
+            phase_timeout_ms,
+            total_elapsed,
+            &context_name,
+            script,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn execute_micro_phase(
+        context: &mut Context,
+        log: &Rc<RefCell<SandboxLog>>,
+        timeout_context_thread: &Arc<Mutex<crate::types::TimeoutContext>>,
+        timeout_budget_ms: u128,
+        phase_timeout_ms: u128,
+        total_elapsed: &mut u128,
+        phase_name: &str,
+        script: &str,
+    ) {
+        if let Ok(mut context_ref) = timeout_context_thread.lock() {
+            context_ref.phase = Some(phase_name.to_string());
+        }
+        set_phase(log, phase_name);
+        let eval_start = Instant::now();
+        let eval_res = context.eval(Source::from_bytes(script.as_bytes()));
+        let elapsed = eval_start.elapsed().as_millis();
+        *total_elapsed += elapsed;
+        if let Ok(mut context_ref) = timeout_context_thread.lock() {
+            context_ref.elapsed_ms = Some(*total_elapsed);
+            if timeout_budget_ms > 0 {
+                let ratio = *total_elapsed as f64 / timeout_budget_ms as f64;
+                context_ref.budget_ratio = Some(ratio.min(1.0));
+            }
+        }
+        {
+            let mut log_ref = log.borrow_mut();
+            log_ref.phase_elapsed_ms.insert(phase_name.to_string(), elapsed);
+        }
+        if elapsed > phase_timeout_ms {
+            let mut log_ref = log.borrow_mut();
+            *log_ref.phase_error_counts.entry(phase_name.to_string()).or_insert(0) += 1;
+            if log_ref.errors.len() < MAX_RECORDED_ERRORS {
+                log_ref.errors.push(format!(
+                    "phase timeout exceeded: phase={} limit_ms={} observed_ms={}",
+                    phase_name, phase_timeout_ms, elapsed
+                ));
+            } else {
+                log_ref.errors_dropped += 1;
+            }
+        }
+        if let Err(err) = eval_res {
+            let mut log_ref = log.borrow_mut();
+            if log_ref.errors.len() < MAX_RECORDED_ERRORS {
+                log_ref.errors.push(format!("{:?}", err));
+            } else {
+                log_ref.errors_dropped += 1;
+            }
+            *log_ref.phase_error_counts.entry(phase_name.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    fn correlate_taint_edges(log: &mut SandboxLog) {
+        log.taint_edges.clear();
+        for source in &log.taint_sources {
+            for sink in &log.taint_sinks {
+                if sink.call_index < source.call_index {
+                    continue;
+                }
+                let distance = sink.call_index - source.call_index;
+                if distance > MAX_TAINT_CALL_DISTANCE {
+                    continue;
+                }
+                if log.taint_edges.len() >= MAX_TAINT_EDGES {
+                    return;
+                }
+                log.taint_edges.push(TaintEdge {
+                    source: source.kind,
+                    sink: sink.kind,
+                    call_distance: distance,
+                    phase_source: source.phase.clone(),
+                    phase_sink: sink.phase.clone(),
+                });
+            }
+        }
+        log.taint_edges.sort_by(|left, right| {
+            left.call_distance
+                .cmp(&right.call_distance)
+                .then_with(|| left.source.cmp(&right.source))
+                .then_with(|| left.sink.cmp(&right.sink))
+        });
     }
 
     fn phase_script_for(phase: RuntimePhase) -> Option<&'static str> {
@@ -7681,6 +8270,13 @@ mod sandbox_impl {
                 register_util(context, log.clone());
                 register_webassembly_stub(context, log.clone());
             }
+            RuntimeKind::Bun => {
+                register_node_like(context, log.clone());
+                register_browser_like(context, log.clone());
+                register_net(context, log.clone());
+                register_util(context, log.clone());
+                register_webassembly_stub(context, log.clone());
+            }
         }
     }
 
@@ -7734,6 +8330,53 @@ mod sandbox_impl {
         values.into_iter().collect::<BTreeSet<_>>().into_iter().collect()
     }
 
+    fn exfil_url_features(url: &str, target_repetition: usize) -> ExfilUrlFeatures {
+        let mut features = ExfilUrlFeatures { target_repetition, ..ExfilUrlFeatures::default() };
+        let domain = domain_from_url(url).unwrap_or_default();
+        features.label_depth = domain.split('.').filter(|part| !part.is_empty()).count();
+        features.subdomain_entropy =
+            if domain.is_empty() { 0.0 } else { approx_string_entropy(&domain) };
+        if let Some((_, query)) = url.split_once('?') {
+            features.query_length = query.len();
+            let key_count = query.matches('=').count();
+            features.key_value_density =
+                if query.is_empty() { 0.0 } else { key_count as f64 / query.len() as f64 };
+            features.query_entropy = approx_string_entropy(query);
+            let lower = query.to_ascii_lowercase();
+            features.encoded_token_count += lower.matches("%2f").count();
+            features.encoded_token_count += lower.matches("%3d").count();
+            features.encoded_token_count += lower.matches("%2b").count();
+            features.encoded_token_count += lower.matches("base64").count();
+        }
+        features
+    }
+
+    fn exfil_score_components(
+        network_sink_present: bool,
+        features: &ExfilUrlFeatures,
+    ) -> std::collections::BTreeMap<String, f64> {
+        let mut scores = std::collections::BTreeMap::new();
+        if network_sink_present {
+            scores.insert("network_sink_present".to_string(), 1.0);
+        }
+        if features.encoded_token_count > 0 {
+            scores.insert("encoded_payload_indicator".to_string(), 1.5);
+        }
+        if features.target_repetition > 1 {
+            scores.insert("repeated_target_cadence".to_string(), 2.0);
+        }
+        if features.query_entropy >= 3.4 {
+            scores.insert("high_entropy_query".to_string(), 1.5);
+        }
+        if features.key_value_density >= 0.03 {
+            scores.insert("high_density_query".to_string(), 1.0);
+        }
+        if features.label_depth >= 4 {
+            scores.insert("deep_label_domain".to_string(), 1.0);
+        }
+        scores
+    }
+
     fn fnv1a64(bytes: &[u8]) -> u64 {
         let mut hash: u64 = 0xcbf29ce484222325;
         for byte in bytes {
@@ -7747,7 +8390,7 @@ mod sandbox_impl {
         let phase_text =
             options.phases.iter().map(|phase| phase.as_str()).collect::<Vec<_>>().join(",");
         let descriptor = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}",
             options.runtime_profile.id(),
             options.max_bytes,
             options.timeout_ms,
@@ -7755,7 +8398,11 @@ mod sandbox_impl {
             options.max_call_args,
             options.max_urls,
             options.max_domains,
-            phase_text
+            phase_text,
+            options
+                .lifecycle_context
+                .map(|value| value.as_str().to_string())
+                .unwrap_or_else(|| "none".to_string())
         );
         let mut input = Vec::with_capacity(bytes.len() + descriptor.len());
         input.extend_from_slice(bytes);

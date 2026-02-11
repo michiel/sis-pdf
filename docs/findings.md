@@ -1258,6 +1258,13 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: browser persistence and cache-backed staging.
   - Meaning: service worker registration is combined with lifecycle/cache operations to maintain foothold or staged content.
   - Chain usage: used as persistence and payload-resume stage.
+  - Metadata highlights:
+    - `js.runtime.service_worker.registration_calls`
+    - `js.runtime.service_worker.update_calls`
+    - `js.runtime.service_worker.event_handlers_registered`
+    - `js.runtime.service_worker.lifecycle_events_executed`
+    - `js.runtime.service_worker.cache_calls`
+    - `js.runtime.service_worker.indexeddb_calls`
 
 ## js_runtime_webcrypto_key_staging
 
@@ -1302,6 +1309,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: low-latency command-and-control or exfiltration.
   - Meaning: WebSocket/WebRTC-like channels are used to move staged content.
   - Chain usage: used as outbound communication stage.
+  - Metadata highlights:
+    - `js.runtime.realtime.session_count`
+    - `js.runtime.realtime.unique_targets`
+    - `js.runtime.realtime.send_count`
+    - `js.runtime.realtime.avg_payload_len`
+    - `js.runtime.realtime.channel_types`
 
 ## js_runtime_clipboard_session_hijack
 
@@ -1368,6 +1381,9 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: staged data theft and covert transfer.
   - Meaning: data is buffered/encoded and exfiltrated in repeated transmissions.
   - Chain usage: used as chunked exfiltration stage.
+  - Metadata highlights:
+    - `taint_edges` (behaviour metadata key)
+    - exfil scoring/feature fields (`query_entropy`, `target_repetition`, `exfil_score`)
 
 ## js_runtime_interaction_coercion
 

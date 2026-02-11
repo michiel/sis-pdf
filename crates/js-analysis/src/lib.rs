@@ -1,5 +1,6 @@
 pub mod dynamic;
 mod sandbox_test;
+pub mod wasm_features;
 
 pub mod static_analysis;
 pub mod types;
@@ -10,5 +11,6 @@ pub use static_analysis::{
 };
 pub use types::{
     DynamicDeltaSummary, DynamicOptions, DynamicOutcome, DynamicPhaseSummary, DynamicSignals,
-    DynamicTruncationSummary, RuntimeKind, RuntimeMode, RuntimePhase, RuntimeProfile,
+    DynamicTruncationSummary, LifecycleContext, RuntimeKind, RuntimeMode, RuntimePhase,
+    RuntimeProfile,
 };

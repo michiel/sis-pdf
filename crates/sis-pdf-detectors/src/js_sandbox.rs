@@ -109,7 +109,7 @@ fn impact_for_kind(kind: &str) -> Option<Impact> {
     }
 }
 
-fn configured_profiles() -> [RuntimeProfile; 3] {
+fn configured_profiles() -> [RuntimeProfile; 4] {
     [
         RuntimeProfile {
             kind: RuntimeKind::PdfReader,
@@ -127,6 +127,12 @@ fn configured_profiles() -> [RuntimeProfile; 3] {
             kind: RuntimeKind::Node,
             vendor: "nodejs".to_string(),
             version: "20".to_string(),
+            mode: RuntimeMode::Compat,
+        },
+        RuntimeProfile {
+            kind: RuntimeKind::Bun,
+            vendor: "bun".to_string(),
+            version: "1.1".to_string(),
             mode: RuntimeMode::Compat,
         },
     ]
@@ -382,6 +388,98 @@ fn populate_base_metadata(
         meta.insert("js.runtime.phase_order".into(), phase_order);
         meta.insert("js.runtime.phase_summaries".into(), phase_summary);
         meta.insert("js.runtime.phase_count".into(), signals.phases.len().to_string());
+    }
+    let sw_registration_calls = signals
+        .calls
+        .iter()
+        .filter(|call| call.as_str() == "navigator.serviceWorker.register")
+        .count();
+    let sw_update_calls = signals
+        .calls
+        .iter()
+        .filter(|call| call.as_str() == "navigator.serviceWorker.update")
+        .count();
+    let sw_handler_calls =
+        signals.calls.iter().filter(|call| call.as_str() == "self.addEventListener").count();
+    let sw_cache_calls = signals.calls.iter().filter(|call| call.starts_with("caches.")).count();
+    let sw_indexeddb_calls = signals
+        .calls
+        .iter()
+        .filter(|call| call.starts_with("indexedDB.") || call.starts_with("IDBObjectStore."))
+        .count();
+    let sw_lifecycle_events =
+        signals.phases.iter().filter(|phase| phase.phase.starts_with("sw_")).count();
+    if sw_registration_calls > 0 || sw_lifecycle_events > 0 {
+        meta.insert(
+            "js.runtime.service_worker.registration_calls".into(),
+            sw_registration_calls.to_string(),
+        );
+        meta.insert("js.runtime.service_worker.update_calls".into(), sw_update_calls.to_string());
+        meta.insert(
+            "js.runtime.service_worker.event_handlers_registered".into(),
+            sw_handler_calls.to_string(),
+        );
+        meta.insert(
+            "js.runtime.service_worker.lifecycle_events_executed".into(),
+            sw_lifecycle_events.to_string(),
+        );
+        meta.insert("js.runtime.service_worker.cache_calls".into(), sw_cache_calls.to_string());
+        meta.insert(
+            "js.runtime.service_worker.indexeddb_calls".into(),
+            sw_indexeddb_calls.to_string(),
+        );
+    }
+    let realtime_send_count = signals
+        .calls
+        .iter()
+        .filter(|call| call.as_str() == "WebSocket.send" || call.as_str() == "RTCDataChannel.send")
+        .count();
+    let mut channel_types = std::collections::BTreeSet::new();
+    if signals.calls.iter().any(|call| call.starts_with("WebSocket")) {
+        channel_types.insert("websocket");
+    }
+    if signals.calls.iter().any(|call| call.starts_with("RTC")) {
+        channel_types.insert("rtc_datachannel");
+    }
+    if realtime_send_count > 0 || !channel_types.is_empty() {
+        meta.insert("js.runtime.realtime.session_count".into(), channel_types.len().to_string());
+        meta.insert("js.runtime.realtime.unique_targets".into(), signals.urls.len().to_string());
+        meta.insert("js.runtime.realtime.send_count".into(), realtime_send_count.to_string());
+        meta.insert("js.runtime.realtime.avg_payload_len".into(), "0.0".to_string());
+        meta.insert(
+            "js.runtime.realtime.channel_types".into(),
+            channel_types.into_iter().collect::<Vec<_>>().join(", "),
+        );
+    }
+    let lifecycle_phase = signals
+        .phases
+        .iter()
+        .find(|phase| phase.phase.starts_with("npm.") || phase.phase == "bun.install")
+        .map(|phase| phase.phase.clone());
+    if let Some(phase) = lifecycle_phase {
+        meta.insert("js.runtime.lifecycle.phase".into(), phase);
+        let hook_calls = signals
+            .calls
+            .iter()
+            .filter(|call| {
+                matches!(
+                    call.as_str(),
+                    "require" | "child_process.exec" | "child_process.spawn" | "Bun.spawn"
+                )
+            })
+            .count();
+        meta.insert("js.runtime.lifecycle.hook_calls".into(), hook_calls.to_string());
+        let background_attempts = signals
+            .calls
+            .iter()
+            .filter(|call| {
+                matches!(call.as_str(), "child_process.exec" | "child_process.spawn" | "Bun.spawn")
+            })
+            .count();
+        meta.insert(
+            "js.runtime.lifecycle.background_attempts".into(),
+            background_attempts.to_string(),
+        );
     }
     if let Some(delta) = signals.delta_summary.as_ref() {
         meta.insert("js.delta.phase".into(), delta.phase.clone());
