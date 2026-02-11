@@ -71,10 +71,10 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add cross-crate integration tests.
 
 ## PR-10: PDF.js annotation/form/eval-path indicators
-- [ ] Implement PDF plan S3-2 `pdfjs_annotation_injection`.
-- [ ] Implement PDF plan S3-3 `pdfjs_form_injection`.
-- [ ] Implement PDF plan S3-4 `pdfjs_eval_path_risk`.
-- [ ] Add per-indicator fixtures.
+- [x] Implement PDF plan S3-2 `pdfjs_annotation_injection`.
+- [x] Implement PDF plan S3-3 `pdfjs_form_injection`.
+- [x] Implement PDF plan S3-4 `pdfjs_eval_path_risk`.
+- [x] Add per-indicator fixtures.
 
 ## PR-11: Dynamic heap telemetry stubs
 - [ ] Implement JS plan S3-5 ArrayBuffer/TypedArray/DataView runtime stubs.
@@ -232,9 +232,12 @@ Gate D (after PR-20):
 - `PR-09`: implemented dual-domain indicator correlation (font structural risk + JavaScript execution/obfuscation indicators) with confidence-only uplift.
 - `PR-09`: added cross-crate integration coverage in `crates/sis-pdf-detectors/tests/font_js_bridge.rs`.
 - `PR-09`: finding documentation added in `docs/findings.md`.
+- `PR-10`: added `PdfjsRenderingIndicatorDetector` in `crates/sis-pdf-detectors/src/lib.rs` with findings `pdfjs_annotation_injection`, `pdfjs_form_injection`, and `pdfjs_eval_path_risk`.
+- `PR-10`: added per-indicator fixture coverage in `crates/sis-pdf-detectors/tests/pdfjs_rendering_indicators.rs`, including a benign annotation/form control.
+- `PR-10`: finding documentation added in `docs/findings.md`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-10` PDF.js annotation/form/eval-path indicators.
+- Start `PR-11` dynamic heap telemetry stubs.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

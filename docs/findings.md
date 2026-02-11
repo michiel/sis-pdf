@@ -854,6 +854,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `pdfjs.affected_versions`: currently `<4.2.67`
     - `reader_impacts`: includes browser-oriented impact notes.
 
+## pdfjs_annotation_injection
+
+- ID: `pdfjs_annotation_injection`
+- Label: PDF.js annotation injection indicator
+- Description: Annotation appearance/content fields contain script-like payload tokens.
+- Tags: annotation, pdfjs, injection
+- Details:
+  - Relevance: browser annotation rendering can expose script injection surfaces.
+  - Meaning: `/AP` or annotation content fields include executable-style token patterns.
+  - Chain usage: browser-render path indicator; correlate with action and JavaScript findings.
+
+## pdfjs_form_injection
+
+- ID: `pdfjs_form_injection`
+- Label: PDF.js form injection indicator
+- Description: Form value/appearance fields contain script-like payload tokens.
+- Tags: forms, pdfjs, injection
+- Details:
+  - Relevance: interactive forms can carry payload material into rendered contexts.
+  - Meaning: `/V`, `/DV`, or `/AP` form fields include injection-like script tokens.
+  - Chain usage: form-stage injection indicator; prioritise with external action or JS findings.
+
+## pdfjs_eval_path_risk
+
+- ID: `pdfjs_eval_path_risk`
+- Label: PDF.js eval-path risk indicator
+- Description: Document contains font structures commonly associated with PDF.js eval-render paths.
+- Tags: font, pdfjs, info
+- Details:
+  - Relevance: complex font rendering paths can increase browser-side attack exposure.
+  - Meaning: font subtype/encoding structure suggests higher-sensitivity render pathways.
+  - Chain usage: informational context signal for triage and environment-specific risk assessment.
+
 ## font_js_exploitation_bridge
 
 - ID: `font_js_exploitation_bridge`
