@@ -1,0 +1,217 @@
+# Combined PR Checklist: JS Modernisation + Structural Evasion
+
+Date: 2026-02-11  
+Status: In progress  
+Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion-pdfjs.md`
+
+## 1. Execution strategy
+
+- Build shared JS decode foundations first.
+- Deliver low-risk, high-signal structural PDF detectors second.
+- Implement PDF.js attack-surface and cross-crate bridge next.
+- Implement revision-diff and shadow/certified attack stack after extractor foundation.
+- Complete advanced JS obfuscation/behavioural resilience after instrumentation is stable.
+- Finish with corpus expansion and CI regression harness.
+
+## 2. PR sequence (authoritative order)
+
+## PR-01: Decode layer extension
+- [x] Implement JS plan S2-4 (`decode_layers` extension).
+- [x] Add bounded decode guards (size/iteration caps).
+- [x] Add tests for nested decode layers.
+- [x] Verify no regressions in existing decode tests.
+
+## PR-02: Concatenation reconstruction
+- [x] Implement JS plan S4-4 (AST path + regex fallback).
+- [x] Emit `payload.concatenation_reconstructed`.
+- [x] Add fixtures for literal concatenation and mixed expressions.
+- [x] Validate deterministic output.
+
+## PR-03: Esoteric encoding detectors
+- [x] Implement JS plan S2-1 JSFuck detector.
+- [x] Implement JS plan S2-2 JJEncode detector.
+- [x] Implement JS plan S2-3 AAEncode detector.
+- [x] Add static finding IDs and docs entries.
+- [x] Add threshold calibration tests.
+
+## PR-04: Encoded fixture pack
+- [ ] Implement JS plan S2-5 fixtures (benign + malicious).
+- [ ] Add decode-then-analyse integration tests.
+- [ ] Add false-positive controls.
+
+## PR-05: Structural evasion primitives A
+- [ ] Implement PDF plan S1-2 `xref_phantom_entries`.
+- [ ] Implement PDF plan S1-4 `trailer_root_conflict`.
+- [ ] Implement PDF plan S1-5 `null_object_density`.
+- [ ] Add `evasion.*` metadata fields.
+- [ ] Add detector integration tests.
+
+## PR-06: Structural evasion primitives B
+- [ ] Implement PDF plan S1-1 `empty_objstm_padding`.
+- [ ] Implement PDF plan S1-3 `structural_decoy_objects` with bounded reachability walk.
+- [ ] Add object-count caps and skip reasons for large documents.
+- [ ] Add performance-focused tests.
+
+## PR-07: Structural evasion composite
+- [ ] Implement PDF plan S1-6 `structural_evasion_composite`.
+- [ ] Enforce “3+ indicators” composite threshold.
+- [ ] Add severity/confidence calibration tests.
+- [ ] Update findings documentation.
+
+## PR-08: PDF.js font injection extension
+- [ ] Implement PDF plan S3-1 `pdfjs_font_injection` sub-signals.
+- [ ] Cover FontMatrix/FontBBox/CMap/Encoding cases.
+- [ ] Add `reader_impacts` metadata for affected PDF.js versions.
+- [ ] Add benign Type1 false-positive control.
+
+## PR-09: Font-to-JS bridge correlation
+- [ ] Implement PDF plan S3-5 `font_js_exploitation_bridge`.
+- [ ] Correlate font-analysis + js-analysis findings in detector layer.
+- [ ] Add escalation rules (confidence uplift only on dual-signal match).
+- [ ] Add cross-crate integration tests.
+
+## PR-10: PDF.js annotation/form/eval-path indicators
+- [ ] Implement PDF plan S3-2 `pdfjs_annotation_injection`.
+- [ ] Implement PDF plan S3-3 `pdfjs_form_injection`.
+- [ ] Implement PDF plan S3-4 `pdfjs_eval_path_risk`.
+- [ ] Add per-indicator fixtures.
+
+## PR-11: Dynamic heap telemetry stubs
+- [ ] Implement JS plan S3-5 ArrayBuffer/TypedArray/DataView runtime stubs.
+- [ ] Track allocation/view/access telemetry.
+- [ ] Emit `js_runtime_heap_manipulation` runtime finding.
+- [ ] Add bounded telemetry caps and truncation tests.
+
+## PR-12: Static modern heap exploitation detectors
+- [ ] Implement JS plan S3-1 `js.heap_grooming`.
+- [ ] Implement JS plan S3-2 `js.lfh_priming`.
+- [ ] Implement JS plan S3-3 `js.rop_chain_construction`.
+- [ ] Implement JS plan S3-4 `js.info_leak_primitive`.
+- [ ] Add CVE-derived sanitised fixtures.
+
+## PR-13: Revision content extractor foundation
+- [ ] Implement PDF plan S2-1 revision content extractor.
+- [ ] Validate ByteRange bounds strictly.
+- [ ] Handle malformed/inconsistent `/Prev` chains safely.
+- [ ] Add extractor-focused tests.
+
+## PR-14: Shadow attack detectors
+- [ ] Implement PDF plan S2-2 `shadow_hide_attack`.
+- [ ] Implement PDF plan S2-3 `shadow_replace_attack`.
+- [ ] Implement PDF plan S2-4 `shadow_hide_replace_attack`.
+- [ ] Add synthetic signed fixtures and benign signed controls.
+
+## PR-15: Certified document attack detector + diff summary
+- [ ] Implement PDF plan S2-5 `certified_doc_manipulation`.
+- [ ] Implement PDF plan S2-6 cross-revision diff metadata.
+- [ ] Add permission-level logic (P1-P3) checks.
+- [ ] Add post-certification annotation/signature field tests.
+
+## PR-16: Cross-revision forensic analysis
+- [ ] Implement PDF plan S4-1 revision timeline query.
+- [ ] Implement S4-2 page content changed indicator.
+- [ ] Implement S4-3 annotation diff indicator.
+- [ ] Implement S4-4 catalog diff indicator.
+- [ ] Implement S4-5 revision anomaly scoring.
+
+## PR-17: Linearisation and parser divergence
+- [ ] Implement PDF plan S5-1 `linearization_integrity`.
+- [ ] Implement S5-2 `duplicate_stream_filters`.
+- [ ] Implement S5-3 `parser_divergence_risk`.
+- [ ] Implement S5-4 `content_stream_anomaly`.
+- [ ] Add known-divergence fixture tests.
+
+## PR-18: Advanced obfuscation resilience
+- [ ] Implement JS plan S4-1 enhanced CFF detection.
+- [ ] Implement JS plan S4-2 dead code injection detector.
+- [ ] Implement JS plan S4-3 array rotation decode detector.
+- [ ] Implement JS plan S4-5 deeper multi-layer decode limits.
+- [ ] Implement JS plan S4-6 fixture pack.
+
+## PR-19: Behavioural resilience uplift
+- [ ] Implement JS plan S5-1 API call sequence matching.
+- [ ] Implement JS plan S5-2 data-flow complexity scoring.
+- [ ] Implement JS plan S5-3 entropy-at-sink analysis.
+- [ ] Implement JS plan S5-4 dynamic string materialisation tracking.
+- [ ] Implement JS plan S5-5 semantic call graph extraction (`js-ast`).
+- [ ] Implement JS plan S5-6 adversarial rewrite fixtures.
+
+## PR-20: Corpus expansion + CI regression harness
+- [ ] Implement JS plan S6-1 modern sample acquisition pipeline docs.
+- [ ] Implement JS plan S6-2 synthetic adversarial corpus.
+- [ ] Implement JS plan S6-3 benign corpus set.
+- [ ] Implement JS plan S6-4 validation sweep metrics report.
+- [ ] Implement JS plan S6-5 CI-compatible regression harness.
+
+## 3. Dependency map
+
+- PR-01 is prerequisite for PR-03 and PR-18.
+- PR-02 is prerequisite for PR-18 and PR-19.
+- PR-05 and PR-06 are prerequisites for PR-07.
+- PR-08 is prerequisite for PR-09 and PR-10.
+- PR-13 is prerequisite for PR-14, PR-15, and PR-16.
+- PR-18 is prerequisite for PR-19.
+- PR-20 depends on completion of PR-01..PR-19.
+
+## 4. Per-PR validation standard
+
+For every PR:
+- [ ] `cargo fmt`
+- [ ] relevant crate tests added/updated
+- [ ] no unsafe, no unwrap
+- [ ] deterministic output preserved
+- [ ] metadata additive only (no breaking schema changes)
+- [ ] docs updated for new finding IDs/fields
+
+Minimum suite:
+- [ ] `cargo test -p js-analysis --features js-sandbox --test dynamic_signals` (when JS touched)
+- [ ] `cargo test -p sis-pdf-detectors --features js-sandbox --test js_sandbox_integration` (when detector touched)
+
+## 5. Milestone gates
+
+Gate A (after PR-07):
+- [ ] Structural evasion stack complete (including composite).
+- [ ] No regression on signed/benign PDF fixtures.
+
+Gate B (after PR-12):
+- [ ] Esoteric encoding + modern heap primitives complete.
+- [ ] False-positive controls passing.
+
+Gate C (after PR-16):
+- [ ] Shadow/certified/revision stack complete.
+- [ ] Revision timeline query stable.
+
+Gate D (after PR-20):
+- [ ] 2010-2025 coverage validated.
+- [ ] CI harness producing trendable metrics.
+
+## 6. Acceptance criteria (program-level)
+
+- [ ] SETPA structural evasion coverage reaches 6/8 techniques.
+- [ ] Shadow variants detected: 3/3.
+- [ ] Certified document attacks detected: 2/2.
+- [ ] PDF.js attack-surface detectors operational with low false positives on benign corpus.
+- [ ] Modern JS encoding and heap exploitation detectors operational with bounded runtime costs.
+- [ ] Behavioural resilience catches adversarial rewrite variants.
+- [ ] Corpus regression metrics tracked and stable in CI.
+
+## 7. Progress and handover notes
+
+### Completed in this pass
+- `PR-01`: `decode_layers` now enforces hard bounds (`MAX_DECODE_LAYERS_HARD=8`, `MAX_DECODE_BYTES_PER_LAYER=256KiB`) and includes `fromCharCode(...)` decode path.
+- `PR-01`: nested decode test coverage added in `crates/js-analysis/tests/static_signals.rs`.
+- `PR-02`: concatenation reconstruction implemented via AST-enabled path with regex-like literal joining heuristic in `reconstruct_concatenations_ast_and_regex`.
+- `PR-02`: static signal assertions for `payload.concatenation_reconstructed` and `payload.concatenation_count` added.
+- `PR-03`: static esoteric encoding signals added in `crates/js-analysis/src/static_analysis.rs`: `js.jsfuck_encoding`, `js.jjencode_encoding`, and `js.aaencode_encoding`.
+- `PR-03`: targeted tests added in `crates/js-analysis/tests/static_signals.rs` for each encoding detector.
+- `PR-03`: detector findings added in `crates/sis-pdf-detectors/src/js_polymorphic.rs`: `js_jsfuck_encoding`, `js_jjencode_encoding`, `js_aaencode_encoding`.
+- `PR-03`: finding documentation added in `docs/findings.md` for all three new IDs.
+- Validation completed: `cargo test -p js-analysis --test static_signals`, `cargo test -p js-analysis --features js-ast --test static_signals`, and `cargo test -p sis-pdf-detectors --test js_polymorphic_integration`.
+
+### Pending follow-up for immediate next pass
+- Start `PR-04` encoded fixture pack (benign + malicious decode-then-analyse).
+
+### Constraints and decisions
+- Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.
+- Decode bounds prioritise safety and determinism over maximum decode depth coverage.
+- Esoteric encoding detection currently uses structural/statistical heuristics only; no decoder execution path has been added yet.

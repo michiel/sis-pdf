@@ -9,6 +9,9 @@ pub struct DecodedLayers {
     pub layers: usize,
 }
 
+const MAX_DECODE_LAYERS_HARD: usize = 8;
+const MAX_DECODE_BYTES_PER_LAYER: usize = 256 * 1024;
+
 pub fn extract_js_signals(data: &[u8]) -> HashMap<String, String> {
     extract_js_signals_with_ast(data, true)
 }
@@ -65,6 +68,9 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
         "js.environment_fingerprinting".into(),
         bool_str(contains_environment_fingerprinting(data)),
     );
+    out.insert("js.jsfuck_encoding".into(), bool_str(detect_jsfuck_encoding(data)));
+    out.insert("js.jjencode_encoding".into(), bool_str(detect_jjencode_encoding(data)));
+    out.insert("js.aaencode_encoding".into(), bool_str(detect_aaencode_encoding(data)));
     out.insert("js.string_concat_density".into(), format!("{:.3}", byte_density(data, b'+')));
     out.insert("js.escape_density".into(), format!("{:.3}", byte_density(data, b'\\')));
     out.insert("js.regex_packing".into(), bool_str(contains_regex_packing(data)));
@@ -226,11 +232,15 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
 pub fn decode_layers(data: &[u8], max_layers: usize) -> DecodedLayers {
     let mut current = data.to_vec();
     let mut layers = 0usize;
+    let target_layers = max_layers.min(MAX_DECODE_LAYERS_HARD);
     loop {
-        if layers >= max_layers {
+        if layers >= target_layers {
             break;
         }
         if let Some(next) = decode_once(&current) {
+            if next.len() > MAX_DECODE_BYTES_PER_LAYER {
+                break;
+            }
             current = next;
             layers += 1;
             continue;
@@ -244,6 +254,9 @@ fn decode_once(data: &[u8]) -> Option<Vec<u8>> {
     if let Some(decoded) = decode_js_escapes(data) {
         return Some(decoded);
     }
+    if let Some(decoded) = decode_from_charcode_string(data) {
+        return Some(decoded);
+    }
     if let Some(decoded) = decode_hex_string(data) {
         return Some(decoded);
     }
@@ -255,6 +268,49 @@ fn decode_once(data: &[u8]) -> Option<Vec<u8>> {
         }
     }
     None
+}
+
+fn decode_from_charcode_string(data: &[u8]) -> Option<Vec<u8>> {
+    let text = std::str::from_utf8(data).ok()?;
+    let mut values = Vec::new();
+    for (idx, _) in text.match_indices("fromCharCode(") {
+        let start = idx + "fromCharCode(".len();
+        let Some(end) = text[start..].find(')') else {
+            continue;
+        };
+        let args = &text[start..start + end];
+        let mut decoded = String::new();
+        let mut all_numeric = true;
+        for token in args.split(',').map(str::trim).filter(|token| !token.is_empty()) {
+            let numeric = token.trim_matches('\'').trim_matches('"');
+            let value = if let Some(hex) = numeric.strip_prefix("0x") {
+                i64::from_str_radix(hex, 16).ok()
+            } else {
+                numeric.parse::<i64>().ok()
+            };
+            let Some(code) = value else {
+                all_numeric = false;
+                break;
+            };
+            if !(0..=0x10FFFF).contains(&code) {
+                all_numeric = false;
+                break;
+            }
+            let Some(ch) = char::from_u32(code as u32) else {
+                all_numeric = false;
+                break;
+            };
+            decoded.push(ch);
+        }
+        if all_numeric && !decoded.is_empty() {
+            values.push(decoded);
+        }
+    }
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.join("").into_bytes())
+    }
 }
 
 fn decode_js_escapes(data: &[u8]) -> Option<Vec<u8>> {
@@ -455,6 +511,105 @@ fn contains_environment_fingerprinting(data: &[u8]) -> bool {
         && (find_token(data, b">") || find_token(data, b"==") || find_token(data, b"!="));
 
     has_fingerprinting && has_conditional
+}
+
+fn detect_jsfuck_encoding(data: &[u8]) -> bool {
+    let mut token_chars = 0usize;
+    let mut allowed_chars = 0usize;
+
+    for &byte in data {
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        if !byte.is_ascii() {
+            return false;
+        }
+        token_chars += 1;
+        if matches!(byte, b'[' | b']' | b'(' | b')' | b'!' | b'+') {
+            allowed_chars += 1;
+        }
+    }
+
+    if token_chars < 50 {
+        return false;
+    }
+    allowed_chars.saturating_mul(100) / token_chars >= 80
+}
+
+fn detect_jjencode_encoding(data: &[u8]) -> bool {
+    let text = match std::str::from_utf8(data) {
+        Ok(text) => text,
+        Err(_) => return false,
+    };
+
+    let has_signature_preamble = text.contains("$=~[]") || text.contains("$_");
+    let mut token_chars = 0usize;
+    let mut charset_chars = 0usize;
+    let mut bracket_pairs = 0usize;
+    for byte in text.bytes() {
+        if byte.is_ascii_whitespace() {
+            continue;
+        }
+        token_chars += 1;
+        if matches!(
+            byte,
+            b'[' | b']'
+                | b'('
+                | b')'
+                | b'!'
+                | b'+'
+                | b','
+                | b'"'
+                | b'$'
+                | b'.'
+                | b':'
+                | b';'
+                | b'_'
+                | b'{'
+                | b'}'
+                | b'~'
+                | b'='
+        ) {
+            charset_chars += 1;
+        }
+        if byte == b'[' || byte == b']' {
+            bracket_pairs += 1;
+        }
+    }
+
+    if token_chars < 60 {
+        return false;
+    }
+    let charset_dense = charset_chars.saturating_mul(100) / token_chars >= 70;
+    has_signature_preamble || (charset_dense && bracket_pairs >= 12)
+}
+
+fn detect_aaencode_encoding(data: &[u8]) -> bool {
+    let text = match std::str::from_utf8(data) {
+        Ok(text) => text,
+        Err(_) => return false,
+    };
+
+    let mut fullwidth_count = 0usize;
+    let mut visible_count = 0usize;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            continue;
+        }
+        visible_count += 1;
+        if ('\u{ff00}'..='\u{ffef}').contains(&ch) {
+            fullwidth_count += 1;
+        }
+    }
+    if visible_count == 0 {
+        return false;
+    }
+
+    let fullwidth_dense =
+        fullwidth_count >= 8 && fullwidth_count.saturating_mul(100) / visible_count >= 8;
+    fullwidth_dense
+        && text.contains("(function(")
+        && text.to_ascii_lowercase().contains("constructor")
 }
 
 fn byte_density(data: &[u8], byte: u8) -> f64 {
@@ -719,15 +874,53 @@ fn reconstruct_payloads(data: &[u8]) -> Option<ReconstructedPayloads> {
 
     let _ = script.visit_with(&mut visitor);
 
-    Some(ReconstructedPayloads {
-        from_charcode: visitor.from_charcode,
-        concatenations: Vec::new(), // Will be implemented in Phase 2.1
-    })
+    let concatenations = reconstruct_concatenations_ast_and_regex(src);
+    Some(ReconstructedPayloads { from_charcode: visitor.from_charcode, concatenations })
 }
 
 #[cfg(not(feature = "js-ast"))]
 fn reconstruct_payloads(_data: &[u8]) -> Option<ReconstructedPayloads> {
     None
+}
+
+#[cfg(feature = "js-ast")]
+fn reconstruct_concatenations_ast_and_regex(source: &str) -> Vec<String> {
+    let mut out = Vec::new();
+
+    for line in source.lines() {
+        let bytes = line.as_bytes();
+        let mut index = 0usize;
+        let mut parts = Vec::new();
+        while index < bytes.len() {
+            if bytes[index] == b'\'' || bytes[index] == b'"' {
+                let quote = bytes[index];
+                index += 1;
+                let start = index;
+                while index < bytes.len() && bytes[index] != quote {
+                    if bytes[index] == b'\\' {
+                        index = index.saturating_add(2);
+                        continue;
+                    }
+                    index += 1;
+                }
+                if index <= bytes.len() {
+                    let literal = &line[start..index.min(bytes.len())];
+                    parts.push(literal.to_string());
+                }
+            }
+            index += 1;
+        }
+        if parts.len() >= 2 && line.contains('+') {
+            let joined = parts.join("");
+            if !joined.is_empty() {
+                out.push(joined);
+            }
+        }
+    }
+
+    out.sort();
+    out.dedup();
+    out
 }
 
 #[cfg(feature = "js-ast")]

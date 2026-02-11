@@ -1149,6 +1149,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: heap spray prepares memory for vulnerability exploitation.
   - Chain usage: used as the exploitation stage targeting renderer memory corruption.
 
+## js_aaencode_encoding
+
+- ID: `js_aaencode_encoding`
+- Label: AAEncode encoding detected
+- Description: JavaScript appears obfuscated with AAEncode fullwidth/emoticon-style encoding.
+- Tags: evasion, javascript, obfuscation
+- Details:
+  - Relevance: concealment of executable intent.
+  - Meaning: AAEncode-style payloads hide readable logic behind non-standard character encodings.
+  - Chain usage: used as a staged obfuscation layer before runtime materialisation.
+
+## js_jjencode_encoding
+
+- ID: `js_jjencode_encoding`
+- Label: JJEncode encoding detected
+- Description: JavaScript appears obfuscated with JJEncode symbol-heavy encoding.
+- Tags: evasion, javascript, obfuscation
+- Details:
+  - Relevance: concealment of executable intent.
+  - Meaning: JJEncode-style symbol density indicates deliberate anti-analysis obfuscation.
+  - Chain usage: used as a staged obfuscation layer prior to decode/execute phases.
+
+## js_jsfuck_encoding
+
+- ID: `js_jsfuck_encoding`
+- Label: JSFuck encoding detected
+- Description: JavaScript appears obfuscated with JSFuck character-restricted encoding.
+- Tags: evasion, javascript, obfuscation
+- Details:
+  - Relevance: concealment of executable intent.
+  - Meaning: JSFuck payloads encode logic with restricted punctuation, impairing direct static review.
+  - Chain usage: used as a pre-execution obfuscation stage that often pairs with dynamic eval sinks.
+
 ## js_multi_stage_decode
 
 - ID: `js_multi_stage_decode`

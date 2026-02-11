@@ -85,6 +85,54 @@ impl Detector for JsPolymorphicDetector {
                         positions: Vec::new(),
                     });
                 }
+                for (meta_key, kind, title, description) in [
+                    (
+                        "js.jsfuck_encoding",
+                        "js_jsfuck_encoding",
+                        "JSFuck encoding detected",
+                        "JavaScript appears obfuscated with JSFuck character-restricted encoding.",
+                    ),
+                    (
+                        "js.jjencode_encoding",
+                        "js_jjencode_encoding",
+                        "JJEncode encoding detected",
+                        "JavaScript appears obfuscated with JJEncode symbol-heavy encoding.",
+                    ),
+                    (
+                        "js.aaencode_encoding",
+                        "js_aaencode_encoding",
+                        "AAEncode encoding detected",
+                        "JavaScript appears obfuscated with AAEncode fullwidth/emoticon-style encoding.",
+                    ),
+                ] {
+                    if matches!(meta.get(meta_key).map(String::as_str), Some("true")) {
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: kind.into(),
+                            severity: Severity::Medium,
+                            confidence: Confidence::Strong,
+                            impact: None,
+                            title: title.into(),
+                            description: description.into(),
+                            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                            evidence: evidence.clone(),
+                            remediation: Some(
+                                "Deobfuscate the payload and inspect decoded execution paths."
+                                    .into(),
+                            ),
+                            meta: meta.clone(),
+
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
+                    }
+                }
                 if multi_stage {
                     let mut meta2 = meta.clone();
                     meta2.insert(
