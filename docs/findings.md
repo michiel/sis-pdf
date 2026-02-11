@@ -3110,6 +3110,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: analysis is intentionally bounded to protect throughput and stability.
   - Chain usage: operational signal indicating partial structural coverage.
 
+## structural_evasion_composite
+
+- ID: `structural_evasion_composite`
+- Label: Composite structural evasion pattern
+- Description: Detected 3 or more structural evasion indicators in the same document.
+- Tags: evasion, structure, composite
+- Details:
+  - Relevance: multiple weak structural indicators together substantially increase malicious-evasion likelihood.
+  - Meaning: detector aggregates distinct structural signals (`evasion.composite_indicators`) using a threshold gate.
+  - Chain usage: prioritisation finding for analyst triage and correlation workflows.
+
 ## launch_obfuscated_executable
 
 - ID: `launch_obfuscated_executable`

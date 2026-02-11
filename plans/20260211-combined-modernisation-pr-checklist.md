@@ -53,10 +53,10 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add performance-focused tests.
 
 ## PR-07: Structural evasion composite
-- [ ] Implement PDF plan S1-6 `structural_evasion_composite`.
-- [ ] Enforce “3+ indicators” composite threshold.
-- [ ] Add severity/confidence calibration tests.
-- [ ] Update findings documentation.
+- [x] Implement PDF plan S1-6 `structural_evasion_composite`.
+- [x] Enforce “3+ indicators” composite threshold.
+- [x] Add severity/confidence calibration tests.
+- [x] Update findings documentation.
 
 ## PR-08: PDF.js font injection extension
 - [ ] Implement PDF plan S3-1 `pdfjs_font_injection` sub-signals.
@@ -219,9 +219,13 @@ Gate D (after PR-20):
 - `PR-06`: added object cap controls (`DECOY_SCAN_MAX_OBJECTS`) and explicit skip metadata (`evasion.decoy_scan_skip_reason=object_count_cap`).
 - `PR-06`: added performance-focused tests in `crates/sis-pdf-detectors/tests/structural_anomalies.rs` for cap-exceeded behaviour and decoy detection.
 - `PR-06`: finding documentation added in `docs/findings.md` for new structural evasion IDs.
+- `PR-07`: composite finding `structural_evasion_composite` implemented in `crates/sis-pdf-detectors/src/structural_anomalies.rs` with a hard `3+` indicator threshold.
+- `PR-07`: calibration logic added (`3 indicators => Medium/Probable`, `4+ indicators => High/Strong`).
+- `PR-07`: calibration tests added in `crates/sis-pdf-detectors/tests/structural_anomalies.rs`.
+- `PR-07`: finding documentation added in `docs/findings.md`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-07` structural evasion composite (`3+` indicator threshold).
+- Start `PR-08` PDF.js font injection extension.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

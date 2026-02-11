@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use common::default_scan_opts;
 use sis_pdf_core::detect::Detector;
+use sis_pdf_core::model::{Confidence, Severity};
 use sis_pdf_core::scan::ScanContext;
 use sis_pdf_detectors::strict::StrictParseDeviationDetector;
 use sis_pdf_detectors::structural_anomalies::StructuralAnomaliesDetector;
@@ -444,5 +445,241 @@ fn emits_structural_decoy_scan_limited_when_object_cap_exceeded() {
     assert_eq!(
         finding.meta.get("evasion.decoy_scan_skip_reason").map(String::as_str),
         Some("object_count_cap")
+    );
+}
+
+#[test]
+fn emits_structural_evasion_composite_at_three_indicators() {
+    let bytes = leak_bytes(b"%PDF-1.7\n/Root 1 0 R\n/Root 9 0 R\n".to_vec());
+    let mut objects = Vec::new();
+    for obj in 1..=10 {
+        let atom = if obj <= 7 { PdfAtom::Null } else { PdfAtom::Int(obj as i64) };
+        objects.push(ObjEntry {
+            obj,
+            gen: 0,
+            atom,
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        });
+    }
+    let xref_sections = vec![
+        XrefSectionSummary {
+            offset: 100,
+            kind: "table".into(),
+            has_trailer: true,
+            prev: None,
+            trailer_size: Some(12),
+            trailer_root: Some("1 0 R".into()),
+        },
+        XrefSectionSummary {
+            offset: 200,
+            kind: "table".into(),
+            has_trailer: true,
+            prev: Some(100),
+            trailer_size: Some(12),
+            trailer_root: Some("9 0 R".into()),
+        },
+    ];
+    let deviations = vec![Deviation {
+        kind: "xref_trailer_search_invalid".into(),
+        span: Span { start: 0, end: 4 },
+        note: Some("invalid trailer".into()),
+    }];
+    let ctx = build_context_with_xref(
+        bytes,
+        objects,
+        Vec::new(),
+        vec![100, 200],
+        xref_sections,
+        deviations,
+    );
+    let detector = StructuralAnomaliesDetector;
+    let findings = detector.run(&ctx).expect("detector should run");
+    let composite = findings
+        .iter()
+        .find(|finding| finding.kind == "structural_evasion_composite")
+        .expect("expected structural_evasion_composite");
+    assert_eq!(composite.severity, Severity::Medium);
+    assert_eq!(composite.confidence, Confidence::Probable);
+    assert_eq!(
+        composite.meta.get("evasion.composite_indicator_count").map(String::as_str),
+        Some("3")
+    );
+}
+
+#[test]
+fn escalates_structural_evasion_composite_at_four_plus_indicators() {
+    let bytes = leak_bytes(b"%PDF-1.7\n/ObjStm\n/Root 1 0 R\n/Root 9 0 R\n".to_vec());
+    let mut objects = vec![
+        ObjEntry {
+            obj: 1,
+            gen: 0,
+            atom: PdfAtom::Dict(PdfDict {
+                span: Span { start: 0, end: 0 },
+                entries: vec![
+                    (
+                        pdf_name("/Type"),
+                        PdfObj {
+                            span: Span { start: 0, end: 0 },
+                            atom: PdfAtom::Name(pdf_name("/Catalog")),
+                        },
+                    ),
+                    (pdf_name("/Pages"), pdf_ref(2, 0)),
+                ],
+            }),
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        },
+        ObjEntry {
+            obj: 2,
+            gen: 0,
+            atom: PdfAtom::Dict(PdfDict {
+                span: Span { start: 0, end: 0 },
+                entries: vec![
+                    (
+                        pdf_name("/Type"),
+                        PdfObj {
+                            span: Span { start: 0, end: 0 },
+                            atom: PdfAtom::Name(pdf_name("/Pages")),
+                        },
+                    ),
+                    (
+                        pdf_name("/Kids"),
+                        PdfObj {
+                            span: Span { start: 0, end: 0 },
+                            atom: PdfAtom::Array(vec![pdf_ref(3, 0)]),
+                        },
+                    ),
+                ],
+            }),
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        },
+        ObjEntry {
+            obj: 3,
+            gen: 0,
+            atom: PdfAtom::Dict(PdfDict {
+                span: Span { start: 0, end: 0 },
+                entries: vec![(
+                    pdf_name("/Type"),
+                    PdfObj {
+                        span: Span { start: 0, end: 0 },
+                        atom: PdfAtom::Name(pdf_name("/Page")),
+                    },
+                )],
+            }),
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        },
+        ObjEntry {
+            obj: 20,
+            gen: 0,
+            atom: PdfAtom::Stream(PdfStream {
+                dict: PdfDict {
+                    span: Span { start: 0, end: 0 },
+                    entries: vec![
+                        (
+                            pdf_name("/Type"),
+                            PdfObj {
+                                span: Span { start: 0, end: 0 },
+                                atom: PdfAtom::Name(pdf_name("/ObjStm")),
+                            },
+                        ),
+                        (pdf_name("/N"), pdf_int(8)),
+                    ],
+                },
+                data_span: Span { start: 0, end: 8 },
+            }),
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        },
+    ];
+    for obj in 30..=36 {
+        objects.push(ObjEntry {
+            obj,
+            gen: 0,
+            atom: PdfAtom::Null,
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        });
+    }
+    for obj in 100..=106 {
+        objects.push(ObjEntry {
+            obj,
+            gen: 0,
+            atom: PdfAtom::Dict(PdfDict {
+                span: Span { start: 0, end: 0 },
+                entries: vec![(
+                    pdf_name("/Type"),
+                    PdfObj {
+                        span: Span { start: 0, end: 0 },
+                        atom: PdfAtom::Name(pdf_name("/XObject")),
+                    },
+                )],
+            }),
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        });
+    }
+    let xref_sections = vec![
+        XrefSectionSummary {
+            offset: 100,
+            kind: "table".into(),
+            has_trailer: true,
+            prev: None,
+            trailer_size: Some(12),
+            trailer_root: Some("1 0 R".into()),
+        },
+        XrefSectionSummary {
+            offset: 200,
+            kind: "table".into(),
+            has_trailer: true,
+            prev: Some(100),
+            trailer_size: Some(12),
+            trailer_root: Some("9 0 R".into()),
+        },
+    ];
+    let deviations = vec![Deviation {
+        kind: "xref_trailer_search_invalid".into(),
+        span: Span { start: 0, end: 4 },
+        note: Some("invalid trailer".into()),
+    }];
+    let trailer = PdfDict {
+        span: Span { start: 0, end: 0 },
+        entries: vec![(pdf_name("/Root"), pdf_ref(1, 0))],
+    };
+    let ctx = build_context_with_xref(
+        bytes,
+        objects,
+        vec![trailer],
+        vec![100, 200],
+        xref_sections,
+        deviations,
+    );
+    let detector = StructuralAnomaliesDetector;
+    let findings = detector.run(&ctx).expect("detector should run");
+    let composite = findings
+        .iter()
+        .find(|finding| finding.kind == "structural_evasion_composite")
+        .expect("expected structural_evasion_composite");
+    assert_eq!(composite.severity, Severity::High);
+    assert_eq!(composite.confidence, Confidence::Strong);
+    assert_eq!(
+        composite.meta.get("evasion.composite_indicator_count").map(String::as_str),
+        Some("5")
     );
 }

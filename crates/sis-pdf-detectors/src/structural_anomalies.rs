@@ -33,6 +33,7 @@ impl Detector for StructuralAnomaliesDetector {
 
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+        let mut evasion_indicators = Vec::new();
         let actual_objects = ctx.graph.objects.len() as u64;
         let null_object_count =
             ctx.graph.objects.iter().filter(|entry| matches!(entry.atom, PdfAtom::Null)).count()
@@ -212,6 +213,7 @@ impl Detector for StructuralAnomaliesDetector {
             }
         }
         if suspicious_objstm_count > 0 {
+            evasion_indicators.push("empty_objstm_padding");
             let mut meta = HashMap::new();
             meta.insert("evasion.indicator".into(), "empty_objstm_padding".into());
             meta.insert("evasion.empty_objstm_padding".into(), "true".into());
@@ -261,6 +263,7 @@ impl Detector for StructuralAnomaliesDetector {
             })
             .collect::<Vec<_>>();
         if !phantom_deviations.is_empty() {
+            evasion_indicators.push("xref_phantom_entries");
             let mut meta = HashMap::new();
             let mut kinds = phantom_deviations
                 .iter()
@@ -326,6 +329,7 @@ impl Detector for StructuralAnomaliesDetector {
         trailer_roots.sort();
         trailer_roots.dedup();
         if trailer_roots.len() > 1 {
+            evasion_indicators.push("trailer_root_conflict");
             let mut meta = HashMap::new();
             meta.insert("trailer.root_conflict_count".into(), trailer_roots.len().to_string());
             meta.insert("trailer.root_values".into(), trailer_roots.join(", "));
@@ -362,6 +366,7 @@ impl Detector for StructuralAnomaliesDetector {
         if actual_objects >= 8 {
             let null_ratio = null_object_count as f64 / actual_objects as f64;
             if null_object_count >= 6 && null_ratio >= 0.20 {
+                evasion_indicators.push("null_object_density");
                 let mut meta = HashMap::new();
                 meta.insert("evasion.indicator".into(), "null_object_density".into());
                 meta.insert("evasion.null_object_density".into(), "true".into());
@@ -460,6 +465,7 @@ impl Detector for StructuralAnomaliesDetector {
                 if total > 0 {
                     let ratio = decoy_count as f64 / total as f64;
                     if decoy_count >= 6 && ratio >= 0.20 {
+                        evasion_indicators.push("structural_decoy_objects");
                         let mut meta = HashMap::new();
                         meta.insert("evasion.indicator".into(), "structural_decoy_objects".into());
                         meta.insert("evasion.structural_decoy_objects".into(), "true".into());
@@ -511,6 +517,61 @@ impl Detector for StructuralAnomaliesDetector {
                     }
                 }
             }
+        }
+
+        evasion_indicators.sort_unstable();
+        evasion_indicators.dedup();
+        if evasion_indicators.len() >= 3 {
+            let (severity, confidence) = if evasion_indicators.len() >= 4 {
+                (Severity::High, Confidence::Strong)
+            } else {
+                (Severity::Medium, Confidence::Probable)
+            };
+            let mut meta = HashMap::new();
+            meta.insert("evasion.composite".into(), "true".into());
+            meta.insert(
+                "evasion.composite_indicator_count".into(),
+                evasion_indicators.len().to_string(),
+            );
+            meta.insert("evasion.composite_indicators".into(), evasion_indicators.join(","));
+            let objects = if evasion_indicators
+                .iter()
+                .any(|indicator| *indicator == "empty_objstm_padding")
+            {
+                vec!["object_graph".into(), "/ObjStm".into()]
+            } else {
+                vec!["object_graph".into()]
+            };
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::FileStructure,
+                kind: "structural_evasion_composite".into(),
+                severity,
+                confidence,
+                impact: Some(Impact::Medium),
+                title: "Composite structural evasion pattern".into(),
+                description: format!(
+                    "Detected {} structural evasion indicators in the same document.",
+                    evasion_indicators.len()
+                ),
+                objects,
+                evidence: vec![span_to_evidence(
+                    sis_pdf_pdf::span::Span { start: 0, end: ctx.bytes.len() as u64 },
+                    "Structural evasion aggregate",
+                )],
+                remediation: Some(
+                    "Prioritise manual triage of xref, trailer, object stream, and unreachable object regions."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
         }
 
         Ok(findings)
