@@ -2827,20 +2827,36 @@ mod sandbox_impl {
             let error_count = log.errors.len();
             let recovery_attempts =
                 flow.exception_handling.iter().filter(|ex| ex.recovery_attempted).count();
+            let successful_recoveries =
+                flow.exception_handling.iter().filter(|ex| ex.recovery_successful).count();
+            let non_syntax_errors =
+                flow.exception_handling.iter().filter(|ex| ex.error_type != "SyntaxError").count();
+            let runtime_activity = log.call_count > 0
+                || !log.prop_reads.is_empty()
+                || !log.urls.is_empty()
+                || !log.domains.is_empty();
 
-            if recovery_attempts > 0 && (error_count > 0 || !flow.exception_handling.is_empty()) {
-                let confidence = 0.8; // High confidence when we see error recovery
+            let enough_signal = recovery_attempts >= 2
+                || successful_recoveries >= 1
+                    && (non_syntax_errors > 0 || runtime_activity || error_count >= 2);
+            if enough_signal {
+                let confidence =
+                    if successful_recoveries >= 2 || non_syntax_errors > 0 { 0.8 } else { 0.6 };
 
                 let mut metadata = std::collections::BTreeMap::new();
                 metadata.insert("total_errors".to_string(), error_count.to_string());
                 metadata.insert("recovery_attempts".to_string(), recovery_attempts.to_string());
+                metadata
+                    .insert("successful_recoveries".to_string(), successful_recoveries.to_string());
+                metadata.insert("non_syntax_errors".to_string(), non_syntax_errors.to_string());
+                metadata.insert("runtime_activity".to_string(), runtime_activity.to_string());
 
                 observations.push(BehaviorObservation {
                     pattern_name: self.name().to_string(),
                     confidence,
                     evidence: format!(
-                        "Error recovery patterns: {} errors, {} recovery attempts",
-                        error_count, recovery_attempts
+                        "Error recovery patterns: {} errors, {} recovery attempts, {} successful recoveries",
+                        error_count, recovery_attempts, successful_recoveries
                     ),
                     severity: BehaviorSeverity::Low,
                     metadata,

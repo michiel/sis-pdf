@@ -1797,6 +1797,27 @@ fn sandbox_flags_error_recovery_patterns() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_does_not_flag_error_recovery_for_pure_syntax_noise() {
+    let options = DynamicOptions::default();
+    let payload = b"\x12";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(
+                !signals
+                    .behavioral_patterns
+                    .iter()
+                    .any(|pattern| pattern.name == "error_recovery_patterns"),
+                "unexpected error_recovery_patterns for syntax-only noise: {:?}",
+                signals.behavioral_patterns
+            );
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_flags_variable_promotion_detected_pattern() {
     let options = DynamicOptions::default();
     let payload = b"result = missingPromotedValue;";
