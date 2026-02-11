@@ -491,6 +491,28 @@ fn sandbox_emits_lotl_api_chain_execution_finding() {
 
 #[cfg(feature = "js-sandbox")]
 #[test]
+fn sandbox_emits_pr19_behavioural_resilience_findings() {
+    let payload = "var src=getField\\('name'\\);var a=String.fromCharCode\\(97,108,101,114,116\\);var b=String.fromCharCode\\(40,49,41\\);var staged=a.concat\\(b\\);eval\\(staged\\);";
+    let bytes = build_minimal_js_pdf(payload);
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    for kind in [
+        "js_runtime_api_sequence_malicious",
+        "js_runtime_source_sink_complexity",
+        "js_runtime_dynamic_string_materialisation",
+    ] {
+        assert!(
+            report.findings.iter().any(|finding| finding.kind == kind),
+            "missing expected PR-19 finding kind {kind}"
+        );
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
 fn sandbox_marks_oversized_payload_as_skipped() {
     let large_payload = "a".repeat(300_000);
     let bytes = build_minimal_js_pdf(&large_payload);

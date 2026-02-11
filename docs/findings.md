@@ -1565,6 +1565,61 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: environment + file staging + execution chain occurs without direct downloader API dependence.
   - Chain usage: used as stealthy staging-to-execution path.
 
+## js_runtime_api_sequence_malicious
+
+- ID: `js_runtime_api_sequence_malicious`
+- Label: Suspicious API call sequence
+- Description: JavaScript executed a suspicious source/transform/sink API sequence consistent with staged malicious intent.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: resilient detection against syntactic rewrites.
+  - Meaning: source acquisition APIs are chained with transformation calls and sensitive sinks.
+  - Chain usage: used as a sequence-level intent signal for rewritten malware.
+
+## js_runtime_source_sink_complexity
+
+- ID: `js_runtime_source_sink_complexity`
+- Label: Complex source-to-sink data flow
+- Description: JavaScript routed data from acquisition sources to sensitive sinks with a multi-step transformation chain.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: obfuscation-resilient flow analysis.
+  - Meaning: multi-step transforms between source and sink increase suspicion even when individual calls look benign.
+  - Chain usage: used to prioritise staged source-to-sink flows.
+
+## js_runtime_entropy_at_sink
+
+- ID: `js_runtime_entropy_at_sink`
+- Label: High-entropy payload at execution sink
+- Description: JavaScript passed high-entropy runtime strings into execution sinks, consistent with obfuscated payload staging.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: detects encoded/packed payload material reaching execution.
+  - Meaning: high-entropy sink arguments indicate likely hidden executable content.
+  - Chain usage: used as execution-stage obfuscation signal.
+
+## js_runtime_dynamic_string_materialisation
+
+- ID: `js_runtime_dynamic_string_materialisation`
+- Label: Dynamic string materialisation into execution sink
+- Description: JavaScript dynamically materialised executable strings before invoking execution sinks.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: runtime reconstruction of payload content.
+  - Meaning: decoded or constructed strings are staged then executed.
+  - Chain usage: used as runtime payload build-and-exec signal.
+
+## js_semantic_source_to_sink_flow
+
+- ID: `js_semantic_source_to_sink_flow`
+- Label: Semantic source-to-sink flow detected
+- Description: AST semantic call graph indicates a source-to-sink flow with transformation depth, resilient to syntactic rewrites.
+- Tags: ast, javascript, semantic
+- Details:
+  - Relevance: semantics-first detection for rewritten malware.
+  - Meaning: call graph analysis links source calls to sinks through transformation steps.
+  - Chain usage: used as static semantic corroboration for behavioural findings.
+
 ## js_time_evasion
 
 - ID: `js_time_evasion`

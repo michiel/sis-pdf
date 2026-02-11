@@ -1983,6 +1983,76 @@ fn sandbox_expands_prototype_and_wasm_signals_in_browser_profile() {
     }
 }
 
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_pr19_api_sequence_and_complexity_patterns() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var notes = getAnnots(0);
+        var encoded = '%61%6c%65%72%74%28%31%29';
+        var decoded = unescape(encoded);
+        var wrapped = btoa(decoded);
+        var rebuilt = atob(wrapped);
+        eval(rebuilt);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "api_call_sequence_malicious"));
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "source_sink_complexity"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_pr19_materialisation_pattern() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var a = String.fromCharCode(97,108,101,114,116);
+        var b = String.fromCharCode(40,49,41);
+        var c = a.concat(b);
+        eval(c);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "dynamic_string_materialisation_sink"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn sandbox_flags_pr19_entropy_at_sink_pattern() {
+    let options = DynamicOptions::default();
+    let payload = br#"
+        var stage = 'A9z!Q7m$R2n#T5p@L8v%K4x^H1c&N6w*D3y(0)';
+        eval(stage);
+    "#;
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert!(signals
+                .behavioral_patterns
+                .iter()
+                .any(|pattern| pattern.name == "entropy_at_sink"));
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Negative tests: benign JavaScript fixtures that MUST NOT trigger high-risk
 // behavioural patterns.  These guard against false-positive regressions.
@@ -2021,6 +2091,10 @@ const HIGH_RISK_PATTERNS: &[&str] = &[
     "extension_api_abuse_probe",
     "interaction_coercion_loop",
     "capability_matrix_fingerprinting",
+    "api_call_sequence_malicious",
+    "source_sink_complexity",
+    "entropy_at_sink",
+    "dynamic_string_materialisation_sink",
 ];
 
 #[cfg(feature = "js-sandbox")]

@@ -129,12 +129,12 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Implement JS plan S4-6 fixture pack.
 
 ## PR-19: Behavioural resilience uplift
-- [ ] Implement JS plan S5-1 API call sequence matching.
-- [ ] Implement JS plan S5-2 data-flow complexity scoring.
-- [ ] Implement JS plan S5-3 entropy-at-sink analysis.
-- [ ] Implement JS plan S5-4 dynamic string materialisation tracking.
-- [ ] Implement JS plan S5-5 semantic call graph extraction (`js-ast`).
-- [ ] Implement JS plan S5-6 adversarial rewrite fixtures.
+- [x] Implement JS plan S5-1 API call sequence matching.
+- [x] Implement JS plan S5-2 data-flow complexity scoring.
+- [x] Implement JS plan S5-3 entropy-at-sink analysis.
+- [x] Implement JS plan S5-4 dynamic string materialisation tracking.
+- [x] Implement JS plan S5-5 semantic call graph extraction (`js-ast`).
+- [x] Implement JS plan S5-6 adversarial rewrite fixtures.
 
 ## PR-20: Corpus expansion + CI regression harness
 - [ ] Implement JS plan S6-1 modern sample acquisition pipeline docs.
@@ -273,9 +273,14 @@ Gate D (after PR-20):
 - `PR-18`: added fixture pack under `crates/js-analysis/tests/fixtures/encoded/` (`advanced_cff_dispatch.js`, `advanced_dead_code_injection.js`, `advanced_array_rotation.js`, `advanced_multilayer_decode_eval.js`).
 - `PR-18`: added test coverage in `crates/js-analysis/tests/static_signals.rs`, `crates/js-analysis/tests/encoded_fixtures.rs`, and `crates/sis-pdf-detectors/tests/js_polymorphic_integration.rs`.
 - `PR-18`: finding documentation added in `docs/findings.md` for `js_dead_code_injection` and `js_array_rotation_decode`.
+- `PR-19`: added behavioural sequence/flow patterns in `crates/js-analysis/src/dynamic.rs`: `api_call_sequence_malicious`, `source_sink_complexity`, `entropy_at_sink`, and `dynamic_string_materialisation_sink`.
+- `PR-19`: added semantic AST source-to-sink flow extraction in `crates/js-analysis/src/static_analysis.rs` with `js.semantic_source_to_sink_flow` and supporting graph/complexity metadata.
+- `PR-19`: added adversarial rewrite fixture pack under `crates/js-analysis/tests/fixtures/adversarial/` with ten variant payloads and behavioural resilience tests in `crates/js-analysis/tests/adversarial_rewrites.rs`.
+- `PR-19`: added integration coverage for new runtime and semantic findings in `crates/sis-pdf-detectors/tests/js_sandbox_integration.rs` and `crates/sis-pdf-detectors/tests/js_polymorphic_integration.rs`.
+- `PR-19`: finding documentation added in `docs/findings.md` for `js_runtime_api_sequence_malicious`, `js_runtime_source_sink_complexity`, `js_runtime_entropy_at_sink`, `js_runtime_dynamic_string_materialisation`, and `js_semantic_source_to_sink_flow`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-19` behavioural resilience uplift.
+- Start `PR-20` corpus expansion and CI regression harness.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

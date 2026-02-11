@@ -209,6 +209,13 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
 
     out.insert("js.ast_parsed".into(), "false".into());
     out.insert("js.sandbox_exec".into(), "false".into());
+    out.insert("js.semantic_source_to_sink_flow".into(), "false".into());
+    out.insert("js.semantic_call_graph_nodes".into(), "0".into());
+    out.insert("js.semantic_call_graph_edges".into(), "0".into());
+    out.insert("js.semantic_source_calls".into(), "0".into());
+    out.insert("js.semantic_sink_calls".into(), "0".into());
+    out.insert("js.semantic_transform_calls".into(), "0".into());
+    out.insert("js.semantic_flow_complexity".into(), "0".into());
     #[cfg(feature = "js-ast")]
     {
         if enable_ast {
@@ -226,6 +233,24 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
                 if !summary.domains.is_empty() {
                     out.insert("js.ast_domains".into(), summary.domains.join(", "));
                 }
+            }
+            if let Some(metrics) = semantic_call_graph_metrics(data) {
+                out.insert("js.semantic_call_graph_nodes".into(), metrics.node_count.to_string());
+                out.insert("js.semantic_call_graph_edges".into(), metrics.edge_count.to_string());
+                out.insert("js.semantic_source_calls".into(), metrics.source_calls.to_string());
+                out.insert("js.semantic_sink_calls".into(), metrics.sink_calls.to_string());
+                out.insert(
+                    "js.semantic_transform_calls".into(),
+                    metrics.transform_calls.to_string(),
+                );
+                out.insert(
+                    "js.semantic_flow_complexity".into(),
+                    metrics.max_transform_depth.to_string(),
+                );
+                out.insert(
+                    "js.semantic_source_to_sink_flow".into(),
+                    bool_str(metrics.has_source_sink_flow),
+                );
             }
         }
     }
@@ -815,6 +840,174 @@ struct AstSummary {
     call_args: Vec<String>,
     urls: Vec<String>,
     domains: Vec<String>,
+}
+
+#[cfg(feature = "js-ast")]
+struct SemanticCallGraphMetrics {
+    node_count: usize,
+    edge_count: usize,
+    source_calls: usize,
+    sink_calls: usize,
+    transform_calls: usize,
+    max_transform_depth: usize,
+    has_source_sink_flow: bool,
+}
+
+#[cfg(feature = "js-ast")]
+fn is_semantic_source_call(name: &str) -> bool {
+    matches!(
+        name,
+        "getAnnots"
+            | "doc.getAnnots"
+            | "event.target.getAnnots"
+            | "getAnnot"
+            | "doc.getAnnot"
+            | "event.target.getAnnot"
+            | "getField"
+            | "doc.getField"
+            | "event.target.getField"
+            | "document.cookie"
+            | "localStorage.getItem"
+            | "sessionStorage.getItem"
+            | "navigator.clipboard.readText"
+            | "navigator.clipboard.read"
+    )
+}
+
+#[cfg(feature = "js-ast")]
+fn is_semantic_sink_call(name: &str) -> bool {
+    matches!(
+        name,
+        "eval"
+            | "Function"
+            | "app.eval"
+            | "event.target.eval"
+            | "submitForm"
+            | "mailDoc"
+            | "launchURL"
+            | "app.launchURL"
+            | "fetch"
+            | "navigator.sendBeacon"
+            | "WebSocket.send"
+            | "RTCDataChannel.send"
+            | "XMLHttpRequest.send"
+            | "MSXML2.XMLHTTP.send"
+    )
+}
+
+#[cfg(feature = "js-ast")]
+fn is_semantic_transform_call(name: &str) -> bool {
+    matches!(
+        name,
+        "unescape"
+            | "escape"
+            | "decodeURI"
+            | "decodeURIComponent"
+            | "encodeURI"
+            | "encodeURIComponent"
+            | "atob"
+            | "btoa"
+            | "String.fromCharCode"
+            | "String.substr"
+            | "String.concat"
+            | "replace"
+            | "split"
+            | "join"
+    )
+}
+
+#[cfg(feature = "js-ast")]
+fn semantic_call_graph_metrics(data: &[u8]) -> Option<SemanticCallGraphMetrics> {
+    use boa_ast::expression::Call;
+    use boa_ast::scope::Scope;
+    use boa_ast::visitor::{VisitWith, Visitor};
+    use boa_interner::{Interner, ToInternedString};
+    use boa_parser::{Parser, Source};
+    use std::collections::BTreeSet;
+
+    let src = std::str::from_utf8(data).ok()?;
+    let mut interner = Interner::default();
+    let source = Source::from_bytes(src);
+    let mut parser = Parser::new(source);
+    let scope = Scope::new_global();
+    let script = parser.parse_script(&scope, &mut interner).ok()?;
+
+    struct SequenceVisitor<'a> {
+        interner: &'a Interner,
+        sequence: Vec<String>,
+    }
+
+    impl<'ast, 'a> Visitor<'ast> for SequenceVisitor<'a> {
+        type BreakTy = ();
+
+        fn visit_call(&mut self, node: &'ast Call) -> std::ops::ControlFlow<Self::BreakTy> {
+            let name = node.function().to_interned_string(self.interner);
+            if !name.is_empty() {
+                self.sequence.push(name);
+            }
+            node.visit_with(self)
+        }
+    }
+
+    let mut visitor = SequenceVisitor { interner: &interner, sequence: Vec::new() };
+    let _ = script.visit_with(&mut visitor);
+    if visitor.sequence.is_empty() {
+        return Some(SemanticCallGraphMetrics {
+            node_count: 0,
+            edge_count: 0,
+            source_calls: 0,
+            sink_calls: 0,
+            transform_calls: 0,
+            max_transform_depth: 0,
+            has_source_sink_flow: false,
+        });
+    }
+
+    let node_count = visitor.sequence.len();
+    let edge_count = node_count.saturating_sub(1);
+    let source_calls = visitor.sequence.iter().filter(|name| is_semantic_source_call(name)).count();
+    let sink_calls = visitor.sequence.iter().filter(|name| is_semantic_sink_call(name)).count();
+    let transform_calls =
+        visitor.sequence.iter().filter(|name| is_semantic_transform_call(name)).count();
+
+    let source_indices: Vec<usize> = visitor
+        .sequence
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| if is_semantic_source_call(name) { Some(index) } else { None })
+        .collect();
+    let sink_indices: Vec<usize> = visitor
+        .sequence
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| if is_semantic_sink_call(name) { Some(index) } else { None })
+        .collect();
+    let mut has_flow = false;
+    let mut max_transform_depth = 0usize;
+    for sink_idx in sink_indices {
+        if let Some(source_idx) =
+            source_indices.iter().copied().filter(|source_idx| *source_idx < sink_idx).max()
+        {
+            has_flow = true;
+            let mut transforms = BTreeSet::new();
+            for name in visitor.sequence.iter().take(sink_idx).skip(source_idx + 1) {
+                if is_semantic_transform_call(name) {
+                    transforms.insert(name.clone());
+                }
+            }
+            max_transform_depth = max_transform_depth.max(transforms.len());
+        }
+    }
+
+    Some(SemanticCallGraphMetrics {
+        node_count,
+        edge_count,
+        source_calls,
+        sink_calls,
+        transform_calls,
+        max_transform_depth,
+        has_source_sink_flow: has_flow && max_transform_depth > 0,
+    })
 }
 
 #[cfg(feature = "js-ast")]

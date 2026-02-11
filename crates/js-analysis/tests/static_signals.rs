@@ -98,6 +98,27 @@ fn concatenation_reconstruction_is_deterministic() {
     );
 }
 
+#[cfg(feature = "js-ast")]
+#[test]
+fn ast_semantic_flow_detects_source_transform_sink_chain() {
+    let data = br#"
+        var f = getField('username');
+        var encoded = '%61%6c%65%72%74%28%31%29';
+        var decoded = unescape(encoded);
+        eval(decoded);
+    "#;
+    let signals = extract_js_signals_with_ast(data, true);
+    assert_eq!(signals.get("js.semantic_source_to_sink_flow").map(String::as_str), Some("true"));
+    assert_eq!(signals.get("js.ast_parsed").map(String::as_str), Some("true"));
+    assert!(
+        signals
+            .get("js.semantic_flow_complexity")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(0)
+            >= 1
+    );
+}
+
 #[test]
 fn detects_heap_grooming_signal() {
     let data = include_bytes!("fixtures/modern_heap/cve_2023_21608_sanitised.js");

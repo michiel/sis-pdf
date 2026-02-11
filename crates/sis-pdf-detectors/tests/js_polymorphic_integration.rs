@@ -162,3 +162,22 @@ fn emits_advanced_obfuscation_findings() {
     assert!(report.findings.iter().any(|f| f.kind == "js_dead_code_injection"));
     assert!(report.findings.iter().any(|f| f.kind == "js_array_rotation_decode"));
 }
+
+#[cfg(feature = "js-ast")]
+#[test]
+fn emits_semantic_source_to_sink_flow_finding() {
+    let payload = r#"
+        var field = getField('username');
+        var encoded = '%61%6c%65%72%74%28%31%29';
+        var decoded = unescape(encoded);
+        eval(decoded);
+    "#;
+    let bytes = build_minimal_js_pdf(payload);
+    let detectors = default_detectors();
+
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    assert!(report.findings.iter().any(|f| f.kind == "js_semantic_source_to_sink_flow"));
+}

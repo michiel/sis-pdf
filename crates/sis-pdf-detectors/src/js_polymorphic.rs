@@ -122,6 +122,12 @@ impl Detector for JsPolymorphicDetector {
                         "Array rotation decode pattern detected",
                         "JavaScript contains array rotation string-decoding patterns common in obfuscator-style loaders.",
                     ),
+                    (
+                        "js.semantic_source_to_sink_flow",
+                        "js_semantic_source_to_sink_flow",
+                        "Semantic source-to-sink flow detected",
+                        "AST semantic call graph indicates a source-to-sink flow with transformation depth, resilient to syntactic rewrites.",
+                    ),
                 ] {
                     if matches!(meta.get(meta_key).map(String::as_str), Some("true")) {
                         findings.push(Finding {

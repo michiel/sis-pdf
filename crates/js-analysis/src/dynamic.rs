@@ -464,6 +464,137 @@ mod sandbox_impl {
             .sum()
     }
 
+    fn is_execution_sink_call(name: &str) -> bool {
+        matches!(name, "eval" | "Function" | "app.eval" | "event.target.eval")
+    }
+
+    fn is_sensitive_sink_call(name: &str) -> bool {
+        is_execution_sink_call(name)
+            || matches!(
+                name,
+                "submitForm"
+                    | "mailDoc"
+                    | "app.launchURL"
+                    | "launchURL"
+                    | "fetch"
+                    | "navigator.sendBeacon"
+                    | "WebSocket.send"
+                    | "RTCDataChannel.send"
+                    | "XMLHttpRequest.send"
+                    | "MSXML2.XMLHTTP.send"
+                    | "MSXML2.XMLHTTP.Send"
+            )
+    }
+
+    fn is_source_call(name: &str) -> bool {
+        matches!(
+            name,
+            "getAnnots"
+                | "doc.getAnnots"
+                | "event.target.getAnnots"
+                | "getAnnot"
+                | "doc.getAnnot"
+                | "event.target.getAnnot"
+                | "getField"
+                | "doc.getField"
+                | "event.target.getField"
+                | "document.cookie"
+                | "localStorage.getItem"
+                | "sessionStorage.getItem"
+                | "navigator.clipboard.readText"
+                | "navigator.clipboard.read"
+                | "app.response"
+        )
+    }
+
+    fn is_transform_call(name: &str) -> bool {
+        matches!(
+            name,
+            "unescape"
+                | "escape"
+                | "decodeURI"
+                | "decodeURIComponent"
+                | "encodeURI"
+                | "encodeURIComponent"
+                | "atob"
+                | "btoa"
+                | "String.fromCharCode"
+                | "String.substr"
+                | "String.concat"
+                | "Array.push"
+                | "Buffer.concat"
+        )
+    }
+
+    fn is_materialisation_call(name: &str) -> bool {
+        matches!(
+            name,
+            "unescape"
+                | "decodeURIComponent"
+                | "atob"
+                | "String.fromCharCode"
+                | "String.concat"
+                | "Buffer.concat"
+        )
+    }
+
+    fn extract_argument_payload(call_arg: &str, callee: &str) -> Option<String> {
+        let prefix = format!("{callee}(");
+        if !call_arg.starts_with(&prefix) || !call_arg.ends_with(')') {
+            return None;
+        }
+        let inner = &call_arg[prefix.len()..call_arg.len().saturating_sub(1)];
+        let trimmed = inner.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum SequenceStep {
+        Source,
+        Transform,
+        ExecSink,
+        SensitiveSink,
+        Exact(&'static str),
+    }
+
+    #[derive(Clone, Copy)]
+    struct ApiSequenceSpec {
+        name: &'static str,
+        steps: &'static [SequenceStep],
+    }
+
+    fn sequence_step_matches(step: SequenceStep, call: &str) -> bool {
+        match step {
+            SequenceStep::Source => is_source_call(call),
+            SequenceStep::Transform => is_transform_call(call),
+            SequenceStep::ExecSink => is_execution_sink_call(call),
+            SequenceStep::SensitiveSink => is_sensitive_sink_call(call),
+            SequenceStep::Exact(name) => name == call,
+        }
+    }
+
+    fn sequence_matches(calls: &[String], steps: &[SequenceStep]) -> bool {
+        if steps.is_empty() || calls.is_empty() {
+            return false;
+        }
+        let mut step_index = 0usize;
+        for call in calls {
+            if let Some(step) = steps.get(step_index).copied() {
+                if sequence_step_matches(step, call) {
+                    step_index += 1;
+                    if step_index == steps.len() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     // Concrete Behavioral Patterns
     struct ObfuscatedStringConstruction;
     impl BehaviorPattern for ObfuscatedStringConstruction {
@@ -502,6 +633,341 @@ mod sandbox_impl {
             }
 
             observations
+        }
+    }
+
+    struct ApiCallSequenceMaliciousPattern;
+    impl BehaviorPattern for ApiCallSequenceMaliciousPattern {
+        fn name(&self) -> &str {
+            "api_call_sequence_malicious"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            const SPEC_ANNOTS_TRANSFORM_EVAL: &[SequenceStep] = &[
+                SequenceStep::Exact("getAnnots"),
+                SequenceStep::Transform,
+                SequenceStep::ExecSink,
+            ];
+            const SPEC_DOC_ANNOTS_TRANSFORM_EVAL: &[SequenceStep] = &[
+                SequenceStep::Exact("doc.getAnnots"),
+                SequenceStep::Transform,
+                SequenceStep::ExecSink,
+            ];
+            const SPEC_ANNOT_TRANSFORM_EVAL: &[SequenceStep] =
+                &[SequenceStep::Exact("getAnnot"), SequenceStep::Transform, SequenceStep::ExecSink];
+            const SPEC_FIELD_TRANSFORM_EVAL: &[SequenceStep] =
+                &[SequenceStep::Exact("getField"), SequenceStep::Transform, SequenceStep::ExecSink];
+            const SPEC_STORAGE_TRANSFORM_EVAL: &[SequenceStep] = &[
+                SequenceStep::Exact("localStorage.getItem"),
+                SequenceStep::Transform,
+                SequenceStep::ExecSink,
+            ];
+            const SPEC_SESSION_TRANSFORM_EVAL: &[SequenceStep] = &[
+                SequenceStep::Exact("sessionStorage.getItem"),
+                SequenceStep::Transform,
+                SequenceStep::ExecSink,
+            ];
+            const SPEC_CLIPBOARD_EXFIL: &[SequenceStep] =
+                &[SequenceStep::Exact("navigator.clipboard.readText"), SequenceStep::SensitiveSink];
+            const SPEC_COOKIE_EXFIL: &[SequenceStep] =
+                &[SequenceStep::Exact("document.cookie"), SequenceStep::SensitiveSink];
+            const SPEC_SOURCE_TRANSFORM_SINK: &[SequenceStep] =
+                &[SequenceStep::Source, SequenceStep::Transform, SequenceStep::SensitiveSink];
+            const SPEC_SOURCE_TO_SINK: &[SequenceStep] =
+                &[SequenceStep::Source, SequenceStep::SensitiveSink];
+
+            let specs = [
+                ApiSequenceSpec {
+                    name: "annots_transform_eval",
+                    steps: SPEC_ANNOTS_TRANSFORM_EVAL,
+                },
+                ApiSequenceSpec {
+                    name: "doc_annots_transform_eval",
+                    steps: SPEC_DOC_ANNOTS_TRANSFORM_EVAL,
+                },
+                ApiSequenceSpec { name: "annot_transform_eval", steps: SPEC_ANNOT_TRANSFORM_EVAL },
+                ApiSequenceSpec { name: "field_transform_eval", steps: SPEC_FIELD_TRANSFORM_EVAL },
+                ApiSequenceSpec {
+                    name: "storage_transform_eval",
+                    steps: SPEC_STORAGE_TRANSFORM_EVAL,
+                },
+                ApiSequenceSpec {
+                    name: "session_storage_transform_eval",
+                    steps: SPEC_SESSION_TRANSFORM_EVAL,
+                },
+                ApiSequenceSpec { name: "clipboard_exfil_chain", steps: SPEC_CLIPBOARD_EXFIL },
+                ApiSequenceSpec { name: "cookie_exfil_chain", steps: SPEC_COOKIE_EXFIL },
+                ApiSequenceSpec {
+                    name: "generic_source_transform_sink",
+                    steps: SPEC_SOURCE_TRANSFORM_SINK,
+                },
+                ApiSequenceSpec { name: "generic_source_sink", steps: SPEC_SOURCE_TO_SINK },
+            ];
+
+            let mut matched = Vec::new();
+            for spec in specs {
+                if sequence_matches(&log.calls, spec.steps) {
+                    matched.push(spec.name.to_string());
+                }
+            }
+            if matched.is_empty() {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::BTreeMap::new();
+            metadata.insert("matched_sequences".to_string(), matched.join(","));
+            metadata.insert("matched_sequence_count".to_string(), matched.len().to_string());
+            metadata.insert("total_calls".to_string(), log.calls.len().to_string());
+            metadata.insert(
+                "transform_calls".to_string(),
+                log.calls.iter().filter(|call| is_transform_call(call)).count().to_string(),
+            );
+
+            let (confidence, severity) = if matched.len() >= 3 {
+                (0.86, BehaviorSeverity::High)
+            } else if matched.len() == 2 {
+                (0.76, BehaviorSeverity::High)
+            } else {
+                (0.66, BehaviorSeverity::Medium)
+            };
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed suspicious source/transform/sink API execution chain independent of syntax"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct SourceSinkComplexityPattern;
+    impl BehaviorPattern for SourceSinkComplexityPattern {
+        fn name(&self) -> &str {
+            "source_sink_complexity"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let source_indices: Vec<usize> = log
+                .calls
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, call)| if is_source_call(call) { Some(idx) } else { None })
+                .collect();
+            let sink_indices: Vec<usize> = log
+                .calls
+                .iter()
+                .enumerate()
+                .filter_map(
+                    |(idx, call)| if is_sensitive_sink_call(call) { Some(idx) } else { None },
+                )
+                .collect();
+
+            if source_indices.is_empty() || sink_indices.is_empty() {
+                return Vec::new();
+            }
+
+            let mut max_transform_steps = 0usize;
+            let mut max_unique_transforms = 0usize;
+            let mut source_sink_paths = 0usize;
+            for sink_index in sink_indices {
+                if let Some(source_index) = source_indices
+                    .iter()
+                    .copied()
+                    .filter(|source_index| *source_index < sink_index)
+                    .max()
+                {
+                    source_sink_paths += 1;
+                    let mut unique = BTreeSet::new();
+                    let mut transforms = 0usize;
+                    for call in log.calls.iter().take(sink_index).skip(source_index + 1) {
+                        if is_transform_call(call) {
+                            transforms += 1;
+                            unique.insert(call.clone());
+                        }
+                    }
+                    max_transform_steps = max_transform_steps.max(transforms);
+                    max_unique_transforms = max_unique_transforms.max(unique.len());
+                }
+            }
+
+            let taint_edge_count = log
+                .taint_edges
+                .iter()
+                .filter(|edge| {
+                    matches!(
+                        edge.sink,
+                        TaintEventKind::Eval
+                            | TaintEventKind::Function
+                            | TaintEventKind::Fetch
+                            | TaintEventKind::SendBeacon
+                            | TaintEventKind::WebSocketSend
+                            | TaintEventKind::RtcDataChannelSend
+                            | TaintEventKind::XmlHttpSend
+                    )
+                })
+                .count();
+
+            let complexity_score = max_transform_steps + max_unique_transforms + taint_edge_count;
+            if complexity_score < 2 || source_sink_paths == 0 {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::BTreeMap::new();
+            metadata.insert("source_call_count".to_string(), source_indices.len().to_string());
+            metadata.insert("sink_call_count".to_string(), source_sink_paths.to_string());
+            metadata.insert("max_transform_steps".to_string(), max_transform_steps.to_string());
+            metadata.insert("max_unique_transforms".to_string(), max_unique_transforms.to_string());
+            metadata.insert("taint_edges".to_string(), taint_edge_count.to_string());
+            metadata.insert("complexity_score".to_string(), complexity_score.to_string());
+
+            let (confidence, severity) = if complexity_score >= 8 {
+                (0.84, BehaviorSeverity::High)
+            } else if complexity_score >= 5 {
+                (0.74, BehaviorSeverity::Medium)
+            } else {
+                (0.62, BehaviorSeverity::Medium)
+            };
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Observed source-to-sink data flow with multi-step transformation complexity"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct EntropyAtSinkPattern;
+    impl BehaviorPattern for EntropyAtSinkPattern {
+        fn name(&self) -> &str {
+            "entropy_at_sink"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let sink_calls = ["eval", "Function", "app.eval", "event.target.eval"];
+            let mut max_entropy = 0.0f64;
+            let mut max_length = 0usize;
+            let mut observed = 0usize;
+            for call in sink_calls {
+                for arg in &log.call_args {
+                    if let Some(payload) = extract_argument_payload(arg, call) {
+                        if payload.len() < 16 {
+                            continue;
+                        }
+                        observed += 1;
+                        let entropy = approx_string_entropy(&payload);
+                        max_length = max_length.max(payload.len());
+                        if entropy > max_entropy {
+                            max_entropy = entropy;
+                        }
+                    }
+                }
+            }
+            if observed == 0 || max_entropy < 3.8 {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::BTreeMap::new();
+            metadata.insert("sink_args_observed".to_string(), observed.to_string());
+            metadata.insert("sink_arg_max_length".to_string(), max_length.to_string());
+            metadata.insert("sink_arg_max_entropy".to_string(), format!("{max_entropy:.3}"));
+
+            let (confidence, severity) = if max_entropy >= 4.4 && max_length >= 32 {
+                (0.82, BehaviorSeverity::High)
+            } else {
+                (0.68, BehaviorSeverity::Medium)
+            };
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence: "Execution sink received high-entropy runtime string payload".to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
+        }
+    }
+
+    struct DynamicStringMaterialisationPattern;
+    impl BehaviorPattern for DynamicStringMaterialisationPattern {
+        fn name(&self) -> &str {
+            "dynamic_string_materialisation_sink"
+        }
+
+        fn analyze(&self, _flow: &ExecutionFlow, log: &SandboxLog) -> Vec<BehaviorObservation> {
+            let materialiser_calls =
+                log.calls.iter().filter(|call| is_materialisation_call(call)).count();
+            if materialiser_calls < 2 {
+                return Vec::new();
+            }
+
+            let mut sink_payloads = Vec::new();
+            for sink in ["eval", "Function", "app.eval", "event.target.eval"] {
+                for call_arg in &log.call_args {
+                    if let Some(payload) = extract_argument_payload(call_arg, sink) {
+                        sink_payloads.push(payload);
+                    }
+                }
+            }
+            if sink_payloads.is_empty() {
+                return Vec::new();
+            }
+
+            let executable_payloads = sink_payloads
+                .iter()
+                .filter(|payload| {
+                    let lower = payload.to_ascii_lowercase();
+                    lower.contains("alert(")
+                        || lower.contains("app.alert")
+                        || lower.contains("function(")
+                        || lower.contains("return ")
+                        || lower.contains("this.")
+                        || lower.contains("eval(")
+                })
+                .count();
+            if executable_payloads == 0 {
+                return Vec::new();
+            }
+
+            let mut metadata = std::collections::BTreeMap::new();
+            metadata.insert("materialiser_calls".to_string(), materialiser_calls.to_string());
+            metadata.insert("sink_payload_count".to_string(), sink_payloads.len().to_string());
+            metadata.insert("executable_payloads".to_string(), executable_payloads.to_string());
+            metadata.insert(
+                "materialisation_chain".to_string(),
+                log.calls
+                    .iter()
+                    .filter(|call| is_materialisation_call(call))
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
+
+            let (confidence, severity) = if materialiser_calls >= 4 && executable_payloads >= 1 {
+                (0.81, BehaviorSeverity::High)
+            } else {
+                (0.69, BehaviorSeverity::Medium)
+            };
+
+            vec![BehaviorObservation {
+                pattern_name: self.name().to_string(),
+                confidence,
+                evidence:
+                    "Runtime-generated string materialisation chain observed before execution sink"
+                        .to_string(),
+                severity,
+                metadata,
+                timestamp: std::time::Duration::from_millis(0),
+            }]
         }
     }
 
@@ -3667,6 +4133,10 @@ mod sandbox_impl {
             Box::new(DynamicCodeGeneration),
             Box::new(IndirectDynamicEvalDispatchPattern),
             Box::new(MultiPassDecodePipelinePattern),
+            Box::new(ApiCallSequenceMaliciousPattern),
+            Box::new(SourceSinkComplexityPattern),
+            Box::new(EntropyAtSinkPattern),
+            Box::new(DynamicStringMaterialisationPattern),
             Box::new(CovertBeaconExfilPattern),
             Box::new(ChunkedDataExfilPipelinePattern),
             Box::new(InteractionCoercionLoopPattern),

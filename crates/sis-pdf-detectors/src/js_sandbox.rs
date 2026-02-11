@@ -1024,6 +1024,12 @@ fn behavioral_pattern_title(name: &str) -> Option<&'static str> {
         "wasm_memory_unpacker_pipeline" => Some("WASM memory unpacker pipeline"),
         "extension_api_abuse_probe" => Some("Extension API abuse probe"),
         "modern_fingerprint_evasion" => Some("Modern fingerprinting evasion"),
+        "api_call_sequence_malicious" => Some("Suspicious API call sequence"),
+        "source_sink_complexity" => Some("Complex source-to-sink data flow"),
+        "entropy_at_sink" => Some("High-entropy payload at execution sink"),
+        "dynamic_string_materialisation_sink" => {
+            Some("Dynamic string materialisation into execution sink")
+        }
         _ => None,
     }
 }
@@ -1046,6 +1052,10 @@ fn behavioral_pattern_kind(name: &str) -> Option<&'static str> {
         "wasm_memory_unpacker_pipeline" => Some("js_runtime_wasm_memory_unpacker"),
         "extension_api_abuse_probe" => Some("js_runtime_extension_api_abuse"),
         "modern_fingerprint_evasion" => Some("js_runtime_modern_fingerprint_evasion"),
+        "api_call_sequence_malicious" => Some("js_runtime_api_sequence_malicious"),
+        "source_sink_complexity" => Some("js_runtime_source_sink_complexity"),
+        "entropy_at_sink" => Some("js_runtime_entropy_at_sink"),
+        "dynamic_string_materialisation_sink" => Some("js_runtime_dynamic_string_materialisation"),
         _ => None,
     }
 }
@@ -1099,6 +1109,18 @@ fn behavioral_pattern_description(name: &str) -> Option<&'static str> {
         }
         "modern_fingerprint_evasion" => {
             Some("JavaScript performed modern fingerprint probes with timing or gating behaviour.")
+        }
+        "api_call_sequence_malicious" => {
+            Some("JavaScript executed a suspicious source/transform/sink API sequence consistent with staged malicious intent.")
+        }
+        "source_sink_complexity" => {
+            Some("JavaScript routed data from acquisition sources to sensitive sinks with a multi-step transformation chain.")
+        }
+        "entropy_at_sink" => {
+            Some("JavaScript passed high-entropy runtime strings into execution sinks, consistent with obfuscated payload staging.")
+        }
+        "dynamic_string_materialisation_sink" => {
+            Some("JavaScript dynamically materialised executable strings before invoking execution sinks.")
         }
         _ => None,
     }
