@@ -78,6 +78,27 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Re-run scans and summaries even if outputs already exist.",
     )
+    parser.add_argument(
+        "--fail-on-unknown-runtime-behaviour",
+        action="store_true",
+        help=(
+            "Exit non-zero when js_runtime_unknown_behaviour_pattern names are observed "
+            "outside the configured allow-list."
+        ),
+    )
+    parser.add_argument(
+        "--allow-runtime-behaviour",
+        action="append",
+        default=[],
+        help="Allow-list a runtime behaviour name for unknown-pattern guardrails.",
+    )
+    parser.add_argument(
+        "--allow-runtime-behaviour-file",
+        help=(
+            "Path to JSON array or newline-delimited file of allow-listed unknown "
+            "runtime behaviour names."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -193,9 +214,39 @@ def extract_surface(finding: dict) -> str:
     return normalise_key(finding.get("surface") or finding.get("attack_surface"))
 
 
+def normalise_runtime_behaviour_name(value: Optional[str]) -> str:
+    name = normalise_key(value).strip()
+    if not name:
+        return "unknown"
+    return name
+
+
+def load_runtime_behaviour_allow_list(path: Optional[str]) -> set[str]:
+    if not path:
+        return set()
+    target = Path(path).expanduser()
+    if not target.exists():
+        raise FileNotFoundError(f"allow-list file not found: {target}")
+    text = target.read_text(encoding="utf-8")
+    if target.suffix.lower() == ".json":
+        payload = json.loads(text)
+        if not isinstance(payload, list):
+            raise ValueError("allow-list JSON must be an array of strings")
+        return {
+            normalise_runtime_behaviour_name(item)
+            for item in payload
+            if isinstance(item, str) and item.strip()
+        }
+    return {
+        normalise_runtime_behaviour_name(line)
+        for line in text.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    }
+
+
 def parse_jsonl_findings(
     jsonl_path: Path,
-) -> Tuple[Counter, Dict[str, Counter], int, int]:
+) -> Tuple[Counter, Dict[str, Counter], int, int, Counter, List[dict]]:
     by_kind = Counter()
     by_field: Dict[str, Counter] = {
         "severity": Counter(),
@@ -203,6 +254,8 @@ def parse_jsonl_findings(
         "confidence": Counter(),
         "surface": Counter(),
     }
+    unknown_runtime_behaviour = Counter()
+    unknown_runtime_samples = []
     total_findings = 0
     parse_errors = 0
     with jsonl_path.open("r", encoding="utf-8", errors="ignore") as handle:
@@ -224,8 +277,39 @@ def parse_jsonl_findings(
                 by_field["impact"][normalise_key(finding.get("impact"))] += 1
                 by_field["confidence"][normalise_key(finding.get("confidence"))] += 1
                 by_field["surface"][extract_surface(finding)] += 1
+                if kind == "js_runtime_unknown_behaviour_pattern":
+                    meta = finding.get("meta")
+                    if not isinstance(meta, dict):
+                        meta = {}
+                    behaviour_name = normalise_runtime_behaviour_name(
+                        meta.get("js.runtime.behavior.name")
+                    )
+                    unknown_runtime_behaviour[behaviour_name] += 1
+                    if len(unknown_runtime_samples) < 64:
+                        unknown_runtime_samples.append(
+                            {
+                                "name": behaviour_name,
+                                "evidence": normalise_key(
+                                    meta.get("js.runtime.behavior.evidence")
+                                ),
+                                "source_object": (
+                                    finding.get("objects", [None])[0]
+                                    if isinstance(finding.get("objects"), list)
+                                    and finding.get("objects")
+                                    else None
+                                ),
+                                "position": finding.get("position"),
+                            }
+                        )
                 total_findings += 1
-    return by_kind, by_field, total_findings, parse_errors
+    return (
+        by_kind,
+        by_field,
+        total_findings,
+        parse_errors,
+        unknown_runtime_behaviour,
+        unknown_runtime_samples,
+    )
 
 
 def update_latest_symlink(corpus_root: Path, latest_dir: Path) -> None:
@@ -267,6 +351,8 @@ def write_summary(
     by_field: Dict[str, Counter],
     total_findings: int,
     parse_errors: int,
+    unknown_runtime_behaviour: Counter,
+    unknown_runtime_samples: List[dict],
     error_counts: Dict[str, int],
     sis_version: str,
     deep: bool,
@@ -295,6 +381,12 @@ def write_summary(
             "json_parse_errors": parse_errors,
             "scan_errors": error_counts.get("errors", 0),
             "scan_warnings": error_counts.get("warnings", 0),
+        },
+        "runtime_unknown_behaviour": {
+            "total": int(sum(unknown_runtime_behaviour.values())),
+            "unique_names": len(unknown_runtime_behaviour),
+            "by_name": dict(unknown_runtime_behaviour),
+            "samples": unknown_runtime_samples,
         },
     }
     artifacts.summary_path.write_text(
@@ -447,6 +539,14 @@ def generate_daily_report(
         ("Files", str(summary.get("file_count", 0))),
         ("Total findings", str(summary["findings"].get("total", 0))),
         ("Unique kinds", str(summary["findings"].get("unique_kinds", 0))),
+        (
+            "Unknown runtime behaviour findings",
+            str(summary.get("runtime_unknown_behaviour", {}).get("total", 0)),
+        ),
+        (
+            "Unknown runtime behaviour names",
+            str(summary.get("runtime_unknown_behaviour", {}).get("unique_names", 0)),
+        ),
         ("Errors", str(summary["errors"].get("scan_errors", 0))),
         ("Warnings", str(summary["errors"].get("scan_warnings", 0))),
     ]
@@ -472,6 +572,15 @@ def generate_daily_report(
                         ", ".join(regressions["high_severity_drop"]) or "none",
                     ),
                 ],
+            )
+        )
+    unknown_runtime_counter = summary.get("runtime_unknown_behaviour", {}).get("by_name", {})
+    if isinstance(unknown_runtime_counter, dict) and unknown_runtime_counter:
+        sections.append(
+            render_counter(
+                "Unknown runtime behaviour names",
+                unknown_runtime_counter,
+                limit=25,
             )
         )
     html = build_html(f"MWB Corpus Report {date}", "<div class='section'>" + "</div><div class='section'>".join(sections) + "</div>")
@@ -556,6 +665,11 @@ def main() -> int:
         return 1
 
     sis_version = read_sis_version(args.sis_bin)
+    observed_unknown_runtime_behaviour: set[str] = set()
+    allow_list = {
+        normalise_runtime_behaviour_name(name) for name in args.allow_runtime_behaviour if name
+    }
+    allow_list.update(load_runtime_behaviour_allow_list(args.allow_runtime_behaviour_file))
 
     if not args.report_only:
         for day_dir in day_dirs:
@@ -570,9 +684,17 @@ def main() -> int:
                 args.force,
                 args.batch_parallel,
             )
-            by_kind, by_field, total_findings, parse_errors = parse_jsonl_findings(
+            (
+                by_kind,
+                by_field,
+                total_findings,
+                parse_errors,
+                unknown_runtime_behaviour,
+                unknown_runtime_samples,
+            ) = parse_jsonl_findings(
                 artifacts.jsonl_path
             )
+            observed_unknown_runtime_behaviour.update(unknown_runtime_behaviour.keys())
             error_counts = count_errors(artifacts.stderr_path)
             write_summary(
                 artifacts,
@@ -580,6 +702,8 @@ def main() -> int:
                 by_field,
                 total_findings,
                 parse_errors,
+                unknown_runtime_behaviour,
+                unknown_runtime_samples,
                 error_counts,
                 sis_version,
                 args.deep,
@@ -595,12 +719,29 @@ def main() -> int:
     if not summaries:
         print("No summaries found to build reports.")
         return 1
+    if args.report_only:
+        for summary in summaries.values():
+            names = summary.get("runtime_unknown_behaviour", {}).get("by_name", {})
+            if isinstance(names, dict):
+                observed_unknown_runtime_behaviour.update(
+                    normalise_runtime_behaviour_name(name) for name in names.keys()
+                )
 
     write_report_index(reports_dir, summaries)
     for date in summaries:
         generate_daily_report(reports_dir, summaries, date)
     generate_period_reports(reports_dir, summaries, "weekly")
     generate_period_reports(reports_dir, summaries, "monthly")
+    if args.fail_on_unknown_runtime_behaviour:
+        disallowed = sorted(
+            name for name in observed_unknown_runtime_behaviour if name not in allow_list
+        )
+        if disallowed:
+            print(
+                "Unknown runtime behaviour names detected outside allow-list: "
+                + ", ".join(disallowed)
+            )
+            return 2
     return 0
 
 

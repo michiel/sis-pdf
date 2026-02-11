@@ -1874,6 +1874,78 @@ impl Detector for JavaScriptSandboxDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use js_analysis::types::{BehaviorPattern, ExecutionStats};
+
+    const MAPPED_BEHAVIORAL_PATTERN_NAMES: &[&str] = &[
+        "wasm_loader_staging",
+        "runtime_dependency_loader_abuse",
+        "credential_harvest_form_emulation",
+        "chunked_data_exfil_pipeline",
+        "interaction_coercion_loop",
+        "lotl_api_chain_execution",
+        "service_worker_persistence_abuse",
+        "webcrypto_key_staging_exfil",
+        "storage_backed_payload_staging",
+        "dynamic_module_graph_evasion",
+        "covert_realtime_channel_abuse",
+        "clipboard_session_hijack_behaviour",
+        "dom_sink_policy_bypass_attempt",
+        "wasm_memory_unpacker_pipeline",
+        "extension_api_abuse_probe",
+        "modern_fingerprint_evasion",
+        "api_call_sequence_malicious",
+        "source_sink_complexity",
+        "entropy_at_sink",
+        "dynamic_string_materialisation_sink",
+        "error_recovery_patterns",
+        "dormant_or_gated_execution",
+    ];
+
+    fn minimal_dynamic_signals_with_patterns(
+        patterns: Vec<BehaviorPattern>,
+    ) -> js_analysis::DynamicSignals {
+        js_analysis::DynamicSignals {
+            replay_id: "test-replay".into(),
+            runtime_profile: "pdf_reader:adobe:11:compat".into(),
+            calls: Vec::new(),
+            call_args: Vec::new(),
+            urls: Vec::new(),
+            domains: Vec::new(),
+            errors: Vec::new(),
+            prop_reads: Vec::new(),
+            prop_writes: Vec::new(),
+            prop_deletes: Vec::new(),
+            reflection_probes: Vec::new(),
+            dynamic_code_calls: Vec::new(),
+            heap_allocations: Vec::new(),
+            heap_views: Vec::new(),
+            heap_accesses: Vec::new(),
+            heap_allocation_count: 0,
+            heap_view_count: 0,
+            heap_access_count: 0,
+            call_count: 0,
+            unique_calls: 0,
+            unique_prop_reads: 0,
+            elapsed_ms: Some(1),
+            truncation: js_analysis::DynamicTruncationSummary::default(),
+            phases: Vec::new(),
+            delta_summary: None,
+            behavioral_patterns: patterns,
+            execution_stats: ExecutionStats {
+                total_function_calls: 0,
+                unique_function_calls: 0,
+                variable_promotions: 0,
+                error_recoveries: 0,
+                successful_recoveries: 0,
+                execution_depth: 0,
+                loop_iteration_limit_hits: 0,
+                adaptive_loop_iteration_limit: 0,
+                adaptive_loop_profile: "baseline".into(),
+                downloader_scheduler_hardening: false,
+                probe_loop_short_circuit_hits: 0,
+            },
+        }
+    }
 
     #[test]
     fn all_profile_timeouts_raise_timeout_finding_severity() {
@@ -1964,5 +2036,53 @@ mod tests {
             Some("Dormant or gated execution behaviour")
         );
         assert!(behavioral_pattern_description("dormant_or_gated_execution").is_some());
+    }
+
+    #[test]
+    fn mapped_behavioral_patterns_have_full_metadata() {
+        for name in MAPPED_BEHAVIORAL_PATTERN_NAMES {
+            assert!(behavioral_pattern_kind(name).is_some(), "missing kind mapping for {name}");
+            assert!(behavioral_pattern_title(name).is_some(), "missing title mapping for {name}");
+            assert!(
+                behavioral_pattern_description(name).is_some(),
+                "missing description mapping for {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_behavioral_pattern_preserves_name_and_evidence_meta() {
+        let mut findings = Vec::new();
+        let summary = ProfileDivergenceSummary::default();
+        let mut base_meta = std::collections::HashMap::new();
+        base_meta.insert("js.source".into(), "inline".into());
+        let unknown_pattern = BehaviorPattern {
+            name: "new_unmapped_runtime_pattern".into(),
+            confidence: 0.42,
+            evidence: "Observed unusual call/prop progression".into(),
+            severity: "Low".into(),
+            metadata: std::collections::BTreeMap::new(),
+        };
+        let signals = minimal_dynamic_signals_with_patterns(vec![unknown_pattern]);
+        extend_with_behavioral_pattern_findings(
+            &mut findings,
+            AttackSurface::JavaScript,
+            "8 0 obj",
+            &[],
+            &base_meta,
+            &summary,
+            &signals,
+        );
+        assert_eq!(findings.len(), 1);
+        let finding = &findings[0];
+        assert_eq!(finding.kind, "js_runtime_unknown_behaviour_pattern");
+        assert_eq!(
+            finding.meta.get("js.runtime.behavior.name").map(String::as_str),
+            Some("new_unmapped_runtime_pattern")
+        );
+        assert_eq!(
+            finding.meta.get("js.runtime.behavior.evidence").map(String::as_str),
+            Some("Observed unusual call/prop progression")
+        );
     }
 }
