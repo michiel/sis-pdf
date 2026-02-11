@@ -90,10 +90,10 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add CVE-derived sanitised fixtures.
 
 ## PR-13: Revision content extractor foundation
-- [ ] Implement PDF plan S2-1 revision content extractor.
-- [ ] Validate ByteRange bounds strictly.
-- [ ] Handle malformed/inconsistent `/Prev` chains safely.
-- [ ] Add extractor-focused tests.
+- [x] Implement PDF plan S2-1 revision content extractor.
+- [x] Validate ByteRange bounds strictly.
+- [x] Handle malformed/inconsistent `/Prev` chains safely.
+- [x] Add extractor-focused tests.
 
 ## PR-14: Shadow attack detectors
 - [ ] Implement PDF plan S2-2 `shadow_hide_attack`.
@@ -245,9 +245,13 @@ Gate D (after PR-20):
 - `PR-12`: added CVE-derived sanitised fixtures under `crates/js-analysis/tests/fixtures/modern_heap/` and wired static/integration coverage.
 - `PR-12`: finding documentation added in `docs/findings.md`.
 - Validation completed: `cargo test -p js-analysis --test static_signals` and `cargo test -p sis-pdf-detectors --test js_polymorphic_integration`.
+- `PR-13`: added revision extraction utility in `crates/sis-pdf-core/src/revision_extract.rs` with signature `/ByteRange` parsing, revision snapshot extraction, and nearest `startxref` correlation.
+- `PR-13`: added strict `/ByteRange` validation (shape, integer type, ordering, overlap, overflow, and bounds checks).
+- `PR-13`: added `/Prev` chain integrity validator to safely handle malformed or inconsistent xref chains.
+- `PR-13`: added extractor-focused unit tests for valid extraction, malformed `/ByteRange`, and `/Prev` mismatch handling.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-13` revision content extractor foundation.
+- Start `PR-14` shadow attack detectors.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.
