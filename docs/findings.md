@@ -854,6 +854,21 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `pdfjs.affected_versions`: currently `<4.2.67`
     - `reader_impacts`: includes browser-oriented impact notes.
 
+## font_js_exploitation_bridge
+
+- ID: `font_js_exploitation_bridge`
+- Label: Correlated font and JavaScript exploitation indicators
+- Description: Suspicious font structures co-occur with executable JavaScript indicators in the same PDF.
+- Tags: font, javascript, correlation
+- Details:
+  - Relevance: combined font and JS signals strongly suggest staged renderer exploitation attempts.
+  - Meaning: bridge correlation requires both suspicious font indicators and JavaScript execution-capable indicators.
+  - Chain usage: prioritisation signal for analyst triage; confidence is uplifted only when both domains match.
+  - Metadata:
+    - `bridge.font_indicators`
+    - `bridge.js_indicators`
+    - `bridge.confidence_adjusted`
+
 ## gotor_present
 
 - ID: `gotor_present`

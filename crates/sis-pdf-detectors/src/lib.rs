@@ -112,6 +112,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(external_context::ExternalActionContextDetector),
         Box::new(FontMatrixDetector),
         Box::new(PdfjsFontInjectionDetector),
+        Box::new(FontJsExploitationBridgeDetector { enable_ast: settings.js_ast }),
         Box::new(font_exploits::FontExploitDetector),
         Box::new(font_external_ref::FontExternalReferenceDetector),
         Box::new(image_analysis::ImageAnalysisDetector),
@@ -2243,6 +2244,169 @@ impl Detector for FontMatrixDetector {
                 }
             }
         }
+        Ok(findings)
+    }
+}
+
+struct FontJsExploitationBridgeDetector {
+    enable_ast: bool,
+}
+
+impl Detector for FontJsExploitationBridgeDetector {
+    fn id(&self) -> &'static str {
+        "font_js_exploitation_bridge"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Metadata
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Moderate
+    }
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        let mut font_indicators = HashSet::new();
+        let mut font_objects = HashSet::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            let mut local = Vec::new();
+            if let Some((_, obj)) = dict.get_first(b"/FontMatrix") {
+                if array_has_non_numeric(obj) {
+                    local.push("fontmatrix_non_numeric");
+                }
+            }
+            if let Some((_, obj)) = dict.get_first(b"/FontBBox") {
+                if array_has_non_numeric(obj) {
+                    local.push("fontbbox_non_numeric");
+                }
+            }
+            if let Some((_, obj)) = dict.get_first(b"/Encoding") {
+                if encoding_contains_string_values(obj, ctx) {
+                    local.push("encoding_string_values");
+                }
+            }
+            if is_cmap_stream(entry) {
+                if let Some(payload) = entry_payload_bytes(ctx.bytes, entry) {
+                    if contains_pdfjs_injection_tokens(payload) {
+                        local.push("cmap_script_tokens");
+                    }
+                }
+            }
+            if !local.is_empty() {
+                font_objects.insert(format!("{} {} obj", entry.obj, entry.gen));
+                for indicator in local {
+                    font_indicators.insert(indicator);
+                }
+            }
+        }
+
+        let mut js_indicators = HashSet::new();
+        let mut js_objects = HashSet::new();
+        let mut js_high_risk = false;
+        for entry in &ctx.graph.objects {
+            let candidates = js_payload_candidates_from_entry(ctx, entry);
+            if candidates.is_empty() {
+                continue;
+            }
+            js_objects.insert(format!("{} {} obj", entry.obj, entry.gen));
+            js_indicators.insert("js_payload_present");
+            for candidate in candidates {
+                let signals = js_analysis::static_analysis::extract_js_signals_with_ast(
+                    &candidate.payload.bytes,
+                    self.enable_ast,
+                );
+                if matches!(signals.get("js.contains_eval").map(String::as_str), Some("true"))
+                    || matches!(
+                        signals.get("js.dynamic_eval_construction").map(String::as_str),
+                        Some("true")
+                    )
+                {
+                    js_indicators.insert("js_dynamic_eval");
+                    js_high_risk = true;
+                }
+                if matches!(
+                    signals.get("js.obfuscation_suspected").map(String::as_str),
+                    Some("true")
+                ) || matches!(
+                    signals.get("js.contains_fromcharcode").map(String::as_str),
+                    Some("true")
+                ) || matches!(
+                    signals.get("js.contains_unescape").map(String::as_str),
+                    Some("true")
+                ) {
+                    js_indicators.insert("js_obfuscation");
+                }
+                if matches!(
+                    signals.get("js.environment_fingerprinting").map(String::as_str),
+                    Some("true")
+                ) {
+                    js_indicators.insert("js_environment_fingerprinting");
+                }
+            }
+        }
+
+        if !font_indicators.is_empty() && !js_indicators.is_empty() {
+            let confidence = if font_indicators.len() >= 2 && js_high_risk {
+                Confidence::Certain
+            } else {
+                Confidence::Strong
+            };
+            let mut meta = std::collections::HashMap::new();
+            let mut font_indicator_list = font_indicators.into_iter().collect::<Vec<_>>();
+            font_indicator_list.sort_unstable();
+            let mut js_indicator_list = js_indicators.into_iter().collect::<Vec<_>>();
+            js_indicator_list.sort_unstable();
+            meta.insert("bridge.kind".into(), "font_js_exploitation_bridge".into());
+            meta.insert("bridge.confidence_adjusted".into(), "true".into());
+            meta.insert("bridge.font_indicators".into(), font_indicator_list.join(","));
+            meta.insert("bridge.js_indicators".into(), js_indicator_list.join(","));
+            meta.insert(
+                "bridge.font_indicator_count".into(),
+                font_indicator_list.len().to_string(),
+            );
+            meta.insert("bridge.js_indicator_count".into(), js_indicator_list.len().to_string());
+            meta.insert("bridge.js_high_risk".into(), js_high_risk.to_string());
+
+            let mut objects = font_objects.into_iter().collect::<Vec<_>>();
+            objects.extend(js_objects);
+            objects.sort();
+            objects.dedup();
+
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Metadata,
+                kind: "font_js_exploitation_bridge".into(),
+                severity: Severity::Medium,
+                confidence,
+                impact: Some(Impact::High),
+                title: "Correlated font and JavaScript exploitation indicators".into(),
+                description:
+                    "Suspicious font structures co-occur with executable JavaScript indicators in the same PDF."
+                        .into(),
+                objects,
+                evidence: vec![span_to_evidence(
+                    sis_pdf_pdf::span::Span { start: 0, end: ctx.bytes.len() as u64 },
+                    "Font/JavaScript correlation",
+                )],
+                remediation: Some(
+                    "Prioritise combined triage of font dictionaries and JavaScript payload behaviour."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
         Ok(findings)
     }
 }

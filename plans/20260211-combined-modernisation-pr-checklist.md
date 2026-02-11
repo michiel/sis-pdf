@@ -65,10 +65,10 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add benign Type1 false-positive control.
 
 ## PR-09: Font-to-JS bridge correlation
-- [ ] Implement PDF plan S3-5 `font_js_exploitation_bridge`.
-- [ ] Correlate font-analysis + js-analysis findings in detector layer.
-- [ ] Add escalation rules (confidence uplift only on dual-signal match).
-- [ ] Add cross-crate integration tests.
+- [x] Implement PDF plan S3-5 `font_js_exploitation_bridge`.
+- [x] Correlate font-analysis + js-analysis findings in detector layer.
+- [x] Add escalation rules (confidence uplift only on dual-signal match).
+- [x] Add cross-crate integration tests.
 
 ## PR-10: PDF.js annotation/form/eval-path indicators
 - [ ] Implement PDF plan S3-2 `pdfjs_annotation_injection`.
@@ -228,9 +228,13 @@ Gate D (after PR-20):
 - `PR-08`: populated affected-version metadata (`pdfjs.affected_versions=<4.2.67`) and `reader_impacts` notes for browser rendering risk.
 - `PR-08`: added integration coverage in `crates/sis-pdf-detectors/tests/pdfjs_font_injection.rs`, including benign Type1 false-positive control.
 - `PR-08`: finding documentation added in `docs/findings.md`.
+- `PR-09`: added `FontJsExploitationBridgeDetector` and `font_js_exploitation_bridge` correlation finding in `crates/sis-pdf-detectors/src/lib.rs`.
+- `PR-09`: implemented dual-domain indicator correlation (font structural risk + JavaScript execution/obfuscation indicators) with confidence-only uplift.
+- `PR-09`: added cross-crate integration coverage in `crates/sis-pdf-detectors/tests/font_js_bridge.rs`.
+- `PR-09`: finding documentation added in `docs/findings.md`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-09` font-to-JS bridge correlation.
+- Start `PR-10` PDF.js annotation/form/eval-path indicators.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.
