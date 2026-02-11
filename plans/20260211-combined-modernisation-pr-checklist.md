@@ -40,11 +40,11 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add false-positive controls.
 
 ## PR-05: Structural evasion primitives A
-- [ ] Implement PDF plan S1-2 `xref_phantom_entries`.
-- [ ] Implement PDF plan S1-4 `trailer_root_conflict`.
-- [ ] Implement PDF plan S1-5 `null_object_density`.
-- [ ] Add `evasion.*` metadata fields.
-- [ ] Add detector integration tests.
+- [x] Implement PDF plan S1-2 `xref_phantom_entries`.
+- [x] Implement PDF plan S1-4 `trailer_root_conflict`.
+- [x] Implement PDF plan S1-5 `null_object_density`.
+- [x] Add `evasion.*` metadata fields.
+- [x] Add detector integration tests.
 
 ## PR-06: Structural evasion primitives B
 - [ ] Implement PDF plan S1-1 `empty_objstm_padding`.
@@ -210,9 +210,14 @@ Gate D (after PR-20):
 - `PR-04`: encoded fixture pack added under `crates/js-analysis/tests/fixtures/encoded/` with malicious and benign esoteric samples plus nested-decode fixtures.
 - `PR-04`: integration tests added in `crates/js-analysis/tests/encoded_fixtures.rs` covering decode-then-analyse and false-positive controls.
 - Validation completed: `cargo test -p js-analysis --test encoded_fixtures`.
+- `PR-05`: structural evasion findings implemented in `crates/sis-pdf-detectors/src/structural_anomalies.rs`: `xref_phantom_entries`, `trailer_root_conflict`, `null_object_density`.
+- `PR-05`: `evasion.*` metadata fields added for the new structural indicators.
+- `PR-05`: detector integration coverage added in `crates/sis-pdf-detectors/tests/structural_anomalies.rs`.
+- `PR-05`: finding documentation added in `docs/findings.md` for the new IDs.
+- Validation completed: `cargo test -p sis-pdf-detectors --test structural_anomalies`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-05` structural evasion primitives A (`xref_phantom_entries`, `trailer_root_conflict`, `null_object_density`).
+- Start `PR-06` structural evasion primitives B (`empty_objstm_padding`, `structural_decoy_objects`).
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

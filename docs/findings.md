@@ -3022,6 +3022,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: the finding collects `uri.count_*`, `uri.schemes`, and `uri.domains_sample` plus `uri.list.*` metadata (preview/canonical/chain_depth/visibility/trigger/suspicious) so downstream consumers can inspect every URI without flooding the report. `uri.suspicious_count` highlights how many URIs matched the `UriContentDetector` heuristics.
   - Chain usage: acts as a summary node that can be joined with other findings (e.g., suspicious URIs, action chains) and remains low-noise even when hundreds of links are present.
 
+## xref_phantom_entries
+
+- ID: `xref_phantom_entries`
+- Label: Xref phantom entries detected
+- Description: Xref deviations indicate offsets or trailer references that do not resolve cleanly.
+- Tags: evasion, structure, xref
+- Details:
+  - Relevance: malformed xref structures can be used to confuse parsers and hide malicious content.
+  - Meaning: offsets or trailer lookups in the xref chain are inconsistent with parseable object structure.
+  - Chain usage: structural evasion indicator; combine with other findings for escalation.
+
 ## xfa_present
 
 - ID: `xfa_present`
@@ -3043,6 +3054,28 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
+
+## trailer_root_conflict
+
+- ID: `trailer_root_conflict`
+- Label: Conflicting trailer /Root references
+- Description: Multiple xref sections declare different trailer /Root references.
+- Tags: evasion, structure, trailer
+- Details:
+  - Relevance: conflicting root references can steer different parsers to different document states.
+  - Meaning: incremental update chain has inconsistent catalogue root targets.
+  - Chain usage: structural evasion indicator; useful when correlating revision tampering.
+
+## null_object_density
+
+- ID: `null_object_density`
+- Label: High null object density
+- Description: Object graph contains an unusually high density of null placeholder objects.
+- Tags: evasion, structure
+- Details:
+  - Relevance: null-padding can dilute malicious signal density and hinder triage.
+  - Meaning: a large fraction of objects are structural placeholders with no content.
+  - Chain usage: low-confidence structural evasion signal that should be aggregated with other indicators.
 
 ## launch_obfuscated_executable
 

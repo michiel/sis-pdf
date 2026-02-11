@@ -8,7 +8,7 @@ use sis_pdf_core::detect::Detector;
 use sis_pdf_core::scan::ScanContext;
 use sis_pdf_detectors::strict::StrictParseDeviationDetector;
 use sis_pdf_detectors::structural_anomalies::StructuralAnomaliesDetector;
-use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance, ObjectGraph};
+use sis_pdf_pdf::graph::{Deviation, ObjEntry, ObjProvenance, ObjectGraph, XrefSectionSummary};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj, PdfStream};
 use sis_pdf_pdf::span::Span;
 
@@ -30,6 +30,17 @@ fn build_context(
     trailers: Vec<sis_pdf_pdf::object::PdfDict<'static>>,
     startxrefs: Vec<u64>,
 ) -> ScanContext<'static> {
+    build_context_with_xref(bytes, objects, trailers, startxrefs, Vec::new(), Vec::new())
+}
+
+fn build_context_with_xref(
+    bytes: &'static [u8],
+    objects: Vec<ObjEntry<'static>>,
+    trailers: Vec<sis_pdf_pdf::object::PdfDict<'static>>,
+    startxrefs: Vec<u64>,
+    xref_sections: Vec<XrefSectionSummary>,
+    deviations: Vec<Deviation>,
+) -> ScanContext<'static> {
     let mut index: HashMap<(u32, u16), Vec<usize>> = HashMap::new();
     for (idx, entry) in objects.iter().enumerate() {
         index.entry((entry.obj, entry.gen)).or_default().push(idx);
@@ -40,8 +51,8 @@ fn build_context(
         index,
         trailers,
         startxrefs,
-        xref_sections: Vec::new(),
-        deviations: Vec::new(),
+        xref_sections,
+        deviations,
         telemetry_events: Vec::new(),
     };
     ScanContext::new(bytes, graph, default_scan_opts())
@@ -160,4 +171,87 @@ fn trailer_size_noncanonical_detected_with_sparse_object_ids() {
         !findings.iter().any(|f| f.kind == "pdf.trailer_inconsistent"),
         "Object-count mismatch finding should not trigger when /Size equals parsed count"
     );
+}
+
+#[test]
+fn emits_trailer_root_conflict_with_evasion_metadata() {
+    let bytes = leak_bytes(b"%PDF-1.7\n/Root 1 0 R\n/Root 9 0 R\n".to_vec());
+    let xref_sections = vec![
+        XrefSectionSummary {
+            offset: 100,
+            kind: "table".into(),
+            has_trailer: true,
+            prev: None,
+            trailer_size: Some(12),
+            trailer_root: Some("1 0 R".into()),
+        },
+        XrefSectionSummary {
+            offset: 200,
+            kind: "table".into(),
+            has_trailer: true,
+            prev: Some(100),
+            trailer_size: Some(12),
+            trailer_root: Some("9 0 R".into()),
+        },
+    ];
+    let ctx = build_context_with_xref(
+        bytes,
+        Vec::new(),
+        Vec::new(),
+        vec![100, 200],
+        xref_sections,
+        Vec::new(),
+    );
+    let detector = StructuralAnomaliesDetector;
+    let findings = detector.run(&ctx).expect("detector should run");
+    let finding = findings
+        .iter()
+        .find(|finding| finding.kind == "trailer_root_conflict")
+        .expect("expected trailer_root_conflict");
+    assert_eq!(finding.meta.get("evasion.trailer_root_conflict").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn emits_xref_phantom_entries_from_xref_deviations() {
+    let bytes = leak_bytes(b"%PDF-1.7\nxref\n".to_vec());
+    let deviations = vec![Deviation {
+        kind: "xref_trailer_search_invalid".into(),
+        span: Span { start: 0, end: 4 },
+        note: Some("invalid trailer".into()),
+    }];
+    let ctx =
+        build_context_with_xref(bytes, Vec::new(), Vec::new(), vec![0], Vec::new(), deviations);
+    let detector = StructuralAnomaliesDetector;
+    let findings = detector.run(&ctx).expect("detector should run");
+    let finding = findings
+        .iter()
+        .find(|finding| finding.kind == "xref_phantom_entries")
+        .expect("expected xref_phantom_entries");
+    assert_eq!(finding.meta.get("evasion.xref_phantom_entries").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn emits_null_object_density_when_ratio_is_high() {
+    let bytes = leak_bytes(vec![0u8; 32]);
+    let mut objects = Vec::new();
+    for obj in 1..=10 {
+        let atom = if obj <= 7 { PdfAtom::Null } else { PdfAtom::Int(obj as i64) };
+        objects.push(ObjEntry {
+            obj,
+            gen: 0,
+            atom,
+            header_span: Span { start: 0, end: 0 },
+            body_span: Span { start: 0, end: 0 },
+            full_span: Span { start: 0, end: 0 },
+            provenance: ObjProvenance::Indirect,
+        });
+    }
+    let ctx = build_context(bytes, objects, Vec::new(), vec![0]);
+    let detector = StructuralAnomaliesDetector;
+    let findings = detector.run(&ctx).expect("detector should run");
+    let finding = findings
+        .iter()
+        .find(|finding| finding.kind == "null_object_density")
+        .expect("expected null_object_density");
+    assert_eq!(finding.meta.get("evasion.null_object_density").map(String::as_str), Some("true"));
 }
