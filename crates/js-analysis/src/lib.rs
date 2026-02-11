@@ -1,3 +1,4 @@
+pub mod corpus_regression;
 pub mod dynamic;
 mod sandbox_test;
 pub mod wasm_features;

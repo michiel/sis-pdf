@@ -1,0 +1,1586 @@
+{
+  "passes_thresholds": true,
+  "samples": [
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_01.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_02.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_03.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_04.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation",
+        "dynamic_string_materialisation_sink",
+        "multi_pass_decode_pipeline",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 3,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_05.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_06.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_07.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 1,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_08.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_09.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_10.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_11.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_12.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_13.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_14.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation",
+        "dynamic_string_materialisation_sink",
+        "multi_pass_decode_pipeline",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 3,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_15.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_16.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_17.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 1,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_18.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_19.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_20.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_21.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_22.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_23.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_24.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation",
+        "dynamic_string_materialisation_sink",
+        "multi_pass_decode_pipeline",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 3,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_25.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_26.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_27.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 1,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_28.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_29.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_30.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_31.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_32.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_33.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_34.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation",
+        "dynamic_string_materialisation_sink",
+        "multi_pass_decode_pipeline",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 3,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_35.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_36.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_37.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 1,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_38.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_39.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_40.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_41.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_42.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_43.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_44.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation",
+        "dynamic_string_materialisation_sink",
+        "multi_pass_decode_pipeline",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 3,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_45.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_46.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_47.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_48.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_49.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_50.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_51.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_52.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_53.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_54.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_55.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_56.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_57.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_string_materialisation_sink",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 1,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_58.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "dynamic_code_generation"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_59.js",
+      "static_hits": [
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [
+        "api_call_sequence_malicious",
+        "source_sink_complexity"
+      ],
+      "detected": true,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "adversarial",
+      "path": "crates/js-analysis/tests/fixtures/corpus/adversarial/adv_60.js",
+      "static_hits": [
+        "js.contains_eval",
+        "js.semantic_source_to_sink_flow"
+      ]
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_01.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_02.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_03.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_04.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_05.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_06.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_07.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_08.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_09.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_10.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_11.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_12.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_13.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_14.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_15.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_16.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_17.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_18.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_19.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_20.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_21.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_22.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_23.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_24.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_25.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_26.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_27.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_28.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_29.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_30.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_31.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_32.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_33.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_34.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_35.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_36.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_37.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_38.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_39.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_40.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_41.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_42.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_43.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_44.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_45.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_46.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_47.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_48.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_49.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_50.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_51.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_52.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_53.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_54.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_55.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_56.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_57.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_58.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_59.js",
+      "static_hits": []
+    },
+    {
+      "behavioural_hits": [],
+      "detected": false,
+      "error_count": 0,
+      "executed": true,
+      "false_positive": false,
+      "label": "benign",
+      "path": "crates/js-analysis/tests/fixtures/corpus/benign/ben_60.js",
+      "static_hits": []
+    }
+  ],
+  "summary": {
+    "benign_false_positives": 0,
+    "benign_total": 60,
+    "executed_total": 120,
+    "execution_rate": 1.0,
+    "false_positive_rate": 0.0,
+    "malicious_detected": 60,
+    "malicious_total": 60,
+    "samples_total": 120,
+    "true_positive_rate": 1.0
+  },
+  "thresholds": {
+    "max_false_positive_rate": 0.05,
+    "min_execution_rate": 0.75,
+    "min_true_positive_rate": 0.85
+  }
+}

@@ -137,11 +137,11 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Implement JS plan S5-6 adversarial rewrite fixtures.
 
 ## PR-20: Corpus expansion + CI regression harness
-- [ ] Implement JS plan S6-1 modern sample acquisition pipeline docs.
-- [ ] Implement JS plan S6-2 synthetic adversarial corpus.
-- [ ] Implement JS plan S6-3 benign corpus set.
-- [ ] Implement JS plan S6-4 validation sweep metrics report.
-- [ ] Implement JS plan S6-5 CI-compatible regression harness.
+- [x] Implement JS plan S6-1 modern sample acquisition pipeline docs.
+- [x] Implement JS plan S6-2 synthetic adversarial corpus.
+- [x] Implement JS plan S6-3 benign corpus set.
+- [x] Implement JS plan S6-4 validation sweep metrics report.
+- [x] Implement JS plan S6-5 CI-compatible regression harness.
 
 ## 3. Dependency map
 
@@ -278,9 +278,13 @@ Gate D (after PR-20):
 - `PR-19`: added adversarial rewrite fixture pack under `crates/js-analysis/tests/fixtures/adversarial/` with ten variant payloads and behavioural resilience tests in `crates/js-analysis/tests/adversarial_rewrites.rs`.
 - `PR-19`: added integration coverage for new runtime and semantic findings in `crates/sis-pdf-detectors/tests/js_sandbox_integration.rs` and `crates/sis-pdf-detectors/tests/js_polymorphic_integration.rs`.
 - `PR-19`: finding documentation added in `docs/findings.md` for `js_runtime_api_sequence_malicious`, `js_runtime_source_sink_complexity`, `js_runtime_entropy_at_sink`, `js_runtime_dynamic_string_materialisation`, and `js_semantic_source_to_sink_flow`.
+- `PR-20`: added corpus regression engine in `crates/js-analysis/src/corpus_regression.rs` and CLI entrypoint `crates/js-analysis/src/bin/js-corpus-harness.rs`.
+- `PR-20`: added synthetic corpus packs under `crates/js-analysis/tests/fixtures/corpus/adversarial/` and `crates/js-analysis/tests/fixtures/corpus/benign/` (60 + 60 samples).
+- `PR-20`: added CI-ready regression test `crates/js-analysis/tests/corpus_regression.rs` and runner script `scripts/js-corpus-regression.sh`.
+- `PR-20`: added acquisition and validation documentation in `plans/20260211-js-corpus-acquisition.md` and `plans/20260211-pr20-validation-report.md`, with machine-readable report `plans/20260211-pr20-validation-report.json`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-20` corpus expansion and CI regression harness.
+- Start post-PR-20 trendline automation and daily corpus ingestion wiring.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.
