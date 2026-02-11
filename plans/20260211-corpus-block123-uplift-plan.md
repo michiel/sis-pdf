@@ -81,16 +81,21 @@ Validation:
 ## PR-B: `parser_resource_exhaustion` attribution hardening
 
 Objective: make exhaustion findings immediately actionable.
+Status: done (2026-02-11)
 
 Changes:
 1. Extend metadata with top contributing kinds and counts (ordered, capped list).
 2. Add contributing object/sample references when available.
 3. Add deterministic bucketing (`structural`, `decode`, `font`, `content`, `js-runtime`) for quick triage.
+   - Implemented in `crates/sis-pdf-core/src/runner.rs` with stable ordering and capped samples.
 
 Validation:
 1. Unit tests for metadata format stability.
+   - Added coverage in `runner::tests::parser_resource_exhaustion_logged` and
+     `runner::tests::parser_resource_exhaustion_includes_counts_buckets_and_samples`.
 2. Integration test with known outlier fixtures (`fb87…`, `9118…` style traits).
 3. JSON schema compatibility check for existing consumers.
+   - `cargo test -p sis-pdf-core findings_schema -- --nocapture` passed.
 
 ## PR-C: `content_first_stage1` budget and fast-path optimisation
 

@@ -23,6 +23,9 @@ use tracing::{debug, error, info, warn, Level};
 const PARALLEL_DETECTOR_THREADS: usize = 4;
 const CARVED_OBJECT_LIMIT_DEFAULT: usize = 2000;
 const RESOURCE_CONSUMPTION_THRESHOLD_MS: u64 = 5_000;
+const RESOURCE_CONTRIBUTION_KIND_LIMIT: usize = 8;
+const RESOURCE_CONTRIBUTION_SAMPLE_OBJECT_LIMIT: usize = 8;
+const RESOURCE_CONTRIBUTION_SAMPLE_POSITION_LIMIT: usize = 8;
 const RESOURCE_STRUCTURAL_FINDING_KINDS: &[&str] = &[
     "object_shadow_mismatch",
     "parser_diff_structural",
@@ -32,6 +35,44 @@ const RESOURCE_STRUCTURAL_FINDING_KINDS: &[&str] = &[
     "label_mismatch_stream_type",
     "objstm_embedded_summary",
 ];
+
+fn resource_contribution_bucket(kind: &str) -> Option<&'static str> {
+    if RESOURCE_STRUCTURAL_FINDING_KINDS.contains(&kind)
+        || kind.starts_with("parser_")
+        || kind == "pdf.trailer_inconsistent"
+    {
+        return Some("structural");
+    }
+    if kind.starts_with("decoder_")
+        || kind.starts_with("decompression_")
+        || kind.contains("decode")
+        || kind == "declared_filter_invalid"
+    {
+        return Some("decode");
+    }
+    if kind.starts_with("font.") || kind.starts_with("font_") {
+        return Some("font");
+    }
+    if kind.starts_with("content_") || kind.starts_with("content.") {
+        return Some("content");
+    }
+    if kind.starts_with("js_") {
+        return Some("js-runtime");
+    }
+    None
+}
+
+fn format_count_pairs(counts: &std::collections::HashMap<String, usize>, limit: usize) -> String {
+    let mut pairs: Vec<(String, usize)> =
+        counts.iter().map(|(kind, count)| (kind.clone(), *count)).collect();
+    pairs.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    pairs
+        .into_iter()
+        .take(limit)
+        .map(|(kind, count)| format!("{kind}={count}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 pub fn run_scan_with_detectors(
     bytes: &[u8],
@@ -1286,10 +1327,71 @@ fn maybe_record_parser_resource_exhaustion(
     if structural.is_empty() {
         return;
     }
+    let mut contribution_kind_counts: HashMap<String, usize> = HashMap::new();
+    let mut contribution_bucket_counts: HashMap<String, usize> = HashMap::new();
+    let mut sample_objects: Vec<String> = Vec::new();
+    let mut sample_positions: Vec<String> = Vec::new();
+    let mut sample_object_seen: HashSet<String> = HashSet::new();
+    let mut sample_position_seen: HashSet<String> = HashSet::new();
+    for finding in findings.iter() {
+        if finding.kind == "parser_resource_exhaustion" {
+            continue;
+        }
+        let Some(bucket) = resource_contribution_bucket(&finding.kind) else {
+            continue;
+        };
+        *contribution_kind_counts.entry(finding.kind.clone()).or_insert(0) += 1;
+        *contribution_bucket_counts.entry(bucket.to_string()).or_insert(0) += 1;
+        if sample_objects.len() < RESOURCE_CONTRIBUTION_SAMPLE_OBJECT_LIMIT {
+            for object in &finding.objects {
+                if sample_object_seen.insert(object.clone()) {
+                    sample_objects.push(object.clone());
+                    if sample_objects.len() >= RESOURCE_CONTRIBUTION_SAMPLE_OBJECT_LIMIT {
+                        break;
+                    }
+                }
+            }
+        }
+        if let Some(position) = &finding.position {
+            if sample_position_seen.insert(position.clone()) {
+                sample_positions.push(position.clone());
+            }
+        }
+        for position in &finding.positions {
+            if sample_position_seen.insert(position.clone()) {
+                sample_positions.push(position.clone());
+                if sample_positions.len() >= RESOURCE_CONTRIBUTION_SAMPLE_POSITION_LIMIT {
+                    break;
+                }
+            }
+        }
+        if sample_positions.len() > RESOURCE_CONTRIBUTION_SAMPLE_POSITION_LIMIT {
+            sample_positions.truncate(RESOURCE_CONTRIBUTION_SAMPLE_POSITION_LIMIT);
+        }
+    }
+    let top_kind_counts =
+        format_count_pairs(&contribution_kind_counts, RESOURCE_CONTRIBUTION_KIND_LIMIT);
+    let bucket_counts = format_count_pairs(&contribution_bucket_counts, 5);
     let mut meta = HashMap::new();
     meta.insert("detection_duration_ms".into(), detection_duration_ms.to_string());
     meta.insert("structural_finding_count".into(), structural.len().to_string());
     meta.insert("structural_findings".into(), structural.join(", "));
+    meta.insert(
+        "resource_contribution_total_count".into(),
+        contribution_kind_counts.values().sum::<usize>().to_string(),
+    );
+    meta.insert(
+        "resource_contribution_unique_kind_count".into(),
+        contribution_kind_counts.len().to_string(),
+    );
+    meta.insert("resource_contribution_top_kinds".into(), top_kind_counts.clone());
+    meta.insert("resource_contribution_bucket_counts".into(), bucket_counts.clone());
+    if !sample_objects.is_empty() {
+        meta.insert("resource_contribution_sample_objects".into(), sample_objects.join(", "));
+    }
+    if !sample_positions.is_empty() {
+        meta.insert("resource_contribution_sample_positions".into(), sample_positions.join(", "));
+    }
     findings.push(Finding {
         id: String::new(),
         surface: AttackSurface::FileStructure,
@@ -1299,11 +1401,20 @@ fn maybe_record_parser_resource_exhaustion(
         impact: Some(crate::model::Impact::High),
         title: "Parser resource exhaustion detected".into(),
         description: format!(
-            "The parser spent {}ms re-processing malformed structures ({}); treat it as a possible refusal-of-service attempt.",
+            "The parser spent {}ms re-processing malformed structures. Top contributors: {}. Buckets: {}. Treat it as a possible refusal-of-service attempt.",
             detection_duration_ms,
-            structural.join(", ")
+            if top_kind_counts.is_empty() {
+                "none".to_string()
+            } else {
+                top_kind_counts
+            },
+            if bucket_counts.is_empty() {
+                "none".to_string()
+            } else {
+                bucket_counts
+            }
         ),
-        objects: Vec::new(),
+        objects: sample_objects,
         evidence: Vec::new(),
         remediation: Some(
             "Reject malformed structures early or run detection with reduced scope/--fast.".into(),
@@ -1592,6 +1703,105 @@ mod tests {
         let last = findings.last().expect("finding added");
         assert_eq!(last.kind, "parser_resource_exhaustion");
         assert_eq!(last.meta.get("structural_finding_count"), Some(&"1".to_string()));
+        assert_eq!(
+            last.meta.get("resource_contribution_top_kinds"),
+            Some(&"parser_trailer_count_diff=1".to_string())
+        );
+        assert_eq!(
+            last.meta.get("resource_contribution_bucket_counts"),
+            Some(&"structural=1".to_string())
+        );
+    }
+
+    #[test]
+    fn parser_resource_exhaustion_includes_counts_buckets_and_samples() {
+        let mut trailer = Finding::template(
+            AttackSurface::FileStructure,
+            "parser_trailer_count_diff",
+            Severity::Medium,
+            Confidence::Certain,
+            "Trailer mismatch",
+            "Test",
+        );
+        trailer.objects = vec!["trailer.0".into()];
+        trailer.position = Some("doc:r0/trailer.0".into());
+        let mut label = Finding::template(
+            AttackSurface::StreamsAndFilters,
+            "label_mismatch_stream_type",
+            Severity::Medium,
+            Confidence::Strong,
+            "Label mismatch",
+            "Test",
+        );
+        label.objects = vec!["8 0 obj".into()];
+        label.positions = vec!["doc:r0/obj.8".into()];
+        let mut font = Finding::template(
+            AttackSurface::StreamsAndFilters,
+            "font.dynamic_parse_failure",
+            Severity::Low,
+            Confidence::Probable,
+            "Font parse failure",
+            "Test",
+        );
+        font.objects = vec!["9 0 obj".into()];
+        let mut decode = Finding::template(
+            AttackSurface::StreamsAndFilters,
+            "decompression_ratio_suspicious",
+            Severity::High,
+            Confidence::Strong,
+            "Decompression ratio suspicious",
+            "Test",
+        );
+        decode.objects = vec!["12 0 obj".into()];
+        let mut content = Finding::template(
+            AttackSurface::ContentPhishing,
+            "content_stream_anomaly",
+            Severity::Medium,
+            Confidence::Probable,
+            "Content anomaly",
+            "Test",
+        );
+        content.objects = vec!["16 0 obj".into()];
+        let mut js = Finding::template(
+            AttackSurface::JavaScript,
+            "js_runtime_error_recovery_patterns",
+            Severity::Low,
+            Confidence::Probable,
+            "JS runtime error recovery",
+            "Test",
+        );
+        js.objects = vec!["20 0 obj".into()];
+        let mut findings = vec![trailer, label, font, decode, content, js];
+
+        maybe_record_parser_resource_exhaustion(
+            &mut findings,
+            RESOURCE_CONSUMPTION_THRESHOLD_MS + 10,
+        );
+
+        let last = findings.last().expect("exhaustion finding should be added");
+        assert_eq!(last.kind, "parser_resource_exhaustion");
+        assert_eq!(last.meta.get("resource_contribution_total_count"), Some(&"6".to_string()));
+        assert_eq!(
+            last.meta.get("resource_contribution_unique_kind_count"),
+            Some(&"6".to_string())
+        );
+        assert_eq!(
+            last.meta.get("resource_contribution_bucket_counts"),
+            Some(&"structural=2, content=1, decode=1, font=1, js-runtime=1".to_string())
+        );
+        let top = last.meta.get("resource_contribution_top_kinds").expect("top kind counts");
+        assert!(top.contains("parser_trailer_count_diff=1"));
+        assert!(top.contains("label_mismatch_stream_type=1"));
+        assert!(top.contains("font.dynamic_parse_failure=1"));
+        assert!(top.contains("decompression_ratio_suspicious=1"));
+        assert!(top.contains("content_stream_anomaly=1"));
+        assert!(top.contains("js_runtime_error_recovery_patterns=1"));
+        assert!(last.objects.contains(&"trailer.0".to_string()));
+        assert!(last.objects.contains(&"8 0 obj".to_string()));
+        assert_eq!(
+            last.meta.get("resource_contribution_sample_positions"),
+            Some(&"doc:r0/trailer.0, doc:r0/obj.8".to_string())
+        );
     }
 
     #[test]
