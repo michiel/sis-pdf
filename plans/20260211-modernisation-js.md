@@ -1,7 +1,7 @@
 # JavaScript Detection Modernisation: Technical Recommendation and Uplift Plan
 
 Date: 2026-02-11
-Status: Not Started
+Status: Stage 1 Complete
 Scope: `crates/js-analysis/`, `crates/sis-pdf-detectors/`, test infrastructure
 
 ---
@@ -90,17 +90,19 @@ The shift from signature-based to behaviour-based detection is well underway in 
 
 **Deliverables**:
 
-| Item | Description | Priority |
-|------|-------------|----------|
-| S1-1 | Replace HashMap with BTreeMap in `SandboxLog.call_counts_by_name` and `approx_string_entropy` (C-1) | Critical |
-| S1-2 | Cap `augmented_source` at `MAX_AUGMENTED_SOURCE_BYTES` with truncation (C-2) | Critical |
-| S1-3 | Widen divergence consistency band: ratio >0.6 = consistent (C-3) | Critical |
-| S1-4 | Add unit tests for `dynamic_code_generation`, `obfuscated_string_construction`, `environment_fingerprinting`, `error_recovery_patterns`, `variable_promotion_detected` (C-4) | Critical |
-| S1-5 | Add 15+ negative tests with benign JS fixtures (C-5) | Critical |
-| S1-6 | Break phase loop on timeout (H-1) | High |
-| S1-7 | Report mutex poisoning explicitly (H-2) | High |
+| Item | Description | Priority | Status |
+|------|-------------|----------|--------|
+| S1-1 | Replace HashMap with BTreeMap in `SandboxLog.call_counts_by_name` and `approx_string_entropy` (C-1) | Critical | **Done** (prior commit + current branch) |
+| S1-2 | Cap `augmented_source` at `MAX_AUGMENTED_SOURCE_BYTES` with truncation (C-2) | Critical | **Done** (prior commit) |
+| S1-3 | Widen divergence consistency band: ratio >0.6 = consistent (C-3) | Critical | **Done** (current branch: js_sandbox.rs) |
+| S1-4 | Add unit tests for `dynamic_code_generation`, `obfuscated_string_construction`, `environment_fingerprinting`, `error_recovery_patterns`, `variable_promotion_detected` (C-4) | Critical | **Done** (prior commit) |
+| S1-5 | Add 15+ negative tests with benign JS fixtures (C-5) | Critical | **Done** (current branch: 16 new benign tests, 22 total negative = 21.4%) |
+| S1-6 | Break phase loop on timeout (H-1) | High | **Done** (current branch: dynamic.rs execute_micro_phase returns bool) |
+| S1-7 | Report mutex poisoning explicitly (H-2) | High | **Done** (prior commit) |
 
 **Success criteria**: All existing tests pass. Negative test ratio reaches 15%+. Deterministic output under repeated identical runs.
+
+**Achieved**: 141 tests pass (103 dynamic + 13 hostile + 16 profile + 7 unit + 2 static). Negative test ratio 21.4% (22/103 dynamic). All HashMap instances in public API and internal metadata replaced with BTreeMap.
 
 ---
 

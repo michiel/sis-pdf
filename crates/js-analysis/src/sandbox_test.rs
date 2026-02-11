@@ -34,6 +34,7 @@ mod tests {
                 crate::types::RuntimePhase::Form,
             ],
             runtime_profile: Default::default(),
+            lifecycle_context: None,
         };
 
         match run_sandbox(test_code, &options) {

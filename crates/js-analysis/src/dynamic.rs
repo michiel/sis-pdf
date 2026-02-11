@@ -227,9 +227,9 @@ mod sandbox_impl {
 
     #[derive(Debug, Clone, Default)]
     struct DynamicScope {
-        global_vars: std::collections::HashMap<String, String>,
+        global_vars: std::collections::BTreeMap<String, String>,
         auto_promote: BTreeSet<String>,
-        eval_contexts: Vec<std::collections::HashMap<String, String>>,
+        eval_contexts: Vec<std::collections::BTreeMap<String, String>>,
         access_log: Vec<VariableAccess>,
     }
 
@@ -364,7 +364,7 @@ mod sandbox_impl {
         confidence: f64,
         evidence: String,
         severity: BehaviorSeverity,
-        metadata: std::collections::HashMap<String, String>,
+        metadata: std::collections::BTreeMap<String, String>,
         timestamp: std::time::Duration,
     }
 
@@ -476,7 +476,7 @@ mod sandbox_impl {
                     BehaviorSeverity::Low
                 };
 
-                let mut metadata = std::collections::HashMap::new();
+                let mut metadata = std::collections::BTreeMap::new();
                 metadata.insert("char_code_calls".to_string(), char_code_calls.to_string());
 
                 observations.push(BehaviorObservation {
@@ -521,7 +521,7 @@ mod sandbox_impl {
                     BehaviorSeverity::Medium
                 };
 
-                let mut metadata = std::collections::HashMap::new();
+                let mut metadata = std::collections::BTreeMap::new();
                 metadata.insert("eval_calls".to_string(), eval_count.to_string());
                 metadata.insert(
                     "function_constructor_calls".to_string(),
@@ -582,7 +582,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata
                 .insert("dynamic_invocation_count".to_string(), dynamic_invocations.to_string());
             metadata.insert("indirect_marker_count".to_string(), indirect_markers.to_string());
@@ -619,7 +619,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("decode_stage_count".to_string(), decode_stage_count.to_string());
             metadata.insert("unescape_calls".to_string(), unescape_calls.to_string());
             metadata.insert("escape_calls".to_string(), escape_calls.to_string());
@@ -680,7 +680,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("network_sink_calls".to_string(), network_sinks.to_string());
             metadata.insert("beacon_calls".to_string(), beacon_calls.to_string());
             metadata.insert("fetch_calls".to_string(), fetch_calls.to_string());
@@ -820,7 +820,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("prototype_markers".to_string(), prototype_markers.to_string());
             metadata.insert(
                 "prototype_mutation_calls".to_string(),
@@ -935,7 +935,7 @@ mod sandbox_impl {
             let (confidence, severity) =
                 calibrate_chain_signal(base_confidence, base_severity, component_hits, 6);
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("wasm_calls".to_string(), wasm_calls.to_string());
             metadata.insert("instantiate_calls".to_string(), instantiate_calls.to_string());
             metadata.insert("module_calls".to_string(), module_calls.to_string());
@@ -1048,7 +1048,7 @@ mod sandbox_impl {
             let (confidence, severity) =
                 calibrate_chain_signal(0.74, BehaviorSeverity::Medium, component_hits, 4);
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("require_calls".to_string(), require_calls.to_string());
             metadata
                 .insert("suspicious_require_args".to_string(), suspicious_require_args.to_string());
@@ -1154,7 +1154,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("append_calls".to_string(), append_calls.to_string());
             metadata.insert("encode_calls".to_string(), encode_calls.to_string());
             metadata.insert("send_calls".to_string(), send_calls.to_string());
@@ -1229,7 +1229,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("dialog_calls".to_string(), dialog_calls.to_string());
             metadata.insert("gating_calls".to_string(), gating_calls.to_string());
             metadata.insert("branch_markers".to_string(), branch_markers.to_string());
@@ -1306,7 +1306,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("env_calls".to_string(), env_calls.to_string());
             metadata.insert("file_staging_calls".to_string(), file_staging_calls.to_string());
             metadata.insert("exec_calls".to_string(), exec_calls.to_string());
@@ -1409,7 +1409,7 @@ mod sandbox_impl {
             let (confidence, severity) =
                 calibrate_chain_signal(0.79, BehaviorSeverity::High, component_hits, 4);
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("form_calls".to_string(), form_calls.to_string());
             metadata.insert("network_sinks".to_string(), network_sinks.to_string());
             metadata.insert("prompt_calls".to_string(), prompt_calls.to_string());
@@ -1445,7 +1445,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("timer_total".to_string(), timer_total.to_string());
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
             metadata.insert("set_timeout_calls".to_string(), timeout_calls.to_string());
@@ -1508,7 +1508,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert(
                 "js.runtime.service_worker.registration_calls".to_string(),
                 sw_register.to_string(),
@@ -1597,7 +1597,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata
                 .insert("crypto_key_material_calls".to_string(), key_material_calls.to_string());
             metadata.insert("crypto_export_calls".to_string(), export_calls.to_string());
@@ -1666,7 +1666,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("storage_write_calls".to_string(), storage_write_calls.to_string());
             metadata.insert("storage_read_calls".to_string(), storage_read_calls.to_string());
             metadata.insert("decode_or_exec_calls".to_string(), decode_or_exec_calls.to_string());
@@ -1719,7 +1719,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("module_loader_calls".to_string(), module_loader_calls.to_string());
             metadata.insert("module_graph_calls".to_string(), module_graph_calls.to_string());
             metadata.insert("exec_calls".to_string(), exec_calls.to_string());
@@ -1786,7 +1786,7 @@ mod sandbox_impl {
                 log.realtime_payload_bytes as f64 / log.realtime_send_count as f64
             };
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("channel_setup_calls".to_string(), channel_setup_calls.to_string());
             metadata.insert("channel_send_calls".to_string(), channel_send_calls.to_string());
             metadata.insert("encoding_calls".to_string(), encoding_calls.to_string());
@@ -1892,7 +1892,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("clipboard_calls".to_string(), clipboard_calls.to_string());
             metadata.insert("session_source_calls".to_string(), session_source_calls.to_string());
             metadata.insert("exfil_calls".to_string(), exfil_calls.to_string());
@@ -1958,7 +1958,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("dom_sink_calls".to_string(), dom_sink_calls.to_string());
             metadata.insert("policy_calls".to_string(), policy_calls.to_string());
             metadata.insert("obfuscation_calls".to_string(), obfuscation_calls.to_string());
@@ -2021,7 +2021,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("wasm_loader_calls".to_string(), wasm_loader_calls.to_string());
             metadata.insert("wasm_memory_calls".to_string(), wasm_memory_calls.to_string());
             metadata.insert("unpack_calls".to_string(), unpack_calls.to_string());
@@ -2102,7 +2102,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("extension_runtime_calls".to_string(), runtime_calls.to_string());
             metadata.insert("extension_storage_calls".to_string(), storage_calls.to_string());
 
@@ -2175,7 +2175,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("ua_probe_calls".to_string(), ua_probe_calls.to_string());
             metadata.insert("permissions_calls".to_string(), permissions_calls.to_string());
             metadata.insert("webgl_calls".to_string(), webgl_calls.to_string());
@@ -2267,7 +2267,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("domain_count".to_string(), domain_count.to_string());
             metadata.insert("browser_hits".to_string(), browser_hits.to_string());
             metadata.insert("pdf_hits".to_string(), pdf_hits.to_string());
@@ -2317,7 +2317,7 @@ mod sandbox_impl {
             if fingerprint_count > 2 {
                 let confidence = (fingerprint_count as f64 * 0.15).min(0.85);
 
-                let mut metadata = std::collections::HashMap::new();
+                let mut metadata = std::collections::BTreeMap::new();
                 metadata.insert("fingerprint_reads".to_string(), fingerprint_count.to_string());
 
                 observations.push(BehaviorObservation {
@@ -2353,7 +2353,7 @@ mod sandbox_impl {
             if recovery_attempts > 0 && (error_count > 0 || !flow.exception_handling.is_empty()) {
                 let confidence = 0.8; // High confidence when we see error recovery
 
-                let mut metadata = std::collections::HashMap::new();
+                let mut metadata = std::collections::BTreeMap::new();
                 metadata.insert("total_errors".to_string(), error_count.to_string());
                 metadata.insert("recovery_attempts".to_string(), recovery_attempts.to_string());
 
@@ -2397,7 +2397,7 @@ mod sandbox_impl {
             if promotion_count > 0 {
                 let confidence = 0.9; // High confidence when we see our promotion system working
 
-                let mut metadata = std::collections::HashMap::new();
+                let mut metadata = std::collections::BTreeMap::new();
                 metadata.insert("promoted_variables".to_string(), promotion_count.to_string());
 
                 observations.push(BehaviorObservation {
@@ -2428,7 +2428,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("input_bytes".to_string(), log.input_bytes.to_string());
             metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
             metadata.insert("call_count".to_string(), log.calls.len().to_string());
@@ -2464,7 +2464,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("input_bytes".to_string(), log.input_bytes.to_string());
             metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
             metadata.insert("call_count".to_string(), log.calls.len().to_string());
@@ -2503,7 +2503,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("calls_recorded".to_string(), log.calls.len().to_string());
             metadata.insert("calls_dropped".to_string(), log.calls_dropped.to_string());
             metadata.insert("call_args_dropped".to_string(), log.call_args_dropped.to_string());
@@ -2568,7 +2568,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
             metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
             metadata.insert("stream_open_calls".to_string(), stream_open.to_string());
@@ -2644,7 +2644,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
             metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
             metadata.insert("stream_open_calls".to_string(), stream_open.to_string());
@@ -2712,7 +2712,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
             metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
@@ -2787,7 +2787,7 @@ mod sandbox_impl {
                 "Observed WSH environment probing via COM object factory".to_string()
             };
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
             metadata.insert("environment_calls".to_string(), env_calls.to_string());
@@ -2846,7 +2846,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
             metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
             metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
@@ -2913,7 +2913,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("total_calls".to_string(), log.calls.len().to_string());
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
@@ -2964,7 +2964,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("stream_open_calls".to_string(), stream_open.to_string());
             metadata.insert("stream_write_calls".to_string(), stream_write.to_string());
             metadata.insert("save_to_file_calls".to_string(), save_to_file.to_string());
@@ -3012,7 +3012,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
             metadata.insert("total_calls".to_string(), log.calls.len().to_string());
             metadata.insert("source_markers".to_string(), log.dormant_source_markers.to_string());
@@ -3078,7 +3078,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
             metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
@@ -3143,7 +3143,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
             metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
@@ -3218,7 +3218,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
             metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
@@ -3287,7 +3287,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("shell_run_calls".to_string(), shell_run.to_string());
             metadata.insert("total_calls".to_string(), log.calls.len().to_string());
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
@@ -3352,7 +3352,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
             metadata.insert("stream_open_calls".to_string(), stream_open.to_string());
             metadata.insert("stream_write_calls".to_string(), stream_write.to_string());
@@ -3423,7 +3423,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("xmlhttp_open_calls".to_string(), http_open.to_string());
             metadata.insert("xmlhttp_send_calls".to_string(), http_send.to_string());
             metadata.insert("stream_open_calls".to_string(), stream_open.to_string());
@@ -3533,7 +3533,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("activex_create_calls".to_string(), activex_create.to_string());
             metadata.insert("wscript_create_calls".to_string(), wscript_create.to_string());
             metadata.insert("fso_get_file_calls".to_string(), get_file_calls.to_string());
@@ -3582,7 +3582,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("quit_calls".to_string(), quit_calls.to_string());
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
             metadata.insert("total_calls".to_string(), log.calls.len().to_string());
@@ -3619,7 +3619,7 @@ mod sandbox_impl {
                 return Vec::new();
             }
 
-            let mut metadata = std::collections::HashMap::new();
+            let mut metadata = std::collections::BTreeMap::new();
             metadata.insert("sleep_calls".to_string(), sleep_calls.to_string());
             metadata.insert("total_calls".to_string(), log.calls.len().to_string());
             metadata.insert("input_bytes".to_string(), log.input_bytes.to_string());
@@ -8072,7 +8072,7 @@ mod sandbox_impl {
             ("sw_sync", "if (typeof self.onsync === 'function') { self.onsync(); }"),
         ];
         for (phase, script) in phases {
-            execute_micro_phase(
+            let timed_out = execute_micro_phase(
                 context,
                 log,
                 timeout_context_thread,
@@ -8082,6 +8082,9 @@ mod sandbox_impl {
                 phase,
                 script,
             );
+            if timed_out {
+                break;
+            }
         }
         let mut log_ref = log.borrow_mut();
         let lower = String::from_utf8_lossy(normalised).to_ascii_lowercase();
@@ -8103,7 +8106,7 @@ mod sandbox_impl {
             return;
         };
         let script = "if (typeof preinstall === 'function') { preinstall(); } if (typeof install === 'function') { install(); } if (typeof postinstall === 'function') { postinstall(); } if (typeof Bun !== 'undefined' && Bun && typeof Bun.spawn === 'function') { Bun.spawn(['echo']); }";
-        execute_micro_phase(
+        let _ = execute_micro_phase(
             context,
             log,
             timeout_context_thread,
@@ -8125,7 +8128,7 @@ mod sandbox_impl {
         total_elapsed: &mut u128,
         phase_name: &str,
         script: &str,
-    ) {
+    ) -> bool {
         if let Ok(mut context_ref) = timeout_context_thread.lock() {
             context_ref.phase = Some(phase_name.to_string());
         }
@@ -8156,6 +8159,7 @@ mod sandbox_impl {
             } else {
                 log_ref.errors_dropped += 1;
             }
+            return true;
         }
         if let Err(err) = eval_res {
             let mut log_ref = log.borrow_mut();
@@ -8166,6 +8170,7 @@ mod sandbox_impl {
             }
             *log_ref.phase_error_counts.entry(phase_name.to_string()).or_insert(0) += 1;
         }
+        false
     }
 
     fn correlate_taint_edges(log: &mut SandboxLog) {

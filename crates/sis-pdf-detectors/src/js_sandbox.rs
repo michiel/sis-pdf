@@ -566,7 +566,7 @@ fn adjust_by_ratio(
     let Some(value) = ratio else {
         return (base_severity, base_confidence);
     };
-    if value >= 0.67 {
+    if value >= 0.6 {
         (promote_severity(base_severity), promote_confidence(base_confidence))
     } else if value <= 0.34 {
         (demote_severity(base_severity), demote_confidence(base_confidence))

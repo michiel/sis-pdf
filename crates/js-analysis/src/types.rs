@@ -160,7 +160,7 @@ pub struct BehaviorPattern {
     pub confidence: f64,
     pub evidence: String,
     pub severity: String,
-    pub metadata: std::collections::HashMap<String, String>,
+    pub metadata: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]

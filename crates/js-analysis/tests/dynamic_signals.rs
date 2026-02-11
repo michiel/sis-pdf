@@ -1983,6 +1983,403 @@ fn sandbox_expands_prototype_and_wasm_signals_in_browser_profile() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Negative tests: benign JavaScript fixtures that MUST NOT trigger high-risk
+// behavioural patterns.  These guard against false-positive regressions.
+// ---------------------------------------------------------------------------
+
+/// High-risk pattern names that benign payloads must never trigger.
+#[cfg(feature = "js-sandbox")]
+const HIGH_RISK_PATTERNS: &[&str] = &[
+    "dynamic_code_generation",
+    "obfuscated_string_construction",
+    "indirect_dynamic_eval_dispatch",
+    "multi_pass_decode_pipeline",
+    "covert_beacon_exfil",
+    "prototype_chain_execution_hijack",
+    "wasm_loader_staging",
+    "runtime_dependency_loader_abuse",
+    "credential_harvest_form_emulation",
+    "com_downloader_execution_chain",
+    "com_downloader_staging_chain",
+    "com_downloader_network_chain",
+    "com_downloader_direct_execution_chain",
+    "wsh_environment_gating",
+    "wsh_direct_run_execution",
+    "wsh_com_object_probe",
+    "com_file_drop_staging",
+    "com_network_buffer_staging",
+    "com_downloader_partial_staging_chain",
+    "wsh_filesystem_recon_probe",
+    "lotl_api_chain_execution",
+    "chunked_data_exfil_pipeline",
+    "webcrypto_key_staging_exfil",
+    "storage_backed_payload_staging",
+    "clipboard_session_hijack_behaviour",
+    "dom_sink_policy_bypass_attempt",
+    "wasm_memory_unpacker_pipeline",
+    "extension_api_abuse_probe",
+    "interaction_coercion_loop",
+    "capability_matrix_fingerprinting",
+];
+
+#[cfg(feature = "js-sandbox")]
+fn assert_no_high_risk_patterns(signals: &js_analysis::DynamicSignals, context: &str) {
+    for name in HIGH_RISK_PATTERNS {
+        assert!(
+            !signals.behavioral_patterns.iter().any(|p| p.name == *name),
+            "{}: benign payload unexpectedly flagged '{}'; patterns: {:?}",
+            context,
+            name,
+            signals.behavioral_patterns.iter().map(|p| &p.name).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_pdf_form_calculation_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var qty = getField('quantity').value;
+        var price = getField('price').value;
+        var total = qty * price;
+        var gst = total * 0.10;
+        getField('total').value = total + gst;
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "pdf_form_calculation");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_arithmetic_and_variables_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var x = 42;
+        var y = 3.14159;
+        var z = (x * y) / (x - y);
+        var flag = z > 100;
+        var result = flag ? 'large' : 'small';
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "arithmetic_and_variables");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_string_formatting_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var amount = 1234.5;
+        var formatted = '$' + amount.toFixed(2);
+        var padded = ('000000' + '42').slice(-6);
+        var upper = 'hello world'.toUpperCase();
+        var trimmed = '  spaces  '.trim();
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "string_formatting");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_pdf_page_navigation_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var total = numPages;
+        var current = pageNum;
+        if (current < total - 1) {
+            pageNum = current + 1;
+        }
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "pdf_page_navigation");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_pdf_print_preparation_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var pp = getPrintParams();
+        pp.interactive = pp.constants.interactionLevel.automatic;
+        pp.printerName = '';
+        print(pp);
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "pdf_print_preparation");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_array_processing_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var items = ['banana', 'apple', 'cherry', 'date'];
+        items.sort();
+        var lengths = [];
+        for (var i = 0; i < items.length; i++) {
+            lengths.push(items[i].length);
+        }
+        var total = 0;
+        for (var j = 0; j < lengths.length; j++) {
+            total += lengths[j];
+        }
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "array_processing");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_date_formatting_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var now = new Date();
+        var day = now.getDate();
+        var month = now.getMonth() + 1;
+        var year = now.getFullYear();
+        var formatted = day + '/' + month + '/' + year;
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "date_formatting");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_try_catch_error_handling_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        try {
+            var value = getField('optional_field').value;
+        } catch (e) {
+            var value = 'default';
+        }
+        app.alert('Value is: ' + value);
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "try_catch_error_handling");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_regex_validation_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var email = getField('email').value;
+        var pattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/;
+        if (!pattern.test(email)) {
+            app.alert('Please enter a valid email address.');
+        }
+        var phone = getField('phone').value;
+        var phonePattern = /^\\d{3}-\\d{3}-\\d{4}$/;
+        if (!phonePattern.test(phone)) {
+            app.alert('Please enter a valid phone number.');
+        }
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "regex_validation");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_field_visibility_toggle_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var choice = getField('document_type').value;
+        if (choice == 'passport') {
+            getField('passport_number').display = display.visible;
+            getField('driver_licence').display = display.hidden;
+        } else {
+            getField('passport_number').display = display.hidden;
+            getField('driver_licence').display = display.visible;
+        }
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "field_visibility_toggle");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_multi_field_form_validation_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var errors = [];
+        var name = getField('name').value;
+        if (name.length == 0) { errors.push('Name is required'); }
+        var age = getField('age').value;
+        if (age < 0 || age > 150) { errors.push('Invalid age'); }
+        var address = getField('address').value;
+        if (address.length > 200) { errors.push('Address too long'); }
+        if (errors.length > 0) {
+            app.alert('Errors:\\n' + errors.join('\\n'));
+        }
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "multi_field_form_validation");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_pdf_annotation_display_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var count = numPages;
+        var message = 'This document has ' + count + ' pages.';
+        app.alert(message);
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "pdf_annotation_display");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_conditional_field_colouring_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var balance = getField('balance').value;
+        if (balance < 0) {
+            getField('balance').textColor = color.red;
+        } else if (balance > 1000) {
+            getField('balance').textColor = color.green;
+        } else {
+            getField('balance').textColor = color.black;
+        }
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "conditional_field_colouring");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_object_construction_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var config = {
+            title: 'Report',
+            version: 2,
+            pages: [1, 2, 3, 4, 5]
+        };
+        var summary = config.title + ' v' + config.version;
+        var pageCount = config.pages.length;
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "object_construction");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_math_rounding_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var values = [10.456, 20.789, 30.123, 40.567, 50.890];
+        var sum = 0;
+        for (var i = 0; i < values.length; i++) {
+            sum += Math.round(values[i] * 100) / 100;
+        }
+        var avg = sum / values.length;
+        var rounded = Math.ceil(avg);
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "math_rounding");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn benign_table_of_contents_builder_no_false_positives() {
+    let options = DynamicOptions::default();
+    let payload = b"
+        var toc = '';
+        var sections = ['Introduction', 'Methods', 'Results', 'Discussion'];
+        for (var i = 0; i < sections.length; i++) {
+            toc += (i + 1) + '. ' + sections[i] + '\\n';
+        }
+        getField('toc_field').value = toc;
+    ";
+    let outcome = js_analysis::run_sandbox(payload, &options);
+    match outcome {
+        DynamicOutcome::Executed(signals) => {
+            assert_no_high_risk_patterns(&signals, "table_of_contents_builder");
+        }
+        _ => panic!("expected executed"),
+    }
+}
+
 #[cfg(not(feature = "js-sandbox"))]
 #[test]
 fn sandbox_reports_unavailable_without_feature() {
