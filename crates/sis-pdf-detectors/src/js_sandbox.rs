@@ -97,6 +97,7 @@ fn impact_for_kind(kind: &str) -> Option<Impact> {
         "js_sandbox_exec" => Some(Impact::None),
         "js_sandbox_skipped" => Some(Impact::None),
         "js_runtime_unknown_behaviour_pattern" => Some(Impact::Low),
+        "js_runtime_error_recovery_patterns" => Some(Impact::Low),
         "js_runtime_downloader_pattern" => Some(Impact::Critical),
         "js_runtime_network_intent" => Some(Impact::High),
         "js_runtime_file_probe" => Some(Impact::Low),
@@ -1030,6 +1031,7 @@ fn behavioral_pattern_title(name: &str) -> Option<&'static str> {
         "dynamic_string_materialisation_sink" => {
             Some("Dynamic string materialisation into execution sink")
         }
+        "error_recovery_patterns" => Some("Runtime error recovery patterning"),
         _ => None,
     }
 }
@@ -1056,6 +1058,7 @@ fn behavioral_pattern_kind(name: &str) -> Option<&'static str> {
         "source_sink_complexity" => Some("js_runtime_source_sink_complexity"),
         "entropy_at_sink" => Some("js_runtime_entropy_at_sink"),
         "dynamic_string_materialisation_sink" => Some("js_runtime_dynamic_string_materialisation"),
+        "error_recovery_patterns" => Some("js_runtime_error_recovery_patterns"),
         _ => None,
     }
 }
@@ -1121,6 +1124,9 @@ fn behavioral_pattern_description(name: &str) -> Option<&'static str> {
         }
         "dynamic_string_materialisation_sink" => {
             Some("JavaScript dynamically materialised executable strings before invoking execution sinks.")
+        }
+        "error_recovery_patterns" => {
+            Some("JavaScript repeatedly triggered errors and immediately pivoted to fallback execution paths, consistent with runtime adaptation or anti-analysis behaviour.")
         }
         _ => None,
     }
@@ -1926,5 +1932,18 @@ mod tests {
             meta.get("js.runtime.timeout_confidence_adjusted").map(String::as_str),
             Some("Strong->Probable")
         );
+    }
+
+    #[test]
+    fn maps_error_recovery_pattern_to_dedicated_kind() {
+        assert_eq!(
+            behavioral_pattern_kind("error_recovery_patterns"),
+            Some("js_runtime_error_recovery_patterns")
+        );
+        assert_eq!(
+            behavioral_pattern_title("error_recovery_patterns"),
+            Some("Runtime error recovery patterning")
+        );
+        assert!(behavioral_pattern_description("error_recovery_patterns").is_some());
     }
 }

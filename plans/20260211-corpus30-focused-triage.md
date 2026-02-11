@@ -195,3 +195,11 @@ Validation completed:
 - `cargo test -p sis-pdf-core declared_filter_invalid_escalates_with_runtime_and_decoder_context -- --nocapture`
 - `cargo test -p sis-pdf-detectors content_first -- --nocapture`
 - `cargo test -p sis-pdf --no-run`
+
+Post-implementation mapping loop:
+
+- Corpus telemetry extraction identified `error_recovery_patterns` as an unmapped behavioural name behind `js_runtime_unknown_behaviour_pattern`.
+- Added dedicated mapping:
+  - `js_runtime_error_recovery_patterns`
+- Added detector unit coverage for the mapping in `crates/sis-pdf-detectors/src/js_sandbox.rs`.
+- Rechecked the previously affected sample; unknown count dropped to zero and dedicated mapped findings were emitted.

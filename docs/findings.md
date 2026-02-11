@@ -1609,6 +1609,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: decoded or constructed strings are staged then executed.
   - Chain usage: used as runtime payload build-and-exec signal.
 
+## js_runtime_error_recovery_patterns
+
+- ID: `js_runtime_error_recovery_patterns`
+- Label: Runtime error recovery patterning
+- Description: JavaScript repeatedly triggered errors and pivoted to fallback execution paths, consistent with runtime adaptation or anti-analysis behaviour.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: anti-analysis and resilient execution behaviour.
+  - Meaning: repeated error/recovery loops indicate adaptive control flow rather than simple script failure.
+  - Chain usage: used as robustness/evasion context when correlating runtime intent.
+
 ## js_semantic_source_to_sink_flow
 
 - ID: `js_semantic_source_to_sink_flow`
