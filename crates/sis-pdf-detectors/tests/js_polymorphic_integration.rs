@@ -83,3 +83,50 @@ fn emits_aaencode_finding() {
 
     assert!(report.findings.iter().any(|f| f.kind == "js_aaencode_encoding"));
 }
+
+#[test]
+fn emits_heap_grooming_finding() {
+    let payload =
+        include_str!("../../js-analysis/tests/fixtures/modern_heap/cve_2023_21608_sanitised.js");
+    let bytes = build_minimal_js_pdf(payload);
+    let detectors = default_detectors();
+
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    assert!(report.findings.iter().any(|f| f.kind == "js_heap_grooming"));
+}
+
+#[test]
+fn emits_lfh_priming_finding() {
+    let payload = r#"
+        var pool = [];
+        for (var i = 0; i < 64; i++) { pool.push(new ArrayBuffer(0x400)); }
+        for (var j = 0; j < pool.length; j++) { pool[j] = null; }
+        var target = new DataView(new ArrayBuffer(0x400));
+    "#;
+    let bytes = build_minimal_js_pdf(payload);
+    let detectors = default_detectors();
+
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    assert!(report.findings.iter().any(|f| f.kind == "js_lfh_priming"));
+}
+
+#[test]
+fn emits_rop_and_info_leak_findings() {
+    let payload =
+        include_str!("../../js-analysis/tests/fixtures/modern_heap/cve_2023_26369_sanitised.js");
+    let bytes = build_minimal_js_pdf(payload);
+    let detectors = default_detectors();
+
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    assert!(report.findings.iter().any(|f| f.kind == "js_rop_chain_construction"));
+    assert!(report.findings.iter().any(|f| f.kind == "js_info_leak_primitive"));
+}

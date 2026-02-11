@@ -89,3 +89,57 @@ fn concatenation_reconstruction_is_deterministic() {
         second.get("payload.concatenation_reconstructed")
     );
 }
+
+#[test]
+fn detects_heap_grooming_signal() {
+    let data = include_bytes!("fixtures/modern_heap/cve_2023_21608_sanitised.js");
+    let signals = extract_js_signals_with_ast(data, false);
+    assert_eq!(signals.get("js.heap_grooming").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn detects_lfh_priming_signal() {
+    let data = br#"
+        var pool = [];
+        for (var i = 0; i < 64; i++) {
+            pool.push(new ArrayBuffer(0x400));
+        }
+        for (var j = 0; j < pool.length; j++) {
+            pool[j] = null;
+        }
+        var target = new DataView(new ArrayBuffer(0x400));
+    "#;
+    let signals = extract_js_signals_with_ast(data, false);
+    assert_eq!(signals.get("js.lfh_priming").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn detects_rop_chain_construction_signal() {
+    let data = include_bytes!("fixtures/modern_heap/cve_2023_26369_sanitised.js");
+    let signals = extract_js_signals_with_ast(data, false);
+    assert_eq!(signals.get("js.rop_chain_construction").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn detects_info_leak_primitive_signal() {
+    let data = include_bytes!("fixtures/modern_heap/cve_2023_26369_sanitised.js");
+    let signals = extract_js_signals_with_ast(data, false);
+    assert_eq!(signals.get("js.info_leak_primitive").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn benign_typed_array_processing_no_heap_exploit_signals() {
+    let data = br#"
+        var payload = new Uint8Array([72, 101, 108, 108, 111]);
+        var copy = payload.slice(0, payload.length);
+        var text = '';
+        for (var i = 0; i < copy.length; i++) {
+            text += String.fromCharCode(copy[i]);
+        }
+    "#;
+    let signals = extract_js_signals_with_ast(data, false);
+    assert_eq!(signals.get("js.heap_grooming").map(String::as_str), Some("false"));
+    assert_eq!(signals.get("js.lfh_priming").map(String::as_str), Some("false"));
+    assert_eq!(signals.get("js.rop_chain_construction").map(String::as_str), Some("false"));
+    assert_eq!(signals.get("js.info_leak_primitive").map(String::as_str), Some("false"));
+}

@@ -1211,6 +1211,50 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: heap spray prepares memory for vulnerability exploitation.
   - Chain usage: used as the exploitation stage targeting renderer memory corruption.
 
+## js_heap_grooming
+
+- ID: `js_heap_grooming`
+- Label: Heap grooming pattern detected
+- Description: JavaScript shows repeated heap allocation and view-shaping patterns consistent with grooming.
+- Tags: exploit, javascript, memory
+- Details:
+  - Relevance: modern memory exploitation preparation.
+  - Meaning: repeated `ArrayBuffer`/typed-array shaping patterns may prepare deterministic heap layout.
+  - Chain usage: used as pre-exploitation staging context.
+
+## js_lfh_priming
+
+- ID: `js_lfh_priming`
+- Label: LFH priming pattern detected
+- Description: JavaScript appears to prime allocation buckets through repeated allocation/free cycles.
+- Tags: exploit, javascript, memory
+- Details:
+  - Relevance: low-fragmentation heap preparation in modern exploit chains.
+  - Meaning: repeated same-size allocation cycles are followed by targeted placement allocations.
+  - Chain usage: used as exploitation-preparation context.
+
+## js_rop_chain_construction
+
+- ID: `js_rop_chain_construction`
+- Label: ROP chain construction pattern detected
+- Description: JavaScript uses address arithmetic and sequential write patterns consistent with ROP chain staging.
+- Tags: exploit, javascript, memory
+- Details:
+  - Relevance: strong exploitation signal.
+  - Meaning: gadget-style address maths and sequential memory writes indicate control-flow hijack preparation.
+  - Chain usage: used as direct exploitation-stage indicator.
+
+## js_info_leak_primitive
+
+- ID: `js_info_leak_primitive`
+- Label: Info-leak primitive pattern detected
+- Description: JavaScript exhibits ArrayBuffer/TypedArray patterns consistent with out-of-bounds memory disclosure primitives.
+- Tags: exploit, javascript, memory
+- Details:
+  - Relevance: memory disclosure often precedes reliable code execution.
+  - Meaning: length/byteLength mismatch and indexed read patterns suggest leak primitive construction.
+  - Chain usage: used as exploitation precondition context.
+
 ## js_aaencode_encoding
 
 - ID: `js_aaencode_encoding`

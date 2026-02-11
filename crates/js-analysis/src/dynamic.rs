@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
-use crate::types::{DynamicOptions, DynamicOutcome, RuntimeKind, RuntimePhase};
+use crate::types::{DynamicOptions, DynamicOutcome};
+#[cfg(feature = "js-sandbox")]
+use crate::types::{RuntimeKind, RuntimePhase};
 
 #[cfg(feature = "js-sandbox")]
 mod sandbox_impl {

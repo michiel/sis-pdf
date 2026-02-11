@@ -83,11 +83,11 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add bounded telemetry caps and truncation tests.
 
 ## PR-12: Static modern heap exploitation detectors
-- [ ] Implement JS plan S3-1 `js.heap_grooming`.
-- [ ] Implement JS plan S3-2 `js.lfh_priming`.
-- [ ] Implement JS plan S3-3 `js.rop_chain_construction`.
-- [ ] Implement JS plan S3-4 `js.info_leak_primitive`.
-- [ ] Add CVE-derived sanitised fixtures.
+- [x] Implement JS plan S3-1 `js.heap_grooming`.
+- [x] Implement JS plan S3-2 `js.lfh_priming`.
+- [x] Implement JS plan S3-3 `js.rop_chain_construction`.
+- [x] Implement JS plan S3-4 `js.info_leak_primitive`.
+- [x] Add CVE-derived sanitised fixtures.
 
 ## PR-13: Revision content extractor foundation
 - [ ] Implement PDF plan S2-1 revision content extractor.
@@ -240,9 +240,14 @@ Gate D (after PR-20):
 - `PR-11`: added detector finding `js_runtime_heap_manipulation` with metadata-backed stage scoring in `crates/sis-pdf-detectors/src/js_sandbox.rs`.
 - `PR-11`: added focused tests in `crates/js-analysis/tests/dynamic_signals.rs` and `crates/sis-pdf-detectors/tests/js_sandbox_integration.rs`.
 - Validation completed: `cargo test -p js-analysis --features js-sandbox --test dynamic_signals` and `cargo test -p sis-pdf-detectors --features js-sandbox --test js_sandbox_integration`.
+- `PR-12`: added static heap exploitation signals in `crates/js-analysis/src/static_analysis.rs`: `js.heap_grooming`, `js.lfh_priming`, `js.rop_chain_construction`, and `js.info_leak_primitive`.
+- `PR-12`: added corresponding detector findings in `crates/sis-pdf-detectors/src/js_polymorphic.rs`: `js_heap_grooming`, `js_lfh_priming`, `js_rop_chain_construction`, and `js_info_leak_primitive`.
+- `PR-12`: added CVE-derived sanitised fixtures under `crates/js-analysis/tests/fixtures/modern_heap/` and wired static/integration coverage.
+- `PR-12`: finding documentation added in `docs/findings.md`.
+- Validation completed: `cargo test -p js-analysis --test static_signals` and `cargo test -p sis-pdf-detectors --test js_polymorphic_integration`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-12` static modern heap exploitation detectors.
+- Start `PR-13` revision content extractor foundation.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.

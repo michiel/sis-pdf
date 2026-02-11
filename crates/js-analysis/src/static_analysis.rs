@@ -84,6 +84,10 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
     out.insert("js.type_confusion_risk".into(), bool_str(detect_type_confusion(data)));
     out.insert("js.integer_overflow_setup".into(), bool_str(detect_integer_overflow(data)));
     out.insert("js.array_manipulation_exploit".into(), bool_str(detect_array_manipulation(data)));
+    out.insert("js.heap_grooming".into(), bool_str(detect_heap_grooming(data)));
+    out.insert("js.lfh_priming".into(), bool_str(detect_lfh_priming(data)));
+    out.insert("js.rop_chain_construction".into(), bool_str(detect_rop_chain_construction(data)));
+    out.insert("js.info_leak_primitive".into(), bool_str(detect_info_leak_primitive(data)));
 
     // Anti-analysis techniques
     out.insert("js.debugger_detection".into(), bool_str(detect_debugger_detection(data)));
@@ -1162,6 +1166,112 @@ fn detect_array_manipulation(data: &[u8]) -> bool {
 
     // High density of array operations
     count >= 4
+}
+
+fn detect_heap_grooming(data: &[u8]) -> bool {
+    let has_loop = find_token(data, b"for(")
+        || find_token(data, b"for (")
+        || find_token(data, b"while(")
+        || find_token(data, b"while (");
+    let alloc_loop = has_loop && find_token(data, b"ArrayBuffer(");
+    let typed_view_with_offset = (find_token(data, b"new Uint8Array(")
+        || find_token(data, b"new Uint16Array(")
+        || find_token(data, b"new Uint32Array(")
+        || find_token(data, b"new Float64Array("))
+        && (find_token(data, b"byteOffset")
+            || find_token(data, b"subarray(")
+            || find_token(data, b", 0x")
+            || find_token(data, b",0x")
+            || find_token(data, b", 0,")
+            || find_token(data, b",0,"));
+    let dataview_computed_offsets = find_token(data, b"new DataView(")
+        && (find_token(data, b"setUint32(")
+            || find_token(data, b"setUint16(")
+            || find_token(data, b"setFloat64(")
+            || find_token(data, b"getUint32(")
+            || find_token(data, b"getFloat64("))
+        && (find_token(data, b"+ 0x") || find_token(data, b"<<") || find_token(data, b"offset"));
+
+    let indicators = [alloc_loop, typed_view_with_offset, dataview_computed_offsets]
+        .iter()
+        .filter(|flag| **flag)
+        .count();
+    indicators >= 2
+}
+
+fn detect_lfh_priming(data: &[u8]) -> bool {
+    let repeated_alloc = find_token(data, b"ArrayBuffer(")
+        && (find_token(data, b"for(")
+            || find_token(data, b"for (")
+            || find_token(data, b"while(")
+            || find_token(data, b"while (")
+            || find_token(data, b"do{")
+            || find_token(data, b"do {"));
+    let free_cycle = find_token(data, b"= null")
+        || find_token(data, b".fill(0)")
+        || find_token(data, b".splice(")
+        || find_token(data, b".length = 0");
+    let targeted_follow_up = find_token(data, b"new DataView(")
+        || find_token(data, b"new Uint32Array(")
+        || find_token(data, b"new Float64Array(");
+
+    repeated_alloc && free_cycle && targeted_follow_up
+}
+
+fn detect_rop_chain_construction(data: &[u8]) -> bool {
+    let base_address_arithmetic = (find_token(data, b"0x7ff")
+        || find_token(data, b"0x10000000")
+        || find_token(data, b"0x140000000")
+        || find_token(data, b"kernel32")
+        || find_token(data, b"ntdll"))
+        && (find_token(data, b"+ 0x")
+            || find_token(data, b"- 0x")
+            || find_token(data, b"<<")
+            || find_token(data, b">>>"));
+    let gadget_write_sequence = (find_token(data, b"setUint32(")
+        || find_token(data, b"setBigUint64(")
+        || find_token(data, b"setFloat64("))
+        && (find_token(data, b"rop")
+            || find_token(data, b"gadget")
+            || find_token(data, b"chain")
+            || find_token(data, b"pivot")
+            || find_token(data, b"returnAddress"));
+    let address_like_constants =
+        data.windows(2).filter(|window| window.eq_ignore_ascii_case(b"0x")).count() >= 6;
+    let sequential_writes = find_token(data, b"setUint32(i")
+        || find_token(data, b"setUint32(idx")
+        || find_token(data, b"setBigUint64(i")
+        || find_token(data, b"setFloat64(i");
+
+    (base_address_arithmetic && gadget_write_sequence)
+        || (address_like_constants && sequential_writes && find_token(data, b"DataView"))
+}
+
+fn detect_info_leak_primitive(data: &[u8]) -> bool {
+    let has_buffer_and_view = find_token(data, b"ArrayBuffer(")
+        && (find_token(data, b"Uint8Array(")
+            || find_token(data, b"Uint32Array(")
+            || find_token(data, b"Float64Array(")
+            || find_token(data, b"DataView("));
+    let length_mutation_or_compare = find_token(data, b".length")
+        && (find_token(data, b"byteLength")
+            || find_token(data, b"!=")
+            || find_token(data, b">")
+            || find_token(data, b"<"));
+    let out_of_bounds_style_access = find_token(data, b"[i + ")
+        || find_token(data, b"[idx + ")
+        || find_token(data, b"[offset + ")
+        || find_token(data, b"getUint32(")
+        || find_token(data, b"getFloat64(");
+    let corruption_markers = find_token(data, b"oob")
+        || find_token(data, b"outOfBounds")
+        || find_token(data, b"leak")
+        || find_token(data, b"addrOf")
+        || find_token(data, b"fakeobj");
+
+    has_buffer_and_view
+        && length_mutation_or_compare
+        && ((out_of_bounds_style_access && find_token(data, b"byteLength")) || corruption_markers)
 }
 
 // ============================================================================
