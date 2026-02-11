@@ -2798,6 +2798,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: object bodies disagree on detected content type.
   - Chain usage: signals evasive or staged payload tactics.
 
+## shadow_hide_attack
+
+- ID: `shadow_hide_attack`
+- Label: Shadow hide attack indicators
+- Description: Post-signature revision added overlay annotation/form appearances that can obscure signed content.
+- Tags: evasion, signature, structure
+- Details:
+  - Relevance: signed-content integrity bypass.
+  - Meaning: overlays added after signing can hide previously signed visual content.
+  - Chain usage: used as post-signature tampering indicator.
+
+## shadow_replace_attack
+
+- ID: `shadow_replace_attack`
+- Label: Shadow replace attack indicators
+- Description: Post-signature revision changed page/content object semantics compared with the signed revision.
+- Tags: evasion, signature, structure
+- Details:
+  - Relevance: signed-content integrity bypass.
+  - Meaning: shadowed page/content objects differ across the signature boundary.
+  - Chain usage: used as post-signature replacement indicator.
+
+## shadow_hide_replace_attack
+
+- ID: `shadow_hide_replace_attack`
+- Label: Shadow hide-and-replace attack indicators
+- Description: Post-signature revision combines overlay additions with content replacement.
+- Tags: evasion, signature, structure
+- Details:
+  - Relevance: high-confidence signed-content tampering.
+  - Meaning: both hide and replace patterns are present across the signature boundary.
+  - Chain usage: used as critical shadow-attack composite indicator.
+
 ## parse_disagreement
 
 - ID: `parse_disagreement`

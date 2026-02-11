@@ -54,6 +54,7 @@ pub mod page_tree_anomalies;
 pub mod polyglot;
 pub mod quantum_risk;
 pub mod rich_media_analysis;
+pub mod shadow_attacks;
 pub mod strict;
 pub mod structural_anomalies;
 pub mod supply_chain;
@@ -87,6 +88,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(IncrementalUpdateDetector),
         Box::new(ObjectIdShadowingDetector),
         Box::new(ShadowObjectDivergenceDetector),
+        Box::new(shadow_attacks::ShadowAttackDetector),
         Box::new(linearization::LinearizationDetector),
         Box::new(ObjStmDensityDetector),
         Box::new(objstm_summary::ObjStmSummaryDetector),

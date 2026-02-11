@@ -1,6 +1,6 @@
+use sis_pdf_pdf::graph::XrefSectionSummary;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
-use sis_pdf_pdf::graph::XrefSectionSummary;
 
 use crate::scan::ScanContext;
 

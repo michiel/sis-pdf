@@ -96,10 +96,10 @@ Scope: `plans/20260211-modernisation-js.md` + `plans/20260211-structural-evasion
 - [x] Add extractor-focused tests.
 
 ## PR-14: Shadow attack detectors
-- [ ] Implement PDF plan S2-2 `shadow_hide_attack`.
-- [ ] Implement PDF plan S2-3 `shadow_replace_attack`.
-- [ ] Implement PDF plan S2-4 `shadow_hide_replace_attack`.
-- [ ] Add synthetic signed fixtures and benign signed controls.
+- [x] Implement PDF plan S2-2 `shadow_hide_attack`.
+- [x] Implement PDF plan S2-3 `shadow_replace_attack`.
+- [x] Implement PDF plan S2-4 `shadow_hide_replace_attack`.
+- [x] Add synthetic signed fixtures and benign signed controls.
 
 ## PR-15: Certified document attack detector + diff summary
 - [ ] Implement PDF plan S2-5 `certified_doc_manipulation`.
@@ -249,9 +249,13 @@ Gate D (after PR-20):
 - `PR-13`: added strict `/ByteRange` validation (shape, integer type, ordering, overlap, overflow, and bounds checks).
 - `PR-13`: added `/Prev` chain integrity validator to safely handle malformed or inconsistent xref chains.
 - `PR-13`: added extractor-focused unit tests for valid extraction, malformed `/ByteRange`, and `/Prev` mismatch handling.
+- `PR-14`: added `ShadowAttackDetector` in `crates/sis-pdf-detectors/src/shadow_attacks.rs` and wired it into `default_detectors`.
+- `PR-14`: implemented `shadow_hide_attack`, `shadow_replace_attack`, and `shadow_hide_replace_attack` findings by correlating signature boundary extraction with post-signature overlays and shadowed content replacements.
+- `PR-14`: added synthetic incremental signed fixtures in `crates/sis-pdf-detectors/tests/shadow_attacks.rs` covering hide-only, replace-only, and combined cases.
+- `PR-14`: finding documentation added in `docs/findings.md`.
 
 ### Pending follow-up for immediate next pass
-- Start `PR-14` shadow attack detectors.
+- Start `PR-15` certified document attack detector + diff summary.
 
 ### Constraints and decisions
 - Concatenation reconstruction intentionally bounded to literal chains only to avoid high false-positive reconstruction of dynamic expressions.
