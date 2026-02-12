@@ -198,6 +198,9 @@ const HINTING_STACK_ERROR_GUARD: usize = 10;
 pub(super) struct HintingStats {
     warnings: usize,
     tables_scanned: usize,
+    kind_counts: HashMap<String, usize>,
+    error_kind_counts: HashMap<String, usize>,
+    sample_instruction_histories: Vec<String>,
     highest_stack_depth: usize,
     highest_instruction_count: usize,
     highest_control_depth: usize,
@@ -226,7 +229,11 @@ impl HintingStats {
                 || finding.kind == "font.ttf_hinting_call_storm"
             {
                 self.warnings += 1;
+                let kind_entry = self.kind_counts.entry(finding.kind.clone()).or_insert(0);
+                *kind_entry = kind_entry.saturating_add(1);
                 if let Some(error_kind) = finding.meta.get("error_kind") {
+                    let error_entry = self.error_kind_counts.entry(error_kind.clone()).or_insert(0);
+                    *error_entry = error_entry.saturating_add(1);
                     if error_kind == "stack_overflow" || error_kind == "stack_underflow" {
                         self.stack_errors += 1;
                     }
@@ -275,6 +282,13 @@ impl HintingStats {
         if self.instruction_history.is_none() {
             if let Some(history) = finding.meta.get("instruction_history") {
                 self.instruction_history = Some(history.clone());
+            }
+        }
+        if let Some(history) = finding.meta.get("instruction_history") {
+            if self.sample_instruction_histories.len() < 3
+                && !self.sample_instruction_histories.iter().any(|sample| sample == history)
+            {
+                self.sample_instruction_histories.push(history.clone());
             }
         }
     }
@@ -333,12 +347,27 @@ impl HintingStats {
         meta.insert("instruction_count".to_string(), self.highest_instruction_count.to_string());
         meta.insert("control_depth".to_string(), self.highest_control_depth.to_string());
         meta.insert("stack_errors".to_string(), self.stack_errors.to_string());
+        if !self.kind_counts.is_empty() {
+            meta.insert("kind_counts".to_string(), format_count_pairs(&self.kind_counts, 8));
+        }
+        if !self.error_kind_counts.is_empty() {
+            meta.insert(
+                "error_kind_counts".to_string(),
+                format_count_pairs(&self.error_kind_counts, 8),
+            );
+        }
 
         if self.highest_push_loop_length > 0 {
             meta.insert("push_loop_length".to_string(), self.highest_push_loop_length.to_string());
         }
         if let Some(history) = &self.instruction_history {
             meta.insert("instruction_history".to_string(), history.clone());
+        }
+        if !self.sample_instruction_histories.is_empty() {
+            meta.insert(
+                "sample_instruction_histories".to_string(),
+                self.sample_instruction_histories.join(" || "),
+            );
         }
 
         // Add truncation metadata if analysis was limited
@@ -368,6 +397,19 @@ impl HintingStats {
             )
         };
 
+        warn!(
+            security = true,
+            domain = "font.hinting",
+            kind = "hinting_program_anomaly_aggregate",
+            warnings = self.warnings,
+            tables_scanned = self.tables_scanned,
+            stack_errors = self.stack_errors,
+            kind_counts = %format_count_pairs(&self.kind_counts, 8),
+            error_kind_counts = %format_count_pairs(&self.error_kind_counts, 8),
+            sample_instruction_histories = %self.sample_instruction_histories.join(" || "),
+            "[NON-FATAL][finding:font.ttf_hinting_torture] Aggregated hinting anomalies"
+        );
+
         findings.push(FontFinding {
             kind: "font.ttf_hinting_torture".to_string(),
             severity: Severity::Medium,
@@ -377,6 +419,18 @@ impl HintingStats {
             meta,
         });
     }
+}
+
+fn format_count_pairs(counts: &HashMap<String, usize>, limit: usize) -> String {
+    let mut pairs: Vec<(String, usize)> =
+        counts.iter().map(|(kind, count)| (kind.clone(), *count)).collect();
+    pairs.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    pairs
+        .into_iter()
+        .take(limit)
+        .map(|(kind, count)| format!("{kind}={count}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]
@@ -509,6 +563,38 @@ mod tests {
             }),
             "Should emit truncated finding with metadata: {:?}",
             findings
+        );
+    }
+
+    #[test]
+    fn emitted_hinting_torture_includes_aggregated_counts() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let mut output = Vec::new();
+        let mut stack_overflow = suspicious_hinting_finding(12, 60, 2, None);
+        stack_overflow.meta.insert("error_kind".to_string(), "stack_overflow".to_string());
+        let mut push_loop = suspicious_hinting_finding(14, 80, 2, Some(16));
+        push_loop.kind = "font.ttf_hinting_push_loop".to_string();
+        push_loop.meta.insert("error_kind".to_string(), "push_loop_detected".to_string());
+        let mut control_flow = suspicious_hinting_finding(18, 90, 4, None);
+        control_flow.kind = "font.ttf_hinting_control_flow_storm".to_string();
+        control_flow.meta.insert("error_kind".to_string(), "control_flow_storm".to_string());
+        stats.record_and_limit(&[stack_overflow, push_loop, control_flow], &mut output);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        let finding = collected
+            .iter()
+            .find(|f| f.kind == "font.ttf_hinting_torture")
+            .expect("expected aggregate finding");
+        assert_eq!(
+            finding.meta.get("kind_counts").map(|value| value.as_str()),
+            Some(
+                "font.ttf_hinting_control_flow_storm=1, font.ttf_hinting_push_loop=1, font.ttf_hinting_suspicious=1"
+            )
+        );
+        assert_eq!(
+            finding.meta.get("error_kind_counts").map(|value| value.as_str()),
+            Some("control_flow_storm=1, push_loop_detected=1, stack_overflow=1")
         );
     }
 

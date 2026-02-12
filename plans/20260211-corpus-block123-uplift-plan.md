@@ -284,9 +284,25 @@ Validation:
 ### PR-H: Warning aggregation and telemetry normalisation (planned)
 
 Objective: reduce stderr warning noise in heavy corpus blocks while retaining forensic utility.
-Status: planned
+Status: done (2026-02-12)
 
-Planned changes:
+Changes:
 1. Aggregate repetitive `font.ttf_hinting_suspicious` telemetry with capped samples.
 2. Ensure warning aggregations can map to existing findings or aggregate findings metadata.
 3. Add corpus-sweep summary counters for aggregated warning classes.
+
+Implemented:
+1. Removed per-program warning spam from `ttf_vm` execution failure path.
+2. Added per-font aggregated warning telemetry in dynamic hinting stats emit:
+   - warning kind: `hinting_program_anomaly_aggregate`
+   - includes counters for finding kinds and error kinds plus capped instruction-history samples.
+3. Extended `font.ttf_hinting_torture` metadata with:
+   - `kind_counts`
+   - `error_kind_counts`
+   - `sample_instruction_histories`
+
+Validation:
+1. `cargo test -p font-analysis hinting -- --nocapture`
+2. Spot-check sample:
+   - `target/debug/sis scan tmp/corpus/mwb-2026-02-10/8d42d425d003480d1acc9082e51cb7a2007208ebef715493836b6afec9ce91bc.pdf --deep --json`
+   - observed stderr warning count reduced to non-hinting warnings (`flate_recovery`, encryption notice).

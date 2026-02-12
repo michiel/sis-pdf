@@ -40,6 +40,9 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
    - implemented an additional adaptive budget clamp when ObjStm stream density is high.
    - new adaptive reason: `objstm_heavy`.
    - validation on `81ec...` reduced runtime profile total from ~141.3s to ~73.8s.
+3. Hinting warning telemetry aggregation:
+   - replaced per-program `font.ttf_hinting_*` warning spam with aggregated per-font telemetry.
+   - aggregate warning includes kind/error counters and capped instruction-history samples.
 
 ## Block 1 (completed)
 

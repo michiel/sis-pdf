@@ -5,7 +5,7 @@
 /// detects suspicious patterns.
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
-use tracing::{debug, instrument, warn};
+use tracing::{debug, instrument};
 
 use crate::model::{Confidence, FontAnalysisConfig, FontFinding, Severity};
 
@@ -325,19 +325,7 @@ pub fn analyze_hinting_program(
             ),
         };
         let history = state.formatted_instruction_history();
-        // Only log warnings if not suppressed (to reduce log spam when limits are hit)
-        if !suppress_warnings {
-            warn!(
-                error = %err,
-                finding = kind.as_str(),
-                instruction_count = state.instruction_count,
-                max_stack_depth = state.max_stack_depth,
-                control_depth = state.max_control_depth,
-                instruction_history = &history,
-                "[NON-FATAL][finding:{}] Hinting program execution failed",
-                kind
-            );
-        }
+        let _ = suppress_warnings;
         let mut meta = HashMap::new();
         meta.insert("error_kind".to_string(), err.kind().to_string());
         meta.insert("error_message".to_string(), err.to_string());
