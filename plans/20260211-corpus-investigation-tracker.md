@@ -33,7 +33,7 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
 
 ## Concrete next-pass checklist (unresolved items)
 
-1. [ ] Outlier isolation for deep-scan tail latency
+1. [x] Outlier isolation for deep-scan tail latency
    - Scope: `81ec61a49b5fcc4e696974798b5e0d3582a297e9c6beaf95d56839b514e064f5`,
      `bf724f5f19df9b2fdb0f45a79b6d9a88e8acf02843465ce891c6a4ad6c8d47a6`,
      `4a9a844dbf0a4fbaa6b33b9ccc5f8b773ca4b286d389e5d3483d56c5d7906cff`.
@@ -41,8 +41,10 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
      - per-sample runtime profile breakdown (top 10 detectors)
      - repeated slow-stage attribution across at least 3 consecutive runs
      - candidate optimisation hypotheses ranked by expected gain/risk
-   - Acceptance:
-     - all three hashes have reproducible profile artefacts and a dominant-stage diagnosis.
+  - Acceptance:
+    - all three hashes have reproducible profile artefacts and a dominant-stage diagnosis.
+  - Status:
+    - completed; pass-1 and controlled 3-run pass artefacts collected with dominant-stage attribution.
 
 2. [ ] `parser_resource_exhaustion` trigger taxonomy completion
    - Deliverables:
@@ -254,3 +256,21 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
 - Next outlier-isolation action:
   - run 3 consecutive profile passes for `81ec...` and `bf724...` under controlled conditions,
     then introduce detector-level timing counters in `content_phishing` subpaths to isolate the expensive branch(es).
+
+## Outlier isolation (completed, pass 2 controlled 3-run)
+
+- Profiling artefacts:
+  - `/tmp/corpus-sweeps/outlier-isolation-20260212-pass2/pass2_rows.json`
+  - `/tmp/corpus-sweeps/outlier-isolation-20260212-pass2/pass2_summary.json`
+- `81ec61a49b5fcc4e696974798b5e0d3582a297e9c6beaf95d56839b514e064f5`
+  - `profile_total_ms`: 38751, 45550, 42438 (spread 6799)
+  - `content_first_stage1_ms`: 37572, 44421, 41129 (dominant)
+  - `content_phishing_ms`: 15461, 15589, 14955 (stable secondary)
+- `bf724f5f19df9b2fdb0f45a79b6d9a88e8acf02843465ce891c6a4ad6c8d47a6`
+  - `profile_total_ms`: 61182, 72061, 75956 (spread 14774)
+  - `content_first_stage1_ms`: 60717, 71460, 75341 (dominant)
+  - `content_phishing_ms`: 3860, 7837, 8404 (secondary, variable)
+- Conclusion:
+  - tail latency remains driven by `content_first_stage1`; `content_phishing` is material but not primary for these outliers.
+- Follow-on instrumentation:
+  - added detector-level timing metadata + `content_phishing_runtime_hotspot` finding for expensive keyword/URI/HTML subpaths to support targeted optimisation loops.

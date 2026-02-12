@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::time::Instant;
 
 use sis_pdf_core::content_index::build_content_index;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
@@ -9,6 +10,15 @@ use sis_pdf_pdf::object::{PdfAtom, PdfObj};
 use crate::{entry_dict, extract_strings_with_span, page_has_uri_annot};
 
 pub struct ContentPhishingDetector;
+const CONTENT_PHISHING_RUNTIME_HOTSPOT_MS: u128 = 1_000;
+
+#[derive(Default)]
+struct ContentPhishingTiming {
+    keyword_scan_ms: u128,
+    external_uri_ms: u128,
+    html_scan_ms: u128,
+    total_ms: u128,
+}
 
 impl Detector for ContentPhishingDetector {
     fn id(&self) -> &'static str {
@@ -24,6 +34,7 @@ impl Detector for ContentPhishingDetector {
         Cost::Moderate
     }
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let total_started = Instant::now();
         const KEYWORDS: &[(&[u8], &str)] = &[
             (b"invoice", "invoice"),
             (b"secure", "secure"),
@@ -34,6 +45,8 @@ impl Detector for ContentPhishingDetector {
         let mut has_keyword = false;
         let mut matched_keywords: Vec<String> = Vec::new();
         let mut evidence = Vec::new();
+        let mut timing = ContentPhishingTiming::default();
+        let keyword_started = Instant::now();
         for entry in &ctx.graph.objects {
             for (bytes, span) in extract_strings_with_span(entry) {
                 let lower = bytes.to_ascii_lowercase();
@@ -60,11 +73,20 @@ impl Detector for ContentPhishingDetector {
                 break;
             }
         }
+        timing.keyword_scan_ms = keyword_started.elapsed().as_millis();
         if !has_keyword {
+            let html_started = Instant::now();
             let html = detect_html_payload(ctx);
-            return Ok(html.into_iter().collect());
+            timing.html_scan_ms =
+                timing.html_scan_ms.saturating_add(html_started.elapsed().as_millis());
+            timing.total_ms = total_started.elapsed().as_millis();
+            let mut out = html.into_iter().collect::<Vec<_>>();
+            maybe_push_runtime_hotspot(&mut out, timing, &matched_keywords);
+            return Ok(out);
         }
+        let uri_started = Instant::now();
         if let Some((uri_value, uri_span)) = first_external_uri(ctx) {
+            timing.external_uri_ms = uri_started.elapsed().as_millis();
             let mut meta = std::collections::HashMap::new();
             if !matched_keywords.is_empty() {
                 meta.insert("content.phishing_keywords".into(), matched_keywords.join(","));
@@ -76,7 +98,8 @@ impl Detector for ContentPhishingDetector {
                 uri_span,
                 &format!("External URI target: {}", uri_note_value(&uri_value)),
             ));
-            return Ok(vec![Finding {
+            timing.total_ms = total_started.elapsed().as_millis();
+            let mut out = vec![Finding {
                 id: String::new(),
                 surface: self.surface(),
                 kind: "content_phishing".into(),
@@ -98,14 +121,66 @@ impl Detector for ContentPhishingDetector {
                 yara: None,
                 position: None,
                 positions: Vec::new(),
-            }]);
+            }];
+            maybe_push_runtime_hotspot(&mut out, timing, &matched_keywords);
+            return Ok(out);
         }
+        timing.external_uri_ms = uri_started.elapsed().as_millis();
         let mut out = Vec::new();
+        let html_started = Instant::now();
         if let Some(html) = detect_html_payload(ctx) {
             out.push(html);
         }
+        timing.html_scan_ms =
+            timing.html_scan_ms.saturating_add(html_started.elapsed().as_millis());
+        timing.total_ms = total_started.elapsed().as_millis();
+        maybe_push_runtime_hotspot(&mut out, timing, &matched_keywords);
         Ok(out)
     }
+}
+
+fn maybe_push_runtime_hotspot(
+    findings: &mut Vec<Finding>,
+    timing: ContentPhishingTiming,
+    matched_keywords: &[String],
+) {
+    if timing.total_ms < CONTENT_PHISHING_RUNTIME_HOTSPOT_MS {
+        return;
+    }
+    let mut meta = std::collections::HashMap::new();
+    meta.insert("timing.keyword_scan_ms".into(), timing.keyword_scan_ms.to_string());
+    meta.insert("timing.external_uri_ms".into(), timing.external_uri_ms.to_string());
+    meta.insert("timing.html_scan_ms".into(), timing.html_scan_ms.to_string());
+    meta.insert("timing.total_ms".into(), timing.total_ms.to_string());
+    if !matched_keywords.is_empty() {
+        meta.insert("content.phishing_keywords".into(), matched_keywords.join(","));
+    }
+    findings.push(Finding {
+        id: String::new(),
+        surface: AttackSurface::ContentPhishing,
+        kind: "content_phishing_runtime_hotspot".into(),
+        severity: Severity::Info,
+        confidence: Confidence::Strong,
+        impact: None,
+        title: "Content phishing detector runtime hotspot".into(),
+        description:
+            "content_phishing detector exceeded runtime hotspot threshold; inspect timing breakdown metadata."
+                .into(),
+        objects: vec!["content".into()],
+        evidence: Vec::new(),
+        remediation: Some(
+            "Use timing metadata to isolate expensive keyword/URI/HTML scanning subpaths for optimisation."
+                .into(),
+        ),
+        meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    });
 }
 
 fn first_external_uri(
@@ -407,7 +482,10 @@ fn first_coord(page: &sis_pdf_core::content_index::PageContent) -> Option<(f32, 
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_rendered_script_lure, uri_note_value};
+    use super::{
+        detect_rendered_script_lure, maybe_push_runtime_hotspot, uri_note_value,
+        ContentPhishingTiming,
+    };
 
     #[test]
     fn uri_note_value_truncates_long_values() {
@@ -439,6 +517,41 @@ mod tests {
     fn rendered_script_lure_ignores_marker_without_text_operator_context() {
         let data = b"<< /Subtype /XML /Note <script>alert(1)</script> >>";
         assert_eq!(detect_rendered_script_lure(data), None);
+    }
+
+    #[test]
+    fn runtime_hotspot_finding_emits_when_threshold_exceeded() {
+        let mut findings = Vec::new();
+        let timing = ContentPhishingTiming {
+            keyword_scan_ms: 1100,
+            external_uri_ms: 10,
+            html_scan_ms: 5,
+            total_ms: 1200,
+        };
+        let keywords = vec!["invoice".to_string(), "verify".to_string()];
+        maybe_push_runtime_hotspot(&mut findings, timing, &keywords);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].kind, "content_phishing_runtime_hotspot");
+        assert_eq!(findings[0].meta.get("timing.total_ms"), Some(&"1200".to_string()));
+        assert_eq!(
+            findings[0].meta.get("content.phishing_keywords"),
+            Some(&"invoice,verify".to_string())
+        );
+    }
+
+    #[test]
+    fn runtime_hotspot_finding_skips_below_threshold() {
+        let mut findings = Vec::new();
+        let timing = ContentPhishingTiming {
+            keyword_scan_ms: 500,
+            external_uri_ms: 10,
+            html_scan_ms: 5,
+            total_ms: 900,
+        };
+        maybe_push_runtime_hotspot(&mut findings, timing, &[]);
+
+        assert!(findings.is_empty());
     }
 }
 
