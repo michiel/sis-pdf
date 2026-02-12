@@ -125,6 +125,7 @@ Validation:
 ## PR-D: High-volume finding aggregation and dedup
 
 Objective: increase analyst signal-to-noise ratio.
+Status: done (2026-02-12)
 
 Changes:
 1. Expand aggregate findings for repetitive classes:
@@ -134,11 +135,14 @@ Changes:
    - `font.ttf_hinting_suspicious`
 2. Keep top-N object refs and counts; collapse duplicates by canonical signature.
 3. Preserve raw detail in machine output while presenting compact analyst view.
+   - Implemented in focused triage aggregation path (`crates/sis-pdf-core/src/report.rs`).
 
 Validation:
 1. Integration tests for aggregate counts, object references, and explain output.
+   - Added `focused_triage_aggregates_noisy_kinds_with_samples`.
 2. Compare finding volume before/after on fixed replay:
    - target ≥40% reduction in total finding rows for heavy outliers.
+   - `cargo test -p sis-pdf-core focused_triage_aggregates -- --nocapture` passed.
 
 ## PR-E: Severity/confidence recalibration for context-rich combinations
 

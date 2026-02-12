@@ -650,11 +650,21 @@ pub fn apply_focused_triage(report: &mut Report) {
     let mut focused = Vec::new();
     let mut uri_present = Vec::new();
     let mut annotation_chains = Vec::new();
+    let mut noisy_content_stream_anomaly = Vec::new();
+    let mut noisy_label_mismatch_stream_type = Vec::new();
+    let mut noisy_font_dynamic_parse_failure = Vec::new();
+    let mut noisy_font_ttf_hinting_suspicious = Vec::new();
 
     for finding in &report.findings {
         match finding.kind.as_str() {
             "uri_present" => uri_present.push(finding.clone()),
             "annotation_action_chain" => annotation_chains.push(finding.clone()),
+            "content_stream_anomaly" => noisy_content_stream_anomaly.push(finding.clone()),
+            "label_mismatch_stream_type" => noisy_label_mismatch_stream_type.push(finding.clone()),
+            "font.dynamic_parse_failure" => noisy_font_dynamic_parse_failure.push(finding.clone()),
+            "font.ttf_hinting_suspicious" => {
+                noisy_font_ttf_hinting_suspicious.push(finding.clone())
+            }
             _ if is_focused_triage_finding(finding) => focused.push(finding.clone()),
             _ => {}
         }
@@ -664,6 +674,26 @@ pub fn apply_focused_triage(report: &mut Report) {
         focused.push(aggregate);
     }
     if let Some(aggregate) = aggregate_annotation_action_chains(&annotation_chains) {
+        focused.push(aggregate);
+    }
+    if let Some(aggregate) =
+        aggregate_noisy_kind("content_stream_anomaly", &noisy_content_stream_anomaly)
+    {
+        focused.push(aggregate);
+    }
+    if let Some(aggregate) =
+        aggregate_noisy_kind("label_mismatch_stream_type", &noisy_label_mismatch_stream_type)
+    {
+        focused.push(aggregate);
+    }
+    if let Some(aggregate) =
+        aggregate_noisy_kind("font.dynamic_parse_failure", &noisy_font_dynamic_parse_failure)
+    {
+        focused.push(aggregate);
+    }
+    if let Some(aggregate) =
+        aggregate_noisy_kind("font.ttf_hinting_suspicious", &noisy_font_ttf_hinting_suspicious)
+    {
         focused.push(aggregate);
     }
 
@@ -845,6 +875,132 @@ fn aggregate_annotation_action_chains(findings: &[Finding]) -> Option<Finding> {
         evidence,
         remediation: Some(
             "Inspect sampled annotation objects and correlate with action and URI findings.".into(),
+        ),
+        meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    })
+}
+
+fn kind_signature_keys(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "content_stream_anomaly" => {
+            &["content.unknown_ops", "content.arity_mismatches", "content.samples"]
+        }
+        "label_mismatch_stream_type" => &[
+            "declared.subtype",
+            "blob.kind",
+            "declared.expected_family",
+            "observed.signature_hint",
+        ],
+        "font.dynamic_parse_failure" => {
+            &["parse_error_class", "parse_error", "font.dynamic_error", "error_kind"]
+        }
+        "font.ttf_hinting_suspicious" => &["error_kind", "patterns", "instruction_count"],
+        _ => &[],
+    }
+}
+
+fn canonical_signature(kind: &str, finding: &Finding) -> String {
+    let mut parts = Vec::new();
+    for key in kind_signature_keys(kind) {
+        if let Some(value) = finding.meta.get(*key) {
+            parts.push(format!("{key}={value}"));
+        }
+    }
+    if parts.is_empty() {
+        if !finding.title.is_empty() {
+            parts.push(format!("title={}", finding.title));
+        }
+        if !finding.description.is_empty() {
+            parts.push(format!("desc={}", finding.description));
+        }
+    }
+    parts.join("|")
+}
+
+fn aggregate_noisy_kind(kind: &str, findings: &[Finding]) -> Option<Finding> {
+    if findings.is_empty() {
+        return None;
+    }
+    let mut sample_objects = BTreeSet::new();
+    let mut sample_positions = BTreeSet::new();
+    let mut signature_counts: HashMap<String, usize> = HashMap::new();
+    let mut evidence = Vec::new();
+    for finding in findings {
+        for object in finding.objects.iter().take(3) {
+            sample_objects.insert(object.clone());
+        }
+        if let Some(position) = &finding.position {
+            sample_positions.insert(position.clone());
+        }
+        for position in finding.positions.iter().take(3) {
+            sample_positions.insert(position.clone());
+        }
+        let signature = canonical_signature(kind, finding);
+        *signature_counts.entry(signature).or_insert(0) += 1;
+        if evidence.len() < 4 {
+            evidence.extend(finding.evidence.iter().take(1).cloned());
+        }
+    }
+    let total = findings.len();
+    let mut signatures = signature_counts.into_iter().collect::<Vec<_>>();
+    signatures.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let unique_signature_count = signatures.len();
+    let sample_signatures = signatures
+        .into_iter()
+        .take(8)
+        .map(|(signature, count)| format!("{count}x:{signature}"))
+        .collect::<Vec<_>>();
+    let severity = if total >= 120 {
+        Severity::High
+    } else if total >= 40 {
+        Severity::Medium
+    } else {
+        Severity::Low
+    };
+    let confidence = if total >= 40 { Confidence::Strong } else { Confidence::Probable };
+    let mut meta = HashMap::new();
+    meta.insert("aggregate.kind".into(), kind.to_string());
+    meta.insert("aggregate.count".into(), total.to_string());
+    meta.insert("aggregate.unique_signature_count".into(), unique_signature_count.to_string());
+    meta.insert(
+        "aggregate.sample_objects".into(),
+        sample_objects.iter().take(12).cloned().collect::<Vec<_>>().join(","),
+    );
+    if !sample_positions.is_empty() {
+        meta.insert(
+            "aggregate.sample_positions".into(),
+            sample_positions.iter().take(12).cloned().collect::<Vec<_>>().join(","),
+        );
+    }
+    if !sample_signatures.is_empty() {
+        meta.insert("aggregate.sample_signatures".into(), sample_signatures.join(" || "));
+    }
+    Some(Finding {
+        id: String::new(),
+        surface: findings
+            .first()
+            .map(|finding| finding.surface)
+            .unwrap_or(AttackSurface::FileStructure),
+        kind: format!("{kind}_aggregate"),
+        severity,
+        confidence,
+        impact: None,
+        title: format!("{kind} aggregated"),
+        description: format!(
+            "Aggregated {total} findings for `{kind}` across {unique_signature_count} canonical signatures."
+        ),
+        objects: sample_objects.into_iter().take(12).collect(),
+        evidence,
+        remediation: Some(
+            "Review sampled signatures/objects and pivot with `sis query` filters for targeted follow-up."
+                .into(),
         ),
         meta,
         reader_impacts: Vec::new(),
@@ -3872,6 +4028,101 @@ mod tests {
             .expect("uri_present_aggregate should be present");
         assert_eq!(uri_aggregate.meta.get("aggregate.count"), Some(&"1".to_string()));
         assert!(report.findings.iter().all(|finding| finding.kind != "uri_present"));
+    }
+
+    #[test]
+    fn focused_triage_aggregates_noisy_kinds_with_samples() {
+        let mut content = Finding::template(
+            AttackSurface::FileStructure,
+            "content_stream_anomaly",
+            Severity::Low,
+            Confidence::Probable,
+            "Content stream syntax anomaly",
+            "anomaly",
+        );
+        content.objects = vec!["11 0 obj".into()];
+        content.meta.insert("content.unknown_ops".into(), "2".into());
+        content.meta.insert("content.arity_mismatches".into(), "1".into());
+
+        let mut label = Finding::template(
+            AttackSurface::StreamsAndFilters,
+            "label_mismatch_stream_type",
+            Severity::Medium,
+            Confidence::Strong,
+            "Stream label mismatch",
+            "mismatch",
+        );
+        label.objects = vec!["12 0 obj".into()];
+        label.position = Some("doc:r0/obj.12".into());
+        label.meta.insert("declared.subtype".into(), "/Image".into());
+        label.meta.insert("blob.kind".into(), "zip".into());
+
+        let mut parse_fail = Finding::template(
+            AttackSurface::StreamsAndFilters,
+            "font.dynamic_parse_failure",
+            Severity::Low,
+            Confidence::Probable,
+            "Font parsing failed",
+            "parse fail",
+        );
+        parse_fail.objects = vec!["13 0 obj".into()];
+        parse_fail.meta.insert("parse_error_class".into(), "unknown_magic".into());
+
+        let mut hint = Finding::template(
+            AttackSurface::StreamsAndFilters,
+            "font.ttf_hinting_suspicious",
+            Severity::Low,
+            Confidence::Heuristic,
+            "Suspicious patterns in hinting program",
+            "hinting",
+        );
+        hint.objects = vec!["14 0 obj".into()];
+        hint.meta.insert("error_kind".into(), "stack_underflow".into());
+        hint.meta.insert("instruction_count".into(), "19".into());
+
+        let mut report = Report::from_findings(
+            vec![content, label, parse_fail, hint],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+        );
+
+        apply_focused_triage(&mut report);
+
+        assert!(report
+            .findings
+            .iter()
+            .any(|finding| finding.kind == "content_stream_anomaly_aggregate"));
+        let label_aggregate = report
+            .findings
+            .iter()
+            .find(|finding| finding.kind == "label_mismatch_stream_type_aggregate")
+            .expect("label mismatch aggregate should be present");
+        assert_eq!(label_aggregate.meta.get("aggregate.count"), Some(&"1".to_string()));
+        assert_eq!(
+            label_aggregate.meta.get("aggregate.unique_signature_count"),
+            Some(&"1".to_string())
+        );
+        assert_eq!(
+            label_aggregate.meta.get("aggregate.sample_objects"),
+            Some(&"12 0 obj".to_string())
+        );
+        assert!(report.findings.iter().all(|finding| {
+            !matches!(
+                finding.kind.as_str(),
+                "content_stream_anomaly"
+                    | "label_mismatch_stream_type"
+                    | "font.dynamic_parse_failure"
+                    | "font.ttf_hinting_suspicious"
+            )
+        }));
     }
 }
 
