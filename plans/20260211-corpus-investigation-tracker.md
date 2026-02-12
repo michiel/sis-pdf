@@ -65,7 +65,7 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
   - Status:
     - completed with explicit triage taxonomy and guardrails in `font-analysis`; parse failures now emit exploit-relevance metadata, triage bucket, and class-specific remediation.
 
-4. [ ] Structural/content high-volume class disambiguation
+4. [x] Structural/content high-volume class disambiguation
    - Scope:
      - `content_stream_anomaly`
      - `label_mismatch_stream_type`
@@ -73,8 +73,10 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
    - Deliverables:
      - context-correlation rules (action/js/object-role aware)
      - aggregate metadata improvements for analyst pivoting
-   - Acceptance:
-     - ≥25% reduction in ambiguous medium/low rows on heavy files with no regression in high-risk recall.
+  - Acceptance:
+    - ≥25% reduction in ambiguous medium/low rows on heavy files with no regression in high-risk recall.
+  - Status:
+    - completed with context-aware triage recalibration for `content_stream_anomaly`, `label_mismatch_stream_type`, and `image.decode_skipped`; each finding now carries pivot metadata (`triage.noisy_class_*`, `triage.context_signals`, object-overlap flag, bucket).
 
 5. [ ] Secondary parser error-class prevalence baseline
    - Deliverables:
@@ -323,3 +325,29 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
   - `crates/font-analysis/tests/fixtures/dynamic/truncated-sfnt-header.ttf`
 - Validation:
   - `cargo test -p font-analysis -- --nocapture` (full pass)
+
+## Structural/content disambiguation and pivot metadata (completed)
+
+- Implemented in `recalibrate_findings_with_context`:
+  - noisy class context-correlation for:
+    - `content_stream_anomaly`
+    - `label_mismatch_stream_type`
+    - `image.decode_skipped`
+  - bucketed triage outcomes:
+    - `correlated_high_risk`
+    - `correlated`
+    - `likely_noise`
+- Added per-finding analyst pivot metadata:
+  - `triage.noisy_class_total_count`
+  - `triage.noisy_class_kind_count`
+  - `triage.noisy_class_counts`
+  - `triage.context_signal_count`
+  - `triage.context_signals`
+  - `triage.object_overlap_with_risky_refs`
+  - `triage.noisy_class_bucket`
+- Added focused-triage aggregation for `image.decode_skipped`:
+  - new aggregate finding kind: `image.decode_skipped_aggregate`
+  - canonical signature keys include dynamic/image-format/source fields.
+- Validation:
+  - `cargo test -p sis-pdf-core noisy_class_disambiguation -- --nocapture`
+  - `cargo test -p sis-pdf-core focused_triage_aggregates_noisy_kinds_with_samples -- --nocapture`

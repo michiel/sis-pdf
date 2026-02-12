@@ -1767,6 +1767,197 @@ fn recalibrate_findings_with_context(findings: &mut [Finding]) {
             );
         }
     }
+
+    apply_noisy_class_disambiguation(
+        findings,
+        has_filter_anomaly,
+        has_runtime_anomaly,
+        has_decode_risk,
+        has_structural_inconsistency,
+        has_resource_exhaustion,
+        has_action_chain,
+        has_js_intent,
+        has_external_launch,
+    );
+}
+
+fn apply_noisy_class_disambiguation(
+    findings: &mut [Finding],
+    has_filter_anomaly: bool,
+    has_runtime_anomaly: bool,
+    has_decode_risk: bool,
+    has_structural_inconsistency: bool,
+    has_resource_exhaustion: bool,
+    has_action_chain: bool,
+    has_js_intent: bool,
+    has_external_launch: bool,
+) {
+    let noisy_kind_counts: HashMap<String, usize> = findings
+        .iter()
+        .filter(|finding| is_noisy_ambiguous_kind(finding.kind.as_str()))
+        .fold(HashMap::new(), |mut counts, finding| {
+            *counts.entry(finding.kind.clone()).or_insert(0) += 1;
+            counts
+        });
+    if noisy_kind_counts.is_empty() {
+        return;
+    }
+    let noisy_total = noisy_kind_counts.values().sum::<usize>();
+    let noisy_counts_csv = format_count_pairs(&noisy_kind_counts, noisy_kind_counts.len());
+    let context_signals = noisy_context_signal_labels(
+        has_filter_anomaly,
+        has_runtime_anomaly,
+        has_decode_risk,
+        has_structural_inconsistency,
+        has_resource_exhaustion,
+        has_action_chain,
+        has_js_intent,
+        has_external_launch,
+    );
+    let context_signal_count = context_signals.len();
+    let context_signals_csv =
+        if context_signals.is_empty() { "none".to_string() } else { context_signals.join(",") };
+    let risky_refs = collect_noisy_context_refs(findings);
+
+    for finding in
+        findings.iter_mut().filter(|finding| is_noisy_ambiguous_kind(finding.kind.as_str()))
+    {
+        let kind_count = noisy_kind_counts.get(&finding.kind).copied().unwrap_or_default();
+        let object_overlap = finding
+            .objects
+            .iter()
+            .filter_map(|object| position::parse_obj_ref(object))
+            .any(|object_ref| risky_refs.contains(&object_ref));
+        let correlated_context = object_overlap
+            || has_runtime_anomaly
+            || has_js_intent
+            || has_action_chain
+            || has_external_launch;
+        let decoder_pressure =
+            has_decode_risk || has_resource_exhaustion || has_structural_inconsistency;
+
+        let (bucket, target_severity, target_confidence, reason, use_override) =
+            if correlated_context && decoder_pressure {
+                let (severity, confidence) =
+                    noisy_target_profile(finding.kind.as_str(), "correlated_high_risk");
+                (
+                    "correlated_high_risk",
+                    severity,
+                    confidence,
+                    "noisy_class_correlated_high_risk_context",
+                    false,
+                )
+            } else if correlated_context || decoder_pressure {
+                let (severity, confidence) =
+                    noisy_target_profile(finding.kind.as_str(), "correlated");
+                ("correlated", severity, confidence, "noisy_class_correlated_context", false)
+            } else {
+                let (severity, confidence) =
+                    noisy_target_profile(finding.kind.as_str(), "likely_noise");
+                ("likely_noise", severity, confidence, "noisy_class_likely_noise", true)
+            };
+
+        finding.meta.insert("triage.noisy_class_total_count".into(), noisy_total.to_string());
+        finding.meta.insert("triage.noisy_class_kind_count".into(), kind_count.to_string());
+        finding.meta.insert("triage.noisy_class_counts".into(), noisy_counts_csv.clone());
+        finding.meta.insert("triage.context_signal_count".into(), context_signal_count.to_string());
+        finding.meta.insert("triage.context_signals".into(), context_signals_csv.clone());
+        finding
+            .meta
+            .insert("triage.object_overlap_with_risky_refs".into(), object_overlap.to_string());
+        finding.meta.insert("triage.noisy_class_bucket".into(), bucket.to_string());
+
+        if use_override {
+            apply_context_override(finding, target_severity, target_confidence, reason);
+        } else {
+            apply_context_recalibration(finding, target_severity, target_confidence, reason);
+        }
+    }
+}
+
+fn is_noisy_ambiguous_kind(kind: &str) -> bool {
+    matches!(kind, "content_stream_anomaly" | "label_mismatch_stream_type" | "image.decode_skipped")
+}
+
+fn noisy_context_signal_labels(
+    has_filter_anomaly: bool,
+    has_runtime_anomaly: bool,
+    has_decode_risk: bool,
+    has_structural_inconsistency: bool,
+    has_resource_exhaustion: bool,
+    has_action_chain: bool,
+    has_js_intent: bool,
+    has_external_launch: bool,
+) -> Vec<&'static str> {
+    let mut labels = Vec::new();
+    if has_filter_anomaly {
+        labels.push("filter_anomaly");
+    }
+    if has_runtime_anomaly {
+        labels.push("runtime_anomaly");
+    }
+    if has_decode_risk {
+        labels.push("decode_risk");
+    }
+    if has_structural_inconsistency {
+        labels.push("structural_inconsistency");
+    }
+    if has_resource_exhaustion {
+        labels.push("resource_exhaustion");
+    }
+    if has_action_chain {
+        labels.push("action_chain");
+    }
+    if has_js_intent {
+        labels.push("js_intent");
+    }
+    if has_external_launch {
+        labels.push("external_launch");
+    }
+    labels
+}
+
+fn collect_noisy_context_refs(findings: &[Finding]) -> HashSet<(u32, u16)> {
+    findings
+        .iter()
+        .filter(|finding| {
+            is_action_or_js_kind(finding.kind.as_str())
+                || matches!(
+                    finding.kind.as_str(),
+                    "decoder_risk_present"
+                        | "decompression_ratio_suspicious"
+                        | "image_decoder_exploit_chain"
+                        | "parser_resource_exhaustion"
+                        | "pdf.trailer_inconsistent"
+                        | "xref_conflict"
+                        | "parser_trailer_count_diff"
+                        | "parser_diff_structural"
+                        | "structural_evasion_composite"
+                )
+        })
+        .flat_map(|finding| {
+            finding.objects.iter().filter_map(|obj_ref| position::parse_obj_ref(obj_ref))
+        })
+        .collect()
+}
+
+fn noisy_target_profile(kind: &str, bucket: &str) -> (Severity, Confidence) {
+    match (kind, bucket) {
+        ("label_mismatch_stream_type", "correlated_high_risk") => {
+            (Severity::High, Confidence::Strong)
+        }
+        ("label_mismatch_stream_type", "correlated") => (Severity::Medium, Confidence::Strong),
+        ("label_mismatch_stream_type", "likely_noise") => (Severity::Low, Confidence::Probable),
+        ("content_stream_anomaly", "correlated_high_risk") => {
+            (Severity::Medium, Confidence::Strong)
+        }
+        ("content_stream_anomaly", "correlated") => (Severity::Medium, Confidence::Probable),
+        ("content_stream_anomaly", "likely_noise") => (Severity::Low, Confidence::Tentative),
+        ("image.decode_skipped", "correlated_high_risk") => (Severity::Low, Confidence::Strong),
+        ("image.decode_skipped", "correlated") => (Severity::Low, Confidence::Probable),
+        ("image.decode_skipped", "likely_noise") => (Severity::Info, Confidence::Weak),
+        _ => (Severity::Low, Confidence::Probable),
+    }
 }
 
 fn is_action_or_js_kind(kind: &str) -> bool {
@@ -2476,5 +2667,148 @@ mod tests {
             finding.meta.get("triage.context_reasons"),
             Some(&"parser_hazard_on_action_or_js_object".to_string())
         );
+    }
+
+    #[test]
+    fn noisy_class_disambiguation_lowers_isolated_ambiguous_findings() {
+        let mut findings = vec![
+            Finding::template(
+                AttackSurface::StreamsAndFilters,
+                "label_mismatch_stream_type",
+                Severity::Medium,
+                Confidence::Strong,
+                "Stream label mismatch",
+                "Test",
+            ),
+            Finding::template(
+                AttackSurface::FileStructure,
+                "content_stream_anomaly",
+                Severity::Medium,
+                Confidence::Probable,
+                "Content anomaly",
+                "Test",
+            ),
+            Finding::template(
+                AttackSurface::Images,
+                "image.decode_skipped",
+                Severity::Info,
+                Confidence::Probable,
+                "Image decode skipped",
+                "Test",
+            ),
+        ];
+
+        recalibrate_findings_with_context(&mut findings);
+
+        let label = findings
+            .iter()
+            .find(|finding| finding.kind == "label_mismatch_stream_type")
+            .expect("label mismatch finding");
+        assert_eq!(label.severity, Severity::Low);
+        assert_eq!(label.confidence, Confidence::Probable);
+        assert_eq!(label.meta.get("triage.noisy_class_bucket"), Some(&"likely_noise".to_string()));
+        assert_eq!(
+            label.meta.get("triage.context_reasons"),
+            Some(&"noisy_class_likely_noise".to_string())
+        );
+
+        let content = findings
+            .iter()
+            .find(|finding| finding.kind == "content_stream_anomaly")
+            .expect("content anomaly finding");
+        assert_eq!(content.severity, Severity::Low);
+        assert_eq!(content.confidence, Confidence::Tentative);
+        assert_eq!(
+            content.meta.get("triage.noisy_class_counts"),
+            Some(
+                &"content_stream_anomaly=1, image.decode_skipped=1, label_mismatch_stream_type=1"
+                    .to_string()
+            )
+        );
+
+        let image = findings
+            .iter()
+            .find(|finding| finding.kind == "image.decode_skipped")
+            .expect("image decode skipped finding");
+        assert_eq!(image.severity, Severity::Info);
+        assert_eq!(image.confidence, Confidence::Weak);
+    }
+
+    #[test]
+    fn noisy_class_disambiguation_escalates_with_risky_context_overlap() {
+        let mut noisy = Finding::template(
+            AttackSurface::FileStructure,
+            "content_stream_anomaly",
+            Severity::Low,
+            Confidence::Probable,
+            "Content anomaly",
+            "Test",
+        );
+        noisy.objects = vec!["7 0 obj".into()];
+        let mut image = Finding::template(
+            AttackSurface::Images,
+            "image.decode_skipped",
+            Severity::Info,
+            Confidence::Probable,
+            "Image decode skipped",
+            "Test",
+        );
+        image.objects = vec!["7 0 obj".into()];
+        let mut js = Finding::template(
+            AttackSurface::JavaScript,
+            "js_present",
+            Severity::Medium,
+            Confidence::Strong,
+            "JS present",
+            "Test",
+        );
+        js.objects = vec!["7 0 obj".into()];
+        js.meta.insert("js.intent.primary".into(), "network".into());
+        let mut decoder = Finding::template(
+            AttackSurface::StreamsAndFilters,
+            "decoder_risk_present",
+            Severity::High,
+            Confidence::Probable,
+            "Decoder risk present",
+            "Test",
+        );
+        decoder.objects = vec!["7 0 obj".into()];
+        let exhaustion = Finding::template(
+            AttackSurface::FileStructure,
+            "parser_resource_exhaustion",
+            Severity::High,
+            Confidence::Probable,
+            "Resource exhaustion",
+            "Test",
+        );
+
+        let mut findings = vec![noisy, image, js, decoder, exhaustion];
+        recalibrate_findings_with_context(&mut findings);
+
+        let content = findings
+            .iter()
+            .find(|finding| finding.kind == "content_stream_anomaly")
+            .expect("content anomaly finding");
+        assert_eq!(content.severity, Severity::Medium);
+        assert_eq!(content.confidence, Confidence::Strong);
+        assert_eq!(
+            content.meta.get("triage.noisy_class_bucket"),
+            Some(&"correlated_high_risk".to_string())
+        );
+        assert_eq!(
+            content.meta.get("triage.object_overlap_with_risky_refs"),
+            Some(&"true".to_string())
+        );
+        assert_eq!(
+            content.meta.get("triage.context_reasons"),
+            Some(&"noisy_class_correlated_high_risk_context".to_string())
+        );
+
+        let image = findings
+            .iter()
+            .find(|finding| finding.kind == "image.decode_skipped")
+            .expect("image decode skipped finding");
+        assert_eq!(image.severity, Severity::Low);
+        assert_eq!(image.confidence, Confidence::Strong);
     }
 }

@@ -652,6 +652,7 @@ pub fn apply_focused_triage(report: &mut Report) {
     let mut annotation_chains = Vec::new();
     let mut noisy_content_stream_anomaly = Vec::new();
     let mut noisy_label_mismatch_stream_type = Vec::new();
+    let mut noisy_image_decode_skipped = Vec::new();
     let mut noisy_font_dynamic_parse_failure = Vec::new();
     let mut noisy_font_ttf_hinting_suspicious = Vec::new();
 
@@ -661,6 +662,7 @@ pub fn apply_focused_triage(report: &mut Report) {
             "annotation_action_chain" => annotation_chains.push(finding.clone()),
             "content_stream_anomaly" => noisy_content_stream_anomaly.push(finding.clone()),
             "label_mismatch_stream_type" => noisy_label_mismatch_stream_type.push(finding.clone()),
+            "image.decode_skipped" => noisy_image_decode_skipped.push(finding.clone()),
             "font.dynamic_parse_failure" => noisy_font_dynamic_parse_failure.push(finding.clone()),
             "font.ttf_hinting_suspicious" => {
                 noisy_font_ttf_hinting_suspicious.push(finding.clone())
@@ -683,6 +685,11 @@ pub fn apply_focused_triage(report: &mut Report) {
     }
     if let Some(aggregate) =
         aggregate_noisy_kind("label_mismatch_stream_type", &noisy_label_mismatch_stream_type)
+    {
+        focused.push(aggregate);
+    }
+    if let Some(aggregate) =
+        aggregate_noisy_kind("image.decode_skipped", &noisy_image_decode_skipped)
     {
         focused.push(aggregate);
     }
@@ -898,6 +905,9 @@ fn kind_signature_keys(kind: &str) -> &'static [&'static str] {
             "declared.expected_family",
             "observed.signature_hint",
         ],
+        "image.decode_skipped" => {
+            &["image.dynamic", "image.filters", "payload.format", "payload.source"]
+        }
         "font.dynamic_parse_failure" => {
             &["parse_error_class", "parse_error", "font.dynamic_error", "error_kind"]
         }
@@ -4057,6 +4067,18 @@ mod tests {
         label.meta.insert("declared.subtype".into(), "/Image".into());
         label.meta.insert("blob.kind".into(), "zip".into());
 
+        let mut image_decode_skipped = Finding::template(
+            AttackSurface::Images,
+            "image.decode_skipped",
+            Severity::Info,
+            Confidence::Probable,
+            "Image decode skipped",
+            "decode skipped",
+        );
+        image_decode_skipped.objects = vec!["15 0 obj".into()];
+        image_decode_skipped.meta.insert("image.dynamic".into(), "true".into());
+        image_decode_skipped.meta.insert("payload.format".into(), "JPX".into());
+
         let mut parse_fail = Finding::template(
             AttackSurface::StreamsAndFilters,
             "font.dynamic_parse_failure",
@@ -4081,7 +4103,7 @@ mod tests {
         hint.meta.insert("instruction_count".into(), "19".into());
 
         let mut report = Report::from_findings(
-            vec![content, label, parse_fail, hint],
+            vec![content, label, image_decode_skipped, parse_fail, hint],
             Vec::new(),
             Vec::new(),
             Vec::new(),
@@ -4114,11 +4136,18 @@ mod tests {
             label_aggregate.meta.get("aggregate.sample_objects"),
             Some(&"12 0 obj".to_string())
         );
+        let image_aggregate = report
+            .findings
+            .iter()
+            .find(|finding| finding.kind == "image.decode_skipped_aggregate")
+            .expect("image decode skipped aggregate should be present");
+        assert_eq!(image_aggregate.meta.get("aggregate.count"), Some(&"1".to_string()));
         assert!(report.findings.iter().all(|finding| {
             !matches!(
                 finding.kind.as_str(),
                 "content_stream_anomaly"
                     | "label_mismatch_stream_type"
+                    | "image.decode_skipped"
                     | "font.dynamic_parse_failure"
                     | "font.ttf_hinting_suspicious"
             )
