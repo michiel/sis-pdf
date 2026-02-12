@@ -2,6 +2,8 @@ use crate::model::{AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Find
 use sis_pdf_pdf::ObjectGraph;
 use std::io::Cursor;
 
+const DIFF_SAMPLE_LIMIT: usize = 8;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffSummary {
     pub primary_objects: usize,
@@ -10,6 +12,8 @@ pub struct DiffSummary {
     pub secondary_trailers: usize,
     pub missing_in_secondary: usize,
     pub missing_in_primary: usize,
+    pub missing_in_secondary_ids: Vec<(u32, u16)>,
+    pub missing_in_primary_ids: Vec<(u32, u16)>,
 }
 
 #[derive(Debug, Clone)]
@@ -25,8 +29,14 @@ pub fn diff_summary(bytes: &[u8], primary: &ObjectGraph<'_>) -> Result<DiffSumma
         primary.index.keys().cloned().collect();
     let secondary_ids: std::collections::HashSet<(u32, u16)> =
         doc.objects.keys().cloned().collect();
-    let missing_in_secondary = primary_ids.difference(&secondary_ids).count();
-    let missing_in_primary = secondary_ids.difference(&primary_ids).count();
+    let mut missing_in_secondary_ids: Vec<(u32, u16)> =
+        primary_ids.difference(&secondary_ids).copied().collect();
+    let mut missing_in_primary_ids: Vec<(u32, u16)> =
+        secondary_ids.difference(&primary_ids).copied().collect();
+    missing_in_secondary_ids.sort_unstable();
+    missing_in_primary_ids.sort_unstable();
+    let missing_in_secondary = missing_in_secondary_ids.len();
+    let missing_in_primary = missing_in_primary_ids.len();
     Ok(DiffSummary {
         primary_objects: primary.objects.len(),
         secondary_objects: doc.objects.len(),
@@ -34,6 +44,8 @@ pub fn diff_summary(bytes: &[u8], primary: &ObjectGraph<'_>) -> Result<DiffSumma
         secondary_trailers: doc.trailer.len(),
         missing_in_secondary,
         missing_in_primary,
+        missing_in_secondary_ids,
+        missing_in_primary_ids,
     })
 }
 
@@ -55,6 +67,11 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             finding.evidence = evidence;
             finding.remediation =
                 Some("Compare with a stricter parser or inspect file integrity.".into());
+            finding.meta.insert(
+                "secondary_parser.error_class".into(),
+                secondary_parser_error_class(&err).into(),
+            );
+            finding.meta.insert("secondary_parser.error_message".into(), err.to_string());
             findings.push(finding);
             return DiffResult { findings, summary: None, error: Some(err.to_string()) };
         }
@@ -112,9 +129,43 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
         });
     }
     if summary.missing_in_secondary > 0 || summary.missing_in_primary > 0 {
+        let secondary_id_samples = summary
+            .missing_in_secondary_ids
+            .iter()
+            .take(DIFF_SAMPLE_LIMIT)
+            .copied()
+            .collect::<Vec<_>>();
+        let primary_id_samples = summary
+            .missing_in_primary_ids
+            .iter()
+            .take(DIFF_SAMPLE_LIMIT)
+            .copied()
+            .collect::<Vec<_>>();
+        let secondary_offsets = sample_missing_offsets(primary, &secondary_id_samples);
+        let secondary_hazards =
+            sample_secondary_parse_hazards(primary, bytes, &secondary_id_samples);
+        let primary_offsets = sample_missing_offsets(primary, &primary_id_samples);
         let mut meta = std::collections::HashMap::new();
         meta.insert("diff.missing_in_secondary".into(), summary.missing_in_secondary.to_string());
         meta.insert("diff.missing_in_primary".into(), summary.missing_in_primary.to_string());
+        if !secondary_id_samples.is_empty() {
+            meta.insert(
+                "diff.missing_in_secondary_ids".into(),
+                format_id_list(&secondary_id_samples),
+            );
+        }
+        if !secondary_offsets.is_empty() {
+            meta.insert("diff.missing_in_secondary_offsets".into(), secondary_offsets.join(", "));
+        }
+        if !secondary_hazards.is_empty() {
+            meta.insert("diff.missing_in_secondary_hazards".into(), secondary_hazards.join(", "));
+        }
+        if !primary_id_samples.is_empty() {
+            meta.insert("diff.missing_in_primary_ids".into(), format_id_list(&primary_id_samples));
+        }
+        if !primary_offsets.is_empty() {
+            meta.insert("diff.missing_in_primary_offsets".into(), primary_offsets.join(", "));
+        }
         findings.push(Finding {
             id: String::new(),
             surface: AttackSurface::FileStructure,
@@ -142,6 +193,24 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
         let mut meta = std::collections::HashMap::new();
         meta.insert("shadow.missing_in_secondary".into(), summary.missing_in_secondary.to_string());
         meta.insert("shadow.missing_in_primary".into(), summary.missing_in_primary.to_string());
+        if !secondary_id_samples.is_empty() {
+            meta.insert(
+                "diff.missing_in_secondary_ids".into(),
+                format_id_list(&secondary_id_samples),
+            );
+        }
+        if !secondary_offsets.is_empty() {
+            meta.insert("diff.missing_in_secondary_offsets".into(), secondary_offsets.join(", "));
+        }
+        if !secondary_hazards.is_empty() {
+            meta.insert("diff.missing_in_secondary_hazards".into(), secondary_hazards.join(", "));
+        }
+        if !primary_id_samples.is_empty() {
+            meta.insert("diff.missing_in_primary_ids".into(), format_id_list(&primary_id_samples));
+        }
+        if !primary_offsets.is_empty() {
+            meta.insert("diff.missing_in_primary_offsets".into(), primary_offsets.join(", "));
+        }
         findings.push(Finding {
             id: String::new(),
             surface: AttackSurface::FileStructure,
@@ -191,4 +260,111 @@ fn keyword_evidence(bytes: &[u8], keyword: &[u8], note: &str, limit: usize) -> V
         }
     }
     out
+}
+
+fn format_id_list(ids: &[(u32, u16)]) -> String {
+    ids.iter().map(|(obj, generation)| format!("{obj} {generation}")).collect::<Vec<_>>().join(", ")
+}
+
+fn sample_missing_offsets(primary: &ObjectGraph<'_>, ids: &[(u32, u16)]) -> Vec<String> {
+    ids.iter()
+        .filter_map(|(obj, generation)| {
+            primary
+                .get_object(*obj, *generation)
+                .map(|entry| format!("{} {}@{}", obj, generation, entry.full_span.start))
+        })
+        .collect()
+}
+
+fn sample_secondary_parse_hazards(
+    primary: &ObjectGraph<'_>,
+    bytes: &[u8],
+    ids: &[(u32, u16)],
+) -> Vec<String> {
+    ids.iter()
+        .filter_map(|(obj, generation)| {
+            let entry = primary.get_object(*obj, *generation)?;
+            let start = entry.full_span.start as usize;
+            let end = entry.full_span.end as usize;
+            if start >= end || end > bytes.len() {
+                return None;
+            }
+            classify_secondary_parse_hazard(&bytes[start..end])
+                .map(|hazard| format!("{obj} {generation}={hazard}"))
+        })
+        .collect()
+}
+
+fn classify_secondary_parse_hazard(raw_obj: &[u8]) -> Option<&'static str> {
+    if raw_obj.windows(13).any(|w| w == b"/CreationDate") && raw_obj.windows(3).any(|w| w == b")Z)")
+    {
+        return Some("creation_date_trailing_timezone_token");
+    }
+    if has_unbalanced_literal_parentheses(raw_obj) {
+        return Some("unbalanced_literal_string_parentheses");
+    }
+    None
+}
+
+fn has_unbalanced_literal_parentheses(raw_obj: &[u8]) -> bool {
+    let mut depth = 0i32;
+    let mut escaped = false;
+    for byte in raw_obj {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if *byte == b'\\' {
+            escaped = true;
+            continue;
+        }
+        if *byte == b'(' {
+            depth += 1;
+        } else if *byte == b')' {
+            depth -= 1;
+            if depth < 0 {
+                return true;
+            }
+        }
+    }
+    depth != 0
+}
+
+fn secondary_parser_error_class(err: &lopdf::Error) -> &'static str {
+    let rendered = err.to_string();
+    if rendered.contains("invalid file trailer") {
+        "invalid_file_trailer"
+    } else if rendered.contains("IndirectObject") {
+        "invalid_indirect_object"
+    } else if rendered.contains("Xref") || rendered.contains("xref") {
+        "xref_parse_error"
+    } else if rendered.contains("trailer") {
+        "trailer_parse_error"
+    } else {
+        "parse_error"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_secondary_parse_hazard, has_unbalanced_literal_parentheses};
+
+    #[test]
+    fn detects_creation_date_trailing_timezone_token_hazard() {
+        let payload = b"1 0 obj\n<< /CreationDate (D:20250712160849)Z) >>\nendobj\n";
+        assert_eq!(
+            classify_secondary_parse_hazard(payload),
+            Some("creation_date_trailing_timezone_token")
+        );
+    }
+
+    #[test]
+    fn detects_unbalanced_literal_parentheses_hazard() {
+        let payload = b"2 0 obj\n<< /Producer (abc(def) >>\nendobj\n";
+        assert!(has_unbalanced_literal_parentheses(payload));
+        assert_eq!(
+            classify_secondary_parse_hazard(payload),
+            Some("unbalanced_literal_string_parentheses")
+        );
+    }
 }
