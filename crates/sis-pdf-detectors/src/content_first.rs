@@ -26,6 +26,46 @@ const CONTENT_FIRST_ANOMALY_SCAN_BUDGET_DEEP: usize = 2_000;
 const CONTENT_FIRST_ANOMALY_SCAN_BUDGET_SHALLOW: usize = 700;
 const CONTENT_FIRST_CLASSIFICATION_CACHE_LIMIT: usize = 2_048;
 const CONTENT_FIRST_HIGH_RISK_THRESHOLD: usize = 8;
+const CONTENT_FIRST_REPEAT_KIND_CAP: usize = 25;
+const CONTENT_FIRST_AGGREGATE_SAMPLE_LIMIT: usize = 8;
+const CONTENT_FIRST_ADAPTIVE_FILE_BYTES_LEVEL1: usize = 8 * 1024 * 1024;
+const CONTENT_FIRST_ADAPTIVE_OBJECTS_LEVEL1: usize = 4_000;
+const CONTENT_FIRST_ADAPTIVE_STREAMS_LEVEL1: usize = 500;
+const CONTENT_FIRST_ADAPTIVE_FILE_BYTES_LEVEL2: usize = 16 * 1024 * 1024;
+const CONTENT_FIRST_ADAPTIVE_OBJECTS_LEVEL2: usize = 8_000;
+const CONTENT_FIRST_ADAPTIVE_STREAMS_LEVEL2: usize = 1_000;
+
+const CONTENT_FIRST_AGGREGATED_KINDS: &[&str] = &[
+    "label_mismatch_stream_type",
+    "content_validation_failed",
+    "script_payload_present",
+    "cmd_payload_present",
+    "powershell_payload_present",
+    "js_payload_present",
+    "uri_present",
+    "action_payload_path",
+    "annotation_action_chain",
+    "objstm_action_chain",
+    "decompression_ratio_suspicious",
+];
+
+#[derive(Clone)]
+struct ContentFirstBudgets {
+    stream_budget: usize,
+    deep_pass_budget: usize,
+    anomaly_scan_budget: usize,
+    force_stream_cap: bool,
+    adaptive_reasons: Vec<String>,
+}
+
+#[derive(Default, Clone)]
+struct AggregateOverflowStats {
+    total_count: usize,
+    retained_count: usize,
+    suppressed_count: usize,
+    sample_suppressed_objects: Vec<String>,
+    sample_suppressed_positions: Vec<String>,
+}
 
 #[derive(Clone)]
 struct CachedBlobAnalysis {
@@ -80,21 +120,10 @@ impl Detector for ContentFirstDetector {
             .iter()
             .filter(|entry| matches!(&entry.atom, PdfAtom::Stream(_)))
             .count();
-        let stream_budget = if ctx.options.deep {
-            CONTENT_FIRST_STREAM_BUDGET_DEEP
-        } else {
-            CONTENT_FIRST_STREAM_BUDGET_SHALLOW
-        };
-        let deep_pass_budget = if ctx.options.deep {
-            CONTENT_FIRST_DEEP_PASS_BUDGET_DEEP
-        } else {
-            CONTENT_FIRST_DEEP_PASS_BUDGET_SHALLOW
-        };
-        let anomaly_scan_budget = if ctx.options.deep {
-            CONTENT_FIRST_ANOMALY_SCAN_BUDGET_DEEP
-        } else {
-            CONTENT_FIRST_ANOMALY_SCAN_BUDGET_SHALLOW
-        };
+        let budgets = adaptive_content_first_budgets(ctx, total_streams);
+        let stream_budget = budgets.stream_budget;
+        let deep_pass_budget = budgets.deep_pass_budget;
+        let anomaly_scan_budget = budgets.anomaly_scan_budget;
         let mut processed_streams = 0usize;
         let mut deep_passed_streams = 0usize;
         let mut deep_pass_skipped_streams = 0usize;
@@ -116,20 +145,30 @@ impl Detector for ContentFirstDetector {
         let classifications = ctx.classifications();
 
         for entry in &ctx.graph.objects {
-            if processed_streams >= stream_budget
-                && high_risk_findings >= CONTENT_FIRST_HIGH_RISK_THRESHOLD
-            {
-                truncated_reasons
-                    .push("content_first_stream_budget_reached_with_high_risk_signals".to_string());
-                break;
+            if processed_streams >= stream_budget {
+                if high_risk_findings >= CONTENT_FIRST_HIGH_RISK_THRESHOLD {
+                    truncated_reasons.push(
+                        "content_first_stream_budget_reached_with_high_risk_signals".to_string(),
+                    );
+                    break;
+                }
+                if budgets.force_stream_cap {
+                    truncated_reasons.push("content_first_stream_budget_reached".to_string());
+                    break;
+                }
             }
-            if anomaly_scans >= anomaly_scan_budget
-                && high_risk_findings >= CONTENT_FIRST_HIGH_RISK_THRESHOLD
-            {
-                truncated_reasons.push(
-                    "content_first_anomaly_scan_budget_reached_with_high_risk_signals".to_string(),
-                );
-                break;
+            if anomaly_scans >= anomaly_scan_budget {
+                if high_risk_findings >= CONTENT_FIRST_HIGH_RISK_THRESHOLD {
+                    truncated_reasons.push(
+                        "content_first_anomaly_scan_budget_reached_with_high_risk_signals"
+                            .to_string(),
+                    );
+                    break;
+                }
+                if budgets.force_stream_cap {
+                    truncated_reasons.push("content_first_anomaly_scan_budget_reached".to_string());
+                    break;
+                }
             }
 
             let findings_before_entry = findings.len();
@@ -432,6 +471,11 @@ impl Detector for ContentFirstDetector {
             truncated_reasons
                 .push("content_first_deep_pass_budget_reached_with_high_risk_signals".to_string());
         }
+        apply_content_first_repeat_kind_cap(
+            &mut findings,
+            CONTENT_FIRST_REPEAT_KIND_CAP,
+            CONTENT_FIRST_AGGREGATED_KINDS,
+        );
 
         if !truncated_reasons.is_empty() {
             truncated_reasons.sort();
@@ -469,6 +513,16 @@ impl Detector for ContentFirstDetector {
                 "content_first.classify_cache_misses".into(),
                 classify_cache_misses.to_string(),
             );
+            meta.insert(
+                "content_first.adaptive_budget_applied".into(),
+                (!budgets.adaptive_reasons.is_empty()).to_string(),
+            );
+            if !budgets.adaptive_reasons.is_empty() {
+                meta.insert(
+                    "content_first.adaptive_budget_reasons".into(),
+                    budgets.adaptive_reasons.join(","),
+                );
+            }
 
             findings.push(Finding {
                 id: String::new(),
@@ -500,6 +554,170 @@ impl Detector for ContentFirstDetector {
 
         Ok(findings)
     }
+}
+
+fn adaptive_content_first_budgets(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    total_streams: usize,
+) -> ContentFirstBudgets {
+    adaptive_content_first_budgets_from_metrics(
+        ctx.options.deep,
+        ctx.bytes.len(),
+        ctx.graph.objects.len(),
+        total_streams,
+    )
+}
+
+fn adaptive_content_first_budgets_from_metrics(
+    deep: bool,
+    file_size: usize,
+    object_count: usize,
+    total_streams: usize,
+) -> ContentFirstBudgets {
+    let mut stream_budget =
+        if deep { CONTENT_FIRST_STREAM_BUDGET_DEEP } else { CONTENT_FIRST_STREAM_BUDGET_SHALLOW };
+    let mut deep_pass_budget = if deep {
+        CONTENT_FIRST_DEEP_PASS_BUDGET_DEEP
+    } else {
+        CONTENT_FIRST_DEEP_PASS_BUDGET_SHALLOW
+    };
+    let mut anomaly_scan_budget = if deep {
+        CONTENT_FIRST_ANOMALY_SCAN_BUDGET_DEEP
+    } else {
+        CONTENT_FIRST_ANOMALY_SCAN_BUDGET_SHALLOW
+    };
+    let mut force_stream_cap = false;
+    let mut adaptive_reasons = Vec::new();
+
+    if file_size >= CONTENT_FIRST_ADAPTIVE_FILE_BYTES_LEVEL1
+        || object_count >= CONTENT_FIRST_ADAPTIVE_OBJECTS_LEVEL1
+        || total_streams >= CONTENT_FIRST_ADAPTIVE_STREAMS_LEVEL1
+    {
+        stream_budget = stream_budget.min(900);
+        deep_pass_budget = deep_pass_budget.min(220);
+        anomaly_scan_budget = anomaly_scan_budget.min(320);
+        force_stream_cap = true;
+        adaptive_reasons.push("level1".to_string());
+    }
+    if file_size >= CONTENT_FIRST_ADAPTIVE_FILE_BYTES_LEVEL2
+        || object_count >= CONTENT_FIRST_ADAPTIVE_OBJECTS_LEVEL2
+        || total_streams >= CONTENT_FIRST_ADAPTIVE_STREAMS_LEVEL2
+    {
+        stream_budget = stream_budget.min(700);
+        deep_pass_budget = deep_pass_budget.min(160);
+        anomaly_scan_budget = anomaly_scan_budget.min(220);
+        force_stream_cap = true;
+        adaptive_reasons.push("level2".to_string());
+    }
+
+    if total_streams > 0 {
+        stream_budget = stream_budget.max(1).min(total_streams);
+    } else {
+        stream_budget = 0;
+    }
+    if stream_budget > 0 {
+        deep_pass_budget = deep_pass_budget.max(1).min(stream_budget);
+        anomaly_scan_budget = anomaly_scan_budget.max(1).min(stream_budget);
+    } else {
+        deep_pass_budget = 0;
+        anomaly_scan_budget = 0;
+    }
+
+    ContentFirstBudgets {
+        stream_budget,
+        deep_pass_budget,
+        anomaly_scan_budget,
+        force_stream_cap,
+        adaptive_reasons,
+    }
+}
+
+fn apply_content_first_repeat_kind_cap(
+    findings: &mut Vec<Finding>,
+    cap: usize,
+    aggregated_kinds: &[&str],
+) {
+    if cap == 0 || findings.is_empty() {
+        return;
+    }
+    let kind_filter: HashSet<&str> = aggregated_kinds.iter().copied().collect();
+    let mut retained_counts: HashMap<String, usize> = HashMap::new();
+    let mut first_retained_index: HashMap<String, usize> = HashMap::new();
+    let mut overflow_stats: HashMap<String, AggregateOverflowStats> = HashMap::new();
+    let original = std::mem::take(findings);
+    let mut compacted = Vec::with_capacity(original.len());
+
+    for finding in original {
+        let kind = finding.kind.clone();
+        if !kind_filter.contains(kind.as_str()) {
+            compacted.push(finding);
+            continue;
+        }
+        let stats = overflow_stats.entry(kind.clone()).or_default();
+        stats.total_count += 1;
+        let retained = retained_counts.entry(kind.clone()).or_insert(0);
+        if *retained < cap {
+            *retained += 1;
+            stats.retained_count += 1;
+            let index = compacted.len();
+            first_retained_index.entry(kind.clone()).or_insert(index);
+            compacted.push(finding);
+            continue;
+        }
+        stats.suppressed_count += 1;
+        for object in &finding.objects {
+            if !stats.sample_suppressed_objects.contains(object)
+                && stats.sample_suppressed_objects.len() < CONTENT_FIRST_AGGREGATE_SAMPLE_LIMIT
+            {
+                stats.sample_suppressed_objects.push(object.clone());
+            }
+        }
+        for position in &finding.positions {
+            if !stats.sample_suppressed_positions.contains(position)
+                && stats.sample_suppressed_positions.len() < CONTENT_FIRST_AGGREGATE_SAMPLE_LIMIT
+            {
+                stats.sample_suppressed_positions.push(position.clone());
+            }
+        }
+    }
+
+    for (kind, stats) in overflow_stats {
+        if stats.suppressed_count == 0 {
+            continue;
+        }
+        let Some(index) = first_retained_index.get(&kind).copied() else {
+            continue;
+        };
+        if let Some(finding) = compacted.get_mut(index) {
+            finding.meta.insert("content_first.aggregate.enabled".into(), "true".into());
+            finding.meta.insert("content_first.aggregate.kind".into(), kind.clone());
+            finding.meta.insert(
+                "content_first.aggregate.total_count".into(),
+                stats.total_count.to_string(),
+            );
+            finding.meta.insert(
+                "content_first.aggregate.retained_count".into(),
+                stats.retained_count.to_string(),
+            );
+            finding.meta.insert(
+                "content_first.aggregate.suppressed_count".into(),
+                stats.suppressed_count.to_string(),
+            );
+            if !stats.sample_suppressed_objects.is_empty() {
+                finding.meta.insert(
+                    "content_first.aggregate.sample_suppressed_objects".into(),
+                    stats.sample_suppressed_objects.join(", "),
+                );
+            }
+            if !stats.sample_suppressed_positions.is_empty() {
+                finding.meta.insert(
+                    "content_first.aggregate.sample_suppressed_positions".into(),
+                    stats.sample_suppressed_positions.join(", "),
+                );
+            }
+        }
+    }
+    *findings = compacted;
 }
 
 fn name_value(dict: &sis_pdf_pdf::object::PdfDict<'_>, key: &[u8]) -> Option<String> {
@@ -2746,5 +2964,67 @@ mod tests {
         assert_eq!(hits, 0);
         assert_eq!(misses, CONTENT_FIRST_CLASSIFICATION_CACHE_LIMIT + 25);
         assert_eq!(cache.len(), CONTENT_FIRST_CLASSIFICATION_CACHE_LIMIT);
+    }
+
+    #[test]
+    fn adaptive_budgets_reduce_limits_for_large_documents() {
+        let budgets =
+            adaptive_content_first_budgets_from_metrics(true, 10 * 1024 * 1024, 4_983, 611);
+        assert_eq!(budgets.stream_budget, 611);
+        assert_eq!(budgets.deep_pass_budget, 220);
+        assert_eq!(budgets.anomaly_scan_budget, 320);
+        assert!(budgets.force_stream_cap);
+        assert_eq!(budgets.adaptive_reasons, vec!["level1".to_string()]);
+    }
+
+    #[test]
+    fn repeat_kind_cap_suppresses_overflow_and_records_metadata() {
+        let mut findings = Vec::new();
+        for index in 0..30usize {
+            let mut finding = Finding {
+                kind: "label_mismatch_stream_type".into(),
+                objects: vec![format!("{} 0 obj", index)],
+                positions: vec![format!("doc:r0/obj.{index}")],
+                meta: HashMap::new(),
+                ..Finding::default()
+            };
+            finding.description = format!("finding {index}");
+            findings.push(finding);
+        }
+        findings.push(Finding { kind: "embedded_payload_carved".into(), ..Finding::default() });
+        apply_content_first_repeat_kind_cap(
+            &mut findings,
+            CONTENT_FIRST_REPEAT_KIND_CAP,
+            CONTENT_FIRST_AGGREGATED_KINDS,
+        );
+        let retained =
+            findings.iter().filter(|finding| finding.kind == "label_mismatch_stream_type").count();
+        assert_eq!(retained, CONTENT_FIRST_REPEAT_KIND_CAP);
+        assert_eq!(findings.len(), CONTENT_FIRST_REPEAT_KIND_CAP + 1);
+        let aggregate_meta_finding = findings
+            .iter()
+            .find(|finding| finding.kind == "label_mismatch_stream_type")
+            .expect("expected retained capped finding");
+        assert_eq!(
+            aggregate_meta_finding
+                .meta
+                .get("content_first.aggregate.enabled")
+                .map(|value| value.as_str()),
+            Some("true")
+        );
+        assert_eq!(
+            aggregate_meta_finding
+                .meta
+                .get("content_first.aggregate.suppressed_count")
+                .map(|value| value.as_str()),
+            Some("5")
+        );
+        assert_eq!(
+            aggregate_meta_finding
+                .meta
+                .get("content_first.aggregate.total_count")
+                .map(|value| value.as_str()),
+            Some("30")
+        );
     }
 }
