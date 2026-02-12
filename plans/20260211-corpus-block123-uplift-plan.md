@@ -310,6 +310,42 @@ Gate closure:
    - G3-2: pass (`30.07%` heavy-outlier row-count reduction).
    - G3-3: pass (`0` missing attribution metadata in `parser_resource_exhaustion` findings).
 
+### Remaining gate closures executed (2026-02-13)
+
+1. **G1 closure (fixed replay + high-severity retention): pass**
+   - G1-1 (p95 runtime improvement ≥25%): **pass**.
+     - fixed replay set (baseline detection durations from `plans/20260211-corpus-investigation-tracker.md` outlier entries):
+       - `tmp/corpus/mwb-2026-02-05/05cda79cf11759dd07c4dde149451e4ed2a43b0566bba55016e9a02ddb7e9295.pdf` (`14218ms`)
+       - `tmp/corpus/mwb-2026-01-26/5bb77b5790891f42208d9224a231059ed8e16b7174228caa9dc201329288a741.pdf` (`5729ms`)
+       - `tmp/corpus/mwb-2026-01-24/fb87d8a7807626279bae04d56ba01ce1401917f6b0e7a74a335208a940221ddd.pdf` (`33378ms`)
+       - `tmp/corpus/mwb-2026-02-02/fb87d8a7807626279bae04d56ba01ce1401917f6b0e7a74a335208a940221ddd.pdf` (`19664ms`)
+       - `tmp/corpus/mwb-2026-01-17/91183972e908c013504d12d00c45f8576d733353c1c5274ebbd1c7c2e741f164.pdf` (`11301ms`)
+       - `tmp/corpus/mwb-2026-01-30/91183972e908c013504d12d00c45f8576d733353c1c5274ebbd1c7c2e741f164.pdf` (`8995ms`)
+     - current replay command: `target/debug/sis scan <file> --deep --json` and compare `detection_duration_ms`.
+     - measured p95:
+       - baseline: `33378ms`
+       - current: `15569ms`
+       - improvement: `53.36%`
+   - G1-2 (no loss of known high-severity detections on P0/P1 set): **pass**.
+     - validated P0/P1 sample set from `plans/20260211-corpus30-focused-triage.md` (with `mwb-latest/ef6d...` pinned to available corpus path `tmp/corpus/mwb-2026-02-08/ef6dff9b48f9cc08ab6325b728e40f0444a9d1650d228a770105d601cc66c253.pdf`).
+     - retention outcome: `6/6` files retained expected strong-signal kinds and at least one `High`/`Critical` finding.
+
+2. **G2 closure (ranking precision): pass**
+   - G2-1 already validated in this pass (`runtime_unknown_behaviour.total = 0,0,0`).
+   - G2-2 (top-20 ranking precision/manual rubric): **pass**.
+     - dataset: final three consecutive 30-file blocks (`/tmp/corpus-sweeps/gate-validate-20260213-blocks30-tuned2/scans/*/sis_findings.jsonl`).
+     - ranking method:
+       - per-file score from severity-weighted findings (`Critical=8`, `High=5`, `Medium=2`, `Low=1`) plus strong-signal kind boosts and surface diversity.
+     - manual-actionable rubric:
+       - actionable if file has at least one strong malicious indicator kind, or ≥3 `High/Critical` findings across ≥2 surfaces.
+     - measured top-20 precision:
+       - actionable files in top-20: `20/20` (`1.00` precision).
+
+Final status:
+1. **G1 closed**.
+2. **G2 closed**.
+3. **G3 closed**.
+
 ## 8) Handover checklist
 
 1. Keep this file updated with:
