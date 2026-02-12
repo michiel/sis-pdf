@@ -46,13 +46,15 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
   - Status:
     - completed; pass-1 and controlled 3-run pass artefacts collected with dominant-stage attribution.
 
-2. [ ] `parser_resource_exhaustion` trigger taxonomy completion
+2. [x] `parser_resource_exhaustion` trigger taxonomy completion
    - Deliverables:
      - grouped trigger classes from metadata (`structural`, `decode`, `font`, `content`, `js-runtime`)
      - per-class top finding kinds with counts and representative objects
      - remediation guidance per trigger class
-   - Acceptance:
-     - every observed exhaustion case in latest 2 blocks maps to a trigger class with remediation.
+  - Acceptance:
+    - every observed exhaustion case in latest 2 blocks maps to a trigger class with remediation.
+  - Status:
+    - completed in core finding metadata; class-level counts, top kinds, representative objects, and remediation guidance now emitted per trigger class.
 
 3. [ ] `font.dynamic_parse_failure` signal split (noise vs exploit relevance)
    - Deliverables:
@@ -274,3 +276,25 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
   - tail latency remains driven by `content_first_stage1`; `content_phishing` is material but not primary for these outliers.
 - Follow-on instrumentation:
   - added detector-level timing metadata + `content_phishing_runtime_hotspot` finding for expensive keyword/URI/HTML subpaths to support targeted optimisation loops.
+
+## Parser exhaustion taxonomy validation (latest block outliers)
+
+- Validation artefact:
+  - `/tmp/parser_resource_taxonomy_validation.tsv`
+- Samples replayed from recent heavy set:
+  - `tmp/corpus/mwb-2026-02-05/05cda79cf11759dd07c4dde149451e4ed2a43b0566bba55016e9a02ddb7e9295.pdf`
+    - classes: `font, structural, content, decode`
+    - counts: `font=91, structural=27, content=17, decode=11`
+  - `tmp/corpus/mwb-2026-01-24/fb87d8a7807626279bae04d56ba01ce1401917f6b0e7a74a335208a940221ddd.pdf`
+    - classes: `font, content, decode, structural`
+    - counts: `font=145, content=90, decode=21, structural=18`
+  - `tmp/corpus/mwb-2026-01-26/5bb77b5790891f42208d9224a231059ed8e16b7174228caa9dc201329288a741.pdf`
+    - no `parser_resource_exhaustion` emitted on current build (not a mapping failure).
+- Metadata now emitted on `parser_resource_exhaustion`:
+  - `resource_trigger_classes`
+  - `resource_trigger_class_counts`
+  - `resource_trigger.<class>.count`
+  - `resource_trigger.<class>.top_kinds`
+  - `resource_trigger.<class>.sample_objects`
+  - `resource_trigger.<class>.remediation`
+  - `resource_trigger_class_remediation`

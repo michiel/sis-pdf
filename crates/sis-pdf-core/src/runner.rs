@@ -27,6 +27,8 @@ const RESOURCE_CONSUMPTION_THRESHOLD_MS: u64 = 5_000;
 const RESOURCE_CONTRIBUTION_KIND_LIMIT: usize = 8;
 const RESOURCE_CONTRIBUTION_SAMPLE_OBJECT_LIMIT: usize = 8;
 const RESOURCE_CONTRIBUTION_SAMPLE_POSITION_LIMIT: usize = 8;
+const RESOURCE_TRIGGER_CLASS_TOP_KIND_LIMIT: usize = 4;
+const RESOURCE_TRIGGER_CLASS_SAMPLE_OBJECT_LIMIT: usize = 4;
 const RESOURCE_STRUCTURAL_FINDING_KINDS: &[&str] = &[
     "object_shadow_mismatch",
     "parser_diff_structural",
@@ -61,6 +63,31 @@ fn resource_contribution_bucket(kind: &str) -> Option<&'static str> {
         return Some("js-runtime");
     }
     None
+}
+
+fn resource_bucket_meta_key(bucket: &str) -> String {
+    bucket.replace('-', "_")
+}
+
+fn resource_bucket_remediation(bucket: &str) -> &'static str {
+    match bucket {
+        "structural" => {
+            "Prioritise structural normalisation and early rejection for inconsistent object/xref/trailer state."
+        }
+        "decode" => {
+            "Apply stricter decode limits and reject malformed filter/stream combinations before expensive retries."
+        }
+        "font" => {
+            "Cap high-cost font parsing paths and correlate with corroborating indicators before deep retries."
+        }
+        "content" => {
+            "Bound repeated content scanning passes and pivot to sampled analysis when anomaly classes dominate."
+        }
+        "js-runtime" => {
+            "Constrain runtime instrumentation budget and focus on high-signal behavioural pivots for suspicious scripts."
+        }
+        _ => "Review class-specific contributors and apply targeted budget and short-circuit controls.",
+    }
 }
 
 fn format_count_pairs(counts: &std::collections::HashMap<String, usize>, limit: usize) -> String {
@@ -1332,6 +1359,9 @@ fn maybe_record_parser_resource_exhaustion(
     }
     let mut contribution_kind_counts: HashMap<String, usize> = HashMap::new();
     let mut contribution_bucket_counts: HashMap<String, usize> = HashMap::new();
+    let mut class_kind_counts: HashMap<String, HashMap<String, usize>> = HashMap::new();
+    let mut class_sample_objects: HashMap<String, Vec<String>> = HashMap::new();
+    let mut class_sample_object_seen: HashMap<String, HashSet<String>> = HashMap::new();
     let mut sample_objects: Vec<String> = Vec::new();
     let mut sample_positions: Vec<String> = Vec::new();
     let mut sample_object_seen: HashSet<String> = HashSet::new();
@@ -1343,8 +1373,27 @@ fn maybe_record_parser_resource_exhaustion(
         let Some(bucket) = resource_contribution_bucket(&finding.kind) else {
             continue;
         };
+        let bucket_key = bucket.to_string();
         *contribution_kind_counts.entry(finding.kind.clone()).or_insert(0) += 1;
-        *contribution_bucket_counts.entry(bucket.to_string()).or_insert(0) += 1;
+        *contribution_bucket_counts.entry(bucket_key.clone()).or_insert(0) += 1;
+        let class_counts = class_kind_counts.entry(bucket_key.clone()).or_default();
+        *class_counts.entry(finding.kind.clone()).or_insert(0) += 1;
+        if class_sample_objects
+            .get(&bucket_key)
+            .map(|objects| objects.len() < RESOURCE_TRIGGER_CLASS_SAMPLE_OBJECT_LIMIT)
+            .unwrap_or(true)
+        {
+            let objects = class_sample_objects.entry(bucket_key.clone()).or_default();
+            let seen = class_sample_object_seen.entry(bucket_key.clone()).or_default();
+            for object in &finding.objects {
+                if seen.insert(object.clone()) {
+                    objects.push(object.clone());
+                    if objects.len() >= RESOURCE_TRIGGER_CLASS_SAMPLE_OBJECT_LIMIT {
+                        break;
+                    }
+                }
+            }
+        }
         if sample_objects.len() < RESOURCE_CONTRIBUTION_SAMPLE_OBJECT_LIMIT {
             for object in &finding.objects {
                 if sample_object_seen.insert(object.clone()) {
@@ -1389,6 +1438,54 @@ fn maybe_record_parser_resource_exhaustion(
     );
     meta.insert("resource_contribution_top_kinds".into(), top_kind_counts.clone());
     meta.insert("resource_contribution_bucket_counts".into(), bucket_counts.clone());
+    let mut trigger_classes: Vec<(String, usize)> =
+        contribution_bucket_counts.iter().map(|(bucket, count)| (bucket.clone(), *count)).collect();
+    trigger_classes.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    if !trigger_classes.is_empty() {
+        meta.insert(
+            "resource_trigger_classes".into(),
+            trigger_classes.iter().map(|(bucket, _)| bucket.clone()).collect::<Vec<_>>().join(", "),
+        );
+        meta.insert(
+            "resource_trigger_class_counts".into(),
+            trigger_classes
+                .iter()
+                .map(|(bucket, count)| format!("{bucket}={count}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        meta.insert(
+            "resource_trigger_class_remediation".into(),
+            trigger_classes
+                .iter()
+                .map(|(bucket, _)| format!("{bucket}={}", resource_bucket_remediation(bucket)))
+                .collect::<Vec<_>>()
+                .join(" | "),
+        );
+        for (bucket, count) in &trigger_classes {
+            let suffix = resource_bucket_meta_key(bucket);
+            meta.insert(format!("resource_trigger.{suffix}.count"), count.to_string());
+            let top_kinds = class_kind_counts
+                .get(bucket)
+                .map(|counts| format_count_pairs(counts, RESOURCE_TRIGGER_CLASS_TOP_KIND_LIMIT))
+                .unwrap_or_default();
+            if !top_kinds.is_empty() {
+                meta.insert(format!("resource_trigger.{suffix}.top_kinds"), top_kinds);
+            }
+            if let Some(objects) = class_sample_objects.get(bucket) {
+                if !objects.is_empty() {
+                    meta.insert(
+                        format!("resource_trigger.{suffix}.sample_objects"),
+                        objects.join(", "),
+                    );
+                }
+            }
+            meta.insert(
+                format!("resource_trigger.{suffix}.remediation"),
+                resource_bucket_remediation(bucket).to_string(),
+            );
+        }
+    }
     if !sample_objects.is_empty() {
         meta.insert("resource_contribution_sample_objects".into(), sample_objects.join(", "));
     }
@@ -2016,6 +2113,12 @@ mod tests {
             last.meta.get("resource_contribution_bucket_counts"),
             Some(&"structural=1".to_string())
         );
+        assert_eq!(last.meta.get("resource_trigger_classes"), Some(&"structural".to_string()));
+        assert_eq!(
+            last.meta.get("resource_trigger.structural.top_kinds"),
+            Some(&"parser_trailer_count_diff=1".to_string())
+        );
+        assert!(last.meta.contains_key("resource_trigger.structural.remediation"));
     }
 
     #[test]
@@ -2094,6 +2197,27 @@ mod tests {
             last.meta.get("resource_contribution_bucket_counts"),
             Some(&"structural=2, content=1, decode=1, font=1, js-runtime=1".to_string())
         );
+        assert_eq!(
+            last.meta.get("resource_trigger_classes"),
+            Some(&"structural, content, decode, font, js-runtime".to_string())
+        );
+        assert_eq!(last.meta.get("resource_trigger.structural.count"), Some(&"2".to_string()));
+        assert_eq!(
+            last.meta.get("resource_trigger.content.top_kinds"),
+            Some(&"content_stream_anomaly=1".to_string())
+        );
+        assert_eq!(
+            last.meta.get("resource_trigger.decode.sample_objects"),
+            Some(&"12 0 obj".to_string())
+        );
+        assert_eq!(
+            last.meta.get("resource_trigger.js_runtime.sample_objects"),
+            Some(&"20 0 obj".to_string())
+        );
+        let remediation =
+            last.meta.get("resource_trigger_class_remediation").expect("class remediation mapping");
+        assert!(remediation.contains("structural="));
+        assert!(remediation.contains("js-runtime="));
         let top = last.meta.get("resource_contribution_top_kinds").expect("top kind counts");
         assert!(top.contains("parser_trailer_count_diff=1"));
         assert!(top.contains("label_mismatch_stream_type=1"));
