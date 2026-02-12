@@ -306,3 +306,33 @@ Validation:
 2. Spot-check sample:
    - `target/debug/sis scan tmp/corpus/mwb-2026-02-10/8d42d425d003480d1acc9082e51cb7a2007208ebef715493836b6afec9ce91bc.pdf --deep --json`
    - observed stderr warning count reduced to non-hinting warnings (`flate_recovery`, encryption notice).
+
+### PR-I: Deterministic secondary-parser hazard fixtures (completed)
+
+Objective: lock regression coverage for `diff.missing_in_secondary_hazards` when corpus drift does not provide stable samples.
+Status: done (2026-02-13)
+
+Changes:
+1. Added deterministic parser-diff hazard fixtures:
+   - `crates/sis-pdf-core/tests/fixtures/parser_diff_hazards/creation-date-trailing-timezone.pdf`
+   - `crates/sis-pdf-core/tests/fixtures/parser_diff_hazards/unbalanced-literal-parentheses.pdf`
+2. Added focused regression test suite:
+   - `crates/sis-pdf-core/tests/parser_diff_hazard_regressions.rs`
+3. Extended fixture documentation:
+   - `crates/sis-pdf-core/tests/fixtures/README.md`
+
+Validation:
+1. `cargo test -p sis-pdf-core --test parser_diff_hazard_regressions -- --nocapture`
+2. `cargo test -p sis-pdf-core --test corpus_captured_regressions -- --nocapture`
+
+Handover instructions:
+1. Treat `parser_diff_hazard_regressions` as required when touching:
+   - `crates/sis-pdf-core/src/diff.rs`
+   - secondary parser prevalence synthesis in `crates/sis-pdf-core/src/runner.rs`
+2. If a real corpus sample later reproduces these hazard tags, add it under:
+   - `crates/sis-pdf-core/tests/fixtures/corpus_captured/`
+   - update `crates/sis-pdf-core/tests/fixtures/corpus_captured/manifest.json`
+   - keep deterministic fixtures as non-flaky baseline coverage.
+3. Before merging parser-diff changes, verify both:
+   - deterministic hazard tests remain green
+   - corpus-captured baseline tests remain green.
