@@ -31,6 +31,59 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
 8. Random sample composition quality:
    - ad-hoc random sweeps can still include duplicate hashes unless dedup is enforced in the sampler path.
 
+## Concrete next-pass checklist (unresolved items)
+
+1. [ ] Outlier isolation for deep-scan tail latency
+   - Scope: `81ec61a49b5fcc4e696974798b5e0d3582a297e9c6beaf95d56839b514e064f5`,
+     `bf724f5f19df9b2fdb0f45a79b6d9a88e8acf02843465ce891c6a4ad6c8d47a6`,
+     `4a9a844dbf0a4fbaa6b33b9ccc5f8b773ca4b286d389e5d3483d56c5d7906cff`.
+   - Deliverables:
+     - per-sample runtime profile breakdown (top 10 detectors)
+     - repeated slow-stage attribution across at least 3 consecutive runs
+     - candidate optimisation hypotheses ranked by expected gain/risk
+   - Acceptance:
+     - all three hashes have reproducible profile artefacts and a dominant-stage diagnosis.
+
+2. [ ] `parser_resource_exhaustion` trigger taxonomy completion
+   - Deliverables:
+     - grouped trigger classes from metadata (`structural`, `decode`, `font`, `content`, `js-runtime`)
+     - per-class top finding kinds with counts and representative objects
+     - remediation guidance per trigger class
+   - Acceptance:
+     - every observed exhaustion case in latest 2 blocks maps to a trigger class with remediation.
+
+3. [ ] `font.dynamic_parse_failure` signal split (noise vs exploit relevance)
+   - Deliverables:
+     - feature split criteria (magic, table layout, parser failure mode, corroborating findings)
+     - confidence/severity adjustment rules with guardrails
+   - Acceptance:
+     - reduction in low-value `font.dynamic_parse_failure` triage rows without loss on known exploit fixtures.
+
+4. [ ] Structural/content high-volume class disambiguation
+   - Scope:
+     - `content_stream_anomaly`
+     - `label_mismatch_stream_type`
+     - `image.decode_skipped`
+   - Deliverables:
+     - context-correlation rules (action/js/object-role aware)
+     - aggregate metadata improvements for analyst pivoting
+   - Acceptance:
+     - ≥25% reduction in ambiguous medium/low rows on heavy files with no regression in high-risk recall.
+
+5. [ ] Secondary parser error-class prevalence baseline
+   - Deliverables:
+     - corpus summary of `secondary_parser.error_class` and hazard patterns
+     - top malformed object signatures and affected object roles
+   - Acceptance:
+     - baseline report added with top classes and prioritised remediation candidates.
+
+6. [ ] Sweep sampling dedup hardening for manual/ad-hoc workflows
+   - Deliverables:
+     - documented command path that enforces hash dedup by default
+     - helper script or recipe used in triage loops
+   - Acceptance:
+     - random 30-file ad-hoc block contains zero duplicate content hashes.
+
 ## Resolved items
 
 1. Unknown behavioural mapping for `dormant_or_gated_execution`:
