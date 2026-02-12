@@ -545,6 +545,53 @@ fn test_benign_woff_font() {
     );
 }
 
+/// Test that unknown-magic dynamic parse failures are down-ranked as likely noise
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_dynamic_parse_failure_unknown_magic_is_low_noise() {
+    let data = include_bytes!("fixtures/dynamic/unknown-magic-font.bin");
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
+
+    let outcome = analyse_font(data, &config);
+    let finding = outcome
+        .findings
+        .iter()
+        .find(|f| f.kind == "font.dynamic_parse_failure")
+        .expect("expected dynamic parse failure finding");
+    assert_eq!(finding.severity, Severity::Low);
+    assert_eq!(
+        finding.meta.get("parse_error_class"),
+        Some(&"unknown_magic_or_face_index".to_string())
+    );
+    assert_eq!(finding.meta.get("parse_error_exploit_relevance"), Some(&"low".to_string()));
+    assert_eq!(finding.meta.get("parse_error_triage_bucket"), Some(&"noise_likely".to_string()));
+}
+
+/// Test that malformed-structure parse failures retain medium risk and correlation guidance
+#[cfg(feature = "dynamic")]
+#[test]
+fn test_dynamic_parse_failure_truncated_header_is_malformed_structure() {
+    let data = include_bytes!("fixtures/dynamic/truncated-sfnt-header.ttf");
+    let config = FontAnalysisConfig { dynamic_enabled: true, ..Default::default() };
+
+    let outcome = analyse_font(data, &config);
+    let finding = outcome
+        .findings
+        .iter()
+        .find(|f| f.kind == "font.dynamic_parse_failure")
+        .expect("expected dynamic parse failure finding");
+    assert_eq!(finding.severity, Severity::Medium);
+    assert_eq!(finding.meta.get("parse_error_class"), Some(&"malformed_structure".to_string()));
+    assert_eq!(
+        finding.meta.get("parse_error_triage_bucket"),
+        Some(&"needs_correlation".to_string())
+    );
+    assert!(
+        finding.meta.contains_key("parse_error_remediation"),
+        "should include remediation guidance"
+    );
+}
+
 /// Test that variable font with excessive axes is detected
 #[cfg(feature = "dynamic")]
 #[test]

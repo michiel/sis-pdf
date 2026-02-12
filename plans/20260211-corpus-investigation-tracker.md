@@ -56,12 +56,14 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
   - Status:
     - completed in core finding metadata; class-level counts, top kinds, representative objects, and remediation guidance now emitted per trigger class.
 
-3. [ ] `font.dynamic_parse_failure` signal split (noise vs exploit relevance)
+3. [x] `font.dynamic_parse_failure` signal split (noise vs exploit relevance)
    - Deliverables:
      - feature split criteria (magic, table layout, parser failure mode, corroborating findings)
      - confidence/severity adjustment rules with guardrails
-   - Acceptance:
-     - reduction in low-value `font.dynamic_parse_failure` triage rows without loss on known exploit fixtures.
+  - Acceptance:
+    - reduction in low-value `font.dynamic_parse_failure` triage rows without loss on known exploit fixtures.
+  - Status:
+    - completed with explicit triage taxonomy and guardrails in `font-analysis`; parse failures now emit exploit-relevance metadata, triage bucket, and class-specific remediation.
 
 4. [ ] Structural/content high-volume class disambiguation
    - Scope:
@@ -298,3 +300,26 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
   - `resource_trigger.<class>.sample_objects`
   - `resource_trigger.<class>.remediation`
   - `resource_trigger_class_remediation`
+
+## Font dynamic parse-failure split (completed)
+
+- Implemented taxonomy in dynamic font parsing:
+  - `unknown_magic_or_face_index` → low/weak, `noise_likely`
+  - `truncated_tiny_font` → low/tentative, `noise_likely`
+  - `malformed_structure` → medium/probable, `needs_correlation`
+  - `parser_stress_signal` → high/strong, `exploit_relevant`
+  - fallback `dynamic_runtime_failure` → medium/tentative
+- Added metadata/guardrails on `font.dynamic_parse_failure`:
+  - `parse_error_class`
+  - `parse_error_exploit_relevance`
+  - `parse_error_triage_bucket`
+  - `parse_error_remediation`
+  - `font.dynamic_data_len`
+- Dynamic worker failures now mapped to low-relevance infrastructure class:
+  - `parse_error_class=dynamic_worker_failure`
+  - `parse_error_triage_bucket=runtime_infrastructure`
+- Fixture-backed coverage added:
+  - `crates/font-analysis/tests/fixtures/dynamic/unknown-magic-font.bin`
+  - `crates/font-analysis/tests/fixtures/dynamic/truncated-sfnt-header.ttf`
+- Validation:
+  - `cargo test -p font-analysis -- --nocapture` (full pass)
