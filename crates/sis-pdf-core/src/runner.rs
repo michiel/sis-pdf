@@ -1485,6 +1485,48 @@ fn escalate_declared_filter_invalid_with_context(findings: &mut [Finding]) {
 }
 
 fn recalibrate_findings_with_context(findings: &mut [Finding]) {
+    let risky_action_or_js_refs: HashSet<(u32, u16)> = findings
+        .iter()
+        .filter(|finding| is_action_or_js_kind(finding.kind.as_str()))
+        .flat_map(|finding| {
+            finding.objects.iter().filter_map(|obj_ref| {
+                position::parse_obj_ref(obj_ref).map(|(obj_id, gen_id)| (obj_id, gen_id))
+            })
+        })
+        .collect();
+
+    for finding in findings.iter_mut().filter(|finding| {
+        matches!(finding.kind.as_str(), "parser_diff_structural" | "object_shadow_mismatch")
+            && finding
+                .meta
+                .get("diff.missing_in_secondary_hazards")
+                .map(|hazards| hazards.contains("creation_date_trailing_timezone_token"))
+                .unwrap_or(false)
+    }) {
+        let parser_ids = finding
+            .meta
+            .get("diff.missing_in_secondary_ids")
+            .map_or_else(Vec::new, |value| parse_object_ids_csv(value));
+        let has_risky_overlap = parser_ids
+            .iter()
+            .any(|(obj_id, gen_id)| risky_action_or_js_refs.contains(&(*obj_id, *gen_id)));
+        if has_risky_overlap {
+            apply_context_recalibration(
+                finding,
+                Severity::High,
+                Confidence::Strong,
+                "parser_hazard_on_action_or_js_object",
+            );
+        } else {
+            apply_context_override(
+                finding,
+                Severity::Low,
+                Confidence::Strong,
+                "parser_hazard_metadata_only",
+            );
+        }
+    }
+
     let has_filter_anomaly = findings.iter().any(|finding| {
         matches!(
             finding.kind.as_str(),
@@ -1630,6 +1672,36 @@ fn recalibrate_findings_with_context(findings: &mut [Finding]) {
     }
 }
 
+fn is_action_or_js_kind(kind: &str) -> bool {
+    kind == "js_present"
+        || kind.starts_with("js_")
+        || kind.starts_with("action_")
+        || matches!(
+            kind,
+            "annotation_action_chain"
+                | "launch_action_present"
+                | "launch_external_program"
+                | "launch_embedded_file"
+                | "launch_obfuscated_executable"
+        )
+}
+
+fn parse_object_ids_csv(value: &str) -> Vec<(u32, u16)> {
+    value
+        .split(',')
+        .filter_map(|entry| {
+            let trimmed = entry.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let mut parts = trimmed.split_whitespace();
+            let obj = parts.next()?.parse::<u32>().ok()?;
+            let generation = parts.next()?.parse::<u16>().ok()?;
+            Some((obj, generation))
+        })
+        .collect()
+}
+
 fn apply_context_recalibration(
     finding: &mut Finding,
     target_severity: Severity,
@@ -1650,6 +1722,31 @@ fn apply_context_recalibration(
         return;
     }
 
+    finding.meta.insert("triage.context_recalibrated".into(), "true".into());
+    append_meta_csv(&mut finding.meta, "triage.context_reasons", reason);
+    finding.meta.insert(
+        "triage.severity_adjustment".into(),
+        format!("{}->{}", severity_label(old_severity), severity_label(finding.severity)),
+    );
+    finding.meta.insert(
+        "triage.confidence_adjustment".into(),
+        format!("{}->{}", old_confidence.as_str(), finding.confidence.as_str()),
+    );
+}
+
+fn apply_context_override(
+    finding: &mut Finding,
+    target_severity: Severity,
+    target_confidence: Confidence,
+    reason: &str,
+) {
+    let old_severity = finding.severity;
+    let old_confidence = finding.confidence;
+    finding.severity = target_severity;
+    finding.confidence = target_confidence;
+    if finding.severity == old_severity && finding.confidence == old_confidence {
+        return;
+    }
     finding.meta.insert("triage.context_recalibrated".into(), "true".into());
     append_meta_csv(&mut finding.meta, "triage.context_reasons", reason);
     finding.meta.insert(
@@ -2183,6 +2280,77 @@ mod tests {
         assert_eq!(
             chain.meta.get("triage.context_reasons"),
             Some(&"action_js_launch_chain".to_string())
+        );
+    }
+
+    #[test]
+    fn context_recalibration_lowers_creation_date_parser_hazard_when_metadata_only() {
+        let mut parser_diff = Finding::template(
+            AttackSurface::FileStructure,
+            "parser_diff_structural",
+            Severity::Medium,
+            Confidence::Probable,
+            "Structural parser differential",
+            "Test",
+        );
+        parser_diff.meta.insert("diff.missing_in_secondary_ids".into(), "1 0".into());
+        parser_diff.meta.insert(
+            "diff.missing_in_secondary_hazards".into(),
+            "1 0=creation_date_trailing_timezone_token".into(),
+        );
+        let mut findings = vec![parser_diff];
+
+        recalibrate_findings_with_context(&mut findings);
+
+        let finding = findings
+            .iter()
+            .find(|finding| finding.kind == "parser_diff_structural")
+            .expect("parser_diff_structural should be present");
+        assert_eq!(finding.severity, Severity::Low);
+        assert_eq!(finding.confidence, Confidence::Strong);
+        assert_eq!(
+            finding.meta.get("triage.context_reasons"),
+            Some(&"parser_hazard_metadata_only".to_string())
+        );
+    }
+
+    #[test]
+    fn context_recalibration_escalates_creation_date_parser_hazard_on_js_object() {
+        let mut parser_diff = Finding::template(
+            AttackSurface::FileStructure,
+            "parser_diff_structural",
+            Severity::Medium,
+            Confidence::Probable,
+            "Structural parser differential",
+            "Test",
+        );
+        parser_diff.meta.insert("diff.missing_in_secondary_ids".into(), "7 0".into());
+        parser_diff.meta.insert(
+            "diff.missing_in_secondary_hazards".into(),
+            "7 0=creation_date_trailing_timezone_token".into(),
+        );
+        let mut js_finding = Finding::template(
+            AttackSurface::JavaScript,
+            "js_present",
+            Severity::Medium,
+            Confidence::Strong,
+            "JavaScript present",
+            "Test",
+        );
+        js_finding.objects = vec!["7 0 obj".into()];
+        let mut findings = vec![parser_diff, js_finding];
+
+        recalibrate_findings_with_context(&mut findings);
+
+        let finding = findings
+            .iter()
+            .find(|finding| finding.kind == "parser_diff_structural")
+            .expect("parser_diff_structural should be present");
+        assert_eq!(finding.severity, Severity::High);
+        assert_eq!(finding.confidence, Confidence::Strong);
+        assert_eq!(
+            finding.meta.get("triage.context_reasons"),
+            Some(&"parser_hazard_on_action_or_js_object".to_string())
         );
     }
 }
