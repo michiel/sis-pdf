@@ -3,18 +3,42 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
+import random
+import re
 import shutil
 import subprocess
+import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 
 DATE_PREFIX = "mwb-"
-SUMMARY_VERSION = 1
+SUMMARY_VERSION = 2
+DEFAULT_SAMPLE_SEED = 1337
+DEFAULT_PASS1_TIMEOUT_SECONDS = 20
+DEFAULT_PASS2_TIMEOUT_SECONDS = 60
+DEFAULT_HIGH_INTEREST_KINDS = {
+    "launch_action_present",
+    "launch_external_program",
+    "launch_embedded_file",
+    "launch_obfuscated_executable",
+    "action_chain_malicious",
+    "action_chain_complex",
+    "annotation_action_chain",
+    "js_runtime_downloader_pattern",
+    "js_runtime_network_intent",
+    "js_intent_user_interaction",
+    "declared_filter_invalid",
+    "decoder_risk_present",
+    "parser_resource_exhaustion",
+    "structural_evasion_composite",
+}
+HASH_NAME_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 @dataclass
@@ -24,6 +48,18 @@ class ScanArtifacts:
     jsonl_path: Path
     stderr_path: Path
     summary_path: Path
+
+
+@dataclass
+class PerFileScanRecord:
+    path: str
+    content_hash: str
+    selected: bool
+    reason_code: str
+    stage: str
+    pass1_duration_ms: int = 0
+    pass2_duration_ms: int = 0
+    rerun_reason: Optional[str] = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,6 +95,44 @@ def parse_args() -> argparse.Namespace:
         "--batch-parallel",
         action="store_true",
         help="Forward --batch-parallel to sis scan for intra-run worker pools.",
+    )
+    parser.add_argument(
+        "--two-pass",
+        action="store_true",
+        help=(
+            "Run deterministic per-file two-pass sweep "
+            "(pass1 bounded, pass2 targeted rerun)."
+        ),
+    )
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=0,
+        help="Limit each day to a deterministic random sample size after hash dedup.",
+    )
+    parser.add_argument(
+        "--sample-seed",
+        type=int,
+        default=DEFAULT_SAMPLE_SEED,
+        help="Seed for deterministic random sampling.",
+    )
+    parser.add_argument(
+        "--pass1-timeout-seconds",
+        type=int,
+        default=DEFAULT_PASS1_TIMEOUT_SECONDS,
+        help="Per-file timeout in seconds for pass 1 (bounded sweep).",
+    )
+    parser.add_argument(
+        "--pass2-timeout-seconds",
+        type=int,
+        default=DEFAULT_PASS2_TIMEOUT_SECONDS,
+        help="Per-file timeout in seconds for targeted pass 2 reruns.",
+    )
+    parser.add_argument(
+        "--high-interest-kind",
+        action="append",
+        default=[],
+        help="Finding kind that triggers pass 2 rerun (repeatable).",
     )
     parser.add_argument(
         "--date",
@@ -128,6 +202,82 @@ def find_day_dirs(root: Path, specific_day: Optional[str]) -> List[Path]:
     return sorted(days, key=lambda p: p.name)
 
 
+def extract_content_hash(path: Path) -> str:
+    stem = path.stem
+    if HASH_NAME_RE.match(stem):
+        return stem.lower()
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_day_scan_plan(
+    pdf_paths: List[Path],
+    seen_hashes: Set[str],
+    sample_size: int,
+    sample_seed: int,
+    day: str,
+) -> Tuple[List[Tuple[Path, str]], List[PerFileScanRecord]]:
+    unique_candidates: List[Tuple[Path, str]] = []
+    local_seen_hashes: Set[str] = set()
+    skipped: List[PerFileScanRecord] = []
+    for path in sorted(pdf_paths):
+        content_hash = extract_content_hash(path)
+        if content_hash in seen_hashes:
+            skipped.append(
+                PerFileScanRecord(
+                    path=str(path),
+                    content_hash=content_hash,
+                    selected=False,
+                    reason_code="dedup.hash_duplicate",
+                    stage="selection",
+                )
+            )
+            continue
+        if content_hash in local_seen_hashes:
+            skipped.append(
+                PerFileScanRecord(
+                    path=str(path),
+                    content_hash=content_hash,
+                    selected=False,
+                    reason_code="dedup.hash_duplicate",
+                    stage="selection",
+                )
+            )
+            continue
+        local_seen_hashes.add(content_hash)
+        unique_candidates.append((path, content_hash))
+    if sample_size > 0 and len(unique_candidates) > sample_size:
+        seed_material = int(day.replace("-", ""))
+        rng = random.Random(sample_seed ^ seed_material)
+        selected = sorted(
+            rng.sample(unique_candidates, sample_size),
+            key=lambda item: str(item[0]),
+        )
+        selected_path_set = {str(path) for path, _ in selected}
+        for path, content_hash in unique_candidates:
+            if str(path) not in selected_path_set:
+                skipped.append(
+                    PerFileScanRecord(
+                        path=str(path),
+                        content_hash=content_hash,
+                        selected=False,
+                        reason_code="dedup.sampled_out",
+                        stage="selection",
+                    )
+                )
+        for _, content_hash in selected:
+            seen_hashes.add(content_hash)
+        return selected, skipped
+    for _, content_hash in unique_candidates:
+        seen_hashes.add(content_hash)
+    return unique_candidates, skipped
+
+
 def build_artifacts(output_root: Path, day_dir: Path) -> ScanArtifacts:
     day = day_dir.name[len(DATE_PREFIX) :]
     scan_dir = output_root / "scans" / day
@@ -175,6 +325,260 @@ def run_sis_scan(
         proc = subprocess.run(args, stdout=out, stderr=err, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"sis scan failed for {day_dir} (exit {proc.returncode})")
+
+
+def parse_findings_from_jsonl_text(payload: str) -> List[dict]:
+    findings: List[dict] = []
+    for line in payload.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        for finding in parse_findings_line(entry):
+            findings.append(finding)
+    return findings
+
+
+def is_high_interest_file(
+    findings: List[dict], high_interest_kinds: Set[str]
+) -> Tuple[bool, str]:
+    for finding in findings:
+        severity = normalise_key(finding.get("severity"))
+        if severity in {"High", "Critical"}:
+            return True, f"high_severity:{severity}"
+        kind = extract_finding_kind(finding)
+        if kind in high_interest_kinds:
+            return True, f"high_interest_kind:{kind}"
+    return False, ""
+
+
+def run_single_file_scan(
+    sis_bin: str,
+    path: Path,
+    deep: bool,
+    timeout_seconds: int,
+) -> Tuple[str, str, int, int]:
+    args = [sis_bin, "scan", str(path), "--jsonl-findings"]
+    if deep:
+        args.append("--deep")
+    started = time.perf_counter()
+    try:
+        proc = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=max(timeout_seconds, 1),
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        return stdout, stderr, duration_ms, 124
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    return proc.stdout, proc.stderr, duration_ms, proc.returncode
+
+
+def run_sis_scan_two_pass(
+    sis_bin: str,
+    artifacts: ScanArtifacts,
+    glob: str,
+    deep: bool,
+    force: bool,
+    seen_hashes: Set[str],
+    sample_size: int,
+    sample_seed: int,
+    pass1_timeout_seconds: int,
+    pass2_timeout_seconds: int,
+    high_interest_kinds: Set[str],
+) -> Dict[str, object]:
+    if artifacts.jsonl_path.exists() and artifacts.jsonl_path.stat().st_size > 0 and not force:
+        return {
+            "mode": "two_pass",
+            "skipped_scan": True,
+            "records": [],
+            "reason_code_counts": {},
+            "stage_counts": {},
+            "selected_files": 0,
+            "skipped_files": 0,
+        }
+    artifacts.jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_paths = list(artifacts.corpus_dir.glob(glob))
+    selected, skipped_records = build_day_scan_plan(
+        pdf_paths,
+        seen_hashes,
+        sample_size=sample_size,
+        sample_seed=sample_seed,
+        day=artifacts.day,
+    )
+
+    final_outputs: Dict[str, str] = {}
+    records: List[PerFileScanRecord] = list(skipped_records)
+    rerun_candidates: Dict[str, str] = {}
+    pass1_outputs: Dict[str, str] = {}
+    pass1_hashes: Dict[str, str] = {}
+    stderr_lines: List[str] = []
+
+    for path, content_hash in selected:
+        pass1_hashes[str(path)] = content_hash
+        stdout, stderr, duration_ms, return_code = run_single_file_scan(
+            sis_bin=sis_bin,
+            path=path,
+            deep=deep,
+            timeout_seconds=pass1_timeout_seconds,
+        )
+        pass1_outputs[str(path)] = stdout
+        if stderr:
+            stderr_lines.append(f"[pass1][{path}] {stderr.strip()}")
+        if return_code == 124:
+            records.append(
+                PerFileScanRecord(
+                    path=str(path),
+                    content_hash=content_hash,
+                    selected=True,
+                    reason_code="timeout.pass1",
+                    stage="pass1",
+                    pass1_duration_ms=duration_ms,
+                    rerun_reason="timeout.pass1",
+                )
+            )
+            rerun_candidates[str(path)] = "timeout.pass1"
+            continue
+        if return_code != 0:
+            records.append(
+                PerFileScanRecord(
+                    path=str(path),
+                    content_hash=content_hash,
+                    selected=True,
+                    reason_code="scan_error.pass1",
+                    stage="pass1",
+                    pass1_duration_ms=duration_ms,
+                )
+            )
+            final_outputs[str(path)] = stdout
+            continue
+        findings = parse_findings_from_jsonl_text(stdout)
+        high_interest, rerun_reason = is_high_interest_file(findings, high_interest_kinds)
+        if high_interest:
+            records.append(
+                PerFileScanRecord(
+                    path=str(path),
+                    content_hash=content_hash,
+                    selected=True,
+                    reason_code="rerun_queued.high_interest",
+                    stage="pass1",
+                    pass1_duration_ms=duration_ms,
+                    rerun_reason=rerun_reason,
+                )
+            )
+            rerun_candidates[str(path)] = rerun_reason
+            continue
+        records.append(
+            PerFileScanRecord(
+                path=str(path),
+                content_hash=content_hash,
+                selected=True,
+                reason_code="ok.pass1",
+                stage="pass1",
+                pass1_duration_ms=duration_ms,
+            )
+        )
+        final_outputs[str(path)] = stdout
+
+    for path_string, rerun_reason in sorted(rerun_candidates.items()):
+        path = Path(path_string)
+        stdout, stderr, duration_ms, return_code = run_single_file_scan(
+            sis_bin=sis_bin,
+            path=path,
+            deep=deep,
+            timeout_seconds=pass2_timeout_seconds,
+        )
+        if stderr:
+            stderr_lines.append(f"[pass2][{path}] {stderr.strip()}")
+        base_output = pass1_outputs.get(path_string, "")
+        content_hash = pass1_hashes.get(path_string, extract_content_hash(path))
+        if return_code == 124:
+            records.append(
+                PerFileScanRecord(
+                    path=path_string,
+                    content_hash=content_hash,
+                    selected=True,
+                    reason_code="timeout.pass2",
+                    stage="pass2",
+                    pass2_duration_ms=duration_ms,
+                    rerun_reason=rerun_reason,
+                )
+            )
+            final_outputs[path_string] = base_output
+            continue
+        if return_code != 0:
+            records.append(
+                PerFileScanRecord(
+                    path=path_string,
+                    content_hash=content_hash,
+                    selected=True,
+                    reason_code="scan_error.pass2",
+                    stage="pass2",
+                    pass2_duration_ms=duration_ms,
+                    rerun_reason=rerun_reason,
+                )
+            )
+            final_outputs[path_string] = base_output
+            continue
+        reason_code = (
+            "ok.pass2.timeout_recovery"
+            if rerun_reason == "timeout.pass1"
+            else "ok.pass2.high_interest"
+        )
+        records.append(
+            PerFileScanRecord(
+                path=path_string,
+                content_hash=content_hash,
+                selected=True,
+                reason_code=reason_code,
+                stage="pass2",
+                pass2_duration_ms=duration_ms,
+                rerun_reason=rerun_reason,
+            )
+        )
+        final_outputs[path_string] = stdout
+
+    with artifacts.jsonl_path.open("w", encoding="utf-8") as out:
+        for path_string in sorted(final_outputs.keys()):
+            payload = final_outputs[path_string]
+            if not payload:
+                continue
+            out.write(payload)
+            if not payload.endswith("\n"):
+                out.write("\n")
+    with artifacts.stderr_path.open("w", encoding="utf-8") as err:
+        for line in stderr_lines:
+            err.write(line)
+            if not line.endswith("\n"):
+                err.write("\n")
+
+    reason_code_counts = Counter(record.reason_code for record in records)
+    stage_counts = Counter(record.stage for record in records if record.selected)
+    timeout_stage_counts = Counter(
+        record.stage for record in records if record.reason_code.startswith("timeout.")
+    )
+    return {
+        "mode": "two_pass",
+        "skipped_scan": False,
+        "selected_files": len(selected),
+        "skipped_files": len(skipped_records),
+        "records": [record.__dict__ for record in records],
+        "reason_code_counts": dict(reason_code_counts),
+        "stage_counts": dict(stage_counts),
+        "timeout_stage_counts": dict(timeout_stage_counts),
+        "pass1_timeout_seconds": pass1_timeout_seconds,
+        "pass2_timeout_seconds": pass2_timeout_seconds,
+        "sample_size": sample_size,
+        "sample_seed": sample_seed,
+    }
 
 
 def read_sis_version(sis_bin: str) -> str:
@@ -354,7 +758,9 @@ def write_summary(
     sis_version: str,
     deep: bool,
     glob: str,
+    sweep_telemetry: Optional[dict] = None,
 ) -> None:
+    telemetry = sweep_telemetry or {}
     summary = {
         "version": SUMMARY_VERSION,
         "date": artifacts.day,
@@ -385,6 +791,7 @@ def write_summary(
             "by_name": dict(unknown_runtime_behaviour),
             "samples": unknown_runtime_samples,
         },
+        "sweep": telemetry,
     }
     artifacts.summary_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True), encoding="utf-8"
@@ -546,6 +953,11 @@ def generate_daily_report(
         ),
         ("Errors", str(summary["errors"].get("scan_errors", 0))),
         ("Warnings", str(summary["errors"].get("scan_warnings", 0))),
+        ("Sweep mode", normalise_key(summary.get("sweep", {}).get("mode"))),
+        (
+            "Sweep reason codes",
+            str(len(summary.get("sweep", {}).get("reason_code_counts", {}))),
+        ),
     ]
     sections = [
         render_table("Summary", base_rows),
@@ -580,6 +992,9 @@ def generate_daily_report(
                 limit=25,
             )
         )
+    reason_codes = summary.get("sweep", {}).get("reason_code_counts", {})
+    if isinstance(reason_codes, dict) and reason_codes:
+        sections.append(render_counter("Sweep reason codes", reason_codes, limit=20))
     html = build_html(f"MWB Corpus Report {date}", "<div class='section'>" + "</div><div class='section'>".join(sections) + "</div>")
     output_dir = report_dir / "daily"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -663,6 +1078,13 @@ def main() -> int:
 
     sis_version = read_sis_version(args.sis_bin)
     observed_unknown_runtime_behaviour: set[str] = set()
+    seen_hashes: Set[str] = set()
+    high_interest_kinds = set(DEFAULT_HIGH_INTEREST_KINDS)
+    high_interest_kinds.update(
+        extract_finding_kind({"kind": item})
+        for item in args.high_interest_kind
+        if item and item.strip()
+    )
     allow_list = {
         normalise_runtime_behaviour_name(name) for name in args.allow_runtime_behaviour if name
     }
@@ -671,16 +1093,32 @@ def main() -> int:
     if not args.report_only:
         for day_dir in day_dirs:
             artifacts = build_artifacts(output_root, day_dir)
-            run_sis_scan(
-                args.sis_bin,
-                day_dir,
-                artifacts.jsonl_path,
-                artifacts.stderr_path,
-                args.glob,
-                args.deep,
-                args.force,
-                args.batch_parallel,
-            )
+            sweep_telemetry: dict = {"mode": "batch"}
+            if args.two_pass:
+                sweep_telemetry = run_sis_scan_two_pass(
+                    sis_bin=args.sis_bin,
+                    artifacts=artifacts,
+                    glob=args.glob,
+                    deep=args.deep,
+                    force=args.force,
+                    seen_hashes=seen_hashes,
+                    sample_size=max(args.sample_size, 0),
+                    sample_seed=args.sample_seed,
+                    pass1_timeout_seconds=max(args.pass1_timeout_seconds, 1),
+                    pass2_timeout_seconds=max(args.pass2_timeout_seconds, 1),
+                    high_interest_kinds=high_interest_kinds,
+                )
+            else:
+                run_sis_scan(
+                    args.sis_bin,
+                    day_dir,
+                    artifacts.jsonl_path,
+                    artifacts.stderr_path,
+                    args.glob,
+                    args.deep,
+                    args.force,
+                    args.batch_parallel,
+                )
             (
                 by_kind,
                 by_field,
@@ -705,6 +1143,7 @@ def main() -> int:
                 sis_version,
                 args.deep,
                 args.glob,
+                sweep_telemetry,
             )
         if day_dirs:
             update_latest_symlink(corpus_root, day_dirs[-1])

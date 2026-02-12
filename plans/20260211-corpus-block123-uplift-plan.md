@@ -181,16 +181,36 @@ Validation:
 ## PR-F: Corpus sweep robustness and throughput controls
 
 Objective: improve repeatability and reduce wasted scan budget.
+Status: done (2026-02-12)
 
 Changes:
 1. Hash-level dedup in random block sampler (cross-day duplicate suppression).
+   - Implemented deterministic hash dedup in `scripts/mwb_corpus_pipeline.py` via
+     `build_day_scan_plan` and persistent cross-day hash tracking.
 2. Two-pass sweep strategy:
    - pass 1: bounded deep scan for all files
    - pass 2: targeted rerun only for timed-out/high-interest files
+   - Implemented as `--two-pass` mode with per-file pass budgets:
+     - `--pass1-timeout-seconds`
+     - `--pass2-timeout-seconds`
+     - deterministic sampling controls (`--sample-size`, `--sample-seed`).
 3. Standardise sweep telemetry outputs (per-file reason codes, timeout stage).
+   - Added summary telemetry under `sweep`:
+     - `reason_code_counts`
+     - `stage_counts`
+     - `timeout_stage_counts`
+     - bounded per-file `records` including `reason_code`, `stage`, durations.
+   - Daily report now includes sweep mode and reason-code table.
 
 Validation:
 1. Script tests in `scripts/` for dedup and selection determinism.
+   - Added `scripts/test_mwb_corpus_pipeline.py`:
+     - cross-day hash dedup
+     - deterministic sampling
+     - high-interest rerun classification helpers
+   - Executed:
+     - `python -m py_compile scripts/mwb_corpus_pipeline.py scripts/test_mwb_corpus_pipeline.py`
+     - `python -m unittest scripts/test_mwb_corpus_pipeline.py -v`
 2. 3 consecutive 30-file blocks:
    - skip rate <3%
    - stable high-risk recall.
