@@ -21,6 +21,7 @@ pub mod explainability;
 pub mod features;
 pub mod features_extended;
 pub mod filter_allowlist;
+pub mod finding_caps;
 pub mod graph_export;
 pub mod graph_walk;
 pub mod id_shortener;

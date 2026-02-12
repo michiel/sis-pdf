@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use crate::correlation;
 use crate::evidence::preview_ascii;
+use crate::finding_caps::apply_default_global_kind_cap;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
 use crate::model::{AttackSurface, Confidence, Finding, Severity};
 use crate::position;
@@ -697,6 +698,7 @@ pub fn run_scan_with_detectors(
     correlate_font_js(&mut findings);
     let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
     findings.extend(composites);
+    apply_default_global_kind_cap(&mut findings);
     assign_stable_ids(&mut findings);
     let intent_summary = Some(crate::intent::apply_intent(&mut findings));
     let yara_rules =

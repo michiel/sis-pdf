@@ -2536,6 +2536,7 @@ fn run_detectors(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>>
 
     let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
     findings.extend(composites);
+    sis_pdf_core::finding_caps::apply_default_global_kind_cap(&mut findings);
     assign_stable_ids(&mut findings);
 
     for finding in &mut findings {
