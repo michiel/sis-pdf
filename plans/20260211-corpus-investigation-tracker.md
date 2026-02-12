@@ -87,12 +87,14 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
   - Status:
     - completed via `secondary_parser_prevalence_baseline` synthesis finding with class/hazard prevalence, malformed signature summary, object-role distribution, and remediation candidate list.
 
-6. [ ] Sweep sampling dedup hardening for manual/ad-hoc workflows
+6. [x] Sweep sampling dedup hardening for manual/ad-hoc workflows
    - Deliverables:
      - documented command path that enforces hash dedup by default
      - helper script or recipe used in triage loops
-   - Acceptance:
-     - random 30-file ad-hoc block contains zero duplicate content hashes.
+  - Acceptance:
+    - random 30-file ad-hoc block contains zero duplicate content hashes.
+  - Status:
+    - completed via dedicated helper script and validated against `tmp/corpus` (30 selected, 30 unique hashes).
 
 ## Resolved items
 
@@ -379,3 +381,19 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
   - runtime check:
     - `sis scan crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf --deep --diff-parser --json`
     - emits `secondary_parser_prevalence_baseline` with populated role/count metadata.
+
+## Ad-hoc sweep hash-dedup hardening (completed)
+
+- Added helper script:
+  - `scripts/sample_corpus_unique.py`
+  - deterministic random sampling with hash dedup enabled by default.
+- Added script tests:
+  - `scripts/test_sample_corpus_unique.py`
+  - covers cross-day duplicate suppression, deterministic seed behaviour, and uniqueness in selected sample.
+- Documented command path:
+  - `docs/mwb-corpus-reporting.md` now includes ad-hoc dedup sampling + scan invocation examples.
+- Validation:
+  - `python -m py_compile scripts/sample_corpus_unique.py scripts/test_sample_corpus_unique.py`
+  - `python -m unittest scripts/test_sample_corpus_unique.py -v`
+  - `python scripts/sample_corpus_unique.py --corpus-root tmp/corpus --sample-size 30 --seed 20260212 --out /tmp/corpus_sample_unique_30.txt --summary-out /tmp/corpus_sample_unique_30.summary.json`
+  - summary check confirms `sample_size_selected=30`, unique selected hashes=`30`.

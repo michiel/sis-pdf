@@ -44,6 +44,26 @@ To re-run scans even if outputs exist:
 ./scripts/mwb_corpus_pipeline.py --force
 ```
 
+## Ad-hoc random sweeps with hash dedup (default)
+
+Use the dedicated sampler to build a deterministic 30-file list that is deduplicated by
+content hash across daily folders:
+
+```bash
+python scripts/sample_corpus_unique.py \
+  --corpus-root tmp/corpus \
+  --sample-size 30 \
+  --seed 20260212 \
+  --out /tmp/corpus_sample_unique_30.txt \
+  --summary-out /tmp/corpus_sample_unique_30.summary.json
+```
+
+Then run the scan against the sampled list:
+
+```bash
+xargs -a /tmp/corpus_sample_unique_30.txt -I{} sis scan "{}" --deep --json > /tmp/corpus_sample_unique_30.scan.jsonl
+```
+
 ## Output structure
 
 ```
