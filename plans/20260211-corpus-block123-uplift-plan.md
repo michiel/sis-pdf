@@ -257,3 +257,36 @@ Release Gate G3 (after PR-F):
    - benchmark deltas and corpus block IDs.
 2. Attach sweep artefact paths for each validation run.
 3. Record any new unknown runtime names immediately and route to PR-A workflow.
+
+## 9) Post-PR-F extension steps
+
+### PR-G: ObjStm-heavy adaptive budgeting (performance hardening)
+
+Objective: reduce deep-scan tail latency for object-stream-heavy PDFs without suppressing high-signal findings.
+Status: done (2026-02-12)
+
+Changes:
+1. Extended `content_first_stage1` adaptive budget policy to include ObjStm density signal.
+2. Added `objstm_heavy` adaptive reason and stricter stream/deep-pass/anomaly caps under this condition.
+3. Added `content_first.total_objstm_streams` metadata in truncation findings.
+
+Validation:
+1. Detector tests:
+   - `cargo test -p sis-pdf-detectors content_first -- --nocapture`
+2. Outlier runtime profile:
+   - sample: `81ec61a49b5fcc4e696974798b5e0d3582a297e9c6beaf95d56839b514e064f5`
+   - before: profile total ~141.3s
+   - after: profile total ~73.8s
+   - artefacts:
+     - `/tmp/corpus-sweeps/20260212_144642_seed20260212/profile_81ec_scan.stderr`
+     - `/tmp/corpus-sweeps/20260212_144642_seed20260212/profile_81ec_scan_posttune.stderr`
+
+### PR-H: Warning aggregation and telemetry normalisation (planned)
+
+Objective: reduce stderr warning noise in heavy corpus blocks while retaining forensic utility.
+Status: planned
+
+Planned changes:
+1. Aggregate repetitive `font.ttf_hinting_suspicious` telemetry with capped samples.
+2. Ensure warning aggregations can map to existing findings or aggregate findings metadata.
+3. Add corpus-sweep summary counters for aggregated warning classes.

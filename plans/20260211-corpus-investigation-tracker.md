@@ -20,12 +20,26 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
    - prioritise once-per-hash profiling and detector-stage timing attribution.
 5. Elevated `font.dynamic_parse_failure` volume in block-3:
    - requires separation between malformed-font noise and exploitation-relevant signals.
+6. Persistent deep-scan runtime outliers after PR-F:
+   - observed in block-4 for hashes including:
+     - `81ec61a49b5fcc4e696974798b5e0d3582a297e9c6beaf95d56839b514e064f5`
+     - `bf724f5f19df9b2fdb0f45a79b6d9a88e8acf02843465ce891c6a4ad6c8d47a6`
+     - `4a9a844dbf0a4fbaa6b33b9ccc5f8b773ca4b286d389e5d3483d56c5d7906cff`
+   - dominant profiled stages remain `content_first_stage1` and `content_phishing`.
+7. High-volume warning telemetry in heavy blocks:
+   - `font.ttf_hinting_suspicious` warnings remain noisy in stderr and need aggregation strategy review.
+8. Random sample composition quality:
+   - ad-hoc random sweeps can still include duplicate hashes unless dedup is enforced in the sampler path.
 
 ## Resolved items
 
 1. Unknown behavioural mapping for `dormant_or_gated_execution`:
    - mapped to `js_runtime_dormant_or_gated_execution`.
    - block-2 validation shows unknown count reduced to zero with mapped hits present.
+2. ObjStm-aware adaptive content-first budget tightening:
+   - implemented an additional adaptive budget clamp when ObjStm stream density is high.
+   - new adaptive reason: `objstm_heavy`.
+   - validation on `81ec...` reduced runtime profile total from ~141.3s to ~73.8s.
 
 ## Block 1 (completed)
 
@@ -135,3 +149,34 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
    - avoid spending block budget on same payload hash across daily folders.
 3. Add `content_first_stage1` micro-budgets for known heavy subpaths:
    - especially repeated stream anomaly scans and font dynamic parse loops.
+
+## Block 4 (completed, 2026-02-12)
+
+- Sample set:
+  - deterministic seed: `20260212`
+  - source list: `/tmp/corpus-sweeps/20260212_144642_seed20260212/sample_paths.txt`
+- Artefacts:
+  - batch summary: `/tmp/corpus-sweeps/20260212_144642_seed20260212/sweep_summary_postbuild.json`
+  - batch raw output: `/tmp/corpus-sweeps/20260212_144642_seed20260212/scan_postbuild.json`
+- Attempted: 30
+- Completed: 30
+- Scan errors: 0 hard failures (1 stderr error line observed)
+- Findings total: 1347
+- Severity totals:
+  - High: 152
+  - Medium: 309
+  - Low: 324
+  - Info: 562
+- Detection duration (entry-level):
+  - avg: 63.8s
+  - median: 22.8s
+  - p95: 194.9s
+  - max: 218.7s
+- Notable heavy files:
+  - `81ec61a49b5fcc4e696974798b5e0d3582a297e9c6beaf95d56839b514e064f5` (218.7s)
+  - `4a9a844dbf0a4fbaa6b33b9ccc5f8b773ca4b286d389e5d3483d56c5d7906cff` (196.3s)
+  - `bf724f5f19df9b2fdb0f45a79b6d9a88e8acf02843465ce891c6a4ad6c8d47a6` (194.9s)
+- JS runtime:
+  - runtime error findings: 3
+  - script timeout findings: 0
+  - loop iteration limit hits: 0

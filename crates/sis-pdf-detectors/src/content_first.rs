@@ -34,6 +34,7 @@ const CONTENT_FIRST_ADAPTIVE_STREAMS_LEVEL1: usize = 500;
 const CONTENT_FIRST_ADAPTIVE_FILE_BYTES_LEVEL2: usize = 16 * 1024 * 1024;
 const CONTENT_FIRST_ADAPTIVE_OBJECTS_LEVEL2: usize = 8_000;
 const CONTENT_FIRST_ADAPTIVE_STREAMS_LEVEL2: usize = 1_000;
+const CONTENT_FIRST_ADAPTIVE_OBJSTM_LEVEL: usize = 8;
 
 const CONTENT_FIRST_AGGREGATED_KINDS: &[&str] = &[
     "label_mismatch_stream_type",
@@ -120,7 +121,15 @@ impl Detector for ContentFirstDetector {
             .iter()
             .filter(|entry| matches!(&entry.atom, PdfAtom::Stream(_)))
             .count();
-        let budgets = adaptive_content_first_budgets(ctx, total_streams);
+        let objstm_streams = ctx
+            .graph
+            .objects
+            .iter()
+            .filter(
+                |entry| matches!(&entry.atom, PdfAtom::Stream(stream) if is_objstm_stream(stream)),
+            )
+            .count();
+        let budgets = adaptive_content_first_budgets(ctx, total_streams, objstm_streams);
         let stream_budget = budgets.stream_budget;
         let deep_pass_budget = budgets.deep_pass_budget;
         let anomaly_scan_budget = budgets.anomaly_scan_budget;
@@ -500,6 +509,7 @@ impl Detector for ContentFirstDetector {
             );
             meta.insert("content_first.anomaly_scans".into(), anomaly_scans.to_string());
             meta.insert("content_first.total_streams".into(), total_streams.to_string());
+            meta.insert("content_first.total_objstm_streams".into(), objstm_streams.to_string());
             meta.insert("content_first.high_risk_findings".into(), high_risk_findings.to_string());
             meta.insert(
                 "content_first.classify_cache_entries".into(),
@@ -559,12 +569,14 @@ impl Detector for ContentFirstDetector {
 fn adaptive_content_first_budgets(
     ctx: &sis_pdf_core::scan::ScanContext,
     total_streams: usize,
+    objstm_streams: usize,
 ) -> ContentFirstBudgets {
     adaptive_content_first_budgets_from_metrics(
         ctx.options.deep,
         ctx.bytes.len(),
         ctx.graph.objects.len(),
         total_streams,
+        objstm_streams,
     )
 }
 
@@ -573,6 +585,7 @@ fn adaptive_content_first_budgets_from_metrics(
     file_size: usize,
     object_count: usize,
     total_streams: usize,
+    objstm_streams: usize,
 ) -> ContentFirstBudgets {
     let mut stream_budget =
         if deep { CONTENT_FIRST_STREAM_BUDGET_DEEP } else { CONTENT_FIRST_STREAM_BUDGET_SHALLOW };
@@ -608,6 +621,13 @@ fn adaptive_content_first_budgets_from_metrics(
         anomaly_scan_budget = anomaly_scan_budget.min(220);
         force_stream_cap = true;
         adaptive_reasons.push("level2".to_string());
+    }
+    if objstm_streams >= CONTENT_FIRST_ADAPTIVE_OBJSTM_LEVEL {
+        stream_budget = stream_budget.min(450);
+        deep_pass_budget = deep_pass_budget.min(100);
+        anomaly_scan_budget = anomaly_scan_budget.min(160);
+        force_stream_cap = true;
+        adaptive_reasons.push("objstm_heavy".to_string());
     }
 
     if total_streams > 0 {
@@ -718,6 +738,19 @@ fn apply_content_first_repeat_kind_cap(
         }
     }
     *findings = compacted;
+}
+
+fn is_objstm_stream(stream: &PdfStream<'_>) -> bool {
+    stream
+        .dict
+        .get_first(b"/Type")
+        .or_else(|| stream.dict.get_first(b"Type"))
+        .and_then(|(_, obj)| match &obj.atom {
+            PdfAtom::Name(name) => Some(name.decoded.as_slice()),
+            _ => None,
+        })
+        .map(|decoded| decoded == b"/ObjStm" || decoded == b"ObjStm")
+        .unwrap_or(false)
 }
 
 fn name_value(dict: &sis_pdf_pdf::object::PdfDict<'_>, key: &[u8]) -> Option<String> {
@@ -2969,12 +3002,22 @@ mod tests {
     #[test]
     fn adaptive_budgets_reduce_limits_for_large_documents() {
         let budgets =
-            adaptive_content_first_budgets_from_metrics(true, 10 * 1024 * 1024, 4_983, 611);
+            adaptive_content_first_budgets_from_metrics(true, 10 * 1024 * 1024, 4_983, 611, 0);
         assert_eq!(budgets.stream_budget, 611);
         assert_eq!(budgets.deep_pass_budget, 220);
         assert_eq!(budgets.anomaly_scan_budget, 320);
         assert!(budgets.force_stream_cap);
         assert_eq!(budgets.adaptive_reasons, vec!["level1".to_string()]);
+    }
+
+    #[test]
+    fn adaptive_budgets_reduce_limits_for_objstm_heavy_documents() {
+        let budgets = adaptive_content_first_budgets_from_metrics(true, 256 * 1024, 300, 550, 12);
+        assert_eq!(budgets.stream_budget, 450);
+        assert_eq!(budgets.deep_pass_budget, 100);
+        assert_eq!(budgets.anomaly_scan_budget, 160);
+        assert!(budgets.force_stream_cap);
+        assert!(budgets.adaptive_reasons.contains(&"objstm_heavy".to_string()));
     }
 
     #[test]
