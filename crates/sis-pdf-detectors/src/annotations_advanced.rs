@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::collections::HashMap;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
@@ -9,6 +10,8 @@ use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use crate::{entry_dict, uri_classification::analyze_uri_content};
 
 pub struct AnnotationAttackDetector;
+const ANNOTATION_ACTION_CHAIN_CAP: usize = 25;
+const AGGREGATE_SAMPLE_LIMIT: usize = 8;
 
 impl Detector for AnnotationAttackDetector {
     fn id(&self) -> &'static str {
@@ -116,8 +119,75 @@ impl Detector for AnnotationAttackDetector {
                 });
             }
         }
+        apply_kind_cap(&mut findings, "annotation_action_chain", ANNOTATION_ACTION_CHAIN_CAP);
         Ok(findings)
     }
+}
+
+fn apply_kind_cap(findings: &mut Vec<Finding>, kind: &str, cap: usize) {
+    if cap == 0 || findings.is_empty() {
+        return;
+    }
+    let mut retained = 0usize;
+    let mut total = 0usize;
+    let mut suppressed = 0usize;
+    let mut first_index: Option<usize> = None;
+    let mut sample_objects = Vec::new();
+    let mut sample_positions = Vec::new();
+    let mut out = Vec::with_capacity(findings.len());
+    for finding in findings.drain(..) {
+        if finding.kind != kind {
+            out.push(finding);
+            continue;
+        }
+        total += 1;
+        if retained < cap {
+            retained += 1;
+            if first_index.is_none() {
+                first_index = Some(out.len());
+            }
+            out.push(finding);
+            continue;
+        }
+        suppressed += 1;
+        for object in &finding.objects {
+            if !sample_objects.contains(object) && sample_objects.len() < AGGREGATE_SAMPLE_LIMIT {
+                sample_objects.push(object.clone());
+            }
+        }
+        for position in &finding.positions {
+            if !sample_positions.contains(position)
+                && sample_positions.len() < AGGREGATE_SAMPLE_LIMIT
+            {
+                sample_positions.push(position.clone());
+            }
+        }
+    }
+    if suppressed > 0 {
+        if let Some(index) = first_index {
+            if let Some(finding) = out.get_mut(index) {
+                let meta: &mut HashMap<String, String> = &mut finding.meta;
+                meta.insert("aggregate.enabled".into(), "true".into());
+                meta.insert("aggregate.kind".into(), kind.to_string());
+                meta.insert("aggregate.total_count".into(), total.to_string());
+                meta.insert("aggregate.retained_count".into(), retained.to_string());
+                meta.insert("aggregate.suppressed_count".into(), suppressed.to_string());
+                if !sample_objects.is_empty() {
+                    meta.insert(
+                        "aggregate.sample_suppressed_objects".into(),
+                        sample_objects.join(", "),
+                    );
+                }
+                if !sample_positions.is_empty() {
+                    meta.insert(
+                        "aggregate.sample_suppressed_positions".into(),
+                        sample_positions.join(", "),
+                    );
+                }
+            }
+        }
+    }
+    *findings = out;
 }
 
 fn rect_size(obj: &sis_pdf_pdf::object::PdfObj<'_>) -> Option<(f32, f32)> {
@@ -274,7 +344,8 @@ fn uri_target_is_suspicious(target: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{annotation_action_severity, uri_target_is_suspicious};
+    use super::{annotation_action_severity, apply_kind_cap, uri_target_is_suspicious};
+    use sis_pdf_core::model::Finding;
     use sis_pdf_core::model::Severity;
 
     #[test]
@@ -300,5 +371,27 @@ mod tests {
     fn annotation_automatic_trigger_stays_medium() {
         let sev = annotation_action_severity("/URI", "https://example.com", "automatic");
         assert_eq!(sev, Severity::Medium);
+    }
+
+    #[test]
+    fn annotation_action_chain_cap_aggregates_overflow() {
+        let mut findings = Vec::new();
+        for index in 0..35usize {
+            findings.push(Finding {
+                kind: "annotation_action_chain".into(),
+                objects: vec![format!("{index} 0 obj")],
+                positions: vec![format!("doc:r0/obj.{index}")],
+                ..Finding::default()
+            });
+        }
+        apply_kind_cap(&mut findings, "annotation_action_chain", 25);
+        let retained =
+            findings.iter().filter(|finding| finding.kind == "annotation_action_chain").count();
+        assert_eq!(retained, 25);
+        let first = findings
+            .iter()
+            .find(|finding| finding.kind == "annotation_action_chain")
+            .expect("retained finding");
+        assert_eq!(first.meta.get("aggregate.suppressed_count").map(String::as_str), Some("10"));
     }
 }

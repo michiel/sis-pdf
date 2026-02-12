@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
@@ -12,6 +12,8 @@ use std::time::Duration;
 use crate::{action_type_from_obj, annotate_action_meta, entry_dict};
 
 pub struct ActionTriggerDetector;
+const ACTION_FINDING_CAP: usize = 25;
+const AGGREGATE_SAMPLE_LIMIT: usize = 8;
 
 impl Detector for ActionTriggerDetector {
     fn id(&self) -> &'static str {
@@ -520,8 +522,76 @@ impl Detector for ActionTriggerDetector {
                 }
             }
         }
+        apply_kind_cap(&mut findings, "action_automatic_trigger", ACTION_FINDING_CAP);
+        apply_kind_cap(&mut findings, "action_chain_complex", ACTION_FINDING_CAP);
         Ok(findings)
     }
+}
+
+fn apply_kind_cap(findings: &mut Vec<Finding>, kind: &str, cap: usize) {
+    if cap == 0 || findings.is_empty() {
+        return;
+    }
+    let mut retained = 0usize;
+    let mut total = 0usize;
+    let mut suppressed = 0usize;
+    let mut first_index: Option<usize> = None;
+    let mut sample_objects = Vec::new();
+    let mut sample_positions = Vec::new();
+    let mut out = Vec::with_capacity(findings.len());
+    for finding in findings.drain(..) {
+        if finding.kind != kind {
+            out.push(finding);
+            continue;
+        }
+        total += 1;
+        if retained < cap {
+            retained += 1;
+            if first_index.is_none() {
+                first_index = Some(out.len());
+            }
+            out.push(finding);
+            continue;
+        }
+        suppressed += 1;
+        for object in &finding.objects {
+            if !sample_objects.contains(object) && sample_objects.len() < AGGREGATE_SAMPLE_LIMIT {
+                sample_objects.push(object.clone());
+            }
+        }
+        for position in &finding.positions {
+            if !sample_positions.contains(position)
+                && sample_positions.len() < AGGREGATE_SAMPLE_LIMIT
+            {
+                sample_positions.push(position.clone());
+            }
+        }
+    }
+    if suppressed > 0 {
+        if let Some(index) = first_index {
+            if let Some(finding) = out.get_mut(index) {
+                let meta: &mut HashMap<String, String> = &mut finding.meta;
+                meta.insert("aggregate.enabled".into(), "true".into());
+                meta.insert("aggregate.kind".into(), kind.to_string());
+                meta.insert("aggregate.total_count".into(), total.to_string());
+                meta.insert("aggregate.retained_count".into(), retained.to_string());
+                meta.insert("aggregate.suppressed_count".into(), suppressed.to_string());
+                if !sample_objects.is_empty() {
+                    meta.insert(
+                        "aggregate.sample_suppressed_objects".into(),
+                        sample_objects.join(", "),
+                    );
+                }
+                if !sample_positions.is_empty() {
+                    meta.insert(
+                        "aggregate.sample_suppressed_positions".into(),
+                        sample_positions.join(", "),
+                    );
+                }
+            }
+        }
+    }
+    *findings = out;
 }
 
 const ACTION_CHAIN_COMPLEX_DEPTH: usize = 3;
@@ -763,5 +833,32 @@ fn action_type_is_high_risk(action_type: &str) -> bool {
     match action_type.trim_start_matches('/') {
         "JavaScript" | "Launch" | "URI" | "GoToR" | "GoToE" | "SubmitForm" => true,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn action_kind_cap_suppresses_overflow() {
+        let mut findings = Vec::new();
+        for index in 0..31usize {
+            findings.push(Finding {
+                kind: "action_chain_complex".into(),
+                objects: vec![format!("{index} 0 obj")],
+                positions: vec![format!("doc:r0/obj.{index}")],
+                ..Finding::default()
+            });
+        }
+        apply_kind_cap(&mut findings, "action_chain_complex", 25);
+        let retained =
+            findings.iter().filter(|finding| finding.kind == "action_chain_complex").count();
+        assert_eq!(retained, 25);
+        let first = findings
+            .iter()
+            .find(|finding| finding.kind == "action_chain_complex")
+            .expect("retained finding");
+        assert_eq!(first.meta.get("aggregate.suppressed_count").map(String::as_str), Some("6"));
     }
 }

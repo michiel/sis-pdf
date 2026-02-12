@@ -1859,6 +1859,8 @@ impl Detector for LaunchActionDetector {
 }
 
 struct UriDetector;
+const URI_FINDING_CAP: usize = 25;
+const AGGREGATE_SAMPLE_LIMIT: usize = 8;
 
 impl Detector for UriDetector {
     fn id(&self) -> &'static str {
@@ -1946,8 +1948,74 @@ impl Detector for UriDetector {
             }
         }
         findings.extend(uri_findings_from_annots(ctx));
+        apply_kind_cap(&mut findings, "uri_present", URI_FINDING_CAP);
         Ok(findings)
     }
+}
+
+fn apply_kind_cap(findings: &mut Vec<Finding>, kind: &str, cap: usize) {
+    if cap == 0 || findings.is_empty() {
+        return;
+    }
+    let mut retained = 0usize;
+    let mut total = 0usize;
+    let mut suppressed = 0usize;
+    let mut first_index: Option<usize> = None;
+    let mut sample_objects = Vec::new();
+    let mut sample_positions = Vec::new();
+    let mut out = Vec::with_capacity(findings.len());
+    for finding in findings.drain(..) {
+        if finding.kind != kind {
+            out.push(finding);
+            continue;
+        }
+        total += 1;
+        if retained < cap {
+            retained += 1;
+            if first_index.is_none() {
+                first_index = Some(out.len());
+            }
+            out.push(finding);
+            continue;
+        }
+        suppressed += 1;
+        for object in &finding.objects {
+            if !sample_objects.contains(object) && sample_objects.len() < AGGREGATE_SAMPLE_LIMIT {
+                sample_objects.push(object.clone());
+            }
+        }
+        for position in &finding.positions {
+            if !sample_positions.contains(position)
+                && sample_positions.len() < AGGREGATE_SAMPLE_LIMIT
+            {
+                sample_positions.push(position.clone());
+            }
+        }
+    }
+    if suppressed > 0 {
+        if let Some(index) = first_index {
+            if let Some(finding) = out.get_mut(index) {
+                finding.meta.insert("aggregate.enabled".into(), "true".into());
+                finding.meta.insert("aggregate.kind".into(), kind.to_string());
+                finding.meta.insert("aggregate.total_count".into(), total.to_string());
+                finding.meta.insert("aggregate.retained_count".into(), retained.to_string());
+                finding.meta.insert("aggregate.suppressed_count".into(), suppressed.to_string());
+                if !sample_objects.is_empty() {
+                    finding.meta.insert(
+                        "aggregate.sample_suppressed_objects".into(),
+                        sample_objects.join(", "),
+                    );
+                }
+                if !sample_positions.is_empty() {
+                    finding.meta.insert(
+                        "aggregate.sample_suppressed_positions".into(),
+                        sample_positions.join(", "),
+                    );
+                }
+            }
+        }
+    }
+    *findings = out;
 }
 
 fn uri_findings_from_annots(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<Finding> {
@@ -2055,6 +2123,32 @@ fn uri_text_from_obj(ctx: &sis_pdf_core::scan::ScanContext, obj: &PdfObj<'_>) ->
             uri_text_from_obj(ctx, &PdfObj { span: resolved.body_span, atom: resolved.atom })
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod uri_cap_tests {
+    use super::*;
+
+    #[test]
+    fn uri_kind_cap_suppresses_overflow() {
+        let mut findings = Vec::new();
+        for index in 0..28usize {
+            findings.push(Finding {
+                kind: "uri_present".into(),
+                objects: vec![format!("{index} 0 obj")],
+                positions: vec![format!("doc:r0/obj.{index}")],
+                ..Finding::default()
+            });
+        }
+        apply_kind_cap(&mut findings, "uri_present", 25);
+        let retained = findings.iter().filter(|finding| finding.kind == "uri_present").count();
+        assert_eq!(retained, 25);
+        let first = findings
+            .iter()
+            .find(|finding| finding.kind == "uri_present")
+            .expect("retained finding");
+        assert_eq!(first.meta.get("aggregate.suppressed_count").map(String::as_str), Some("3"));
     }
 }
 
