@@ -3,6 +3,7 @@ use std::io::Read;
 
 use anyhow::Result;
 use flate2::read::ZlibDecoder;
+use sha2::{Digest, Sha256};
 
 use crate::dict_int;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
@@ -19,7 +20,40 @@ pub struct ContentFirstDetector;
 
 const CONTENT_FIRST_STREAM_BUDGET_DEEP: usize = 2_500;
 const CONTENT_FIRST_STREAM_BUDGET_SHALLOW: usize = 1_000;
+const CONTENT_FIRST_DEEP_PASS_BUDGET_DEEP: usize = 1_600;
+const CONTENT_FIRST_DEEP_PASS_BUDGET_SHALLOW: usize = 500;
+const CONTENT_FIRST_ANOMALY_SCAN_BUDGET_DEEP: usize = 2_000;
+const CONTENT_FIRST_ANOMALY_SCAN_BUDGET_SHALLOW: usize = 700;
+const CONTENT_FIRST_CLASSIFICATION_CACHE_LIMIT: usize = 2_048;
 const CONTENT_FIRST_HIGH_RISK_THRESHOLD: usize = 8;
+
+#[derive(Clone)]
+struct CachedBlobAnalysis {
+    kind: BlobKind,
+    validation: sis_pdf_pdf::blob_classify::ValidationResult,
+}
+
+fn classify_and_validate_cached(
+    data: &[u8],
+    cache: &mut HashMap<[u8; 32], CachedBlobAnalysis>,
+    cache_hits: &mut usize,
+    cache_misses: &mut usize,
+) -> CachedBlobAnalysis {
+    let digest = Sha256::digest(data);
+    let key = digest.into();
+    if let Some(cached) = cache.get(&key) {
+        *cache_hits += 1;
+        return cached.clone();
+    }
+    *cache_misses += 1;
+    let kind = classify_blob(data);
+    let validation = validate_blob_kind(data, kind);
+    let cached = CachedBlobAnalysis { kind, validation };
+    if cache.len() < CONTENT_FIRST_CLASSIFICATION_CACHE_LIMIT {
+        cache.insert(key, cached.clone());
+    }
+    cached
+}
 
 impl Detector for ContentFirstDetector {
     fn id(&self) -> &'static str {
@@ -51,9 +85,25 @@ impl Detector for ContentFirstDetector {
         } else {
             CONTENT_FIRST_STREAM_BUDGET_SHALLOW
         };
+        let deep_pass_budget = if ctx.options.deep {
+            CONTENT_FIRST_DEEP_PASS_BUDGET_DEEP
+        } else {
+            CONTENT_FIRST_DEEP_PASS_BUDGET_SHALLOW
+        };
+        let anomaly_scan_budget = if ctx.options.deep {
+            CONTENT_FIRST_ANOMALY_SCAN_BUDGET_DEEP
+        } else {
+            CONTENT_FIRST_ANOMALY_SCAN_BUDGET_SHALLOW
+        };
         let mut processed_streams = 0usize;
+        let mut deep_passed_streams = 0usize;
+        let mut deep_pass_skipped_streams = 0usize;
+        let mut anomaly_scans = 0usize;
         let mut high_risk_findings = 0usize;
-        let mut truncated = false;
+        let mut truncated_reasons = Vec::new();
+        let mut classify_cache: HashMap<[u8; 32], CachedBlobAnalysis> = HashMap::new();
+        let mut classify_cache_hits = 0usize;
+        let mut classify_cache_misses = 0usize;
         let limits = DecodeLimits {
             max_decoded_bytes: ctx.options.max_decode_bytes,
             ..DecodeLimits::default()
@@ -69,7 +119,16 @@ impl Detector for ContentFirstDetector {
             if processed_streams >= stream_budget
                 && high_risk_findings >= CONTENT_FIRST_HIGH_RISK_THRESHOLD
             {
-                truncated = true;
+                truncated_reasons
+                    .push("content_first_stream_budget_reached_with_high_risk_signals".to_string());
+                break;
+            }
+            if anomaly_scans >= anomaly_scan_budget
+                && high_risk_findings >= CONTENT_FIRST_HIGH_RISK_THRESHOLD
+            {
+                truncated_reasons.push(
+                    "content_first_anomaly_scan_budget_reached_with_high_risk_signals".to_string(),
+                );
                 break;
             }
 
@@ -77,6 +136,7 @@ impl Detector for ContentFirstDetector {
             match &entry.atom {
                 PdfAtom::Stream(stream) => {
                     processed_streams += 1;
+                    anomaly_scans += 1;
                     let blob = match xfa_map.get(&(entry.obj, entry.gen)) {
                         Some(container) => Blob::from_xfa_package(
                             ctx.bytes,
@@ -121,8 +181,14 @@ impl Detector for ContentFirstDetector {
                     };
 
                     let data = blob.decoded.as_deref().unwrap_or(blob.raw);
-                    let kind = classify_blob(data);
-                    let validation = validate_blob_kind(data, kind);
+                    let cached = classify_and_validate_cached(
+                        data,
+                        &mut classify_cache,
+                        &mut classify_cache_hits,
+                        &mut classify_cache_misses,
+                    );
+                    let kind = cached.kind;
+                    let validation = cached.validation;
                     let declared_type = name_value(&stream.dict, b"/Type");
                     let declared_subtype = name_value(&stream.dict, b"/Subtype");
                     let origin_label = blob_origin_label(&blob);
@@ -180,51 +246,64 @@ impl Detector for ContentFirstDetector {
                         findings.push(finding);
                     }
 
-                    findings.extend(carve_payloads(
-                        entry.obj,
-                        entry.gen,
-                        stream.data_span,
-                        data,
-                        origin_label,
-                        "Stream data",
-                        filter_expectations,
-                        Some(&carve_context),
-                    ));
+                    if deep_passed_streams < deep_pass_budget
+                        || high_risk_findings < CONTENT_FIRST_HIGH_RISK_THRESHOLD
+                    {
+                        deep_passed_streams += 1;
+                        findings.extend(carve_payloads(
+                            entry.obj,
+                            entry.gen,
+                            stream.data_span,
+                            data,
+                            origin_label,
+                            "Stream data",
+                            filter_expectations,
+                            Some(&carve_context),
+                        ));
 
-                    findings.extend(script_payload_findings(
-                        entry.obj,
-                        entry.gen,
-                        stream.data_span,
-                        data,
-                        kind,
-                        origin_label,
-                        "Stream data",
-                    ));
+                        findings.extend(script_payload_findings(
+                            entry.obj,
+                            entry.gen,
+                            stream.data_span,
+                            data,
+                            kind,
+                            origin_label,
+                            "Stream data",
+                        ));
 
-                    findings.extend(swf_findings(
-                        entry.obj,
-                        entry.gen,
-                        stream.data_span,
-                        data,
-                        kind,
-                        origin_label,
-                        "Stream data",
-                    ));
+                        findings.extend(swf_findings(
+                            entry.obj,
+                            entry.gen,
+                            stream.data_span,
+                            data,
+                            kind,
+                            origin_label,
+                            "Stream data",
+                        ));
 
-                    findings.extend(zip_container_findings(
-                        entry.obj,
-                        entry.gen,
-                        stream.data_span,
-                        data,
-                        kind,
-                        origin_label,
-                        "Stream data",
-                    ));
+                        findings.extend(zip_container_findings(
+                            entry.obj,
+                            entry.gen,
+                            stream.data_span,
+                            data,
+                            kind,
+                            origin_label,
+                            "Stream data",
+                        ));
+                    } else {
+                        deep_pass_skipped_streams += 1;
+                    }
                 }
                 PdfAtom::Str(s) => {
                     let bytes = string_bytes(s);
-                    let kind = classify_blob(&bytes);
-                    let validation = validate_blob_kind(&bytes, kind);
+                    let cached = classify_and_validate_cached(
+                        &bytes,
+                        &mut classify_cache,
+                        &mut classify_cache_hits,
+                        &mut classify_cache_misses,
+                    );
+                    let kind = cached.kind;
+                    let validation = cached.validation;
                     if let Some(finding) = validation_failure_span_finding(
                         entry.obj,
                         entry.gen,
@@ -279,9 +358,15 @@ impl Detector for ContentFirstDetector {
                 }
                 _ => {
                     if let Some(bytes) = object_bytes(ctx.bytes, entry.body_span) {
-                        let kind = classify_blob(bytes);
+                        let cached = classify_and_validate_cached(
+                            bytes,
+                            &mut classify_cache,
+                            &mut classify_cache_hits,
+                            &mut classify_cache_misses,
+                        );
+                        let kind = cached.kind;
                         if kind != BlobKind::Unknown {
-                            let validation = validate_blob_kind(bytes, kind);
+                            let validation = cached.validation;
                             if let Some(finding) = validation_failure_span_finding(
                                 entry.obj,
                                 entry.gen,
@@ -343,17 +428,47 @@ impl Detector for ContentFirstDetector {
                 .count();
         }
 
-        if truncated {
+        if deep_pass_skipped_streams > 0 {
+            truncated_reasons
+                .push("content_first_deep_pass_budget_reached_with_high_risk_signals".to_string());
+        }
+
+        if !truncated_reasons.is_empty() {
+            truncated_reasons.sort();
+            truncated_reasons.dedup();
             let mut meta = HashMap::new();
             meta.insert("analysis_truncated".into(), "true".into());
-            meta.insert(
-                "truncation_reason".into(),
-                "content_first_stream_budget_reached_with_high_risk_signals".into(),
-            );
+            meta.insert("truncation_reason".into(), truncated_reasons.join(","));
             meta.insert("content_first.stream_budget".into(), stream_budget.to_string());
+            meta.insert("content_first.deep_pass_budget".into(), deep_pass_budget.to_string());
+            meta.insert(
+                "content_first.anomaly_scan_budget".into(),
+                anomaly_scan_budget.to_string(),
+            );
             meta.insert("content_first.processed_streams".into(), processed_streams.to_string());
+            meta.insert(
+                "content_first.deep_passed_streams".into(),
+                deep_passed_streams.to_string(),
+            );
+            meta.insert(
+                "content_first.deep_pass_skipped_streams".into(),
+                deep_pass_skipped_streams.to_string(),
+            );
+            meta.insert("content_first.anomaly_scans".into(), anomaly_scans.to_string());
             meta.insert("content_first.total_streams".into(), total_streams.to_string());
             meta.insert("content_first.high_risk_findings".into(), high_risk_findings.to_string());
+            meta.insert(
+                "content_first.classify_cache_entries".into(),
+                classify_cache.len().to_string(),
+            );
+            meta.insert(
+                "content_first.classify_cache_hits".into(),
+                classify_cache_hits.to_string(),
+            );
+            meta.insert(
+                "content_first.classify_cache_misses".into(),
+                classify_cache_misses.to_string(),
+            );
 
             findings.push(Finding {
                 id: String::new(),
@@ -364,7 +479,7 @@ impl Detector for ContentFirstDetector {
                 impact: None,
                 title: "Content-first analysis truncated".into(),
                 description:
-                    "Content-first analysis stopped early after high-risk indicators exceeded the stream budget."
+                    "Content-first analysis stopped early after high-risk indicators exceeded configured stream/deep-pass budgets."
                         .into(),
                 objects: vec!["content_first".into()],
                 evidence: Vec::new(),
@@ -2593,5 +2708,43 @@ mod tests {
             Some("true")
         );
         assert_eq!(cmd.meta.get("script.pattern_hit_count").map(|value| value.as_str()), Some("3"));
+    }
+
+    #[test]
+    fn classify_and_validate_cached_reuses_previous_result() {
+        let mut cache: HashMap<[u8; 32], CachedBlobAnalysis> = HashMap::new();
+        let mut hits = 0usize;
+        let mut misses = 0usize;
+        let first = classify_and_validate_cached(
+            b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\n",
+            &mut cache,
+            &mut hits,
+            &mut misses,
+        );
+        let second = classify_and_validate_cached(
+            b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\n",
+            &mut cache,
+            &mut hits,
+            &mut misses,
+        );
+        assert_eq!(first.kind, BlobKind::Pdf);
+        assert_eq!(second.kind, BlobKind::Pdf);
+        assert_eq!(misses, 1);
+        assert_eq!(hits, 1);
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn classify_cache_limit_is_enforced() {
+        let mut cache: HashMap<[u8; 32], CachedBlobAnalysis> = HashMap::new();
+        let mut hits = 0usize;
+        let mut misses = 0usize;
+        for i in 0..(CONTENT_FIRST_CLASSIFICATION_CACHE_LIMIT + 25) {
+            let payload = format!("%PDF-1.7 sample-{i}\n").into_bytes();
+            let _ = classify_and_validate_cached(&payload, &mut cache, &mut hits, &mut misses);
+        }
+        assert_eq!(hits, 0);
+        assert_eq!(misses, CONTENT_FIRST_CLASSIFICATION_CACHE_LIMIT + 25);
+        assert_eq!(cache.len(), CONTENT_FIRST_CLASSIFICATION_CACHE_LIMIT);
     }
 }

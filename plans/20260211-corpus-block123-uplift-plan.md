@@ -100,6 +100,7 @@ Validation:
 ## PR-C: `content_first_stage1` budget and fast-path optimisation
 
 Objective: reduce tail latency without losing critical detections.
+Status: done (2026-02-12)
 
 Changes:
 1. Introduce sub-budget controls inside `content_first_stage1`:
@@ -108,11 +109,18 @@ Changes:
    - early-stop once high-risk threshold is reached
 2. Cache repeated decode/anomaly intermediate results across equivalent streams.
 3. Emit explicit truncation metadata when budget exits occur.
+   - Implemented in `crates/sis-pdf-detectors/src/content_first.rs` with:
+     - `content_first.deep_pass_budget`
+     - `content_first.anomaly_scan_budget`
+     - bounded deep-pass skipping plus truncation reason reporting
+     - SHA-256 keyed classify/validate cache metrics in metadata.
 
 Validation:
 1. Benchmark replay on fixed 90-file set.
 2. Ensure no regression for high-severity/composite findings on P0/P1 samples.
 3. Runtime profile assertion: stage share and absolute ms decrease in outliers.
+   - Unit/detector validation completed:
+     - `cargo test -p sis-pdf-detectors content_first -- --nocapture`
 
 ## PR-D: High-volume finding aggregation and dedup
 
