@@ -383,6 +383,7 @@ pub fn run_scan_with_detectors(
     }
     maybe_record_parser_resource_exhaustion(&mut findings, detection_duration_ms);
     escalate_declared_filter_invalid_with_context(&mut findings);
+    recalibrate_findings_with_context(&mut findings);
 
     let font_findings = findings.iter().filter(|f| f.kind.starts_with("font.")).count();
     let js_findings = findings
@@ -1481,6 +1482,211 @@ fn escalate_declared_filter_invalid_with_context(findings: &mut [Finding]) {
     }
 }
 
+fn recalibrate_findings_with_context(findings: &mut [Finding]) {
+    let has_filter_anomaly = findings.iter().any(|finding| {
+        matches!(
+            finding.kind.as_str(),
+            "declared_filter_invalid"
+                | "filter_chain_unusual"
+                | "filter_order_invalid"
+                | "filter_combination_unusual"
+                | "label_mismatch_stream_type"
+        )
+    });
+    let has_runtime_anomaly = findings.iter().any(|finding| {
+        matches!(
+            finding.kind.as_str(),
+            "js_emulation_breakpoint"
+                | "js_runtime_unknown_behaviour_pattern"
+                | "js_sandbox_timeout"
+                | "js_runtime_error"
+                | "js_runtime_error_recovery_patterns"
+                | "js_runtime_heap_manipulation"
+                | "js_runtime_recursion_limit"
+        )
+    });
+    let has_decode_risk = findings.iter().any(|finding| {
+        matches!(finding.kind.as_str(), "decoder_risk_present" | "decompression_ratio_suspicious")
+    });
+    let has_structural_inconsistency = findings.iter().any(|finding| {
+        matches!(
+            finding.kind.as_str(),
+            "pdf.trailer_inconsistent"
+                | "xref_conflict"
+                | "xref_start_offset_oob"
+                | "xref_phantom_entries"
+                | "structural_evasion_composite"
+                | "parser_trailer_count_diff"
+                | "parser_diff_structural"
+        )
+    });
+    let has_resource_exhaustion =
+        findings.iter().any(|finding| finding.kind == "parser_resource_exhaustion");
+    let has_action_chain = findings.iter().any(|finding| {
+        matches!(
+            finding.kind.as_str(),
+            "action_chain_complex"
+                | "action_chain_malicious"
+                | "annotation_action_chain"
+                | "action_automatic_trigger"
+        )
+    });
+    let has_js_intent = findings.iter().any(|finding| {
+        matches!(
+            finding.kind.as_str(),
+            "js_intent_user_interaction"
+                | "js_runtime_network_intent"
+                | "js_runtime_downloader_pattern"
+                | "js_obfuscation_deep"
+                | "js_malicious_pattern"
+        ) || finding.meta.contains_key("js.intent.primary")
+    });
+    let has_external_launch = findings.iter().any(|finding| {
+        matches!(
+            finding.kind.as_str(),
+            "launch_action_present"
+                | "launch_external_program"
+                | "launch_embedded_file"
+                | "launch_obfuscated_executable"
+        )
+    });
+
+    if has_filter_anomaly && has_runtime_anomaly {
+        for finding in findings.iter_mut().filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "declared_filter_invalid"
+                    | "filter_chain_unusual"
+                    | "filter_order_invalid"
+                    | "filter_combination_unusual"
+                    | "label_mismatch_stream_type"
+            )
+        }) {
+            apply_context_recalibration(
+                finding,
+                Severity::High,
+                Confidence::Strong,
+                "filter_runtime_anomaly_cooccurrence",
+            );
+        }
+    }
+
+    if has_decode_risk && has_structural_inconsistency && has_resource_exhaustion {
+        for finding in findings.iter_mut().filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "decoder_risk_present"
+                    | "decompression_ratio_suspicious"
+                    | "image_decoder_exploit_chain"
+            )
+        }) {
+            apply_context_recalibration(
+                finding,
+                Severity::Critical,
+                Confidence::Strong,
+                "decode_structural_exhaustion_chain",
+            );
+        }
+        for finding in findings.iter_mut().filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "parser_resource_exhaustion"
+                    | "pdf.trailer_inconsistent"
+                    | "xref_conflict"
+                    | "structural_evasion_composite"
+            )
+        }) {
+            apply_context_recalibration(
+                finding,
+                Severity::High,
+                Confidence::Strong,
+                "decode_structural_exhaustion_chain",
+            );
+        }
+    }
+
+    if has_action_chain && has_js_intent && has_external_launch {
+        for finding in findings.iter_mut().filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "action_chain_complex"
+                    | "action_chain_malicious"
+                    | "annotation_action_chain"
+                    | "action_automatic_trigger"
+                    | "launch_action_present"
+                    | "launch_external_program"
+                    | "launch_embedded_file"
+            )
+        }) {
+            apply_context_recalibration(
+                finding,
+                Severity::High,
+                Confidence::Strong,
+                "action_js_launch_chain",
+            );
+        }
+    }
+}
+
+fn apply_context_recalibration(
+    finding: &mut Finding,
+    target_severity: Severity,
+    target_confidence: Confidence,
+    reason: &str,
+) {
+    let old_severity = finding.severity;
+    let old_confidence = finding.confidence;
+
+    if finding.severity < target_severity {
+        finding.severity = target_severity;
+    }
+    if finding.confidence > target_confidence {
+        finding.confidence = target_confidence;
+    }
+
+    if finding.severity == old_severity && finding.confidence == old_confidence {
+        return;
+    }
+
+    finding.meta.insert("triage.context_recalibrated".into(), "true".into());
+    append_meta_csv(&mut finding.meta, "triage.context_reasons", reason);
+    finding.meta.insert(
+        "triage.severity_adjustment".into(),
+        format!("{}->{}", severity_label(old_severity), severity_label(finding.severity)),
+    );
+    finding.meta.insert(
+        "triage.confidence_adjustment".into(),
+        format!("{}->{}", old_confidence.as_str(), finding.confidence.as_str()),
+    );
+}
+
+fn append_meta_csv(meta: &mut HashMap<String, String>, key: &str, value: &str) {
+    match meta.get_mut(key) {
+        Some(existing) => {
+            let values = existing.split(',').map(|entry| entry.trim()).collect::<Vec<_>>();
+            if !values.contains(&value) {
+                if !existing.is_empty() {
+                    existing.push(',');
+                }
+                existing.push_str(value);
+            }
+        }
+        None => {
+            meta.insert(key.to_string(), value.to_string());
+        }
+    }
+}
+
+fn severity_label(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Info => "info",
+        Severity::Low => "low",
+        Severity::Medium => "medium",
+        Severity::High => "high",
+        Severity::Critical => "critical",
+    }
+}
+
 fn collect_refs_from_obj(obj: &PdfObj<'_>, out: &mut Vec<ObjRef>) {
     if let PdfAtom::Ref { obj, gen } = obj.atom {
         out.push(ObjRef { obj, gen });
@@ -1844,6 +2050,137 @@ mod tests {
         assert_eq!(
             finding.meta.get("triage.escalation_reason"),
             Some(&"paired_with_js_runtime_anomaly_and_decoder_pressure".to_string())
+        );
+    }
+
+    #[test]
+    fn context_recalibration_escalates_filter_anomalies_with_runtime_context() {
+        let mut findings = vec![
+            Finding::template(
+                AttackSurface::StreamsAndFilters,
+                "filter_chain_unusual",
+                Severity::Medium,
+                Confidence::Probable,
+                "Filter chain unusual",
+                "Test",
+            ),
+            Finding::template(
+                AttackSurface::JavaScript,
+                "js_runtime_error",
+                Severity::Medium,
+                Confidence::Probable,
+                "JS runtime error",
+                "Test",
+            ),
+        ];
+
+        recalibrate_findings_with_context(&mut findings);
+
+        let filter_finding = findings
+            .iter()
+            .find(|finding| finding.kind == "filter_chain_unusual")
+            .expect("filter_chain_unusual should be present");
+        assert_eq!(filter_finding.severity, Severity::High);
+        assert_eq!(filter_finding.confidence, Confidence::Strong);
+        assert_eq!(
+            filter_finding.meta.get("triage.context_reasons"),
+            Some(&"filter_runtime_anomaly_cooccurrence".to_string())
+        );
+    }
+
+    #[test]
+    fn context_recalibration_requires_all_decode_structural_exhaustion_signals() {
+        let mut findings = vec![
+            Finding::template(
+                AttackSurface::StreamsAndFilters,
+                "decoder_risk_present",
+                Severity::High,
+                Confidence::Probable,
+                "Decoder risk",
+                "Test",
+            ),
+            Finding::template(
+                AttackSurface::FileStructure,
+                "pdf.trailer_inconsistent",
+                Severity::Medium,
+                Confidence::Strong,
+                "Trailer inconsistent",
+                "Test",
+            ),
+        ];
+
+        recalibrate_findings_with_context(&mut findings);
+        let decoder_without_exhaustion = findings
+            .iter()
+            .find(|finding| finding.kind == "decoder_risk_present")
+            .expect("decoder_risk_present should be present");
+        assert_eq!(decoder_without_exhaustion.severity, Severity::High);
+        assert_eq!(decoder_without_exhaustion.confidence, Confidence::Probable);
+        assert!(!decoder_without_exhaustion.meta.contains_key("triage.context_recalibrated"));
+
+        findings.push(Finding::template(
+            AttackSurface::FileStructure,
+            "parser_resource_exhaustion",
+            Severity::High,
+            Confidence::Probable,
+            "Resource exhaustion",
+            "Test",
+        ));
+        recalibrate_findings_with_context(&mut findings);
+        let decoder_with_exhaustion = findings
+            .iter()
+            .find(|finding| finding.kind == "decoder_risk_present")
+            .expect("decoder_risk_present should be present");
+        assert_eq!(decoder_with_exhaustion.severity, Severity::Critical);
+        assert_eq!(decoder_with_exhaustion.confidence, Confidence::Strong);
+        assert_eq!(
+            decoder_with_exhaustion.meta.get("triage.context_reasons"),
+            Some(&"decode_structural_exhaustion_chain".to_string())
+        );
+    }
+
+    #[test]
+    fn context_recalibration_escalates_action_chain_with_js_and_launch_context() {
+        let mut js_present = Finding::template(
+            AttackSurface::JavaScript,
+            "js_present",
+            Severity::Medium,
+            Confidence::Strong,
+            "JavaScript present",
+            "Test",
+        );
+        js_present.meta.insert("js.intent.primary".into(), "user_interaction".into());
+        let mut findings = vec![
+            Finding::template(
+                AttackSurface::Actions,
+                "action_chain_complex",
+                Severity::Medium,
+                Confidence::Probable,
+                "Action chain",
+                "Test",
+            ),
+            Finding::template(
+                AttackSurface::Actions,
+                "launch_embedded_file",
+                Severity::Medium,
+                Confidence::Probable,
+                "Launch embedded file",
+                "Test",
+            ),
+            js_present,
+        ];
+
+        recalibrate_findings_with_context(&mut findings);
+
+        let chain = findings
+            .iter()
+            .find(|finding| finding.kind == "action_chain_complex")
+            .expect("action_chain_complex should be present");
+        assert_eq!(chain.severity, Severity::High);
+        assert_eq!(chain.confidence, Confidence::Strong);
+        assert_eq!(
+            chain.meta.get("triage.context_reasons"),
+            Some(&"action_js_launch_chain".to_string())
         );
     }
 }

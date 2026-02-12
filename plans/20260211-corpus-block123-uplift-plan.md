@@ -147,19 +147,36 @@ Validation:
 ## PR-E: Severity/confidence recalibration for context-rich combinations
 
 Objective: improve risk ranking precision.
+Status: done (2026-02-12)
 
 Changes:
 1. Add correlation-based severity/confidence modifiers for:
    - filter anomalies + runtime anomalies
    - decode risk + structural inconsistency + exhaustion
    - action chains + JS intent + external launch indicators
+   - Implemented in `crates/sis-pdf-core/src/runner.rs` as
+     `recalibrate_findings_with_context` with bounded, multi-signal guardrails.
 2. Encode rationale in metadata fields (stable keys for auditability).
+   - Added metadata:
+     - `triage.context_recalibrated`
+     - `triage.context_reasons`
+     - `triage.severity_adjustment`
+     - `triage.confidence_adjustment`
 3. Add guardrails to avoid over-escalation from single weak signals.
+   - Implemented by requiring composite context (2 or 3 signal families) before
+     any recalibration path can modify findings.
 
 Validation:
 1. Behaviour-focused tests in `crates/sis-pdf-core/tests/`.
+   - Added/updated unit coverage in `runner`:
+     - `context_recalibration_escalates_filter_anomalies_with_runtime_context`
+     - `context_recalibration_requires_all_decode_structural_exhaustion_signals`
+     - `context_recalibration_escalates_action_chain_with_js_and_launch_context`
+     - existing `declared_filter_invalid_escalates_with_runtime_and_decoder_context`
 2. Golden JSON snapshots for selected corpus samples.
 3. Manual spot-check of top 20 high-risk files for ranking quality.
+   - Local validation:
+     - `cargo test -p sis-pdf-core context_recalibration -- --nocapture`
 
 ## PR-F: Corpus sweep robustness and throughput controls
 
