@@ -155,3 +155,15 @@ Keep regression checks reliable and fast enough for regular CI usage.
   - `plans/20260211-pr20-validation-report.json`
   - `plans/20260211-pr20-validation-report.md`
   - `plans/20260211-js-corpus-acquisition.md`
+
+## Secondary-parser hazard regression handover
+
+- Deterministic fixtures now exist for parser-diff hazard metadata:
+  - `crates/sis-pdf-core/tests/fixtures/parser_diff_hazards/creation-date-trailing-timezone.pdf`
+  - `crates/sis-pdf-core/tests/fixtures/parser_diff_hazards/unbalanced-literal-parentheses.pdf`
+- Required regression suite:
+  - `cargo test -p sis-pdf-core --test parser_diff_hazard_regressions -- --nocapture`
+- Companion baseline suite:
+  - `cargo test -p sis-pdf-core --test corpus_captured_regressions -- --nocapture`
+- When touching parser-diff logic (`crates/sis-pdf-core/src/diff.rs`) or secondary-parser prevalence synthesis (`crates/sis-pdf-core/src/runner.rs`), run both suites before merge.
+- If corpus drift later provides a stable real sample for these hazards, capture it under `crates/sis-pdf-core/tests/fixtures/corpus_captured/` and update `crates/sis-pdf-core/tests/fixtures/corpus_captured/manifest.json`, while retaining deterministic fixtures as baseline anti-flake coverage.
