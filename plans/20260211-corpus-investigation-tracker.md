@@ -78,12 +78,14 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
   - Status:
     - completed with context-aware triage recalibration for `content_stream_anomaly`, `label_mismatch_stream_type`, and `image.decode_skipped`; each finding now carries pivot metadata (`triage.noisy_class_*`, `triage.context_signals`, object-overlap flag, bucket).
 
-5. [ ] Secondary parser error-class prevalence baseline
+5. [x] Secondary parser error-class prevalence baseline
    - Deliverables:
      - corpus summary of `secondary_parser.error_class` and hazard patterns
      - top malformed object signatures and affected object roles
-   - Acceptance:
-     - baseline report added with top classes and prioritised remediation candidates.
+  - Acceptance:
+    - baseline report added with top classes and prioritised remediation candidates.
+  - Status:
+    - completed via `secondary_parser_prevalence_baseline` synthesis finding with class/hazard prevalence, malformed signature summary, object-role distribution, and remediation candidate list.
 
 6. [ ] Sweep sampling dedup hardening for manual/ad-hoc workflows
    - Deliverables:
@@ -351,3 +353,29 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
 - Validation:
   - `cargo test -p sis-pdf-core noisy_class_disambiguation -- --nocapture`
   - `cargo test -p sis-pdf-core focused_triage_aggregates_noisy_kinds_with_samples -- --nocapture`
+
+## Secondary parser prevalence baseline (completed)
+
+- Added synthetic baseline finding:
+  - kind: `secondary_parser_prevalence_baseline`
+  - emitted when secondary-parser signals are present (`secondary_parser_failure`, parser-diff kinds, hazard metadata).
+- Baseline metadata includes:
+  - `secondary_parser.signal_count`
+  - `secondary_parser.kind_counts`
+  - `secondary_parser.error_class_counts`
+  - `secondary_parser.hazard_counts`
+  - `secondary_parser.object_role_counts`
+  - `secondary_parser.malformed_signatures`
+  - `secondary_parser.remediation_candidates`
+  - `secondary_parser.sample_objects`
+- Prioritised remediation candidates currently include:
+  - `indirect_object_parser_hardening`
+  - `xref_trailer_recovery_guardrails`
+  - `literal_string_balance_validation`
+  - `metadata_tokeniser_normalisation`
+  - fallback `secondary_parser_error_telemetry_expansion`
+- Validation:
+  - `cargo test -p sis-pdf-core secondary_parser_baseline -- --nocapture`
+  - runtime check:
+    - `sis scan crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf --deep --diff-parser --json`
+    - emits `secondary_parser_prevalence_baseline` with populated role/count metadata.

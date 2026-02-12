@@ -412,6 +412,7 @@ pub fn run_scan_with_detectors(
     maybe_record_parser_resource_exhaustion(&mut findings, detection_duration_ms);
     escalate_declared_filter_invalid_with_context(&mut findings);
     recalibrate_findings_with_context(&mut findings);
+    maybe_record_secondary_parser_prevalence_baseline(&mut findings);
 
     let font_findings = findings.iter().filter(|f| f.kind.starts_with("font.")).count();
     let js_findings = findings
@@ -1875,6 +1876,195 @@ fn apply_noisy_class_disambiguation(
     }
 }
 
+fn maybe_record_secondary_parser_prevalence_baseline(findings: &mut Vec<Finding>) {
+    let relevant =
+        findings.iter().filter(|finding| is_secondary_parser_signal(finding)).collect::<Vec<_>>();
+    if relevant.is_empty() {
+        return;
+    }
+
+    let mut parser_kind_counts: HashMap<String, usize> = HashMap::new();
+    let mut error_class_counts: HashMap<String, usize> = HashMap::new();
+    let mut hazard_counts: HashMap<String, usize> = HashMap::new();
+    let mut object_role_counts: HashMap<String, usize> = HashMap::new();
+    let mut sample_objects: Vec<String> = Vec::new();
+    let mut sample_seen: HashSet<String> = HashSet::new();
+    for finding in &relevant {
+        *parser_kind_counts.entry(finding.kind.clone()).or_insert(0) += 1;
+        if let Some(error_class) = finding.meta.get("secondary_parser.error_class") {
+            *error_class_counts.entry(error_class.clone()).or_insert(0) += 1;
+        }
+        if let Some(hazards) = finding.meta.get("diff.missing_in_secondary_hazards") {
+            for hazard in parse_secondary_hazards(hazards) {
+                *hazard_counts.entry(hazard.to_string()).or_insert(0) += 1;
+            }
+        }
+        for object in &finding.objects {
+            if sample_seen.insert(object.clone()) && sample_objects.len() < 12 {
+                sample_objects.push(object.clone());
+            }
+            let role = object_role_from_label(object);
+            *object_role_counts.entry(role.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    let parser_kind_summary = format_count_pairs(&parser_kind_counts, 8);
+    let error_class_summary = format_count_pairs(&error_class_counts, 8);
+    let hazard_summary = format_count_pairs(&hazard_counts, 8);
+    let object_role_summary = format_count_pairs(&object_role_counts, 8);
+    let malformed_signatures = malformed_signature_summary(&error_class_counts, &hazard_counts);
+    let remediation_candidates = remediation_candidate_summary(&error_class_counts, &hazard_counts);
+
+    let mut meta = HashMap::new();
+    meta.insert("secondary_parser.signal_count".into(), relevant.len().to_string());
+    if !parser_kind_summary.is_empty() {
+        meta.insert("secondary_parser.kind_counts".into(), parser_kind_summary.clone());
+    }
+    if !error_class_summary.is_empty() {
+        meta.insert("secondary_parser.error_class_counts".into(), error_class_summary.clone());
+    }
+    if !hazard_summary.is_empty() {
+        meta.insert("secondary_parser.hazard_counts".into(), hazard_summary.clone());
+    }
+    if !object_role_summary.is_empty() {
+        meta.insert("secondary_parser.object_role_counts".into(), object_role_summary.clone());
+    }
+    if !malformed_signatures.is_empty() {
+        meta.insert("secondary_parser.malformed_signatures".into(), malformed_signatures.clone());
+    }
+    if !remediation_candidates.is_empty() {
+        meta.insert(
+            "secondary_parser.remediation_candidates".into(),
+            remediation_candidates.clone(),
+        );
+    }
+    if !sample_objects.is_empty() {
+        meta.insert("secondary_parser.sample_objects".into(), sample_objects.join(", "));
+    }
+
+    findings.push(Finding {
+        id: String::new(),
+        surface: AttackSurface::FileStructure,
+        kind: "secondary_parser_prevalence_baseline".into(),
+        severity: Severity::Info,
+        confidence: Confidence::Strong,
+        impact: None,
+        title: "Secondary parser prevalence baseline".into(),
+        description: format!(
+            "Secondary parser signals={} classes=[{}] hazards=[{}].",
+            relevant.len(),
+            if error_class_summary.is_empty() { "none".to_string() } else { error_class_summary },
+            if hazard_summary.is_empty() { "none".to_string() } else { hazard_summary }
+        ),
+        objects: sample_objects,
+        evidence: Vec::new(),
+        remediation: Some(
+            "Use class/hazard counts to prioritise parser hardening and malformed-object handling."
+                .into(),
+        ),
+        meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    });
+}
+
+fn is_secondary_parser_signal(finding: &Finding) -> bool {
+    matches!(
+        finding.kind.as_str(),
+        "secondary_parser_failure"
+            | "parser_diff_structural"
+            | "object_shadow_mismatch"
+            | "parser_object_count_diff"
+            | "parser_trailer_count_diff"
+    ) || finding.meta.contains_key("secondary_parser.error_class")
+        || finding.meta.contains_key("diff.missing_in_secondary_hazards")
+}
+
+fn parse_secondary_hazards(value: &str) -> Vec<&str> {
+    value
+        .split(',')
+        .filter_map(|entry| {
+            let trimmed = entry.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if let Some((_, hazard)) = trimmed.split_once('=') {
+                let hazard = hazard.trim();
+                if hazard.is_empty() {
+                    None
+                } else {
+                    Some(hazard)
+                }
+            } else {
+                Some(trimmed)
+            }
+        })
+        .collect()
+}
+
+fn object_role_from_label(object: &str) -> &'static str {
+    if object.starts_with("trailer") {
+        return "trailer";
+    }
+    if object == "xref" || object.contains("xref") {
+        return "xref";
+    }
+    if object == "object_graph" {
+        return "object_graph";
+    }
+    if object == "parser" {
+        return "parser";
+    }
+    if object.contains(" obj") {
+        return "object";
+    }
+    "other"
+}
+
+fn malformed_signature_summary(
+    error_class_counts: &HashMap<String, usize>,
+    hazard_counts: &HashMap<String, usize>,
+) -> String {
+    let mut signatures: HashMap<String, usize> = HashMap::new();
+    for (class, count) in error_class_counts {
+        signatures.insert(format!("error_class:{class}"), *count);
+    }
+    for (hazard, count) in hazard_counts {
+        signatures.insert(format!("hazard:{hazard}"), *count);
+    }
+    format_count_pairs(&signatures, 12)
+}
+
+fn remediation_candidate_summary(
+    error_class_counts: &HashMap<String, usize>,
+    hazard_counts: &HashMap<String, usize>,
+) -> String {
+    let mut candidates = Vec::new();
+    if error_class_counts.contains_key("invalid_indirect_object") {
+        candidates.push("indirect_object_parser_hardening");
+    }
+    if error_class_counts.contains_key("xref_parse_error")
+        || error_class_counts.contains_key("invalid_file_trailer")
+    {
+        candidates.push("xref_trailer_recovery_guardrails");
+    }
+    if hazard_counts.contains_key("unbalanced_literal_string_parentheses") {
+        candidates.push("literal_string_balance_validation");
+    }
+    if hazard_counts.contains_key("creation_date_trailing_timezone_token") {
+        candidates.push("metadata_tokeniser_normalisation");
+    }
+    if candidates.is_empty() {
+        candidates.push("secondary_parser_error_telemetry_expansion");
+    }
+    candidates.join(", ")
+}
+
 fn is_noisy_ambiguous_kind(kind: &str) -> bool {
     matches!(kind, "content_stream_anomaly" | "label_mismatch_stream_type" | "image.decode_skipped")
 }
@@ -2810,5 +3000,85 @@ mod tests {
             .expect("image decode skipped finding");
         assert_eq!(image.severity, Severity::Low);
         assert_eq!(image.confidence, Confidence::Strong);
+    }
+
+    #[test]
+    fn secondary_parser_baseline_emits_class_hazard_and_role_summaries() {
+        let mut secondary = Finding::template(
+            AttackSurface::FileStructure,
+            "secondary_parser_failure",
+            Severity::Low,
+            Confidence::Probable,
+            "Secondary parser failed",
+            "Test",
+        );
+        secondary.objects = vec!["parser".into()];
+        secondary
+            .meta
+            .insert("secondary_parser.error_class".into(), "invalid_indirect_object".into());
+        let mut diff = Finding::template(
+            AttackSurface::FileStructure,
+            "parser_diff_structural",
+            Severity::Medium,
+            Confidence::Probable,
+            "Parser diff",
+            "Test",
+        );
+        diff.objects = vec!["trailer.0".into(), "12 0 obj".into(), "xref".into()];
+        diff.meta.insert(
+            "diff.missing_in_secondary_hazards".into(),
+            "12 0=unbalanced_literal_string_parentheses, 5 0=creation_date_trailing_timezone_token"
+                .into(),
+        );
+        let mut findings = vec![secondary, diff];
+
+        maybe_record_secondary_parser_prevalence_baseline(&mut findings);
+
+        let baseline = findings
+            .iter()
+            .find(|finding| finding.kind == "secondary_parser_prevalence_baseline")
+            .expect("baseline finding should be emitted");
+        assert_eq!(baseline.severity, Severity::Info);
+        assert_eq!(baseline.confidence, Confidence::Strong);
+        assert_eq!(
+            baseline.meta.get("secondary_parser.error_class_counts"),
+            Some(&"invalid_indirect_object=1".to_string())
+        );
+        assert_eq!(
+            baseline.meta.get("secondary_parser.hazard_counts"),
+            Some(
+                &"creation_date_trailing_timezone_token=1, unbalanced_literal_string_parentheses=1"
+                    .to_string()
+            )
+        );
+        let roles =
+            baseline.meta.get("secondary_parser.object_role_counts").expect("object role summary");
+        assert!(roles.contains("parser=1"));
+        assert!(roles.contains("trailer=1"));
+        assert!(roles.contains("object=1"));
+        assert!(roles.contains("xref=1"));
+        assert_eq!(
+            baseline.meta.get("secondary_parser.remediation_candidates"),
+            Some(
+                &"indirect_object_parser_hardening, literal_string_balance_validation, metadata_tokeniser_normalisation"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn secondary_parser_baseline_skips_without_signals() {
+        let mut findings = vec![Finding::template(
+            AttackSurface::JavaScript,
+            "js_present",
+            Severity::Medium,
+            Confidence::Strong,
+            "JavaScript present",
+            "Test",
+        )];
+        maybe_record_secondary_parser_prevalence_baseline(&mut findings);
+        assert!(!findings
+            .iter()
+            .any(|finding| finding.kind == "secondary_parser_prevalence_baseline"));
     }
 }
