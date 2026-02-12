@@ -236,3 +236,21 @@ Scope: rolling 30-file random block sweeps over `tmp/corpus`
   - runtime error findings: 3
   - script timeout findings: 0
   - loop iteration limit hits: 0
+
+## Outlier isolation (in progress, pass 1)
+
+- Profiling artefacts:
+  - `/tmp/corpus-sweeps/outlier-isolation-20260212/outlier_profiles_summary.json`
+- Targets profiled:
+  - `81ec61a49b5fcc4e696974798b5e0d3582a297e9c6beaf95d56839b514e064f5`
+  - `bf724f5f19df9b2fdb0f45a79b6d9a88e8acf02843465ce891c6a4ad6c8d47a6`
+  - `4a9a844dbf0a4fbaa6b33b9ccc5f8b773ca4b286d389e5d3483d56c5d7906cff`
+- Initial diagnosis:
+  - `81ec...`: `content_first_stage1` dominates (41.5s–88.9s), `content_phishing` is secondary but still material (14.8s–64.8s).
+  - `bf724...`: `content_first_stage1` dominates (~60.3s), `content_phishing` secondary (~4.0s).
+  - `4a9a...`: not an active outlier on current binary (~0.13s profile total); removed from immediate priority queue.
+- Reproducibility note:
+  - `81ec...` shows large run-to-run variance (profile total 43.4s to 90.0s), indicating cache/system-state sensitivity and need for multi-run baselining.
+- Next outlier-isolation action:
+  - run 3 consecutive profile passes for `81ec...` and `bf724...` under controlled conditions,
+    then introduce detector-level timing counters in `content_phishing` subpaths to isolate the expensive branch(es).
