@@ -194,6 +194,13 @@ Changes:
 2. Parseability and residual-risk verification suite.
 3. Explicit exclusion/handling strategy for encrypted and malformed edge cases.
 
+Implementation status (2026-02-13):
+1. Added `strip_active_content_safe_rebuild(...)` with post-rebuild parseability and reference-integrity validation.
+2. Added explicit exclusion handling for encrypted documents (`safe_rebuild_excluded_reason=encrypted_document`).
+3. Added unresolved-reference exclusion path (`safe_rebuild_excluded_reason=unresolved_references`) and residual-risk notes.
+4. Exposed phase-2 mode via `sis sanitize <pdf> --out <path> --safe-rebuild`.
+5. Added regression tests for encrypted exclusion, unresolved-reference exclusion, and clean safe-rebuild success.
+
 ## PR-M8: Sandbox profile and interaction depth uplift
 
 Objective: strengthen runtime analysis against gated and morphing JS.

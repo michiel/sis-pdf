@@ -1,10 +1,11 @@
 use anyhow::Result;
 use lopdf::{Document, Object};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Cursor;
 
 const MAX_RECORDED_REMOVALS: usize = 1024;
+const MAX_RECORDED_UNRESOLVED_REFS: usize = 256;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StripOptions {
@@ -43,6 +44,12 @@ pub struct StripReport {
     pub removed_by_class: BTreeMap<String, usize>,
     pub removals_truncated: bool,
     pub removals: Vec<StripRecord>,
+    pub safe_rebuild_applied: bool,
+    pub safe_rebuild_excluded_reason: Option<String>,
+    pub parseable_after_rebuild: bool,
+    pub unresolved_reference_count: usize,
+    pub unresolved_references: Vec<String>,
+    pub residual_risk_notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,8 +94,140 @@ pub fn strip_active_content(input: &[u8], options: &StripOptions) -> Result<Stri
             removed_by_class: stats.removed_by_class,
             removals_truncated: stats.removals_truncated,
             removals: stats.removals,
+            safe_rebuild_applied: false,
+            safe_rebuild_excluded_reason: None,
+            parseable_after_rebuild: true,
+            unresolved_reference_count: 0,
+            unresolved_references: Vec::new(),
+            residual_risk_notes: Vec::new(),
         },
     })
+}
+
+pub fn strip_active_content_safe_rebuild(
+    input: &[u8],
+    options: &StripOptions,
+) -> Result<StripResult> {
+    if is_document_encrypted(input)? {
+        return Ok(StripResult {
+            sanitised_bytes: input.to_vec(),
+            report: StripReport {
+                output_degraded: false,
+                removed_total: 0,
+                removed_by_class: BTreeMap::new(),
+                removals_truncated: false,
+                removals: Vec::new(),
+                safe_rebuild_applied: false,
+                safe_rebuild_excluded_reason: Some("encrypted_document".into()),
+                parseable_after_rebuild: true,
+                unresolved_reference_count: 0,
+                unresolved_references: Vec::new(),
+                residual_risk_notes: vec![
+                    "Encrypted PDF excluded from safe rebuild; active content may remain".into(),
+                ],
+            },
+        });
+    }
+
+    let mut result = strip_active_content(input, options)?;
+    let verification = verify_rebuild_integrity(&result.sanitised_bytes);
+
+    result.report.parseable_after_rebuild = verification.parseable;
+    result.report.unresolved_reference_count = verification.unresolved_reference_count;
+    result.report.unresolved_references = verification.unresolved_references;
+    result.report.residual_risk_notes = verification.residual_risk_notes;
+    result.report.safe_rebuild_excluded_reason = if !verification.parseable {
+        Some("rebuild_parse_failed".into())
+    } else if verification.unresolved_reference_count > 0 {
+        Some("unresolved_references".into())
+    } else {
+        None
+    };
+    result.report.safe_rebuild_applied = result.report.safe_rebuild_excluded_reason.is_none();
+    Ok(result)
+}
+
+fn is_document_encrypted(input: &[u8]) -> Result<bool> {
+    let doc = Document::load_from(Cursor::new(input))?;
+    Ok(doc.trailer.get(b"Encrypt").is_ok())
+}
+
+#[derive(Debug, Default)]
+struct RebuildVerification {
+    parseable: bool,
+    unresolved_reference_count: usize,
+    unresolved_references: Vec<String>,
+    residual_risk_notes: Vec<String>,
+}
+
+fn verify_rebuild_integrity(bytes: &[u8]) -> RebuildVerification {
+    let mut verification =
+        RebuildVerification { parseable: true, ..RebuildVerification::default() };
+    let doc = match Document::load_from(Cursor::new(bytes)) {
+        Ok(doc) => doc,
+        Err(err) => {
+            verification.parseable = false;
+            verification
+                .residual_risk_notes
+                .push(format!("Sanitised output failed parser verification: {err}"));
+            return verification;
+        }
+    };
+
+    let mut refs = BTreeSet::new();
+    for object in doc.objects.values() {
+        collect_references(object, &mut refs);
+    }
+    for (_, value) in &doc.trailer {
+        collect_references(value, &mut refs);
+    }
+
+    let mut unresolved = Vec::new();
+    let mut unresolved_count = 0usize;
+    for object_id in refs {
+        if !doc.objects.contains_key(&object_id) {
+            unresolved_count += 1;
+            let rendered = format!("{} {} R", object_id.0, object_id.1);
+            if unresolved.len() < MAX_RECORDED_UNRESOLVED_REFS {
+                unresolved.push(rendered);
+            }
+        }
+    }
+
+    verification.unresolved_reference_count = unresolved_count;
+    verification.unresolved_references = unresolved;
+    if verification.unresolved_reference_count > 0 {
+        verification.residual_risk_notes.push(format!(
+            "Reference integrity validation found {} unresolved references",
+            verification.unresolved_reference_count
+        ));
+    }
+
+    verification
+}
+
+fn collect_references(object: &Object, refs: &mut BTreeSet<(u32, u16)>) {
+    match object {
+        Object::Reference(id) => {
+            refs.insert(*id);
+        }
+        Object::Array(items) => {
+            for item in items {
+                collect_references(item, refs);
+            }
+        }
+        Object::Dictionary(dict) => {
+            for (_, value) in dict {
+                collect_references(value, refs);
+            }
+        }
+        Object::Stream(stream) => {
+            for (_, value) in &stream.dict {
+                collect_references(value, refs);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn sanitise_object(
@@ -360,5 +499,77 @@ mod tests {
                 "expected class {class} in report"
             );
         }
+    }
+
+    fn build_missing_reference_bytes() -> Vec<u8> {
+        let mut doc = Document::with_version("1.7");
+        let root_id = doc.new_object_id();
+        doc.objects.insert(
+            root_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Catalog",
+                "Pages" => Object::Reference((999, 0)),
+            }),
+        );
+        doc.trailer.set("Root", Object::Reference(root_id));
+        let mut bytes = Vec::new();
+        let save_result = doc.save_to(&mut bytes);
+        assert!(save_result.is_ok(), "failed to build missing-ref fixture: {save_result:?}");
+        bytes
+    }
+
+    fn build_encrypted_marker_bytes() -> Vec<u8> {
+        let mut doc = Document::with_version("1.7");
+        let root_id = doc.new_object_id();
+        doc.objects.insert(
+            root_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Catalog",
+            }),
+        );
+        doc.trailer.set("Root", Object::Reference(root_id));
+        doc.trailer.set("Encrypt", Object::Reference((42, 0)));
+        let mut bytes = Vec::new();
+        let save_result = doc.save_to(&mut bytes);
+        assert!(save_result.is_ok(), "failed to build encrypted fixture: {save_result:?}");
+        bytes
+    }
+
+    #[test]
+    fn safe_rebuild_excludes_encrypted_documents() {
+        let input = build_encrypted_marker_bytes();
+        let result = strip_active_content_safe_rebuild(&input, &StripOptions::default())
+            .expect("safe rebuild");
+        assert_eq!(
+            result.report.safe_rebuild_excluded_reason.as_deref(),
+            Some("encrypted_document")
+        );
+        assert!(!result.report.safe_rebuild_applied);
+        assert_eq!(result.report.removed_total, 0);
+    }
+
+    #[test]
+    fn safe_rebuild_detects_unresolved_references() {
+        let input = build_missing_reference_bytes();
+        let result = strip_active_content_safe_rebuild(&input, &StripOptions::default())
+            .expect("safe rebuild");
+        assert_eq!(
+            result.report.safe_rebuild_excluded_reason.as_deref(),
+            Some("unresolved_references")
+        );
+        assert!(result.report.parseable_after_rebuild);
+        assert!(result.report.unresolved_reference_count > 0);
+        assert!(!result.report.safe_rebuild_applied);
+    }
+
+    #[test]
+    fn safe_rebuild_marks_clean_documents_as_applied() {
+        let input = build_active_document_bytes();
+        let result = strip_active_content_safe_rebuild(&input, &StripOptions::default())
+            .expect("safe rebuild");
+        assert!(result.report.safe_rebuild_applied);
+        assert!(result.report.parseable_after_rebuild);
+        assert_eq!(result.report.safe_rebuild_excluded_reason, None);
+        assert_eq!(result.report.unresolved_reference_count, 0);
     }
 }
