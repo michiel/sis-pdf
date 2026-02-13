@@ -853,7 +853,7 @@ dependencies = [
 
 [[package]]
 name = "cve-update"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1295,7 +1295,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "font-analysis"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "allsorts",
  "serde",
@@ -1951,7 +1951,7 @@ dependencies = [
 
 [[package]]
 name = "image-analysis"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "hayro-jbig2",
@@ -2161,7 +2161,7 @@ dependencies = [
 
 [[package]]
 name = "js-analysis"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "boa_ast",
@@ -3980,7 +3980,7 @@ checksum = "b2aa850e253778c88a04c3d7323b043aeda9d3e30d5971937c1855769763678e"
 
 [[package]]
 name = "sis-pdf"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4014,7 +4014,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "bitflags 2.10.0",
@@ -4040,7 +4040,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-detectors"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4059,7 +4059,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-ml-graph"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "blake3",
@@ -4074,7 +4074,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-pdf"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
