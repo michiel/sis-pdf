@@ -2830,6 +2830,52 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
+## passive_external_resource_fetch
+
+- ID: `passive_external_resource_fetch`
+- Label: Passive external resource fetch surface
+- Description: External fetch targets were found in render-related objects and may trigger outbound requests during preview, indexing, or open-time processing.
+- Tags: action, passive, network
+- Details:
+  - Relevance: preview/no-click network exposure in enterprise pipelines.
+  - Meaning: document objects reference external locations (`http`, `ftp`, `file`, `smb`, `unc`) in rendering or action contexts.
+  - Chain usage: used as passive delivery-stage context, especially when combined with automatic triggers.
+  - Metadata highlights:
+    - `passive.external_target_count`
+    - `passive.external_protocols`
+    - `passive.source_contexts`
+    - `passive.trigger_mode`
+
+## passive_credential_leak_risk
+
+- ID: `passive_credential_leak_risk`
+- Label: Passive credential leak risk
+- Description: UNC/SMB-style external targets were detected in render-time contexts and may leak credentials through implicit authentication attempts.
+- Tags: credential, network, passive
+- Details:
+  - Relevance: NTLM/Kerberos leak pathways via document rendering or preview.
+  - Meaning: one or more external targets used UNC/SMB addressing in contexts likely to be resolved by host tooling.
+  - Chain usage: used as high-priority exfiltration-risk signal when triaging passive document workflows.
+  - Metadata highlights:
+    - `passive.credential_leak_risk`
+    - `passive.credential_leak_hit_count`
+    - `passive.external_targets_sample`
+
+## passive_render_pipeline_risk_composite
+
+- ID: `passive_render_pipeline_risk_composite`
+- Label: Passive render pipeline exploitation chain
+- Description: Automatic trigger pathways, preview-prone contexts, and external fetch targets co-occur, consistent with passive render-pipeline exploitation techniques.
+- Tags: chain, passive, render
+- Details:
+  - Relevance: no-click exploitation and data leak risk in preview/index infrastructure.
+  - Meaning: automatic action triggers overlap with render-prone objects and external fetch references.
+  - Chain usage: treated as a composite high-risk chain requiring immediate isolation and investigation.
+  - Metadata highlights:
+    - `passive.composite_rule`
+    - `passive.preview_prone_surface`
+    - `passive.external_protocols`
+
 ## polyglot_signature_conflict
 
 - ID: `polyglot_signature_conflict`

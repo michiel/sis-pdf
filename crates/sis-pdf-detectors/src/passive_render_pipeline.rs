@@ -1,0 +1,419 @@
+use anyhow::Result;
+use sis_pdf_core::detect::{Cost, Detector, Needs};
+use sis_pdf_core::model::{
+    AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
+};
+use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfStr};
+use sis_pdf_pdf::typed_graph::EdgeType;
+use std::collections::{BTreeSet, HashMap};
+
+use crate::entry_dict;
+
+pub struct PassiveRenderPipelineDetector;
+
+#[derive(Clone)]
+struct ExternalTargetHit {
+    object_ref: String,
+    object_span: sis_pdf_pdf::span::Span,
+    source_key: String,
+    source_context: String,
+    target: String,
+    protocol: String,
+    credential_leak_risk: bool,
+}
+
+impl Detector for PassiveRenderPipelineDetector {
+    fn id(&self) -> &'static str {
+        "passive_render_pipeline"
+    }
+
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Actions
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+
+    fn cost(&self) -> Cost {
+        Cost::Moderate
+    }
+
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let typed_graph = ctx.build_typed_graph();
+        let has_automatic_trigger = typed_graph.edges.iter().any(|edge| {
+            matches!(
+                edge.edge_type,
+                EdgeType::OpenAction
+                    | EdgeType::AdditionalAction { .. }
+                    | EdgeType::PageAction { .. }
+                    | EdgeType::FormFieldAction { .. }
+            )
+        });
+
+        let mut hits = Vec::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            let context = classify_context(dict);
+            if context == "other" {
+                continue;
+            }
+            let object_ref = format!("{} {} obj", entry.obj, entry.gen);
+            collect_external_targets(dict, &context, &object_ref, entry.full_span, &mut hits);
+        }
+
+        if hits.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let protocols: BTreeSet<String> = hits.iter().map(|hit| hit.protocol.clone()).collect();
+        let contexts: BTreeSet<String> =
+            hits.iter().map(|hit| format!("{}:{}", hit.source_context, hit.source_key)).collect();
+        let objects: BTreeSet<String> = hits.iter().map(|hit| hit.object_ref.clone()).collect();
+        let credential_leak_hits = hits.iter().filter(|hit| hit.credential_leak_risk).count();
+        let preview_prone_context = hits.iter().any(|hit| {
+            matches!(hit.source_context.as_str(), "font" | "image" | "metadata" | "forms")
+        });
+
+        let mut base_meta = HashMap::new();
+        base_meta.insert("passive.external_target_count".into(), hits.len().to_string());
+        base_meta.insert(
+            "passive.external_protocols".into(),
+            protocols.into_iter().collect::<Vec<_>>().join(", "),
+        );
+        base_meta.insert(
+            "passive.source_contexts".into(),
+            contexts.into_iter().collect::<Vec<_>>().join(", "),
+        );
+        base_meta.insert(
+            "passive.trigger_mode".into(),
+            if has_automatic_trigger { "automatic_or_aa" } else { "manual_or_unknown" }.into(),
+        );
+        base_meta.insert(
+            "passive.credential_leak_risk".into(),
+            if credential_leak_hits > 0 { "true" } else { "false" }.into(),
+        );
+        base_meta.insert(
+            "passive.preview_prone_surface".into(),
+            if preview_prone_context { "true" } else { "false" }.into(),
+        );
+        let mut sample_targets = hits.iter().map(|hit| hit.target.clone()).collect::<Vec<_>>();
+        sample_targets.sort();
+        sample_targets.dedup();
+        base_meta.insert(
+            "passive.external_targets_sample".into(),
+            sample_targets.into_iter().take(6).collect::<Vec<_>>().join(", "),
+        );
+
+        let mut findings = Vec::new();
+        findings.push(Finding {
+            id: String::new(),
+            surface: AttackSurface::Actions,
+            kind: "passive_external_resource_fetch".into(),
+            severity: if has_automatic_trigger { Severity::Medium } else { Severity::Low },
+            confidence: Confidence::Strong,
+            impact: Some(if preview_prone_context { Impact::Medium } else { Impact::Low }),
+            title: "Passive external resource fetch surface".into(),
+            description:
+                "External fetch targets were found in rendering-related PDF objects, which may trigger outbound requests during preview, indexing, or open-time processing."
+                    .into(),
+            objects: objects.iter().cloned().collect(),
+            evidence: hits
+                .iter()
+                .take(8)
+                .map(|hit| span_to_evidence(hit.object_span, "Passive external target context"))
+                .collect(),
+            remediation: Some(
+                "Block external fetch in untrusted documents and inspect target paths, especially UNC/SMB references.".into(),
+            ),
+            meta: base_meta.clone(),
+            reader_impacts: vec![
+                ReaderImpact {
+                    profile: ReaderProfile::Preview,
+                    surface: AttackSurface::Actions,
+                    severity: if preview_prone_context { Severity::Medium } else { Severity::Low },
+                    impact: if preview_prone_context { Impact::Medium } else { Impact::Low },
+                    note: Some("Preview/index rendering may trigger outbound fetch for linked resources.".into()),
+                },
+                ReaderImpact {
+                    profile: ReaderProfile::Acrobat,
+                    surface: AttackSurface::Actions,
+                    severity: Severity::Low,
+                    impact: Impact::Low,
+                    note: Some("Open-time resource resolution can expand attack surface for external targets.".into()),
+                },
+            ],
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+        });
+
+        if credential_leak_hits > 0 {
+            let mut meta = base_meta.clone();
+            meta.insert(
+                "passive.credential_leak_hit_count".into(),
+                credential_leak_hits.to_string(),
+            );
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Actions,
+                kind: "passive_credential_leak_risk".into(),
+                severity: if has_automatic_trigger { Severity::High } else { Severity::Medium },
+                confidence: Confidence::Strong,
+                impact: Some(Impact::High),
+                title: "Passive credential leak risk".into(),
+                description:
+                    "UNC/SMB-style external targets were detected in render-time contexts and may leak credentials through implicit authentication attempts."
+                        .into(),
+                objects: objects.iter().cloned().collect(),
+                evidence: hits
+                    .iter()
+                    .filter(|hit| hit.credential_leak_risk)
+                    .take(8)
+                    .map(|hit| span_to_evidence(hit.object_span, "Credential-leak target context"))
+                    .collect(),
+                remediation: Some(
+                    "Treat UNC/SMB targets as high-risk and isolate document rendering from credential-bearing network contexts.".into(),
+                ),
+                meta,
+                reader_impacts: vec![
+                    ReaderImpact {
+                        profile: ReaderProfile::Preview,
+                        surface: AttackSurface::Actions,
+                        severity: Severity::High,
+                        impact: Impact::High,
+                        note: Some(
+                            "Preview-style rendering can trigger network resolution of UNC/SMB targets.".into(),
+                        ),
+                    },
+                    ReaderImpact {
+                        profile: ReaderProfile::Acrobat,
+                        surface: AttackSurface::Actions,
+                        severity: Severity::Medium,
+                        impact: Impact::Medium,
+                        note: Some("External target resolution may expose credentials depending on host policy.".into()),
+                    },
+                ],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        if hits.len() >= 2 && preview_prone_context && has_automatic_trigger {
+            let mut meta = base_meta;
+            meta.insert(
+                "passive.composite_rule".into(),
+                "auto_trigger+preview_context+external_targets".into(),
+            );
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Actions,
+                kind: "passive_render_pipeline_risk_composite".into(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                impact: Some(Impact::High),
+                title: "Passive render pipeline exploitation chain".into(),
+                description:
+                    "Automatic trigger pathways, preview-prone contexts, and external fetch targets co-occur, consistent with passive render-pipeline exploitation techniques."
+                        .into(),
+                objects: objects.into_iter().collect(),
+                evidence: hits
+                    .iter()
+                    .take(8)
+                    .map(|hit| span_to_evidence(hit.object_span, "Passive render composite context"))
+                    .collect(),
+                remediation: Some(
+                    "Apply strict render isolation, block outbound fetch from document renderers, and treat this document as high-risk.".into(),
+                ),
+                meta,
+                reader_impacts: vec![
+                    ReaderImpact {
+                        profile: ReaderProfile::Preview,
+                        surface: AttackSurface::Actions,
+                        severity: Severity::High,
+                        impact: Impact::High,
+                        note: Some(
+                            "Preview and indexing surfaces are likely to trigger passive execution pathways.".into(),
+                        ),
+                    },
+                    ReaderImpact {
+                        profile: ReaderProfile::Pdfium,
+                        surface: AttackSurface::Actions,
+                        severity: Severity::Medium,
+                        impact: Impact::Medium,
+                        note: Some("Renderer behaviour may vary; treat differential fetch behaviour as suspicious.".into()),
+                    },
+                ],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        Ok(findings)
+    }
+}
+
+fn classify_context(dict: &PdfDict<'_>) -> String {
+    if is_action_dict(dict) {
+        return "action".into();
+    }
+    if is_font_related(dict) {
+        return "font".into();
+    }
+    if is_image_related(dict) {
+        return "image".into();
+    }
+    if dict.get_first(b"/XFA").is_some() || dict.get_first(b"/AcroForm").is_some() {
+        return "forms".into();
+    }
+    if dict.get_first(b"/Metadata").is_some() {
+        return "metadata".into();
+    }
+    "other".into()
+}
+
+fn is_action_dict(dict: &PdfDict<'_>) -> bool {
+    if let Some((_, s_obj)) = dict.get_first(b"/S") {
+        if let PdfAtom::Name(name) = &s_obj.atom {
+            return matches!(
+                name.decoded.as_slice(),
+                b"/URI" | b"/Launch" | b"/SubmitForm" | b"/GoToR"
+            );
+        }
+    }
+    false
+}
+
+fn is_font_related(dict: &PdfDict<'_>) -> bool {
+    dict.get_first(b"/FontFile").is_some()
+        || dict.get_first(b"/FontFile2").is_some()
+        || dict.get_first(b"/FontFile3").is_some()
+        || dict.get_first(b"/BaseFont").is_some()
+}
+
+fn is_image_related(dict: &PdfDict<'_>) -> bool {
+    if let Some((_, subtype_obj)) = dict.get_first(b"/Subtype") {
+        if let PdfAtom::Name(name) = &subtype_obj.atom {
+            if name.decoded.as_slice() == b"/Image" {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn collect_external_targets(
+    dict: &PdfDict<'_>,
+    context: &str,
+    object_ref: &str,
+    object_span: sis_pdf_pdf::span::Span,
+    out: &mut Vec<ExternalTargetHit>,
+) {
+    for key in [
+        b"/URI".as_slice(),
+        b"/F".as_slice(),
+        b"/UF".as_slice(),
+        b"/FS".as_slice(),
+        b"/Dest".as_slice(),
+    ] {
+        if let Some((_, value)) = dict.get_first(key) {
+            if let Some(target) = extract_external_target(value) {
+                if let Some(protocol) = classify_protocol(&target) {
+                    out.push(ExternalTargetHit {
+                        object_ref: object_ref.to_string(),
+                        object_span,
+                        source_key: String::from_utf8_lossy(key).to_string(),
+                        source_context: context.to_string(),
+                        credential_leak_risk: matches!(protocol, "unc" | "smb"),
+                        target,
+                        protocol: protocol.to_string(),
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn extract_external_target(obj: &sis_pdf_pdf::object::PdfObj<'_>) -> Option<String> {
+    match &obj.atom {
+        PdfAtom::Str(text) => Some(String::from_utf8_lossy(&string_bytes(text)).to_string()),
+        PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
+        _ => None,
+    }
+}
+
+fn string_bytes(value: &PdfStr<'_>) -> Vec<u8> {
+    match value {
+        PdfStr::Literal { decoded, .. } => decoded.clone(),
+        PdfStr::Hex { decoded, .. } => decoded.clone(),
+    }
+}
+
+fn classify_protocol(raw: &str) -> Option<&'static str> {
+    let trimmed = raw.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("\\\\") {
+        return Some("unc");
+    }
+    if lower.starts_with("smb://") {
+        return Some("smb");
+    }
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        return Some("http");
+    }
+    if lower.starts_with("ftp://") {
+        return Some("ftp");
+    }
+    if lower.starts_with("file://") {
+        return Some("file");
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_context, classify_protocol};
+    use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj};
+    use sis_pdf_pdf::span::Span;
+    use std::borrow::Cow;
+
+    fn span() -> Span {
+        Span { start: 0, end: 0 }
+    }
+
+    fn name(value: &'static str) -> PdfName<'static> {
+        let bytes = value.as_bytes();
+        PdfName { span: span(), raw: Cow::Borrowed(bytes), decoded: bytes.to_vec() }
+    }
+
+    #[test]
+    fn protocol_classifier_recognises_unc_and_http() {
+        assert_eq!(classify_protocol("\\\\host\\share\\file"), Some("unc"));
+        assert_eq!(classify_protocol("SMB://example/share"), Some("smb"));
+        assert_eq!(classify_protocol("https://example.test"), Some("http"));
+        assert_eq!(classify_protocol("relative/path"), None);
+    }
+
+    #[test]
+    fn classify_context_detects_action_dict() {
+        let dict = PdfDict {
+            span: span(),
+            entries: vec![(name("/S"), PdfObj { span: span(), atom: PdfAtom::Name(name("/URI")) })],
+        };
+        assert_eq!(classify_context(&dict), "action");
+    }
+}

@@ -1,198 +1,211 @@
 # sis modernisation plan against 2020-2026 PDF malware evolution
 
 Date: 2026-02-13  
-Status: Proposed  
-Input: `docs/research/2026013-pdf-malware-evolution.md`
+Status: Updated (post-review)  
+Inputs: `docs/research/2026013-pdf-malware-evolution.md`, `plans/20260213-modernisation-comments.md`
 
 ## 1) Executive assessment
 
-`sis` is well-positioned for several modern attack classes, but not yet complete for full 2026-era operational coverage.
+`sis` already has strong capability in structural evasion, JavaScript behavioural analysis, parser differential telemetry, and exploit-chain correlation.  
+The remaining work is primarily **gap-closing and calibration**, not wholesale subsystem replacement.
 
-### Current strengths
-1. Strong structural-evasion coverage:
-   - parser differentials (`parser_diff_structural`, `object_shadow_mismatch`)
-   - ObjStm evasions (`empty_objstm_padding`, `objstm_*`)
-   - revision/shadow manipulation (`shadow_*`, `certified_doc_manipulation`)
-2. Strong JavaScript behavioural coverage:
-   - sandbox runtime patterns, unknown-behaviour closure workflows, fingerprint/evasion detection
-   - modern JS signal set (heap, obfuscation, semantic source-sink, runtime chain patterns)
-3. Strong decoder/zero-click risk indicators:
-   - JBIG2 exploit-style signals and decoder risk chains
-   - deep stream/filter anomaly and entropy telemetry
-4. Mature telemetry and corpus operations:
-   - two-pass corpus sweeps, dedup, summary telemetry, gate-based validation.
+Key review-driven adjustments:
+1. Add a **PR-M0 capability audit** before further large additions.
+2. Rescope PR-M1 as an **incremental uplift** of the existing passive render detector.
+3. Narrow PR-M2 to an **actionable renderer divergence catalogue**, not a speculative semantics engine.
+4. Tighten PR-M3/PR-M4 to avoid overlap with existing findings and preserve taxonomy consistency.
+5. Split CDR into phased delivery (`M7a`, `M7b`) with explicit risk controls.
+6. Add missing threat classes to coverage planning:
+   - annotation/overlay phishing abuse
+   - embedded MalDoc-in-PDF and archive/polyglot attachment chains
 
-### Key gaps
-1. Passive render-pipeline attack modelling is incomplete:
-   - limited dedicated detection for UNC/SMB credential leak pathways and preview/indexer-triggered exfil profiles.
-2. Multi-viewer differential rendering is partial:
-   - parser differential exists, but not full cross-renderer differential semantics (Adobe/Foxit/PDFium/Preview class parity).
-3. XFA/XML hardening and XXE-focused controls need uplift:
-   - XFA findings exist; explicit XXE-style entity risk modelling and backend-ingest safety scoring need strengthening.
-4. Remote template/style staged-fetch modelling is fragmented:
-   - signals exist indirectly via URI/action findings, but no first-class “remote staged template” capability with robust chain semantics.
-5. 3D rich-media exploit analysis depth is limited:
-   - surface exists, but deep U3D/PRC structural validation and exploit-pattern heuristics are not comprehensive.
-6. CDR-oriented sanitisation workflow is missing:
-   - detection is strong; deterministic disarm/rebuild mode is not yet present.
-7. Fountain-code style payload analysis is early-stage:
-   - high entropy detection exists, but fountain-style packetised shellcode reconstruction heuristics are limited.
+## 2) Coverage map (research theme -> sis position)
 
-## 2) Coverage mapping (research theme -> sis position)
-
-1. RenderShock/passive execution: **Partial**
+1. RenderShock/passive execution: **Strong-Partial** (existing detector family present; indexer/hash-leak depth incomplete)
 2. Polyglot/chameleon parser ambiguity: **Strong-Partial**
 3. Advanced obfuscation/high-entropy payload staging: **Partial**
-4. Remote template injection and staged fetch: **Partial**
+4. Remote template injection and staged fetch: **Partial** (foundational supply-chain findings exist)
 5. JS fingerprinting/evasion/forced execution behaviours: **Strong**
-6. XFA/XML (including XXE-adjacent risk): **Partial**
+6. XFA/XML (including XXE-adjacent risk): **Partial** (core XFA support exists; entity-risk modelling incomplete)
 7. 3D (U3D/PRC) attack surface: **Early-Partial**
-8. AI-driven metamorphism resilience: **Partial**
-9. Dynamic analysis depth and side-channel-aware instrumentation: **Partial**
+8. Annotation/overlay phishing abuse: **Partial**
+9. Embedded MalDoc-in-PDF chain analysis: **Partial**
+10. Dynamic analysis depth and side-channel-aware instrumentation: **Partial**
 
-## 3) Target state (modern use readiness)
+## 3) Assumptions and evidence quality guardrails
 
-1. High-confidence detection for passive no-click and preview-triggered exfiltration paths.
-2. Cross-viewer differential risk scoring beyond parser-only divergence.
-3. Explicit XFA/XML entity-resolution risk modelling for backend parser pipelines.
-4. First-class staged remote payload/template chain detection.
-5. Deep rich-media (U3D/PRC) structural exploit heuristics.
-6. Optional CDR mode for operational sanitisation workflows.
-7. Stronger obfuscation decoding for fountain-like and packetised payload structures.
+1. CVE-labelled prioritisation must be sourced and verifiable; where uncertain, prioritise by technique class rather than a single CVE claim.
+2. Vendor statistics across mixed methodologies are treated as directional context, not absolute baseline.
+3. New detections must map to observed corpus behaviour and fixture-backed regression tests.
 
 ## 4) Detailed technical roadmap (PR-sized)
 
-## PR-M1: Passive render pipeline and credential-leak detector pack
+## PR-M0: Baseline capability audit and gap ledger
 
-Objective: detect preview/index-triggerable external resource fetch and credential leak patterns.
+Objective: prevent redundant implementation and lock a precise delta against current capability.
 
 Changes:
-1. Add dedicated findings for:
-   - UNC/SMB path references in render-triggered contexts
-   - passive external fetch indicators in images/fonts/actions/forms
-   - credential-leak risk chain composites (e.g. external UNC + auto-trigger + preview-prone surface)
-2. Add metadata:
-   - `passive.surface`, `passive.trigger_mode`, `passive.external_protocols`, `passive.credential_leak_risk`
-3. Add reader impact profiles for preview/index pipelines.
+1. Build a findings-to-threat matrix for:
+   - passive render/credential leakage
+   - staged remote payload chains
+   - XFA/XML ingest risk
+   - annotation/overlay phishing
+   - embedded MalDoc/attachment abuse
+2. Identify overlaps, naming conflicts, and unimplemented slices.
+3. Produce an explicit “do not duplicate” map for existing findings.
+
+Deliverables:
+1. Audit table in `plans/20260213-modenisation.md` appendix.
+2. Backlog labels: `new`, `extend-existing`, `calibration-only`.
+
+## PR-M1: Passive render pipeline uplift (extend existing detector)
+
+Objective: close residual passive no-click gaps in existing `passive_render_pipeline` coverage.
+
+Changes:
+1. Extend current passive finding family with:
+   - indexer/preview trigger context modelling (e.g., search/index workflows)
+   - NTLMv2 hash-leak specificity metadata where UNC/SMB patterns are present
+   - richer source context mapping for font/image/forms metadata paths
+2. Calibrate confidence/severity based on:
+   - automatic trigger presence
+   - protocol risk class
+   - preview/indexer-prone surfaces
+3. Keep existing finding IDs stable; add additive metadata only.
 
 Test/fixture requirements:
-1. Synthetic fixtures for UNC-based fetch, external font/image reference, passive trigger variants.
-2. Integration tests asserting severity/impact/confidence calibration and object references.
+1. Fixtures for UNC + auto-trigger, UNC + passive render path, HTTP passive fetch control case.
+2. Integration tests for severity/confidence calibration and object reference output.
 
-## PR-M2: Cross-renderer differential semantics engine
+## PR-M2: Renderer divergence catalogue (narrow scope)
 
-Objective: extend parser-diff into renderer-behaviour differential scoring.
+Objective: model known renderer-behaviour differences with deterministic rules.
 
 Changes:
-1. Introduce renderer profile abstraction:
-   - Adobe-like, PDFium-like, Preview-like, Foxit-like behaviour classes.
-2. For critical surfaces (actions, forms, streams, XFA, JS), compute behaviour deltas per profile.
-3. Emit new finding family:
-   - `renderer_behavior_divergence`
-   - `renderer_behavior_exploitation_chain` when divergence overlaps malicious signals.
-4. Add metadata:
-   - `renderer.profile_deltas`, `renderer.executable_path_variance`, `renderer.risk_score`.
+1. Create a curated divergence catalogue for known high-value behaviours:
+   - action handling differences
+   - JS execution policy differences
+   - attachment/open behaviour differences
+2. Emit catalogue-based findings only where divergence is evidence-backed:
+   - `renderer_behavior_divergence_known_path`
+   - optional composite only when chained with existing high-risk signals
+3. Avoid generic semantics simulation layer.
 
 Test/fixture requirements:
-1. Fixtures with known divergent behaviour pathways.
-2. Deterministic tests for profile-delta serialisation.
+1. Deterministic fixtures that map to known divergence entries.
+2. Snapshot tests for divergence metadata serialisation.
 
-## PR-M3: XFA/XML and XXE-style ingest risk hardening
+## PR-M3: XFA/XML entity-risk hardening (targeted)
 
-Objective: close modern XFA/XML backend processing risk gaps.
+Objective: close XML entity/DOCTYPE external-reference risk in XFA ingestion contexts.
 
 Changes:
-1. Add XML entity/DOCTYPE/DTD detection in XFA payload streams.
-2. Add explicit finding:
+1. Add DTD/DOCTYPE/entity token detection in XFA payload streams.
+2. Add findings:
    - `xfa_entity_resolution_risk`
-   - `xfa_backend_xxe_pattern` (risk modelling, not exploit claim).
-3. Add backend-ingest risk metadata:
-   - `xfa.xml_entity_count`, `xfa.dtd_present`, `xfa.external_entity_refs`, `backend.ingest_risk`.
-4. Add remediation mapping for parser-side safe XML configuration and CDR stripping profiles.
+   - `xfa_backend_xxe_pattern` (risk signal, not exploit claim)
+3. Add ingest metadata:
+   - `xfa.dtd_present`
+   - `xfa.xml_entity_count`
+   - `xfa.external_entity_refs`
+   - `backend.ingest_risk`
+4. Link remediation guidance for safe XML parser configuration.
 
 Test/fixture requirements:
-1. Fixtures for benign XFA, inline entity use, external entity-like patterns.
-2. Tests for low/medium/high confidence calibration.
+1. Benign XFA XML fixture.
+2. Inline-entity fixture.
+3. External-entity-like fixture with severity/confidence assertions.
 
-## PR-M4: Staged remote template/payload chain capability
+## PR-M4: Staged remote chain uplift (extend existing supply-chain detectors)
 
-Objective: first-class detect “benign shell, remote payload later” campaigns.
+Objective: close staged-fetch chain gaps without duplicating existing supply-chain taxonomy.
 
 Changes:
-1. Add staged-fetch detector over URI/action/XFA/JS surfaces.
-2. Emit findings:
-   - `staged_remote_template_fetch`
-   - `staged_remote_payload_chain`
-3. Correlate with launch, automatic triggers, and JS intent for composite severity uplift.
-4. Add chain metadata:
-   - `stage.count`, `stage.sources`, `stage.fetch_targets`, `stage.execution_bridge`.
+1. Extend existing findings (`supply_chain_*`, `multi_stage_attack_chain`) with richer stage metadata:
+   - `stage.sources`
+   - `stage.fetch_targets`
+   - `stage.execution_bridge`
+2. Add one new finding only if required for uncovered behaviour:
+   - `staged_remote_template_fetch_unresolved`
+3. Correlate with launch/action/js intent for guarded severity uplift.
 
 Test/fixture requirements:
-1. Multi-stage fixtures with and without execution bridge.
-2. Composite chain tests for escalation guardrails.
+1. Multi-stage fixture with execution bridge.
+2. Multi-stage fixture without execution bridge (control).
+3. False-positive controls for benign update/check workflows.
 
-## PR-M5: Rich media (U3D/PRC) deep analysis uplift
+## PR-M5: Rich media 3D deep analysis uplift
 
-Objective: improve detection quality on modern 3D-bearing PDFs.
+Objective: improve U3D/PRC anomaly confidence with bounded parsing.
 
 Changes:
-1. Expand `RichMedia3D` parsing checks:
-   - structure validity, table bounds, object counts, compressed block sanity.
+1. Add bounded structural checks:
+   - header/table bounds
+   - object count sanity
+   - compressed block sanity
 2. Add findings:
    - `richmedia_3d_structure_anomaly`
    - `richmedia_3d_decoder_risk`
-3. Add correlation with high-entropy streams and filter anomalies.
+3. Correlate with stream anomaly and entropy findings.
 
-Test/fixture requirements:
-1. U3D/PRC benign fixtures and malformed edge cases.
-2. Performance tests to enforce bounded decode/parse budgets.
+Fixture strategy:
+1. Synthetic minimal U3D/PRC-like fixtures generated in-repo.
+2. Curated malformed edge fixtures from corpus captures where licensing permits.
 
-## PR-M6: Fountain-style payload obfuscation analysis
+## PR-M6: Packetised payload obfuscation uplift
 
-Objective: improve packetised high-entropy payload detection and triage quality.
+Objective: improve detection of repeated high-entropy packet staging patterns.
 
 Changes:
-1. Add heuristics for repeated high-entropy packet blocks with index-like structures.
+1. Add packet index/sequence heuristics for staged blobs.
 2. Add finding:
    - `packetised_payload_obfuscation`
 3. Add metadata:
-   - `packet.block_count`, `packet.estimated_index_fields`, `packet.reconstruction_feasibility`.
-4. Correlate with execution sinks / launch paths to reduce false positives.
+   - `packet.block_count`
+   - `packet.estimated_index_fields`
+   - `packet.reconstruction_feasibility`
+4. Require execution-sink or launch-path corroboration for high severity.
 
 Test/fixture requirements:
-1. Synthetic fountain-like and benign compressed packet fixtures.
-2. False-positive control tests against normal compressed image/PDF streams.
+1. Synthetic packetised payload fixture.
+2. Benign compressed media controls.
 
-## PR-M7: CDR mode (safe rebuild path, optional)
+## PR-M7a: CDR strip-and-report (phase 1)
 
-Objective: add operational disarm capability for high-risk active content.
+Objective: deliver operationally safe removal reporting without full rewrite guarantees.
 
 Changes:
-1. Add `sis disarm` command (or `scan --cdr`) with conservative profile:
-   - strip/neutralise JS, Launch, OpenAction, XFA active scripts, risky embedded files.
-2. Rebuild PDF with stable audit report:
-   - removed elements, object references, residual risk summary.
-3. Emit deterministic JSON report for SOC pipelines.
+1. Add conservative strip mode and deterministic report output.
+2. Remove/neutralise high-risk active elements with explicit audit trail.
+3. Mark output as degraded/sanitised; no full fidelity guarantee.
 
-Test/fixture requirements:
-1. Round-trip fixtures (malicious input -> sanitised output).
-2. Validation tests for output parseability and removal guarantees.
+## PR-M7b: CDR safe rebuild (phase 2)
 
-## PR-M8: Modern adaptive sandbox profiles and telemetry depth
-
-Objective: strengthen JS dynamic analysis against 2026 evasion patterns.
+Objective: add validated object-graph rebuild with xref/trailer reconstruction.
 
 Changes:
-1. Expand browser/PDF-reader profile matrices for APIs/properties (versioned).
-2. Add event-simulation packs for user-interaction-gated payloads.
-3. Add path-delta telemetry:
-   - per-stage AST/behaviour deltas for self-modifying flow detection.
-4. Add finding:
-   - `js_runtime_path_morphism`.
+1. Deterministic rebuild pipeline with reference integrity checks.
+2. Parseability and residual-risk verification suite.
+3. Explicit exclusion/handling strategy for encrypted and malformed edge cases.
+
+## PR-M8: Sandbox profile and interaction depth uplift
+
+Objective: strengthen runtime analysis against gated and morphing JS.
+
+Changes:
+1. Expand profile coverage with explicit capability matrix deltas (no generic “all browsers” claim).
+2. Add deterministic interaction simulation packs:
+   - dialog gating
+   - form workflows
+   - timing/event gates
+3. Add path-delta telemetry and finding:
+   - `js_runtime_path_morphism`
+4. Track unresolved API and unresolved callable buckets as first-class telemetry counters.
 
 Test/fixture requirements:
-1. Interaction-gated and morphing JS fixtures.
-2. Deterministic runtime profile snapshots for regression.
+1. Interaction-gated fixtures.
+2. Self-modifying/morphing fixtures.
+3. Stable telemetry snapshot assertions.
 
 ## 5) Cross-cutting engineering requirements
 
@@ -201,40 +214,60 @@ Test/fixture requirements:
    - tests
    - representative fixtures
    - `docs/findings.md` updates
-   - query/explain output validation where applicable.
+   - query/explain output validation where applicable
 3. Preserve JSON schema stability (additive fields only).
-4. Enforce bounded resource controls on all new deep parsing/dynamic paths.
-5. Add corpus regression checks for each new finding family before rollout.
+4. Enforce bounded resource controls on all deep parsing/runtime paths.
+5. New findings must include correlation guardrails to control false positives.
 
-## 6) Validation gates
+## 6) Dependency graph and execution order
+
+Dependencies:
+1. `M0` -> prerequisite for all subsequent PRs.
+2. `M1` -> informs metadata used by `M4`.
+3. `M3` -> shared stream/entity logic can support `M6`.
+4. `M1 + M3 + M4 + M5 + M6` -> prerequisites for `M7b`.
+5. `M8` independent but should land before broad corpus recalibration.
+
+Recommended order:
+1. PR-M0
+2. PR-M1
+3. PR-M3
+4. PR-M4
+5. PR-M2
+6. PR-M5
+7. PR-M6
+8. PR-M8
+9. PR-M7a
+10. PR-M7b
+
+## 7) Validation gates with explicit budgets
 
 ### Gate A: Detection quality
-1. No regression on existing high-severity P0/P1 corpus set.
-2. New modern-technique fixtures detected with expected severity/confidence.
+1. No regressions on existing P0/P1 corpus set.
+2. New fixtures hit expected severity/confidence and object references.
 
-### Gate B: False-positive control
-1. Benign corpus false-positive rate does not increase beyond agreed threshold.
-2. New composite findings require multi-signal context.
+### Gate B: False-positive control (budgeted)
+1. Overall benign FP increase budget: <= 0.30 percentage points.
+2. Per-PR FP budget:
+   - M1: <= 0.10pp
+   - M3: <= 0.05pp
+   - M4: <= 0.10pp
+   - M5/M6/M8 combined: <= 0.10pp
+3. Composite findings require at least two independent signal families.
 
-### Gate C: Performance
-1. No >10% regression in p95 detection runtime on fixed replay set.
-2. Two-pass sweep timeout/scan-error rate remains under operational SLO.
+### Gate C: Performance (budgeted)
+1. Overall p95 runtime regression budget: <= 10%.
+2. Per-PR target budget:
+   - M1/M3/M4: <= 2% each
+   - M2/M5/M6/M8: <= 1.5% each
+   - M7a/M7b measured separately as opt-in workflows
+3. Sweep timeout/scan-error rate must remain within current operational SLO.
 
 ### Gate D: Operational readiness
-1. Investigation item extraction recognises new finding families.
-2. Trend outputs include new capability coverage counters.
-
-## 7) Recommended implementation order
-
-1. PR-M1 (passive render and credential-leak chains)
-2. PR-M3 (XFA/XML ingest risk hardening)
-3. PR-M4 (staged remote template/payload chains)
-4. PR-M2 (cross-renderer differential semantics)
-5. PR-M5 (U3D/PRC deep analysis)
-6. PR-M6 (fountain-style obfuscation)
-7. PR-M8 (sandbox adaptive depth)
-8. PR-M7 (CDR mode, after detection maturity)
+1. Investigation extraction recognises all new finding families and metadata.
+2. Trend dashboards include capability coverage counters.
+3. Explain output surfaces new enrichment fields where relevant.
 
 ## 8) Immediate next step
 
-Start with PR-M1 and PR-M3 in parallel planning, then implement PR-M1 first because it has the highest near-term risk reduction for passive enterprise attack paths.
+Execute PR-M0 completion review, then continue PR-M1 as an incremental uplift of the existing passive render pipeline detector (indexer trigger and NTLMv2-specific enrichment first).
