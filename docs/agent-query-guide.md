@@ -156,10 +156,28 @@ sis query sample.pdf findings --where "kind == 'js_runtime_dependency_loader_abu
 sis query sample.pdf findings --where "kind == 'js_runtime_credential_harvest'" --format json
 ```
 
-### 6) Query predicate parity in one-shot and REPL
+### 6) URI aggregation triage (`uri_listing` + `uri_content_analysis`)
+`uri_present` is retired. Use:
+
+- `uri_listing` for document-level URI inventory and roll-up risk.
+- `uri_content_analysis` for per-URI suspicious detail.
+
+```bash
+# URI roll-up row
+sis query sample.pdf findings --where "kind == 'uri_listing'" --format json
+
+# Pull URI roll-up metadata (top-level risk and counts)
+sis query sample.pdf findings --where "kind == 'uri_listing'" --format json \
+  | jq '.results[0].meta | {total: ."uri.count_total", suspicious: ."uri.suspicious_count", max_severity: ."uri.max_severity", max_confidence: ."uri.max_confidence", risk_bands: ."uri.risk_band_counts"}'
+
+# List suspicious URIs only
+sis query sample.pdf findings --where "kind == 'uri_content_analysis'" --format json
+```
+
+### 7) Query predicate parity in one-shot and REPL
 Use `--where` in one-shot mode and `:where` in REPL mode for the same query families (including `findings.composite` and xref namespaces).
 
-### 7) Runtime telemetry in `explain` (phase/profile-aware)
+### 8) Runtime telemetry in `explain` (phase/profile-aware)
 When a finding is produced from JavaScript sandbox execution, `explain` now includes:
 
 - phase telemetry: `js.runtime.phase_order`, `js.runtime.phase_count`, `js.runtime.phase_summaries`

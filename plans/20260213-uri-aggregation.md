@@ -218,6 +218,23 @@ Tests:
 3. JSON schema assertions for new metadata fields.
 4. Corpus regression: no detection quality loss.
 
+Progress update (2026-02-13):
+- Completed: `docs/findings.md` now marks `uri_present` as retired and documents `uri_listing` as canonical.
+- Completed: `docs/agent-query-guide.md` updated with URI aggregation query examples (`uri_listing` + `uri_content_analysis`).
+- Completed: URI detector regression test uplift in `crates/sis-pdf-detectors/tests/uri_classification.rs`:
+  - asserts `uri.max_severity`, `uri.max_confidence`, `uri.risk_band_counts`
+  - asserts per-entry `severity`/`confidence`
+  - asserts `uri_present` is not emitted.
+- Completed: schema/golden regression validation via:
+  - `cargo test -p sis-pdf-core --test findings_schema --test golden`
+  - `cargo test -p sis-pdf-detectors uri_listing_aggregates_metadata`
+- Completed: corpus spot-check (random 30 from `tmp/corpus`):
+  - `uri_present=0`
+  - `uri_listing=8`
+  - `uri_content_analysis=0`
+  - no scan errors.
+- Pending: full baseline-vs-post corpus comparison for quantified p50/p95 finding-count delta and malicious-chain recall delta (requires stored pre-change baseline).
+
 ## 8) Validation gates
 
 ### Gate A: Detection fidelity
