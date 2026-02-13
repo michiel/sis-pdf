@@ -30,6 +30,26 @@ fn opts() -> ScanOptions {
     }
 }
 
+fn finding_by_kind<'a>(
+    report: &'a sis_pdf_core::report::Report,
+    kind: &str,
+) -> &'a sis_pdf_core::model::Finding {
+    report
+        .findings
+        .iter()
+        .find(|finding| finding.kind == kind)
+        .unwrap_or_else(|| panic!("{kind} should be present"))
+}
+
+fn meta_as_u32(finding: &sis_pdf_core::model::Finding, key: &str) -> u32 {
+    finding
+        .meta
+        .get(key)
+        .unwrap_or_else(|| panic!("missing metadata key: {key}"))
+        .parse::<u32>()
+        .unwrap_or_else(|_| panic!("metadata key {key} should be numeric"))
+}
+
 #[test]
 fn corpus_captured_noisy_likely_noise_bucket_stays_stable() {
     let bytes = include_bytes!("fixtures/corpus_captured/noisy-likely-noise-693ea.pdf");
@@ -112,4 +132,106 @@ fn corpus_captured_secondary_parser_baseline_stays_stable() {
         .get("secondary_parser.remediation_candidates")
         .expect("remediation candidates should be present");
     assert!(candidates.contains("xref_trailer_recovery_guardrails"));
+}
+
+#[test]
+fn corpus_captured_modern_openaction_staged_baseline_stays_stable() {
+    let bytes = include_bytes!("fixtures/corpus_captured/modern-openaction-staged-38851573.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let renderer_divergence = finding_by_kind(&report, "renderer_behavior_divergence_known_path");
+    assert_eq!(renderer_divergence.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(
+        renderer_divergence.confidence,
+        sis_pdf_core::model::Confidence::Strong
+    );
+
+    let renderer_chain = finding_by_kind(&report, "renderer_behavior_exploitation_chain");
+    assert_eq!(renderer_chain.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(renderer_chain.confidence, sis_pdf_core::model::Confidence::Strong);
+
+    let staged_payload = finding_by_kind(&report, "supply_chain_staged_payload");
+    assert_eq!(staged_payload.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(staged_payload.confidence, sis_pdf_core::model::Confidence::Probable);
+
+    let file_probe = finding_by_kind(&report, "js_runtime_file_probe");
+    assert_eq!(file_probe.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(file_probe.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(
+        file_probe.meta.get("js.runtime.calls"),
+        Some(&"exportDataObject".to_string())
+    );
+
+    let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
+    assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
+    assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
+}
+
+#[test]
+fn corpus_captured_modern_renderer_revision_baseline_stays_stable() {
+    let bytes = include_bytes!("fixtures/corpus_captured/modern-renderer-revision-8d42d425.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let renderer_divergence = finding_by_kind(&report, "renderer_behavior_divergence_known_path");
+    assert_eq!(renderer_divergence.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(
+        renderer_divergence.confidence,
+        sis_pdf_core::model::Confidence::Strong
+    );
+
+    let renderer_chain = finding_by_kind(&report, "renderer_behavior_exploitation_chain");
+    assert_eq!(renderer_chain.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(renderer_chain.confidence, sis_pdf_core::model::Confidence::Strong);
+
+    let revision = finding_by_kind(&report, "revision_annotations_changed");
+    assert_eq!(revision.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(revision.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert!(meta_as_u32(revision, "revision.annotations_added_count") >= 20);
+
+    let revision_score = finding_by_kind(&report, "revision_anomaly_scoring");
+    assert_eq!(revision_score.severity, sis_pdf_core::model::Severity::Low);
+    assert_eq!(
+        revision_score.confidence,
+        sis_pdf_core::model::Confidence::Tentative
+    );
+    assert!(meta_as_u32(revision_score, "revision.anomaly.max_score") >= 5);
+
+    let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
+    assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
+    assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
+}
+
+#[test]
+fn corpus_captured_modern_gated_supply_chain_baseline_stays_stable() {
+    let bytes = include_bytes!("fixtures/corpus_captured/modern-gated-supplychain-9ff24c46.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let supply_chain = finding_by_kind(&report, "supply_chain_update_vector");
+    assert_eq!(supply_chain.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(
+        supply_chain.confidence,
+        sis_pdf_core::model::Confidence::Heuristic
+    );
+
+    let dormant = finding_by_kind(&report, "js_runtime_dormant_or_gated_execution");
+    assert_eq!(dormant.severity, sis_pdf_core::model::Severity::Low);
+    assert_eq!(dormant.confidence, sis_pdf_core::model::Confidence::Tentative);
+    assert_eq!(
+        dormant.meta.get("js.runtime.behavior.name"),
+        Some(&"dormant_or_gated_execution".to_string())
+    );
+    assert_eq!(
+        dormant.meta.get("js.runtime.profile_calls_ratio"),
+        Some(&"0.00".to_string())
+    );
+
+    let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
+    assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
+    assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
 }

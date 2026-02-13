@@ -27,6 +27,41 @@
         "secondary_parser_failure error class invalid_file_trailer",
         "secondary_parser_prevalence_baseline summary fields"
       ]
+    },
+    {
+      "path": "modern-openaction-staged-38851573.pdf",
+      "sha256": "38851573fd1731b1bd94a38e35f5ea1bd1e4944821e08e27857d68a670c64105",
+      "source_path": "tmp/corpus/mwb-2026-01-25/38851573fd1731b1bd94a38e35f5ea1bd1e4944821e08e27857d68a670c64105.pdf",
+      "regression_targets": [
+        "renderer_behavior_divergence_known_path high/strong",
+        "renderer_behavior_exploitation_chain high/strong",
+        "supply_chain_staged_payload high/probable",
+        "js_runtime_file_probe high/strong with exportDataObject call",
+        "pdfjs_eval_path_risk info/strong"
+      ]
+    },
+    {
+      "path": "modern-renderer-revision-8d42d425.pdf",
+      "sha256": "8d42d425d003480d1acc9082e51cb7a2007208ebef715493836b6afec9ce91bc",
+      "source_path": "tmp/corpus/mwb-2026-01-16/8d42d425d003480d1acc9082e51cb7a2007208ebef715493836b6afec9ce91bc.pdf",
+      "regression_targets": [
+        "renderer_behavior_divergence_known_path high/strong",
+        "renderer_behavior_exploitation_chain high/strong",
+        "revision_annotations_changed medium/probable",
+        "revision_anomaly_scoring low/tentative",
+        "revision metadata thresholds annotations>=20 max_score>=5"
+      ]
+    },
+    {
+      "path": "modern-gated-supplychain-9ff24c46.pdf",
+      "sha256": "9ff24c464780feb6425d0ab1f30a74401e228b9ad570bb25698e31b4b313a4f4",
+      "source_path": "tmp/corpus/mwb-2026-01-15/9ff24c464780feb6425d0ab1f30a74401e228b9ad570bb25698e31b4b313a4f4.pdf",
+      "regression_targets": [
+        "supply_chain_update_vector medium/heuristic",
+        "js_runtime_dormant_or_gated_execution low/tentative",
+        "pdfjs_eval_path_risk info/strong",
+        "dormant runtime metadata profile_calls_ratio=0.00"
+      ]
     }
   ]
 }
