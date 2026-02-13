@@ -123,6 +123,14 @@ Test/fixture requirements:
 2. Inline-entity fixture.
 3. External-entity-like fixture with severity/confidence assertions.
 
+Implementation status (2026-02-13):
+1. Extended XFA entity-risk detection to include external-reference token analysis (`xsi:schemaLocation`, `xi:include` href markers) alongside DOCTYPE/entity declarations.
+2. Added additive metadata fields:
+   - `xfa.entity_keyword_count`
+   - `xfa.external_reference_tokens`
+3. Refined backend ingest-risk derivation (`low|medium|high`) using external entities, DOCTYPE/DTD presence, and external-reference token presence.
+4. Added fixture `crates/sis-pdf-detectors/tests/fixtures/xfa_entity_xinclude.pdf` and integration coverage for external-reference token risk without explicit external entity declarations.
+
 ## PR-M4: Staged remote chain uplift (extend existing supply-chain detectors)
 
 Objective: close staged-fetch chain gaps without duplicating existing supply-chain taxonomy.

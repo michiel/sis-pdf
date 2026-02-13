@@ -22,8 +22,10 @@ pub struct XfaFormRecord {
     pub sensitive_fields: Vec<String>,
     pub script_preview: Option<String>,
     pub has_doctype: bool,
+    pub dtd_present: bool,
     pub xml_entity_count: usize,
     pub external_entity_refs: usize,
+    pub external_reference_tokens: usize,
 }
 
 pub fn collect_xfa_forms(ctx: &ScanContext) -> Vec<XfaFormRecord> {
@@ -52,8 +54,10 @@ pub fn collect_xfa_forms(ctx: &ScanContext) -> Vec<XfaFormRecord> {
                 sensitive_fields: stats.sensitive_fields,
                 script_preview: stats.script_preview,
                 has_doctype: stats.has_doctype,
+                dtd_present: stats.dtd_present,
                 xml_entity_count: stats.xml_entity_count,
                 external_entity_refs: stats.external_entity_refs,
+                external_reference_tokens: stats.external_reference_tokens,
             };
             records.push(record);
         }
@@ -112,8 +116,10 @@ impl Detector for XfaFormDetector {
                         sensitive_fields: &[],
                         script_preview: None,
                         has_doctype: stats.has_doctype,
+                        dtd_present: stats.dtd_present,
                         xml_entity_count: stats.xml_entity_count,
                         external_entity_refs: stats.external_entity_refs,
+                        external_reference_tokens: stats.external_reference_tokens,
                     });
                     findings.push(Finding {
                         id: String::new(),
@@ -146,44 +152,50 @@ impl Detector for XfaFormDetector {
                     sensitive_fields: field_list,
                     script_preview: stats.script_preview.as_deref(),
                     has_doctype: stats.has_doctype,
+                    dtd_present: stats.dtd_present,
                     xml_entity_count: stats.xml_entity_count,
                     external_entity_refs: stats.external_entity_refs,
+                    external_reference_tokens: stats.external_reference_tokens,
                 });
 
-                if stats.has_doctype || stats.xml_entity_count > 0 {
+                if stats.has_doctype
+                    || stats.dtd_present
+                    || stats.xml_entity_count > 0
+                    || stats.external_reference_tokens > 0
+                {
                     let mut meta = base_meta.clone();
-                    let ingest_risk = if stats.external_entity_refs > 0 {
-                        "high"
-                    } else if stats.has_doctype {
-                        "medium"
-                    } else {
-                        "low"
-                    };
+                    let ingest_risk = derive_backend_ingest_risk(&stats);
                     meta.insert("backend.ingest_risk".into(), ingest_risk.into());
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
                         kind: "xfa_entity_resolution_risk".into(),
-                        severity: if stats.external_entity_refs > 0 {
+                        severity: if ingest_risk == "high" {
                             Severity::High
-                        } else {
+                        } else if ingest_risk == "medium" {
                             Severity::Medium
+                        } else {
+                            Severity::Low
                         },
-                        confidence: if stats.external_entity_refs > 0 {
+                        confidence: if ingest_risk == "high" {
+                            Confidence::Strong
+                        } else if stats.has_doctype || stats.external_reference_tokens > 0 {
                             Confidence::Strong
                         } else {
                             Confidence::Probable
                         },
-                        impact: Some(if stats.external_entity_refs > 0 {
+                        impact: Some(if ingest_risk == "high" {
                             Impact::High
-                        } else {
+                        } else if ingest_risk == "medium" {
                             Impact::Medium
+                        } else {
+                            Impact::Low
                         }),
                         title: "XFA XML entity-resolution risk".into(),
-                        description: "XFA payload includes XML DTD/entity constructs that can increase backend ingest risk when entity resolution is enabled.".into(),
+                        description: "XFA payload includes XML DTD/entity or external-reference constructs that can increase backend ingest risk when parser hardening is not enforced.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: evidence.clone(),
-                        remediation: Some("Disable XML external entity resolution and DTD processing in all backend XFA/XML ingestion pipelines.".into()),
+                        remediation: Some("Disable XML DTD processing and external entity resolution; block external schema/include resolution in all backend XFA/XML ingestion pipelines.".into()),
                         meta,
                         yara: None,
                         position: None,
@@ -387,16 +399,20 @@ struct XfaPayloadStats {
     sensitive_fields: Vec<String>,
     script_preview: Option<String>,
     has_doctype: bool,
+    dtd_present: bool,
     xml_entity_count: usize,
     external_entity_refs: usize,
+    external_reference_tokens: usize,
 }
 
 fn inspect_xfa_payload(payload: &[u8]) -> XfaPayloadStats {
     let decoded = String::from_utf8_lossy(payload);
     let lower = decoded.to_ascii_lowercase();
     let has_doctype = has_doctype(&lower);
+    let dtd_present = has_doctype || lower.contains("<!dtd");
     let xml_entity_count = count_xml_entity_declarations(&lower);
     let external_entity_refs = count_external_xml_entities(&lower);
+    let external_reference_tokens = count_external_reference_tokens(&lower);
     let mut script_count = 0usize;
     let mut submit_urls = HashSet::new();
     let mut sensitive_fields = HashSet::new();
@@ -453,8 +469,10 @@ fn inspect_xfa_payload(payload: &[u8]) -> XfaPayloadStats {
         sensitive_fields: sorted_strings(&sensitive_fields),
         script_preview,
         has_doctype,
+        dtd_present,
         xml_entity_count,
         external_entity_refs,
+        external_reference_tokens,
     }
 }
 
@@ -476,6 +494,18 @@ fn count_external_xml_entities(input: &str) -> usize {
         }
         idx = start + end_rel + 1;
     }
+    count
+}
+
+fn count_external_reference_tokens(input: &str) -> usize {
+    let mut count = 0usize;
+    count += input.match_indices("xsi:schemalocation=").count();
+    count += input.match_indices("<xi:include").count();
+    count += input.match_indices("<xinclude:include").count();
+    count += input.match_indices("href=\"http://").count();
+    count += input.match_indices("href=\"https://").count();
+    count += input.match_indices("href=\"file://").count();
+    count += input.match_indices("href=\"smb://").count();
     count
 }
 
@@ -579,8 +609,10 @@ struct XfaMeta<'a> {
     sensitive_fields: &'a [String],
     script_preview: Option<&'a str>,
     has_doctype: bool,
+    dtd_present: bool,
     xml_entity_count: usize,
     external_entity_refs: usize,
+    external_reference_tokens: usize,
 }
 
 fn base_xfa_meta(meta_config: XfaMeta<'_>) -> HashMap<String, String> {
@@ -593,8 +625,10 @@ fn base_xfa_meta(meta_config: XfaMeta<'_>) -> HashMap<String, String> {
         sensitive_fields,
         script_preview,
         has_doctype,
+        dtd_present,
         xml_entity_count,
         external_entity_refs,
+        external_reference_tokens,
     } = meta_config;
     let mut meta = HashMap::new();
     meta.insert("xfa.size_bytes".into(), size.to_string());
@@ -611,10 +645,24 @@ fn base_xfa_meta(meta_config: XfaMeta<'_>) -> HashMap<String, String> {
     meta.insert("xfa.object".into(), object_ref.to_string());
     meta.insert("xfa.ref_chain".into(), ref_chain.to_string());
     meta.insert("xfa.has_doctype".into(), has_doctype.to_string());
-    meta.insert("xfa.dtd_present".into(), has_doctype.to_string());
+    meta.insert("xfa.dtd_present".into(), dtd_present.to_string());
+    meta.insert("xfa.entity_keyword_count".into(), xml_entity_count.to_string());
     meta.insert("xfa.xml_entity_count".into(), xml_entity_count.to_string());
     meta.insert("xfa.external_entity_refs".into(), external_entity_refs.to_string());
+    meta.insert("xfa.external_reference_tokens".into(), external_reference_tokens.to_string());
     meta
+}
+
+fn derive_backend_ingest_risk(stats: &XfaPayloadStats) -> &'static str {
+    if stats.external_entity_refs > 0 {
+        "high"
+    } else if stats.has_doctype || stats.dtd_present || stats.external_reference_tokens > 0 {
+        "medium"
+    } else if stats.xml_entity_count > 0 {
+        "low"
+    } else {
+        "low"
+    }
 }
 
 fn encode_array(values: &[String]) -> String {
@@ -684,7 +732,21 @@ mod tests {
 </xfa:form>"#;
         let stats = inspect_xfa_payload(payload);
         assert!(stats.has_doctype);
+        assert!(stats.dtd_present);
         assert_eq!(stats.xml_entity_count, 1);
         assert_eq!(stats.external_entity_refs, 1);
+    }
+
+    #[test]
+    fn test_detect_external_reference_tokens() {
+        let payload = br#"<?xml version="1.0"?>
+<xfa:form xmlns:xfa="http://ns.adobe.com/xdp/" xmlns:xi="http://www.w3.org/2001/XInclude">
+  <xi:include href="https://attacker.example/schema.xsd"/>
+</xfa:form>"#;
+        let stats = inspect_xfa_payload(payload);
+        assert!(!stats.has_doctype);
+        assert_eq!(stats.xml_entity_count, 0);
+        assert_eq!(stats.external_entity_refs, 0);
+        assert!(stats.external_reference_tokens > 0);
     }
 }

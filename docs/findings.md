@@ -3443,16 +3443,18 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 
 - ID: `xfa_entity_resolution_risk`
 - Label: XFA XML entity-resolution risk
-- Description: XFA payload includes XML DTD/entity constructs that can increase backend ingest risk when entity resolution is enabled.
+- Description: XFA payload includes XML DTD/entity or external-reference constructs that can increase backend ingest risk when parser hardening is not enforced.
 - Tags: xfa, xml, xxe
 - Details:
   - Relevance: backend parser hardening and XXE-adjacent risk.
-  - Meaning: XFA contains DOCTYPE/entity declarations that should be treated as risky for downstream XML ingestion.
+  - Meaning: XFA contains DOCTYPE/entity declarations or external schema/include references that should be treated as risky for downstream XML ingestion.
   - Chain usage: used as ingest-risk context and enrichment for XFA abuse triage.
   - Metadata:
     - `xfa.dtd_present` (bool): whether DOCTYPE/DTD marker was observed.
+    - `xfa.entity_keyword_count` (int): number of `<!ENTITY` declarations observed.
     - `xfa.xml_entity_count` (int): number of XML entity declarations observed.
     - `xfa.external_entity_refs` (int): number of external entity declarations (`SYSTEM`/`PUBLIC`).
+    - `xfa.external_reference_tokens` (int): external schema/include reference markers observed (`xsi:schemaLocation`, `xi:include` hrefs).
     - `backend.ingest_risk` (string): derived ingest risk level (`low`, `medium`, `high`).
 
 ## xfa_backend_xxe_pattern
@@ -3467,8 +3469,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Chain usage: high-priority correlation signal for XFA pipelines and backend processing workflows.
   - Metadata:
     - `xfa.dtd_present`
+    - `xfa.entity_keyword_count`
     - `xfa.xml_entity_count`
     - `xfa.external_entity_refs`
+    - `xfa.external_reference_tokens`
     - `backend.ingest_risk`
 
 ## actionscript_present
