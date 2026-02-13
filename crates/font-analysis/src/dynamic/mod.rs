@@ -18,6 +18,86 @@ use tracing::warn;
 const RENDERER_FONT_MARKER: &[u8] = b"CairoFont";
 
 #[cfg(feature = "dynamic")]
+struct ParseFailureTriage {
+    class: &'static str,
+    severity: Severity,
+    confidence: Confidence,
+    exploit_relevance: &'static str,
+    triage_bucket: &'static str,
+    remediation: &'static str,
+}
+
+#[cfg(feature = "dynamic")]
+fn classify_dynamic_parse_failure(err: &str, data_len: usize) -> ParseFailureTriage {
+    let lower = err.to_ascii_lowercase();
+    if lower.contains("unknownmagic")
+        || lower.contains("unknown magic")
+        || lower.contains("faceindexoutofbounds")
+    {
+        return ParseFailureTriage {
+            class: "unknown_magic_or_face_index",
+            severity: Severity::Low,
+            confidence: Confidence::Weak,
+            exploit_relevance: "low",
+            triage_bucket: "noise_likely",
+            remediation: "Confirm the object is an actual font stream before deep dynamic parsing.",
+        };
+    }
+
+    if data_len < 64 && (lower.contains("font data too short") || lower.contains("eof")) {
+        return ParseFailureTriage {
+            class: "truncated_tiny_font",
+            severity: Severity::Low,
+            confidence: Confidence::Tentative,
+            exploit_relevance: "low",
+            triage_bucket: "noise_likely",
+            remediation: "Treat as malformed/truncated input unless corroborating findings indicate active abuse.",
+        };
+    }
+
+    if lower.contains("overflow")
+        || lower.contains("underflow")
+        || lower.contains("recursion")
+        || lower.contains("stack")
+    {
+        return ParseFailureTriage {
+            class: "parser_stress_signal",
+            severity: Severity::High,
+            confidence: Confidence::Strong,
+            exploit_relevance: "high",
+            triage_bucket: "exploit_relevant",
+            remediation: "Correlate with structural anomalies and sandbox findings; treat as likely parser-targeting behaviour.",
+        };
+    }
+
+    if lower.contains("malformedfont")
+        || lower.contains("invalid")
+        || lower.contains("outofbounds")
+        || lower.contains("offset")
+        || lower.contains("eof")
+        || lower.contains("table")
+    {
+        return ParseFailureTriage {
+            class: "malformed_structure",
+            severity: Severity::Medium,
+            confidence: Confidence::Probable,
+            exploit_relevance: "medium",
+            triage_bucket: "needs_correlation",
+            remediation: "Correlate malformed font layout with action/script/context findings to determine exploit relevance.",
+        };
+    }
+
+    ParseFailureTriage {
+        class: "dynamic_runtime_failure",
+        severity: Severity::Medium,
+        confidence: Confidence::Tentative,
+        exploit_relevance: "medium",
+        triage_bucket: "needs_correlation",
+        remediation: "Capture additional parser/runtime context before escalating.",
+    }
+}
+
+#[cfg(feature = "dynamic")]
 fn matches_renderer_font_marker(data: &[u8]) -> bool {
     if data.len() < RENDERER_FONT_MARKER.len() + 8 {
         return false;
@@ -92,17 +172,21 @@ pub fn analyze_with_findings_and_config(
     let context = match parser::parse_font(data) {
         Ok(ctx) => ctx,
         Err(err) => {
+            let triage = classify_dynamic_parse_failure(&err, data.len());
             let mut meta = HashMap::new();
             meta.insert("parse_error".to_string(), err.clone());
-            let mut severity = Severity::Medium;
-            if err.contains("UnknownMagic") {
-                severity = Severity::Low;
-                meta.insert("parse_error_class".to_string(), "unknown_magic".to_string());
-            }
+            meta.insert("parse_error_class".to_string(), triage.class.to_string());
+            meta.insert(
+                "parse_error_exploit_relevance".to_string(),
+                triage.exploit_relevance.to_string(),
+            );
+            meta.insert("parse_error_triage_bucket".to_string(), triage.triage_bucket.to_string());
+            meta.insert("parse_error_remediation".to_string(), triage.remediation.to_string());
+            meta.insert("font.dynamic_data_len".to_string(), data.len().to_string());
             findings.push(FontFinding {
                 kind: "font.dynamic_parse_failure".to_string(),
-                severity,
-                confidence: Confidence::Probable,
+                severity: triage.severity,
+                confidence: triage.confidence,
                 title: "Font parsing failed".to_string(),
                 description: "Dynamic font parsing encountered an error".to_string(),
                 meta,
@@ -151,6 +235,38 @@ pub fn analyze_with_findings_and_config(
     }
 
     findings
+}
+
+#[cfg(all(test, feature = "dynamic"))]
+mod parse_failure_tests {
+    use super::{classify_dynamic_parse_failure, Confidence, Severity};
+
+    #[test]
+    fn classify_dynamic_parse_failure_marks_unknown_magic_as_noise() {
+        let triage = classify_dynamic_parse_failure("Failed to parse font: UnknownMagic", 120);
+        assert_eq!(triage.class, "unknown_magic_or_face_index");
+        assert_eq!(triage.severity, Severity::Low);
+        assert_eq!(triage.confidence, Confidence::Weak);
+        assert_eq!(triage.triage_bucket, "noise_likely");
+    }
+
+    #[test]
+    fn classify_dynamic_parse_failure_marks_malformed_font_as_medium() {
+        let triage = classify_dynamic_parse_failure("Failed to parse font: MalformedFont", 2048);
+        assert_eq!(triage.class, "malformed_structure");
+        assert_eq!(triage.severity, Severity::Medium);
+        assert_eq!(triage.confidence, Confidence::Probable);
+        assert_eq!(triage.triage_bucket, "needs_correlation");
+    }
+
+    #[test]
+    fn classify_dynamic_parse_failure_marks_parser_stress_as_high() {
+        let triage = classify_dynamic_parse_failure("parser stack overflow while decoding", 4096);
+        assert_eq!(triage.class, "parser_stress_signal");
+        assert_eq!(triage.severity, Severity::High);
+        assert_eq!(triage.confidence, Confidence::Strong);
+        assert_eq!(triage.triage_bucket, "exploit_relevant");
+    }
 }
 
 /// Analyze TrueType hinting tables for suspicious patterns

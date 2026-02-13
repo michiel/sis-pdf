@@ -1,0 +1,32 @@
+{
+  "captured_at": "2026-02-13",
+  "source_root": "tmp/corpus",
+  "fixtures": [
+    {
+      "path": "noisy-likely-noise-693ea.pdf",
+      "sha256": "693ea9f0837c9e0c0413da6198b6316a6ca6dfd9f4d3db71664d2270a65bcf38",
+      "source_path": "tmp/corpus/mwb-2026-01-21/693ea9f0837c9e0c0413da6198b6316a6ca6dfd9f4d3db71664d2270a65bcf38.pdf",
+      "regression_targets": [
+        "content_stream_anomaly likely_noise bucket"
+      ]
+    },
+    {
+      "path": "noisy-correlated-highrisk-11606.pdf",
+      "sha256": "11606ab5c006a387daacaa4004bbdbae385f6e9e1815d8e33e8046f2555b7e2a",
+      "source_path": "tmp/corpus/mwb-2026-01-18/11606ab5c006a387daacaa4004bbdbae385f6e9e1815d8e33e8046f2555b7e2a.pdf",
+      "regression_targets": [
+        "label_mismatch_stream_type correlated_high_risk bucket",
+        "image.decode_skipped correlated_high_risk bucket"
+      ]
+    },
+    {
+      "path": "secondary-invalid-trailer-6eb8.pdf",
+      "sha256": "6eb8b5986ea95877146adc1c6ed48ca2c304d23bc8a4a904b6e6d22d55bceec3",
+      "source_path": "tmp/corpus/mwb-2026-01-23/6eb8b5986ea95877146adc1c6ed48ca2c304d23bc8a4a904b6e6d22d55bceec3.pdf",
+      "regression_targets": [
+        "secondary_parser_failure error class invalid_file_trailer",
+        "secondary_parser_prevalence_baseline summary fields"
+      ]
+    }
+  ]
+}

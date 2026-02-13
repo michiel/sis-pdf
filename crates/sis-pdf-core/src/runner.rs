@@ -27,6 +27,8 @@ const RESOURCE_CONSUMPTION_THRESHOLD_MS: u64 = 5_000;
 const RESOURCE_CONTRIBUTION_KIND_LIMIT: usize = 8;
 const RESOURCE_CONTRIBUTION_SAMPLE_OBJECT_LIMIT: usize = 8;
 const RESOURCE_CONTRIBUTION_SAMPLE_POSITION_LIMIT: usize = 8;
+const RESOURCE_TRIGGER_CLASS_TOP_KIND_LIMIT: usize = 4;
+const RESOURCE_TRIGGER_CLASS_SAMPLE_OBJECT_LIMIT: usize = 4;
 const RESOURCE_STRUCTURAL_FINDING_KINDS: &[&str] = &[
     "object_shadow_mismatch",
     "parser_diff_structural",
@@ -61,6 +63,31 @@ fn resource_contribution_bucket(kind: &str) -> Option<&'static str> {
         return Some("js-runtime");
     }
     None
+}
+
+fn resource_bucket_meta_key(bucket: &str) -> String {
+    bucket.replace('-', "_")
+}
+
+fn resource_bucket_remediation(bucket: &str) -> &'static str {
+    match bucket {
+        "structural" => {
+            "Prioritise structural normalisation and early rejection for inconsistent object/xref/trailer state."
+        }
+        "decode" => {
+            "Apply stricter decode limits and reject malformed filter/stream combinations before expensive retries."
+        }
+        "font" => {
+            "Cap high-cost font parsing paths and correlate with corroborating indicators before deep retries."
+        }
+        "content" => {
+            "Bound repeated content scanning passes and pivot to sampled analysis when anomaly classes dominate."
+        }
+        "js-runtime" => {
+            "Constrain runtime instrumentation budget and focus on high-signal behavioural pivots for suspicious scripts."
+        }
+        _ => "Review class-specific contributors and apply targeted budget and short-circuit controls.",
+    }
 }
 
 fn format_count_pairs(counts: &std::collections::HashMap<String, usize>, limit: usize) -> String {
@@ -385,6 +412,7 @@ pub fn run_scan_with_detectors(
     maybe_record_parser_resource_exhaustion(&mut findings, detection_duration_ms);
     escalate_declared_filter_invalid_with_context(&mut findings);
     recalibrate_findings_with_context(&mut findings);
+    maybe_record_secondary_parser_prevalence_baseline(&mut findings);
 
     let font_findings = findings.iter().filter(|f| f.kind.starts_with("font.")).count();
     let js_findings = findings
@@ -1332,6 +1360,9 @@ fn maybe_record_parser_resource_exhaustion(
     }
     let mut contribution_kind_counts: HashMap<String, usize> = HashMap::new();
     let mut contribution_bucket_counts: HashMap<String, usize> = HashMap::new();
+    let mut class_kind_counts: HashMap<String, HashMap<String, usize>> = HashMap::new();
+    let mut class_sample_objects: HashMap<String, Vec<String>> = HashMap::new();
+    let mut class_sample_object_seen: HashMap<String, HashSet<String>> = HashMap::new();
     let mut sample_objects: Vec<String> = Vec::new();
     let mut sample_positions: Vec<String> = Vec::new();
     let mut sample_object_seen: HashSet<String> = HashSet::new();
@@ -1343,8 +1374,27 @@ fn maybe_record_parser_resource_exhaustion(
         let Some(bucket) = resource_contribution_bucket(&finding.kind) else {
             continue;
         };
+        let bucket_key = bucket.to_string();
         *contribution_kind_counts.entry(finding.kind.clone()).or_insert(0) += 1;
-        *contribution_bucket_counts.entry(bucket.to_string()).or_insert(0) += 1;
+        *contribution_bucket_counts.entry(bucket_key.clone()).or_insert(0) += 1;
+        let class_counts = class_kind_counts.entry(bucket_key.clone()).or_default();
+        *class_counts.entry(finding.kind.clone()).or_insert(0) += 1;
+        if class_sample_objects
+            .get(&bucket_key)
+            .map(|objects| objects.len() < RESOURCE_TRIGGER_CLASS_SAMPLE_OBJECT_LIMIT)
+            .unwrap_or(true)
+        {
+            let objects = class_sample_objects.entry(bucket_key.clone()).or_default();
+            let seen = class_sample_object_seen.entry(bucket_key.clone()).or_default();
+            for object in &finding.objects {
+                if seen.insert(object.clone()) {
+                    objects.push(object.clone());
+                    if objects.len() >= RESOURCE_TRIGGER_CLASS_SAMPLE_OBJECT_LIMIT {
+                        break;
+                    }
+                }
+            }
+        }
         if sample_objects.len() < RESOURCE_CONTRIBUTION_SAMPLE_OBJECT_LIMIT {
             for object in &finding.objects {
                 if sample_object_seen.insert(object.clone()) {
@@ -1389,6 +1439,54 @@ fn maybe_record_parser_resource_exhaustion(
     );
     meta.insert("resource_contribution_top_kinds".into(), top_kind_counts.clone());
     meta.insert("resource_contribution_bucket_counts".into(), bucket_counts.clone());
+    let mut trigger_classes: Vec<(String, usize)> =
+        contribution_bucket_counts.iter().map(|(bucket, count)| (bucket.clone(), *count)).collect();
+    trigger_classes.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+    if !trigger_classes.is_empty() {
+        meta.insert(
+            "resource_trigger_classes".into(),
+            trigger_classes.iter().map(|(bucket, _)| bucket.clone()).collect::<Vec<_>>().join(", "),
+        );
+        meta.insert(
+            "resource_trigger_class_counts".into(),
+            trigger_classes
+                .iter()
+                .map(|(bucket, count)| format!("{bucket}={count}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        meta.insert(
+            "resource_trigger_class_remediation".into(),
+            trigger_classes
+                .iter()
+                .map(|(bucket, _)| format!("{bucket}={}", resource_bucket_remediation(bucket)))
+                .collect::<Vec<_>>()
+                .join(" | "),
+        );
+        for (bucket, count) in &trigger_classes {
+            let suffix = resource_bucket_meta_key(bucket);
+            meta.insert(format!("resource_trigger.{suffix}.count"), count.to_string());
+            let top_kinds = class_kind_counts
+                .get(bucket)
+                .map(|counts| format_count_pairs(counts, RESOURCE_TRIGGER_CLASS_TOP_KIND_LIMIT))
+                .unwrap_or_default();
+            if !top_kinds.is_empty() {
+                meta.insert(format!("resource_trigger.{suffix}.top_kinds"), top_kinds);
+            }
+            if let Some(objects) = class_sample_objects.get(bucket) {
+                if !objects.is_empty() {
+                    meta.insert(
+                        format!("resource_trigger.{suffix}.sample_objects"),
+                        objects.join(", "),
+                    );
+                }
+            }
+            meta.insert(
+                format!("resource_trigger.{suffix}.remediation"),
+                resource_bucket_remediation(bucket).to_string(),
+            );
+        }
+    }
     if !sample_objects.is_empty() {
         meta.insert("resource_contribution_sample_objects".into(), sample_objects.join(", "));
     }
@@ -1669,6 +1767,386 @@ fn recalibrate_findings_with_context(findings: &mut [Finding]) {
                 "action_js_launch_chain",
             );
         }
+    }
+
+    apply_noisy_class_disambiguation(
+        findings,
+        has_filter_anomaly,
+        has_runtime_anomaly,
+        has_decode_risk,
+        has_structural_inconsistency,
+        has_resource_exhaustion,
+        has_action_chain,
+        has_js_intent,
+        has_external_launch,
+    );
+}
+
+fn apply_noisy_class_disambiguation(
+    findings: &mut [Finding],
+    has_filter_anomaly: bool,
+    has_runtime_anomaly: bool,
+    has_decode_risk: bool,
+    has_structural_inconsistency: bool,
+    has_resource_exhaustion: bool,
+    has_action_chain: bool,
+    has_js_intent: bool,
+    has_external_launch: bool,
+) {
+    let noisy_kind_counts: HashMap<String, usize> = findings
+        .iter()
+        .filter(|finding| is_noisy_ambiguous_kind(finding.kind.as_str()))
+        .fold(HashMap::new(), |mut counts, finding| {
+            *counts.entry(finding.kind.clone()).or_insert(0) += 1;
+            counts
+        });
+    if noisy_kind_counts.is_empty() {
+        return;
+    }
+    let noisy_total = noisy_kind_counts.values().sum::<usize>();
+    let noisy_counts_csv = format_count_pairs(&noisy_kind_counts, noisy_kind_counts.len());
+    let context_signals = noisy_context_signal_labels(
+        has_filter_anomaly,
+        has_runtime_anomaly,
+        has_decode_risk,
+        has_structural_inconsistency,
+        has_resource_exhaustion,
+        has_action_chain,
+        has_js_intent,
+        has_external_launch,
+    );
+    let context_signal_count = context_signals.len();
+    let context_signals_csv =
+        if context_signals.is_empty() { "none".to_string() } else { context_signals.join(",") };
+    let risky_refs = collect_noisy_context_refs(findings);
+
+    for finding in
+        findings.iter_mut().filter(|finding| is_noisy_ambiguous_kind(finding.kind.as_str()))
+    {
+        let kind_count = noisy_kind_counts.get(&finding.kind).copied().unwrap_or_default();
+        let object_overlap = finding
+            .objects
+            .iter()
+            .filter_map(|object| position::parse_obj_ref(object))
+            .any(|object_ref| risky_refs.contains(&object_ref));
+        let correlated_context = object_overlap
+            || has_runtime_anomaly
+            || has_js_intent
+            || has_action_chain
+            || has_external_launch;
+        let decoder_pressure =
+            has_decode_risk || has_resource_exhaustion || has_structural_inconsistency;
+
+        let (bucket, target_severity, target_confidence, reason, use_override) =
+            if correlated_context && decoder_pressure {
+                let (severity, confidence) =
+                    noisy_target_profile(finding.kind.as_str(), "correlated_high_risk");
+                (
+                    "correlated_high_risk",
+                    severity,
+                    confidence,
+                    "noisy_class_correlated_high_risk_context",
+                    false,
+                )
+            } else if correlated_context || decoder_pressure {
+                let (severity, confidence) =
+                    noisy_target_profile(finding.kind.as_str(), "correlated");
+                ("correlated", severity, confidence, "noisy_class_correlated_context", false)
+            } else {
+                let (severity, confidence) =
+                    noisy_target_profile(finding.kind.as_str(), "likely_noise");
+                ("likely_noise", severity, confidence, "noisy_class_likely_noise", true)
+            };
+
+        finding.meta.insert("triage.noisy_class_total_count".into(), noisy_total.to_string());
+        finding.meta.insert("triage.noisy_class_kind_count".into(), kind_count.to_string());
+        finding.meta.insert("triage.noisy_class_counts".into(), noisy_counts_csv.clone());
+        finding.meta.insert("triage.context_signal_count".into(), context_signal_count.to_string());
+        finding.meta.insert("triage.context_signals".into(), context_signals_csv.clone());
+        finding
+            .meta
+            .insert("triage.object_overlap_with_risky_refs".into(), object_overlap.to_string());
+        finding.meta.insert("triage.noisy_class_bucket".into(), bucket.to_string());
+
+        if use_override {
+            apply_context_override(finding, target_severity, target_confidence, reason);
+        } else {
+            apply_context_recalibration(finding, target_severity, target_confidence, reason);
+        }
+    }
+}
+
+fn maybe_record_secondary_parser_prevalence_baseline(findings: &mut Vec<Finding>) {
+    let relevant =
+        findings.iter().filter(|finding| is_secondary_parser_signal(finding)).collect::<Vec<_>>();
+    if relevant.is_empty() {
+        return;
+    }
+
+    let mut parser_kind_counts: HashMap<String, usize> = HashMap::new();
+    let mut error_class_counts: HashMap<String, usize> = HashMap::new();
+    let mut hazard_counts: HashMap<String, usize> = HashMap::new();
+    let mut object_role_counts: HashMap<String, usize> = HashMap::new();
+    let mut sample_objects: Vec<String> = Vec::new();
+    let mut sample_seen: HashSet<String> = HashSet::new();
+    for finding in &relevant {
+        *parser_kind_counts.entry(finding.kind.clone()).or_insert(0) += 1;
+        if let Some(error_class) = finding.meta.get("secondary_parser.error_class") {
+            *error_class_counts.entry(error_class.clone()).or_insert(0) += 1;
+        }
+        if let Some(hazards) = finding.meta.get("diff.missing_in_secondary_hazards") {
+            for hazard in parse_secondary_hazards(hazards) {
+                *hazard_counts.entry(hazard.to_string()).or_insert(0) += 1;
+            }
+        }
+        for object in &finding.objects {
+            if sample_seen.insert(object.clone()) && sample_objects.len() < 12 {
+                sample_objects.push(object.clone());
+            }
+            let role = object_role_from_label(object);
+            *object_role_counts.entry(role.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    let parser_kind_summary = format_count_pairs(&parser_kind_counts, 8);
+    let error_class_summary = format_count_pairs(&error_class_counts, 8);
+    let hazard_summary = format_count_pairs(&hazard_counts, 8);
+    let object_role_summary = format_count_pairs(&object_role_counts, 8);
+    let malformed_signatures = malformed_signature_summary(&error_class_counts, &hazard_counts);
+    let remediation_candidates = remediation_candidate_summary(&error_class_counts, &hazard_counts);
+
+    let mut meta = HashMap::new();
+    meta.insert("secondary_parser.signal_count".into(), relevant.len().to_string());
+    if !parser_kind_summary.is_empty() {
+        meta.insert("secondary_parser.kind_counts".into(), parser_kind_summary.clone());
+    }
+    if !error_class_summary.is_empty() {
+        meta.insert("secondary_parser.error_class_counts".into(), error_class_summary.clone());
+    }
+    if !hazard_summary.is_empty() {
+        meta.insert("secondary_parser.hazard_counts".into(), hazard_summary.clone());
+    }
+    if !object_role_summary.is_empty() {
+        meta.insert("secondary_parser.object_role_counts".into(), object_role_summary.clone());
+    }
+    if !malformed_signatures.is_empty() {
+        meta.insert("secondary_parser.malformed_signatures".into(), malformed_signatures.clone());
+    }
+    if !remediation_candidates.is_empty() {
+        meta.insert(
+            "secondary_parser.remediation_candidates".into(),
+            remediation_candidates.clone(),
+        );
+    }
+    if !sample_objects.is_empty() {
+        meta.insert("secondary_parser.sample_objects".into(), sample_objects.join(", "));
+    }
+
+    findings.push(Finding {
+        id: String::new(),
+        surface: AttackSurface::FileStructure,
+        kind: "secondary_parser_prevalence_baseline".into(),
+        severity: Severity::Info,
+        confidence: Confidence::Strong,
+        impact: None,
+        title: "Secondary parser prevalence baseline".into(),
+        description: format!(
+            "Secondary parser signals={} classes=[{}] hazards=[{}].",
+            relevant.len(),
+            if error_class_summary.is_empty() { "none".to_string() } else { error_class_summary },
+            if hazard_summary.is_empty() { "none".to_string() } else { hazard_summary }
+        ),
+        objects: sample_objects,
+        evidence: Vec::new(),
+        remediation: Some(
+            "Use class/hazard counts to prioritise parser hardening and malformed-object handling."
+                .into(),
+        ),
+        meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+    });
+}
+
+fn is_secondary_parser_signal(finding: &Finding) -> bool {
+    matches!(
+        finding.kind.as_str(),
+        "secondary_parser_failure"
+            | "parser_diff_structural"
+            | "object_shadow_mismatch"
+            | "parser_object_count_diff"
+            | "parser_trailer_count_diff"
+    ) || finding.meta.contains_key("secondary_parser.error_class")
+        || finding.meta.contains_key("diff.missing_in_secondary_hazards")
+}
+
+fn parse_secondary_hazards(value: &str) -> Vec<&str> {
+    value
+        .split(',')
+        .filter_map(|entry| {
+            let trimmed = entry.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if let Some((_, hazard)) = trimmed.split_once('=') {
+                let hazard = hazard.trim();
+                if hazard.is_empty() {
+                    None
+                } else {
+                    Some(hazard)
+                }
+            } else {
+                Some(trimmed)
+            }
+        })
+        .collect()
+}
+
+fn object_role_from_label(object: &str) -> &'static str {
+    if object.starts_with("trailer") {
+        return "trailer";
+    }
+    if object == "xref" || object.contains("xref") {
+        return "xref";
+    }
+    if object == "object_graph" {
+        return "object_graph";
+    }
+    if object == "parser" {
+        return "parser";
+    }
+    if object.contains(" obj") {
+        return "object";
+    }
+    "other"
+}
+
+fn malformed_signature_summary(
+    error_class_counts: &HashMap<String, usize>,
+    hazard_counts: &HashMap<String, usize>,
+) -> String {
+    let mut signatures: HashMap<String, usize> = HashMap::new();
+    for (class, count) in error_class_counts {
+        signatures.insert(format!("error_class:{class}"), *count);
+    }
+    for (hazard, count) in hazard_counts {
+        signatures.insert(format!("hazard:{hazard}"), *count);
+    }
+    format_count_pairs(&signatures, 12)
+}
+
+fn remediation_candidate_summary(
+    error_class_counts: &HashMap<String, usize>,
+    hazard_counts: &HashMap<String, usize>,
+) -> String {
+    let mut candidates = Vec::new();
+    if error_class_counts.contains_key("invalid_indirect_object") {
+        candidates.push("indirect_object_parser_hardening");
+    }
+    if error_class_counts.contains_key("xref_parse_error")
+        || error_class_counts.contains_key("invalid_file_trailer")
+    {
+        candidates.push("xref_trailer_recovery_guardrails");
+    }
+    if hazard_counts.contains_key("unbalanced_literal_string_parentheses") {
+        candidates.push("literal_string_balance_validation");
+    }
+    if hazard_counts.contains_key("creation_date_trailing_timezone_token") {
+        candidates.push("metadata_tokeniser_normalisation");
+    }
+    if candidates.is_empty() {
+        candidates.push("secondary_parser_error_telemetry_expansion");
+    }
+    candidates.join(", ")
+}
+
+fn is_noisy_ambiguous_kind(kind: &str) -> bool {
+    matches!(kind, "content_stream_anomaly" | "label_mismatch_stream_type" | "image.decode_skipped")
+}
+
+fn noisy_context_signal_labels(
+    has_filter_anomaly: bool,
+    has_runtime_anomaly: bool,
+    has_decode_risk: bool,
+    has_structural_inconsistency: bool,
+    has_resource_exhaustion: bool,
+    has_action_chain: bool,
+    has_js_intent: bool,
+    has_external_launch: bool,
+) -> Vec<&'static str> {
+    let mut labels = Vec::new();
+    if has_filter_anomaly {
+        labels.push("filter_anomaly");
+    }
+    if has_runtime_anomaly {
+        labels.push("runtime_anomaly");
+    }
+    if has_decode_risk {
+        labels.push("decode_risk");
+    }
+    if has_structural_inconsistency {
+        labels.push("structural_inconsistency");
+    }
+    if has_resource_exhaustion {
+        labels.push("resource_exhaustion");
+    }
+    if has_action_chain {
+        labels.push("action_chain");
+    }
+    if has_js_intent {
+        labels.push("js_intent");
+    }
+    if has_external_launch {
+        labels.push("external_launch");
+    }
+    labels
+}
+
+fn collect_noisy_context_refs(findings: &[Finding]) -> HashSet<(u32, u16)> {
+    findings
+        .iter()
+        .filter(|finding| {
+            is_action_or_js_kind(finding.kind.as_str())
+                || matches!(
+                    finding.kind.as_str(),
+                    "decoder_risk_present"
+                        | "decompression_ratio_suspicious"
+                        | "image_decoder_exploit_chain"
+                        | "parser_resource_exhaustion"
+                        | "pdf.trailer_inconsistent"
+                        | "xref_conflict"
+                        | "parser_trailer_count_diff"
+                        | "parser_diff_structural"
+                        | "structural_evasion_composite"
+                )
+        })
+        .flat_map(|finding| {
+            finding.objects.iter().filter_map(|obj_ref| position::parse_obj_ref(obj_ref))
+        })
+        .collect()
+}
+
+fn noisy_target_profile(kind: &str, bucket: &str) -> (Severity, Confidence) {
+    match (kind, bucket) {
+        ("label_mismatch_stream_type", "correlated_high_risk") => {
+            (Severity::High, Confidence::Strong)
+        }
+        ("label_mismatch_stream_type", "correlated") => (Severity::Medium, Confidence::Strong),
+        ("label_mismatch_stream_type", "likely_noise") => (Severity::Low, Confidence::Probable),
+        ("content_stream_anomaly", "correlated_high_risk") => {
+            (Severity::Medium, Confidence::Strong)
+        }
+        ("content_stream_anomaly", "correlated") => (Severity::Medium, Confidence::Probable),
+        ("content_stream_anomaly", "likely_noise") => (Severity::Low, Confidence::Tentative),
+        ("image.decode_skipped", "correlated_high_risk") => (Severity::Low, Confidence::Strong),
+        ("image.decode_skipped", "correlated") => (Severity::Low, Confidence::Probable),
+        ("image.decode_skipped", "likely_noise") => (Severity::Info, Confidence::Weak),
+        _ => (Severity::Low, Confidence::Probable),
     }
 }
 
@@ -2016,6 +2494,12 @@ mod tests {
             last.meta.get("resource_contribution_bucket_counts"),
             Some(&"structural=1".to_string())
         );
+        assert_eq!(last.meta.get("resource_trigger_classes"), Some(&"structural".to_string()));
+        assert_eq!(
+            last.meta.get("resource_trigger.structural.top_kinds"),
+            Some(&"parser_trailer_count_diff=1".to_string())
+        );
+        assert!(last.meta.contains_key("resource_trigger.structural.remediation"));
     }
 
     #[test]
@@ -2094,6 +2578,27 @@ mod tests {
             last.meta.get("resource_contribution_bucket_counts"),
             Some(&"structural=2, content=1, decode=1, font=1, js-runtime=1".to_string())
         );
+        assert_eq!(
+            last.meta.get("resource_trigger_classes"),
+            Some(&"structural, content, decode, font, js-runtime".to_string())
+        );
+        assert_eq!(last.meta.get("resource_trigger.structural.count"), Some(&"2".to_string()));
+        assert_eq!(
+            last.meta.get("resource_trigger.content.top_kinds"),
+            Some(&"content_stream_anomaly=1".to_string())
+        );
+        assert_eq!(
+            last.meta.get("resource_trigger.decode.sample_objects"),
+            Some(&"12 0 obj".to_string())
+        );
+        assert_eq!(
+            last.meta.get("resource_trigger.js_runtime.sample_objects"),
+            Some(&"20 0 obj".to_string())
+        );
+        let remediation =
+            last.meta.get("resource_trigger_class_remediation").expect("class remediation mapping");
+        assert!(remediation.contains("structural="));
+        assert!(remediation.contains("js-runtime="));
         let top = last.meta.get("resource_contribution_top_kinds").expect("top kind counts");
         assert!(top.contains("parser_trailer_count_diff=1"));
         assert!(top.contains("label_mismatch_stream_type=1"));
@@ -2352,5 +2857,228 @@ mod tests {
             finding.meta.get("triage.context_reasons"),
             Some(&"parser_hazard_on_action_or_js_object".to_string())
         );
+    }
+
+    #[test]
+    fn noisy_class_disambiguation_lowers_isolated_ambiguous_findings() {
+        let mut findings = vec![
+            Finding::template(
+                AttackSurface::StreamsAndFilters,
+                "label_mismatch_stream_type",
+                Severity::Medium,
+                Confidence::Strong,
+                "Stream label mismatch",
+                "Test",
+            ),
+            Finding::template(
+                AttackSurface::FileStructure,
+                "content_stream_anomaly",
+                Severity::Medium,
+                Confidence::Probable,
+                "Content anomaly",
+                "Test",
+            ),
+            Finding::template(
+                AttackSurface::Images,
+                "image.decode_skipped",
+                Severity::Info,
+                Confidence::Probable,
+                "Image decode skipped",
+                "Test",
+            ),
+        ];
+
+        recalibrate_findings_with_context(&mut findings);
+
+        let label = findings
+            .iter()
+            .find(|finding| finding.kind == "label_mismatch_stream_type")
+            .expect("label mismatch finding");
+        assert_eq!(label.severity, Severity::Low);
+        assert_eq!(label.confidence, Confidence::Probable);
+        assert_eq!(label.meta.get("triage.noisy_class_bucket"), Some(&"likely_noise".to_string()));
+        assert_eq!(
+            label.meta.get("triage.context_reasons"),
+            Some(&"noisy_class_likely_noise".to_string())
+        );
+
+        let content = findings
+            .iter()
+            .find(|finding| finding.kind == "content_stream_anomaly")
+            .expect("content anomaly finding");
+        assert_eq!(content.severity, Severity::Low);
+        assert_eq!(content.confidence, Confidence::Tentative);
+        assert_eq!(
+            content.meta.get("triage.noisy_class_counts"),
+            Some(
+                &"content_stream_anomaly=1, image.decode_skipped=1, label_mismatch_stream_type=1"
+                    .to_string()
+            )
+        );
+
+        let image = findings
+            .iter()
+            .find(|finding| finding.kind == "image.decode_skipped")
+            .expect("image decode skipped finding");
+        assert_eq!(image.severity, Severity::Info);
+        assert_eq!(image.confidence, Confidence::Weak);
+    }
+
+    #[test]
+    fn noisy_class_disambiguation_escalates_with_risky_context_overlap() {
+        let mut noisy = Finding::template(
+            AttackSurface::FileStructure,
+            "content_stream_anomaly",
+            Severity::Low,
+            Confidence::Probable,
+            "Content anomaly",
+            "Test",
+        );
+        noisy.objects = vec!["7 0 obj".into()];
+        let mut image = Finding::template(
+            AttackSurface::Images,
+            "image.decode_skipped",
+            Severity::Info,
+            Confidence::Probable,
+            "Image decode skipped",
+            "Test",
+        );
+        image.objects = vec!["7 0 obj".into()];
+        let mut js = Finding::template(
+            AttackSurface::JavaScript,
+            "js_present",
+            Severity::Medium,
+            Confidence::Strong,
+            "JS present",
+            "Test",
+        );
+        js.objects = vec!["7 0 obj".into()];
+        js.meta.insert("js.intent.primary".into(), "network".into());
+        let mut decoder = Finding::template(
+            AttackSurface::StreamsAndFilters,
+            "decoder_risk_present",
+            Severity::High,
+            Confidence::Probable,
+            "Decoder risk present",
+            "Test",
+        );
+        decoder.objects = vec!["7 0 obj".into()];
+        let exhaustion = Finding::template(
+            AttackSurface::FileStructure,
+            "parser_resource_exhaustion",
+            Severity::High,
+            Confidence::Probable,
+            "Resource exhaustion",
+            "Test",
+        );
+
+        let mut findings = vec![noisy, image, js, decoder, exhaustion];
+        recalibrate_findings_with_context(&mut findings);
+
+        let content = findings
+            .iter()
+            .find(|finding| finding.kind == "content_stream_anomaly")
+            .expect("content anomaly finding");
+        assert_eq!(content.severity, Severity::Medium);
+        assert_eq!(content.confidence, Confidence::Strong);
+        assert_eq!(
+            content.meta.get("triage.noisy_class_bucket"),
+            Some(&"correlated_high_risk".to_string())
+        );
+        assert_eq!(
+            content.meta.get("triage.object_overlap_with_risky_refs"),
+            Some(&"true".to_string())
+        );
+        assert_eq!(
+            content.meta.get("triage.context_reasons"),
+            Some(&"noisy_class_correlated_high_risk_context".to_string())
+        );
+
+        let image = findings
+            .iter()
+            .find(|finding| finding.kind == "image.decode_skipped")
+            .expect("image decode skipped finding");
+        assert_eq!(image.severity, Severity::Low);
+        assert_eq!(image.confidence, Confidence::Strong);
+    }
+
+    #[test]
+    fn secondary_parser_baseline_emits_class_hazard_and_role_summaries() {
+        let mut secondary = Finding::template(
+            AttackSurface::FileStructure,
+            "secondary_parser_failure",
+            Severity::Low,
+            Confidence::Probable,
+            "Secondary parser failed",
+            "Test",
+        );
+        secondary.objects = vec!["parser".into()];
+        secondary
+            .meta
+            .insert("secondary_parser.error_class".into(), "invalid_indirect_object".into());
+        let mut diff = Finding::template(
+            AttackSurface::FileStructure,
+            "parser_diff_structural",
+            Severity::Medium,
+            Confidence::Probable,
+            "Parser diff",
+            "Test",
+        );
+        diff.objects = vec!["trailer.0".into(), "12 0 obj".into(), "xref".into()];
+        diff.meta.insert(
+            "diff.missing_in_secondary_hazards".into(),
+            "12 0=unbalanced_literal_string_parentheses, 5 0=creation_date_trailing_timezone_token"
+                .into(),
+        );
+        let mut findings = vec![secondary, diff];
+
+        maybe_record_secondary_parser_prevalence_baseline(&mut findings);
+
+        let baseline = findings
+            .iter()
+            .find(|finding| finding.kind == "secondary_parser_prevalence_baseline")
+            .expect("baseline finding should be emitted");
+        assert_eq!(baseline.severity, Severity::Info);
+        assert_eq!(baseline.confidence, Confidence::Strong);
+        assert_eq!(
+            baseline.meta.get("secondary_parser.error_class_counts"),
+            Some(&"invalid_indirect_object=1".to_string())
+        );
+        assert_eq!(
+            baseline.meta.get("secondary_parser.hazard_counts"),
+            Some(
+                &"creation_date_trailing_timezone_token=1, unbalanced_literal_string_parentheses=1"
+                    .to_string()
+            )
+        );
+        let roles =
+            baseline.meta.get("secondary_parser.object_role_counts").expect("object role summary");
+        assert!(roles.contains("parser=1"));
+        assert!(roles.contains("trailer=1"));
+        assert!(roles.contains("object=1"));
+        assert!(roles.contains("xref=1"));
+        assert_eq!(
+            baseline.meta.get("secondary_parser.remediation_candidates"),
+            Some(
+                &"indirect_object_parser_hardening, literal_string_balance_validation, metadata_tokeniser_normalisation"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn secondary_parser_baseline_skips_without_signals() {
+        let mut findings = vec![Finding::template(
+            AttackSurface::JavaScript,
+            "js_present",
+            Severity::Medium,
+            Confidence::Strong,
+            "JavaScript present",
+            "Test",
+        )];
+        maybe_record_secondary_parser_prevalence_baseline(&mut findings);
+        assert!(!findings
+            .iter()
+            .any(|finding| finding.kind == "secondary_parser_prevalence_baseline"));
     }
 }

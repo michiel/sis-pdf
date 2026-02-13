@@ -123,6 +123,7 @@ Findings in this project include metadata fields for `severity`, `impact`, and `
   `regression_payloads.rs`).
 - Add or update fixtures in
   `crates/sis-pdf-core/tests/fixtures/` when coverage needs realistic PDFs.
+- Every new change or capability must include tests and representative fixtures.
 
 ## Commit & Pull Request Guidelines
 

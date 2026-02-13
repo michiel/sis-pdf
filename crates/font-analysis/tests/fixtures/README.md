@@ -8,6 +8,7 @@ This directory contains test fixtures for font security analysis. All fixtures a
 fixtures/
 ├── exploits/       # Exploit samples demonstrating known attack patterns
 ├── cve/           # CVE-specific vulnerability test cases
+├── dynamic/       # Dynamic parser failure taxonomy fixtures
 └── benign/        # Clean fonts for regression testing
 ```
 
@@ -113,6 +114,18 @@ fixtures/
 **Purpose:** Regression testing - should not trigger any findings.
 
 **License:** Synthetic test data, public domain.
+
+## Dynamic Parser Fixtures
+
+### `dynamic/unknown-magic-font.bin`
+**Description:** Non-font payload used to exercise unknown-magic parse-failure classification.
+
+**Purpose:** Ensures `font.dynamic_parse_failure` is tagged as low-relevance noise when the payload is not a valid font.
+
+### `dynamic/truncated-sfnt-header.ttf`
+**Description:** Truncated sfnt header with incomplete table directory.
+
+**Purpose:** Ensures malformed-structure parse failures remain medium-severity and carry correlation-oriented remediation metadata.
 
 ### `benign/minimal-truetype.ttf`
 **Description:** Minimal valid TrueType font with single glyph.

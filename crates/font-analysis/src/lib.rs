@@ -107,16 +107,7 @@ pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysis
                 outcome.timed_out = true;
             }
             Err(DynamicError::Failure(err)) => {
-                let mut meta = HashMap::new();
-                meta.insert("font.dynamic_error".into(), err);
-                findings.push(FontFinding {
-                    kind: "font.dynamic_parse_failure".into(),
-                    severity: Severity::High,
-                    confidence: Confidence::Probable,
-                    title: "Font parsing failed".into(),
-                    description: "Dynamic font parsing failed in the runtime engine.".into(),
-                    meta,
-                });
+                findings.push(dynamic_worker_failure_finding(&err));
             }
         }
     }
@@ -151,6 +142,28 @@ enum DynamicError {
 }
 
 #[cfg(feature = "dynamic")]
+fn dynamic_worker_failure_finding(err: &str) -> FontFinding {
+    let mut meta = HashMap::new();
+    meta.insert("font.dynamic_error".into(), err.to_string());
+    meta.insert("parse_error_class".into(), "dynamic_worker_failure".into());
+    meta.insert("parse_error_exploit_relevance".into(), "low".into());
+    meta.insert("parse_error_triage_bucket".into(), "runtime_infrastructure".into());
+    meta.insert(
+        "parse_error_remediation".into(),
+        "Retry with runtime telemetry enabled; escalate only when corroborating font/structure findings exist."
+            .into(),
+    );
+    FontFinding {
+        kind: "font.dynamic_parse_failure".into(),
+        severity: Severity::Low,
+        confidence: Confidence::Tentative,
+        title: "Font parsing failed".into(),
+        description: "Dynamic font parsing failed in the runtime engine.".into(),
+        meta,
+    }
+}
+
+#[cfg(feature = "dynamic")]
 fn run_dynamic_with_timeout(
     data: &[u8],
     timeout_ms: u64,
@@ -168,5 +181,26 @@ fn run_dynamic_with_timeout(
         Ok(findings) => Ok(findings),
         Err(mpsc::RecvTimeoutError::Timeout) => Err(DynamicError::Timeout),
         Err(_) => Err(DynamicError::Failure("dynamic worker error".into())),
+    }
+}
+
+#[cfg(all(test, feature = "dynamic"))]
+mod tests {
+    use super::{dynamic_worker_failure_finding, Confidence, Severity};
+
+    #[test]
+    fn dynamic_worker_failure_finding_sets_low_relevance_metadata() {
+        let finding = dynamic_worker_failure_finding("dynamic worker error");
+        assert_eq!(finding.kind, "font.dynamic_parse_failure");
+        assert_eq!(finding.severity, Severity::Low);
+        assert_eq!(finding.confidence, Confidence::Tentative);
+        assert_eq!(
+            finding.meta.get("parse_error_class"),
+            Some(&"dynamic_worker_failure".to_string())
+        );
+        assert_eq!(
+            finding.meta.get("parse_error_triage_bucket"),
+            Some(&"runtime_infrastructure".to_string())
+        );
     }
 }
