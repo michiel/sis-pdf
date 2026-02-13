@@ -309,6 +309,7 @@ The `meta` map keeps:
 - `uri.max_severity`, `uri.max_confidence`, and `uri.risk_band_counts` to summarise the highest observed URI risk posture across the document.
 - `uri.list.*` entries (max 50) that include a preview plus canonicalized form, `scheme`, `domain`, `risk_score`, suspicious flag, heuristic `chain_depth`, visibility/placement, trigger metadata, and per-entry `severity`/`confidence`. When the document contains more URIs the `uri.listing.truncated` flag flips to `true`, but `uri.count_total` still reports the real total.
 - `uri.list.limit` and `uri.list.stored` record how many entries were persisted so downstream parsers can iterate deterministically.
+- `uri.scan.limit` and `uri.scan.truncated` capture the detector’s bounded URI scan budget for large documents.
 
 Because some parsers (or minimalist PDF layouts) never expose `UriTarget` edges, the detector falls back to scanning every dictionary for `/URI` keys so the aggregate finding still appears as long as there is at least one URI target.
 

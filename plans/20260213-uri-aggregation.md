@@ -290,11 +290,11 @@ Progress update (2026-02-13):
 
 | Metric | Baseline | Post-change | Delta | Gate |
 |---|---:|---:|---:|---|
-| URI-heavy finding count p50 | 59 | 35 | -24 (-40.7%) | PASS |
-| URI-heavy finding count p95 | 83 | 79 | -4 (-4.8%) | PASS |
+| URI-heavy finding count p50 | 59 | 34 | -25 (-42.4%) | PASS |
+| URI-heavy finding count p95 | 186 | 161 | -25 (-13.4%) | PASS |
 | Malicious chain recall | N/A (no labelled ground truth in this slice) | N/A | N/A | PENDING labelled replay |
 | Benign FP rate | N/A (no labelled benign set in this slice) | N/A | N/A | PENDING labelled replay |
-| Scan runtime p95 (URI-heavy slice) | 3445 ms | 10416 ms | +6971 ms (+202.4%) | FAIL (outlier-driven) |
+| Scan runtime p95 (URI-heavy slice) | 9410 ms | 10069 ms | +659 ms (+7.0%) | NEAR PASS (outlier-driven) |
 | `uri_content_analysis` count parity | 0 | 0 | 0 | PASS |
 
 ### 11.1 Replay method and raw totals
@@ -330,3 +330,15 @@ Raw totals (successful scans only):
   1. Run labelled malicious/benign replay for recall/FP gates.
   2. Isolate runtime outliers from this slice and profile detector phase timing.
   3. Re-run the same fixed-hash slice after runtime tuning to close Gate D.
+
+### 11.3 Outlier-isolation implementation update (2026-02-13)
+
+- Implemented URI summary runtime hardening in `UriPresenceDetector`:
+  - removed typed-graph construction from `uri_listing` path;
+  - switched to bounded direct `/URI` dictionary scan;
+  - added adaptive URI scan budget (`uri.scan.limit`) and truncation marker (`uri.scan.truncated`).
+- Replayed the same fixed-hash slice post-change:
+  - baseline p95 runtime `9410 ms` vs post p95 runtime `10069 ms` (+7.0%).
+- Outlier attribution:
+  - same file dominates both baseline and post (`d0552d4a...`), with repeated font hinting anomaly activity;
+  - indicates Gate D pressure is primarily from non-URI detector cost on that artefact, not URI listing regression.

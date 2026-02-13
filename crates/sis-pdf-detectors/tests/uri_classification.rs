@@ -89,6 +89,7 @@ fn uri_listing_aggregates_metadata() {
     assert!(listing.meta.contains_key("uri.list.0.severity"));
     assert!(listing.meta.contains_key("uri.list.0.confidence"));
     assert!(listing.meta.contains_key("uri.list.limit"));
+    assert!(listing.meta.contains_key("uri.scan.limit"));
     assert!(listing.meta.contains_key("uri.listing.schema_version"));
 
     assert!(

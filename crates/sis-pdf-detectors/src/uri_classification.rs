@@ -1277,37 +1277,19 @@ impl Detector for UriPresenceDetector {
     }
 
     fn run(&self, ctx: &ScanContext) -> Result<Vec<Finding>> {
-        const MAX_URIS: usize = 1_000;
         const MAX_LISTING_ENTRIES: usize = 50;
+        let max_uris = uri_presence_uri_budget(ctx);
 
-        // Build typed graph to find URI edges
-        let typed_graph = ctx.build_typed_graph();
-        let mut seen = HashSet::new();
         let mut uri_objects = Vec::new();
-
-        for edge in &typed_graph.edges {
-            if matches!(edge.edge_type, EdgeType::UriTarget) {
-                if seen.insert(edge.src) {
-                    uri_objects.push(edge.src);
-                    if uri_objects.len() >= MAX_URIS {
-                        break;
-                    }
-                }
+        let mut scan_truncated = false;
+        for entry in ctx.graph.objects.iter() {
+            if uri_objects.len() >= max_uris {
+                scan_truncated = true;
+                break;
             }
-        }
-
-        // Fallback: scan every object for /URI if the typed graph didn’t find any
-        if uri_objects.is_empty() {
-            for entry in ctx.graph.objects.iter() {
-                if uri_objects.len() >= MAX_URIS {
-                    break;
-                }
-                if seen.insert((entry.obj, entry.gen)) {
-                    if let Some(dict) = entry_dict(entry) {
-                        if dict.get_first(b"/URI").is_some() {
-                            uri_objects.push((entry.obj, entry.gen));
-                        }
-                    }
+            if let Some(dict) = entry_dict(entry) {
+                if dict.get_first(b"/URI").is_some() {
+                    uri_objects.push((entry.obj, entry.gen));
                 }
             }
         }
@@ -1463,7 +1445,11 @@ impl Detector for UriPresenceDetector {
         meta.insert("uri.list.count".to_string(), uri_count.to_string());
         meta.insert("uri.list.stored".to_string(), uri_count.min(MAX_LISTING_ENTRIES).to_string());
         meta.insert("uri.list.limit".to_string(), MAX_LISTING_ENTRIES.to_string());
+        meta.insert("uri.scan.limit".to_string(), max_uris.to_string());
         meta.insert("uri.listing.schema_version".to_string(), "1".to_string());
+        if scan_truncated {
+            meta.insert("uri.scan.truncated".to_string(), "true".to_string());
+        }
         if uri_count > MAX_LISTING_ENTRIES {
             meta.insert("uri.listing.truncated".to_string(), "true".to_string());
         }
@@ -1566,4 +1552,22 @@ fn risk_score_to_confidence(score: u32) -> Confidence {
         51..=80 => Confidence::Probable,
         _ => Confidence::Strong,
     }
+}
+
+fn uri_presence_uri_budget(ctx: &ScanContext) -> usize {
+    const MIN_URI_BUDGET: usize = 100;
+    const MAX_URI_BUDGET: usize = 1_000;
+    let object_count = ctx.graph.objects.len();
+    let mut budget = if ctx.options.deep { MAX_URI_BUDGET } else { 500 };
+    if ctx.options.fast {
+        budget = budget.min(250);
+    }
+    if object_count >= 250_000 {
+        budget = budget.min(200);
+    } else if object_count >= 125_000 {
+        budget = budget.min(350);
+    } else if object_count >= 75_000 {
+        budget = budget.min(500);
+    }
+    budget.max(MIN_URI_BUDGET)
 }
