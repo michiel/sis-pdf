@@ -234,6 +234,7 @@ Progress update (2026-02-13):
   - `uri_content_analysis=0`
   - no scan errors.
 - Pending: full baseline-vs-post corpus comparison for quantified p50/p95 finding-count delta and malicious-chain recall delta (requires stored pre-change baseline).
+- Completed (lightweight A/B): fixed-hash replay on deterministic URI-heavy slice (10 files, unique hashes) comparing baseline `385d457` vs current `22df144`.
 
 ## 8) Validation gates
 
@@ -289,9 +290,43 @@ Progress update (2026-02-13):
 
 | Metric | Baseline | Post-change | Delta | Gate |
 |---|---:|---:|---:|---|
-| URI-heavy finding count p50 |  |  |  | decrease expected |
-| URI-heavy finding count p95 |  |  |  | decrease expected |
-| Malicious chain recall |  |  |  | >= baseline -1.0pp |
-| Benign FP rate |  |  |  | <= +0.30pp |
-| Scan runtime p95 (URI-heavy slice) |  |  |  | <= +5% |
-| `uri_content_analysis` count parity |  |  |  | no material drop |
+| URI-heavy finding count p50 | 59 | 35 | -24 (-40.7%) | PASS |
+| URI-heavy finding count p95 | 83 | 79 | -4 (-4.8%) | PASS |
+| Malicious chain recall | N/A (no labelled ground truth in this slice) | N/A | N/A | PENDING labelled replay |
+| Benign FP rate | N/A (no labelled benign set in this slice) | N/A | N/A | PENDING labelled replay |
+| Scan runtime p95 (URI-heavy slice) | 3445 ms | 10416 ms | +6971 ms (+202.4%) | FAIL (outlier-driven) |
+| `uri_content_analysis` count parity | 0 | 0 | 0 | PASS |
+
+### 11.1 Replay method and raw totals
+
+- Slice definition: deterministic URI-heavy fixed-hash sample from `tmp/corpus` (10 files, unique basenames, selected from `/URI` candidates).
+- Baseline commit: `385d457` (pre-URI-aggregation uplift).
+- Post commit: `22df144`.
+- Time budget: 12s timeout per scan command.
+
+Raw totals (successful scans only):
+
+- Baseline:
+  - `ok=8`, `scan_errors=2`
+  - `findings_total=448`
+  - `uri_present_total=109`
+  - `uri_listing_total=1`
+  - `uri_content_analysis_total=0`
+  - `uri_action_chains_total=0`
+- Post-change:
+  - `ok=8`, `scan_errors=2`
+  - `findings_total=334`
+  - `uri_present_total=0`
+  - `uri_listing_total=1`
+  - `uri_content_analysis_total=0`
+  - `uri_action_chains_total=1`
+
+### 11.2 Gate interpretation and next closure actions
+
+- Gate C (output quality): **met** in this replay (`uri_present` removed; finding-count reduction observed).
+- Gate B (chain integrity): **no regression signal** from this slice; URI action-chain presence is preserved.
+- Gate D (runtime): **not met** in this replay due p95 outlier inflation under fixed timeout budget; requires targeted runtime investigation on the slow samples.
+- Remaining closure work:
+  1. Run labelled malicious/benign replay for recall/FP gates.
+  2. Isolate runtime outliers from this slice and profile detector phase timing.
+  3. Re-run the same fixed-hash slice after runtime tuning to close Gate D.
