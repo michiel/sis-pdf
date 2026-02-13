@@ -25,8 +25,16 @@ fn detects_passive_credential_leak_with_automatic_trigger() {
         Some("automatic_or_aa")
     );
     assert_eq!(
+        fetch.meta.get("passive.indexer_trigger_likelihood").map(std::string::String::as_str),
+        Some("elevated")
+    );
+    assert_eq!(
         fetch.meta.get("passive.credential_leak_risk").map(std::string::String::as_str),
         Some("true")
+    );
+    assert_eq!(
+        fetch.meta.get("passive.ntlm_hash_leak_likelihood").map(std::string::String::as_str),
+        Some("elevated")
     );
 
     let credential = report
@@ -86,5 +94,31 @@ fn ignores_relative_targets_without_supported_external_protocol() {
     assert!(
         report.findings.iter().all(|finding| !finding.kind.starts_with("passive_")),
         "relative path should not trigger passive external target findings"
+    );
+}
+
+#[test]
+fn classifies_passive_render_only_context_without_automatic_trigger() {
+    let bytes = include_bytes!("fixtures/passive_font_only_http.pdf");
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+
+    let fetch = report
+        .findings
+        .iter()
+        .find(|finding| finding.kind == "passive_external_resource_fetch")
+        .expect("passive_external_resource_fetch");
+    assert_eq!(fetch.severity, Severity::Low);
+    assert_eq!(
+        fetch.meta.get("passive.trigger_mode").map(std::string::String::as_str),
+        Some("passive_render_or_indexer")
+    );
+    assert_eq!(
+        fetch.meta.get("passive.indexer_trigger_likelihood").map(std::string::String::as_str),
+        Some("elevated")
     );
 }

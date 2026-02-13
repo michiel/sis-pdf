@@ -2845,6 +2845,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `passive.external_protocols`
     - `passive.source_contexts`
     - `passive.trigger_mode`
+    - `passive.indexer_trigger_likelihood`
 
 ## passive_credential_leak_risk
 
@@ -2858,6 +2859,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Chain usage: used as high-priority exfiltration-risk signal when triaging passive document workflows.
   - Metadata highlights:
     - `passive.credential_leak_risk`
+    - `passive.ntlm_hash_leak_likelihood`
     - `passive.credential_leak_hit_count`
     - `passive.external_targets_sample`
 

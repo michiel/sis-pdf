@@ -4,7 +4,7 @@ use sis_pdf_core::model::{
     AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
 };
 use sis_pdf_core::scan::span_to_evidence;
-use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfStr};
+use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr};
 use sis_pdf_pdf::typed_graph::EdgeType;
 use std::collections::{BTreeSet, HashMap};
 
@@ -21,6 +21,23 @@ struct ExternalTargetHit {
     target: String,
     protocol: String,
     credential_leak_risk: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PassiveTriggerMode {
+    AutomaticOrAa,
+    PassiveRenderOrIndexer,
+    ManualOrUnknown,
+}
+
+impl PassiveTriggerMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            PassiveTriggerMode::AutomaticOrAa => "automatic_or_aa",
+            PassiveTriggerMode::PassiveRenderOrIndexer => "passive_render_or_indexer",
+            PassiveTriggerMode::ManualOrUnknown => "manual_or_unknown",
+        }
+    }
 }
 
 impl Detector for PassiveRenderPipelineDetector {
@@ -78,6 +95,14 @@ impl Detector for PassiveRenderPipelineDetector {
             matches!(hit.source_context.as_str(), "font" | "image" | "metadata" | "forms")
         });
 
+        let trigger_mode = if has_automatic_trigger {
+            PassiveTriggerMode::AutomaticOrAa
+        } else if preview_prone_context {
+            PassiveTriggerMode::PassiveRenderOrIndexer
+        } else {
+            PassiveTriggerMode::ManualOrUnknown
+        };
+
         let mut base_meta = HashMap::new();
         base_meta.insert("passive.external_target_count".into(), hits.len().to_string());
         base_meta.insert(
@@ -88,13 +113,26 @@ impl Detector for PassiveRenderPipelineDetector {
             "passive.source_contexts".into(),
             contexts.into_iter().collect::<Vec<_>>().join(", "),
         );
+        base_meta.insert("passive.trigger_mode".into(), trigger_mode.as_str().into());
         base_meta.insert(
-            "passive.trigger_mode".into(),
-            if has_automatic_trigger { "automatic_or_aa" } else { "manual_or_unknown" }.into(),
+            "passive.indexer_trigger_likelihood".into(),
+            if matches!(
+                trigger_mode,
+                PassiveTriggerMode::AutomaticOrAa | PassiveTriggerMode::PassiveRenderOrIndexer
+            ) {
+                "elevated"
+            } else {
+                "low"
+            }
+            .into(),
         );
         base_meta.insert(
             "passive.credential_leak_risk".into(),
             if credential_leak_hits > 0 { "true" } else { "false" }.into(),
+        );
+        base_meta.insert(
+            "passive.ntlm_hash_leak_likelihood".into(),
+            if credential_leak_hits > 0 { "elevated" } else { "low" }.into(),
         );
         base_meta.insert(
             "passive.preview_prone_surface".into(),
@@ -114,7 +152,11 @@ impl Detector for PassiveRenderPipelineDetector {
             surface: AttackSurface::Actions,
             kind: "passive_external_resource_fetch".into(),
             severity: if has_automatic_trigger { Severity::Medium } else { Severity::Low },
-            confidence: Confidence::Strong,
+            confidence: if trigger_mode == PassiveTriggerMode::PassiveRenderOrIndexer {
+                Confidence::Probable
+            } else {
+                Confidence::Strong
+            },
             impact: Some(if preview_prone_context { Impact::Medium } else { Impact::Low }),
             title: "Passive external resource fetch surface".into(),
             description:
@@ -136,14 +178,20 @@ impl Detector for PassiveRenderPipelineDetector {
                     surface: AttackSurface::Actions,
                     severity: if preview_prone_context { Severity::Medium } else { Severity::Low },
                     impact: if preview_prone_context { Impact::Medium } else { Impact::Low },
-                    note: Some("Preview/index rendering may trigger outbound fetch for linked resources.".into()),
+                    note: Some(
+                        "Preview/index rendering may trigger outbound fetch for linked resources."
+                            .into(),
+                    ),
                 },
                 ReaderImpact {
                     profile: ReaderProfile::Acrobat,
                     surface: AttackSurface::Actions,
                     severity: Severity::Low,
                     impact: Impact::Low,
-                    note: Some("Open-time resource resolution can expand attack surface for external targets.".into()),
+                    note: Some(
+                        "Open-time resource resolution can expand attack surface for external targets."
+                            .into(),
+                    ),
                 },
             ],
             action_type: None,
@@ -189,7 +237,8 @@ impl Detector for PassiveRenderPipelineDetector {
                         severity: Severity::High,
                         impact: Impact::High,
                         note: Some(
-                            "Preview-style rendering can trigger network resolution of UNC/SMB targets.".into(),
+                            "Preview-style rendering can trigger network resolution of UNC/SMB targets."
+                                .into(),
                         ),
                     },
                     ReaderImpact {
@@ -197,7 +246,10 @@ impl Detector for PassiveRenderPipelineDetector {
                         surface: AttackSurface::Actions,
                         severity: Severity::Medium,
                         impact: Impact::Medium,
-                        note: Some("External target resolution may expose credentials depending on host policy.".into()),
+                        note: Some(
+                            "External target resolution may expose credentials depending on host policy."
+                                .into(),
+                        ),
                     },
                 ],
                 action_type: None,
@@ -243,7 +295,8 @@ impl Detector for PassiveRenderPipelineDetector {
                         severity: Severity::High,
                         impact: Impact::High,
                         note: Some(
-                            "Preview and indexing surfaces are likely to trigger passive execution pathways.".into(),
+                            "Preview and indexing surfaces are likely to trigger passive execution pathways."
+                                .into(),
                         ),
                     },
                     ReaderImpact {
@@ -251,7 +304,10 @@ impl Detector for PassiveRenderPipelineDetector {
                         surface: AttackSurface::Actions,
                         severity: Severity::Medium,
                         impact: Impact::Medium,
-                        note: Some("Renderer behaviour may vary; treat differential fetch behaviour as suspicious.".into()),
+                        note: Some(
+                            "Renderer behaviour may vary; treat differential fetch behaviour as suspicious."
+                                .into(),
+                        ),
                     },
                 ],
                 action_type: None,
@@ -308,9 +364,7 @@ fn is_font_related(dict: &PdfDict<'_>) -> bool {
 fn is_image_related(dict: &PdfDict<'_>) -> bool {
     if let Some((_, subtype_obj)) = dict.get_first(b"/Subtype") {
         if let PdfAtom::Name(name) = &subtype_obj.atom {
-            if name.decoded.as_slice() == b"/Image" {
-                return true;
-            }
+            return name.decoded.as_slice() == b"/Image";
         }
     }
     false
@@ -348,7 +402,7 @@ fn collect_external_targets(
     }
 }
 
-fn extract_external_target(obj: &sis_pdf_pdf::object::PdfObj<'_>) -> Option<String> {
+fn extract_external_target(obj: &PdfObj<'_>) -> Option<String> {
     match &obj.atom {
         PdfAtom::Str(text) => Some(String::from_utf8_lossy(&string_bytes(text)).to_string()),
         PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
@@ -386,7 +440,7 @@ fn classify_protocol(raw: &str) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_context, classify_protocol};
+    use super::{classify_context, classify_protocol, PassiveTriggerMode};
     use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj};
     use sis_pdf_pdf::span::Span;
     use std::borrow::Cow;
@@ -415,5 +469,15 @@ mod tests {
             entries: vec![(name("/S"), PdfObj { span: span(), atom: PdfAtom::Name(name("/URI")) })],
         };
         assert_eq!(classify_context(&dict), "action");
+    }
+
+    #[test]
+    fn passive_trigger_mode_strings_are_stable() {
+        assert_eq!(PassiveTriggerMode::AutomaticOrAa.as_str(), "automatic_or_aa");
+        assert_eq!(
+            PassiveTriggerMode::PassiveRenderOrIndexer.as_str(),
+            "passive_render_or_indexer"
+        );
+        assert_eq!(PassiveTriggerMode::ManualOrUnknown.as_str(), "manual_or_unknown");
     }
 }
