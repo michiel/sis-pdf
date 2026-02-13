@@ -77,6 +77,13 @@ Test/fixture requirements:
 1. Fixtures for UNC + auto-trigger, UNC + passive render path, HTTP passive fetch control case.
 2. Integration tests for severity/confidence calibration and object reference output.
 
+Implementation status (2026-02-13):
+1. Added protocol risk-class scoring (`low|medium|high`) and trigger-mode-aware severity/impact calibration for passive fetch findings.
+2. Added NTLM/SMB specificity metadata (`passive.ntlm_target_count`, `passive.ntlm_hosts`, `passive.ntlm_shares`) with host/share extraction.
+3. Added source/protocol breakdown metadata (`passive.source_context_breakdown`, `passive.protocol_breakdown`) and preview/indexer context counts.
+4. Added UNC passive-render fixture `crates/sis-pdf-detectors/tests/fixtures/passive_font_only_unc.pdf`.
+5. Extended integration tests to validate UNC + auto-trigger, UNC + passive-render-only, and HTTP control behaviour.
+
 ## PR-M2: Renderer divergence catalogue (narrow scope)
 
 Objective: model known renderer-behaviour differences with deterministic rules.

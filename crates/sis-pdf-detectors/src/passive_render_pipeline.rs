@@ -21,6 +21,8 @@ struct ExternalTargetHit {
     target: String,
     protocol: String,
     credential_leak_risk: bool,
+    ntlm_host: Option<String>,
+    ntlm_share: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -28,6 +30,23 @@ enum PassiveTriggerMode {
     AutomaticOrAa,
     PassiveRenderOrIndexer,
     ManualOrUnknown,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ProtocolRiskClass {
+    Low,
+    Medium,
+    High,
+}
+
+impl ProtocolRiskClass {
+    fn as_str(self) -> &'static str {
+        match self {
+            ProtocolRiskClass::Low => "low",
+            ProtocolRiskClass::Medium => "medium",
+            ProtocolRiskClass::High => "high",
+        }
+    }
 }
 
 impl PassiveTriggerMode {
@@ -91,9 +110,27 @@ impl Detector for PassiveRenderPipelineDetector {
             hits.iter().map(|hit| format!("{}:{}", hit.source_context, hit.source_key)).collect();
         let objects: BTreeSet<String> = hits.iter().map(|hit| hit.object_ref.clone()).collect();
         let credential_leak_hits = hits.iter().filter(|hit| hit.credential_leak_risk).count();
+        let ntlm_targets = hits.iter().filter(|hit| hit.ntlm_host.is_some()).count();
+        let max_protocol_risk = hits
+            .iter()
+            .map(|hit| protocol_risk_class(&hit.protocol))
+            .max()
+            .unwrap_or(ProtocolRiskClass::Low);
+        let mut protocol_counts: HashMap<String, usize> = HashMap::new();
+        let mut context_counts: HashMap<String, usize> = HashMap::new();
+        for hit in &hits {
+            *protocol_counts.entry(hit.protocol.clone()).or_insert(0) += 1;
+            *context_counts.entry(hit.source_context.clone()).or_insert(0) += 1;
+        }
         let preview_prone_context = hits.iter().any(|hit| {
             matches!(hit.source_context.as_str(), "font" | "image" | "metadata" | "forms")
         });
+        let preview_indexer_context_count = hits
+            .iter()
+            .filter(|hit| {
+                matches!(hit.source_context.as_str(), "font" | "image" | "metadata" | "forms")
+            })
+            .count();
 
         let trigger_mode = if has_automatic_trigger {
             PassiveTriggerMode::AutomaticOrAa
@@ -109,6 +146,10 @@ impl Detector for PassiveRenderPipelineDetector {
             "passive.external_protocols".into(),
             protocols.into_iter().collect::<Vec<_>>().join(", "),
         );
+        base_meta.insert("passive.protocol_breakdown".into(), render_breakdown(&protocol_counts));
+        base_meta
+            .insert("passive.source_context_breakdown".into(), render_breakdown(&context_counts));
+        base_meta.insert("passive.protocol_risk_class".into(), max_protocol_risk.as_str().into());
         base_meta.insert(
             "passive.source_contexts".into(),
             contexts.into_iter().collect::<Vec<_>>().join(", "),
@@ -130,13 +171,18 @@ impl Detector for PassiveRenderPipelineDetector {
             "passive.credential_leak_risk".into(),
             if credential_leak_hits > 0 { "true" } else { "false" }.into(),
         );
+        base_meta.insert("passive.ntlm_target_count".into(), ntlm_targets.to_string());
         base_meta.insert(
             "passive.ntlm_hash_leak_likelihood".into(),
-            if credential_leak_hits > 0 { "elevated" } else { "low" }.into(),
+            ntlm_hash_likelihood(trigger_mode, max_protocol_risk, credential_leak_hits).into(),
         );
         base_meta.insert(
             "passive.preview_prone_surface".into(),
             if preview_prone_context { "true" } else { "false" }.into(),
+        );
+        base_meta.insert(
+            "passive.preview_indexer_context_count".into(),
+            preview_indexer_context_count.to_string(),
         );
         let mut sample_targets = hits.iter().map(|hit| hit.target.clone()).collect::<Vec<_>>();
         sample_targets.sort();
@@ -145,19 +191,35 @@ impl Detector for PassiveRenderPipelineDetector {
             "passive.external_targets_sample".into(),
             sample_targets.into_iter().take(6).collect::<Vec<_>>().join(", "),
         );
+        let mut ntlm_hosts =
+            hits.iter().filter_map(|hit| hit.ntlm_host.clone()).collect::<Vec<_>>();
+        ntlm_hosts.sort();
+        ntlm_hosts.dedup();
+        if !ntlm_hosts.is_empty() {
+            base_meta.insert(
+                "passive.ntlm_hosts".into(),
+                ntlm_hosts.into_iter().take(6).collect::<Vec<_>>().join(", "),
+            );
+        }
+        let mut ntlm_shares =
+            hits.iter().filter_map(|hit| hit.ntlm_share.clone()).collect::<Vec<_>>();
+        ntlm_shares.sort();
+        ntlm_shares.dedup();
+        if !ntlm_shares.is_empty() {
+            base_meta.insert(
+                "passive.ntlm_shares".into(),
+                ntlm_shares.into_iter().take(6).collect::<Vec<_>>().join(", "),
+            );
+        }
 
         let mut findings = Vec::new();
         findings.push(Finding {
             id: String::new(),
             surface: AttackSurface::Actions,
             kind: "passive_external_resource_fetch".into(),
-            severity: if has_automatic_trigger { Severity::Medium } else { Severity::Low },
-            confidence: if trigger_mode == PassiveTriggerMode::PassiveRenderOrIndexer {
-                Confidence::Probable
-            } else {
-                Confidence::Strong
-            },
-            impact: Some(if preview_prone_context { Impact::Medium } else { Impact::Low }),
+            severity: passive_fetch_severity(trigger_mode, max_protocol_risk, preview_prone_context),
+            confidence: passive_fetch_confidence(trigger_mode, max_protocol_risk),
+            impact: Some(passive_fetch_impact(trigger_mode, max_protocol_risk, preview_prone_context)),
             title: "Passive external resource fetch surface".into(),
             description:
                 "External fetch targets were found in rendering-related PDF objects, which may trigger outbound requests during preview, indexing, or open-time processing."
@@ -212,8 +274,8 @@ impl Detector for PassiveRenderPipelineDetector {
                 id: String::new(),
                 surface: AttackSurface::Actions,
                 kind: "passive_credential_leak_risk".into(),
-                severity: if has_automatic_trigger { Severity::High } else { Severity::Medium },
-                confidence: Confidence::Strong,
+                severity: passive_credential_severity(trigger_mode, max_protocol_risk),
+                confidence: if ntlm_targets > 0 { Confidence::Strong } else { Confidence::Probable },
                 impact: Some(Impact::High),
                 title: "Passive credential leak risk".into(),
                 description:
@@ -387,12 +449,15 @@ fn collect_external_targets(
         if let Some((_, value)) = dict.get_first(key) {
             if let Some(target) = extract_external_target(value) {
                 if let Some(protocol) = classify_protocol(&target) {
+                    let (ntlm_host, ntlm_share) = extract_ntlm_target_details(&target, protocol);
                     out.push(ExternalTargetHit {
                         object_ref: object_ref.to_string(),
                         object_span,
                         source_key: String::from_utf8_lossy(key).to_string(),
                         source_context: context.to_string(),
                         credential_leak_risk: matches!(protocol, "unc" | "smb"),
+                        ntlm_host,
+                        ntlm_share,
                         target,
                         protocol: protocol.to_string(),
                     });
@@ -438,12 +503,143 @@ fn classify_protocol(raw: &str) -> Option<&'static str> {
     None
 }
 
+fn extract_ntlm_target_details(target: &str, protocol: &str) -> (Option<String>, Option<String>) {
+    if protocol == "unc" {
+        let trimmed = target.trim().trim_start_matches('\\');
+        let mut parts = trimmed.split('\\').filter(|part| !part.is_empty());
+        let host = parts.next().map(|value| value.to_string());
+        let share = parts.next().map(|value| value.to_string());
+        return (host, share);
+    }
+    if protocol == "smb" {
+        let trimmed = target.trim();
+        let without_scheme =
+            trimmed.strip_prefix("smb://").or_else(|| trimmed.strip_prefix("SMB://"));
+        if let Some(rest) = without_scheme {
+            let mut parts = rest.split('/').filter(|part| !part.is_empty());
+            let host = parts.next().map(|value| value.to_string());
+            let share = parts.next().map(|value| value.to_string());
+            return (host, share);
+        }
+    }
+    (None, None)
+}
+
+fn protocol_risk_class(protocol: &str) -> ProtocolRiskClass {
+    match protocol {
+        "unc" | "smb" | "file" => ProtocolRiskClass::High,
+        "ftp" => ProtocolRiskClass::Medium,
+        "http" => ProtocolRiskClass::Low,
+        _ => ProtocolRiskClass::Low,
+    }
+}
+
+fn passive_fetch_severity(
+    trigger_mode: PassiveTriggerMode,
+    max_protocol_risk: ProtocolRiskClass,
+    preview_prone_context: bool,
+) -> Severity {
+    if trigger_mode == PassiveTriggerMode::AutomaticOrAa
+        && max_protocol_risk == ProtocolRiskClass::High
+    {
+        Severity::High
+    } else if trigger_mode == PassiveTriggerMode::AutomaticOrAa
+        || (preview_prone_context && max_protocol_risk == ProtocolRiskClass::High)
+    {
+        Severity::Medium
+    } else {
+        Severity::Low
+    }
+}
+
+fn passive_fetch_confidence(
+    trigger_mode: PassiveTriggerMode,
+    max_protocol_risk: ProtocolRiskClass,
+) -> Confidence {
+    if trigger_mode == PassiveTriggerMode::AutomaticOrAa
+        && max_protocol_risk == ProtocolRiskClass::High
+    {
+        Confidence::Strong
+    } else if trigger_mode == PassiveTriggerMode::PassiveRenderOrIndexer {
+        Confidence::Probable
+    } else {
+        Confidence::Strong
+    }
+}
+
+fn passive_fetch_impact(
+    trigger_mode: PassiveTriggerMode,
+    max_protocol_risk: ProtocolRiskClass,
+    preview_prone_context: bool,
+) -> Impact {
+    match max_protocol_risk {
+        ProtocolRiskClass::High => {
+            if trigger_mode == PassiveTriggerMode::AutomaticOrAa {
+                Impact::High
+            } else {
+                Impact::Medium
+            }
+        }
+        ProtocolRiskClass::Medium => Impact::Medium,
+        ProtocolRiskClass::Low => {
+            if preview_prone_context {
+                Impact::Medium
+            } else {
+                Impact::Low
+            }
+        }
+    }
+}
+
+fn passive_credential_severity(
+    trigger_mode: PassiveTriggerMode,
+    max_protocol_risk: ProtocolRiskClass,
+) -> Severity {
+    if trigger_mode == PassiveTriggerMode::AutomaticOrAa
+        && max_protocol_risk == ProtocolRiskClass::High
+    {
+        Severity::High
+    } else {
+        Severity::Medium
+    }
+}
+
+fn ntlm_hash_likelihood(
+    trigger_mode: PassiveTriggerMode,
+    max_protocol_risk: ProtocolRiskClass,
+    credential_leak_hits: usize,
+) -> &'static str {
+    if credential_leak_hits == 0 {
+        "low"
+    } else if trigger_mode == PassiveTriggerMode::AutomaticOrAa
+        && max_protocol_risk == ProtocolRiskClass::High
+    {
+        "high"
+    } else {
+        "elevated"
+    }
+}
+
+fn render_breakdown(counts: &HashMap<String, usize>) -> String {
+    let mut entries = counts.iter().collect::<Vec<_>>();
+    entries.sort_by(|(lhs_key, _), (rhs_key, _)| lhs_key.cmp(rhs_key));
+    entries
+        .into_iter()
+        .map(|(key, count)| format!("{}={}", key, count))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{classify_context, classify_protocol, PassiveTriggerMode};
+    use super::{
+        classify_context, classify_protocol, extract_ntlm_target_details, render_breakdown,
+        PassiveTriggerMode,
+    };
     use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj};
     use sis_pdf_pdf::span::Span;
     use std::borrow::Cow;
+    use std::collections::HashMap;
 
     fn span() -> Span {
         Span { start: 0, end: 0 }
@@ -479,5 +675,25 @@ mod tests {
             "passive_render_or_indexer"
         );
         assert_eq!(PassiveTriggerMode::ManualOrUnknown.as_str(), "manual_or_unknown");
+    }
+
+    #[test]
+    fn ntlm_target_details_extract_unc_and_smb_host_share() {
+        assert_eq!(
+            extract_ntlm_target_details("\\\\corp-fs\\finance\\q1.pdf", "unc"),
+            (Some("corp-fs".into()), Some("finance".into()))
+        );
+        assert_eq!(
+            extract_ntlm_target_details("smb://corp-fs.local/fonts/arial.pfb", "smb"),
+            (Some("corp-fs.local".into()), Some("fonts".into()))
+        );
+    }
+
+    #[test]
+    fn render_breakdown_is_stable() {
+        let mut counts = HashMap::new();
+        counts.insert("font".to_string(), 2);
+        counts.insert("action".to_string(), 1);
+        assert_eq!(render_breakdown(&counts), "action=1, font=2");
     }
 }

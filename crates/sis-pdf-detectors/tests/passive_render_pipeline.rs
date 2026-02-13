@@ -19,7 +19,7 @@ fn detects_passive_credential_leak_with_automatic_trigger() {
         .iter()
         .find(|finding| finding.kind == "passive_external_resource_fetch")
         .expect("passive_external_resource_fetch");
-    assert_eq!(fetch.severity, Severity::Medium);
+    assert_eq!(fetch.severity, Severity::High);
     assert_eq!(
         fetch.meta.get("passive.trigger_mode").map(std::string::String::as_str),
         Some("automatic_or_aa")
@@ -34,7 +34,19 @@ fn detects_passive_credential_leak_with_automatic_trigger() {
     );
     assert_eq!(
         fetch.meta.get("passive.ntlm_hash_leak_likelihood").map(std::string::String::as_str),
-        Some("elevated")
+        Some("high")
+    );
+    assert_eq!(
+        fetch.meta.get("passive.protocol_risk_class").map(std::string::String::as_str),
+        Some("high")
+    );
+    assert_eq!(
+        fetch.meta.get("passive.ntlm_hosts").map(std::string::String::as_str),
+        Some("corp-fs")
+    );
+    assert_eq!(
+        fetch.meta.get("passive.ntlm_shares").map(std::string::String::as_str),
+        Some("finance")
     );
 
     let credential = report
@@ -121,4 +133,53 @@ fn classifies_passive_render_only_context_without_automatic_trigger() {
         fetch.meta.get("passive.indexer_trigger_likelihood").map(std::string::String::as_str),
         Some("elevated")
     );
+    assert_eq!(
+        fetch.meta.get("passive.protocol_risk_class").map(std::string::String::as_str),
+        Some("low")
+    );
+    assert!(
+        report.findings.iter().all(|finding| finding.kind != "passive_credential_leak_risk"),
+        "http-only passive target should not trigger credential leak finding"
+    );
+}
+
+#[test]
+fn detects_ntlm_risk_for_passive_render_without_automatic_trigger() {
+    let bytes = include_bytes!("fixtures/passive_font_only_unc.pdf");
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+
+    let fetch = report
+        .findings
+        .iter()
+        .find(|finding| finding.kind == "passive_external_resource_fetch")
+        .expect("passive_external_resource_fetch");
+    assert_eq!(fetch.severity, Severity::Medium);
+    assert_eq!(
+        fetch.meta.get("passive.trigger_mode").map(std::string::String::as_str),
+        Some("passive_render_or_indexer")
+    );
+    assert_eq!(
+        fetch.meta.get("passive.ntlm_hash_leak_likelihood").map(std::string::String::as_str),
+        Some("elevated")
+    );
+    assert_eq!(
+        fetch.meta.get("passive.ntlm_hosts").map(std::string::String::as_str),
+        Some("corp-fs.local")
+    );
+    assert_eq!(
+        fetch.meta.get("passive.ntlm_shares").map(std::string::String::as_str),
+        Some("fonts")
+    );
+
+    let credential = report
+        .findings
+        .iter()
+        .find(|finding| finding.kind == "passive_credential_leak_risk")
+        .expect("passive_credential_leak_risk");
+    assert_eq!(credential.severity, Severity::Medium);
 }

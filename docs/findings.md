@@ -2883,9 +2883,13 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Metadata highlights:
     - `passive.external_target_count`
     - `passive.external_protocols`
+    - `passive.protocol_breakdown`
+    - `passive.protocol_risk_class`
     - `passive.source_contexts`
+    - `passive.source_context_breakdown`
     - `passive.trigger_mode`
     - `passive.indexer_trigger_likelihood`
+    - `passive.preview_indexer_context_count`
 
 ## passive_credential_leak_risk
 
@@ -2901,6 +2905,9 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `passive.credential_leak_risk`
     - `passive.ntlm_hash_leak_likelihood`
     - `passive.credential_leak_hit_count`
+    - `passive.ntlm_target_count`
+    - `passive.ntlm_hosts`
+    - `passive.ntlm_shares`
     - `passive.external_targets_sample`
 
 ## passive_render_pipeline_risk_composite
