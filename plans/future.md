@@ -100,6 +100,55 @@ Ensure broad behavioural coverage, not just high aggregate rates.
 - JSON report includes family-level metrics.
 - Low-coverage families are visible and prioritised.
 
+### Concrete implementation checklist
+
+#### PR-1: Family taxonomy and sample mapping
+1. Define a stable family taxonomy in the harness/model layer:
+   - `esoteric_encoding`
+   - `advanced_obfuscation`
+   - `modern_heap_primitive`
+   - `semantic_source_to_sink`
+   - `runtime_exfiltration_chain`
+   - `social_engineering_interaction`
+2. Extend corpus fixture metadata so each sample declares one or more family tags.
+3. Validate manifests at load time:
+   - fail on unknown family tags
+   - fail when a sample has no family tags
+4. Add tests for taxonomy parsing and manifest validation failure modes.
+
+#### PR-2: Family metrics in regression JSON
+1. Extend regression output schema with `family_metrics` keyed by family:
+   - `sample_count`
+   - `detected_count`
+   - `detection_rate`
+2. Add `unmapped_or_low_coverage_families` section to output.
+3. Keep schema additive/backward-compatible with existing consumers.
+4. Add deterministic tests for family counting on known fixture subsets.
+
+#### PR-3: Family threshold policy and gating
+1. Add per-family minimum detection thresholds (initially warning mode).
+2. Add machine-readable `family_regressions` output entries when thresholds are breached.
+3. Add hard-fail enforcement mode for CI once thresholds are calibrated.
+4. Add tests for threshold pass/fail semantics and stable failure reasons.
+
+#### PR-4: Reporting and operator docs
+1. Update harness summary output (text/markdown) with per-family coverage table.
+2. Document taxonomy semantics and threshold policy for maintainers.
+3. Document triage workflow for low-coverage families and backlog capture.
+4. Add output-format regression tests for summary rendering.
+
+#### PR-5: Baseline calibration and rollout
+1. Run baseline corpus regression and capture family metrics artefact.
+2. Set initial thresholds from observed baseline distribution with rationale.
+3. Record temporary family exceptions (if needed) with expiry and owner.
+4. Enable CI hard-fail mode after one stable cycle.
+
+### Done criteria for Step 4
+- Every regression run emits `family_metrics`.
+- Family regressions are explicit in machine-readable output.
+- CI can enforce family coverage thresholds.
+- Operator-facing report includes actionable family coverage gaps.
+
 ## 5) Strengthen detector integration stability checks
 
 ### Objective
