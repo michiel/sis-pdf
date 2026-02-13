@@ -476,7 +476,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Details:
   - Relevance: packetised staging can hide executable payloads until runtime reassembly.
   - Meaning: stream data appears segmented into indexed high-entropy blocks with length-field structure.
-  - Chain usage: high-signal obfuscation stage when correlated with launch or script execution paths.
+  - Chain usage: high severity requires launch-path or execution-sink corroboration; trigger-only paths are retained at medium severity.
   - Metadata:
     - `packet.block_count` (int): number of packet-like blocks detected.
     - `packet.estimated_index_fields` (int): inferred count of index/length fields per block.
@@ -484,7 +484,16 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `packet.stride_bytes` (int): inferred packet stride length.
     - `packet.monotonic_index_ratio` (float): ratio of blocks with monotonic index progression.
     - `packet.length_field_ratio` (float): ratio of blocks with plausible length fields.
+    - `packet.index_gap_ratio` (float): ratio of index discontinuities between adjacent blocks.
+    - `packet.unique_index_ratio` (float): unique index cardinality ratio over block count.
+    - `packet.index_width_bytes` (int): inferred index field width.
+    - `packet.length_width_bytes` (int): inferred length field width.
+    - `packet.endianness` (`big`, `little`): inferred packet-field byte order.
     - `packet.correlation.execution_bridge` (bool-like string): true when launch/script execution bridge is present.
+    - `packet.correlation.launch_path` (bool-like string): launch action path present.
+    - `packet.correlation.execution_sink` (bool-like string): JavaScript execution sink path present.
+    - `packet.correlation.trigger_path` (bool-like string): action-trigger path present.
+    - `packet.correlation.bridge_sources` (string list): correlated bridge source families.
 
 ## eof_offset_unusual
 

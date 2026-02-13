@@ -202,6 +202,12 @@ Test/fixture requirements:
 1. Synthetic packetised payload fixture.
 2. Benign compressed media controls.
 
+Implementation status (2026-02-13):
+1. Extended packet heuristics to evaluate multiple field layouts (16/32-bit index and 16/32-bit length widths, big/little endian candidates).
+2. Added sequence-quality metadata and scoring (`packet.index_gap_ratio`, `packet.unique_index_ratio`, field widths, endianness).
+3. Added bridge-aware severity calibration so `High` requires launch-path or execution-sink corroboration; trigger-only paths remain `Medium`.
+4. Added unit and integration coverage for 32-bit layout detection and trigger-only bridge severity behaviour.
+
 ## PR-M7a: CDR strip-and-report (phase 1)
 
 Objective: deliver operationally safe removal reporting without full rewrite guarantees.
