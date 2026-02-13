@@ -75,8 +75,7 @@ fn assert_hazard_presence(bytes: &[u8], expected_hazard: &str) {
 
 #[test]
 fn parser_diff_hazard_creation_date_trailing_timezone_token_is_detected() {
-    let bytes =
-        include_bytes!("fixtures/parser_diff_hazards/creation-date-trailing-timezone.pdf");
+    let bytes = include_bytes!("fixtures/parser_diff_hazards/creation-date-trailing-timezone.pdf");
     assert_hazard_presence(bytes, "creation_date_trailing_timezone_token");
 }
 

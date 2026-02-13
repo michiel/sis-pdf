@@ -99,7 +99,16 @@ fn sandbox_exec_records_calls() {
     assert!(calls.contains("alert"));
     let phase_order = sandbox.meta.get("js.runtime.phase_order").expect("phase order");
     assert!(phase_order.contains("open"));
-    assert_eq!(sandbox.meta.get("js.runtime.profile_count").map(String::as_str), Some("4"));
+    assert_eq!(sandbox.meta.get("js.runtime.profile_count").map(String::as_str), Some("5"));
+    assert_eq!(
+        sandbox.meta.get("js.runtime.profile_mode.deception_hardened_count").map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        sandbox.meta.get("js.runtime.interaction_pack_order").map(String::as_str),
+        Some("open,idle,click,form")
+    );
+    assert!(sandbox.meta.contains_key("js.runtime.capability_matrix.distinct_signatures"));
     assert!(sandbox.meta.contains_key("js.runtime.profile_divergence"));
     assert!(sandbox.meta.contains_key("js.runtime.profile_status"));
     assert!(sandbox.meta.contains_key("js.runtime.replay_id"));
@@ -129,7 +138,7 @@ fn sandbox_exec_demotes_confidence_when_calls_diverge_across_profiles() {
     );
     assert_eq!(
         sandbox.meta.get("js.runtime.profile_consistency_ratio").map(String::as_str),
-        Some("0.50")
+        Some("0.40")
     );
     assert_eq!(
         sandbox.meta.get("js.runtime.profile_divergence").map(String::as_str),
@@ -531,5 +540,5 @@ fn sandbox_marks_oversized_payload_as_skipped() {
         finding.meta.get("js.sandbox_skip_reason").map(String::as_str),
         Some("payload_too_large")
     );
-    assert_eq!(finding.meta.get("js.runtime.profile_skipped_count").map(String::as_str), Some("4"));
+    assert_eq!(finding.meta.get("js.runtime.profile_skipped_count").map(String::as_str), Some("5"));
 }

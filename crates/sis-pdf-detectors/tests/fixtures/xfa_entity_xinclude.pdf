@@ -1,0 +1,31 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /AcroForm 3 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 0 >>
+endobj
+3 0 obj
+<< /XFA 4 0 R >>
+endobj
+4 0 obj
+<< /Length 184 /Subtype /XML >>
+stream
+<?xml version="1.0"?>
+<xfa:form xmlns:xfa="http://ns.adobe.com/xdp/" xmlns:xi="http://www.w3.org/2001/XInclude">
+  <xi:include href="https://attacker.example/schema.xsd"/>
+</xfa:form>
+endstream
+endobj
+xref
+0 5
+0000000000 65535 f 
+0000000009 00000 n 
+0000000074 00000 n 
+0000000117 00000 n 
+0000000149 00000 n 
+trailer
+<< /Size 5 /Root 1 0 R >>
+startxref
+410
+%%EOF

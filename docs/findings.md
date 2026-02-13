@@ -467,6 +467,34 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `stream.magic_type`: detected magic label (`zip`, `rar`, `unknown`, etc.)
     - `stream.sample_timed_out`: indicates sampling was stopped due to the timeout budget
 
+## packetised_payload_obfuscation
+
+- ID: `packetised_payload_obfuscation`
+- Label: Packetised payload obfuscation
+- Description: Stream exhibits packet-like high-entropy blocks with index/length traits consistent with staged payload reconstruction.
+- Tags: decoder, evasion, staging
+- Details:
+  - Relevance: packetised staging can hide executable payloads until runtime reassembly.
+  - Meaning: stream data appears segmented into indexed high-entropy blocks with length-field structure.
+  - Chain usage: high severity requires launch-path or execution-sink corroboration; trigger-only paths are retained at medium severity.
+  - Metadata:
+    - `packet.block_count` (int): number of packet-like blocks detected.
+    - `packet.estimated_index_fields` (int): inferred count of index/length fields per block.
+    - `packet.reconstruction_feasibility` (`low`, `medium`, `high`): estimated ease of payload reassembly.
+    - `packet.stride_bytes` (int): inferred packet stride length.
+    - `packet.monotonic_index_ratio` (float): ratio of blocks with monotonic index progression.
+    - `packet.length_field_ratio` (float): ratio of blocks with plausible length fields.
+    - `packet.index_gap_ratio` (float): ratio of index discontinuities between adjacent blocks.
+    - `packet.unique_index_ratio` (float): unique index cardinality ratio over block count.
+    - `packet.index_width_bytes` (int): inferred index field width.
+    - `packet.length_width_bytes` (int): inferred length field width.
+    - `packet.endianness` (`big`, `little`): inferred packet-field byte order.
+    - `packet.correlation.execution_bridge` (bool-like string): true when launch/script execution bridge is present.
+    - `packet.correlation.launch_path` (bool-like string): launch action path present.
+    - `packet.correlation.execution_sink` (bool-like string): JavaScript execution sink path present.
+    - `packet.correlation.trigger_path` (bool-like string): action-trigger path present.
+    - `packet.correlation.bridge_sources` (string list): correlated bridge source families.
+
 ## eof_offset_unusual
 
 - ID: `eof_offset_unusual`
@@ -1608,6 +1636,37 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: runtime reconstruction of payload content.
   - Meaning: decoded or constructed strings are staged then executed.
   - Chain usage: used as runtime payload build-and-exec signal.
+
+## js_runtime_path_morphism
+
+- ID: `js_runtime_path_morphism`
+- Label: Runtime path morphism detected
+- Description: Runtime execution paths diverged across profiles with AST delta activity, consistent with self-modifying or profile-gated behaviour.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: catches profile-dependent and self-modifying runtime behaviour missed by single-path execution.
+  - Meaning: call/property/phase signatures and delta summaries differ materially across executed runtime profiles.
+  - Chain usage: high-priority follow-up signal for gated payload activation and evasive profile-specific execution.
+  - Metadata highlights:
+    - `js.runtime.path_morphism.executed_profiles`
+    - `js.runtime.path_morphism.distinct_signatures`
+    - `js.runtime.path_morphism.delta_profiles`
+    - `js.runtime.path_morphism.added_calls`
+    - `js.runtime.path_morphism.added_identifiers`
+    - `js.runtime.path_morphism.added_string_literals`
+    - `js.runtime.path_morphism.trigger_call_count`
+    - `js.runtime.path_morphism.phase_set_size`
+    - `js.runtime.path_morphism.score`
+    - `js.runtime.profile_mode.deception_hardened_count`
+    - `js.runtime.interaction_pack_order`
+    - `js.runtime.interaction_pack.open_profiles`
+    - `js.runtime.interaction_pack.idle_profiles`
+    - `js.runtime.interaction_pack.click_profiles`
+    - `js.runtime.interaction_pack.form_profiles`
+    - `js.runtime.capability_matrix.distinct_signatures`
+    - `js.runtime.unresolved_identifier_error_total`
+    - `js.runtime.unresolved_callable_error_total`
+    - `js.runtime.unresolved_callee_hint_total`
 
 ## js_runtime_error_recovery_patterns
 
@@ -2830,6 +2889,61 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
 
+## passive_external_resource_fetch
+
+- ID: `passive_external_resource_fetch`
+- Label: Passive external resource fetch surface
+- Description: External fetch targets were found in render-related objects and may trigger outbound requests during preview, indexing, or open-time processing.
+- Tags: action, passive, network
+- Details:
+  - Relevance: preview/no-click network exposure in enterprise pipelines.
+  - Meaning: document objects reference external locations (`http`, `ftp`, `file`, `smb`, `unc`) in rendering or action contexts.
+  - Chain usage: used as passive delivery-stage context, especially when combined with automatic triggers.
+  - Metadata highlights:
+    - `passive.external_target_count`
+    - `passive.external_protocols`
+    - `passive.protocol_breakdown`
+    - `passive.protocol_risk_class`
+    - `passive.source_contexts`
+    - `passive.source_context_breakdown`
+    - `passive.trigger_mode`
+    - `passive.indexer_trigger_likelihood`
+    - `passive.preview_indexer_context_count`
+
+## passive_credential_leak_risk
+
+- ID: `passive_credential_leak_risk`
+- Label: Passive credential leak risk
+- Description: UNC/SMB-style external targets were detected in render-time contexts and may leak credentials through implicit authentication attempts.
+- Tags: credential, network, passive
+- Details:
+  - Relevance: NTLM/Kerberos leak pathways via document rendering or preview.
+  - Meaning: one or more external targets used UNC/SMB addressing in contexts likely to be resolved by host tooling.
+  - Chain usage: used as high-priority exfiltration-risk signal when triaging passive document workflows.
+  - Metadata highlights:
+    - `passive.credential_leak_risk`
+    - `passive.ntlm_hash_leak_likelihood`
+    - `passive.credential_leak_hit_count`
+    - `passive.ntlm_target_count`
+    - `passive.ntlm_hosts`
+    - `passive.ntlm_shares`
+    - `passive.external_targets_sample`
+
+## passive_render_pipeline_risk_composite
+
+- ID: `passive_render_pipeline_risk_composite`
+- Label: Passive render pipeline exploitation chain
+- Description: Automatic trigger pathways, preview-prone contexts, and external fetch targets co-occur, consistent with passive render-pipeline exploitation techniques.
+- Tags: chain, passive, render
+- Details:
+  - Relevance: no-click exploitation and data leak risk in preview/index infrastructure.
+  - Meaning: automatic action triggers overlap with render-prone objects and external fetch references.
+  - Chain usage: treated as a composite high-risk chain requiring immediate isolation and investigation.
+  - Metadata highlights:
+    - `passive.composite_rule`
+    - `passive.preview_prone_surface`
+    - `passive.external_protocols`
+
 ## polyglot_signature_conflict
 
 - ID: `polyglot_signature_conflict`
@@ -2863,6 +2977,45 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: expanded attack surface.
   - Meaning: feature increases parsing or interaction complexity.
   - Chain usage: used as supporting context for delivery or exploitation stages.
+
+## richmedia_3d_structure_anomaly
+
+- ID: `richmedia_3d_structure_anomaly`
+- Label: 3D rich-media structure anomaly
+- Description: U3D/PRC stream structure deviates from bounded sanity checks and may indicate malformed or exploit-oriented payload material.
+- Tags: 3d, decoder, richmedia
+- Details:
+  - Relevance: malformed 3D payloads can trigger decoder edge cases and parser instability.
+  - Meaning: stream-level checks found structural inconsistencies in U3D/PRC data.
+  - Chain usage: used as 3D payload-stage risk indicator for renderer exploit triage.
+  - Metadata:
+    - `media_type` (`u3d` or `prc`)
+    - `richmedia.3d.decode_success`
+    - `richmedia.3d.structure_anomalies`
+    - `richmedia.3d.filter_depth`
+    - `richmedia.3d.decoded_expansion_ratio`
+    - `richmedia.3d.encoded_stream_bytes`
+    - `richmedia.3d.declared_stream_length` (when `/Length` is present)
+    - `richmedia.3d.block_count_estimate` (U3D)
+    - `richmedia.3d.block_table_consumed_bytes` (U3D)
+    - `richmedia.3d.block_table_trailing_bytes` (U3D)
+    - `stream.entropy`
+
+## richmedia_3d_decoder_risk
+
+- ID: `richmedia_3d_decoder_risk`
+- Label: 3D rich-media decoder risk correlation
+- Description: 3D structure anomalies co-occur with decoder-risk factors (high entropy, deep filter chain, or decode instability).
+- Tags: 3d, correlation, decoder, richmedia
+- Details:
+  - Relevance: highlights high-risk 3D payloads likely to stress or exploit decoding paths.
+  - Meaning: malformed structure appears alongside one or more decoder-risk multipliers.
+  - Chain usage: escalation-level finding for immediate containment and replay.
+  - Metadata:
+    - `richmedia.3d.decoder_correlation`
+    - `richmedia.3d.structure_anomalies`
+    - `richmedia.3d.filter_depth`
+    - `stream.entropy`
 
 ## swf_embedded
 
@@ -3017,6 +3170,49 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: reader-dependent rendering and detection bypass risk.
   - Meaning: combined indicators (filter divergence, content anomalies, xref/linearisation signals) exceed the divergence threshold.
   - Chain usage: aggregate parser-evasion indicator.
+
+## renderer_behavior_divergence_known_path
+
+- ID: `renderer_behavior_divergence_known_path`
+- Label: Known renderer behaviour divergence path
+- Description: Known reader-behaviour divergence paths were detected across action, script, or form surfaces.
+- Tags: parser, renderer, divergence
+- Details:
+  - Relevance: highlights behaviour deltas across Acrobat, Pdfium, and Preview profiles.
+  - Meaning: one or more known divergence paths (for example open-action JavaScript or interactive XFA pathways) were observed.
+  - Chain usage: prioritisation signal for multi-renderer replay and policy hardening.
+  - Metadata:
+    - `renderer.known_paths` (csv): matched divergence catalogue path identifiers.
+    - `renderer.catalogue_version` (string): renderer divergence catalogue revision.
+    - `renderer.catalogue_entries` (csv): stable ordered catalogue entries matched for this file.
+    - `renderer.profile_deltas` (string): per-profile severity/impact delta summary.
+    - `renderer.executable_path_variance` (int): number of distinct divergence paths detected.
+    - `renderer.risk_score` (int): aggregate divergence score.
+    - `renderer.automatic_trigger` (bool-like string): whether automatic trigger context was present.
+    - `renderer.catalogue.family.action_handling` (bool-like string): action-handling divergence family matched.
+    - `renderer.catalogue.family.js_execution_policy` (bool-like string): JS policy divergence family matched.
+    - `renderer.catalogue.family.attachment_open` (bool-like string): attachment/open divergence family matched.
+    - `renderer.catalogue.family_count` (int): number of divergence families matched.
+
+## renderer_behavior_exploitation_chain
+
+- ID: `renderer_behavior_exploitation_chain`
+- Label: Renderer behaviour exploitation chain
+- Description: Automatic trigger paths and high-risk renderer surfaces co-occur with script/action capabilities, consistent with exploitation-chain setup.
+- Tags: chain, renderer, divergence
+- Details:
+  - Relevance: elevated exploitation risk where trigger, execution, and high-risk surface signals overlap.
+  - Meaning: renderer divergence is not isolated; it is part of a multi-signal exploitation chain.
+  - Chain usage: high-priority escalation signal for containment and replay.
+  - Metadata:
+    - `renderer.known_paths`
+    - `renderer.catalogue_version`
+    - `renderer.catalogue_entries`
+    - `renderer.profile_deltas`
+    - `renderer.risk_score`
+    - `renderer.executable_path_variance`
+    - `renderer.catalogue.family_count`
+    - `renderer.chain_components`
 
 ## duplicate_stream_filters
 
@@ -3277,6 +3473,42 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `xfa.script_preview` (string): bounded preview of a representative script or execute block.
     - `xfa.size_bytes` (int): total XFA payload byte size.
 
+## xfa_entity_resolution_risk
+
+- ID: `xfa_entity_resolution_risk`
+- Label: XFA XML entity-resolution risk
+- Description: XFA payload includes XML DTD/entity or external-reference constructs that can increase backend ingest risk when parser hardening is not enforced.
+- Tags: xfa, xml, xxe
+- Details:
+  - Relevance: backend parser hardening and XXE-adjacent risk.
+  - Meaning: XFA contains DOCTYPE/entity declarations or external schema/include references that should be treated as risky for downstream XML ingestion.
+  - Chain usage: used as ingest-risk context and enrichment for XFA abuse triage.
+  - Metadata:
+    - `xfa.dtd_present` (bool): whether DOCTYPE/DTD marker was observed.
+    - `xfa.entity_keyword_count` (int): number of `<!ENTITY` declarations observed.
+    - `xfa.xml_entity_count` (int): number of XML entity declarations observed.
+    - `xfa.external_entity_refs` (int): number of external entity declarations (`SYSTEM`/`PUBLIC`).
+    - `xfa.external_reference_tokens` (int): external schema/include reference markers observed (`xsi:schemaLocation`, `xi:include` hrefs).
+    - `backend.ingest_risk` (string): derived ingest risk level (`low`, `medium`, `high`).
+
+## xfa_backend_xxe_pattern
+
+- ID: `xfa_backend_xxe_pattern`
+- Label: XFA backend XXE pattern
+- Description: XFA payload contains external XML entity declarations consistent with backend XXE-style ingestion risk patterns.
+- Tags: xfa, xml, xxe, backend
+- Details:
+  - Relevance: potential backend-side data exposure or SSRF-like resolution behaviour where parser hardening is absent.
+  - Meaning: external entity declarations are present and should be treated as high-risk on ingest paths.
+  - Chain usage: high-priority correlation signal for XFA pipelines and backend processing workflows.
+  - Metadata:
+    - `xfa.dtd_present`
+    - `xfa.entity_keyword_count`
+    - `xfa.xml_entity_count`
+    - `xfa.external_entity_refs`
+    - `xfa.external_reference_tokens`
+    - `backend.ingest_risk`
+
 ## actionscript_present
 
 - ID: `actionscript_present`
@@ -3342,6 +3574,34 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: supply-chain style behavior.
   - Meaning: indicators suggest staged download/update/persistence logic.
   - Chain usage: used as multi-step delivery or persistence stages.
+  - Metadata:
+    - `stage.count` (int): number of stage indicators detected for the payload.
+    - `stage.sources` (string): stage source families (for example `javascript,action-trigger`).
+    - `stage.fetch_targets` (string): resolved fetch/action targets if known.
+    - `stage.fetch_target_count` (int): number of unique resolved fetch/action targets.
+    - `stage.execution_bridge` (bool-like string): whether an execution bridge was observed.
+    - `stage.execution_bridge_source` (string): bridge evidence family (`action_trigger`, `action_target`, `embedded_file`, or `none`).
+    - `stage.trigger_edges` (string): triggering graph edge types observed for the stage object.
+
+## staged_remote_template_fetch_unresolved
+
+- ID: `staged_remote_template_fetch_unresolved`
+- Label: Staged remote template fetch (unresolved bridge)
+- Description: JavaScript indicates remote template or form-fetch behaviour, but a concrete execution bridge is not yet resolved.
+- Tags: chain, supply-chain, staging
+- Details:
+  - Relevance: catches likely staged delivery patterns before an explicit execution bridge is proven.
+  - Meaning: template/fetch indicators appear in script content with insufficient downstream execution linkage.
+  - Chain usage: triage-first signal for follow-up correlation with action and execution findings.
+  - Metadata:
+    - `stage.sources`
+    - `stage.fetch_targets`
+    - `stage.fetch_target_count`
+    - `stage.count`
+    - `stage.execution_bridge`
+    - `stage.execution_bridge_source`
+    - `stage.trigger_edges`
+    - `stage.remote_template_indicators`
 
 ## supply_chain_update_vector
 
