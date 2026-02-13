@@ -273,7 +273,7 @@ Finding {
         "uri.mixed_content": "true",
         "uri.list.count": "12",
         "uri.list.stored": "12",
-        "uri.list.limit": "20",
+        "uri.list.limit": "50",
         "uri.listing.schema_version": "1",
         "uri.list.0.url": "https://example.com/form",
         "uri.list.0.canonical": "https://example.com/form",
@@ -306,12 +306,14 @@ The `meta` map keeps:
 
 - `uri.count_*` / `uri.schemes` / `uri.domains_sample` / `uri.mixed_content` to support volume-based filters.
 - `uri.suspicious_count` so clients can quickly see how many URIs match the `UriContentDetector` heuristics.
-- `uri.list.*` entries (max 20) that include a preview plus canonicalized form, `scheme`, `domain`, `risk_score`, suspicious flag, heuristic `chain_depth`, visibility/placement, and trigger metadata. When the document contains more URIs the `uri.listing.truncated` flag flips to `true`, but `uri.count_total` still reports the real total.
+- `uri.max_severity`, `uri.max_confidence`, and `uri.risk_band_counts` to summarise the highest observed URI risk posture across the document.
+- `uri.list.*` entries (max 50) that include a preview plus canonicalized form, `scheme`, `domain`, `risk_score`, suspicious flag, heuristic `chain_depth`, visibility/placement, trigger metadata, and per-entry `severity`/`confidence`. When the document contains more URIs the `uri.listing.truncated` flag flips to `true`, but `uri.count_total` still reports the real total.
 - `uri.list.limit` and `uri.list.stored` record how many entries were persisted so downstream parsers can iterate deterministically.
+- `uri.scan.limit` and `uri.scan.truncated` capture the detector’s bounded URI scan budget for large documents.
 
 Because some parsers (or minimalist PDF layouts) never expose `UriTarget` edges, the detector falls back to scanning every dictionary for `/URI` keys so the aggregate finding still appears as long as there is at least one URI target.
 
-Severity escalation keeps the previous thresholds: Low when 10+ URIs or 5+ domains, Medium for 25+ URIs or 10+ domains, High when there are 50+ URIs or 20+ domains. This keeps the detector signal consistent even though individual URIs now appear as a single finding. Downstream chain reporting also now suppresses benign `uri_present` entries so those long lists only appear when a URI produces additional suspicious context (e.g., `uri_content_analysis`) and appears in the `uri_listing` metadata.
+Severity escalation keeps the previous thresholds: Low when 10+ URIs or 5+ domains, Medium for 25+ URIs or 10+ domains, High when there are 50+ URIs or 20+ domains. Severity and confidence are then uplifted by observed URI risk metadata (`uri.max_severity`, `uri.max_confidence`) so summary scoring reflects the riskiest URI evidence present.
 ## Implementation Details
 
 ### Module Structure

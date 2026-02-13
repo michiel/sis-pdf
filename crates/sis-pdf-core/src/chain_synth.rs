@@ -34,9 +34,6 @@ pub fn synthesise_chains(
     let mut chains = Vec::new();
     chains.extend(build_object_chains(findings, structural_count, &taint, &finding_positions));
     for f in findings {
-        if f.kind == "uri_present" && !group_has_suspicious_uri(&[f]) {
-            continue;
-        }
         let single = [f];
         let roles = assign_chain_roles(&single);
         let trigger = roles.trigger_key.clone();
@@ -152,12 +149,8 @@ fn build_object_chains(
     chains
 }
 
-fn chain_is_noise(chain: &ExploitChain, group: &[&Finding]) -> bool {
-    matches!(chain.action.as_deref(), Some("uri_present")) && !group_has_suspicious_uri(group)
-}
-
-fn group_has_suspicious_uri(group: &[&Finding]) -> bool {
-    group.iter().any(|f| f.kind == "uri_content_analysis")
+fn chain_is_noise(_chain: &ExploitChain, _group: &[&Finding]) -> bool {
+    false
 }
 
 fn chain_nodes(
@@ -187,8 +180,9 @@ fn trigger_from_kind(kind: &str) -> Option<String> {
 
 fn action_from_kind(kind: &str) -> Option<String> {
     match kind {
+        "uri_listing" => Some("uri_content_analysis".into()),
         "launch_action_present"
-        | "uri_present"
+        | "uri_content_analysis"
         | "submitform_present"
         | "gotor_present"
         | "js_present"
@@ -503,7 +497,7 @@ fn action_label(key: &str, action_type: Option<&str>) -> String {
     }
     match key {
         "launch_action_present" => "Launch action".into(),
-        "uri_present" => "URI action".into(),
+        "uri_content_analysis" => "URI action".into(),
         "submitform_present" => "SubmitForm action".into(),
         "gotor_present" => "GoToR action".into(),
         "js_present" => "JavaScript action".into(),
@@ -560,7 +554,7 @@ fn action_key_from_action_s(action_s: &str) -> Option<String> {
         return Some("js_present".into());
     }
     if action_s.contains("URI") {
-        return Some("uri_present".into());
+        return Some("uri_content_analysis".into());
     }
     if action_s.contains("Launch") {
         return Some("launch_action_present".into());

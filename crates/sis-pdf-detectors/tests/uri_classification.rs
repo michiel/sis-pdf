@@ -80,9 +80,20 @@ fn uri_listing_aggregates_metadata() {
         "aggregate finding should count URIs"
     );
     assert!(listing.meta.contains_key("uri.suspicious_count"));
+    assert!(listing.meta.contains_key("uri.max_severity"));
+    assert!(listing.meta.contains_key("uri.max_confidence"));
+    assert!(listing.meta.contains_key("uri.risk_band_counts"));
     assert!(listing.meta.contains_key("uri.list.0.url"));
     assert!(listing.meta.contains_key("uri.list.0.canonical"));
     assert!(listing.meta.contains_key("uri.list.0.chain_depth"));
+    assert!(listing.meta.contains_key("uri.list.0.severity"));
+    assert!(listing.meta.contains_key("uri.list.0.confidence"));
     assert!(listing.meta.contains_key("uri.list.limit"));
+    assert!(listing.meta.contains_key("uri.scan.limit"));
     assert!(listing.meta.contains_key("uri.listing.schema_version"));
+
+    assert!(
+        report.findings.iter().all(|f| f.kind != "uri_present"),
+        "retired uri_present finding should not be emitted"
+    );
 }

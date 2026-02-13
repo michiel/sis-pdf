@@ -28,11 +28,22 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
                 score = score.max(0.6);
                 reasons.push("Action severity: Medium (SubmitForm)".into());
             }
-            "uri_present" => {
+            "uri_content_analysis" => {
                 score = score.max(0.5);
                 reasons.push("Action severity: Low (URI)".into());
             }
             _ => {}
+        }
+    }
+    if let Some(uri_risk_score) =
+        chain.notes.get("uri.risk_score").and_then(|value| value.parse::<u32>().ok())
+    {
+        if uri_risk_score >= 100 {
+            score = score.max(0.8);
+            reasons.push(format!("URI risk score: {}", uri_risk_score));
+        } else if uri_risk_score >= 70 {
+            score = score.max(0.65);
+            reasons.push(format!("URI risk score: {}", uri_risk_score));
         }
     }
 

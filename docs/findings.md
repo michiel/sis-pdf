@@ -3614,28 +3614,25 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: indicators suggest staged download/update/persistence logic.
   - Chain usage: used as multi-step delivery or persistence stages.
 
-## uri_present
+## uri_present (retired)
 
 - ID: `uri_present`
-- Label: URI present
-- Severity: Info
-- Description: External URI action detected.
-- Tags: action, external
-- Details:
-  - Relevance: executable action surface.
-  - Meaning: viewer can perform external or privileged actions.
-  - Chain usage: treated as an action node that can be linked to triggers and payloads.
+- Status: Retired (no longer emitted)
+- Replacement: use `uri_listing` for document-level URI presence and `uri_content_analysis` for per-URI suspicious analysis.
+- Notes:
+  - Kept for compatibility in historical reports and feature vectors.
+  - New scans should not emit this finding kind.
 
 ## uri_listing
 
 - ID: `uri_listing`
 - Label: URI(s) present
 - Severity: Info → Low → Medium → High (volume/domains thresholds)
-- Description: Aggregated URI listing; records every discovered URI plus contextual flags for the first 20 entries while still escalating severity when URI volume/diversity grows.
+- Description: Aggregated URI listing; records every discovered URI plus contextual flags for up to 50 entries while still escalating severity when URI volume/diversity grows.
 - Tags: action, external, summary
 - Details:
   - Relevance: documents with many URIs increase attack surface, but per-URI noise is captured centrally.
-  - Meaning: the finding collects `uri.count_*`, `uri.schemes`, and `uri.domains_sample` plus `uri.list.*` metadata (preview/canonical/chain_depth/visibility/trigger/suspicious) so downstream consumers can inspect every URI without flooding the report. `uri.suspicious_count` highlights how many URIs matched the `UriContentDetector` heuristics.
+  - Meaning: the finding collects `uri.count_*`, `uri.schemes`, `uri.domains_sample`, `uri.max_severity`, `uri.max_confidence`, and `uri.risk_band_counts` plus `uri.list.*` metadata (preview/canonical/chain_depth/visibility/trigger/suspicious/severity/confidence) so downstream consumers can inspect URI risk without flooding the report. `uri.suspicious_count` highlights how many URIs matched the `UriContentDetector` heuristics.
   - Chain usage: acts as a summary node that can be joined with other findings (e.g., suspicious URIs, action chains) and remains low-noise even when hundreds of links are present.
 
 ## xref_phantom_entries

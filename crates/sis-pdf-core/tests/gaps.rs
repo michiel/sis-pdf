@@ -38,7 +38,11 @@ fn detects_annotation_uri() {
         .expect("scan should succeed");
     let kinds: std::collections::HashSet<&str> =
         report.findings.iter().map(|f| f.kind.as_str()).collect();
-    assert!(kinds.contains("uri_present"));
+    assert!(
+        kinds.contains("uri_listing")
+            || kinds.contains("uri_content_analysis")
+            || kinds.contains("annotation_action_chain")
+    );
 }
 
 #[test]
