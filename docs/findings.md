@@ -3542,9 +3542,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Chain usage: used as multi-step delivery or persistence stages.
   - Metadata:
     - `stage.count` (int): number of stage indicators detected for the payload.
-    - `stage.sources` (string): stage source family (for example `javascript`).
+    - `stage.sources` (string): stage source families (for example `javascript,action-trigger`).
     - `stage.fetch_targets` (string): resolved fetch/action targets if known.
+    - `stage.fetch_target_count` (int): number of unique resolved fetch/action targets.
     - `stage.execution_bridge` (bool-like string): whether an execution bridge was observed.
+    - `stage.execution_bridge_source` (string): bridge evidence family (`action_trigger`, `action_target`, `embedded_file`, or `none`).
+    - `stage.trigger_edges` (string): triggering graph edge types observed for the stage object.
 
 ## staged_remote_template_fetch_unresolved
 
@@ -3559,8 +3562,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Metadata:
     - `stage.sources`
     - `stage.fetch_targets`
+    - `stage.fetch_target_count`
     - `stage.count`
     - `stage.execution_bridge`
+    - `stage.execution_bridge_source`
+    - `stage.trigger_edges`
     - `stage.remote_template_indicators`
 
 ## supply_chain_update_vector

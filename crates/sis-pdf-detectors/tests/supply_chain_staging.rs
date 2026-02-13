@@ -59,11 +59,19 @@ fn staged_payload_finding_contains_stage_metadata() {
         .expect("supply_chain_staged_payload");
     assert_eq!(
         finding.meta.get("stage.sources").map(std::string::String::as_str),
-        Some("javascript")
+        Some("action-trigger,javascript")
     );
     assert_eq!(
         finding.meta.get("stage.execution_bridge").map(std::string::String::as_str),
-        Some("false")
+        Some("true")
+    );
+    assert_eq!(
+        finding.meta.get("stage.execution_bridge_source").map(std::string::String::as_str),
+        Some("action_trigger")
+    );
+    assert_eq!(
+        finding.meta.get("stage.fetch_target_count").map(std::string::String::as_str),
+        Some("1")
     );
     assert_eq!(finding.meta.get("stage.count").map(std::string::String::as_str), Some("1"));
 }
@@ -95,5 +103,37 @@ fn emits_unresolved_remote_template_finding() {
     assert_eq!(
         finding.meta.get("stage.execution_bridge").map(std::string::String::as_str),
         Some("false")
+    );
+    assert_eq!(
+        finding.meta.get("stage.sources").map(std::string::String::as_str),
+        Some("action-trigger,javascript,remote-template-hint")
+    );
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::Medium);
+}
+
+#[test]
+fn unresolved_remote_template_without_trigger_is_low_severity() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 3 0 R >>\nendobj\n",
+        "2 0 obj\n<< /S /JavaScript /JS (var tpl='https://stage.example/template.xdp';) >>\nendobj\n",
+        "3 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|finding| finding.kind == "staged_remote_template_fetch_unresolved")
+        .expect("staged_remote_template_fetch_unresolved");
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::Low);
+    assert_eq!(
+        finding.meta.get("stage.execution_bridge_source").map(std::string::String::as_str),
+        Some("none")
     );
 }

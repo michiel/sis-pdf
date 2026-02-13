@@ -149,6 +149,17 @@ Test/fixture requirements:
 2. Multi-stage fixture without execution bridge (control).
 3. False-positive controls for benign update/check workflows.
 
+Implementation status (2026-02-13):
+1. Extended stage metadata with additive fields:
+   - `stage.fetch_target_count`
+   - `stage.execution_bridge_source`
+   - `stage.trigger_edges`
+2. Added merged stage target modelling from action-edge targets and JS-extracted fetch targets.
+3. Added guarded severity/confidence uplift:
+   - `supply_chain_staged_payload` now uplifts to `High` only when execution-bridge evidence is present.
+   - `staged_remote_template_fetch_unresolved` now remains `Low` without action-trigger linkage, and uplifts to `Medium` with trigger linkage.
+4. Added integration control for unresolved template hints without trigger bridge in `crates/sis-pdf-detectors/tests/supply_chain_staging.rs`.
+
 ## PR-M5: Rich media 3D deep analysis uplift
 
 Objective: improve U3D/PRC anomaly confidence with bounded parsing.
