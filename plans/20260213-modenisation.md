@@ -178,6 +178,12 @@ Fixture strategy:
 1. Synthetic minimal U3D/PRC-like fixtures generated in-repo.
 2. Curated malformed edge fixtures from corpus captures where licensing permits.
 
+Implementation status (2026-02-13):
+1. Added bounded U3D block-table parsing with explicit limits and bounds checks (`u3d_block_table_*`, overflow, excessive-count controls).
+2. Added stream sanity checks for encoded/declared length mismatch and decode expansion ratio.
+3. Extended risk correlation to include decode expansion anomalies alongside entropy/filter/decode-failure signals.
+4. Added integration coverage for U3D block-table bounds anomalies and high expansion-ratio decode behaviour in `crates/sis-pdf-detectors/tests/rich_media.rs`.
+
 ## PR-M6: Packetised payload obfuscation uplift
 
 Objective: improve detection of repeated high-entropy packet staging patterns.

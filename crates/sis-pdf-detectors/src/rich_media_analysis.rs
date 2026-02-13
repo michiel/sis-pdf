@@ -7,8 +7,8 @@ use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::rich_media::{
-    analyze_swf, swf_compression_label, swf_magic, SWF_DECODE_TIMEOUT_MS, SWF_DECOMPRESSED_LIMIT,
-    SWF_DECOMPRESSION_RATIO_LIMIT,
+    analyze_swf, detect_3d_format, swf_compression_label, swf_magic, SWF_DECODE_TIMEOUT_MS,
+    SWF_DECOMPRESSED_LIMIT, SWF_DECOMPRESSION_RATIO_LIMIT,
 };
 use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
 use sis_pdf_core::timeout::TimeoutChecker;
@@ -230,16 +230,6 @@ fn is_3d_dict(dict: &PdfDict<'_>) -> bool {
         || dict.get_first(b"/PRC").is_some()
 }
 
-fn detect_3d_format(data: &[u8]) -> Option<&'static str> {
-    if data.len() >= 4 && data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x00 && data[3] == 0x24 {
-        return Some("u3d");
-    }
-    if data.starts_with(b"PRC") {
-        return Some("prc");
-    }
-    None
-}
-
 fn filter_depth(dict: &PdfDict<'_>) -> usize {
     let Some((_, filter_obj)) = dict.get_first(b"/Filter") else {
         return 0;
@@ -254,6 +244,89 @@ fn filter_depth(dict: &PdfDict<'_>) -> usize {
     }
 }
 
+const U3D_BLOCK_PARSE_LIMIT: usize = 512;
+const RICHMEDIA_DECODE_EXPANSION_RATIO_LIMIT: f64 = 40.0;
+const RICHMEDIA_DECLARED_LENGTH_TOLERANCE: usize = 32;
+
+fn declared_stream_length(dict: &PdfDict<'_>) -> Option<usize> {
+    let (_, value) = dict.get_first(b"/Length")?;
+    if let PdfAtom::Int(length) = value.atom {
+        return Some(length.max(0) as usize);
+    }
+    None
+}
+
+fn analyse_u3d_block_table(
+    data: &[u8],
+    anomalies: &mut Vec<String>,
+    meta: &mut HashMap<String, String>,
+) {
+    if data.len() < 12 {
+        anomalies.push("u3d_block_header_truncated".to_string());
+        return;
+    }
+
+    let mut offset = 0usize;
+    let mut block_count = 0usize;
+    let mut parse_failed = false;
+    while offset + 12 <= data.len() && block_count < U3D_BLOCK_PARSE_LIMIT {
+        let block_len = u32::from_be_bytes([
+            data[offset + 4],
+            data[offset + 5],
+            data[offset + 6],
+            data[offset + 7],
+        ]) as usize;
+        let metadata_len = u32::from_be_bytes([
+            data[offset + 8],
+            data[offset + 9],
+            data[offset + 10],
+            data[offset + 11],
+        ]) as usize;
+        let block_total =
+            12usize.checked_add(block_len).and_then(|total| total.checked_add(metadata_len));
+        let Some(block_total) = block_total else {
+            anomalies.push("u3d_block_length_overflow".to_string());
+            parse_failed = true;
+            break;
+        };
+
+        if block_total == 12 {
+            anomalies.push("u3d_zero_sized_block".to_string());
+            parse_failed = true;
+            break;
+        }
+
+        if offset + block_total > data.len() {
+            anomalies.push("u3d_block_table_out_of_bounds".to_string());
+            parse_failed = true;
+            break;
+        }
+
+        offset += block_total;
+        block_count += 1;
+    }
+
+    if block_count >= U3D_BLOCK_PARSE_LIMIT && offset < data.len() {
+        anomalies.push("u3d_block_table_iteration_limit_reached".to_string());
+    }
+    if block_count == 0 {
+        anomalies.push("u3d_no_complete_blocks".to_string());
+    }
+    if block_count > 256 {
+        anomalies.push("u3d_block_count_excessive".to_string());
+    }
+    if !parse_failed && offset < data.len() {
+        anomalies.push("u3d_block_table_trailing_bytes".to_string());
+    }
+
+    meta.insert("richmedia.3d.block_count_estimate".into(), block_count.to_string());
+    meta.insert("richmedia.3d.block_table_consumed_bytes".into(), offset.to_string());
+    meta.insert(
+        "richmedia.3d.block_table_trailing_bytes".into(),
+        data.len().saturating_sub(offset).to_string(),
+    );
+}
+
 fn analyse_3d_stream(
     obj: u32,
     gen: u16,
@@ -266,6 +339,8 @@ fn analyse_3d_stream(
         return Vec::new();
     };
     let mut anomaly_reasons = Vec::new();
+    let encoded_stream_len = stream.data_span.len();
+    let declared_stream_len = declared_stream_length(dict);
     if stream_bytes.len() < 16 {
         anomaly_reasons.push("too_small_for_3d_header".to_string());
     }
@@ -286,6 +361,10 @@ fn analyse_3d_stream(
         } else {
             anomaly_reasons.push("u3d_header_truncated".to_string());
         }
+    }
+    let mut u3d_table_meta = HashMap::new();
+    if media_type == "u3d" {
+        analyse_u3d_block_table(stream_bytes, &mut anomaly_reasons, &mut u3d_table_meta);
     } else if media_type == "prc" {
         if stream_bytes.len() < 32 {
             anomaly_reasons.push("prc_header_truncated".to_string());
@@ -302,8 +381,28 @@ fn analyse_3d_stream(
 
     let analysis = analyse_stream(stream_bytes, &StreamLimits::default());
     let filter_depth = filter_depth(dict);
+    let decode_expansion_ratio = if encoded_stream_len == 0 {
+        1.0
+    } else {
+        stream_bytes.len() as f64 / encoded_stream_len as f64
+    };
+    if decode_success && decode_expansion_ratio > RICHMEDIA_DECODE_EXPANSION_RATIO_LIMIT {
+        anomaly_reasons.push("richmedia_decode_expansion_ratio_high".to_string());
+    }
+    if !decode_success && filter_depth >= 1 {
+        anomaly_reasons.push("richmedia_decode_failed_with_filters".to_string());
+    }
+    if let Some(declared) = declared_stream_len {
+        let mismatch = (declared as i64 - encoded_stream_len as i64).unsigned_abs() as usize;
+        if mismatch > RICHMEDIA_DECLARED_LENGTH_TOLERANCE {
+            anomaly_reasons.push("richmedia_declared_length_mismatch".to_string());
+        }
+    }
     let has_decoder_correlation = !anomaly_reasons.is_empty()
-        && (analysis.entropy >= 7.2 || filter_depth >= 3 || !decode_success);
+        && (analysis.entropy >= 7.2
+            || filter_depth >= 3
+            || !decode_success
+            || decode_expansion_ratio > RICHMEDIA_DECODE_EXPANSION_RATIO_LIMIT);
 
     if anomaly_reasons.is_empty() {
         return Vec::new();
@@ -315,10 +414,19 @@ fn analyse_3d_stream(
     meta.insert("richmedia.3d.decode_success".into(), decode_success.to_string());
     meta.insert("richmedia.3d.structure_anomalies".into(), anomaly_reasons.join(","));
     meta.insert("richmedia.3d.filter_depth".into(), filter_depth.to_string());
+    meta.insert(
+        "richmedia.3d.decoded_expansion_ratio".into(),
+        format!("{decode_expansion_ratio:.2}"),
+    );
+    meta.insert("richmedia.3d.encoded_stream_bytes".into(), encoded_stream_len.to_string());
+    if let Some(declared) = declared_stream_len {
+        meta.insert("richmedia.3d.declared_stream_length".into(), declared.to_string());
+    }
     meta.insert("stream.magic_type".into(), analysis.magic_type.clone());
     meta.insert("stream.entropy".into(), format!("{:.2}", analysis.entropy));
     meta.insert("stream.blake3".into(), analysis.blake3.clone());
     meta.insert("size_bytes".into(), stream_bytes.len().to_string());
+    meta.extend(u3d_table_meta);
 
     let evidence = EvidenceBuilder::new()
         .file_offset(stream.dict.span.start, stream.dict.span.len() as u32, "3D stream dict")
@@ -330,7 +438,11 @@ fn analyse_3d_stream(
         surface: AttackSurface::RichMedia3D,
         kind: "richmedia_3d_structure_anomaly".into(),
         severity: if has_decoder_correlation { Severity::High } else { Severity::Medium },
-        confidence: Confidence::Probable,
+        confidence: if anomaly_reasons.len() >= 2 {
+            Confidence::Strong
+        } else {
+            Confidence::Probable
+        },
         impact: Some(if has_decoder_correlation { Impact::High } else { Impact::Medium }),
         title: "3D rich-media structure anomaly".into(),
         description:

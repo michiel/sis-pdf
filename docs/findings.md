@@ -2974,6 +2974,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `richmedia.3d.decode_success`
     - `richmedia.3d.structure_anomalies`
     - `richmedia.3d.filter_depth`
+    - `richmedia.3d.decoded_expansion_ratio`
+    - `richmedia.3d.encoded_stream_bytes`
+    - `richmedia.3d.declared_stream_length` (when `/Length` is present)
+    - `richmedia.3d.block_count_estimate` (U3D)
+    - `richmedia.3d.block_table_consumed_bytes` (U3D)
+    - `richmedia.3d.block_table_trailing_bytes` (U3D)
     - `stream.entropy`
 
 ## richmedia_3d_decoder_risk
