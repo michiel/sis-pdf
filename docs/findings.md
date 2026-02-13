@@ -1628,6 +1628,27 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: decoded or constructed strings are staged then executed.
   - Chain usage: used as runtime payload build-and-exec signal.
 
+## js_runtime_path_morphism
+
+- ID: `js_runtime_path_morphism`
+- Label: Runtime path morphism detected
+- Description: Runtime execution paths diverged across profiles with AST delta activity, consistent with self-modifying or profile-gated behaviour.
+- Tags: behavioural, javascript, runtime
+- Details:
+  - Relevance: catches profile-dependent and self-modifying runtime behaviour missed by single-path execution.
+  - Meaning: call/property/phase signatures and delta summaries differ materially across executed runtime profiles.
+  - Chain usage: high-priority follow-up signal for gated payload activation and evasive profile-specific execution.
+  - Metadata highlights:
+    - `js.runtime.path_morphism.executed_profiles`
+    - `js.runtime.path_morphism.distinct_signatures`
+    - `js.runtime.path_morphism.delta_profiles`
+    - `js.runtime.path_morphism.added_calls`
+    - `js.runtime.path_morphism.added_identifiers`
+    - `js.runtime.path_morphism.added_string_literals`
+    - `js.runtime.path_morphism.trigger_call_count`
+    - `js.runtime.path_morphism.phase_set_size`
+    - `js.runtime.path_morphism.score`
+
 ## js_runtime_error_recovery_patterns
 
 - ID: `js_runtime_error_recovery_patterns`

@@ -104,6 +104,7 @@ fn impact_for_kind(kind: &str) -> Option<Impact> {
         "js_runtime_file_probe" => Some(Impact::Low),
         "js_runtime_risky_calls" => Some(Impact::Medium),
         "js_runtime_heap_manipulation" => Some(Impact::Medium),
+        "js_runtime_path_morphism" => Some(Impact::High),
         "js_sandbox_timeout" => Some(Impact::None),
         "js_runtime_recursion_limit" => Some(Impact::Low),
         "js_emulation_breakpoint" => Some(Impact::Low),
@@ -326,6 +327,36 @@ fn populate_base_metadata(
     }
     if !signals.errors.is_empty() {
         meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
+        let unresolved_identifier_count = signals
+            .errors
+            .iter()
+            .filter(|error| {
+                let lower = error.to_ascii_lowercase();
+                lower.contains("is not defined") || lower.contains("undefined variable")
+            })
+            .count();
+        let unresolved_callable_count = signals
+            .errors
+            .iter()
+            .filter(|error| error.to_ascii_lowercase().contains("not a callable function"))
+            .count();
+        let callable_hint_count =
+            signals.errors.iter().filter(|error| error.contains("Callable recovery hint:")).count();
+        let unresolved_callee_hint_count =
+            signals.errors.iter().filter(|error| error.contains("callee=")).count();
+        meta.insert(
+            "js.runtime.unresolved_identifier_error_count".into(),
+            unresolved_identifier_count.to_string(),
+        );
+        meta.insert(
+            "js.runtime.unresolved_callable_error_count".into(),
+            unresolved_callable_count.to_string(),
+        );
+        meta.insert("js.runtime.callable_hint_count".into(), callable_hint_count.to_string());
+        meta.insert(
+            "js.runtime.unresolved_callee_hint_count".into(),
+            unresolved_callee_hint_count.to_string(),
+        );
     }
     if timed_out_profiles > 0 {
         meta.insert("js.runtime.script_timeout_profiles".into(), timed_out_profiles.to_string());
@@ -554,6 +585,172 @@ fn populate_base_metadata(
     if let Some(label) = source_label {
         meta.insert("js.source".into(), label.into());
     }
+}
+
+#[derive(Default)]
+struct PathMorphismSummary {
+    executed_profiles: usize,
+    distinct_path_signatures: usize,
+    delta_profiles: usize,
+    total_delta_added_calls: usize,
+    total_delta_added_identifiers: usize,
+    total_delta_added_literals: usize,
+    trigger_call_count: usize,
+    phase_set_size: usize,
+    score: usize,
+}
+
+fn summarise_path_morphism(profile_runs: &[ProfileRun]) -> Option<PathMorphismSummary> {
+    let mut signatures = std::collections::BTreeSet::new();
+    let mut phase_signatures = std::collections::BTreeSet::new();
+    let mut summary = PathMorphismSummary::default();
+    for run in profile_runs {
+        let DynamicOutcome::Executed(signals) = &run.outcome else {
+            continue;
+        };
+        summary.executed_profiles += 1;
+        let call_set = signals
+            .calls
+            .iter()
+            .map(|value| value.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        let prop_set = signals
+            .prop_reads
+            .iter()
+            .map(|value| value.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        let call_signature = if call_set.is_empty() {
+            "-".to_string()
+        } else {
+            call_set.iter().copied().collect::<Vec<_>>().join(",")
+        };
+        let prop_signature = if prop_set.is_empty() {
+            "-".to_string()
+        } else {
+            prop_set.iter().copied().collect::<Vec<_>>().join(",")
+        };
+        let phase_signature = if signals.phases.is_empty() {
+            "-".to_string()
+        } else {
+            signals.phases.iter().map(|phase| phase.phase.clone()).collect::<Vec<_>>().join(">")
+        };
+        phase_signatures.insert(phase_signature.clone());
+
+        let mut delta_signature = "-".to_string();
+        if let Some(delta) = &signals.delta_summary {
+            summary.delta_profiles += 1;
+            summary.total_delta_added_calls += delta.added_call_count;
+            summary.total_delta_added_identifiers += delta.added_identifier_count;
+            summary.total_delta_added_literals += delta.added_string_literal_count;
+            summary.trigger_call_count += delta.trigger_calls.len();
+            delta_signature = format!(
+                "{}:{}:{}:{}",
+                delta.phase,
+                delta.added_call_count,
+                delta.added_identifier_count,
+                delta.added_string_literal_count
+            );
+        }
+        signatures.insert(format!("calls={call_signature}|props={prop_signature}|phase={phase_signature}|delta={delta_signature}"));
+    }
+    if summary.executed_profiles < 2 {
+        return None;
+    }
+    summary.distinct_path_signatures = signatures.len();
+    summary.phase_set_size = phase_signatures.len();
+    summary.score = summary.distinct_path_signatures.saturating_sub(1)
+        + summary.delta_profiles
+        + usize::from(summary.phase_set_size > 1)
+        + usize::from(summary.total_delta_added_calls >= 3)
+        + usize::from(summary.total_delta_added_identifiers >= 4)
+        + usize::from(summary.total_delta_added_literals >= 4);
+    if summary.score < 3 {
+        return None;
+    }
+    Some(summary)
+}
+
+fn extend_with_path_morphism_finding(
+    findings: &mut Vec<Finding>,
+    surface: AttackSurface,
+    object_ref: &str,
+    evidence: &[sis_pdf_core::model::EvidenceSpan],
+    base_meta: &std::collections::HashMap<String, String>,
+    profile_summary: &ProfileDivergenceSummary,
+    profile_runs: &[ProfileRun],
+) {
+    let Some(morphism) = summarise_path_morphism(profile_runs) else {
+        return;
+    };
+    let mut meta = base_meta.clone();
+    meta.insert("js.sandbox_exec".into(), "true".into());
+    meta.insert(
+        "js.runtime.path_morphism.executed_profiles".into(),
+        morphism.executed_profiles.to_string(),
+    );
+    meta.insert(
+        "js.runtime.path_morphism.distinct_signatures".into(),
+        morphism.distinct_path_signatures.to_string(),
+    );
+    meta.insert(
+        "js.runtime.path_morphism.delta_profiles".into(),
+        morphism.delta_profiles.to_string(),
+    );
+    meta.insert(
+        "js.runtime.path_morphism.added_calls".into(),
+        morphism.total_delta_added_calls.to_string(),
+    );
+    meta.insert(
+        "js.runtime.path_morphism.added_identifiers".into(),
+        morphism.total_delta_added_identifiers.to_string(),
+    );
+    meta.insert(
+        "js.runtime.path_morphism.added_string_literals".into(),
+        morphism.total_delta_added_literals.to_string(),
+    );
+    meta.insert(
+        "js.runtime.path_morphism.trigger_call_count".into(),
+        morphism.trigger_call_count.to_string(),
+    );
+    meta.insert(
+        "js.runtime.path_morphism.phase_set_size".into(),
+        morphism.phase_set_size.to_string(),
+    );
+    meta.insert("js.runtime.path_morphism.score".into(), morphism.score.to_string());
+
+    let base_severity = if morphism.score >= 6 { Severity::High } else { Severity::Medium };
+    let base_confidence =
+        if morphism.score >= 6 { Confidence::Strong } else { Confidence::Probable };
+    let (severity, confidence) = apply_profile_scoring_meta(
+        &mut meta,
+        profile_summary,
+        "js_runtime_path_morphism",
+        base_severity,
+        base_confidence,
+    );
+    findings.push(Finding {
+        id: String::new(),
+        surface,
+        kind: "js_runtime_path_morphism".into(),
+        severity,
+        confidence,
+        impact: impact_for_kind("js_runtime_path_morphism"),
+        title: "Runtime path morphism detected".into(),
+        description:
+            "Runtime execution paths diverged across profiles with AST delta activity, consistent with self-modifying or profile-gated behaviour."
+                .into(),
+        objects: vec![object_ref.to_string()],
+        evidence: evidence.to_vec(),
+        remediation: Some(
+            "Replay under expanded profile matrices and inspect delta triggers/new calls for gated payload activation."
+                .into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    });
 }
 
 fn promote_severity(value: Severity) -> Severity {
@@ -1555,6 +1752,15 @@ impl Detector for JavaScriptSandboxDetector {
                                 &profile_summary,
                                 &signals,
                             );
+                            extend_with_path_morphism_finding(
+                                &mut findings,
+                                self.surface(),
+                                &object_ref,
+                                &evidence,
+                                &meta,
+                                &profile_summary,
+                                &profile_runs,
+                            );
                             let description = if !signals.prop_reads.is_empty() {
                                 "Sandbox executed JS; property accesses observed."
                             } else if signals.errors.is_empty() {
@@ -1662,6 +1868,15 @@ impl Detector for JavaScriptSandboxDetector {
                             &base_meta,
                             &profile_summary,
                             &signals,
+                        );
+                        extend_with_path_morphism_finding(
+                            &mut findings,
+                            self.surface(),
+                            &object_ref,
+                            &evidence,
+                            &base_meta,
+                            &profile_summary,
+                            &profile_runs,
                         );
                         let mut risky_calls = signals
                             .calls
@@ -1874,7 +2089,9 @@ impl Detector for JavaScriptSandboxDetector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use js_analysis::types::{BehaviorPattern, ExecutionStats};
+    use js_analysis::types::{
+        BehaviorPattern, DynamicDeltaSummary, DynamicPhaseSummary, ExecutionStats,
+    };
 
     const MAPPED_BEHAVIORAL_PATTERN_NAMES: &[&str] = &[
         "wasm_loader_staging",
@@ -1945,6 +2162,99 @@ mod tests {
                 probe_loop_short_circuit_hits: 0,
             },
         }
+    }
+
+    #[test]
+    fn summarise_path_morphism_detects_profile_path_deltas() {
+        let mut profile_a = minimal_dynamic_signals_with_patterns(Vec::new());
+        profile_a.runtime_profile = "pdf_reader:adobe:11:compat".into();
+        profile_a.calls = vec!["app.alert".into(), "app.launchURL".into()];
+        profile_a.call_count = profile_a.calls.len();
+        profile_a.unique_calls = profile_a.calls.len();
+        profile_a.phases = vec![DynamicPhaseSummary {
+            phase: "open".into(),
+            call_count: 2,
+            prop_read_count: 0,
+            error_count: 0,
+            elapsed_ms: 1,
+        }];
+        profile_a.delta_summary = Some(DynamicDeltaSummary {
+            phase: "open".into(),
+            trigger_calls: vec!["app.launchURL".into()],
+            generated_snippets: 1,
+            added_identifier_count: 6,
+            added_string_literal_count: 5,
+            added_call_count: 4,
+            new_identifiers: vec!["fnA".into()],
+            new_string_literals: vec!["x".into()],
+            new_calls: vec!["eval".into()],
+        });
+
+        let mut profile_b = minimal_dynamic_signals_with_patterns(Vec::new());
+        profile_b.runtime_profile = "browser:chromium:120:compat".into();
+        profile_b.calls = vec!["window.atob".into(), "Function".into()];
+        profile_b.call_count = profile_b.calls.len();
+        profile_b.unique_calls = profile_b.calls.len();
+        profile_b.phases = vec![DynamicPhaseSummary {
+            phase: "click".into(),
+            call_count: 2,
+            prop_read_count: 0,
+            error_count: 0,
+            elapsed_ms: 1,
+        }];
+        profile_b.delta_summary = Some(DynamicDeltaSummary {
+            phase: "click".into(),
+            trigger_calls: vec!["Function".into()],
+            generated_snippets: 1,
+            added_identifier_count: 5,
+            added_string_literal_count: 4,
+            added_call_count: 3,
+            new_identifiers: vec!["fnB".into()],
+            new_string_literals: vec!["y".into()],
+            new_calls: vec!["setTimeout".into()],
+        });
+
+        let profile_runs = vec![
+            ProfileRun {
+                profile_id: profile_a.runtime_profile.clone(),
+                outcome: DynamicOutcome::Executed(Box::new(profile_a)),
+            },
+            ProfileRun {
+                profile_id: profile_b.runtime_profile.clone(),
+                outcome: DynamicOutcome::Executed(Box::new(profile_b)),
+            },
+        ];
+
+        let summary = summarise_path_morphism(&profile_runs).expect("morphism summary");
+        assert_eq!(summary.executed_profiles, 2);
+        assert!(summary.distinct_path_signatures >= 2);
+        assert!(summary.delta_profiles >= 2);
+        assert!(summary.score >= 3);
+    }
+
+    #[test]
+    fn populate_base_metadata_counts_unresolved_runtime_errors() {
+        let mut signals = minimal_dynamic_signals_with_patterns(Vec::new());
+        signals.errors = vec![
+            "ReferenceError: foo is not defined".into(),
+            "TypeError: bar is not a callable function".into(),
+            "Callable recovery hint: line=1 columns=[1] callee=bar".into(),
+        ];
+        let mut meta = std::collections::HashMap::new();
+        populate_base_metadata(&mut meta, &signals, Some("inline"), 0, false);
+        assert_eq!(
+            meta.get("js.runtime.unresolved_identifier_error_count").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            meta.get("js.runtime.unresolved_callable_error_count").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(meta.get("js.runtime.callable_hint_count").map(String::as_str), Some("1"));
+        assert_eq!(
+            meta.get("js.runtime.unresolved_callee_hint_count").map(String::as_str),
+            Some("1")
+        );
     }
 
     #[test]
