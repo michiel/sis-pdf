@@ -55,6 +55,7 @@ pub mod parser_divergence;
 pub mod passive_render_pipeline;
 pub mod polyglot;
 pub mod quantum_risk;
+pub mod renderer_divergence;
 pub mod revision_forensics;
 pub mod rich_media_analysis;
 pub mod shadow_attacks;
@@ -95,6 +96,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(revision_forensics::RevisionForensicsDetector),
         Box::new(linearization::LinearizationDetector),
         Box::new(parser_divergence::ParserDivergenceDetector),
+        Box::new(renderer_divergence::RendererDivergenceDetector),
         Box::new(ObjStmDensityDetector),
         Box::new(objstm_summary::ObjStmSummaryDetector),
         Box::new(OpenActionDetector),

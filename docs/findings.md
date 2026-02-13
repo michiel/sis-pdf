@@ -3066,6 +3066,40 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: combined indicators (filter divergence, content anomalies, xref/linearisation signals) exceed the divergence threshold.
   - Chain usage: aggregate parser-evasion indicator.
 
+## renderer_behavior_divergence_known_path
+
+- ID: `renderer_behavior_divergence_known_path`
+- Label: Known renderer behaviour divergence path
+- Description: Known reader-behaviour divergence paths were detected across action, script, or form surfaces.
+- Tags: parser, renderer, divergence
+- Details:
+  - Relevance: highlights behaviour deltas across Acrobat, Pdfium, and Preview profiles.
+  - Meaning: one or more known divergence paths (for example open-action JavaScript or interactive XFA pathways) were observed.
+  - Chain usage: prioritisation signal for multi-renderer replay and policy hardening.
+  - Metadata:
+    - `renderer.known_paths` (csv): matched divergence catalogue path identifiers.
+    - `renderer.profile_deltas` (string): per-profile severity/impact delta summary.
+    - `renderer.executable_path_variance` (int): number of distinct divergence paths detected.
+    - `renderer.risk_score` (int): aggregate divergence score.
+    - `renderer.automatic_trigger` (bool-like string): whether automatic trigger context was present.
+
+## renderer_behavior_exploitation_chain
+
+- ID: `renderer_behavior_exploitation_chain`
+- Label: Renderer behaviour exploitation chain
+- Description: Automatic trigger paths and high-risk renderer surfaces co-occur with script/action capabilities, consistent with exploitation-chain setup.
+- Tags: chain, renderer, divergence
+- Details:
+  - Relevance: elevated exploitation risk where trigger, execution, and high-risk surface signals overlap.
+  - Meaning: renderer divergence is not isolated; it is part of a multi-signal exploitation chain.
+  - Chain usage: high-priority escalation signal for containment and replay.
+  - Metadata:
+    - `renderer.known_paths`
+    - `renderer.profile_deltas`
+    - `renderer.risk_score`
+    - `renderer.executable_path_variance`
+    - `renderer.chain_components`
+
 ## duplicate_stream_filters
 
 - ID: `duplicate_stream_filters`
