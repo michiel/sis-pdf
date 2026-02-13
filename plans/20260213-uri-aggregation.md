@@ -1,7 +1,7 @@
 # URI finding aggregation plan (retire `uri_present`, promote `uri_listing`)
 
 Date: 2026-02-13
-Status: Proposed (revised)
+Status: In progress (validation gates running)
 Owner: `sis-pdf-detectors` + `sis-pdf-core` reporting/query surfaces
 
 ## 1) Objective
@@ -243,3 +243,65 @@ Tests:
    - finding-count reduction,
    - chain parity (quantified),
    - runtime impact.
+
+## 11) Gate execution updates (2026-02-13)
+
+### 11.1 Fixed-hash A/B replay (URI-heavy slice)
+
+- Baseline commit: `385d457`
+- Current commit line: `07200eb` (includes URI runtime hardening)
+- Slice: deterministic URI-heavy fixed-hash sample (10 files).
+
+Results (successful scans only):
+
+- Baseline: `ok=9`, `scan_errors=1`, `findings_total=632`, `uri_present_total=134`, `uri_listing_total=2`, `uri_action_chains_total=0`, `p50_findings=59`, `p95_findings=186`, `p95_runtime_ms=9410`.
+- Current: `ok=9`, `scan_errors=1`, `findings_total=498`, `uri_present_total=0`, `uri_listing_total=2`, `uri_action_chains_total=2`, `p50_findings=34`, `p95_findings=161`, `p95_runtime_ms=10069`.
+
+Gate interpretation:
+
+- Gate C (output quality): **PASS** (finding-count reduction and `uri_present` removal confirmed).
+- Gate B (chain integrity): **PASS (provisional)** on this slice (`uri_action_chains` retained/improved).
+- Gate D (performance): **NEAR PASS / OPEN** (`+7.0%` p95, target `<5%`).
+
+### 11.2 Runtime outlier isolation
+
+Dominant slow file: `tmp/corpus/mwb-2026-02-06/d0552d4acdd6f0df66e3217e8fd685b69011f8ec4ffb4b57a884f97436002706.pdf`.
+
+Observed behaviour:
+
+- Slow in both baseline and current (baseline ~9.4s, current ~10.1s in replay).
+- Runtime logs are dominated by repeated font-hinting anomaly processing (`font.ttf_hinting_torture`), not URI listing work.
+- URI path was hardened by removing typed-graph construction from `uri_listing`, adding bounded dictionary scan, and emitting `uri.scan.limit`/`uri.scan.truncated`.
+
+Conclusion:
+
+- Remaining Gate D pressure is primarily a non-URI hotspot; URI aggregation path is no longer the dominant contributor.
+
+### 11.3 Labelled replay surrogate (malicious/benign)
+
+Because a formally labelled benign/malicious PDF corpus for this gate is not currently available in-repo, surrogate sets were used:
+
+- Malicious surrogate: 20 URI-heavy files from `tmp/corpus` fixed-hash slice.
+- Benign surrogate: 10 stable fixtures from `crates/sis-pdf-core/tests/fixtures` and `crates/sis-pdf-detectors/tests/fixtures`.
+
+Proxy results:
+
+- Malicious surrogate:
+  - baseline: URI-surface coverage `78.9%`, URI-action-chain coverage `0.0%`.
+  - current: URI-surface coverage `31.6%`, URI-action-chain coverage `31.6%`.
+- Benign surrogate:
+  - baseline FP proxy (`uri_content_analysis` or `uri_listing>=Medium`): `0/10` (0%).
+  - current FP proxy: `0/10` (0%).
+
+Interpretation:
+
+- The URI-surface proxy is not directly comparable because baseline includes retired `uri_present` semantics.
+- URI-action-chain coverage increases in current behaviour.
+- Benign FP proxy remains stable at 0%.
+- Gate A/B remain **provisionally open** pending replay on a formally labelled PDF corpus with explicit ground-truth expectations.
+
+### 11.4 Next closure steps
+
+1. Build a formally labelled benign/malicious PDF validation slice (or import existing labelled set) for final Gate A/B closure.
+2. Run targeted non-URI runtime tuning (font hinting hotspot) and re-run the same fixed-hash URI-heavy replay to close Gate D.
+3. Freeze acceptance table once Gate D is <= +5% p95 and labelled recall/FP deltas are quantified.
