@@ -467,6 +467,25 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `stream.magic_type`: detected magic label (`zip`, `rar`, `unknown`, etc.)
     - `stream.sample_timed_out`: indicates sampling was stopped due to the timeout budget
 
+## packetised_payload_obfuscation
+
+- ID: `packetised_payload_obfuscation`
+- Label: Packetised payload obfuscation
+- Description: Stream exhibits packet-like high-entropy blocks with index/length traits consistent with staged payload reconstruction.
+- Tags: decoder, evasion, staging
+- Details:
+  - Relevance: packetised staging can hide executable payloads until runtime reassembly.
+  - Meaning: stream data appears segmented into indexed high-entropy blocks with length-field structure.
+  - Chain usage: high-signal obfuscation stage when correlated with launch or script execution paths.
+  - Metadata:
+    - `packet.block_count` (int): number of packet-like blocks detected.
+    - `packet.estimated_index_fields` (int): inferred count of index/length fields per block.
+    - `packet.reconstruction_feasibility` (`low`, `medium`, `high`): estimated ease of payload reassembly.
+    - `packet.stride_bytes` (int): inferred packet stride length.
+    - `packet.monotonic_index_ratio` (float): ratio of blocks with monotonic index progression.
+    - `packet.length_field_ratio` (float): ratio of blocks with plausible length fields.
+    - `packet.correlation.execution_bridge` (bool-like string): true when launch/script execution bridge is present.
+
 ## eof_offset_unusual
 
 - ID: `eof_offset_unusual`
