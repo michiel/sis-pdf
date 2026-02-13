@@ -179,6 +179,12 @@ Changes:
 2. Remove/neutralise high-risk active elements with explicit audit trail.
 3. Mark output as degraded/sanitised; no full fidelity guarantee.
 
+Implementation status (2026-02-13):
+1. Implemented `sis sanitize <pdf> --out <path> [--report-json <path>]`.
+2. Added deterministic strip report with removal class counters and per-object/path audit records.
+3. Phase-1 strip targets: action keys (`/A`, `/AA`, `/OpenAction`, `/Next`), JavaScript (`/JS`, `/JavaScript`), XFA (`/XFA`), rich media (`/RichMedia*`), and embedded-file pointers (`/EmbeddedFiles`, `/EF`, `/RF`).
+4. Output is explicitly marked degraded via `output_degraded=true` in the report.
+
 ## PR-M7b: CDR safe rebuild (phase 2)
 
 Objective: add validated object-graph rebuild with xref/trailer reconstruction.

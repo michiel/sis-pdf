@@ -5,6 +5,7 @@ pub mod behavior;
 pub mod cache;
 pub mod campaign;
 pub mod canonical;
+pub mod cdr;
 pub mod chain;
 pub mod chain_render;
 pub mod chain_score;

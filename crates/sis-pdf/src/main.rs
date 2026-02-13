@@ -363,6 +363,15 @@ enum Command {
         #[arg(long, help = "Custom directory containing font CVE signature YAML files")]
         font_signature_dir: Option<PathBuf>,
     },
+    #[command(about = "Sanitise PDF active content (CDR strip-and-report, phase 1)")]
+    Sanitize {
+        #[arg(value_name = "PDF")]
+        pdf: String,
+        #[arg(short, long, help = "Output path for the sanitised PDF")]
+        out: PathBuf,
+        #[arg(long, help = "Optional JSON report output path")]
+        report_json: Option<PathBuf>,
+    },
     #[command(subcommand, about = "Run sandbox evaluation for dynamic assets")]
     Sandbox(SandboxCommand),
     #[command(about = "Generate a full Markdown report for a PDF scan")]
@@ -1012,6 +1021,9 @@ fn main() -> Result<()> {
                 !no_font_signatures,
                 font_signature_dir.as_deref(),
             )
+        }
+        Command::Sanitize { pdf, out, report_json } => {
+            run_sanitize(&pdf, &out, report_json.as_deref())
         }
         Command::Sandbox(cmd) => match cmd {
             SandboxCommand::Eval { file, asset_type, max_bytes } => {
@@ -5097,6 +5109,37 @@ fn run_redteam(target: &str, out: &std::path::Path) -> Result<()> {
     });
     fs::write(out, pdf.bytes)?;
     println!("wrote red-team fixture: {}", out.display());
+    Ok(())
+}
+
+fn run_sanitize(
+    pdf: &str,
+    out: &std::path::Path,
+    report_json: Option<&std::path::Path>,
+) -> Result<()> {
+    let data = read_pdf_bytes(pdf)?;
+    let result = sis_pdf_core::cdr::strip_active_content(
+        &data,
+        &sis_pdf_core::cdr::StripOptions::default(),
+    )?;
+    fs::write(out, &result.sanitised_bytes)?;
+
+    let report = serde_json::to_string_pretty(&result.report)?;
+    if let Some(report_path) = report_json {
+        fs::write(report_path, &report)?;
+    }
+
+    println!("sanitised output: {}", out.display());
+    println!(
+        "removed entries: {} (degraded_output={})",
+        result.report.removed_total, result.report.output_degraded
+    );
+    for (class, count) in &result.report.removed_by_class {
+        println!("  {}: {}", class, count);
+    }
+    if let Some(report_path) = report_json {
+        println!("report written: {}", report_path.display());
+    }
     Ok(())
 }
 
