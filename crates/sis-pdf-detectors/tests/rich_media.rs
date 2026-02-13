@@ -1,6 +1,40 @@
 mod common;
 use common::default_scan_opts;
 
+fn build_pdf_with_objects(objects: &[&str]) -> Vec<u8> {
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    let mut offsets = vec![0usize; objects.len() + 1];
+    for object in objects {
+        let obj_num = object
+            .split_whitespace()
+            .next()
+            .and_then(|token| token.parse::<usize>().ok())
+            .expect("object number");
+        if obj_num < offsets.len() {
+            offsets[obj_num] = pdf.len();
+        }
+        pdf.extend_from_slice(object.as_bytes());
+    }
+    let start_xref = pdf.len();
+    let size = offsets.len();
+    pdf.extend_from_slice(format!("xref\n0 {}\n", size).as_bytes());
+    pdf.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in offsets.iter().skip(1) {
+        if *offset == 0 {
+            pdf.extend_from_slice(b"0000000000 00000 f \n");
+        } else {
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n", size).as_bytes(),
+    );
+    pdf.extend_from_slice(start_xref.to_string().as_bytes());
+    pdf.extend_from_slice(b"\n%%EOF\n");
+    pdf
+}
+
 #[test]
 fn detects_swf_action_tags() {
     let bytes = include_bytes!("../../sis-pdf-core/tests/fixtures/media/swf_cve_2011_0611.pdf");
@@ -18,4 +52,53 @@ fn detects_swf_action_tags() {
         meta.get("swf.action_tags").map(|value| value.contains("DoABC")).unwrap_or(false),
         "expected DoABC name"
     );
+}
+
+#[test]
+fn detects_3d_structure_anomaly_for_malformed_u3d_payload() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n",
+        "3 0 obj\n<< /Type /3D /Length 12 >>\nstream\n\x00\x00\x00$\x00\x00\x01\x00AAAA\nendstream\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+    let finding = report
+        .findings
+        .iter()
+        .find(|finding| finding.kind == "richmedia_3d_structure_anomaly")
+        .expect("richmedia_3d_structure_anomaly");
+    assert_eq!(finding.meta.get("media_type").map(std::string::String::as_str), Some("u3d"));
+    assert!(finding
+        .meta
+        .get("richmedia.3d.structure_anomalies")
+        .map(|value| value.contains("u3d_declared_block_len_out_of_bounds"))
+        .unwrap_or(false));
+}
+
+#[test]
+fn correlates_3d_anomaly_with_decoder_risk_factors() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n",
+        "3 0 obj\n<< /Type /3D /Filter [/FlateDecode /ASCII85Decode /RunLengthDecode] /Length 12 >>\nstream\n\x00\x00\x00$\x00\x00\x01\x00AAAA\nendstream\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+    let risk = report
+        .findings
+        .iter()
+        .find(|finding| finding.kind == "richmedia_3d_decoder_risk")
+        .expect("richmedia_3d_decoder_risk");
+    assert!(risk
+        .meta
+        .get("richmedia.3d.decoder_correlation")
+        .map(|value| value.contains("filter_depth=3"))
+        .unwrap_or(false));
 }

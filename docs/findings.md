@@ -2912,6 +2912,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: feature increases parsing or interaction complexity.
   - Chain usage: used as supporting context for delivery or exploitation stages.
 
+## richmedia_3d_structure_anomaly
+
+- ID: `richmedia_3d_structure_anomaly`
+- Label: 3D rich-media structure anomaly
+- Description: U3D/PRC stream structure deviates from bounded sanity checks and may indicate malformed or exploit-oriented payload material.
+- Tags: 3d, decoder, richmedia
+- Details:
+  - Relevance: malformed 3D payloads can trigger decoder edge cases and parser instability.
+  - Meaning: stream-level checks found structural inconsistencies in U3D/PRC data.
+  - Chain usage: used as 3D payload-stage risk indicator for renderer exploit triage.
+  - Metadata:
+    - `media_type` (`u3d` or `prc`)
+    - `richmedia.3d.decode_success`
+    - `richmedia.3d.structure_anomalies`
+    - `richmedia.3d.filter_depth`
+    - `stream.entropy`
+
+## richmedia_3d_decoder_risk
+
+- ID: `richmedia_3d_decoder_risk`
+- Label: 3D rich-media decoder risk correlation
+- Description: 3D structure anomalies co-occur with decoder-risk factors (high entropy, deep filter chain, or decode instability).
+- Tags: 3d, correlation, decoder, richmedia
+- Details:
+  - Relevance: highlights high-risk 3D payloads likely to stress or exploit decoding paths.
+  - Meaning: malformed structure appears alongside one or more decoder-risk multipliers.
+  - Chain usage: escalation-level finding for immediate containment and replay.
+  - Metadata:
+    - `richmedia.3d.decoder_correlation`
+    - `richmedia.3d.structure_anomalies`
+    - `richmedia.3d.filter_depth`
+    - `stream.entropy`
+
 ## swf_embedded
 
 - ID: `swf_embedded`
