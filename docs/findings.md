@@ -3325,6 +3325,38 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `xfa.script_preview` (string): bounded preview of a representative script or execute block.
     - `xfa.size_bytes` (int): total XFA payload byte size.
 
+## xfa_entity_resolution_risk
+
+- ID: `xfa_entity_resolution_risk`
+- Label: XFA XML entity-resolution risk
+- Description: XFA payload includes XML DTD/entity constructs that can increase backend ingest risk when entity resolution is enabled.
+- Tags: xfa, xml, xxe
+- Details:
+  - Relevance: backend parser hardening and XXE-adjacent risk.
+  - Meaning: XFA contains DOCTYPE/entity declarations that should be treated as risky for downstream XML ingestion.
+  - Chain usage: used as ingest-risk context and enrichment for XFA abuse triage.
+  - Metadata:
+    - `xfa.dtd_present` (bool): whether DOCTYPE/DTD marker was observed.
+    - `xfa.xml_entity_count` (int): number of XML entity declarations observed.
+    - `xfa.external_entity_refs` (int): number of external entity declarations (`SYSTEM`/`PUBLIC`).
+    - `backend.ingest_risk` (string): derived ingest risk level (`low`, `medium`, `high`).
+
+## xfa_backend_xxe_pattern
+
+- ID: `xfa_backend_xxe_pattern`
+- Label: XFA backend XXE pattern
+- Description: XFA payload contains external XML entity declarations consistent with backend XXE-style ingestion risk patterns.
+- Tags: xfa, xml, xxe, backend
+- Details:
+  - Relevance: potential backend-side data exposure or SSRF-like resolution behaviour where parser hardening is absent.
+  - Meaning: external entity declarations are present and should be treated as high-risk on ingest paths.
+  - Chain usage: high-priority correlation signal for XFA pipelines and backend processing workflows.
+  - Metadata:
+    - `xfa.dtd_present`
+    - `xfa.xml_entity_count`
+    - `xfa.external_entity_refs`
+    - `backend.ingest_risk`
+
 ## actionscript_present
 
 - ID: `actionscript_present`

