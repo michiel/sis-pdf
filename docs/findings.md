@@ -3422,6 +3422,28 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: supply-chain style behavior.
   - Meaning: indicators suggest staged download/update/persistence logic.
   - Chain usage: used as multi-step delivery or persistence stages.
+  - Metadata:
+    - `stage.count` (int): number of stage indicators detected for the payload.
+    - `stage.sources` (string): stage source family (for example `javascript`).
+    - `stage.fetch_targets` (string): resolved fetch/action targets if known.
+    - `stage.execution_bridge` (bool-like string): whether an execution bridge was observed.
+
+## staged_remote_template_fetch_unresolved
+
+- ID: `staged_remote_template_fetch_unresolved`
+- Label: Staged remote template fetch (unresolved bridge)
+- Description: JavaScript indicates remote template or form-fetch behaviour, but a concrete execution bridge is not yet resolved.
+- Tags: chain, supply-chain, staging
+- Details:
+  - Relevance: catches likely staged delivery patterns before an explicit execution bridge is proven.
+  - Meaning: template/fetch indicators appear in script content with insufficient downstream execution linkage.
+  - Chain usage: triage-first signal for follow-up correlation with action and execution findings.
+  - Metadata:
+    - `stage.sources`
+    - `stage.fetch_targets`
+    - `stage.count`
+    - `stage.execution_bridge`
+    - `stage.remote_template_indicators`
 
 ## supply_chain_update_vector
 

@@ -83,11 +83,31 @@ impl Detector for SupplyChainDetector {
                 }
 
                 let staged = analyzer.detect_staged_payload(&info.bytes);
+                let remote_template_signals = detect_remote_template_signals(&info.bytes);
                 if !staged.is_empty() {
                     let indicators =
                         staged.iter().map(|s| s.indicator.clone()).collect::<Vec<_>>().join(",");
                     let mut meta = std::collections::HashMap::new();
                     meta.insert("supply_chain.indicators".into(), indicators);
+                    meta.insert("stage.count".into(), staged.len().to_string());
+                    meta.insert("stage.sources".into(), "javascript".into());
+                    meta.insert(
+                        "stage.fetch_targets".into(),
+                        if !local_action_targets.is_empty() {
+                            local_action_targets.join(",")
+                        } else {
+                            "unknown".into()
+                        },
+                    );
+                    meta.insert(
+                        "stage.execution_bridge".into(),
+                        if has_embedded || !local_action_targets.is_empty() {
+                            "true"
+                        } else {
+                            "false"
+                        }
+                        .into(),
+                    );
                     if has_embedded {
                         meta.insert("supply_chain.embedded_present".into(), "true".into());
                     }
@@ -116,6 +136,46 @@ impl Detector for SupplyChainDetector {
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: evidence.clone(),
                         remediation: Some("Inspect outbound URLs and staged payloads.".into()),
+                        meta,
+                        yara: None,
+                        position: None,
+                        positions: Vec::new(),
+                        ..Finding::default()
+                    });
+                }
+
+                if !remote_template_signals.is_empty() {
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("stage.sources".into(), "javascript,remote-template-hint".into());
+                    meta.insert(
+                        "stage.fetch_targets".into(),
+                        if !local_action_targets.is_empty() {
+                            local_action_targets.join(",")
+                        } else {
+                            "unknown".into()
+                        },
+                    );
+                    meta.insert("stage.count".into(), "1".into());
+                    meta.insert("stage.execution_bridge".into(), "false".into());
+                    meta.insert(
+                        "stage.remote_template_indicators".into(),
+                        remote_template_signals.join(","),
+                    );
+                    if let Some(label) = candidate.source.meta_value() {
+                        meta.insert("js.source".into(), label.into());
+                    }
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: self.surface(),
+                        kind: "staged_remote_template_fetch_unresolved".into(),
+                        severity: Severity::Medium,
+                        confidence: Confidence::Probable,
+                        impact: None,
+                        title: "Staged remote template fetch (unresolved bridge)".into(),
+                        description: "JavaScript indicates remote template or form-fetch behaviour, but a concrete execution bridge is not yet resolved.".into(),
+                        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                        evidence: evidence.clone(),
+                        remediation: Some("Correlate template fetch signals with launch/open triggers and downstream execution pathways.".into()),
                         meta,
                         yara: None,
                         position: None,
@@ -210,6 +270,10 @@ impl Detector for SupplyChainDetector {
             let targets_vec: Vec<String> = action_targets_global.into_iter().collect();
             let mut meta = std::collections::HashMap::new();
             meta.insert("supply_chain.action_targets".into(), targets_vec.join(","));
+            meta.insert("stage.sources".into(), "action_targets".into());
+            meta.insert("stage.count".into(), "1".into());
+            meta.insert("stage.fetch_targets".into(), targets_vec.join(","));
+            meta.insert("stage.execution_bridge".into(), "false".into());
             if !embedded_names.is_empty() {
                 meta.insert("supply_chain.embedded_names".into(), embedded_names.join(","));
             }
@@ -219,7 +283,7 @@ impl Detector for SupplyChainDetector {
                 kind: "supply_chain_staged_payload".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Heuristic,
-            impact: None,
+                impact: None,
                 title: "Action targets indicate staged payloads".into(),
                 description: "Action targets reference external resources or files without JavaScript payloads.".into(),
                 objects: vec!["action_targets".into()],
@@ -227,9 +291,9 @@ impl Detector for SupplyChainDetector {
                 remediation: Some("Inspect action targets and embedded files.".into()),
                 meta,
                 yara: None,
-        position: None,
-        positions: Vec::new(),
-            ..Finding::default()
+                position: None,
+                positions: Vec::new(),
+                ..Finding::default()
             });
         }
         Ok(findings)
@@ -260,4 +324,17 @@ fn extract_action_target(edge: &sis_pdf_pdf::typed_graph::TypedEdge) -> Option<S
         EdgeType::SubmitFormTarget => Some(format!("SubmitForm:{:?}", edge.dst)),
         _ => None,
     }
+}
+
+fn detect_remote_template_signals(bytes: &[u8]) -> Vec<String> {
+    let lower = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+    let mut out = Vec::new();
+    for needle in ["template", ".xdp", ".xfdf", ".xfa", "stylesheet", "xfa.host"] {
+        if lower.contains(needle) {
+            out.push(needle.to_string());
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
 }
