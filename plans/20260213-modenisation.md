@@ -102,6 +102,12 @@ Test/fixture requirements:
 1. Deterministic fixtures that map to known divergence entries.
 2. Snapshot tests for divergence metadata serialisation.
 
+Implementation status (2026-02-13):
+1. Converted renderer divergence output to a deterministic catalogue model with explicit entries and revision metadata (`renderer.catalogue_version`, `renderer.catalogue_entries`).
+2. Added explicit high-value divergence families for action handling, JavaScript execution policy, and attachment/open behaviour.
+3. Added family-level metadata (`renderer.catalogue.family.*`, `renderer.catalogue.family_count`) and chained-finding guardrail requiring at least two independent divergence families.
+4. Extended integration coverage for deterministic catalogue serialisation and attachment/open behaviour mapping in `crates/sis-pdf-detectors/tests/renderer_divergence.rs`.
+
 ## PR-M3: XFA/XML entity-risk hardening (targeted)
 
 Objective: close XML entity/DOCTYPE external-reference risk in XFA ingestion contexts.

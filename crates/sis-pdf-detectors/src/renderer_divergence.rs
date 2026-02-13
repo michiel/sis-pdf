@@ -76,6 +76,15 @@ impl Detector for RendererDivergenceDetector {
         let has_js = has_js_edge || has_inline_js;
 
         let mut known_paths = BTreeSet::new();
+        let action_handling_path =
+            has_open_action || has_additional_action || has_page_or_field_action;
+        let js_execution_policy_path = has_js && action_handling_path;
+        let attachment_open_behavior_path =
+            has_embedded && (has_launch || has_open_action || has_additional_action);
+        let renderer_family_count = usize::from(action_handling_path)
+            + usize::from(js_execution_policy_path)
+            + usize::from(attachment_open_behavior_path);
+
         if has_open_action && has_js {
             known_paths.insert("open_action_js_path".to_string());
         }
@@ -92,6 +101,15 @@ impl Detector for RendererDivergenceDetector {
         }
         if has_external_action && (has_js || has_open_action || has_additional_action) {
             known_paths.insert("external_action_path".to_string());
+        }
+        if action_handling_path {
+            known_paths.insert("action_handling_divergence_path".to_string());
+        }
+        if js_execution_policy_path {
+            known_paths.insert("js_execution_policy_divergence_path".to_string());
+        }
+        if attachment_open_behavior_path {
+            known_paths.insert("attachment_open_behavior_path".to_string());
         }
 
         if known_paths.is_empty() {
@@ -127,14 +145,27 @@ impl Detector for RendererDivergenceDetector {
 
         let profile_deltas = "acrobat:high/high,pdfium:medium/medium,preview:low/low";
         let mut meta = std::collections::HashMap::new();
-        meta.insert(
-            "renderer.known_paths".into(),
-            known_paths.iter().cloned().collect::<Vec<_>>().join(","),
-        );
+        let catalogue_entries = known_paths.iter().cloned().collect::<Vec<_>>().join(",");
+        meta.insert("renderer.known_paths".into(), catalogue_entries.clone());
+        meta.insert("renderer.catalogue_version".into(), "2026-02-13".into());
+        meta.insert("renderer.catalogue_entries".into(), catalogue_entries);
         meta.insert("renderer.profile_deltas".into(), profile_deltas.into());
         meta.insert("renderer.executable_path_variance".into(), known_paths.len().to_string());
         meta.insert("renderer.risk_score".into(), risk_score.to_string());
         meta.insert("renderer.automatic_trigger".into(), automatic_trigger.to_string());
+        meta.insert(
+            "renderer.catalogue.family.action_handling".into(),
+            action_handling_path.to_string(),
+        );
+        meta.insert(
+            "renderer.catalogue.family.js_execution_policy".into(),
+            js_execution_policy_path.to_string(),
+        );
+        meta.insert(
+            "renderer.catalogue.family.attachment_open".into(),
+            attachment_open_behavior_path.to_string(),
+        );
+        meta.insert("renderer.catalogue.family_count".into(), renderer_family_count.to_string());
 
         let mut findings = vec![Finding {
             id: String::new(),
@@ -189,16 +220,26 @@ impl Detector for RendererDivergenceDetector {
             && (has_js || has_launch)
             && (has_xfa || has_richmedia || has_embedded)
             && known_paths.len() >= 2
+            && renderer_family_count >= 2
         {
             let mut chain_meta = std::collections::HashMap::new();
             chain_meta.insert(
                 "renderer.known_paths".into(),
                 known_paths.iter().cloned().collect::<Vec<_>>().join(","),
             );
+            chain_meta.insert("renderer.catalogue_version".into(), "2026-02-13".into());
+            chain_meta.insert(
+                "renderer.catalogue_entries".into(),
+                known_paths.iter().cloned().collect::<Vec<_>>().join(","),
+            );
             chain_meta.insert("renderer.profile_deltas".into(), profile_deltas.into());
             chain_meta.insert("renderer.risk_score".into(), (risk_score + 2).to_string());
             chain_meta
                 .insert("renderer.executable_path_variance".into(), known_paths.len().to_string());
+            chain_meta.insert(
+                "renderer.catalogue.family_count".into(),
+                renderer_family_count.to_string(),
+            );
             chain_meta.insert(
                 "renderer.chain_components".into(),
                 format!(

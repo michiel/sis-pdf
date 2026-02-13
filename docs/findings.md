@@ -3183,10 +3183,16 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Chain usage: prioritisation signal for multi-renderer replay and policy hardening.
   - Metadata:
     - `renderer.known_paths` (csv): matched divergence catalogue path identifiers.
+    - `renderer.catalogue_version` (string): renderer divergence catalogue revision.
+    - `renderer.catalogue_entries` (csv): stable ordered catalogue entries matched for this file.
     - `renderer.profile_deltas` (string): per-profile severity/impact delta summary.
     - `renderer.executable_path_variance` (int): number of distinct divergence paths detected.
     - `renderer.risk_score` (int): aggregate divergence score.
     - `renderer.automatic_trigger` (bool-like string): whether automatic trigger context was present.
+    - `renderer.catalogue.family.action_handling` (bool-like string): action-handling divergence family matched.
+    - `renderer.catalogue.family.js_execution_policy` (bool-like string): JS policy divergence family matched.
+    - `renderer.catalogue.family.attachment_open` (bool-like string): attachment/open divergence family matched.
+    - `renderer.catalogue.family_count` (int): number of divergence families matched.
 
 ## renderer_behavior_exploitation_chain
 
@@ -3200,9 +3206,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Chain usage: high-priority escalation signal for containment and replay.
   - Metadata:
     - `renderer.known_paths`
+    - `renderer.catalogue_version`
+    - `renderer.catalogue_entries`
     - `renderer.profile_deltas`
     - `renderer.risk_score`
     - `renderer.executable_path_variance`
+    - `renderer.catalogue.family_count`
     - `renderer.chain_components`
 
 ## duplicate_stream_filters
