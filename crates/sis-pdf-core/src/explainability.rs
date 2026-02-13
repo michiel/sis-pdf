@@ -436,6 +436,7 @@ fn humanize_finding_kind(kind: &str) -> String {
         "js_polymorphic" => "polymorphic JavaScript".to_string(),
         "js_obfuscation_deep" => "deeply obfuscated JavaScript".to_string(),
         "open_action_present" => "automatic OpenAction trigger".to_string(),
+        "uri_listing" => "document-level URI inventory with risk summary".to_string(),
         "uri_content_analysis" => "suspicious URI with obfuscation".to_string(),
         "multi_stage_attack_chain" => "multi-stage attack chain".to_string(),
         "supply_chain_persistence" => "supply chain persistence mechanism".to_string(),

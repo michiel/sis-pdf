@@ -1689,7 +1689,17 @@ fn extract_finding_features(
     set_finding!("aa_event_present", aa_event_present, aa_event_present_count);
     set_finding!("launch_action_present", launch_action_present, launch_action_present_count);
     set_finding!("gotor_present", gotor_present, gotor_present_count);
-    set_finding!("uri_present", uri_present, uri_present_count);
+    if let Some(&count) = finding_counts_map.get("uri_present") {
+        presence.uri_present = 1.0;
+        counts.uri_present_count = count as f32;
+    } else {
+        let uri_rollup = finding_counts_map.get("uri_content_analysis").copied().unwrap_or(0)
+            + finding_counts_map.get("uri_listing").copied().unwrap_or(0);
+        if uri_rollup > 0 {
+            presence.uri_present = 1.0;
+            counts.uri_present_count = uri_rollup as f32;
+        }
+    }
     set_finding!("submitform_present", submitform_present, submitform_present_count);
     set_finding!(
         "external_action_risk_context",

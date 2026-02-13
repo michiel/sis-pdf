@@ -1188,7 +1188,7 @@ fn map_focus_trigger(trigger: &str) -> Option<String> {
         "openaction" | "open_action" => Some("open_action_present".into()),
         "aa" | "aae" | "additional_actions" => Some("aa_present".into()),
         "javascript" | "js" => Some("js_present".into()),
-        "uri" => Some("uri_present".into()),
+        "uri" => Some("uri_listing".into()),
         _ => None,
     }
 }

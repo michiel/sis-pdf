@@ -648,7 +648,6 @@ pub fn print_jsonl_findings(report: &Report) -> Result<()> {
 
 pub fn apply_focused_triage(report: &mut Report) {
     let mut focused = Vec::new();
-    let mut uri_present = Vec::new();
     let mut annotation_chains = Vec::new();
     let mut noisy_content_stream_anomaly = Vec::new();
     let mut noisy_label_mismatch_stream_type = Vec::new();
@@ -658,7 +657,6 @@ pub fn apply_focused_triage(report: &mut Report) {
 
     for finding in &report.findings {
         match finding.kind.as_str() {
-            "uri_present" => uri_present.push(finding.clone()),
             "annotation_action_chain" => annotation_chains.push(finding.clone()),
             "content_stream_anomaly" => noisy_content_stream_anomaly.push(finding.clone()),
             "label_mismatch_stream_type" => noisy_label_mismatch_stream_type.push(finding.clone()),
@@ -672,9 +670,6 @@ pub fn apply_focused_triage(report: &mut Report) {
         }
     }
 
-    if let Some(aggregate) = aggregate_uri_present(&uri_present) {
-        focused.push(aggregate);
-    }
     if let Some(aggregate) = aggregate_annotation_action_chains(&annotation_chains) {
         focused.push(aggregate);
     }
@@ -741,85 +736,6 @@ fn is_focused_triage_finding(finding: &Finding) -> bool {
             | "image_decoder_exploit_chain"
             | "embedded_file_present"
     )
-}
-
-fn aggregate_uri_present(findings: &[Finding]) -> Option<Finding> {
-    if findings.is_empty() {
-        return None;
-    }
-
-    let mut unique_domains = BTreeSet::new();
-    let mut unique_urls = BTreeSet::new();
-    let mut sample_objects = BTreeSet::new();
-    let mut evidence = Vec::new();
-    for finding in findings {
-        if let Some(domain) = finding.meta.get("uri.domain") {
-            unique_domains.insert(domain.clone());
-        }
-        if let Some(url) = finding.meta.get("url") {
-            unique_urls.insert(url.clone());
-        }
-        for object in finding.objects.iter().take(3) {
-            sample_objects.insert(object.clone());
-        }
-        if evidence.len() < 4 {
-            evidence.extend(finding.evidence.iter().take(1).cloned());
-        }
-    }
-
-    let total = findings.len();
-    let domain_count = unique_domains.len();
-    let severity = if total >= 50 || domain_count >= 20 {
-        Severity::High
-    } else if total >= 25 || domain_count >= 10 {
-        Severity::Medium
-    } else {
-        Severity::Low
-    };
-    let confidence = if total >= 25 { Confidence::Strong } else { Confidence::Probable };
-
-    let mut meta = HashMap::new();
-    meta.insert("aggregate.kind".into(), "uri_present".into());
-    meta.insert("aggregate.count".into(), total.to_string());
-    meta.insert("aggregate.unique_domain_count".into(), domain_count.to_string());
-    meta.insert("aggregate.unique_uri_count".into(), unique_urls.len().to_string());
-    meta.insert(
-        "aggregate.sample_objects".into(),
-        sample_objects.iter().take(12).cloned().collect::<Vec<_>>().join(","),
-    );
-    if !unique_domains.is_empty() {
-        meta.insert(
-            "aggregate.sample_domains".into(),
-            unique_domains.iter().take(12).cloned().collect::<Vec<_>>().join(","),
-        );
-    }
-
-    Some(Finding {
-        id: String::new(),
-        surface: AttackSurface::Actions,
-        kind: "uri_present_aggregate".into(),
-        severity,
-        confidence,
-        impact: None,
-        title: "URI actions aggregated".into(),
-        description: format!(
-            "Aggregated {} URI findings across {} unique domains.",
-            total, domain_count
-        ),
-        objects: sample_objects.into_iter().take(12).collect(),
-        evidence,
-        remediation: Some(
-            "Review sampled objects and domains, then pivot with query filters.".into(),
-        ),
-        meta,
-        reader_impacts: Vec::new(),
-        action_type: None,
-        action_target: None,
-        action_initiation: None,
-        yara: None,
-        position: None,
-        positions: Vec::new(),
-    })
 }
 
 fn aggregate_annotation_action_chains(findings: &[Finding]) -> Option<Finding> {
@@ -1078,7 +994,7 @@ fn finding_context(kind: &str) -> Option<&'static str> {
     match kind {
         "icc_profile_anomaly" => Some("Malformed ICC profiles often trigger color-management bugs (e.g., Adobe CVE reports) and can conceal malicious imagery or metadata."),
         "annotation_action_chain" => Some("Annotation chains frequently wrap multiple URI/action steps, allowing attackers to hide phishing redirects behind layered annotations."),
-        "uri_present" => Some("URIs often ferry phishing destinations or downloader links; attackers hide them in actions, JavaScript, or annotations to evade static filters."),
+        "uri_listing" | "uri_content_analysis" => Some("URIs often ferry phishing destinations or downloader links; attackers hide them in actions, JavaScript, or annotations to evade static filters."),
         "launch_action_present" => Some("Launch actions invoke external executables and have been abused to stage binaries via malicious PDFs in targeted campaigns."),
         "js_present" => Some("JavaScript actions enable heap sprays, obfuscation, and chained payload delivery; attackers rely on them for staged compromise."),
         "polyglot_signature_conflict" => Some("PDFs that also match ZIP/HTML/Image signatures are classic polyglots used to sneak payloads past scanners that only look at headers."),
@@ -1649,8 +1565,13 @@ fn runtime_effect_for_finding(f: &Finding) -> String {
         "open_action_present" => "Automatic execution occurs on document open; downstream actions may run without user intent.".into(),
         "aa_present" | "aa_event_present" => "Event-driven actions can fire during viewing or interaction, enabling automatic execution.".into(),
         "js_present" => "JavaScript runs in the viewer context and can influence document behavior or user actions.".into(),
-        "uri_present" => {
-            let domain = f.meta.get("uri.domain").cloned().unwrap_or_else(|| "unknown".into());
+        "uri_listing" | "uri_content_analysis" => {
+            let domain = f
+                .meta
+                .get("uri.domain")
+                .or_else(|| f.meta.get("uri.domains_sample"))
+                .cloned()
+                .unwrap_or_else(|| "unknown".into());
             format!(
                 "Viewer may navigate to URI targets (domain: {}), enabling phishing, credential capture, or staged fetches.",
                 domain
@@ -1775,7 +1696,8 @@ fn chain_effect_summary(chain: &ExploitChain) -> String {
     if let Some(action) = action_type.or(action_key) {
         if action.contains("JavaScript") || matches!(action, "js_present") {
             parts.push("JavaScript executes in viewer context".into());
-        } else if action.contains("URI") || matches!(action, "uri_present") {
+        } else if action.contains("URI") || matches!(action, "uri_content_analysis" | "uri_listing")
+        {
             parts.push("External navigation or fetch occurs".into());
         } else if action.contains("Launch") || matches!(action, "launch_action_present") {
             parts.push("External application launch possible".into());
@@ -1921,7 +1843,8 @@ fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> Stri
         if action.contains("JavaScript") || matches!(action, "js_present") {
             fallback_lines
                 .push("JavaScript runs in the viewer context and can access document APIs.".into());
-        } else if action.contains("URI") || matches!(action, "uri_present") {
+        } else if action.contains("URI") || matches!(action, "uri_content_analysis" | "uri_listing")
+        {
             fallback_lines
                 .push("Viewer may navigate to an external URL or fetch remote content.".into());
         } else if action.contains("Launch") || matches!(action, "launch_action_present") {
@@ -1955,8 +1878,8 @@ fn chain_execution_narrative(chain: &ExploitChain, findings: &[Finding]) -> Stri
             if f.meta.get("js.obfuscation_suspected").map(|v| v == "true").unwrap_or(false) {
                 js_notes.push("Obfuscation suspected in script payloads.".into());
             }
-            if f.kind == "uri_present" {
-                if let Some(url) = f.meta.get("uri.value") {
+            if matches!(f.kind.as_str(), "uri_content_analysis" | "uri_listing") {
+                if let Some(url) = f.meta.get("uri.value").or_else(|| f.meta.get("url")) {
                     js_notes.push(format!("External URL observed: {}", url));
                 }
             }
@@ -2023,7 +1946,7 @@ mod narrative_tests {
             group_count: 1,
             group_members: Vec::new(),
             trigger: Some("open_action_present".into()),
-            action: Some("uri_present".into()),
+            action: Some("uri_content_analysis".into()),
             payload: Some("stream".into()),
             findings: Vec::new(),
             score: 0.0,
@@ -2124,7 +2047,7 @@ fn runtime_behavior_summary(findings: &[Finding]) -> Vec<String> {
         match f.kind.as_str() {
             "open_action_present" | "aa_present" | "aa_event_present" => auto_exec = true,
             "js_present" => js = true,
-            "uri_present" | "gotor_present" => external = true,
+            "uri_listing" | "uri_content_analysis" | "gotor_present" => external = true,
             "launch_action_present" => launch = true,
             "submitform_present" => submit = true,
             "embedded_file_present" | "filespec_present" => embedded = true,
@@ -2178,8 +2101,13 @@ pub(crate) fn impact_for_finding(f: &Finding) -> String {
             "Launch actions can invoke external applications or files, increasing the risk of user compromise."
                 .into()
         }
-        "uri_present" => {
-            let domain = f.meta.get("uri.domain").cloned().unwrap_or_else(|| "unknown".into());
+        "uri_listing" | "uri_content_analysis" => {
+            let domain = f
+                .meta
+                .get("uri.domain")
+                .or_else(|| f.meta.get("uri.domains_sample"))
+                .cloned()
+                .unwrap_or_else(|| "unknown".into());
             format!(
                 "URI actions can direct users to external resources (domain: {}), enabling phishing or data exfiltration.",
                 domain
@@ -3993,18 +3921,18 @@ mod tests {
     }
 
     #[test]
-    fn focused_triage_aggregates_uri_and_keeps_runtime_gaps() {
+    fn focused_triage_keeps_suspicious_uri_and_runtime_gaps() {
         let mut uri = Finding::template(
             AttackSurface::Actions,
-            "uri_present",
-            Severity::Info,
+            "uri_content_analysis",
+            Severity::High,
             Confidence::Probable,
-            "URI present",
-            "URI action present",
+            "Suspicious URI",
+            "URI action present with suspicious indicators",
         );
         uri.objects = vec!["4 0 obj".into()];
         uri.meta.insert("uri.domain".into(), "evil.example".into());
-        uri.meta.insert("url".into(), "https://evil.example".into());
+        uri.meta.insert("uri.value".into(), "https://evil.example".into());
 
         let runtime_gap = Finding::template(
             AttackSurface::JavaScript,
@@ -4031,13 +3959,12 @@ mod tests {
         apply_focused_triage(&mut report);
 
         assert!(report.findings.iter().any(|finding| finding.kind == "js_emulation_breakpoint"));
-        let uri_aggregate = report
+        let suspicious_uri = report
             .findings
             .iter()
-            .find(|finding| finding.kind == "uri_present_aggregate")
-            .expect("uri_present_aggregate should be present");
-        assert_eq!(uri_aggregate.meta.get("aggregate.count"), Some(&"1".to_string()));
-        assert!(report.findings.iter().all(|finding| finding.kind != "uri_present"));
+            .find(|finding| finding.kind == "uri_content_analysis")
+            .expect("uri_content_analysis should be present");
+        assert_eq!(suspicious_uri.meta.get("uri.domain"), Some(&"evil.example".to_string()));
     }
 
     #[test]

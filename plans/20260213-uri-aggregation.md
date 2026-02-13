@@ -1,7 +1,7 @@
 # URI finding aggregation plan (retire `uri_present`, promote `uri_listing`)
 
 Date: 2026-02-13
-Status: Proposed (revised)
+Status: In progress (PR-U1 underway)
 Owner: `sis-pdf-detectors` + `sis-pdf-core` reporting/query surfaces
 
 ## 1) Objective
@@ -58,7 +58,7 @@ Add to the existing `uri_listing` metadata (additive only):
 
 1. `uri.max_severity` -- highest severity across all URI assessments.
 2. `uri.max_confidence` -- highest confidence across all URI assessments.
-3. `uri.risk_band_counts` -- serialised map of high/medium/low/info counts.
+3. `uri.risk_band_counts` -- serialised JSON object with stable key order (`{"high":N,"medium":N,"low":N,"info":N}`).
 
 All other summary and per-URI fields already exist.
 
@@ -78,6 +78,9 @@ Currently volume-based (10+ URIs = Low, 25+ = Medium, 50+ = High). Enhance to al
 1. Base severity = max of (volume-based severity, `uri.max_severity`).
 2. Uplift when multiple high-risk URIs with independent indicators exist.
 3. Confidence derives from strength of URI-level indicators and cross-signal corroboration.
+4. Deterministic tie-breaker when multiple URIs share max severity/confidence:
+   - choose URI with highest numeric `uri.risk_score`,
+   - if tied, choose lexicographically smallest canonical URI.
 
 ## 4) Specific migration points
 
@@ -156,6 +159,18 @@ Steps:
 4. Raise per-URI entry cap (Section 3.3).
 5. Update `docs/findings.md` with migration note: `uri_present` retired, use `uri_listing` for presence and `uri_content_analysis` for per-URI risk.
 
+### 6.1 JSON schema compatibility contract
+
+1. Additive fields only on `uri_listing`; no existing `uri_listing` keys removed in this migration.
+2. Removed finding kinds:
+   - `uri_present`
+   - `uri_present_aggregate` (report-layer synthetic)
+3. Consumers must treat absent retired kinds as expected, not parse errors.
+4. For missing aggregate values, omit keys rather than emitting empty sentinel strings.
+5. Field serialisation contract:
+   - `uri.risk_band_counts`: JSON object string (stable keys/order).
+   - `uri.max_severity` / `uri.max_confidence`: enum strings matching finding metadata enums.
+
 ## 7) Implementation checklist (PR-sized)
 
 ### PR-U1: Retire `uri_present` and uplift `uri_listing`
@@ -181,6 +196,14 @@ Tests:
 4. No `uri_present` or `uri_present_aggregate` in any output.
 5. Intent scoring unchanged for documents with URIs.
 6. Stable ordering snapshot for per-URI entries.
+
+Progress update (2026-02-13):
+- Completed: `UriDetector` removal and `uri_present` emission retirement.
+- Completed: `uri_listing` metadata uplift (`uri.max_severity`, `uri.max_confidence`, `uri.risk_band_counts`) and listing cap increase to 50.
+- Completed: migration in `chain_synth.rs`, `chain_score.rs`, `intent.rs`, `report.rs`, and runtime trigger mapping.
+- Completed: compatibility bridge in extended features so legacy `finding.uri_present*` features stay populated from `uri_listing` + `uri_content_analysis`.
+- Pending in PR-U1: explicit `explainability.rs` humanisation mapping for `uri_listing`.
+- Completed validation: `cargo test -p sis-pdf-core` and `cargo test -p sis-pdf-detectors` pass.
 
 ### PR-U2: Documentation and corpus validation
 
@@ -208,6 +231,7 @@ Tests:
 1. No material drop in known malicious chain detection.
 2. Chains previously anchored on `uri_present` now anchor on `uri_content_analysis`.
 3. Composite severity drift reviewed: quantify delta on corpus and accept or adjust thresholds.
+4. Rollback criterion: if malicious-chain recall drops by >1.0 percentage point on validation corpus, block merge and revert to compat mode pending recalibration.
 
 ### Gate C: Output quality
 
@@ -243,3 +267,14 @@ Tests:
    - finding-count reduction,
    - chain parity (quantified),
    - runtime impact.
+
+## 11) Acceptance metrics template (for PR-U2 report)
+
+| Metric | Baseline | Post-change | Delta | Gate |
+|---|---:|---:|---:|---|
+| URI-heavy finding count p50 |  |  |  | decrease expected |
+| URI-heavy finding count p95 |  |  |  | decrease expected |
+| Malicious chain recall |  |  |  | >= baseline -1.0pp |
+| Benign FP rate |  |  |  | <= +0.30pp |
+| Scan runtime p95 (URI-heavy slice) |  |  |  | <= +5% |
+| `uri_content_analysis` count parity |  |  |  | no material drop |

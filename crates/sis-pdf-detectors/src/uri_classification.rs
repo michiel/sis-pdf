@@ -1250,6 +1250,8 @@ struct UriListingEntry {
     scheme: String,
     domain: Option<String>,
     risk_score: u32,
+    severity: Severity,
+    confidence: Confidence,
     is_suspicious: bool,
     visibility: Option<UriVisibility>,
     placement: Option<UriPlacement>,
@@ -1276,7 +1278,7 @@ impl Detector for UriPresenceDetector {
 
     fn run(&self, ctx: &ScanContext) -> Result<Vec<Finding>> {
         const MAX_URIS: usize = 1_000;
-        const MAX_LISTING_ENTRIES: usize = 20;
+        const MAX_LISTING_ENTRIES: usize = 50;
 
         // Build typed graph to find URI edges
         let typed_graph = ctx.build_typed_graph();
@@ -1314,6 +1316,9 @@ impl Detector for UriPresenceDetector {
         let mut scheme_counts = HashMap::new();
         let mut entries = Vec::new();
         let mut suspicious_count = 0usize;
+        let mut severity_counts = [0usize; 4];
+        let mut max_entry_severity = Severity::Info;
+        let mut max_entry_confidence = Confidence::Weak;
 
         for &(obj, gen) in &uri_objects {
             let entry = match ctx.graph.get_object(obj, gen) {
@@ -1340,9 +1345,23 @@ impl Detector for UriPresenceDetector {
 
                     let risk_score = calculate_uri_risk_score(&content, &context, &trigger);
                     let severity = risk_score_to_severity(risk_score);
+                    let confidence = risk_score_to_confidence(risk_score);
                     let is_suspicious = uri_has_significant_indicators(&content, severity);
                     if is_suspicious {
                         suspicious_count += 1;
+                    }
+                    match severity {
+                        Severity::High | Severity::Critical => severity_counts[0] += 1,
+                        Severity::Medium => severity_counts[1] += 1,
+                        Severity::Low => severity_counts[2] += 1,
+                        Severity::Info => severity_counts[3] += 1,
+                    }
+                    if severity_rank(severity) > severity_rank(max_entry_severity)
+                        || (severity == max_entry_severity
+                            && confidence_rank(confidence) > confidence_rank(max_entry_confidence))
+                    {
+                        max_entry_severity = severity;
+                        max_entry_confidence = confidence;
                     }
 
                     let visibility = context.as_ref().map(|ctx| ctx.visibility.clone());
@@ -1369,6 +1388,8 @@ impl Detector for UriPresenceDetector {
                         scheme: content.scheme.clone(),
                         domain: content.domain.clone(),
                         risk_score,
+                        severity,
+                        confidence,
                         is_suspicious,
                         visibility,
                         placement,
@@ -1384,11 +1405,19 @@ impl Detector for UriPresenceDetector {
             return Ok(Vec::new());
         }
 
+        entries.sort_by(|a, b| {
+            severity_rank(b.severity)
+                .cmp(&severity_rank(a.severity))
+                .then_with(|| confidence_rank(b.confidence).cmp(&confidence_rank(a.confidence)))
+                .then_with(|| b.risk_score.cmp(&a.risk_score))
+                .then_with(|| a.canonical.cmp(&b.canonical))
+        });
+
         let has_http = scheme_counts.keys().any(|k| k.eq_ignore_ascii_case("http"));
         let has_https = scheme_counts.keys().any(|k| k.eq_ignore_ascii_case("https"));
 
         let unique_domain_count = unique_domains.len();
-        let severity = if uri_count >= 50 || unique_domain_count >= 20 {
+        let volume_severity = if uri_count >= 50 || unique_domain_count >= 20 {
             Severity::High
         } else if uri_count >= 25 || unique_domain_count >= 10 {
             Severity::Medium
@@ -1397,11 +1426,26 @@ impl Detector for UriPresenceDetector {
         } else {
             Severity::Info
         };
+        let severity = if severity_rank(max_entry_severity) > severity_rank(volume_severity) {
+            max_entry_severity
+        } else {
+            volume_severity
+        };
+        let confidence = max_entry_confidence;
 
         let mut meta = HashMap::new();
         meta.insert("uri.count_total".to_string(), uri_count.to_string());
         meta.insert("uri.count_unique_domains".to_string(), unique_domain_count.to_string());
         meta.insert("uri.suspicious_count".to_string(), suspicious_count.to_string());
+        meta.insert("uri.max_severity".to_string(), format!("{max_entry_severity:?}"));
+        meta.insert("uri.max_confidence".to_string(), format!("{max_entry_confidence:?}"));
+        meta.insert(
+            "uri.risk_band_counts".to_string(),
+            format!(
+                "{{\"high\":{},\"medium\":{},\"low\":{},\"info\":{}}}",
+                severity_counts[0], severity_counts[1], severity_counts[2], severity_counts[3]
+            ),
+        );
 
         let schemes: Vec<String> =
             scheme_counts.iter().map(|(k, v)| format!("{}:{}", k, v)).collect();
@@ -1432,6 +1476,8 @@ impl Detector for UriPresenceDetector {
                 meta.insert(format!("uri.list.{}.domain", idx), domain.clone());
             }
             meta.insert(format!("uri.list.{}.risk_score", idx), entry.risk_score.to_string());
+            meta.insert(format!("uri.list.{}.severity", idx), format!("{:?}", entry.severity));
+            meta.insert(format!("uri.list.{}.confidence", idx), format!("{:?}", entry.confidence));
             meta.insert(format!("uri.list.{}.suspicious", idx), entry.is_suspicious.to_string());
             meta.insert(format!("uri.list.{}.chain_depth", idx), entry.chain_depth.to_string());
             if let Some(visibility) = &entry.visibility {
@@ -1476,7 +1522,7 @@ impl Detector for UriPresenceDetector {
             surface: self.surface(),
             kind: "uri_listing".to_string(),
             severity,
-            confidence: Confidence::Strong,
+            confidence,
             impact: None,
             title: "URI(s) present".to_string(),
             description,
@@ -1489,5 +1535,35 @@ impl Detector for UriPresenceDetector {
             positions: Vec::new(),
             ..Finding::default()
         }])
+    }
+}
+
+fn severity_rank(value: Severity) -> usize {
+    match value {
+        Severity::Critical => 5,
+        Severity::High => 4,
+        Severity::Medium => 3,
+        Severity::Low => 2,
+        Severity::Info => 1,
+    }
+}
+
+fn confidence_rank(value: Confidence) -> usize {
+    match value {
+        Confidence::Certain => 7,
+        Confidence::Strong => 6,
+        Confidence::Probable => 5,
+        Confidence::Tentative => 4,
+        Confidence::Weak => 3,
+        Confidence::Heuristic => 2,
+    }
+}
+
+fn risk_score_to_confidence(score: u32) -> Confidence {
+    match score {
+        0..=20 => Confidence::Weak,
+        21..=50 => Confidence::Tentative,
+        51..=80 => Confidence::Probable,
+        _ => Confidence::Strong,
     }
 }
