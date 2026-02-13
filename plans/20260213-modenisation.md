@@ -284,3 +284,48 @@ Recommended order:
 ## 8) Immediate next step
 
 Execute PR-M0 completion review, then continue PR-M1 as an incremental uplift of the existing passive render pipeline detector (indexer trigger and NTLMv2-specific enrichment first).
+
+## 9) PR-M0 completion review appendix (2026-02-13)
+
+### Findings-to-threat matrix
+
+| Threat slice | Existing coverage | Representative finding kinds | Gap label |
+| --- | --- | --- | --- |
+| Passive render / no-click fetch / hash leak | Covered (strong) | `passive_external_resource_fetch`, `passive_credential_leak_risk`, `passive_render_pipeline_risk_composite` | calibration-only |
+| Staged remote payload chains | Covered (partial) | `supply_chain_staged_payload`, `supply_chain_persistence`, `staged_remote_template_fetch_unresolved`, `multi_stage_attack_chain` | extend-existing |
+| XFA/XML ingest risk | Covered (partial) | `xfa_entity_resolution_risk`, `xfa_backend_xxe_pattern`, `xfa_submit`, `xfa_data_exfiltration_risk` | calibration-only |
+| Annotation / overlay phishing abuse | Covered (partial) | `annotation_action_chain`, `annotation_hidden`, `content_overlay_link`, `revision_annotations_changed` | extend-existing |
+| Embedded MalDoc / attachment abuse | Covered (partial) | `embedded_file_present`, `embedded_script_present`, `launch_embedded_file`, `launch_obfuscated_executable` | extend-existing |
+| Renderer divergence catalogue | Covered (initial) | `renderer_behavior_divergence_known_path`, `renderer_exploitation_chain` | calibration-only |
+| Rich-media decoder risk | Covered (initial) | `richmedia_3d_structure_anomaly`, `richmedia_3d_decoder_risk` | calibration-only |
+| Packetised staged blobs | Covered (initial) | `packetised_payload_obfuscation` | calibration-only |
+| Runtime path morphing | Covered (initial) | `js_runtime_path_morphism` | calibration-only |
+| CDR strip and rebuild | Covered (phase 1+2) | `sis sanitize`, `sis sanitize --safe-rebuild` report fields | extend-existing |
+
+### Do-not-duplicate map
+
+1. Do not introduce new passive no-click finding IDs; enrich metadata on:
+   - `passive_external_resource_fetch`
+   - `passive_credential_leak_risk`
+   - `passive_render_pipeline_risk_composite`
+2. Do not fork supply-chain taxonomy; extend:
+   - `supply_chain_*`
+   - `multi_stage_attack_chain`
+   - `staged_remote_template_fetch_unresolved`
+3. Do not add parallel XFA risk families for existing entity/submit/sensitive-field paths; calibrate:
+   - `xfa_entity_resolution_risk`
+   - `xfa_backend_xxe_pattern`
+   - `xfa_submit`
+   - `xfa_data_exfiltration_risk`
+4. Do not split attachment abuse into new top-level families unless behaviour is genuinely unmapped; reuse:
+   - `embedded_file_present`
+   - `embedded_script_present`
+   - `launch_embedded_file`
+5. Do not add generic renderer-semantic emulation findings; use curated catalogue path:
+   - `renderer_behavior_divergence_known_path`
+
+### Backlog labels
+
+1. `new`: unmapped behaviour slice requiring new finding kind.
+2. `extend-existing`: mapped behaviour with missing metadata/severity correlation.
+3. `calibration-only`: mapped behaviour requiring threshold, confidence, or explainability tuning only.
