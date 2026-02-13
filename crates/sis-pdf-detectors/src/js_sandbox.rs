@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use js_analysis::{
     is_file_call, is_network_call, run_sandbox, DynamicOptions, DynamicOutcome, DynamicSignals,
-    RuntimeKind, RuntimeMode, RuntimeProfile,
+    RuntimeKind, RuntimeMode, RuntimePhase, RuntimeProfile,
 };
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
@@ -36,6 +36,21 @@ struct ProfileDivergenceSummary {
     file_count: usize,
     risky_count: usize,
     calls_count: usize,
+    compat_profiles: usize,
+    deception_hardened_profiles: usize,
+    strict_profiles: usize,
+    interaction_open_profiles: usize,
+    interaction_idle_profiles: usize,
+    interaction_click_profiles: usize,
+    interaction_form_profiles: usize,
+    unresolved_identifier_error_total: usize,
+    unresolved_callable_error_total: usize,
+    callable_hint_total: usize,
+    unresolved_callee_hint_total: usize,
+    unresolved_identifier_error_profiles: usize,
+    unresolved_callable_error_profiles: usize,
+    unresolved_callee_hint_profiles: usize,
+    capability_signature_count: usize,
 }
 
 impl ProfileDivergenceSummary {
@@ -83,6 +98,11 @@ fn ratio(numerator: usize, denominator: usize) -> Option<f64> {
     }
 }
 
+struct RuntimeProfilePlan {
+    profile: RuntimeProfile,
+    phases: Vec<RuntimePhase>,
+}
+
 fn is_risky_call(name: &str) -> bool {
     name.eq_ignore_ascii_case("eval")
         || name.eq_ignore_ascii_case("app.eval")
@@ -113,44 +133,122 @@ fn impact_for_kind(kind: &str) -> Option<Impact> {
     }
 }
 
-fn configured_profiles() -> [RuntimeProfile; 4] {
+fn configured_profiles() -> [RuntimeProfilePlan; 5] {
     [
-        RuntimeProfile {
-            kind: RuntimeKind::PdfReader,
-            vendor: "adobe".to_string(),
-            version: "11".to_string(),
-            mode: RuntimeMode::Compat,
+        RuntimeProfilePlan {
+            profile: RuntimeProfile {
+                kind: RuntimeKind::PdfReader,
+                vendor: "adobe".to_string(),
+                version: "11".to_string(),
+                mode: RuntimeMode::Compat,
+            },
+            phases: vec![
+                RuntimePhase::Open,
+                RuntimePhase::Idle,
+                RuntimePhase::Click,
+                RuntimePhase::Form,
+            ],
         },
-        RuntimeProfile {
-            kind: RuntimeKind::Browser,
-            vendor: "chromium".to_string(),
-            version: "120".to_string(),
-            mode: RuntimeMode::Compat,
+        RuntimeProfilePlan {
+            profile: RuntimeProfile {
+                kind: RuntimeKind::Browser,
+                vendor: "chromium".to_string(),
+                version: "120".to_string(),
+                mode: RuntimeMode::Compat,
+            },
+            phases: vec![
+                RuntimePhase::Open,
+                RuntimePhase::Idle,
+                RuntimePhase::Click,
+                RuntimePhase::Form,
+            ],
         },
-        RuntimeProfile {
-            kind: RuntimeKind::Node,
-            vendor: "nodejs".to_string(),
-            version: "20".to_string(),
-            mode: RuntimeMode::Compat,
+        RuntimeProfilePlan {
+            profile: RuntimeProfile {
+                kind: RuntimeKind::Browser,
+                vendor: "chromium".to_string(),
+                version: "120".to_string(),
+                mode: RuntimeMode::DeceptionHardened,
+            },
+            phases: vec![
+                RuntimePhase::Open,
+                RuntimePhase::Idle,
+                RuntimePhase::Click,
+                RuntimePhase::Form,
+            ],
         },
-        RuntimeProfile {
-            kind: RuntimeKind::Bun,
-            vendor: "bun".to_string(),
-            version: "1.1".to_string(),
-            mode: RuntimeMode::Compat,
+        RuntimeProfilePlan {
+            profile: RuntimeProfile {
+                kind: RuntimeKind::Node,
+                vendor: "nodejs".to_string(),
+                version: "20".to_string(),
+                mode: RuntimeMode::Compat,
+            },
+            phases: vec![
+                RuntimePhase::Open,
+                RuntimePhase::Idle,
+                RuntimePhase::Click,
+                RuntimePhase::Form,
+            ],
+        },
+        RuntimeProfilePlan {
+            profile: RuntimeProfile {
+                kind: RuntimeKind::Bun,
+                vendor: "bun".to_string(),
+                version: "1.1".to_string(),
+                mode: RuntimeMode::Compat,
+            },
+            phases: vec![
+                RuntimePhase::Open,
+                RuntimePhase::Idle,
+                RuntimePhase::Click,
+                RuntimePhase::Form,
+            ],
         },
     ]
+}
+
+fn unresolved_error_counters(errors: &[String]) -> (usize, usize, usize, usize) {
+    let unresolved_identifier_count = errors
+        .iter()
+        .filter(|error| {
+            let lower = error.to_ascii_lowercase();
+            lower.contains("is not defined") || lower.contains("undefined variable")
+        })
+        .count();
+    let unresolved_callable_count = errors
+        .iter()
+        .filter(|error| error.to_ascii_lowercase().contains("not a callable function"))
+        .count();
+    let callable_hint_count =
+        errors.iter().filter(|error| error.contains("Callable recovery hint:")).count();
+    let unresolved_callee_hint_count =
+        errors.iter().filter(|error| error.contains("callee=")).count();
+    (
+        unresolved_identifier_count,
+        unresolved_callable_count,
+        callable_hint_count,
+        unresolved_callee_hint_count,
+    )
 }
 
 fn execute_profiles(bytes: &[u8]) -> (Vec<ProfileRun>, ProfileDivergenceSummary) {
     let mut runs = Vec::new();
     let mut summary = ProfileDivergenceSummary::default();
-    for profile in configured_profiles() {
+    let mut capability_signatures = std::collections::BTreeSet::new();
+    for plan in configured_profiles() {
+        let profile = plan.profile.clone();
         let profile_id = profile.id();
+        match profile.mode {
+            RuntimeMode::Compat => summary.compat_profiles += 1,
+            RuntimeMode::DeceptionHardened => summary.deception_hardened_profiles += 1,
+            RuntimeMode::Strict => summary.strict_profiles += 1,
+        }
         let options = DynamicOptions {
             max_bytes: JS_SANDBOX_MAX_BYTES,
             timeout_ms: JS_WALLCLOCK_TIMEOUT.as_millis(),
             runtime_profile: profile.clone(),
+            phases: plan.phases.clone(),
             ..Default::default()
         };
         let outcome = run_sandbox(bytes, &options);
@@ -175,6 +273,73 @@ fn execute_profiles(bytes: &[u8]) -> (Vec<ProfileRun>, ProfileDivergenceSummary)
                 if has_calls {
                     summary.calls_count += 1;
                 }
+                let phase_labels =
+                    signals.phases.iter().map(|phase| phase.phase.as_str()).collect::<Vec<_>>();
+                if phase_labels.iter().any(|phase| *phase == "open") {
+                    summary.interaction_open_profiles += 1;
+                }
+                if phase_labels.iter().any(|phase| *phase == "idle") {
+                    summary.interaction_idle_profiles += 1;
+                }
+                if phase_labels.iter().any(|phase| *phase == "click") {
+                    summary.interaction_click_profiles += 1;
+                }
+                if phase_labels.iter().any(|phase| *phase == "form") {
+                    summary.interaction_form_profiles += 1;
+                }
+                let (
+                    unresolved_identifier_count,
+                    unresolved_callable_count,
+                    callable_hint_count,
+                    unresolved_callee_hint_count,
+                ) = unresolved_error_counters(&signals.errors);
+                summary.unresolved_identifier_error_total += unresolved_identifier_count;
+                summary.unresolved_callable_error_total += unresolved_callable_count;
+                summary.callable_hint_total += callable_hint_count;
+                summary.unresolved_callee_hint_total += unresolved_callee_hint_count;
+                if unresolved_identifier_count > 0 {
+                    summary.unresolved_identifier_error_profiles += 1;
+                }
+                if unresolved_callable_count > 0 {
+                    summary.unresolved_callable_error_profiles += 1;
+                }
+                if unresolved_callee_hint_count > 0 {
+                    summary.unresolved_callee_hint_profiles += 1;
+                }
+                let call_set = signals
+                    .calls
+                    .iter()
+                    .map(|value| value.as_str())
+                    .collect::<std::collections::BTreeSet<_>>();
+                let prop_set = signals
+                    .prop_reads
+                    .iter()
+                    .map(|value| value.as_str())
+                    .collect::<std::collections::BTreeSet<_>>();
+                let capability_signature = format!(
+                    "calls={}|props={}|dynamic={}|reflection={}",
+                    if call_set.is_empty() {
+                        "-".to_string()
+                    } else {
+                        call_set.iter().copied().collect::<Vec<_>>().join(",")
+                    },
+                    if prop_set.is_empty() {
+                        "-".to_string()
+                    } else {
+                        prop_set.iter().copied().collect::<Vec<_>>().join(",")
+                    },
+                    if signals.dynamic_code_calls.is_empty() {
+                        "-".to_string()
+                    } else {
+                        signals.dynamic_code_calls.join(",")
+                    },
+                    if signals.reflection_probes.is_empty() {
+                        "-".to_string()
+                    } else {
+                        signals.reflection_probes.join(",")
+                    }
+                );
+                capability_signatures.insert(capability_signature);
                 summary.profile_statuses.push(format!(
                     "{}:executed:calls={}:network={}:file={}:risky={}",
                     profile_id, signals.call_count, has_network, has_file, has_risky
@@ -207,6 +372,7 @@ fn execute_profiles(bytes: &[u8]) -> (Vec<ProfileRun>, ProfileDivergenceSummary)
         }
         runs.push(ProfileRun { profile_id, outcome });
     }
+    summary.capability_signature_count = capability_signatures.len();
     (runs, summary)
 }
 
@@ -262,6 +428,58 @@ fn insert_profile_meta(
     if let Some(value) = summary.calls_ratio() {
         meta.insert("js.runtime.profile_calls_ratio".into(), format!("{value:.2}"));
     }
+    meta.insert("js.runtime.profile_mode.compat_count".into(), summary.compat_profiles.to_string());
+    meta.insert(
+        "js.runtime.profile_mode.deception_hardened_count".into(),
+        summary.deception_hardened_profiles.to_string(),
+    );
+    meta.insert("js.runtime.profile_mode.strict_count".into(), summary.strict_profiles.to_string());
+    meta.insert("js.runtime.interaction_pack_order".into(), "open,idle,click,form".into());
+    meta.insert(
+        "js.runtime.interaction_pack.open_profiles".into(),
+        summary.interaction_open_profiles.to_string(),
+    );
+    meta.insert(
+        "js.runtime.interaction_pack.idle_profiles".into(),
+        summary.interaction_idle_profiles.to_string(),
+    );
+    meta.insert(
+        "js.runtime.interaction_pack.click_profiles".into(),
+        summary.interaction_click_profiles.to_string(),
+    );
+    meta.insert(
+        "js.runtime.interaction_pack.form_profiles".into(),
+        summary.interaction_form_profiles.to_string(),
+    );
+    meta.insert(
+        "js.runtime.unresolved_identifier_error_total".into(),
+        summary.unresolved_identifier_error_total.to_string(),
+    );
+    meta.insert(
+        "js.runtime.unresolved_callable_error_total".into(),
+        summary.unresolved_callable_error_total.to_string(),
+    );
+    meta.insert("js.runtime.callable_hint_total".into(), summary.callable_hint_total.to_string());
+    meta.insert(
+        "js.runtime.unresolved_callee_hint_total".into(),
+        summary.unresolved_callee_hint_total.to_string(),
+    );
+    meta.insert(
+        "js.runtime.unresolved_identifier_error_profiles".into(),
+        summary.unresolved_identifier_error_profiles.to_string(),
+    );
+    meta.insert(
+        "js.runtime.unresolved_callable_error_profiles".into(),
+        summary.unresolved_callable_error_profiles.to_string(),
+    );
+    meta.insert(
+        "js.runtime.unresolved_callee_hint_profiles".into(),
+        summary.unresolved_callee_hint_profiles.to_string(),
+    );
+    meta.insert(
+        "js.runtime.capability_matrix.distinct_signatures".into(),
+        summary.capability_signature_count.to_string(),
+    );
 }
 
 fn populate_base_metadata(
@@ -327,23 +545,12 @@ fn populate_base_metadata(
     }
     if !signals.errors.is_empty() {
         meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
-        let unresolved_identifier_count = signals
-            .errors
-            .iter()
-            .filter(|error| {
-                let lower = error.to_ascii_lowercase();
-                lower.contains("is not defined") || lower.contains("undefined variable")
-            })
-            .count();
-        let unresolved_callable_count = signals
-            .errors
-            .iter()
-            .filter(|error| error.to_ascii_lowercase().contains("not a callable function"))
-            .count();
-        let callable_hint_count =
-            signals.errors.iter().filter(|error| error.contains("Callable recovery hint:")).count();
-        let unresolved_callee_hint_count =
-            signals.errors.iter().filter(|error| error.contains("callee=")).count();
+        let (
+            unresolved_identifier_count,
+            unresolved_callable_count,
+            callable_hint_count,
+            unresolved_callee_hint_count,
+        ) = unresolved_error_counters(&signals.errors);
         meta.insert(
             "js.runtime.unresolved_identifier_error_count".into(),
             unresolved_identifier_count.to_string(),
@@ -2254,6 +2461,61 @@ mod tests {
         assert_eq!(
             meta.get("js.runtime.unresolved_callee_hint_count").map(String::as_str),
             Some("1")
+        );
+    }
+
+    #[test]
+    fn configured_profiles_include_deception_hardened_browser_mode() {
+        let plans = configured_profiles();
+        assert_eq!(plans.len(), 5);
+        assert!(plans.iter().any(|plan| {
+            matches!(plan.profile.kind, RuntimeKind::Browser)
+                && matches!(plan.profile.mode, RuntimeMode::DeceptionHardened)
+        }));
+    }
+
+    #[test]
+    fn insert_profile_meta_includes_interaction_and_unresolved_rollups() {
+        let mut meta = std::collections::HashMap::new();
+        let summary = ProfileDivergenceSummary {
+            profile_ids: vec![
+                "pdf_reader:adobe:11:compat".into(),
+                "browser:chromium:120:compat".into(),
+                "browser:chromium:120:deception_hardened".into(),
+            ],
+            executed_count: 3,
+            compat_profiles: 2,
+            deception_hardened_profiles: 1,
+            interaction_open_profiles: 3,
+            interaction_idle_profiles: 3,
+            interaction_click_profiles: 2,
+            interaction_form_profiles: 2,
+            unresolved_identifier_error_total: 5,
+            unresolved_callable_error_total: 4,
+            callable_hint_total: 2,
+            unresolved_callee_hint_total: 2,
+            unresolved_identifier_error_profiles: 2,
+            unresolved_callable_error_profiles: 2,
+            unresolved_callee_hint_profiles: 1,
+            capability_signature_count: 2,
+            ..ProfileDivergenceSummary::default()
+        };
+        insert_profile_meta(&mut meta, &summary);
+        assert_eq!(
+            meta.get("js.runtime.profile_mode.deception_hardened_count").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            meta.get("js.runtime.interaction_pack_order").map(String::as_str),
+            Some("open,idle,click,form")
+        );
+        assert_eq!(
+            meta.get("js.runtime.unresolved_identifier_error_total").map(String::as_str),
+            Some("5")
+        );
+        assert_eq!(
+            meta.get("js.runtime.capability_matrix.distinct_signatures").map(String::as_str),
+            Some("2")
         );
     }
 

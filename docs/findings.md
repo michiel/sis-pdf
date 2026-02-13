@@ -1657,6 +1657,16 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `js.runtime.path_morphism.trigger_call_count`
     - `js.runtime.path_morphism.phase_set_size`
     - `js.runtime.path_morphism.score`
+    - `js.runtime.profile_mode.deception_hardened_count`
+    - `js.runtime.interaction_pack_order`
+    - `js.runtime.interaction_pack.open_profiles`
+    - `js.runtime.interaction_pack.idle_profiles`
+    - `js.runtime.interaction_pack.click_profiles`
+    - `js.runtime.interaction_pack.form_profiles`
+    - `js.runtime.capability_matrix.distinct_signatures`
+    - `js.runtime.unresolved_identifier_error_total`
+    - `js.runtime.unresolved_callable_error_total`
+    - `js.runtime.unresolved_callee_hint_total`
 
 ## js_runtime_error_recovery_patterns
 

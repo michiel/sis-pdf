@@ -65,10 +65,7 @@ fn detects_packetised_payload_with_execution_bridge() {
         .expect("packetised_payload_obfuscation");
     assert!(matches!(finding.severity, Severity::Medium | Severity::High));
     assert_eq!(
-        finding
-            .meta
-            .get("packet.correlation.execution_bridge")
-            .map(std::string::String::as_str),
+        finding.meta.get("packet.correlation.execution_bridge").map(std::string::String::as_str),
         Some("true")
     );
     assert_eq!(

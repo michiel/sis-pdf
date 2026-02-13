@@ -258,6 +258,13 @@ Test/fixture requirements:
 2. Self-modifying/morphing fixtures.
 3. Stable telemetry snapshot assertions.
 
+Implementation status (2026-02-13):
+1. Expanded sandbox runtime profile matrix to include a deception-hardened browser profile alongside compat profiles.
+2. Made interaction simulation packs explicit and deterministic via profile phase plans (`open,idle,click,form`) with coverage counters per executed profile.
+3. Added first-class aggregated unresolved telemetry counters across profile runs (identifier/callable/callee-hint totals and profile coverage counts).
+4. Added capability-matrix delta telemetry (`js.runtime.capability_matrix.distinct_signatures`) derived from cross-profile call/property/runtime-surface signatures.
+5. Extended detector unit/integration coverage for profile matrix mode presence and interaction/unresolved/capability metadata emission.
+
 ## 5) Cross-cutting engineering requirements
 
 1. No unsafe code, no unwraps, Rust-native crates only.
