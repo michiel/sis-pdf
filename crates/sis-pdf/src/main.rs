@@ -2979,6 +2979,10 @@ fn run_query_repl(
                     handle_doc_command(rest.trim());
                     continue;
                 }
+                if query_line == "cache.info" {
+                    print_repl_cache_info(&ctx);
+                    continue;
+                }
 
                 match query_line {
                     "exit" | "quit" | ":q" => {
@@ -3359,6 +3363,17 @@ fn run_repl_pipeline(command: &str, input: &[u8]) -> Result<(String, String, Exi
     ))
 }
 
+fn print_repl_cache_info(ctx: &sis_pdf_core::scan::ScanContext<'_>) {
+    if let Some(info) = ctx.findings_cache_info() {
+        println!("findings_cache_populated: true");
+        println!("findings_cache_count: {}", info.finding_count);
+        println!("findings_cache_fingerprint: {}", info.option_fingerprint);
+        println!("findings_cache_approx_bytes: {}", info.approximate_bytes);
+    } else {
+        println!("findings_cache_populated: false");
+    }
+}
+
 #[cfg(test)]
 mod repl_tests {
     use super::*;
@@ -3428,6 +3443,9 @@ fn print_repl_help() {
     println!("  images.<filter>    - JBIG2/JPEG2000/CCITT variants (options: [jbig2, jpx, ccitt])");
     println!("  images.risky       - Risky image formats");
     println!("  images.malformed   - Malformed image decodes (requires --deep)");
+    println!();
+    println!("REPL commands:");
+    println!("  cache.info         - Show findings cache status");
     println!();
     println!("Finding queries:");
     println!("  findings           - List all findings");
