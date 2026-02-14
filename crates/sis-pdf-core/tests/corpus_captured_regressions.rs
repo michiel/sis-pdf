@@ -291,3 +291,42 @@ fn clean_google_docs_basic_does_not_raise_high_font_aggregate() {
         "clean fixture should not emit high-severity font.multiple_vuln_signals"
     );
 }
+
+#[test]
+fn corpus_captured_timeout_heavy_guardrail_metadata_stays_stable() {
+    let bytes = include_bytes!("fixtures/corpus_captured/timeout-heavy-guardrail-c95a10a1.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let guardrail = finding_by_kind(&report, "content_first_guardrail_applied");
+    assert_eq!(guardrail.severity, sis_pdf_core::model::Severity::Info);
+    assert_eq!(guardrail.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(
+        guardrail.meta.get("content_first.guardrail_applied"),
+        Some(&"true".to_string())
+    );
+    let guardrail_reasons = guardrail
+        .meta
+        .get("content_first.guardrail_reasons")
+        .expect("guardrail reasons should be present");
+    assert!(guardrail_reasons.contains("timeout_heavy_guardrail"));
+
+    let truncated = finding_by_kind(&report, "content_first_analysis_truncated");
+    assert_eq!(truncated.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(truncated.confidence, sis_pdf_core::model::Confidence::Strong);
+    let truncation_reason = truncated
+        .meta
+        .get("truncation_reason")
+        .expect("truncation reason should be present");
+    assert!(truncation_reason.contains("content_first_"));
+    assert_eq!(
+        truncated.meta.get("content_first.timeout_guardrail_applied"),
+        Some(&"true".to_string())
+    );
+    let adaptive_reasons = truncated
+        .meta
+        .get("content_first.adaptive_budget_reasons")
+        .expect("adaptive budget reasons should be present");
+    assert!(adaptive_reasons.contains("timeout_heavy_guardrail"));
+}

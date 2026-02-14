@@ -62,6 +62,16 @@
         "pdfjs_eval_path_risk info/strong",
         "dormant runtime metadata profile_calls_ratio=0.00"
       ]
+    },
+    {
+      "path": "timeout-heavy-guardrail-c95a10a1.pdf",
+      "sha256": "c95a10a176aa14143f738c3ab6f83fc7465cc98b33655312b9cf917f4b003ea9",
+      "source_path": "tmp/corpus/mwb-2026-02-11/c95a10a176aa14143f738c3ab6f83fc7465cc98b33655312b9cf917f4b003ea9.pdf",
+      "regression_targets": [
+        "content_first_guardrail_applied info/strong with timeout_heavy_guardrail reason",
+        "content_first_analysis_truncated includes timeout_heavy_guardrail metadata",
+        "timeout-heavy sample completes with bounded analysis output"
+      ]
     }
   ]
 }
