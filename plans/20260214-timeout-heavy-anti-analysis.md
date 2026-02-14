@@ -69,8 +69,8 @@ Initial focus is the timeout-heavy hashes identified in the corpus sweep (12s ca
 ## 7) Execution checklist
 
 - [x] PH-A complete: reproducibility matrix and runtime profiles captured.
-- [ ] PH-B complete: timeout classes assigned with evidence.
-- [ ] PH-C complete: first mitigation implemented and validated.
+- [x] PH-B complete: timeout classes assigned with evidence.
+- [x] PH-C complete: first mitigation implemented and validated.
 - [ ] Regression fixtures and tests added for mitigated class.
 
 ## 8) Initial analysis (2026-02-14)

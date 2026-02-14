@@ -209,13 +209,19 @@ The backlog below is implementation-ready. Each item specifies the exact object 
 
 #### 6.7.4 Regression harness tasks
 
-- [ ] Copy the three source PDFs into the fixture targets above.
-- [ ] Add integration tests under `crates/sis-pdf-core/tests/` asserting the expected finding kinds for each fixture.
-- [ ] Assert key metadata invariants for each fixture:
+- [x] Copy the three source PDFs into the fixture targets above.
+- [x] Add integration tests under `crates/sis-pdf-core/tests/` asserting the expected finding kinds for each fixture.
+- [x] Assert key metadata invariants for each fixture:
   - Fixture A: `js.runtime.calls` contains `exportDataObject`.
   - Fixture B: `revision.annotations_added_count >= 20` and `revision.anomaly.max_score >= 5`.
   - Fixture C: `js.runtime.behavior.name == dormant_or_gated_execution` and `js.runtime.profile_calls_ratio == 0.00`.
-- [ ] Add a corpus-capture note in `plans/` linking fixture source hash/date to test file names for provenance tracking.
+- [x] Add a corpus-capture note in `plans/` linking fixture source hash/date to test file names for provenance tracking.
+
+Corpus-capture provenance note:
+
+- `38851573fd1731b1bd94a38e35f5ea1bd1e4944821e08e27857d68a670c64105` (`tmp/corpus/mwb-2026-01-25/...`) -> `crates/sis-pdf-core/tests/fixtures/corpus_captured/modern-openaction-staged-38851573.pdf` (validated in `crates/sis-pdf-core/tests/corpus_captured_regressions.rs`).
+- `8d42d425d003480d1acc9082e51cb7a2007208ebef715493836b6afec9ce91bc` (`tmp/corpus/mwb-2026-01-16/...`) -> `crates/sis-pdf-core/tests/fixtures/corpus_captured/modern-renderer-revision-8d42d425.pdf` (validated in `crates/sis-pdf-core/tests/corpus_captured_regressions.rs`).
+- `9ff24c464780feb6425d0ab1f30a74401e228b9ad570bb25698e31b4b313a4f4` (`tmp/corpus/mwb-2026-01-15/...`) -> `crates/sis-pdf-core/tests/fixtures/corpus_captured/modern-gated-supplychain-9ff24c46.pdf` (validated in `crates/sis-pdf-core/tests/corpus_captured_regressions.rs`).
 
 ### 6.8 Font heuristic calibration (2026-02-14)
 
