@@ -125,6 +125,29 @@ Findings in this project include metadata fields for `severity`, `impact`, and `
   `crates/sis-pdf-core/tests/fixtures/` when coverage needs realistic PDFs.
 - Every new change or capability must include tests and representative fixtures.
 
+### Test and fixture baseline workflow
+
+- For every detector/runtime/normalisation change, add or update at least one integration test in `crates/sis-pdf-core/tests/` asserting:
+  - finding `kind`,
+  - `severity` and `confidence`,
+  - critical metadata invariants used for triage and explain output.
+- Prefer extending existing regression suites first (for example `corpus_captured_regressions.rs`) before creating new test files.
+- Corpus-derived fixtures must be copied into version control under `crates/sis-pdf-core/tests/fixtures/corpus_captured/`; do not depend on `tmp/` paths for test execution.
+- Every committed corpus-captured fixture must be registered in `crates/sis-pdf-core/tests/fixtures/corpus_captured/manifest.json` with:
+  - fixture `path`,
+  - `sha256`,
+  - original `source_path`,
+  - explicit `regression_targets`.
+- Preserve fixture integrity: changes to fixture bytes require a manifest digest update and an accompanying regression expectation review.
+- Keep fixture provenance documentation current in:
+  - `crates/sis-pdf-core/tests/fixtures/README.md`,
+  - `crates/sis-pdf-core/tests/fixtures/corpus_captured/README.md`.
+- Baseline measurement is mandatory when extending corpus-captured coverage:
+  1. run targeted regressions (`cargo test -p sis-pdf-core --test corpus_captured_regressions`);
+  2. run adjacent test modules affected by the change;
+  3. record meaningful baseline deltas (new findings, severity/confidence shifts, timing changes) in the active plan under `plans/`.
+- If a new fixture is added for modern malware patterns, include at least one assertion guarding against silent drift in runtime profile metadata (for example call ratios, divergence markers, staged payload indicators).
+
 ## Commit & Pull Request Guidelines
 
 - Commit messages are short, imperative, and capitalized

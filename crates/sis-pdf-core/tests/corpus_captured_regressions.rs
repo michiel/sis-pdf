@@ -1,4 +1,7 @@
+use sha2::{Digest, Sha256};
 use sis_pdf_core::scan::{CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanOptions};
+use std::fs;
+use std::path::PathBuf;
 
 fn opts() -> ScanOptions {
     ScanOptions {
@@ -48,6 +51,10 @@ fn meta_as_u32(finding: &sis_pdf_core::model::Finding, key: &str) -> u32 {
         .unwrap_or_else(|| panic!("missing metadata key: {key}"))
         .parse::<u32>()
         .unwrap_or_else(|_| panic!("metadata key {key} should be numeric"))
+}
+
+fn corpus_captured_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus_captured")
 }
 
 #[test]
@@ -234,4 +241,37 @@ fn corpus_captured_modern_gated_supply_chain_baseline_stays_stable() {
     let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
     assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
     assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
+}
+
+#[test]
+fn corpus_captured_manifest_integrity_stays_stable() {
+    let manifest_path = corpus_captured_dir().join("manifest.json");
+    let manifest_bytes =
+        fs::read(&manifest_path).expect("corpus captured manifest should be readable");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&manifest_bytes).expect("manifest should be valid JSON");
+    let fixtures = manifest
+        .get("fixtures")
+        .and_then(serde_json::Value::as_array)
+        .expect("manifest fixtures should be an array");
+
+    for fixture in fixtures {
+        let path = fixture
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .expect("fixture path should be present");
+        let expected_sha = fixture
+            .get("sha256")
+            .and_then(serde_json::Value::as_str)
+            .expect("fixture sha256 should be present");
+        let fixture_path = corpus_captured_dir().join(path);
+        let bytes = fs::read(&fixture_path)
+            .unwrap_or_else(|_| panic!("fixture should be readable: {}", fixture_path.display()));
+        let actual_sha = format!("{:x}", Sha256::digest(&bytes));
+        assert_eq!(
+            actual_sha, expected_sha,
+            "fixture digest mismatch for {}",
+            fixture_path.display()
+        );
+    }
 }
