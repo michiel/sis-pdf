@@ -22,9 +22,11 @@ use std::time::Duration;
 
 use model::{Confidence, DynamicAnalysisOutcome, FontFinding, Severity};
 use static_scan::analyse_static;
+use std::collections::HashSet;
 
 /// Threshold for flagging fonts with multiple vulnerability signals
 const DYNAMIC_RISK_THRESHOLD: usize = 2;
+const HINTING_ONLY_MEDIUM_THRESHOLD: usize = 3;
 
 pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysisOutcome {
     if !config.enabled {
@@ -112,26 +114,78 @@ pub fn analyse_font(data: &[u8], config: &FontAnalysisConfig) -> DynamicAnalysis
         }
     }
 
-    let risk_findings =
-        findings.iter().filter(|f| matches!(f.severity, Severity::Medium | Severity::High)).count();
-
-    if risk_findings >= DYNAMIC_RISK_THRESHOLD {
-        findings.push(FontFinding {
-            kind: "font.multiple_vuln_signals".into(),
-            severity: Severity::High,
-            confidence: Confidence::Probable,
-            title: "Multiple font anomalies".into(),
-            description: format!(
-                "Font exhibits {} anomalous signals (threshold: {}).",
-                findings.len(),
-                DYNAMIC_RISK_THRESHOLD
-            ),
-            meta: HashMap::new(),
-        });
+    if let Some(finding) = aggregate_multiple_vuln_signals(&findings) {
+        findings.push(finding);
     }
 
     outcome.findings = findings;
     outcome
+}
+
+fn is_hinting_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "font.ttf_hinting_torture"
+            | "font.ttf_hinting_push_loop"
+            | "font.ttf_hinting_control_flow_storm"
+            | "font.ttf_hinting_call_storm"
+            | "font.ttf_hinting_suspicious"
+            | "font.suspicious_hinting"
+    )
+}
+
+fn aggregate_multiple_vuln_signals(findings: &[FontFinding]) -> Option<FontFinding> {
+    let risk_findings: Vec<&FontFinding> = findings
+        .iter()
+        .filter(|finding| matches!(finding.severity, Severity::Medium | Severity::High))
+        .collect();
+    if risk_findings.len() < DYNAMIC_RISK_THRESHOLD {
+        return None;
+    }
+
+    let hinting_risk_count = risk_findings
+        .iter()
+        .filter(|finding| is_hinting_kind(&finding.kind))
+        .count();
+    let non_hinting_risk_count = risk_findings.len().saturating_sub(hinting_risk_count);
+    let high_signal_kinds: HashSet<&str> =
+        risk_findings.iter().map(|finding| finding.kind.as_str()).collect();
+    let has_control_flow_storm = high_signal_kinds.contains("font.ttf_hinting_control_flow_storm");
+    let has_call_storm = high_signal_kinds.contains("font.ttf_hinting_call_storm");
+
+    let (severity, confidence, profile) = if non_hinting_risk_count >= 2 {
+        (Severity::High, Confidence::Probable, "correlated_multi_surface")
+    } else if non_hinting_risk_count == 1 {
+        (Severity::Medium, Confidence::Probable, "partially_correlated")
+    } else if has_control_flow_storm || has_call_storm {
+        (Severity::Medium, Confidence::Probable, "hinting_storm")
+    } else if hinting_risk_count >= HINTING_ONLY_MEDIUM_THRESHOLD {
+        (Severity::Medium, Confidence::Tentative, "hinting_only_dense")
+    } else {
+        (Severity::Low, Confidence::Tentative, "hinting_only_sparse")
+    };
+
+    let mut meta = HashMap::new();
+    meta.insert("aggregate.risk_count".into(), risk_findings.len().to_string());
+    meta.insert("aggregate.hinting_risk_count".into(), hinting_risk_count.to_string());
+    meta.insert(
+        "aggregate.non_hinting_risk_count".into(),
+        non_hinting_risk_count.to_string(),
+    );
+    meta.insert("aggregate.profile".into(), profile.to_string());
+
+    Some(FontFinding {
+        kind: "font.multiple_vuln_signals".into(),
+        severity,
+        confidence,
+        title: "Multiple font anomalies".into(),
+        description: format!(
+            "Font exhibits {} medium/high anomaly signals (threshold: {}).",
+            risk_findings.len(),
+            DYNAMIC_RISK_THRESHOLD
+        ),
+        meta,
+    })
 }
 
 #[cfg(feature = "dynamic")]
@@ -186,7 +240,11 @@ fn run_dynamic_with_timeout(
 
 #[cfg(all(test, feature = "dynamic"))]
 mod tests {
-    use super::{dynamic_worker_failure_finding, Confidence, Severity};
+    use super::{
+        aggregate_multiple_vuln_signals, dynamic_worker_failure_finding, Confidence, FontFinding,
+        Severity,
+    };
+    use std::collections::HashMap;
 
     #[test]
     fn dynamic_worker_failure_finding_sets_low_relevance_metadata() {
@@ -201,6 +259,96 @@ mod tests {
         assert_eq!(
             finding.meta.get("parse_error_triage_bucket"),
             Some(&"runtime_infrastructure".to_string())
+        );
+    }
+
+    fn finding(kind: &str, severity: Severity) -> FontFinding {
+        FontFinding {
+            kind: kind.to_string(),
+            severity,
+            confidence: Confidence::Probable,
+            title: "test".to_string(),
+            description: "test".to_string(),
+            meta: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn aggregate_multiple_vuln_signals_downgrades_hinting_only_profiles() {
+        let findings = vec![
+            finding("font.ttf_hinting_push_loop", Severity::Medium),
+            finding("font.ttf_hinting_torture", Severity::Medium),
+        ];
+        let aggregate = aggregate_multiple_vuln_signals(&findings).expect("aggregate finding");
+        assert_eq!(aggregate.severity, Severity::Low);
+        assert_eq!(aggregate.confidence, Confidence::Tentative);
+        assert_eq!(
+            aggregate.meta.get("aggregate.profile"),
+            Some(&"hinting_only_sparse".to_string())
+        );
+    }
+
+    #[test]
+    fn aggregate_multiple_vuln_signals_keeps_high_for_correlated_non_hinting_profiles() {
+        let findings = vec![
+            finding("font.invalid_structure", Severity::High),
+            finding("font.inconsistent_table_layout", Severity::Medium),
+            finding("font.ttf_hinting_push_loop", Severity::Medium),
+        ];
+        let aggregate = aggregate_multiple_vuln_signals(&findings).expect("aggregate finding");
+        assert_eq!(aggregate.severity, Severity::High);
+        assert_eq!(aggregate.confidence, Confidence::Probable);
+        assert_eq!(
+            aggregate.meta.get("aggregate.profile"),
+            Some(&"correlated_multi_surface".to_string())
+        );
+    }
+}
+
+#[cfg(test)]
+mod aggregate_tests {
+    use super::{aggregate_multiple_vuln_signals, Confidence, FontFinding, Severity};
+    use std::collections::HashMap;
+
+    fn finding(kind: &str, severity: Severity) -> FontFinding {
+        FontFinding {
+            kind: kind.to_string(),
+            severity,
+            confidence: Confidence::Probable,
+            title: "test".to_string(),
+            description: "test".to_string(),
+            meta: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn aggregate_multiple_vuln_signals_downgrades_hinting_only_profiles() {
+        let findings = vec![
+            finding("font.ttf_hinting_push_loop", Severity::Medium),
+            finding("font.ttf_hinting_torture", Severity::Medium),
+        ];
+        let aggregate = aggregate_multiple_vuln_signals(&findings).expect("aggregate finding");
+        assert_eq!(aggregate.severity, Severity::Low);
+        assert_eq!(aggregate.confidence, Confidence::Tentative);
+        assert_eq!(
+            aggregate.meta.get("aggregate.profile"),
+            Some(&"hinting_only_sparse".to_string())
+        );
+    }
+
+    #[test]
+    fn aggregate_multiple_vuln_signals_keeps_high_for_correlated_non_hinting_profiles() {
+        let findings = vec![
+            finding("font.invalid_structure", Severity::High),
+            finding("font.inconsistent_table_layout", Severity::Medium),
+            finding("font.ttf_hinting_push_loop", Severity::Medium),
+        ];
+        let aggregate = aggregate_multiple_vuln_signals(&findings).expect("aggregate finding");
+        assert_eq!(aggregate.severity, Severity::High);
+        assert_eq!(aggregate.confidence, Confidence::Probable);
+        assert_eq!(
+            aggregate.meta.get("aggregate.profile"),
+            Some(&"correlated_multi_surface".to_string())
         );
     }
 }

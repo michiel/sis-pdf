@@ -4,6 +4,7 @@ This directory contains synthetic PDF fixtures used by the test suite.
 
 It also includes a small `corpus_captured/` subset captured from local corpus triage for regression locking of behaviour that was observed in the field. These PDFs remain untrusted inputs and must be handled as hostile test artefacts.
 The `corpus_captured/manifest.json` file is the source of truth for fixture provenance and expected SHA-256 integrity. Tests validate each listed fixture digest so regression baselines remain portable and independent of `tmp/` corpus availability.
+`clean-google-docs-basic.pdf` is a clean baseline fixture used to ensure font hinting heuristics do not over-escalate aggregate findings.
 
 `parser_diff_hazards/` contains deterministic synthetic fixtures for secondary-parser hazard metadata (`creation_date_trailing_timezone_token`, `unbalanced_literal_string_parentheses`) so coverage remains stable when corpus samples drift.
 

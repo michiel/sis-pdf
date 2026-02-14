@@ -275,3 +275,19 @@ fn corpus_captured_manifest_integrity_stays_stable() {
         );
     }
 }
+
+#[test]
+fn clean_google_docs_basic_does_not_raise_high_font_aggregate() {
+    let bytes = include_bytes!("fixtures/clean-google-docs-basic.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    assert!(
+        report.findings.iter().all(|finding| {
+            !(finding.kind == "font.multiple_vuln_signals"
+                && finding.severity == sis_pdf_core::model::Severity::High)
+        }),
+        "clean fixture should not emit high-severity font.multiple_vuln_signals"
+    );
+}

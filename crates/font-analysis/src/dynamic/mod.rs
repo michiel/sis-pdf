@@ -305,6 +305,7 @@ fn analyze_hinting_tables(
 }
 
 const HINTING_TORTURE_THRESHOLD: usize = 3;
+const HINTING_TORTURE_STRONG_THRESHOLD: usize = 6;
 /// Maximum hinting warnings before truncating analysis for this font
 const HINTING_WARNING_LIMIT: usize = 50;
 /// Maximum stack errors before aborting hinting analysis for this font
@@ -446,9 +447,27 @@ impl HintingStats {
         if self.warnings == 0 {
             return false;
         }
-        self.warnings >= HINTING_TORTURE_THRESHOLD
-            || self.highest_stack_depth >= limits.max_stack_depth()
-            || self.highest_instruction_count >= limits.max_instructions_per_glyph()
+        let push_loop_count = self.kind_counts.get("font.ttf_hinting_push_loop").copied().unwrap_or(0);
+        let has_control_storm = self
+            .kind_counts
+            .contains_key("font.ttf_hinting_control_flow_storm");
+        let has_call_storm = self.kind_counts.contains_key("font.ttf_hinting_call_storm");
+
+        let strong_warning_density = self.warnings >= HINTING_TORTURE_STRONG_THRESHOLD;
+        let repeated_push_loops =
+            push_loop_count >= 2 && self.highest_push_loop_length >= 32;
+        let heavy_stack_pressure = self.stack_errors >= 3;
+        let stack_budget_exceeded = self.highest_stack_depth >= limits.max_stack_depth();
+        let instruction_budget_exceeded =
+            self.highest_instruction_count >= limits.max_instructions_per_glyph();
+
+        has_control_storm
+            || has_call_storm
+            || repeated_push_loops
+            || heavy_stack_pressure
+            || stack_budget_exceeded
+            || instruction_budget_exceeded
+            || strong_warning_density
     }
 
     fn emit(self, limits: &ttf_vm::VmLimits, findings: &mut Vec<FontFinding>) {
@@ -463,6 +482,29 @@ impl HintingStats {
         meta.insert("instruction_count".to_string(), self.highest_instruction_count.to_string());
         meta.insert("control_depth".to_string(), self.highest_control_depth.to_string());
         meta.insert("stack_errors".to_string(), self.stack_errors.to_string());
+        let warnings_per_table = if self.tables_scanned == 0 {
+            0.0
+        } else {
+            self.warnings as f64 / self.tables_scanned as f64
+        };
+        let stack_error_ratio = if self.warnings == 0 {
+            0.0
+        } else {
+            self.stack_errors as f64 / self.warnings as f64
+        };
+        meta.insert(
+            "warning_density".to_string(),
+            format!("{warnings_per_table:.2}"),
+        );
+        meta.insert("stack_error_ratio".to_string(), format!("{stack_error_ratio:.2}"));
+        meta.insert(
+            "warning_threshold".to_string(),
+            HINTING_TORTURE_THRESHOLD.to_string(),
+        );
+        meta.insert(
+            "strong_warning_threshold".to_string(),
+            HINTING_TORTURE_STRONG_THRESHOLD.to_string(),
+        );
         if !self.kind_counts.is_empty() {
             meta.insert("kind_counts".to_string(), format_count_pairs(&self.kind_counts, 8));
         }
@@ -584,13 +626,16 @@ mod tests {
     }
 
     #[test]
-    fn hinting_torture_triggers_on_warning_count() {
+    fn hinting_torture_triggers_on_strong_warning_density() {
         let limits = ttf_vm::VmLimits::default();
         let mut stats = HintingStats::default();
         let findings = vec![
             suspicious_hinting_finding(10, 50, 2, None),
             suspicious_hinting_finding(12, 60, 0, None),
             suspicious_hinting_finding(14, 70, 0, None),
+            suspicious_hinting_finding(16, 80, 0, None),
+            suspicious_hinting_finding(18, 90, 0, None),
+            suspicious_hinting_finding(20, 100, 0, None),
         ];
         let mut output = Vec::new();
         stats.record_and_limit(&findings, &mut output);
@@ -599,6 +644,27 @@ mod tests {
         assert!(
             collected.iter().any(|f| f.kind == "font.ttf_hinting_torture"),
             "Expected aggregate finding when warnings exceed threshold"
+        );
+    }
+
+    #[test]
+    fn hinting_torture_not_triggered_for_sparse_push_loop_profile() {
+        let limits = ttf_vm::VmLimits::default();
+        let mut stats = HintingStats::default();
+        let mut push_loop = suspicious_hinting_finding(12, 80, 1, Some(40));
+        push_loop.kind = "font.ttf_hinting_push_loop".to_string();
+        let findings = vec![
+            suspicious_hinting_finding(10, 50, 1, None),
+            suspicious_hinting_finding(11, 60, 1, None),
+            push_loop,
+        ];
+        let mut output = Vec::new();
+        stats.record_and_limit(&findings, &mut output);
+        let mut collected = Vec::new();
+        stats.emit(&limits, &mut collected);
+        assert!(
+            collected.iter().all(|f| f.kind != "font.ttf_hinting_torture"),
+            "Sparse push-loop profile should not emit aggregate hinting torture finding"
         );
     }
 
@@ -742,6 +808,9 @@ mod tests {
             first,
             suspicious_hinting_finding(7, 21, 0, None),
             suspicious_hinting_finding(8, 22, 0, None),
+            suspicious_hinting_finding(9, 23, 0, None),
+            suspicious_hinting_finding(10, 24, 0, None),
+            suspicious_hinting_finding(11, 25, 0, None),
         ];
         let mut output = Vec::new();
         stats.record_and_limit(&findings, &mut output);
@@ -765,6 +834,9 @@ mod tests {
         let mut stats = HintingStats::default();
         let findings = vec![
             suspicious_hinting_finding(6, 20, 0, Some(48)),
+            suspicious_hinting_finding(6, 20, 0, None),
+            suspicious_hinting_finding(6, 20, 0, None),
+            suspicious_hinting_finding(6, 20, 0, None),
             suspicious_hinting_finding(6, 20, 0, None),
             suspicious_hinting_finding(6, 20, 0, None),
         ];
