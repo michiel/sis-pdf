@@ -74,7 +74,8 @@ fn rule_for_finding(f: &Finding) -> Option<YaraRule> {
             | "decoder_risk_present"
             | "decompression_ratio_suspicious"
             | "launch_action_present"
-            | "uri_present"
+            | "uri_content_analysis"
+            | "uri_listing"
             | "submitform_present"
             | "gotor_present"
     ) {

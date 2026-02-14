@@ -83,7 +83,7 @@ Focus: automatic triggers and JS execution.
 
 ### External Layer
 Focus: outbound actions and remote resources.
-- `uri_present`, `gotor_present`, `launch_action_present`, `submitform_present`.
+- `uri_listing`, `uri_content_analysis`, `gotor_present`, `launch_action_present`, `submitform_present`.
 - `external_action_risk_context` correlates outbound actions + obfuscation.
 
 ### Resource Layer

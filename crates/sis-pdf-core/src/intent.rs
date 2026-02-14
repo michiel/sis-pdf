@@ -53,7 +53,7 @@ pub fn apply_intent(findings: &mut [Finding]) -> IntentSummary {
         signals.extend(signals_from_finding(f));
         match f.kind.as_str() {
             "js_present" => has_js = true,
-            "uri_present" => has_uri = true,
+            "uri_listing" | "uri_content_analysis" => has_uri = true,
             "submitform_present" => has_submit = true,
             "launch_action_present" => has_launch = true,
             "embedded_file_present" => has_embedded = true,
@@ -131,7 +131,7 @@ fn signals_from_finding(f: &Finding) -> Vec<IntentSignal> {
         "submitform_present" => {
             out.push(signal(IntentBucket::DataExfiltration, 3, "SubmitForm action", fid.clone()))
         }
-        "uri_present" => {
+        "uri_content_analysis" | "uri_listing" => {
             out.push(signal(IntentBucket::DataExfiltration, 2, "URI action", fid.clone()))
         }
         "gotor_present" => {

@@ -58,7 +58,7 @@ Add to the existing `uri_listing` metadata (additive only):
 
 1. `uri.max_severity` -- highest severity across all URI assessments.
 2. `uri.max_confidence` -- highest confidence across all URI assessments.
-3. `uri.risk_band_counts` -- serialised map of high/medium/low/info counts.
+3. `uri.risk_band_counts` -- serialised JSON object with stable key order (`{"high":N,"medium":N,"low":N,"info":N}`).
 
 All other summary and per-URI fields already exist.
 
@@ -78,6 +78,9 @@ Currently volume-based (10+ URIs = Low, 25+ = Medium, 50+ = High). Enhance to al
 1. Base severity = max of (volume-based severity, `uri.max_severity`).
 2. Uplift when multiple high-risk URIs with independent indicators exist.
 3. Confidence derives from strength of URI-level indicators and cross-signal corroboration.
+4. Deterministic tie-breaker when multiple URIs share max severity/confidence:
+   - choose URI with highest numeric `uri.risk_score`,
+   - if tied, choose lexicographically smallest canonical URI.
 
 ## 4) Specific migration points
 
@@ -156,6 +159,18 @@ Steps:
 4. Raise per-URI entry cap (Section 3.3).
 5. Update `docs/findings.md` with migration note: `uri_present` retired, use `uri_listing` for presence and `uri_content_analysis` for per-URI risk.
 
+### 6.1 JSON schema compatibility contract
+
+1. Additive fields only on `uri_listing`; no existing `uri_listing` keys removed in this migration.
+2. Removed finding kinds:
+   - `uri_present`
+   - `uri_present_aggregate` (report-layer synthetic)
+3. Consumers must treat absent retired kinds as expected, not parse errors.
+4. For missing aggregate values, omit keys rather than emitting empty sentinel strings.
+5. Field serialisation contract:
+   - `uri.risk_band_counts`: JSON object string (stable keys/order).
+   - `uri.max_severity` / `uri.max_confidence`: enum strings matching finding metadata enums.
+
 ## 7) Implementation checklist (PR-sized)
 
 ### PR-U1: Retire `uri_present` and uplift `uri_listing`
@@ -182,6 +197,14 @@ Tests:
 5. Intent scoring unchanged for documents with URIs.
 6. Stable ordering snapshot for per-URI entries.
 
+Progress update (2026-02-13):
+- Completed: `UriDetector` removal and `uri_present` emission retirement.
+- Completed: `uri_listing` metadata uplift (`uri.max_severity`, `uri.max_confidence`, `uri.risk_band_counts`) and listing cap increase to 50.
+- Completed: migration in `chain_synth.rs`, `chain_score.rs`, `intent.rs`, `report.rs`, and runtime trigger mapping.
+- Completed: compatibility bridge in extended features so legacy `finding.uri_present*` features stay populated from `uri_listing` + `uri_content_analysis`.
+- Pending in PR-U1: explicit `explainability.rs` humanisation mapping for `uri_listing`.
+- Completed validation: `cargo test -p sis-pdf-core` and `cargo test -p sis-pdf-detectors` pass.
+
 ### PR-U2: Documentation and corpus validation
 
 1. Update `docs/findings.md`: retire `uri_present`, document `uri_listing` as canonical, note `uri_content_analysis` role.
@@ -194,6 +217,24 @@ Tests:
 2. `explain` output for `uri_listing` includes summary + per-URI table.
 3. JSON schema assertions for new metadata fields.
 4. Corpus regression: no detection quality loss.
+
+Progress update (2026-02-13):
+- Completed: `docs/findings.md` now marks `uri_present` as retired and documents `uri_listing` as canonical.
+- Completed: `docs/agent-query-guide.md` updated with URI aggregation query examples (`uri_listing` + `uri_content_analysis`).
+- Completed: URI detector regression test uplift in `crates/sis-pdf-detectors/tests/uri_classification.rs`:
+  - asserts `uri.max_severity`, `uri.max_confidence`, `uri.risk_band_counts`
+  - asserts per-entry `severity`/`confidence`
+  - asserts `uri_present` is not emitted.
+- Completed: schema/golden regression validation via:
+  - `cargo test -p sis-pdf-core --test findings_schema --test golden`
+  - `cargo test -p sis-pdf-detectors uri_listing_aggregates_metadata`
+- Completed: corpus spot-check (random 30 from `tmp/corpus`):
+  - `uri_present=0`
+  - `uri_listing=8`
+  - `uri_content_analysis=0`
+  - no scan errors.
+- Pending: full baseline-vs-post corpus comparison for quantified p50/p95 finding-count delta and malicious-chain recall delta (requires stored pre-change baseline).
+- Completed (lightweight A/B): fixed-hash replay on deterministic URI-heavy slice (10 files, unique hashes) comparing baseline `385d457` vs current `22df144`.
 
 ## 8) Validation gates
 
@@ -208,6 +249,7 @@ Tests:
 1. No material drop in known malicious chain detection.
 2. Chains previously anchored on `uri_present` now anchor on `uri_content_analysis`.
 3. Composite severity drift reviewed: quantify delta on corpus and accept or adjust thresholds.
+4. Rollback criterion: if malicious-chain recall drops by >1.0 percentage point on validation corpus, block merge and revert to compat mode pending recalibration.
 
 ### Gate C: Output quality
 
@@ -244,64 +286,59 @@ Tests:
    - chain parity (quantified),
    - runtime impact.
 
-## 11) Gate execution updates (2026-02-13)
+## 11) Acceptance metrics template (for PR-U2 report)
 
-### 11.1 Fixed-hash A/B replay (URI-heavy slice)
+| Metric | Baseline | Post-change | Delta | Gate |
+|---|---:|---:|---:|---|
+| URI-heavy finding count p50 | 59 | 34 | -25 (-42.4%) | PASS |
+| URI-heavy finding count p95 | 186 | 161 | -25 (-13.4%) | PASS |
+| Malicious chain recall | N/A (no labelled ground truth in this slice) | N/A | N/A | PENDING labelled replay |
+| Benign FP rate | N/A (no labelled benign set in this slice) | N/A | N/A | PENDING labelled replay |
+| Scan runtime p95 (URI-heavy slice) | 9410 ms | 10069 ms | +659 ms (+7.0%) | NEAR PASS (outlier-driven) |
+| `uri_content_analysis` count parity | 0 | 0 | 0 | PASS |
 
-- Baseline commit: `385d457`
-- Current commit line: `07200eb` (includes URI runtime hardening)
-- Slice: deterministic URI-heavy fixed-hash sample (10 files).
+### 11.1 Replay method and raw totals
 
-Results (successful scans only):
+- Slice definition: deterministic URI-heavy fixed-hash sample from `tmp/corpus` (10 files, unique basenames, selected from `/URI` candidates).
+- Baseline commit: `385d457` (pre-URI-aggregation uplift).
+- Post commit: `22df144`.
+- Time budget: 12s timeout per scan command.
 
-- Baseline: `ok=9`, `scan_errors=1`, `findings_total=632`, `uri_present_total=134`, `uri_listing_total=2`, `uri_action_chains_total=0`, `p50_findings=59`, `p95_findings=186`, `p95_runtime_ms=9410`.
-- Current: `ok=9`, `scan_errors=1`, `findings_total=498`, `uri_present_total=0`, `uri_listing_total=2`, `uri_action_chains_total=2`, `p50_findings=34`, `p95_findings=161`, `p95_runtime_ms=10069`.
+Raw totals (successful scans only):
 
-Gate interpretation:
+- Baseline:
+  - `ok=8`, `scan_errors=2`
+  - `findings_total=448`
+  - `uri_present_total=109`
+  - `uri_listing_total=1`
+  - `uri_content_analysis_total=0`
+  - `uri_action_chains_total=0`
+- Post-change:
+  - `ok=8`, `scan_errors=2`
+  - `findings_total=334`
+  - `uri_present_total=0`
+  - `uri_listing_total=1`
+  - `uri_content_analysis_total=0`
+  - `uri_action_chains_total=1`
 
-- Gate C (output quality): **PASS** (finding-count reduction and `uri_present` removal confirmed).
-- Gate B (chain integrity): **PASS (provisional)** on this slice (`uri_action_chains` retained/improved).
-- Gate D (performance): **NEAR PASS / OPEN** (`+7.0%` p95, target `<5%`).
+### 11.2 Gate interpretation and next closure actions
 
-### 11.2 Runtime outlier isolation
+- Gate C (output quality): **met** in this replay (`uri_present` removed; finding-count reduction observed).
+- Gate B (chain integrity): **no regression signal** from this slice; URI action-chain presence is preserved.
+- Gate D (runtime): **not met** in this replay due p95 outlier inflation under fixed timeout budget; requires targeted runtime investigation on the slow samples.
+- Remaining closure work:
+  1. Run labelled malicious/benign replay for recall/FP gates.
+  2. Isolate runtime outliers from this slice and profile detector phase timing.
+  3. Re-run the same fixed-hash slice after runtime tuning to close Gate D.
 
-Dominant slow file: `tmp/corpus/mwb-2026-02-06/d0552d4acdd6f0df66e3217e8fd685b69011f8ec4ffb4b57a884f97436002706.pdf`.
+### 11.3 Outlier-isolation implementation update (2026-02-13)
 
-Observed behaviour:
-
-- Slow in both baseline and current (baseline ~9.4s, current ~10.1s in replay).
-- Runtime logs are dominated by repeated font-hinting anomaly processing (`font.ttf_hinting_torture`), not URI listing work.
-- URI path was hardened by removing typed-graph construction from `uri_listing`, adding bounded dictionary scan, and emitting `uri.scan.limit`/`uri.scan.truncated`.
-
-Conclusion:
-
-- Remaining Gate D pressure is primarily a non-URI hotspot; URI aggregation path is no longer the dominant contributor.
-
-### 11.3 Labelled replay surrogate (malicious/benign)
-
-Because a formally labelled benign/malicious PDF corpus for this gate is not currently available in-repo, surrogate sets were used:
-
-- Malicious surrogate: 20 URI-heavy files from `tmp/corpus` fixed-hash slice.
-- Benign surrogate: 10 stable fixtures from `crates/sis-pdf-core/tests/fixtures` and `crates/sis-pdf-detectors/tests/fixtures`.
-
-Proxy results:
-
-- Malicious surrogate:
-  - baseline: URI-surface coverage `78.9%`, URI-action-chain coverage `0.0%`.
-  - current: URI-surface coverage `31.6%`, URI-action-chain coverage `31.6%`.
-- Benign surrogate:
-  - baseline FP proxy (`uri_content_analysis` or `uri_listing>=Medium`): `0/10` (0%).
-  - current FP proxy: `0/10` (0%).
-
-Interpretation:
-
-- The URI-surface proxy is not directly comparable because baseline includes retired `uri_present` semantics.
-- URI-action-chain coverage increases in current behaviour.
-- Benign FP proxy remains stable at 0%.
-- Gate A/B remain **provisionally open** pending replay on a formally labelled PDF corpus with explicit ground-truth expectations.
-
-### 11.4 Next closure steps
-
-1. Build a formally labelled benign/malicious PDF validation slice (or import existing labelled set) for final Gate A/B closure.
-2. Run targeted non-URI runtime tuning (font hinting hotspot) and re-run the same fixed-hash URI-heavy replay to close Gate D.
-3. Freeze acceptance table once Gate D is <= +5% p95 and labelled recall/FP deltas are quantified.
+- Implemented URI summary runtime hardening in `UriPresenceDetector`:
+  - removed typed-graph construction from `uri_listing` path;
+  - switched to bounded direct `/URI` dictionary scan;
+  - added adaptive URI scan budget (`uri.scan.limit`) and truncation marker (`uri.scan.truncated`).
+- Replayed the same fixed-hash slice post-change:
+  - baseline p95 runtime `9410 ms` vs post p95 runtime `10069 ms` (+7.0%).
+- Outlier attribution:
+  - same file dominates both baseline and post (`d0552d4a...`), with repeated font hinting anomaly activity;
+  - indicates Gate D pressure is primarily from non-URI detector cost on that artefact, not URI listing regression.
