@@ -1,7 +1,7 @@
 # URI finding aggregation plan (retire `uri_present`, promote `uri_listing`)
 
 Date: 2026-02-13
-Status: In progress (PR-U1 underway)
+Status: In progress (validation gates running)
 Owner: `sis-pdf-detectors` + `sis-pdf-core` reporting/query surfaces
 
 ## 1) Objective
