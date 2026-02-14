@@ -216,3 +216,53 @@ The backlog below is implementation-ready. Each item specifies the exact object 
   - Fixture B: `revision.annotations_added_count >= 20` and `revision.anomaly.max_score >= 5`.
   - Fixture C: `js.runtime.behavior.name == dormant_or_gated_execution` and `js.runtime.profile_calls_ratio == 0.00`.
 - [ ] Add a corpus-capture note in `plans/` linking fixture source hash/date to test file names for provenance tracking.
+
+### 6.8 Font heuristic calibration (2026-02-14)
+
+Objective: validate the font hinting heuristic refinement against both clean and corpus-captured malicious fixtures.
+
+#### 6.8.1 Run configuration
+
+- Benign sweep:
+  - `cargo run -q -p sis-pdf --bin sis -- scan --deep --path resources/samples/out/ --jsonl-findings`
+- Malicious sweep:
+  - `cargo run -q -p sis-pdf --bin sis -- scan --deep --path crates/sis-pdf-core/tests/fixtures/corpus_captured/ --jsonl-findings`
+- Baseline comparison:
+  - Pre-tuning benign snapshot: `/tmp/sis-clean-out-findings.jsonl`
+  - Post-tuning benign snapshot: `/tmp/calib-benign.jsonl`
+  - Post-tuning malicious snapshot: `/tmp/calib-malicious.jsonl`
+
+#### 6.8.2 Severity summary table
+
+| Dataset | Files | Findings | High | Medium | Low | Info |
+|---|---:|---:|---:|---:|---:|---:|
+| Benign (pre-tuning baseline) | 11 | 117 | 5 | 40 | 46 | 26 |
+| Benign (current) | 11 | 106 | 0 | 34 | 46 | 26 |
+| Malicious (current) | 6 | 291 | 71 | 85 | 101 | 34 |
+
+#### 6.8.3 Font finding calibration table
+
+Format: `total/high/medium/low/info`.
+
+| Finding kind | Benign pre | Benign current | Malicious current |
+|---|---|---|---|
+| `font.multiple_vuln_signals` | `5/5/0/0/0` | `0/0/0/0/0` | `2/0/0/2/0` |
+| `font.ttf_hinting_torture` | `6/0/6/0/0` | `0/0/0/0/0` | `0/0/0/0/0` |
+| `font.ttf_hinting_push_loop` | `5/0/5/0/0` | `5/0/5/0/0` | `10/0/10/0/0` |
+| `font.ttf_hinting_suspicious` | `25/0/0/25/0` | `25/0/0/25/0` | `25/0/2/23/0` |
+
+#### 6.8.4 Interpretation
+
+- The clean-suite false-positive Highs were removed (`High: 5 -> 0`).
+- The aggregate font escalation no longer auto-promotes hinting-only patterns to High.
+- In malicious fixtures, hinting signals persist as supporting telemetry (`push_loop`, `suspicious`), while aggregate severity is context-gated.
+- Example: `modern-gated-supplychain-9ff24c46.pdf` now emits `font.multiple_vuln_signals` as `Low/Tentative` with `aggregate.profile=hinting_only_sparse`.
+
+#### 6.8.5 Follow-up tuning guardrails
+
+1. Keep `font.multiple_vuln_signals` High only when at least two non-hinting medium/high font findings co-occur.
+2. Keep hinting-only profiles at `Low/Tentative` or `Medium/Tentative` unless storm/stack-pressure criteria are met.
+3. Re-run this calibration table after any change in:
+   - hinting VM thresholds,
+   - aggregate severity gating,
+   - font dynamic parse classification.
