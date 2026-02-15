@@ -705,18 +705,12 @@ fn content_first_guardrail_finding(
     meta.insert("content_first.guardrail_applied".into(), "true".into());
     meta.insert("content_first.stream_budget".into(), stream_budget.to_string());
     meta.insert("content_first.deep_pass_budget".into(), deep_pass_budget.to_string());
-    meta.insert(
-        "content_first.anomaly_scan_budget".into(),
-        anomaly_scan_budget.to_string(),
-    );
+    meta.insert("content_first.anomaly_scan_budget".into(), anomaly_scan_budget.to_string());
     meta.insert("content_first.total_streams".into(), total_streams.to_string());
     meta.insert("content_first.total_objstm_streams".into(), objstm_streams.to_string());
     meta.insert("content_first.object_count".into(), object_count.to_string());
     if !adaptive_reasons.is_empty() {
-        meta.insert(
-            "content_first.guardrail_reasons".into(),
-            adaptive_reasons.join(","),
-        );
+        meta.insert("content_first.guardrail_reasons".into(), adaptive_reasons.join(","));
     }
 
     Finding {
@@ -728,8 +722,7 @@ fn content_first_guardrail_finding(
         impact: None,
         title: "Content-first guardrail applied".into(),
         description:
-            "Adaptive guardrail tightened content-first budgets for a timeout-heavy profile."
-                .into(),
+            "Adaptive guardrail tightened content-first budgets for a timeout-heavy profile.".into(),
         objects: vec!["content_first".into()],
         evidence: Vec::new(),
         remediation: Some(
@@ -3123,11 +3116,9 @@ mod tests {
         assert_eq!(budgets.deep_pass_budget, 60);
         assert_eq!(budgets.anomaly_scan_budget, 100);
         assert!(budgets.force_stream_cap);
-        assert!(
-            budgets
-                .adaptive_reasons
-                .contains(&CONTENT_FIRST_TIMEOUT_GUARDRAIL_REASON.to_string())
-        );
+        assert!(budgets
+            .adaptive_reasons
+            .contains(&CONTENT_FIRST_TIMEOUT_GUARDRAIL_REASON.to_string()));
     }
 
     #[test]
@@ -3148,18 +3139,9 @@ mod tests {
         assert_eq!(finding.kind, "content_first_guardrail_applied");
         assert_eq!(finding.severity, Severity::Info);
         assert_eq!(finding.confidence, Confidence::Strong);
-        assert_eq!(
-            finding.meta.get("content_first.guardrail_applied"),
-            Some(&"true".to_string())
-        );
-        assert_eq!(
-            finding.meta.get("content_first.stream_budget"),
-            Some(&"220".to_string())
-        );
-        assert_eq!(
-            finding.meta.get("content_first.object_count"),
-            Some(&"865".to_string())
-        );
+        assert_eq!(finding.meta.get("content_first.guardrail_applied"), Some(&"true".to_string()));
+        assert_eq!(finding.meta.get("content_first.stream_budget"), Some(&"220".to_string()));
+        assert_eq!(finding.meta.get("content_first.object_count"), Some(&"865".to_string()));
         let reasons = finding
             .meta
             .get("content_first.guardrail_reasons")

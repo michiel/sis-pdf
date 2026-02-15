@@ -150,10 +150,7 @@ fn corpus_captured_modern_openaction_staged_baseline_stays_stable() {
 
     let renderer_divergence = finding_by_kind(&report, "renderer_behavior_divergence_known_path");
     assert_eq!(renderer_divergence.severity, sis_pdf_core::model::Severity::High);
-    assert_eq!(
-        renderer_divergence.confidence,
-        sis_pdf_core::model::Confidence::Strong
-    );
+    assert_eq!(renderer_divergence.confidence, sis_pdf_core::model::Confidence::Strong);
 
     let renderer_chain = finding_by_kind(&report, "renderer_behavior_exploitation_chain");
     assert_eq!(renderer_chain.severity, sis_pdf_core::model::Severity::High);
@@ -166,10 +163,7 @@ fn corpus_captured_modern_openaction_staged_baseline_stays_stable() {
     let file_probe = finding_by_kind(&report, "js_runtime_file_probe");
     assert_eq!(file_probe.severity, sis_pdf_core::model::Severity::High);
     assert_eq!(file_probe.confidence, sis_pdf_core::model::Confidence::Strong);
-    assert_eq!(
-        file_probe.meta.get("js.runtime.calls"),
-        Some(&"exportDataObject".to_string())
-    );
+    assert_eq!(file_probe.meta.get("js.runtime.calls"), Some(&"exportDataObject".to_string()));
 
     let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
     assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
@@ -185,10 +179,7 @@ fn corpus_captured_modern_renderer_revision_baseline_stays_stable() {
 
     let renderer_divergence = finding_by_kind(&report, "renderer_behavior_divergence_known_path");
     assert_eq!(renderer_divergence.severity, sis_pdf_core::model::Severity::High);
-    assert_eq!(
-        renderer_divergence.confidence,
-        sis_pdf_core::model::Confidence::Strong
-    );
+    assert_eq!(renderer_divergence.confidence, sis_pdf_core::model::Confidence::Strong);
 
     let renderer_chain = finding_by_kind(&report, "renderer_behavior_exploitation_chain");
     assert_eq!(renderer_chain.severity, sis_pdf_core::model::Severity::High);
@@ -201,10 +192,7 @@ fn corpus_captured_modern_renderer_revision_baseline_stays_stable() {
 
     let revision_score = finding_by_kind(&report, "revision_anomaly_scoring");
     assert_eq!(revision_score.severity, sis_pdf_core::model::Severity::Low);
-    assert_eq!(
-        revision_score.confidence,
-        sis_pdf_core::model::Confidence::Tentative
-    );
+    assert_eq!(revision_score.confidence, sis_pdf_core::model::Confidence::Tentative);
     assert!(meta_as_u32(revision_score, "revision.anomaly.max_score") >= 5);
 
     let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
@@ -221,10 +209,7 @@ fn corpus_captured_modern_gated_supply_chain_baseline_stays_stable() {
 
     let supply_chain = finding_by_kind(&report, "supply_chain_update_vector");
     assert_eq!(supply_chain.severity, sis_pdf_core::model::Severity::Medium);
-    assert_eq!(
-        supply_chain.confidence,
-        sis_pdf_core::model::Confidence::Heuristic
-    );
+    assert_eq!(supply_chain.confidence, sis_pdf_core::model::Confidence::Heuristic);
 
     let dormant = finding_by_kind(&report, "js_runtime_dormant_or_gated_execution");
     assert_eq!(dormant.severity, sis_pdf_core::model::Severity::Low);
@@ -233,10 +218,7 @@ fn corpus_captured_modern_gated_supply_chain_baseline_stays_stable() {
         dormant.meta.get("js.runtime.behavior.name"),
         Some(&"dormant_or_gated_execution".to_string())
     );
-    assert_eq!(
-        dormant.meta.get("js.runtime.profile_calls_ratio"),
-        Some(&"0.00".to_string())
-    );
+    assert_eq!(dormant.meta.get("js.runtime.profile_calls_ratio"), Some(&"0.00".to_string()));
 
     let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
     assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
@@ -269,7 +251,8 @@ fn corpus_captured_manifest_integrity_stays_stable() {
             .unwrap_or_else(|_| panic!("fixture should be readable: {}", fixture_path.display()));
         let actual_sha = format!("{:x}", Sha256::digest(&bytes));
         assert_eq!(
-            actual_sha, expected_sha,
+            actual_sha,
+            expected_sha,
             "fixture digest mismatch for {}",
             fixture_path.display()
         );
@@ -302,10 +285,7 @@ fn corpus_captured_timeout_heavy_guardrail_metadata_stays_stable() {
     let guardrail = finding_by_kind(&report, "content_first_guardrail_applied");
     assert_eq!(guardrail.severity, sis_pdf_core::model::Severity::Info);
     assert_eq!(guardrail.confidence, sis_pdf_core::model::Confidence::Strong);
-    assert_eq!(
-        guardrail.meta.get("content_first.guardrail_applied"),
-        Some(&"true".to_string())
-    );
+    assert_eq!(guardrail.meta.get("content_first.guardrail_applied"), Some(&"true".to_string()));
     let guardrail_reasons = guardrail
         .meta
         .get("content_first.guardrail_reasons")
@@ -315,10 +295,8 @@ fn corpus_captured_timeout_heavy_guardrail_metadata_stays_stable() {
     let truncated = finding_by_kind(&report, "content_first_analysis_truncated");
     assert_eq!(truncated.severity, sis_pdf_core::model::Severity::Medium);
     assert_eq!(truncated.confidence, sis_pdf_core::model::Confidence::Strong);
-    let truncation_reason = truncated
-        .meta
-        .get("truncation_reason")
-        .expect("truncation reason should be present");
+    let truncation_reason =
+        truncated.meta.get("truncation_reason").expect("truncation reason should be present");
     assert!(truncation_reason.contains("content_first_"));
     assert_eq!(
         truncated.meta.get("content_first.timeout_guardrail_applied"),
