@@ -3364,19 +3364,25 @@ fn run_repl_pipeline(command: &str, input: &[u8]) -> Result<(String, String, Exi
 }
 
 fn print_repl_cache_info(ctx: &sis_pdf_core::scan::ScanContext<'_>) {
-    if let Some(info) = ctx.findings_cache_info() {
-        println!("findings_cache_populated: true");
-        println!("findings_cache_count: {}", info.finding_count);
-        println!("findings_cache_fingerprint: {}", info.option_fingerprint);
-        println!("findings_cache_approx_bytes: {}", info.approximate_bytes);
+    let rendered = render_repl_cache_info(ctx.findings_cache_info());
+    print!("{rendered}");
+}
+
+fn render_repl_cache_info(info: Option<sis_pdf_core::scan::FindingsCacheInfo>) -> String {
+    if let Some(info) = info {
+        format!(
+            "findings_cache_populated: true\nfindings_cache_count: {}\nfindings_cache_fingerprint: {}\nfindings_cache_approx_bytes: {}\n",
+            info.finding_count, info.option_fingerprint, info.approximate_bytes
+        )
     } else {
-        println!("findings_cache_populated: false");
+        "findings_cache_populated: false\n".to_string()
     }
 }
 
 #[cfg(test)]
 mod repl_tests {
     use super::*;
+    use sis_pdf_core::scan::FindingsCacheInfo;
 
     #[test]
     fn split_repl_pipe_detects_command() {
@@ -3413,6 +3419,25 @@ mod repl_tests {
         assert_eq!(stdout.trim(), "hello");
         assert!(stderr.is_empty());
         assert!(status.success());
+    }
+
+    #[test]
+    fn render_repl_cache_info_reports_empty_cache() {
+        let rendered = render_repl_cache_info(None);
+        assert_eq!(rendered, "findings_cache_populated: false\n");
+    }
+
+    #[test]
+    fn render_repl_cache_info_reports_populated_cache() {
+        let rendered = render_repl_cache_info(Some(FindingsCacheInfo {
+            finding_count: 12,
+            option_fingerprint: 42,
+            approximate_bytes: 4096,
+        }));
+        assert!(rendered.contains("findings_cache_populated: true"));
+        assert!(rendered.contains("findings_cache_count: 12"));
+        assert!(rendered.contains("findings_cache_fingerprint: 42"));
+        assert!(rendered.contains("findings_cache_approx_bytes: 4096"));
     }
 }
 

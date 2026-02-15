@@ -82,8 +82,10 @@ Useful REPL commands:
 
 ```text
 sis> findings
+sis> cache.info
 sis> :where severity == 'High'
 sis> findings
+sis> cache.info
 sis> :where kind contains 'xref'
 sis> xref.sections
 sis> :json
@@ -91,6 +93,8 @@ sis> correlations | jq .
 sis> :readable
 sis> org > graph.dot
 ```
+
+`cache.info` reports REPL findings-cache state for the current session. The cache is populated after the first findings-family query and reused for subsequent findings-family queries in that same REPL session.
 
 ## Recent query extensions and refinements (last two weeks)
 
