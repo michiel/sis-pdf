@@ -6,45 +6,79 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         return;
     };
 
+    // Extract display data before entering the closure that needs &mut app
+    let file_name = result.file_name.clone();
+    let file_size = result.file_size;
+    let object_count = result.report.structural_summary.as_ref().map(|s| s.object_count);
+    let critical =
+        result.report.findings.iter().filter(|f| f.severity == Severity::Critical).count();
+    let high = result.report.summary.high;
+    let medium = result.report.summary.medium;
+    let low = result.report.summary.low;
+    let info = result.report.summary.info;
+    let chain_count = result.report.chains.len();
+
     ui.horizontal(|ui| {
-        ui.heading(&result.file_name);
+        ui.heading(&file_name);
         ui.separator();
-        ui.label(format!("{} bytes", result.file_size));
+        ui.label(format!("{} bytes", file_size));
 
-        if let Some(ref structural) = result.report.structural_summary {
+        if let Some(count) = object_count {
             ui.separator();
-            ui.label(format!("{} objects", structural.object_count));
+            ui.label(format!("{} objects", count));
         }
 
         ui.separator();
 
-        // Severity counts from report summary
-        let summary = &result.report.summary;
-        let findings = &result.report.findings;
-        let critical = findings.iter().filter(|f| f.severity == Severity::Critical).count();
-
+        // Severity counts — clickable to filter
         if critical > 0 {
-            ui.colored_label(egui::Color32::RED, format!("C:{}", critical));
+            let label = egui::RichText::new(format!("C:{}", critical)).color(egui::Color32::RED);
+            if ui.link(label).clicked() {
+                set_severity_filter_only(app, Severity::Critical);
+            }
         }
-        if summary.high > 0 {
-            ui.colored_label(egui::Color32::from_rgb(255, 140, 0), format!("H:{}", summary.high));
+        if high > 0 {
+            let label = egui::RichText::new(format!("H:{}", high))
+                .color(egui::Color32::from_rgb(255, 140, 0));
+            if ui.link(label).clicked() {
+                set_severity_filter_only(app, Severity::High);
+            }
         }
-        if summary.medium > 0 {
-            ui.colored_label(egui::Color32::YELLOW, format!("M:{}", summary.medium));
+        if medium > 0 {
+            let label = egui::RichText::new(format!("M:{}", medium)).color(egui::Color32::YELLOW);
+            if ui.link(label).clicked() {
+                set_severity_filter_only(app, Severity::Medium);
+            }
         }
-        if summary.low > 0 {
-            ui.colored_label(egui::Color32::LIGHT_BLUE, format!("L:{}", summary.low));
+        if low > 0 {
+            let label = egui::RichText::new(format!("L:{}", low)).color(egui::Color32::LIGHT_BLUE);
+            if ui.link(label).clicked() {
+                set_severity_filter_only(app, Severity::Low);
+            }
         }
-        if summary.info > 0 {
-            ui.colored_label(egui::Color32::GRAY, format!("I:{}", summary.info));
+        if info > 0 {
+            let label = egui::RichText::new(format!("I:{}", info)).color(egui::Color32::GRAY);
+            if ui.link(label).clicked() {
+                set_severity_filter_only(app, Severity::Info);
+            }
         }
 
         ui.separator();
-        ui.label(format!("{} chains", result.report.chains.len()));
+        ui.label(format!("{} chains", chain_count));
 
         // Toggle chains view
         if ui.selectable_label(app.show_chains, "Chains").clicked() {
             app.show_chains = !app.show_chains;
         }
     });
+}
+
+/// Set severity filter to show only the given severity level and switch to findings view.
+fn set_severity_filter_only(app: &mut SisApp, severity: Severity) {
+    app.severity_filters.critical = severity == Severity::Critical;
+    app.severity_filters.high = severity == Severity::High;
+    app.severity_filters.medium = severity == Severity::Medium;
+    app.severity_filters.low = severity == Severity::Low;
+    app.severity_filters.info = severity == Severity::Info;
+    app.show_chains = false;
 }

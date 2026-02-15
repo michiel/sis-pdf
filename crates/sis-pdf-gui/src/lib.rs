@@ -3,6 +3,7 @@
 pub mod analysis;
 #[cfg(feature = "gui")]
 pub mod app;
+pub mod object_data;
 #[cfg(feature = "gui")]
 pub mod panels;
 

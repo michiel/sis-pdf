@@ -1,6 +1,6 @@
 use crate::app::SisApp;
 
-pub fn show(ui: &mut egui::Ui, app: &SisApp) {
+pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     let Some(ref result) = app.result else {
         return;
     };
@@ -18,99 +18,150 @@ pub fn show(ui: &mut egui::Ui, app: &SisApp) {
     }
     let f = &findings[idx];
 
+    // Pre-extract object references for clickable links
+    let object_refs: Vec<(String, Option<(u32, u16)>)> = f
+        .objects
+        .iter()
+        .map(|s| {
+            let parsed = parse_obj_ref(s);
+            (s.clone(), parsed)
+        })
+        .collect();
+
+    // Pre-extract all data we need from the finding to avoid borrow conflicts
+    let title = f.title.clone();
+    let id = f.id.clone();
+    let kind = f.kind.clone();
+    let severity = format!("{:?}", f.severity);
+    let confidence = format!("{:?}", f.confidence);
+    let impact = f.impact.as_ref().map(|i| format!("{:?}", i));
+    let surface = format!("{:?}", f.surface);
+    let action_type = f.action_type.clone();
+    let action_target = f.action_target.clone();
+    let description = f.description.clone();
+    let remediation = f.remediation.clone();
+    let evidence: Vec<_> = f
+        .evidence
+        .iter()
+        .map(|ev| {
+            (
+                format!("offset: {}, length: {}, source: {:?}", ev.offset, ev.length, ev.source),
+                ev.note.clone(),
+            )
+        })
+        .collect();
+    let reader_impacts: Vec<String> = f
+        .reader_impacts
+        .iter()
+        .map(|ri| {
+            format!(
+                "  {:?} - {:?} ({:?}): {}",
+                ri.profile,
+                ri.severity,
+                ri.impact,
+                ri.note.as_deref().unwrap_or("")
+            )
+        })
+        .collect();
+    let meta: Vec<(String, String)> = f.meta.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+
     egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.heading(&f.title);
+        ui.heading(&title);
         ui.separator();
 
         egui::Grid::new("finding_meta").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             ui.label("ID:");
-            ui.label(&f.id);
+            ui.label(&id);
             ui.end_row();
 
             ui.label("Kind:");
-            ui.label(&f.kind);
+            ui.label(&kind);
             ui.end_row();
 
             ui.label("Severity:");
-            ui.label(format!("{:?}", f.severity));
+            ui.label(&severity);
             ui.end_row();
 
             ui.label("Confidence:");
-            ui.label(format!("{:?}", f.confidence));
+            ui.label(&confidence);
             ui.end_row();
 
-            if let Some(ref impact) = f.impact {
+            if let Some(ref imp) = impact {
                 ui.label("Impact:");
-                ui.label(format!("{:?}", impact));
+                ui.label(imp);
                 ui.end_row();
             }
 
             ui.label("Surface:");
-            ui.label(format!("{:?}", f.surface));
+            ui.label(&surface);
             ui.end_row();
 
-            if let Some(ref action_type) = f.action_type {
+            if let Some(ref at) = action_type {
                 ui.label("Action type:");
-                ui.label(action_type);
+                ui.label(at);
                 ui.end_row();
             }
 
-            if let Some(ref action_target) = f.action_target {
+            if let Some(ref at) = action_target {
                 ui.label("Action target:");
-                ui.label(action_target);
+                ui.label(at);
                 ui.end_row();
             }
         });
 
         ui.separator();
         ui.label("Description:");
-        ui.label(&f.description);
+        ui.label(&description);
 
-        if let Some(ref rem) = f.remediation {
+        if let Some(ref rem) = remediation {
             ui.separator();
             ui.label("Remediation:");
             ui.label(rem);
         }
 
-        if !f.evidence.is_empty() {
+        if !evidence.is_empty() {
             ui.separator();
-            ui.label(format!("Evidence ({}):", f.evidence.len()));
-            for ev in &f.evidence {
+            ui.label(format!("Evidence ({}):", evidence.len()));
+            for (info, note) in &evidence {
                 ui.group(|ui| {
-                    ui.label(format!(
-                        "offset: {}, length: {}, source: {:?}",
-                        ev.offset, ev.length, ev.source
-                    ));
-                    if let Some(ref note) = ev.note {
-                        ui.monospace(note);
+                    ui.label(info);
+                    if let Some(ref n) = note {
+                        ui.monospace(n);
                     }
                 });
             }
         }
 
-        if !f.objects.is_empty() {
+        // Objects section with clickable references
+        if !object_refs.is_empty() {
             ui.separator();
-            ui.label(format!("Objects: {}", f.objects.join(", ")));
+            ui.label("Objects:");
+            ui.horizontal_wrapped(|ui| {
+                for (obj_str, parsed) in &object_refs {
+                    if let Some(obj_ref) = parsed {
+                        if ui.link(obj_str).clicked() {
+                            app.selected_object = Some(*obj_ref);
+                            app.show_objects = true;
+                        }
+                    } else {
+                        ui.label(obj_str);
+                    }
+                }
+            });
         }
 
-        if !f.reader_impacts.is_empty() {
+        if !reader_impacts.is_empty() {
             ui.separator();
             ui.label("Reader impacts:");
-            for ri in &f.reader_impacts {
-                ui.label(format!(
-                    "  {:?} - {:?} ({:?}): {}",
-                    ri.profile,
-                    ri.severity,
-                    ri.impact,
-                    ri.note.as_deref().unwrap_or("")
-                ));
+            for ri in &reader_impacts {
+                ui.label(ri);
             }
         }
 
-        if !f.meta.is_empty() {
+        if !meta.is_empty() {
             ui.separator();
             ui.collapsing("Metadata", |ui| {
-                for (k, v) in &f.meta {
+                for (k, v) in &meta {
                     ui.horizontal(|ui| {
                         ui.monospace(k);
                         ui.label("=");
@@ -120,4 +171,17 @@ pub fn show(ui: &mut egui::Ui, app: &SisApp) {
             });
         }
     });
+}
+
+/// Parse an object reference string like "5 0 R" into (obj, gen).
+fn parse_obj_ref(s: &str) -> Option<(u32, u16)> {
+    let s = s.trim();
+    let parts: Vec<&str> = s.split_whitespace().collect();
+    if parts.len() >= 2 {
+        let obj = parts[0].parse::<u32>().ok()?;
+        let gen = parts[1].parse::<u16>().ok()?;
+        Some((obj, gen))
+    } else {
+        None
+    }
 }

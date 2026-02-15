@@ -1,6 +1,6 @@
 use crate::app::SisApp;
 
-pub fn show(ui: &mut egui::Ui, app: &SisApp) {
+pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     let Some(ref result) = app.result else {
         return;
     };
@@ -15,21 +15,50 @@ pub fn show(ui: &mut egui::Ui, app: &SisApp) {
         return;
     }
 
-    ui.heading(format!("{} Exploit Chains", chains.len()));
+    // Pre-build a lookup from finding ID to index for clickable links
+    let finding_index: Vec<(String, usize)> =
+        result.report.findings.iter().enumerate().map(|(i, f)| (f.id.clone(), i)).collect();
+
+    // Pre-extract chain display data to avoid borrowing result inside mutable closure
+    let chain_data: Vec<ChainDisplay> = chains
+        .iter()
+        .enumerate()
+        .map(|(i, chain)| {
+            let finding_links: Vec<(String, Option<usize>)> = chain
+                .findings
+                .iter()
+                .map(|fid| {
+                    let idx = finding_index.iter().find(|(id, _)| id == fid).map(|(_, i)| *i);
+                    (fid.clone(), idx)
+                })
+                .collect();
+            ChainDisplay {
+                index: i,
+                score: chain.score,
+                path: chain.path.clone(),
+                trigger: chain.trigger.clone(),
+                action: chain.action.clone(),
+                payload: chain.payload.clone(),
+                reasons: chain.reasons.clone(),
+                finding_links,
+            }
+        })
+        .collect();
+
+    ui.heading(format!("{} Exploit Chains", chain_data.len()));
     ui.separator();
 
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for (i, chain) in chains.iter().enumerate() {
+        for chain in &chain_data {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.strong(format!("Chain #{}", i + 1));
+                    ui.strong(format!("Chain #{}", chain.index + 1));
                     ui.separator();
                     ui.label(format!("Score: {:.2}", chain.score));
                     ui.separator();
                     ui.label(&chain.path);
                 });
 
-                // Show trigger -> action -> payload
                 ui.add_space(4.0);
                 if let Some(ref trigger) = chain.trigger {
                     ui.horizontal(|ui| {
@@ -58,12 +87,35 @@ pub fn show(ui: &mut egui::Ui, app: &SisApp) {
                     }
                 }
 
-                if !chain.findings.is_empty() {
+                if !chain.finding_links.is_empty() {
                     ui.add_space(4.0);
-                    ui.label(format!("Findings: {}", chain.findings.join(", ")));
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(format!("Findings ({}):", chain.finding_links.len()));
+                        for (finding_id, maybe_idx) in &chain.finding_links {
+                            if let Some(idx) = maybe_idx {
+                                if ui.link(finding_id).clicked() {
+                                    app.selected_finding = Some(*idx);
+                                    app.show_chains = false;
+                                }
+                            } else {
+                                ui.label(finding_id);
+                            }
+                        }
+                    });
                 }
             });
             ui.add_space(4.0);
         }
     });
+}
+
+struct ChainDisplay {
+    index: usize,
+    score: f64,
+    path: String,
+    trigger: Option<String>,
+    action: Option<String>,
+    payload: Option<String>,
+    reasons: Vec<String>,
+    finding_links: Vec<(String, Option<usize>)>,
 }

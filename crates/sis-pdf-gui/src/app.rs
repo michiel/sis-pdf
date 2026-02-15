@@ -12,8 +12,16 @@ pub struct SisApp {
     pub error: Option<AnalysisError>,
     /// Index of the currently selected finding in the table.
     pub selected_finding: Option<usize>,
-    /// Whether to show the chain panel.
+    /// Whether to show the chain panel instead of findings in the central area.
     pub show_chains: bool,
+    /// Whether to show the metadata floating window.
+    pub show_metadata: bool,
+    /// Whether to show the Object Inspector floating window.
+    pub show_objects: bool,
+    /// Currently selected object in the Object Inspector.
+    pub selected_object: Option<(u32, u16)>,
+    /// Type filter for the Object Inspector list.
+    pub object_type_filter: Option<String>,
     /// Active severity filters (true = shown).
     pub severity_filters: SeverityFilters,
     /// Current sort column and direction.
@@ -58,6 +66,10 @@ impl SisApp {
             error: None,
             selected_finding: None,
             show_chains: false,
+            show_metadata: false,
+            show_objects: false,
+            selected_object: None,
+            object_type_filter: None,
             severity_filters: SeverityFilters::default(),
             sort: SortState::default(),
             #[cfg(target_arch = "wasm32")]
@@ -69,6 +81,11 @@ impl SisApp {
     pub fn handle_file_drop(&mut self, name: String, bytes: &[u8]) {
         self.error = None;
         self.selected_finding = None;
+        self.selected_object = None;
+        self.object_type_filter = None;
+        self.show_chains = false;
+        self.show_metadata = false;
+        self.show_objects = false;
         match crate::analysis::analyze(bytes, &name) {
             Ok(result) => {
                 self.result = Some(result);
@@ -216,13 +233,39 @@ impl eframe::App for SisApp {
         }
 
         if self.result.is_some() {
-            // Show analysis panels
+            // Top: summary bar
             egui::TopBottomPanel::top("summary_panel").show(ctx, |ui| {
                 crate::panels::summary::show(ui, self);
             });
+
+            // Left: navigation column
+            egui::SidePanel::left("nav_panel").exact_width(80.0).resizable(false).show(ctx, |ui| {
+                crate::panels::nav::show(ui, self);
+            });
+
+            // Right: finding detail (when a finding is selected)
             egui::SidePanel::right("detail_panel").min_width(300.0).show(ctx, |ui| {
                 crate::panels::detail::show(ui, self);
             });
+
+            // Floating windows for metadata and object inspector
+            if self.show_metadata {
+                let mut open = true;
+                egui::Window::new("Metadata")
+                    .open(&mut open)
+                    .default_size([400.0, 500.0])
+                    .resizable(true)
+                    .show(ctx, |ui| {
+                        crate::panels::metadata::show(ui, self);
+                    });
+                self.show_metadata = open;
+            }
+
+            if self.show_objects {
+                crate::panels::objects::show(ctx, self);
+            }
+
+            // Central: findings table or chains
             egui::CentralPanel::default().show(ctx, |ui| {
                 if self.show_chains {
                     crate::panels::chains::show(ui, self);

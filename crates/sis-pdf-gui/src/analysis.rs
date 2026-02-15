@@ -3,6 +3,9 @@ use sis_pdf_core::runner::run_scan_with_detectors;
 use sis_pdf_core::scan::{
     CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat, ScanOptions,
 };
+use sis_pdf_pdf::graph::ParseOptions;
+
+use crate::object_data::{self, ObjectData};
 
 /// Browser security profile: non-configurable hard caps for WASM analysis.
 const MAX_FILE_SIZE: usize = 50 * 1024 * 1024; // 50 MB
@@ -15,6 +18,7 @@ const MAX_RECURSION_DEPTH: usize = 50;
 #[derive(Debug)]
 pub struct AnalysisResult {
     pub report: Report,
+    pub object_data: ObjectData,
     pub file_name: String,
     pub file_size: usize,
 }
@@ -78,7 +82,37 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
     let report = run_scan_with_detectors(bytes, options, &detectors)
         .map_err(|e| AnalysisError::ScanFailed(e.to_string()))?;
 
-    Ok(AnalysisResult { report, file_name: file_name.to_string(), file_size: bytes.len() })
+    // Re-parse to extract owned object data for the Object Inspector.
+    // The ObjectGraph borrows bytes and cannot be stored, so we extract
+    // an owned summary here. This second parse is fast (~50ms typical).
+    let object_data = extract_object_data(bytes);
+
+    Ok(AnalysisResult {
+        report,
+        object_data,
+        file_name: file_name.to_string(),
+        file_size: bytes.len(),
+    })
+}
+
+fn extract_object_data(bytes: &[u8]) -> ObjectData {
+    let parse_opts = ParseOptions {
+        recover_xref: true,
+        deep: false,
+        strict: false,
+        max_objstm_bytes: MAX_DECODE_BYTES,
+        max_objects: MAX_OBJECTS,
+        max_objstm_total_bytes: MAX_TOTAL_DECODED_BYTES,
+        carve_stream_objects: false,
+        max_carved_objects: 0,
+        max_carved_bytes: 0,
+    };
+    let graph = match sis_pdf_pdf::graph::parse_pdf(bytes, parse_opts) {
+        Ok(g) => g,
+        Err(_) => return ObjectData::default(),
+    };
+    let classifications = graph.classify_objects();
+    object_data::extract_object_data(bytes, &graph, &classifications)
 }
 
 #[cfg(test)]
