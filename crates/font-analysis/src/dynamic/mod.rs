@@ -447,15 +447,14 @@ impl HintingStats {
         if self.warnings == 0 {
             return false;
         }
-        let push_loop_count = self.kind_counts.get("font.ttf_hinting_push_loop").copied().unwrap_or(0);
-        let has_control_storm = self
-            .kind_counts
-            .contains_key("font.ttf_hinting_control_flow_storm");
+        let push_loop_count =
+            self.kind_counts.get("font.ttf_hinting_push_loop").copied().unwrap_or(0);
+        let has_control_storm =
+            self.kind_counts.contains_key("font.ttf_hinting_control_flow_storm");
         let has_call_storm = self.kind_counts.contains_key("font.ttf_hinting_call_storm");
 
         let strong_warning_density = self.warnings >= HINTING_TORTURE_STRONG_THRESHOLD;
-        let repeated_push_loops =
-            push_loop_count >= 2 && self.highest_push_loop_length >= 32;
+        let repeated_push_loops = push_loop_count >= 2 && self.highest_push_loop_length >= 32;
         let heavy_stack_pressure = self.stack_errors >= 3;
         let stack_budget_exceeded = self.highest_stack_depth >= limits.max_stack_depth();
         let instruction_budget_exceeded =
@@ -487,20 +486,11 @@ impl HintingStats {
         } else {
             self.warnings as f64 / self.tables_scanned as f64
         };
-        let stack_error_ratio = if self.warnings == 0 {
-            0.0
-        } else {
-            self.stack_errors as f64 / self.warnings as f64
-        };
-        meta.insert(
-            "warning_density".to_string(),
-            format!("{warnings_per_table:.2}"),
-        );
+        let stack_error_ratio =
+            if self.warnings == 0 { 0.0 } else { self.stack_errors as f64 / self.warnings as f64 };
+        meta.insert("warning_density".to_string(), format!("{warnings_per_table:.2}"));
         meta.insert("stack_error_ratio".to_string(), format!("{stack_error_ratio:.2}"));
-        meta.insert(
-            "warning_threshold".to_string(),
-            HINTING_TORTURE_THRESHOLD.to_string(),
-        );
+        meta.insert("warning_threshold".to_string(), HINTING_TORTURE_THRESHOLD.to_string());
         meta.insert(
             "strong_warning_threshold".to_string(),
             HINTING_TORTURE_STRONG_THRESHOLD.to_string(),

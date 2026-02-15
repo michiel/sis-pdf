@@ -1526,50 +1526,50 @@ pub fn execute_query_with_context(
             }
             Query::Filesize => Ok(QueryResult::Scalar(ScalarValue::Number(ctx.bytes.len() as i64))),
             Query::FindingsCount => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered = filter_findings(findings, predicate);
                 Ok(QueryResult::Scalar(ScalarValue::Number(filtered.len() as i64)))
             }
             Query::FindingsBySeverity(severity) => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered: Vec<sis_pdf_core::model::Finding> =
                     findings.into_iter().filter(|f| &f.severity == severity).collect();
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
             Query::FindingsByKind(kind) => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered: Vec<sis_pdf_core::model::Finding> =
                     findings.into_iter().filter(|f| f.kind == *kind).collect();
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
             Query::FindingsByKindCount(kind) => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered: Vec<sis_pdf_core::model::Finding> =
                     findings.into_iter().filter(|f| f.kind == *kind).collect();
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Scalar(ScalarValue::Number(filtered.len() as i64)))
             }
             Query::Findings => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered = filter_findings(findings, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
             Query::FindingsComposite => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered = filter_findings(findings, predicate);
                 let composites: Vec<_> = filtered.into_iter().filter(is_composite).collect();
                 Ok(QueryResult::Structure(json!(composites)))
             }
             Query::FindingsCompositeCount => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered = filter_findings(findings, predicate);
                 let composites = filtered.into_iter().filter(is_composite).count();
                 Ok(QueryResult::Scalar(ScalarValue::Number(composites as i64)))
             }
             Query::Correlations => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered = filter_findings(findings, predicate);
                 let composites: Vec<_> = filtered.into_iter().filter(is_composite).collect();
                 let mut summary_map: HashMap<String, CorrelationSummary> = HashMap::new();
@@ -1589,7 +1589,7 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::Structure(json!(summary_map)))
             }
             Query::CorrelationsCount => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered = filter_findings(findings, predicate);
                 let composites = filtered.into_iter().filter(is_composite).count();
                 Ok(QueryResult::Scalar(ScalarValue::Number(composites as i64)))
@@ -1599,7 +1599,7 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::Structure(diff))
             }
             Query::Encryption => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered: Vec<_> = findings
                     .into_iter()
                     .filter(|f| f.kind == "encryption_present" || f.kind == "encryption_key_short")
@@ -1608,14 +1608,14 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::Structure(json!(filtered)))
             }
             Query::EncryptionWeak => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered: Vec<_> =
                     findings.into_iter().filter(|f| f.kind == "crypto_weak_algo").collect();
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
             Query::EncryptionWeakCount => {
-                let findings = run_detectors(ctx)?;
+                let findings = findings_with_cache(ctx)?;
                 let filtered: Vec<_> =
                     findings.into_iter().filter(|f| f.kind == "crypto_weak_algo").collect();
                 let filtered = filter_findings(filtered, predicate);
@@ -2543,6 +2543,15 @@ fn run_detectors(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>>
         reader_context::annotate_reader_context(finding);
     }
 
+    Ok(findings)
+}
+
+fn findings_with_cache(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>> {
+    if let Some(cache) = ctx.cached_findings(&ctx.options) {
+        return Ok(cache.findings.clone());
+    }
+    let findings = run_detectors(ctx)?;
+    ctx.populate_findings_cache(findings.clone(), &ctx.options);
     Ok(findings)
 }
 
@@ -9390,5 +9399,87 @@ mod tests {
             }
             other => panic!("unexpected result: {:?}", other),
         }
+    }
+
+    #[test]
+    fn findings_query_populates_cache_and_reuses_results() {
+        with_fixture_context("actions/launch_cve_2010_1240.pdf", |ctx| {
+            assert!(ctx.findings_cache_info().is_none());
+
+            let first = execute_query_with_context(
+                &Query::Findings,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("first findings query");
+            let second = execute_query_with_context(
+                &Query::Findings,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("second findings query");
+
+            let first_value = match first {
+                QueryResult::Structure(value) => value,
+                other => panic!("unexpected result type: {:?}", other),
+            };
+            let second_value = match second {
+                QueryResult::Structure(value) => value,
+                other => panic!("unexpected result type: {:?}", other),
+            };
+            assert_eq!(first_value, second_value);
+
+            let findings = first_value.as_array().expect("findings array");
+            let cache_info = ctx.findings_cache_info().expect("cache info");
+            assert_eq!(cache_info.finding_count, findings.len());
+            assert!(cache_info.approximate_bytes > 0);
+        });
+    }
+
+    #[test]
+    fn findings_high_filters_cached_results() {
+        with_fixture_context("actions/launch_cve_2010_1240.pdf", |ctx| {
+            let findings = execute_query_with_context(
+                &Query::Findings,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("findings query");
+
+            let highs = execute_query_with_context(
+                &Query::FindingsBySeverity(Severity::High),
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("findings.high query");
+
+            let all_findings = match findings {
+                QueryResult::Structure(value) => value.as_array().cloned().expect("array"),
+                other => panic!("unexpected findings result type: {:?}", other),
+            };
+            let high_findings = match highs {
+                QueryResult::Structure(value) => value.as_array().cloned().expect("array"),
+                other => panic!("unexpected findings.high result type: {:?}", other),
+            };
+
+            let expected_high = all_findings
+                .iter()
+                .filter(|entry| entry.get("severity").and_then(Value::as_str) == Some("High"))
+                .count();
+            assert_eq!(high_findings.len(), expected_high);
+            assert!(ctx.findings_cache_info().is_some());
+        });
     }
 }

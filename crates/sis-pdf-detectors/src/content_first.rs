@@ -35,6 +35,10 @@ const CONTENT_FIRST_ADAPTIVE_FILE_BYTES_LEVEL2: usize = 16 * 1024 * 1024;
 const CONTENT_FIRST_ADAPTIVE_OBJECTS_LEVEL2: usize = 8_000;
 const CONTENT_FIRST_ADAPTIVE_STREAMS_LEVEL2: usize = 1_000;
 const CONTENT_FIRST_ADAPTIVE_OBJSTM_LEVEL: usize = 8;
+const CONTENT_FIRST_TIMEOUT_GUARDRAIL_FILE_BYTES: usize = 18 * 1024 * 1024;
+const CONTENT_FIRST_TIMEOUT_GUARDRAIL_OBJECTS: usize = 800;
+const CONTENT_FIRST_TIMEOUT_GUARDRAIL_STREAMS: usize = 300;
+const CONTENT_FIRST_TIMEOUT_GUARDRAIL_REASON: &str = "timeout_heavy_guardrail";
 
 const CONTENT_FIRST_AGGREGATED_KINDS: &[&str] = &[
     "label_mismatch_stream_type",
@@ -134,6 +138,10 @@ impl Detector for ContentFirstDetector {
         let stream_budget = budgets.stream_budget;
         let deep_pass_budget = budgets.deep_pass_budget;
         let anomaly_scan_budget = budgets.anomaly_scan_budget;
+        let timeout_guardrail_applied = budgets
+            .adaptive_reasons
+            .iter()
+            .any(|reason| reason == CONTENT_FIRST_TIMEOUT_GUARDRAIL_REASON);
         let mut processed_streams = 0usize;
         let mut deep_passed_streams = 0usize;
         let mut deep_pass_skipped_streams = 0usize;
@@ -153,6 +161,18 @@ impl Detector for ContentFirstDetector {
         let embedded_map = embedded_file_map(ctx, &obj_map);
         let xfa_map = xfa_stream_map(ctx, &obj_map);
         let classifications = ctx.classifications();
+
+        if timeout_guardrail_applied {
+            findings.push(content_first_guardrail_finding(
+                stream_budget,
+                deep_pass_budget,
+                anomaly_scan_budget,
+                total_streams,
+                objstm_streams,
+                ctx.graph.objects.len(),
+                &budgets.adaptive_reasons,
+            ));
+        }
 
         for entry in &ctx.graph.objects {
             if processed_streams >= stream_budget {
@@ -513,6 +533,16 @@ impl Detector for ContentFirstDetector {
             meta.insert("content_first.total_objstm_streams".into(), objstm_streams.to_string());
             meta.insert("content_first.high_risk_findings".into(), high_risk_findings.to_string());
             meta.insert(
+                "content_first.timeout_guardrail_applied".into(),
+                timeout_guardrail_applied.to_string(),
+            );
+            if timeout_guardrail_applied {
+                meta.insert(
+                    "content_first.guardrail_reasons".into(),
+                    budgets.adaptive_reasons.join(","),
+                );
+            }
+            meta.insert(
                 "content_first.classify_cache_entries".into(),
                 classify_cache.len().to_string(),
             );
@@ -630,6 +660,16 @@ fn adaptive_content_first_budgets_from_metrics(
         force_stream_cap = true;
         adaptive_reasons.push("objstm_heavy".to_string());
     }
+    if file_size >= CONTENT_FIRST_TIMEOUT_GUARDRAIL_FILE_BYTES
+        && (object_count >= CONTENT_FIRST_TIMEOUT_GUARDRAIL_OBJECTS
+            || total_streams >= CONTENT_FIRST_TIMEOUT_GUARDRAIL_STREAMS)
+    {
+        stream_budget = stream_budget.min(220);
+        deep_pass_budget = deep_pass_budget.min(60);
+        anomaly_scan_budget = anomaly_scan_budget.min(100);
+        force_stream_cap = true;
+        adaptive_reasons.push(CONTENT_FIRST_TIMEOUT_GUARDRAIL_REASON.to_string());
+    }
 
     if total_streams > 0 {
         stream_budget = stream_budget.max(1).min(total_streams);
@@ -650,6 +690,54 @@ fn adaptive_content_first_budgets_from_metrics(
         anomaly_scan_budget,
         force_stream_cap,
         adaptive_reasons,
+    }
+}
+
+fn content_first_guardrail_finding(
+    stream_budget: usize,
+    deep_pass_budget: usize,
+    anomaly_scan_budget: usize,
+    total_streams: usize,
+    objstm_streams: usize,
+    object_count: usize,
+    adaptive_reasons: &[String],
+) -> Finding {
+    let mut meta = HashMap::new();
+    meta.insert("content_first.guardrail_applied".into(), "true".into());
+    meta.insert("content_first.stream_budget".into(), stream_budget.to_string());
+    meta.insert("content_first.deep_pass_budget".into(), deep_pass_budget.to_string());
+    meta.insert("content_first.anomaly_scan_budget".into(), anomaly_scan_budget.to_string());
+    meta.insert("content_first.total_streams".into(), total_streams.to_string());
+    meta.insert("content_first.total_objstm_streams".into(), objstm_streams.to_string());
+    meta.insert("content_first.object_count".into(), object_count.to_string());
+    if !adaptive_reasons.is_empty() {
+        meta.insert("content_first.guardrail_reasons".into(), adaptive_reasons.join(","));
+    }
+
+    Finding {
+        id: String::new(),
+        surface: AttackSurface::StreamsAndFilters,
+        kind: "content_first_guardrail_applied".into(),
+        severity: Severity::Info,
+        confidence: Confidence::Strong,
+        impact: None,
+        title: "Content-first guardrail applied".into(),
+        description:
+            "Adaptive guardrail tightened content-first budgets for a timeout-heavy profile.".into(),
+        objects: vec!["content_first".into()],
+        evidence: Vec::new(),
+        remediation: Some(
+            "Run targeted object queries for high-risk refs or use focused triage for this sample."
+                .into(),
+        ),
+        meta,
+        reader_impacts: Vec::new(),
+        action_type: None,
+        action_target: None,
+        action_initiation: None,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
     }
 }
 
@@ -3019,6 +3107,47 @@ mod tests {
         assert_eq!(budgets.anomaly_scan_budget, 160);
         assert!(budgets.force_stream_cap);
         assert!(budgets.adaptive_reasons.contains(&"objstm_heavy".to_string()));
+    }
+
+    #[test]
+    fn adaptive_budgets_apply_timeout_guardrail_for_timeout_heavy_profile() {
+        let budgets =
+            adaptive_content_first_budgets_from_metrics(true, 20 * 1024 * 1024, 865, 340, 0);
+        assert_eq!(budgets.stream_budget, 220);
+        assert_eq!(budgets.deep_pass_budget, 60);
+        assert_eq!(budgets.anomaly_scan_budget, 100);
+        assert!(budgets.force_stream_cap);
+        assert!(budgets
+            .adaptive_reasons
+            .contains(&CONTENT_FIRST_TIMEOUT_GUARDRAIL_REASON.to_string()));
+    }
+
+    #[test]
+    fn guardrail_finding_captures_budget_metadata() {
+        let finding = content_first_guardrail_finding(
+            220,
+            60,
+            100,
+            340,
+            0,
+            865,
+            &[
+                "level1".to_string(),
+                "level2".to_string(),
+                CONTENT_FIRST_TIMEOUT_GUARDRAIL_REASON.to_string(),
+            ],
+        );
+        assert_eq!(finding.kind, "content_first_guardrail_applied");
+        assert_eq!(finding.severity, Severity::Info);
+        assert_eq!(finding.confidence, Confidence::Strong);
+        assert_eq!(finding.meta.get("content_first.guardrail_applied"), Some(&"true".to_string()));
+        assert_eq!(finding.meta.get("content_first.stream_budget"), Some(&"220".to_string()));
+        assert_eq!(finding.meta.get("content_first.object_count"), Some(&"865".to_string()));
+        let reasons = finding
+            .meta
+            .get("content_first.guardrail_reasons")
+            .expect("guardrail reasons should be present");
+        assert!(reasons.contains(CONTENT_FIRST_TIMEOUT_GUARDRAIL_REASON));
     }
 
     #[test]

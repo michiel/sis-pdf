@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
@@ -13,6 +14,7 @@ use sis_pdf_pdf::ObjectGraph;
 use tracing::{debug, info_span, trace, Level};
 
 use crate::canonical::CanonicalView;
+use crate::model::Finding;
 use crate::security_log::{SecurityDomain, SecurityEvent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -145,6 +147,7 @@ pub struct ScanContext<'a> {
     // Lazy-initialized graph infrastructure (Sprint 4)
     classifications: OnceLock<ClassificationMap>,
     canonical_view: OnceLock<CanonicalView>,
+    findings_cache: OnceLock<FindingsCache>,
 }
 
 impl<'a> ScanContext<'a> {
@@ -157,6 +160,7 @@ impl<'a> ScanContext<'a> {
             options,
             classifications: OnceLock::new(),
             canonical_view: OnceLock::new(),
+            findings_cache: OnceLock::new(),
         }
     }
 
@@ -224,6 +228,42 @@ impl<'a> ScanContext<'a> {
         let classifications = self.classifications();
         TypedGraph::build(&self.graph, classifications)
     }
+
+    fn option_fingerprint(options: &ScanOptions) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        format!("{options:?}").hash(&mut hasher);
+        hasher.finish()
+    }
+
+    pub fn cached_findings(&self, options: &ScanOptions) -> Option<&FindingsCache> {
+        let fingerprint = Self::option_fingerprint(options);
+        self.findings_cache.get().filter(|cache| cache.option_fingerprint == fingerprint)
+    }
+
+    pub fn populate_findings_cache(&self, findings: Vec<Finding>, options: &ScanOptions) {
+        let option_fingerprint = Self::option_fingerprint(options);
+        let _ = self.findings_cache.get_or_init(|| FindingsCache { findings, option_fingerprint });
+    }
+
+    pub fn findings_cache_info(&self) -> Option<FindingsCacheInfo> {
+        self.findings_cache.get().map(|cache| FindingsCacheInfo {
+            finding_count: cache.findings.len(),
+            option_fingerprint: cache.option_fingerprint,
+            approximate_bytes: cache.findings.len() * std::mem::size_of::<Finding>(),
+        })
+    }
+}
+
+pub struct FindingsCache {
+    pub findings: Vec<Finding>,
+    pub option_fingerprint: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FindingsCacheInfo {
+    pub finding_count: usize,
+    pub option_fingerprint: u64,
+    pub approximate_bytes: usize,
 }
 
 #[derive(Debug)]

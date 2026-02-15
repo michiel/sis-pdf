@@ -143,10 +143,8 @@ fn aggregate_multiple_vuln_signals(findings: &[FontFinding]) -> Option<FontFindi
         return None;
     }
 
-    let hinting_risk_count = risk_findings
-        .iter()
-        .filter(|finding| is_hinting_kind(&finding.kind))
-        .count();
+    let hinting_risk_count =
+        risk_findings.iter().filter(|finding| is_hinting_kind(&finding.kind)).count();
     let non_hinting_risk_count = risk_findings.len().saturating_sub(hinting_risk_count);
     let high_signal_kinds: HashSet<&str> =
         risk_findings.iter().map(|finding| finding.kind.as_str()).collect();
@@ -168,10 +166,7 @@ fn aggregate_multiple_vuln_signals(findings: &[FontFinding]) -> Option<FontFindi
     let mut meta = HashMap::new();
     meta.insert("aggregate.risk_count".into(), risk_findings.len().to_string());
     meta.insert("aggregate.hinting_risk_count".into(), hinting_risk_count.to_string());
-    meta.insert(
-        "aggregate.non_hinting_risk_count".into(),
-        non_hinting_risk_count.to_string(),
-    );
+    meta.insert("aggregate.non_hinting_risk_count".into(), non_hinting_risk_count.to_string());
     meta.insert("aggregate.profile".into(), profile.to_string());
 
     Some(FontFinding {
