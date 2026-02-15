@@ -1,7 +1,10 @@
 #![forbid(unsafe_code)]
 
+pub mod time_compat;
+
 pub mod adversarial;
 pub mod behavior;
+#[cfg(feature = "filesystem")]
 pub mod cache;
 pub mod campaign;
 pub mod canonical;

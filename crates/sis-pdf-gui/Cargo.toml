@@ -1,0 +1,36 @@
+[package]
+name = "sis-pdf-gui"
+version.workspace = true
+edition = "2021"
+rust-version = "1.88"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+# UI dependencies (optional for testing without winit)
+eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts"], optional = true }
+egui = { version = "0.33", optional = true }
+egui_extras = { version = "0.33", optional = true }
+
+# Analysis pipeline (no filesystem, no parallelism, no ML)
+sis-pdf-core = { path = "../sis-pdf-core", default-features = false }
+sis-pdf-pdf = { path = "../sis-pdf-pdf" }
+sis-pdf-detectors = { path = "../sis-pdf-detectors", default-features = false, features = ["js-ast"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+console_error_panic_hook = "0.1"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Element"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+# Force pure-Rust zlib for WASM (C zlib cannot cross-compile without clang)
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+
+[features]
+default = ["gui"]
+gui = ["eframe", "egui", "egui_extras"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]

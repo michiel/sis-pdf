@@ -1,6 +1,8 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
+use crate::time_compat::Instant;
+#[cfg(feature = "parallel")]
+use crate::time_compat::Duration;
 
 use crate::correlation;
 use crate::evidence::preview_ascii;
@@ -11,7 +13,9 @@ use crate::position;
 use crate::profiler::{DocumentInfo, Profiler};
 #[cfg(feature = "ml-graph")]
 use crate::report::MlNodeAttribution;
-use crate::report::{MlRunSummary, MlSummary, Report, SecondaryParserSummary, StructuralSummary};
+#[cfg(feature = "filesystem")]
+use crate::report::MlRunSummary;
+use crate::report::{MlSummary, Report, SecondaryParserSummary, StructuralSummary};
 use crate::scan::{ScanContext, ScanOptions};
 use crate::security_log::{SecurityDomain, SecurityEvent};
 use sis_pdf_pdf::decode::stream_filters;
@@ -19,8 +23,13 @@ use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::ir::PdfIrObject;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use sis_pdf_pdf::{parse_pdf, ObjectGraph, ParseOptions};
-use tracing::{debug, error, info, warn, Level};
+#[cfg(feature = "filesystem")]
+use tracing::warn;
+#[cfg(any(feature = "parallel", feature = "filesystem"))]
+use tracing::error;
+use tracing::{debug, info, Level};
 
+#[cfg(feature = "parallel")]
 const PARALLEL_DETECTOR_THREADS: usize = 4;
 const CARVED_OBJECT_LIMIT_DEFAULT: usize = 2000;
 const RESOURCE_CONSUMPTION_THRESHOLD_MS: u64 = 5_000;
@@ -102,6 +111,42 @@ fn format_count_pairs(counts: &std::collections::HashMap<String, usize>, limit: 
         .join(", ")
 }
 
+fn run_detectors_sequential(
+    detectors: &[Box<dyn crate::detect::Detector>],
+    ctx: &ScanContext,
+    profiler: &Profiler,
+) -> Result<Vec<Finding>> {
+    let mut out = Vec::new();
+    for d in detectors {
+        if ctx.options.fast && d.cost() != crate::detect::Cost::Cheap {
+            continue;
+        }
+        if !ctx.options.fast && !ctx.options.deep && d.cost() == crate::detect::Cost::Expensive {
+            continue;
+        }
+        let start = Instant::now();
+        let cost_str = match d.cost() {
+            crate::detect::Cost::Cheap => "Cheap",
+            crate::detect::Cost::Moderate => "Moderate",
+            crate::detect::Cost::Expensive => "Expensive",
+        };
+        profiler.begin_detector(d.id(), cost_str);
+        let findings = d.run(ctx)?;
+        let elapsed = start.elapsed();
+        profiler.end_detector(findings.len());
+        if elapsed.as_millis() > 100 {
+            debug!(
+                detector = d.id(),
+                elapsed_ms = elapsed.as_millis(),
+                findings = findings.len(),
+                "Detector execution time"
+            );
+        }
+        out.extend(findings);
+    }
+    Ok(out)
+}
+
 pub fn run_scan_with_detectors(
     bytes: &[u8],
     options: ScanOptions,
@@ -163,183 +208,151 @@ pub fn run_scan_with_detectors(
 
     let detection_start = Instant::now();
     profiler.begin_phase("detection");
-    let mut findings: Vec<Finding> = if ctx.options.parallel {
-        use rayon::prelude::*;
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(PARALLEL_DETECTOR_THREADS).build();
-        match pool {
-            Ok(pool) => {
-                // For parallel execution, we need to track timing separately
-                // since detectors run concurrently
-                let results: Vec<(String, String, Duration, Vec<Finding>)> = pool
-                    .install(|| {
-                        detectors
-                            .par_iter()
-                            .filter(|d| {
-                                if ctx.options.fast {
-                                    d.cost() == crate::detect::Cost::Cheap
-                                } else {
-                                    ctx.options.deep || d.cost() != crate::detect::Cost::Expensive
-                                }
-                            })
-                            .filter_map(|d| {
-                                let start = Instant::now();
-                                let cost_str = match d.cost() {
-                                    crate::detect::Cost::Cheap => "Cheap",
-                                    crate::detect::Cost::Moderate => "Moderate",
-                                    crate::detect::Cost::Expensive => "Expensive",
-                                };
-                                match d.run(&ctx) {
-                                    Ok(findings) => {
-                                        let elapsed = start.elapsed();
-                                        Some((d.id().to_string(), cost_str.to_string(), elapsed, findings))
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            detector = d.id(),
-                                            error = %e,
-                                            "[NON-FATAL][finding:detector_execution_failed] Detector failed in parallel execution"
-                                        );
-                                        let mut meta = std::collections::HashMap::new();
-                                        meta.insert("detector.id".into(), d.id().to_string());
-                                        meta.insert("detector.error".into(), e.to_string());
-                                        let finding = Finding {
-                                            id: String::new(),
-                                            surface: AttackSurface::Metadata,
-                                            kind: "detector_execution_failed".into(),
-                                            severity: Severity::Medium,
-                                            confidence: Confidence::Strong,
-                                            impact: Some(crate::model::Impact::Medium),
-                                            title: "Detector execution failed".into(),
-                                            description: format!(
-                                                "Detector '{}' failed during parallel execution: {}",
-                                                d.id(),
-                                                e
-                                            ),
-                                            objects: vec!["detectors".into()],
-                                            evidence: Vec::new(),
-                                            remediation: Some(
-                                                "Review detector error details and rerun with targeted scope."
-                                                    .into(),
-                                            ),
-                                            meta,
-                                            reader_impacts: Vec::new(),
-                                            action_type: None,
-                                            action_target: None,
-                                            action_initiation: None,
-                                            yara: None,
-                                            position: None,
-                                            positions: Vec::new(),
+    let mut findings: Vec<Finding> = {
+        #[cfg(feature = "parallel")]
+        {
+            if ctx.options.parallel {
+                use rayon::prelude::*;
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(PARALLEL_DETECTOR_THREADS)
+                    .build();
+                match pool {
+                    Ok(pool) => {
+                        // For parallel execution, we need to track timing separately
+                        // since detectors run concurrently
+                        let results: Vec<(String, String, Duration, Vec<Finding>)> = pool
+                            .install(|| {
+                                detectors
+                                    .par_iter()
+                                    .filter(|d| {
+                                        if ctx.options.fast {
+                                            d.cost() == crate::detect::Cost::Cheap
+                                        } else {
+                                            ctx.options.deep
+                                                || d.cost() != crate::detect::Cost::Expensive
+                                        }
+                                    })
+                                    .filter_map(|d| {
+                                        let start = Instant::now();
+                                        let cost_str = match d.cost() {
+                                            crate::detect::Cost::Cheap => "Cheap",
+                                            crate::detect::Cost::Moderate => "Moderate",
+                                            crate::detect::Cost::Expensive => "Expensive",
                                         };
-                                        let elapsed = start.elapsed();
-                                        Some((
-                                            d.id().to_string(),
-                                            cost_str.to_string(),
-                                            elapsed,
-                                            vec![finding],
-                                        ))
-                                    }
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                    });
+                                        match d.run(&ctx) {
+                                            Ok(findings) => {
+                                                let elapsed = start.elapsed();
+                                                Some((
+                                                    d.id().to_string(),
+                                                    cost_str.to_string(),
+                                                    elapsed,
+                                                    findings,
+                                                ))
+                                            }
+                                            Err(e) => {
+                                                error!(
+                                                    detector = d.id(),
+                                                    error = %e,
+                                                    "[NON-FATAL][finding:detector_execution_failed] Detector failed in parallel execution"
+                                                );
+                                                let mut meta = std::collections::HashMap::new();
+                                                meta.insert(
+                                                    "detector.id".into(),
+                                                    d.id().to_string(),
+                                                );
+                                                meta.insert(
+                                                    "detector.error".into(),
+                                                    e.to_string(),
+                                                );
+                                                let finding = Finding {
+                                                    id: String::new(),
+                                                    surface: AttackSurface::Metadata,
+                                                    kind: "detector_execution_failed".into(),
+                                                    severity: Severity::Medium,
+                                                    confidence: Confidence::Strong,
+                                                    impact: Some(crate::model::Impact::Medium),
+                                                    title: "Detector execution failed".into(),
+                                                    description: format!(
+                                                        "Detector '{}' failed during parallel execution: {}",
+                                                        d.id(),
+                                                        e
+                                                    ),
+                                                    objects: vec!["detectors".into()],
+                                                    evidence: Vec::new(),
+                                                    remediation: Some(
+                                                        "Review detector error details and rerun with targeted scope."
+                                                            .into(),
+                                                    ),
+                                                    meta,
+                                                    reader_impacts: Vec::new(),
+                                                    action_type: None,
+                                                    action_target: None,
+                                                    action_initiation: None,
+                                                    yara: None,
+                                                    position: None,
+                                                    positions: Vec::new(),
+                                                };
+                                                let elapsed = start.elapsed();
+                                                Some((
+                                                    d.id().to_string(),
+                                                    cost_str.to_string(),
+                                                    elapsed,
+                                                    vec![finding],
+                                                ))
+                                            }
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                            });
 
-                // Record all detector timings to profiler
-                for (id, cost, elapsed, ref findings) in &results {
-                    profiler.record_detector(id, cost, *elapsed, findings.len());
-                    if elapsed.as_millis() > 100 {
-                        debug!(
-                            detector = id,
-                            elapsed_ms = elapsed.as_millis(),
-                            findings = findings.len(),
-                            "Detector execution time"
-                        );
-                    }
-                }
+                        // Record all detector timings to profiler
+                        for (id, cost, elapsed, ref findings) in &results {
+                            profiler.record_detector(id, cost, *elapsed, findings.len());
+                            if elapsed.as_millis() > 100 {
+                                debug!(
+                                    detector = id,
+                                    elapsed_ms = elapsed.as_millis(),
+                                    findings = findings.len(),
+                                    "Detector execution time"
+                                );
+                            }
+                        }
 
-                // Flatten findings
-                results.into_iter().flat_map(|(_, _, _, findings)| findings).collect()
-            }
-            Err(_err) => {
-                SecurityEvent {
-                    level: Level::WARN,
-                    domain: SecurityDomain::Detection,
-                    severity: crate::model::Severity::Low,
-                    kind: "detector_pool_fallback",
-                    policy: None,
-                    object_id: None,
-                    object_type: None,
-                    vector: None,
-                    technique: None,
-                    confidence: None,
-                    fatal: false,
-                    message: "Failed to build parallel detector pool; falling back to sequential",
+                        // Flatten findings
+                        results
+                            .into_iter()
+                            .flat_map(|(_, _, _, findings)| findings)
+                            .collect()
+                    }
+                    Err(_err) => {
+                        SecurityEvent {
+                            level: Level::WARN,
+                            domain: SecurityDomain::Detection,
+                            severity: crate::model::Severity::Low,
+                            kind: "detector_pool_fallback",
+                            policy: None,
+                            object_id: None,
+                            object_type: None,
+                            vector: None,
+                            technique: None,
+                            confidence: None,
+                            fatal: false,
+                            message:
+                                "Failed to build parallel detector pool; falling back to sequential",
+                        }
+                        .emit();
+                        run_detectors_sequential(detectors, &ctx, &profiler)?
+                    }
                 }
-                .emit();
-                let mut out = Vec::new();
-                for d in detectors {
-                    if ctx.options.fast && d.cost() != crate::detect::Cost::Cheap {
-                        continue;
-                    }
-                    if !ctx.options.fast
-                        && !ctx.options.deep
-                        && d.cost() == crate::detect::Cost::Expensive
-                    {
-                        continue;
-                    }
-                    let start = Instant::now();
-                    let cost_str = match d.cost() {
-                        crate::detect::Cost::Cheap => "Cheap",
-                        crate::detect::Cost::Moderate => "Moderate",
-                        crate::detect::Cost::Expensive => "Expensive",
-                    };
-                    profiler.begin_detector(d.id(), cost_str);
-                    let findings = d.run(&ctx)?;
-                    let elapsed = start.elapsed();
-                    profiler.end_detector(findings.len());
-                    if elapsed.as_millis() > 100 {
-                        debug!(
-                            detector = d.id(),
-                            elapsed_ms = elapsed.as_millis(),
-                            findings = findings.len(),
-                            "Detector execution time"
-                        );
-                    }
-                    out.extend(findings);
-                }
-                out
+            } else {
+                run_detectors_sequential(detectors, &ctx, &profiler)?
             }
         }
-    } else {
-        let mut out = Vec::new();
-        for d in detectors {
-            if ctx.options.fast && d.cost() != crate::detect::Cost::Cheap {
-                continue;
-            }
-            if !ctx.options.fast && !ctx.options.deep && d.cost() == crate::detect::Cost::Expensive
-            {
-                continue;
-            }
-            let start = Instant::now();
-            let cost_str = match d.cost() {
-                crate::detect::Cost::Cheap => "Cheap",
-                crate::detect::Cost::Moderate => "Moderate",
-                crate::detect::Cost::Expensive => "Expensive",
-            };
-            profiler.begin_detector(d.id(), cost_str);
-            let findings = d.run(&ctx)?;
-            let elapsed = start.elapsed();
-            profiler.end_detector(findings.len());
-            if elapsed.as_millis() > 100 {
-                debug!(
-                    detector = d.id(),
-                    elapsed_ms = elapsed.as_millis(),
-                    findings = findings.len(),
-                    "Detector execution time"
-                );
-            }
-            out.extend(findings);
+
+        #[cfg(not(feature = "parallel"))]
+        {
+            run_detectors_sequential(detectors, &ctx, &profiler)?
         }
-        out
     };
     profiler.end_phase();
     let detection_duration_ms = detection_start.elapsed().as_millis() as u64;
@@ -449,7 +462,9 @@ pub fn run_scan_with_detectors(
             positions: Vec::new(),
         });
     }
+    #[allow(unused_mut)]
     let mut ml_summary_override: Option<MlSummary> = None;
+    #[cfg(feature = "filesystem")]
     if let Some(ml_cfg) = &ctx.options.ml_config {
         ml_summary_override = Some(MlSummary {
             mode: Some(

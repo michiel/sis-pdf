@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fmt;
-use std::time::{Duration, Instant};
+use crate::time_compat::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct TimeoutError {

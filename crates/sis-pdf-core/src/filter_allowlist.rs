@@ -1,4 +1,6 @@
+#[cfg(feature = "filesystem")]
 use std::fs;
+#[cfg(feature = "filesystem")]
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -47,9 +49,15 @@ pub fn default_filter_allowlist() -> Vec<Vec<String>> {
     default_filter_allowlist_config().to_chain_list()
 }
 
+#[cfg(feature = "filesystem")]
 pub fn load_filter_allowlist(path: &Path) -> anyhow::Result<Vec<Vec<String>>> {
     let data = fs::read_to_string(path)?;
     let cfg: FilterAllowlistConfig = toml::from_str(&data)?;
+    Ok(cfg.to_chain_list())
+}
+
+pub fn load_filter_allowlist_from_str(data: &str) -> anyhow::Result<Vec<Vec<String>>> {
+    let cfg: FilterAllowlistConfig = toml::from_str(data)?;
     Ok(cfg.to_chain_list())
 }
 
@@ -71,17 +79,26 @@ fn normalise_filter_name(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_filter_allowlist, load_filter_allowlist};
-    use std::io::Write;
+    use super::default_filter_allowlist;
 
+    #[cfg(feature = "filesystem")]
     #[test]
     fn load_filter_allowlist_parses_chains() {
+        use super::load_filter_allowlist;
+        use std::io::Write;
+
         let mut file = tempfile::NamedTempFile::new().expect("tempfile");
         writeln!(file, "[[allowed_chains]]\nfilters = [\"/FlateDecode\"]\n")
             .expect("write allowlist");
         let allowlist = load_filter_allowlist(file.path()).expect("load allowlist");
         assert_eq!(allowlist.len(), 1);
         assert_eq!(allowlist[0], vec!["FLATEDECODE".to_string()]);
+        let defaults = default_filter_allowlist();
+        assert!(!defaults.is_empty());
+    }
+
+    #[test]
+    fn default_filter_allowlist_is_non_empty() {
         let defaults = default_filter_allowlist();
         assert!(!defaults.is_empty());
     }

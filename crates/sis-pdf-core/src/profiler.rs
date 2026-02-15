@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use crate::time_compat::{Duration, Instant};
 
 /// Zero-cost profiler that tracks scan performance metrics
 ///

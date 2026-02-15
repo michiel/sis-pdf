@@ -14,12 +14,12 @@ flate2 = { workspace = true }
 roxmltree = "0.20.0"
 js-analysis = { path = "../js-analysis", default-features = false }
 tracing = { workspace = true }
-font-analysis = { path = "../font-analysis" }
+font-analysis = { path = "../font-analysis", default-features = false }
 image-analysis = { path = "../image-analysis" }
 lzma-rust2 = { version = "0.15.6", default-features = false, features = ["std"] }
 
 [features]
-default = ["js-ast", "js-sandbox"]
+default = ["js-ast", "js-sandbox", "font-dynamic"]
 js-ast = ["js-analysis/js-ast"]
 js-sandbox = ["js-analysis/js-sandbox"]
 font-dynamic = ["font-analysis/dynamic"]

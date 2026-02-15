@@ -304,13 +304,18 @@ fn analyze_hinting_tables(
     stats.emit(&limits, findings);
 }
 
+#[cfg(feature = "dynamic")]
 const HINTING_TORTURE_THRESHOLD: usize = 3;
+#[cfg(feature = "dynamic")]
 const HINTING_TORTURE_STRONG_THRESHOLD: usize = 6;
+#[cfg(feature = "dynamic")]
 /// Maximum hinting warnings before truncating analysis for this font
 const HINTING_WARNING_LIMIT: usize = 50;
+#[cfg(feature = "dynamic")]
 /// Maximum stack errors before aborting hinting analysis for this font
 const HINTING_STACK_ERROR_GUARD: usize = 10;
 
+#[cfg(feature = "dynamic")]
 #[derive(Default)]
 pub(super) struct HintingStats {
     warnings: usize,
@@ -329,6 +334,7 @@ pub(super) struct HintingStats {
     truncation_reason: Option<&'static str>,
 }
 
+#[cfg(feature = "dynamic")]
 impl HintingStats {
     /// Record findings and add to output, respecting limits
     fn record_and_limit(&mut self, table_findings: &[FontFinding], output: &mut Vec<FontFinding>) {
@@ -569,9 +575,10 @@ impl HintingStats {
     }
 }
 
+#[cfg(feature = "dynamic")]
 fn format_count_pairs(counts: &HashMap<String, usize>, limit: usize) -> String {
     let mut pairs: Vec<(String, usize)> =
-        counts.iter().map(|(kind, count)| (kind.clone(), *count)).collect();
+        counts.iter().map(|(kind, count): (&String, &usize)| (kind.clone(), *count)).collect();
     pairs.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
     pairs
         .into_iter()
@@ -581,7 +588,7 @@ fn format_count_pairs(counts: &HashMap<String, usize>, limit: usize) -> String {
         .join(", ")
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "dynamic"))]
 mod tests {
     use super::*;
     use crate::model::{Confidence, Severity};

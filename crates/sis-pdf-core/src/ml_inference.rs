@@ -1,16 +1,24 @@
+#[cfg(feature = "filesystem")]
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "filesystem")]
+use std::path::Path;
+use std::path::PathBuf;
 
+use crate::explainability::{ComparativeFeature, EvidenceChain, FeatureAttribution};
+#[cfg(feature = "filesystem")]
 use crate::explainability::{
     build_evidence_chains, compute_comparative_explanation, compute_permutation_importance,
-    generate_explanation_text, BenignBaseline, ComparativeFeature, EvidenceChain,
-    FeatureAttribution,
+    generate_explanation_text, BenignBaseline,
 };
+#[cfg(feature = "filesystem")]
 use crate::features_extended::ExtendedFeatureVector;
+#[cfg(feature = "filesystem")]
 use crate::ml::LinearModel;
+#[cfg(feature = "filesystem")]
 use crate::model::Finding;
+#[cfg(feature = "filesystem")]
 use crate::scan::ScanContext;
 
 /// Configuration for ML inference
@@ -76,6 +84,7 @@ pub enum CalibrationMethod {
 
 impl CalibrationModel {
     /// Load calibration model from JSON file
+    #[cfg(feature = "filesystem")]
     pub fn load_from_file(path: &Path) -> Result<Self> {
         let data = std::fs::read_to_string(path)?;
         let cal: CalibrationModel = serde_json::from_str(&data)?;
@@ -122,6 +131,7 @@ impl CalibrationModel {
 }
 
 /// Run ML inference with extended features and optional explanation
+#[cfg(feature = "filesystem")]
 pub fn run_ml_inference(
     ctx: &ScanContext,
     findings: &[Finding],
@@ -225,6 +235,7 @@ pub fn run_ml_inference(
 }
 
 /// Generate comprehensive explanation
+#[cfg(feature = "filesystem")]
 fn generate_comprehensive_explanation(
     features: &ExtendedFeatureVector,
     baseline: &BenignBaseline,
@@ -291,6 +302,7 @@ fn generate_comprehensive_explanation(
 }
 
 /// Generate decision factor bullet points
+#[cfg(feature = "filesystem")]
 fn generate_decision_factors(
     attribution: &[FeatureAttribution],
     comparative: &[ComparativeFeature],
@@ -343,6 +355,7 @@ fn generate_decision_factors(
 }
 
 /// Load ML model from file
+#[cfg(feature = "filesystem")]
 fn load_model(path: &Path) -> Result<LinearModel> {
     let data = std::fs::read_to_string(path)?;
     let model: LinearModel = serde_json::from_str(&data)?;
