@@ -23,10 +23,14 @@ sis-pdf-detectors = { path = "../sis-pdf-detectors", default-features = false, f
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
-web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Element"] }
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Element", "HtmlInputElement", "HtmlElement", "Event", "ProgressEvent", "FileReader", "Blob"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 # Force pure-Rust zlib for WASM (C zlib cannot cross-compile without clang)
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rfd = "0.15"
 
 [features]
 default = ["gui"]

@@ -1,6 +1,6 @@
 use crate::app::SisApp;
 
-pub fn show(ui: &mut egui::Ui, app: &SisApp) {
+pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     ui.vertical_centered(|ui| {
         ui.add_space(ui.available_height() / 3.0);
 
@@ -16,6 +16,10 @@ pub fn show(ui: &mut egui::Ui, app: &SisApp) {
                         .size(18.0)
                         .color(egui::Color32::GRAY),
                 );
+                ui.add_space(10.0);
+                if ui.button("Select PDF file").clicked() {
+                    app.request_file_upload();
+                }
                 ui.add_space(10.0);
                 ui.label(
                     egui::RichText::new("Maximum file size: 50 MB")

@@ -3514,8 +3514,8 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     } else {
         out.push_str("- Input path: not captured\n");
     }
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let timestamp = crate::time_compat::SystemTime::now()
+        .duration_since(crate::time_compat::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
     out.push_str(&format!("- Timestamp (UTC, unix seconds): {}\n", timestamp));

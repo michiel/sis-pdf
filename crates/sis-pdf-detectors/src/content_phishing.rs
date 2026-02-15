@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::time::Instant;
+use sis_pdf_core::time_compat::Instant;
 
 use sis_pdf_core::content_index::build_content_index;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
