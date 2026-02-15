@@ -22,48 +22,45 @@ pub fn show(ui: &mut egui::Ui, app: &SisApp) {
         ui.heading(&f.title);
         ui.separator();
 
-        egui::Grid::new("finding_meta")
-            .num_columns(2)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
-                ui.label("ID:");
-                ui.label(&f.id);
+        egui::Grid::new("finding_meta").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+            ui.label("ID:");
+            ui.label(&f.id);
+            ui.end_row();
+
+            ui.label("Kind:");
+            ui.label(&f.kind);
+            ui.end_row();
+
+            ui.label("Severity:");
+            ui.label(format!("{:?}", f.severity));
+            ui.end_row();
+
+            ui.label("Confidence:");
+            ui.label(format!("{:?}", f.confidence));
+            ui.end_row();
+
+            if let Some(ref impact) = f.impact {
+                ui.label("Impact:");
+                ui.label(format!("{:?}", impact));
                 ui.end_row();
+            }
 
-                ui.label("Kind:");
-                ui.label(&f.kind);
+            ui.label("Surface:");
+            ui.label(format!("{:?}", f.surface));
+            ui.end_row();
+
+            if let Some(ref action_type) = f.action_type {
+                ui.label("Action type:");
+                ui.label(action_type);
                 ui.end_row();
+            }
 
-                ui.label("Severity:");
-                ui.label(format!("{:?}", f.severity));
+            if let Some(ref action_target) = f.action_target {
+                ui.label("Action target:");
+                ui.label(action_target);
                 ui.end_row();
-
-                ui.label("Confidence:");
-                ui.label(format!("{:?}", f.confidence));
-                ui.end_row();
-
-                if let Some(ref impact) = f.impact {
-                    ui.label("Impact:");
-                    ui.label(format!("{:?}", impact));
-                    ui.end_row();
-                }
-
-                ui.label("Surface:");
-                ui.label(format!("{:?}", f.surface));
-                ui.end_row();
-
-                if let Some(ref action_type) = f.action_type {
-                    ui.label("Action type:");
-                    ui.label(action_type);
-                    ui.end_row();
-                }
-
-                if let Some(ref action_target) = f.action_target {
-                    ui.label("Action target:");
-                    ui.label(action_target);
-                    ui.end_row();
-                }
-            });
+            }
+        });
 
         ui.separator();
         ui.label("Description:");

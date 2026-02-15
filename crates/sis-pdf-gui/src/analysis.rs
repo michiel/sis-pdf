@@ -31,11 +31,7 @@ impl std::fmt::Display for AnalysisError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::FileTooLarge { size, limit } => {
-                write!(
-                    f,
-                    "File size {} bytes exceeds {} byte limit",
-                    size, limit
-                )
+                write!(f, "File size {} bytes exceeds {} byte limit", size, limit)
             }
             Self::ParseFailed(msg) => write!(f, "PDF parse failed: {}", msg),
             Self::ScanFailed(msg) => write!(f, "Scan failed: {}", msg),
@@ -46,10 +42,7 @@ impl std::fmt::Display for AnalysisError {
 /// Run the analysis pipeline on raw PDF bytes with hardened browser caps.
 pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, AnalysisError> {
     if bytes.len() > MAX_FILE_SIZE {
-        return Err(AnalysisError::FileTooLarge {
-            size: bytes.len(),
-            limit: MAX_FILE_SIZE,
-        });
+        return Err(AnalysisError::FileTooLarge { size: bytes.len(), limit: MAX_FILE_SIZE });
     }
 
     let options = ScanOptions {
@@ -85,11 +78,7 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
     let report = run_scan_with_detectors(bytes, options, &detectors)
         .map_err(|e| AnalysisError::ScanFailed(e.to_string()))?;
 
-    Ok(AnalysisResult {
-        report,
-        file_name: file_name.to_string(),
-        file_size: bytes.len(),
-    })
+    Ok(AnalysisResult { report, file_name: file_name.to_string(), file_size: bytes.len() })
 }
 
 #[cfg(test)]

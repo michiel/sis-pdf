@@ -1,8 +1,8 @@
-use anyhow::Result;
-use std::collections::{HashMap, HashSet};
-use crate::time_compat::Instant;
 #[cfg(feature = "parallel")]
 use crate::time_compat::Duration;
+use crate::time_compat::Instant;
+use anyhow::Result;
+use std::collections::{HashMap, HashSet};
 
 use crate::correlation;
 use crate::evidence::preview_ascii;
@@ -23,10 +23,10 @@ use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::ir::PdfIrObject;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use sis_pdf_pdf::{parse_pdf, ObjectGraph, ParseOptions};
-#[cfg(feature = "filesystem")]
-use tracing::warn;
 #[cfg(any(feature = "parallel", feature = "filesystem"))]
 use tracing::error;
+#[cfg(feature = "filesystem")]
+use tracing::warn;
 use tracing::{debug, info, Level};
 
 #[cfg(feature = "parallel")]
@@ -213,9 +213,8 @@ pub fn run_scan_with_detectors(
         {
             if ctx.options.parallel {
                 use rayon::prelude::*;
-                let pool = rayon::ThreadPoolBuilder::new()
-                    .num_threads(PARALLEL_DETECTOR_THREADS)
-                    .build();
+                let pool =
+                    rayon::ThreadPoolBuilder::new().num_threads(PARALLEL_DETECTOR_THREADS).build();
                 match pool {
                     Ok(pool) => {
                         // For parallel execution, we need to track timing separately
@@ -319,10 +318,7 @@ pub fn run_scan_with_detectors(
                         }
 
                         // Flatten findings
-                        results
-                            .into_iter()
-                            .flat_map(|(_, _, _, findings)| findings)
-                            .collect()
+                        results.into_iter().flat_map(|(_, _, _, findings)| findings).collect()
                     }
                     Err(_err) => {
                         SecurityEvent {

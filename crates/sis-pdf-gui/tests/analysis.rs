@@ -20,10 +20,7 @@ fn analyzes_fixture_with_findings() {
     let result = analyze(bytes, "launch_action.pdf").expect("analysis should succeed");
     assert_eq!(result.file_name, "launch_action.pdf");
     assert_eq!(result.file_size, bytes.len());
-    assert!(
-        !result.report.findings.is_empty(),
-        "launch_action.pdf should produce findings"
-    );
+    assert!(!result.report.findings.is_empty(), "launch_action.pdf should produce findings");
 }
 
 #[test]

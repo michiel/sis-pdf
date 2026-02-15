@@ -21,19 +21,13 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         // Severity counts from report summary
         let summary = &result.report.summary;
         let findings = &result.report.findings;
-        let critical = findings
-            .iter()
-            .filter(|f| f.severity == Severity::Critical)
-            .count();
+        let critical = findings.iter().filter(|f| f.severity == Severity::Critical).count();
 
         if critical > 0 {
             ui.colored_label(egui::Color32::RED, format!("C:{}", critical));
         }
         if summary.high > 0 {
-            ui.colored_label(
-                egui::Color32::from_rgb(255, 140, 0),
-                format!("H:{}", summary.high),
-            );
+            ui.colored_label(egui::Color32::from_rgb(255, 140, 0), format!("H:{}", summary.high));
         }
         if summary.medium > 0 {
             ui.colored_label(egui::Color32::YELLOW, format!("M:{}", summary.medium));

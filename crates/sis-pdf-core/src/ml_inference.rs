@@ -6,12 +6,12 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 
-use crate::explainability::{ComparativeFeature, EvidenceChain, FeatureAttribution};
 #[cfg(feature = "filesystem")]
 use crate::explainability::{
     build_evidence_chains, compute_comparative_explanation, compute_permutation_importance,
     generate_explanation_text, BenignBaseline,
 };
+use crate::explainability::{ComparativeFeature, EvidenceChain, FeatureAttribution};
 #[cfg(feature = "filesystem")]
 use crate::features_extended::ExtendedFeatureVector;
 #[cfg(feature = "filesystem")]

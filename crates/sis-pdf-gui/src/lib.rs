@@ -15,21 +15,14 @@ pub fn start_wasm() {
     console_error_panic_hook::set_once();
     let web_options = eframe::WebOptions::default();
     wasm_bindgen_futures::spawn_local(async {
-        let document = web_sys::window()
-            .expect("no window")
-            .document()
-            .expect("no document");
+        let document = web_sys::window().expect("no window").document().expect("no document");
         let canvas = document
             .get_element_by_id("sis_canvas")
             .expect("no canvas element with id 'sis_canvas'")
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("element is not a canvas");
         eframe::WebRunner::new()
-            .start(
-                canvas,
-                web_options,
-                Box::new(|cc| Ok(Box::new(app::SisApp::new(cc)))),
-            )
+            .start(canvas, web_options, Box::new(|cc| Ok(Box::new(app::SisApp::new(cc)))))
             .await
             .expect("failed to start eframe");
     });

@@ -41,7 +41,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         let fb = &findings[b];
         let ord = match app.sort.column {
             SortColumn::Severity => severity_rank(&fa.severity).cmp(&severity_rank(&fb.severity)),
-            SortColumn::Confidence => format!("{:?}", fa.confidence).cmp(&format!("{:?}", fb.confidence)),
+            SortColumn::Confidence => {
+                format!("{:?}", fa.confidence).cmp(&format!("{:?}", fb.confidence))
+            }
             SortColumn::Kind => fa.kind.cmp(&fb.kind),
             SortColumn::Surface => format!("{:?}", fa.surface).cmp(&format!("{:?}", fb.surface)),
         };
@@ -68,12 +70,18 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         .max_scroll_height(available.y - 40.0)
         .header(20.0, |mut header| {
             header.col(|ui| {
-                if ui.selectable_label(app.sort.column == SortColumn::Severity, "Severity").clicked() {
+                if ui
+                    .selectable_label(app.sort.column == SortColumn::Severity, "Severity")
+                    .clicked()
+                {
                     toggle_sort(&mut app.sort, SortColumn::Severity);
                 }
             });
             header.col(|ui| {
-                if ui.selectable_label(app.sort.column == SortColumn::Confidence, "Confidence").clicked() {
+                if ui
+                    .selectable_label(app.sort.column == SortColumn::Confidence, "Confidence")
+                    .clicked()
+                {
                     toggle_sort(&mut app.sort, SortColumn::Confidence);
                 }
             });
@@ -83,7 +91,8 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 }
             });
             header.col(|ui| {
-                if ui.selectable_label(app.sort.column == SortColumn::Surface, "Surface").clicked() {
+                if ui.selectable_label(app.sort.column == SortColumn::Surface, "Surface").clicked()
+                {
                     toggle_sort(&mut app.sort, SortColumn::Surface);
                 }
             });
