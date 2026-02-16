@@ -4,14 +4,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     ui.vertical_centered(|ui| {
         ui.add_space(4.0);
 
-        let findings_label = if !app.show_chains { "> Findings" } else { "Findings" };
-        if ui.selectable_label(!app.show_chains, findings_label).clicked() {
-            app.show_chains = false;
+        if ui.selectable_label(app.show_findings, "Findings").clicked() {
+            app.show_findings = !app.show_findings;
         }
 
-        let chains_label = if app.show_chains { "> Chains" } else { "Chains" };
-        if ui.selectable_label(app.show_chains, chains_label).clicked() {
-            app.show_chains = true;
+        if ui.selectable_label(app.show_chains, "Chains").clicked() {
+            app.show_chains = !app.show_chains;
         }
 
         ui.separator();

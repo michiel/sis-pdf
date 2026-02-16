@@ -38,13 +38,35 @@ fn show_input(ui: &mut egui::Ui, app: &mut SisApp) {
             response.request_focus();
         }
 
-        // Handle up/down for history
+        // Handle up/down for history cycling
         if response.has_focus() {
-            if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
-                if let Some(prev) = app.command_history.last() {
-                    app.command_input = prev.clone();
+            if ui.input(|i| i.key_pressed(egui::Key::ArrowUp)) && !app.command_history.is_empty() {
+                let pos = match app.command_history_pos {
+                    Some(0) => 0,
+                    Some(p) => p - 1,
+                    None => app.command_history.len() - 1,
+                };
+                app.command_history_pos = Some(pos);
+                app.command_input = app.command_history[pos].clone();
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::ArrowDown)) && !app.command_history.is_empty()
+            {
+                if let Some(pos) = app.command_history_pos {
+                    if pos + 1 < app.command_history.len() {
+                        let new_pos = pos + 1;
+                        app.command_history_pos = Some(new_pos);
+                        app.command_input = app.command_history[new_pos].clone();
+                    } else {
+                        app.command_history_pos = None;
+                        app.command_input.clear();
+                    }
                 }
             }
+        }
+
+        // Reset history position when typing
+        if response.changed() {
+            app.command_history_pos = None;
         }
 
         // Tab completion
@@ -72,6 +94,7 @@ fn execute_command(app: &mut SisApp) {
 
     app.command_history.push(input.clone());
     app.command_input.clear();
+    app.command_history_pos = None;
 
     let Some(ref result) = app.result else {
         app.command_results.push(QueryOutput::Error("No file loaded".to_string()));

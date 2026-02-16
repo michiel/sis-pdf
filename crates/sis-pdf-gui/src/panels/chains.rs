@@ -1,4 +1,25 @@
-use crate::app::SisApp;
+use crate::app::{ChainSortColumn, SisApp};
+
+pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
+    let mut open = app.show_chains;
+    let state = app.window_max.entry("Chains".to_string()).or_default();
+    let is_max = state.is_maximised;
+    let mut win = egui::Window::new("Chains").open(&mut open).resizable(true);
+    if is_max {
+        let area = ctx.available_rect();
+        win = win.fixed_pos(area.left_top()).fixed_size(area.size());
+    } else {
+        win = win.default_size([600.0, 400.0]);
+    }
+    win.show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            let ws = app.window_max.entry("Chains".to_string()).or_default();
+            crate::window_state::maximise_button(ui, ws);
+        });
+        show(ui, app);
+    });
+    app.show_chains = open;
+}
 
 pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     let Some(ref result) = app.result else {
@@ -72,10 +93,49 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         .collect();
 
     ui.heading(format!("{} Exploit Chains", chain_data.len()));
+
+    // Sort controls
+    ui.horizontal(|ui| {
+        ui.label("Sort by:");
+        if ui
+            .selectable_label(app.chain_sort_column == ChainSortColumn::Score, "Score")
+            .clicked()
+        {
+            toggle_chain_sort(app, ChainSortColumn::Score);
+        }
+        if ui
+            .selectable_label(app.chain_sort_column == ChainSortColumn::Path, "Path")
+            .clicked()
+        {
+            toggle_chain_sort(app, ChainSortColumn::Path);
+        }
+        if ui
+            .selectable_label(app.chain_sort_column == ChainSortColumn::Findings, "Findings")
+            .clicked()
+        {
+            toggle_chain_sort(app, ChainSortColumn::Findings);
+        }
+        let arrow = if app.chain_sort_ascending { "^" } else { "v" };
+        ui.label(arrow);
+    });
     ui.separator();
 
+    // Sort the chain data
+    let mut sorted_indices: Vec<usize> = (0..chain_data.len()).collect();
+    sorted_indices.sort_by(|&a, &b| {
+        let ca = &chain_data[a];
+        let cb = &chain_data[b];
+        let ord = match app.chain_sort_column {
+            ChainSortColumn::Score => ca.score.partial_cmp(&cb.score).unwrap_or(std::cmp::Ordering::Equal),
+            ChainSortColumn::Path => ca.path.cmp(&cb.path),
+            ChainSortColumn::Findings => ca.finding_links.len().cmp(&cb.finding_links.len()),
+        };
+        if app.chain_sort_ascending { ord } else { ord.reverse() }
+    });
+
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for chain in &chain_data {
+        for &ci in &sorted_indices {
+            let chain = &chain_data[ci];
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     let is_selected = app.selected_chain == Some(chain.index);
@@ -130,7 +190,6 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                             if let Some(idx) = maybe_idx {
                                 if ui.link(finding_id).clicked() {
                                     app.selected_finding = Some(*idx);
-                                    app.show_chains = false;
                                 }
                             } else {
                                 ui.label(finding_id);
@@ -191,6 +250,15 @@ pub fn extract_obj_ref_from_text(text: &str) -> Option<(u32, u16)> {
         }
     }
     None
+}
+
+fn toggle_chain_sort(app: &mut SisApp, column: ChainSortColumn) {
+    if app.chain_sort_column == column {
+        app.chain_sort_ascending = !app.chain_sort_ascending;
+    } else {
+        app.chain_sort_column = column;
+        app.chain_sort_ascending = false;
+    }
 }
 
 struct ChainDisplay {

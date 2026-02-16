@@ -1,6 +1,8 @@
 use crate::analysis::{AnalysisError, AnalysisResult};
 use crate::telemetry::TelemetryLog;
+use crate::window_state::WindowMaxState;
 use crate::workspace::{self, WorkspaceContext};
+use std::collections::HashMap;
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
 #[cfg(target_arch = "wasm32")]
@@ -13,7 +15,9 @@ pub struct SisApp {
     pub result: Option<AnalysisResult>,
     /// Index of the currently selected finding in the table.
     pub selected_finding: Option<usize>,
-    /// Whether to show the chain panel instead of findings in the central area.
+    /// Whether to show the findings floating window.
+    pub show_findings: bool,
+    /// Whether to show the chains floating window.
     pub show_chains: bool,
     /// Whether to show the metadata floating window.
     pub show_metadata: bool,
@@ -47,6 +51,22 @@ pub struct SisApp {
     pub severity_filters: SeverityFilters,
     /// Current sort column and direction.
     pub sort: SortState,
+    /// Text search filter for findings.
+    pub findings_search: String,
+    /// Attack surface filter (None = all, Some(name) = specific surface).
+    pub surface_filter: Option<String>,
+    /// Minimum confidence filter (0 = show all, higher = stricter).
+    pub min_confidence: u8,
+    /// Filter to show only findings with CVE references.
+    pub has_cve_filter: bool,
+    /// Filter to show only auto-triggered findings.
+    pub auto_triggered_filter: bool,
+    /// Chain sort column.
+    pub chain_sort_column: ChainSortColumn,
+    /// Chain sort direction.
+    pub chain_sort_ascending: bool,
+    /// Command history position for up/down arrow cycling.
+    pub command_history_pos: Option<usize>,
     /// Whether to show the graph viewer.
     pub show_graph: bool,
     /// Graph viewer state.
@@ -65,6 +85,12 @@ pub struct SisApp {
     pub active_tab_name: String,
 
     // --- Global state ---
+    /// Application state for progress indication.
+    pub app_state: AppState,
+    /// Per-window maximise state, keyed by window name.
+    pub window_max: HashMap<String, WindowMaxState>,
+    /// Dark mode toggle (global, not per-tab).
+    pub dark_mode: bool,
     /// Current error, if analysis failed.
     pub error: Option<AnalysisError>,
     /// Telemetry log (global, not per-tab).
@@ -106,6 +132,24 @@ pub enum SortColumn {
     Surface,
 }
 
+/// Application state for progress indication during analysis.
+#[derive(Default)]
+pub enum AppState {
+    /// No analysis in progress.
+    #[default]
+    Idle,
+    /// Analysis is queued (renders spinner on next frame).
+    Analysing { file_name: String, bytes: Vec<u8> },
+}
+
+#[derive(Default, PartialEq)]
+pub enum ChainSortColumn {
+    #[default]
+    Score,
+    Path,
+    Findings,
+}
+
 /// State for the hex viewer panel.
 #[derive(Default)]
 pub struct HexViewState {
@@ -133,11 +177,14 @@ pub struct HexHighlight {
 }
 
 impl SisApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        cc.egui_ctx.set_visuals(egui::Visuals::dark());
         Self {
             result: None,
+            dark_mode: true,
             error: None,
             selected_finding: None,
+            show_findings: true,
             show_chains: false,
             show_metadata: false,
             show_objects: false,
@@ -155,6 +202,14 @@ impl SisApp {
             command_results: Vec::new(),
             severity_filters: SeverityFilters::default(),
             sort: SortState::default(),
+            findings_search: String::new(),
+            surface_filter: None,
+            min_confidence: 0,
+            has_cve_filter: false,
+            auto_triggered_filter: false,
+            chain_sort_column: ChainSortColumn::default(),
+            chain_sort_ascending: false,
+            command_history_pos: None,
             show_graph: false,
             graph_state: crate::panels::graph::GraphViewerState::default(),
             selected_chain: None,
@@ -162,6 +217,8 @@ impl SisApp {
             active_tab: 0,
             tab_count: 0,
             active_tab_name: String::new(),
+            app_state: AppState::default(),
+            window_max: HashMap::new(),
             telemetry: TelemetryLog::new(),
             show_telemetry: false,
             elapsed_time: 0.0,
@@ -170,9 +227,15 @@ impl SisApp {
         }
     }
 
-    /// Process a dropped file: run analysis and open as a new tab.
+    /// Queue a file for analysis. The actual analysis runs on the next frame
+    /// so the progress spinner has a chance to render.
     pub fn handle_file_drop(&mut self, name: String, bytes: &[u8]) {
         self.error = None;
+        self.app_state = AppState::Analysing { file_name: name, bytes: bytes.to_vec() };
+    }
+
+    /// Run analysis and open the result as a new tab.
+    fn process_analysis(&mut self, name: String, bytes: &[u8]) {
         let file_size = bytes.len();
 
         match crate::analysis::analyze(bytes, &name) {
@@ -208,6 +271,7 @@ impl SisApp {
                 self.command_input.clear();
                 self.command_history.clear();
                 self.command_results.clear();
+                self.show_findings = true;
                 self.show_chains = false;
                 self.show_metadata = false;
                 self.show_objects = false;
@@ -216,6 +280,14 @@ impl SisApp {
                 self.selected_chain = None;
                 self.severity_filters = SeverityFilters::default();
                 self.sort = SortState::default();
+                self.findings_search.clear();
+                self.surface_filter = None;
+                self.min_confidence = 0;
+                self.has_cve_filter = false;
+                self.auto_triggered_filter = false;
+                self.chain_sort_column = ChainSortColumn::default();
+                self.chain_sort_ascending = false;
+                self.command_history_pos = None;
 
                 // Active tab is the last one
                 self.active_tab = self.inactive_workspaces.len();
@@ -233,6 +305,7 @@ impl SisApp {
             let ws = WorkspaceContext {
                 result,
                 selected_finding: self.selected_finding.take(),
+                show_findings: self.show_findings,
                 show_chains: self.show_chains,
                 show_metadata: self.show_metadata,
                 show_objects: self.show_objects,
@@ -246,6 +319,14 @@ impl SisApp {
                 hex_view: std::mem::take(&mut self.hex_view),
                 severity_filters: std::mem::take(&mut self.severity_filters),
                 sort: std::mem::take(&mut self.sort),
+                findings_search: std::mem::take(&mut self.findings_search),
+                surface_filter: self.surface_filter.take(),
+                min_confidence: self.min_confidence,
+                has_cve_filter: self.has_cve_filter,
+                auto_triggered_filter: self.auto_triggered_filter,
+                chain_sort_column: std::mem::take(&mut self.chain_sort_column),
+                chain_sort_ascending: self.chain_sort_ascending,
+                command_history_pos: self.command_history_pos.take(),
                 show_command_bar: self.show_command_bar,
                 command_input: std::mem::take(&mut self.command_input),
                 command_history: std::mem::take(&mut self.command_history),
@@ -267,6 +348,7 @@ impl SisApp {
         let ws = self.inactive_workspaces.remove(index);
         self.result = Some(ws.result);
         self.selected_finding = ws.selected_finding;
+        self.show_findings = ws.show_findings;
         self.show_chains = ws.show_chains;
         self.show_metadata = ws.show_metadata;
         self.show_objects = ws.show_objects;
@@ -280,6 +362,14 @@ impl SisApp {
         self.hex_view = ws.hex_view;
         self.severity_filters = ws.severity_filters;
         self.sort = ws.sort;
+        self.findings_search = ws.findings_search;
+        self.surface_filter = ws.surface_filter;
+        self.min_confidence = ws.min_confidence;
+        self.has_cve_filter = ws.has_cve_filter;
+        self.auto_triggered_filter = ws.auto_triggered_filter;
+        self.chain_sort_column = ws.chain_sort_column;
+        self.chain_sort_ascending = ws.chain_sort_ascending;
+        self.command_history_pos = ws.command_history_pos;
         self.show_command_bar = ws.show_command_bar;
         self.command_input = ws.command_input;
         self.command_history = ws.command_history;
@@ -569,40 +659,85 @@ impl eframe::App for SisApp {
             }
         }
 
+        // Process queued analysis (deferred by one frame so spinner can render)
+        if let AppState::Analysing { .. } = &self.app_state {
+            let state = std::mem::replace(&mut self.app_state, AppState::Idle);
+            if let AppState::Analysing { file_name, bytes } = state {
+                self.process_analysis(file_name, &bytes);
+            }
+        }
+
         // Handle keyboard shortcuts (after file drops, before panel rendering)
         crate::shortcuts::handle_shortcuts(ctx, self);
 
+        // Apply theme
+        ctx.set_visuals(if self.dark_mode {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        });
+
         if self.result.is_some() {
-            // Top: tab bar + summary
-            egui::TopBottomPanel::top("summary_panel").show(ctx, |ui| {
-                // Tab bar (only when multiple tabs are open)
-                if self.tab_count > 1 {
-                    crate::panels::summary::show_tab_bar(ui, self);
-                    ui.separator();
-                }
+            // Top bar: File menu + tabs + theme toggle
+            egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
+                crate::panels::summary::show_top_bar(ui, self);
+            });
+
+            // Workspace bar: file summary
+            egui::TopBottomPanel::top("workspace_bar").show(ctx, |ui| {
                 crate::panels::summary::show(ui, self);
             });
 
             // Left: navigation column
-            egui::SidePanel::left("nav_panel").exact_width(80.0).resizable(false).show(ctx, |ui| {
-                crate::panels::nav::show(ui, self);
-            });
+            egui::SidePanel::left("nav_panel")
+                .exact_width(120.0)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    crate::panels::nav::show(ui, self);
+                });
 
-            // Right: finding detail (when a finding is selected)
-            egui::SidePanel::right("detail_panel").min_width(300.0).show(ctx, |ui| {
-                crate::panels::detail::show(ui, self);
-            });
+            // Command bar (bottom panels, rendered before central to claim space)
+            if self.show_command_bar {
+                crate::panels::command_bar::show(ctx, self);
+            }
 
-            // Floating windows for metadata and object inspector
+            // Central: empty workspace background
+            egui::CentralPanel::default().show(ctx, |_ui| {});
+
+            // Floating windows
+            if self.show_findings {
+                crate::panels::findings::show_window(ctx, self);
+            }
+
+            if self.show_chains {
+                crate::panels::chains::show_window(ctx, self);
+            }
+
+            if self.selected_finding.is_some() {
+                crate::panels::detail::show_window(ctx, self);
+            }
+
             if self.show_metadata {
                 let mut open = true;
-                egui::Window::new("Metadata")
-                    .open(&mut open)
-                    .default_size([400.0, 500.0])
-                    .resizable(true)
-                    .show(ctx, |ui| {
-                        crate::panels::metadata::show(ui, self);
+                let state =
+                    self.window_max.entry("Metadata".to_string()).or_default();
+                let is_max = state.is_maximised;
+                let mut win =
+                    egui::Window::new("Metadata").open(&mut open).resizable(true);
+                if is_max {
+                    let area = ctx.available_rect();
+                    win = win.fixed_pos(area.left_top()).fixed_size(area.size());
+                } else {
+                    win = win.default_size([400.0, 500.0]);
+                }
+                win.show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        let ws =
+                            self.window_max.entry("Metadata".to_string()).or_default();
+                        crate::window_state::maximise_button(ui, ws);
                     });
+                    crate::panels::metadata::show(ui, self);
+                });
                 self.show_metadata = open;
             }
 
@@ -621,20 +756,6 @@ impl eframe::App for SisApp {
             if self.show_telemetry {
                 crate::panels::telemetry_debug::show(ctx, self);
             }
-
-            // Command bar (bottom panels, rendered before central to claim space)
-            if self.show_command_bar {
-                crate::panels::command_bar::show(ctx, self);
-            }
-
-            // Central: findings table or chains
-            egui::CentralPanel::default().show(ctx, |ui| {
-                if self.show_chains {
-                    crate::panels::chains::show(ui, self);
-                } else {
-                    crate::panels::findings::show(ui, self);
-                }
-            });
         } else {
             // Show drop zone
             egui::CentralPanel::default().show(ctx, |ui| {

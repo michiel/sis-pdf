@@ -12,13 +12,15 @@ pub fn show(ui: &mut egui::Ui, app: &SisApp) {
 
         show_document_info(ui, &result.object_data);
         show_structure(ui, result);
+        show_encryption(ui, &result.object_data);
+        show_temporal_signals(ui, result);
+        show_revision_timeline(ui, result);
         show_xref_summary(ui, &result.object_data);
         show_deviations(ui, &result.object_data);
     });
 }
 
 fn show_document_info(ui: &mut egui::Ui, object_data: &ObjectData) {
-    // Find the Catalog object and its /Info reference
     let info_obj_id = find_info_dict_id(object_data);
 
     ui.collapsing("Document Info", |ui| {
@@ -66,6 +68,18 @@ fn show_structure(ui: &mut egui::Ui, result: &crate::analysis::AnalysisResult) {
             ui.label(format!("{}", result.object_data.objects.len()));
             ui.end_row();
 
+            if result.page_count > 0 {
+                ui.label("Pages:");
+                ui.label(format!("{}", result.page_count));
+                ui.end_row();
+            }
+
+            if let Some(ref ver) = result.pdf_version {
+                ui.label("PDF version:");
+                ui.label(ver);
+                ui.end_row();
+            }
+
             if let Some(ref structural) = result.report.structural_summary {
                 ui.label("Startxref count:");
                 ui.label(format!("{}", structural.startxref_count));
@@ -89,6 +103,97 @@ fn show_structure(ui: &mut egui::Ui, result: &crate::analysis::AnalysisResult) {
                 }
             }
         });
+    });
+}
+
+fn show_encryption(ui: &mut egui::Ui, object_data: &ObjectData) {
+    // Look for /Encrypt in catalog or trailer entries
+    let encrypt_info = find_encrypt_info(object_data);
+    if encrypt_info.is_empty() {
+        return;
+    }
+
+    ui.collapsing("Encryption", |ui| {
+        egui::Grid::new("encrypt_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+            for (key, val) in &encrypt_info {
+                ui.label(format!("{}:", key));
+                ui.label(val);
+                ui.end_row();
+            }
+        });
+    });
+}
+
+fn show_temporal_signals(ui: &mut egui::Ui, result: &crate::analysis::AnalysisResult) {
+    let Some(ref signals) = result.report.temporal_signals else {
+        return;
+    };
+
+    ui.collapsing("Temporal Signals", |ui| {
+        egui::Grid::new("temporal_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+            ui.label("Revisions:");
+            ui.label(format!("{}", signals.revisions));
+            ui.end_row();
+
+            ui.label("New high-severity:");
+            ui.label(format!("{}", signals.new_high_severity));
+            ui.end_row();
+
+            if !signals.new_attack_surfaces.is_empty() {
+                ui.label("New attack surfaces:");
+                ui.label(signals.new_attack_surfaces.join(", "));
+                ui.end_row();
+            }
+
+            if !signals.new_findings.is_empty() {
+                ui.label("New findings:");
+                ui.label(signals.new_findings.join(", "));
+                ui.end_row();
+            }
+
+            if !signals.removed_findings.is_empty() {
+                ui.label("Removed findings:");
+                ui.label(signals.removed_findings.join(", "));
+                ui.end_row();
+            }
+
+            if !signals.structural_deltas.is_empty() {
+                ui.label("Structural deltas:");
+                ui.label(signals.structural_deltas.join(", "));
+                ui.end_row();
+            }
+        });
+    });
+}
+
+fn show_revision_timeline(ui: &mut egui::Ui, result: &crate::analysis::AnalysisResult) {
+    let Some(ref snapshots) = result.report.temporal_snapshots else {
+        return;
+    };
+    if snapshots.is_empty() {
+        return;
+    }
+
+    ui.collapsing(format!("Revision Timeline ({} versions)", snapshots.len()), |ui| {
+        egui::Grid::new("timeline_grid")
+            .num_columns(4)
+            .spacing([8.0, 4.0])
+            .striped(true)
+            .show(ui, |ui| {
+                ui.strong("Version");
+                ui.strong("Score");
+                ui.strong("High Sev");
+                ui.strong("Findings");
+                ui.end_row();
+
+                for snap in snapshots {
+                    ui.label(&snap.version_label);
+                    ui.label(format!("{:.2}", snap.score));
+                    ui.label(format!("{}", snap.high_severity_count));
+                    ui.label(format!("{}", snap.finding_count));
+                    ui.end_row();
+                }
+            });
     });
 }
 
@@ -144,19 +249,36 @@ fn find_info_dict_id(object_data: &ObjectData) -> Option<(u32, u16)> {
     None
 }
 
+/// Find encryption info from the catalog or trailer objects.
+fn find_encrypt_info(object_data: &ObjectData) -> Vec<(String, String)> {
+    // Look for /Encrypt reference in catalog, then read the encrypt dict
+    for obj in &object_data.objects {
+        if obj.obj_type == "catalog" {
+            if let Some(val) = find_dict_value(&obj.dict_entries, "/Encrypt") {
+                if let Some(encrypt_id) = parse_obj_ref(&val) {
+                    if let Some(&idx) = object_data.index.get(&encrypt_id) {
+                        let encrypt_obj = &object_data.objects[idx];
+                        let mut info = Vec::new();
+                        for (k, v) in &encrypt_obj.dict_entries {
+                            let label = k.trim_start_matches('/');
+                            info.push((label.to_string(), v.clone()));
+                        }
+                        return info;
+                    }
+                }
+                // If we found an /Encrypt reference but can't resolve it
+                return vec![("Reference".to_string(), val)];
+            }
+        }
+    }
+    Vec::new()
+}
+
 /// Look up a dict entry value by key.
 fn find_dict_value(entries: &[(String, String)], key: &str) -> Option<String> {
     entries.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
 }
 
-/// Parse an object reference string like "5 0 R" into (obj, gen).
 fn parse_obj_ref(s: &str) -> Option<(u32, u16)> {
-    let parts: Vec<&str> = s.split_whitespace().collect();
-    if parts.len() >= 2 {
-        let obj = parts[0].parse::<u32>().ok()?;
-        let gen = parts[1].parse::<u16>().ok()?;
-        Some((obj, gen))
-    } else {
-        None
-    }
+    crate::util::parse_obj_ref(s)
 }

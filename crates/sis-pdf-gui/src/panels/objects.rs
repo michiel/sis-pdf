@@ -4,13 +4,22 @@ use egui_extras::{Column, TableBuilder};
 
 pub fn show(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_objects;
-    egui::Window::new("Object Inspector")
-        .open(&mut open)
-        .default_size([700.0, 500.0])
-        .resizable(true)
-        .show(ctx, |ui| {
-            show_inner(ui, app);
+    let state = app.window_max.entry("Object Inspector".to_string()).or_default();
+    let is_max = state.is_maximised;
+    let mut win = egui::Window::new("Object Inspector").open(&mut open).resizable(true);
+    if is_max {
+        let area = ctx.available_rect();
+        win = win.fixed_pos(area.left_top()).fixed_size(area.size());
+    } else {
+        win = win.default_size([700.0, 500.0]);
+    }
+    win.show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            let ws = app.window_max.entry("Object Inspector".to_string()).or_default();
+            crate::window_state::maximise_button(ui, ws);
         });
+        show_inner(ui, app);
+    });
     app.show_objects = open;
 }
 
@@ -229,7 +238,25 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
     let show_hex = app.show_stream_hex;
 
     egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.heading(format!("Object {} {}", detail.obj, detail.gen));
+        ui.horizontal(|ui| {
+            ui.heading(format!("Object {} {}", detail.obj, detail.gen));
+            if ui.small_button("Copy as JSON").clicked() {
+                let dict: std::collections::BTreeMap<&str, &str> = detail
+                    .dict_entries
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str()))
+                    .collect();
+                let json = serde_json::json!({
+                    "obj": detail.obj,
+                    "gen": detail.gen,
+                    "type": &detail.obj_type,
+                    "dict": dict,
+                });
+                if let Ok(text) = serde_json::to_string_pretty(&json) {
+                    ui.ctx().copy_text(text);
+                }
+            }
+        });
         ui.separator();
 
         show_object_meta(ui, app, &detail);
@@ -422,24 +449,16 @@ fn show_related_findings(
         for (finding_idx, title) in related_findings {
             if ui.link(title).clicked() {
                 app.selected_finding = Some(*finding_idx);
-                app.show_chains = false;
             }
         }
     });
 }
 
-/// Parse an object reference string like "5 0 R" into (obj, gen).
 fn parse_obj_ref(s: &str) -> Option<(u32, u16)> {
+    // Object Inspector dict values are always "N M R" format
     let s = s.trim();
     if !s.ends_with('R') {
         return None;
     }
-    let parts: Vec<&str> = s.split_whitespace().collect();
-    if parts.len() == 3 && parts[2] == "R" {
-        let obj = parts[0].parse::<u32>().ok()?;
-        let gen = parts[1].parse::<u16>().ok()?;
-        Some((obj, gen))
-    } else {
-        None
-    }
+    crate::util::parse_obj_ref(s)
 }

@@ -22,6 +22,8 @@ pub struct AnalysisResult {
     pub bytes: Vec<u8>,
     pub file_name: String,
     pub file_size: usize,
+    pub pdf_version: Option<String>,
+    pub page_count: usize,
 }
 
 /// Error returned when analysis cannot proceed.
@@ -87,6 +89,8 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
     // The ObjectGraph borrows bytes and cannot be stored, so we extract
     // an owned summary here. This second parse is fast (~50ms typical).
     let object_data = extract_object_data(bytes);
+    let pdf_version = extract_pdf_version(bytes);
+    let page_count = count_pages(&object_data);
 
     Ok(AnalysisResult {
         report,
@@ -94,6 +98,8 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
         bytes: bytes.to_vec(),
         file_name: file_name.to_string(),
         file_size: bytes.len(),
+        pdf_version,
+        page_count,
     })
 }
 
@@ -115,6 +121,30 @@ fn extract_object_data(bytes: &[u8]) -> ObjectData {
     };
     let classifications = graph.classify_objects();
     object_data::extract_object_data(bytes, &graph, &classifications)
+}
+
+/// Extract the PDF version from the `%PDF-X.Y` header.
+fn extract_pdf_version(bytes: &[u8]) -> Option<String> {
+    let prefix = b"%PDF-";
+    if bytes.len() < prefix.len() + 3 {
+        return None;
+    }
+    if &bytes[..prefix.len()] != prefix {
+        return None;
+    }
+    let rest = &bytes[prefix.len()..];
+    let end = rest
+        .iter()
+        .position(|&b| b == b'\n' || b == b'\r' || b == b' ')
+        .unwrap_or(rest.len())
+        .min(10);
+    let version = std::str::from_utf8(&rest[..end]).ok()?;
+    Some(version.to_string())
+}
+
+/// Count objects classified as pages.
+fn count_pages(object_data: &ObjectData) -> usize {
+    object_data.objects.iter().filter(|o| o.obj_type == "page").count()
 }
 
 #[cfg(test)]

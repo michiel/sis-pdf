@@ -1,6 +1,17 @@
-use crate::app::SisApp;
+use crate::app::{AppState, SisApp};
 
 pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
+    // Show progress spinner during analysis
+    if let AppState::Analysing { ref file_name, .. } = app.app_state {
+        ui.vertical_centered(|ui| {
+            ui.add_space(ui.available_height() / 3.0);
+            ui.heading(format!("Analysing {}...", file_name));
+            ui.add_space(20.0);
+            ui.spinner();
+        });
+        return;
+    }
+
     ui.vertical_centered(|ui| {
         ui.add_space(ui.available_height() / 3.0);
 

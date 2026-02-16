@@ -1,5 +1,5 @@
 use crate::analysis::AnalysisResult;
-use crate::app::{HexViewState, SeverityFilters, SortState};
+use crate::app::{ChainSortColumn, HexViewState, SeverityFilters, SortState};
 use crate::panels::graph::GraphViewerState;
 use crate::query::QueryOutput;
 
@@ -13,6 +13,7 @@ pub const MAX_TABS: usize = 3;
 pub struct WorkspaceContext {
     pub result: AnalysisResult,
     pub selected_finding: Option<usize>,
+    pub show_findings: bool,
     pub show_chains: bool,
     pub show_metadata: bool,
     pub show_objects: bool,
@@ -26,6 +27,14 @@ pub struct WorkspaceContext {
     pub hex_view: HexViewState,
     pub severity_filters: SeverityFilters,
     pub sort: SortState,
+    pub findings_search: String,
+    pub surface_filter: Option<String>,
+    pub min_confidence: u8,
+    pub has_cve_filter: bool,
+    pub auto_triggered_filter: bool,
+    pub chain_sort_column: ChainSortColumn,
+    pub chain_sort_ascending: bool,
+    pub command_history_pos: Option<usize>,
     pub show_command_bar: bool,
     pub command_input: String,
     pub command_history: Vec<String>,

@@ -13,6 +13,9 @@ pub mod query;
 #[cfg(feature = "gui")]
 pub mod shortcuts;
 pub mod telemetry;
+pub mod util;
+#[cfg(feature = "gui")]
+pub mod window_state;
 #[cfg(feature = "gui")]
 pub mod workspace;
 

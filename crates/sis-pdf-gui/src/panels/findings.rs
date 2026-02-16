@@ -1,6 +1,27 @@
 use crate::app::{SisApp, SortColumn};
 use egui_extras::{Column, TableBuilder};
-use sis_pdf_core::model::Severity;
+use sis_pdf_core::model::{Confidence, Severity};
+
+pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
+    let mut open = app.show_findings;
+    let state = app.window_max.entry("Findings".to_string()).or_default();
+    let is_max = state.is_maximised;
+    let mut win = egui::Window::new("Findings").open(&mut open).resizable(true);
+    if is_max {
+        let area = ctx.available_rect();
+        win = win.fixed_pos(area.left_top()).fixed_size(area.size());
+    } else {
+        win = win.default_size([600.0, 400.0]);
+    }
+    win.show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            let ws = app.window_max.entry("Findings".to_string()).or_default();
+            crate::window_state::maximise_button(ui, ws);
+        });
+        show(ui, app);
+    });
+    app.show_findings = open;
+}
 
 pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     let Some(ref result) = app.result else {
@@ -9,27 +30,107 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
 
     // Severity filter toggles
     ui.horizontal(|ui| {
-        ui.label("Filter:");
+        ui.label("Severity:");
         ui.toggle_value(&mut app.severity_filters.critical, "Critical");
         ui.toggle_value(&mut app.severity_filters.high, "High");
         ui.toggle_value(&mut app.severity_filters.medium, "Medium");
         ui.toggle_value(&mut app.severity_filters.low, "Low");
         ui.toggle_value(&mut app.severity_filters.info, "Info");
     });
+
+    // Extended filter row
+    let surface_names = collect_surface_names(result);
+    ui.horizontal(|ui| {
+        ui.label("Search:");
+        ui.add(
+            egui::TextEdit::singleline(&mut app.findings_search)
+                .desired_width(120.0)
+                .hint_text("kind, title..."),
+        );
+
+        ui.separator();
+        ui.label("Surface:");
+        egui::ComboBox::from_id_salt("surface_filter")
+            .selected_text(app.surface_filter.as_deref().unwrap_or("All"))
+            .width(100.0)
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(app.surface_filter.is_none(), "All").clicked() {
+                    app.surface_filter = None;
+                }
+                for name in &surface_names {
+                    let selected = app.surface_filter.as_deref() == Some(name.as_str());
+                    if ui.selectable_label(selected, name).clicked() {
+                        app.surface_filter = Some(name.clone());
+                    }
+                }
+            });
+
+        ui.separator();
+        ui.label("Min conf:");
+        ui.add(egui::Slider::new(&mut app.min_confidence, 0..=5).show_value(false));
+        ui.label(confidence_threshold_label(app.min_confidence));
+
+        ui.separator();
+        ui.toggle_value(&mut app.has_cve_filter, "Has CVE");
+        ui.toggle_value(&mut app.auto_triggered_filter, "Auto-triggered");
+    });
     ui.separator();
 
     let findings = &result.report.findings;
+    let total_count = findings.len();
+    let search_lower = app.findings_search.to_lowercase();
 
-    // Filter findings by severity
+    // Filter findings
     let filtered: Vec<usize> = findings
         .iter()
         .enumerate()
-        .filter(|(_, f)| match f.severity {
-            Severity::Critical => app.severity_filters.critical,
-            Severity::High => app.severity_filters.high,
-            Severity::Medium => app.severity_filters.medium,
-            Severity::Low => app.severity_filters.low,
-            Severity::Info => app.severity_filters.info,
+        .filter(|(_, f)| {
+            // Severity filter
+            let sev_ok = match f.severity {
+                Severity::Critical => app.severity_filters.critical,
+                Severity::High => app.severity_filters.high,
+                Severity::Medium => app.severity_filters.medium,
+                Severity::Low => app.severity_filters.low,
+                Severity::Info => app.severity_filters.info,
+            };
+            if !sev_ok {
+                return false;
+            }
+
+            // Text search
+            if !search_lower.is_empty()
+                && !f.kind.to_lowercase().contains(&search_lower)
+                && !f.title.to_lowercase().contains(&search_lower)
+                && !f.description.to_lowercase().contains(&search_lower)
+            {
+                return false;
+            }
+
+            // Surface filter
+            if let Some(ref surface) = app.surface_filter {
+                if surface_label(&f.surface) != surface.as_str() {
+                    return false;
+                }
+            }
+
+            // Confidence filter
+            if confidence_rank(&f.confidence) > app.min_confidence {
+                return false;
+            }
+
+            // CVE filter
+            if app.has_cve_filter && !f.meta.keys().any(|k| k.contains("cve")) {
+                return false;
+            }
+
+            // Auto-triggered filter
+            if app.auto_triggered_filter
+                && f.action_initiation.as_deref() != Some("automatic")
+            {
+                return false;
+            }
+
+            true
         })
         .map(|(i, _)| i)
         .collect();
@@ -42,10 +143,10 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         let ord = match app.sort.column {
             SortColumn::Severity => severity_rank(&fa.severity).cmp(&severity_rank(&fb.severity)),
             SortColumn::Confidence => {
-                format!("{:?}", fa.confidence).cmp(&format!("{:?}", fb.confidence))
+                confidence_rank(&fa.confidence).cmp(&confidence_rank(&fb.confidence))
             }
             SortColumn::Kind => fa.kind.cmp(&fb.kind),
-            SortColumn::Surface => format!("{:?}", fa.surface).cmp(&format!("{:?}", fb.surface)),
+            SortColumn::Surface => surface_label(&fa.surface).cmp(surface_label(&fb.surface)),
         };
         if app.sort.ascending {
             ord
@@ -54,7 +155,31 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         }
     });
 
-    ui.label(format!("{} findings shown", sorted.len()));
+    // Empty state
+    if sorted.is_empty() {
+        ui.vertical_centered(|ui| {
+            ui.add_space(20.0);
+            if total_count == 0 {
+                ui.label("No findings detected");
+            } else {
+                ui.label(format!(
+                    "No findings match the current filters ({} total)",
+                    total_count
+                ));
+                if ui.button("Reset filters").clicked() {
+                    app.severity_filters = crate::app::SeverityFilters::default();
+                    app.findings_search.clear();
+                    app.surface_filter = None;
+                    app.min_confidence = 0;
+                    app.has_cve_filter = false;
+                    app.auto_triggered_filter = false;
+                }
+            }
+        });
+        return;
+    }
+
+    ui.label(format!("{} of {} findings shown", sorted.len(), total_count));
 
     let available = ui.available_size();
     TableBuilder::new(ui)
@@ -107,19 +232,20 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 let selected = app.selected_finding == Some(idx);
 
                 row.col(|ui| {
-                    let label = severity_label(&f.severity);
+                    let label = egui::RichText::new(severity_label(&f.severity))
+                        .color(severity_colour(&f.severity));
                     if ui.selectable_label(selected, label).clicked() {
                         app.selected_finding = Some(idx);
                     }
                 });
                 row.col(|ui| {
-                    ui.label(format!("{:?}", f.confidence));
+                    ui.label(confidence_label(&f.confidence));
                 });
                 row.col(|ui| {
                     ui.label(&f.kind);
                 });
                 row.col(|ui| {
-                    ui.label(format!("{:?}", f.surface));
+                    ui.label(surface_label(&f.surface));
                 });
                 row.col(|ui| {
                     ui.label(&f.title);
@@ -155,4 +281,80 @@ fn severity_label(s: &Severity) -> &'static str {
         Severity::Low => "LOW",
         Severity::Info => "INFO",
     }
+}
+
+fn severity_colour(s: &Severity) -> egui::Color32 {
+    match s {
+        Severity::Critical => egui::Color32::from_rgb(220, 50, 50),
+        Severity::High => egui::Color32::from_rgb(255, 140, 0),
+        Severity::Medium => egui::Color32::from_rgb(220, 200, 50),
+        Severity::Low => egui::Color32::from_rgb(100, 160, 230),
+        Severity::Info => egui::Color32::from_rgb(150, 150, 150),
+    }
+}
+
+fn confidence_rank(c: &Confidence) -> u8 {
+    match c {
+        Confidence::Certain => 0,
+        Confidence::Strong => 1,
+        Confidence::Probable => 2,
+        Confidence::Tentative => 3,
+        Confidence::Weak => 4,
+        Confidence::Heuristic => 5,
+    }
+}
+
+fn confidence_label(c: &Confidence) -> &'static str {
+    match c {
+        Confidence::Certain => "Certain",
+        Confidence::Strong => "Strong",
+        Confidence::Probable => "Probable",
+        Confidence::Tentative => "Tentative",
+        Confidence::Weak => "Weak",
+        Confidence::Heuristic => "Heuristic",
+    }
+}
+
+/// Label shown next to the confidence slider to indicate the threshold.
+fn confidence_threshold_label(level: u8) -> &'static str {
+    match level {
+        0 => "All",
+        1 => "Strong+",
+        2 => "Probable+",
+        3 => "Tentative+",
+        4 => "Weak+",
+        _ => "Heuristic+",
+    }
+}
+
+fn surface_label(s: &sis_pdf_core::model::AttackSurface) -> &'static str {
+    use sis_pdf_core::model::AttackSurface;
+    match s {
+        AttackSurface::FileStructure => "File Structure",
+        AttackSurface::XRefTrailer => "XRef/Trailer",
+        AttackSurface::ObjectStreams => "Object Streams",
+        AttackSurface::StreamsAndFilters => "Streams & Filters",
+        AttackSurface::Actions => "Actions",
+        AttackSurface::JavaScript => "JavaScript",
+        AttackSurface::Forms => "Forms",
+        AttackSurface::EmbeddedFiles => "Embedded Files",
+        AttackSurface::RichMedia3D => "Rich Media/3D",
+        AttackSurface::Images => "Images",
+        AttackSurface::CryptoSignatures => "Crypto/Signatures",
+        AttackSurface::Metadata => "Metadata",
+        AttackSurface::ContentPhishing => "Content Phishing",
+    }
+}
+
+/// Collect unique surface names present in the findings for the filter dropdown.
+fn collect_surface_names(result: &crate::analysis::AnalysisResult) -> Vec<String> {
+    let mut names: Vec<String> = result
+        .report
+        .findings
+        .iter()
+        .map(|f| surface_label(&f.surface).to_string())
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }

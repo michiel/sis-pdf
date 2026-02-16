@@ -98,11 +98,11 @@ fn handle_single_letter_shortcuts(ctx: &egui::Context, app: &mut SisApp) -> bool
     }
 
     if ctx.input(|i| i.key_pressed(egui::Key::F)) {
-        app.show_chains = false; // Switch to findings
+        app.show_findings = !app.show_findings;
         return true;
     }
     if ctx.input(|i| i.key_pressed(egui::Key::C)) {
-        app.show_chains = true; // Switch to chains
+        app.show_chains = !app.show_chains;
         return true;
     }
     if ctx.input(|i| i.key_pressed(egui::Key::G)) {
@@ -123,7 +123,7 @@ fn handle_single_letter_shortcuts(ctx: &egui::Context, app: &mut SisApp) -> bool
 
 /// Handle arrow key navigation in the findings table.
 fn handle_arrow_shortcuts(ctx: &egui::Context, app: &mut SisApp) -> bool {
-    if app.show_chains || app.result.is_none() {
+    if !app.show_findings || app.result.is_none() {
         return false;
     }
 
@@ -169,6 +169,14 @@ pub fn handle_escape(app: &mut SisApp) -> bool {
     }
     if app.show_telemetry {
         app.show_telemetry = false;
+        return true;
+    }
+    if app.show_findings {
+        app.show_findings = false;
+        return true;
+    }
+    if app.show_chains {
+        app.show_chains = false;
         return true;
     }
     // Clear finding selection
