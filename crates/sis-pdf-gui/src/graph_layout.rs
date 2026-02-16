@@ -145,11 +145,6 @@ impl LayoutState {
             let scale = self.temperature.min(dist) / dist;
             node.position[0] += dx * scale;
             node.position[1] += dy * scale;
-
-            // Clamp to layout area with a small margin
-            let margin = 20.0;
-            node.position[0] = node.position[0].clamp(margin, self.area_w - margin);
-            node.position[1] = node.position[1].clamp(margin, self.area_h - margin);
         }
 
         // Cool down
@@ -261,5 +256,27 @@ mod tests {
         // Run 5 more
         layout.step(&mut graph, 5);
         assert_eq!(layout.iterations_done(), 10);
+    }
+
+    #[test]
+    fn step_does_not_force_positions_into_fixed_rectangle() {
+        let nodes = vec![
+            GraphNode {
+                obj: 42,
+                gen: 0,
+                obj_type: "other".to_string(),
+                roles: vec![],
+                position: [5_000.0, -200.0],
+            },
+        ];
+        let mut node_index = HashMap::new();
+        node_index.insert((42, 0), 0);
+        let mut graph = GraphData { nodes, edges: vec![], node_index };
+
+        let mut layout = LayoutState::new(graph.nodes.len());
+        layout.step(&mut graph, 1);
+
+        assert_eq!(graph.nodes[0].position[0], 5_000.0);
+        assert_eq!(graph.nodes[0].position[1], -200.0);
     }
 }
