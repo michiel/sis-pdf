@@ -19,6 +19,7 @@ const MAX_RECURSION_DEPTH: usize = 50;
 pub struct AnalysisResult {
     pub report: Report,
     pub object_data: ObjectData,
+    pub bytes: Vec<u8>,
     pub file_name: String,
     pub file_size: usize,
 }
@@ -90,6 +91,7 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
     Ok(AnalysisResult {
         report,
         object_data,
+        bytes: bytes.to_vec(),
         file_name: file_name.to_string(),
         file_size: bytes.len(),
     })

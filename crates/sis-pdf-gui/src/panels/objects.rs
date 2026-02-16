@@ -1,4 +1,5 @@
 use crate::app::SisApp;
+use crate::hex_format;
 use egui_extras::{Column, TableBuilder};
 
 pub fn show(ctx: &egui::Context, app: &mut SisApp) {
@@ -50,6 +51,10 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
         (od.objects.len(), types, filtered, related)
     };
 
+    // Navigation bar: back/forward, search, stream hex toggle
+    show_nav_bar(ui, app, object_count);
+    ui.separator();
+
     // Type filter dropdown
     ui.horizontal(|ui| {
         ui.label("Filter by type:");
@@ -76,6 +81,8 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
     let list_width = (available.x * 0.35).max(150.0).min(250.0);
 
     ui.horizontal(|ui| {
+        ui.set_min_height(available.y);
+
         // Left pane: object list
         ui.vertical(|ui| {
             ui.set_width(list_width);
@@ -91,22 +98,62 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
     });
 }
 
+fn show_nav_bar(ui: &mut egui::Ui, app: &mut SisApp, _object_count: usize) {
+    ui.horizontal(|ui| {
+        // Back button
+        let can_back = app.object_nav_pos > 1;
+        if ui.add_enabled(can_back, egui::Button::new("<")).clicked() {
+            app.object_nav_back();
+        }
+
+        // Forward button
+        let can_forward = app.object_nav_pos < app.object_nav_stack.len();
+        if ui.add_enabled(can_forward, egui::Button::new(">")).clicked() {
+            app.object_nav_forward();
+        }
+
+        ui.separator();
+
+        // Search field
+        ui.label("Search:");
+        let response =
+            ui.add(egui::TextEdit::singleline(&mut app.object_search).desired_width(80.0));
+        if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            // On Enter, try to navigate to exact match
+            if let Some(obj_num) = app.object_search.trim().parse::<u32>().ok() {
+                app.navigate_to_object(obj_num, 0);
+            }
+        }
+
+        ui.separator();
+
+        // Stream hex toggle
+        ui.toggle_value(&mut app.show_stream_hex, "Hex");
+    });
+}
+
 fn show_object_list(ui: &mut egui::Ui, app: &mut SisApp, filtered: &[usize]) {
     let Some(ref result) = app.result else {
         return;
     };
     let object_data = &result.object_data;
 
-    // Pre-extract display data for all filtered objects
+    // Apply search filter on top of type filter
+    let search = app.object_search.trim().to_lowercase();
     let rows: Vec<(u32, u16, String)> = filtered
         .iter()
-        .map(|&idx| {
+        .filter_map(|&idx| {
             let obj = &object_data.objects[idx];
-            (obj.obj, obj.gen, obj.obj_type.clone())
+            if !search.is_empty() {
+                let id_str = format!("{} {}", obj.obj, obj.gen);
+                if !id_str.contains(&search) && !obj.obj.to_string().contains(&search) {
+                    return None;
+                }
+            }
+            Some((obj.obj, obj.gen, obj.obj_type.clone()))
         })
         .collect();
 
-    // Drop the borrow on app.result before entering the mutable table body
     let selected = app.selected_object;
     let available = ui.available_size();
 
@@ -134,7 +181,7 @@ fn show_object_list(ui: &mut egui::Ui, app: &mut SisApp, filtered: &[usize]) {
                 row.col(|ui| {
                     let label = format!("{} {}", obj_num, gen_num);
                     if ui.selectable_label(is_selected, label).clicked() {
-                        app.selected_object = Some((obj_num, gen_num));
+                        app.navigate_to_object(obj_num, gen_num);
                     }
                 });
                 row.col(|ui| {
@@ -172,19 +219,22 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
             stream_filters: obj.stream_filters.clone(),
             stream_length: obj.stream_length,
             stream_text: obj.stream_text.clone(),
+            stream_raw: obj.stream_raw.clone(),
             dict_entries: obj.dict_entries.clone(),
             references_from: obj.references_from.clone(),
             references_to: obj.references_to.clone(),
         }
     };
 
+    let show_hex = app.show_stream_hex;
+
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading(format!("Object {} {}", detail.obj, detail.gen));
         ui.separator();
 
-        show_object_meta(ui, &detail);
+        show_object_meta(ui, app, &detail);
         show_dict_entries(ui, app, &detail.dict_entries);
-        show_stream_content(ui, &detail);
+        show_stream_content(ui, &detail, show_hex);
         show_references(ui, app, &detail.references_from, &detail.references_to);
         show_related_findings(ui, app, related_findings);
     });
@@ -199,12 +249,13 @@ struct ObjectDetail {
     stream_filters: Vec<String>,
     stream_length: Option<usize>,
     stream_text: Option<String>,
+    stream_raw: Option<Vec<u8>>,
     dict_entries: Vec<(String, String)>,
     references_from: Vec<(u32, u16)>,
     references_to: Vec<(u32, u16)>,
 }
 
-fn show_object_meta(ui: &mut egui::Ui, detail: &ObjectDetail) {
+fn show_object_meta(ui: &mut egui::Ui, app: &mut SisApp, detail: &ObjectDetail) {
     egui::Grid::new("obj_detail_meta").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
         ui.label("Type:");
         ui.label(&detail.obj_type);
@@ -228,7 +279,16 @@ fn show_object_meta(ui: &mut egui::Ui, detail: &ObjectDetail) {
                 }
                 info.push_str(&format!("{} bytes", len));
             }
-            ui.label(if info.is_empty() { "yes".to_string() } else { info });
+            ui.end_row();
+            ui.label("");
+            ui.horizontal(|ui| {
+                ui.label(if info.is_empty() { "yes".to_string() } else { info });
+                if detail.stream_raw.is_some() {
+                    if ui.small_button("View raw").clicked() {
+                        app.open_hex_for_stream(detail.obj, detail.gen);
+                    }
+                }
+            });
             ui.end_row();
         }
     });
@@ -248,7 +308,7 @@ fn show_dict_entries(ui: &mut egui::Ui, app: &mut SisApp, entries: &[(String, St
                     ui.monospace(key);
                     if let Some(ref_id) = parse_obj_ref(val) {
                         if ui.link(val).clicked() {
-                            app.selected_object = Some(ref_id);
+                            app.navigate_to_object(ref_id.0, ref_id.1);
                         }
                     } else {
                         ui.label(val);
@@ -260,14 +320,43 @@ fn show_dict_entries(ui: &mut egui::Ui, app: &mut SisApp, entries: &[(String, St
     });
 }
 
-fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail) {
-    if let Some(ref text) = detail.stream_text {
+fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool) {
+    if !detail.has_stream {
+        return;
+    }
+
+    if show_hex {
+        // Show hex view of stream raw bytes
+        if let Some(ref raw) = detail.stream_raw {
+            ui.separator();
+            ui.collapsing(format!("Stream hex ({} bytes)", raw.len()), |ui| {
+                let lines = hex_format::format_hex_block(raw, 0);
+                egui::ScrollArea::vertical().max_height(300.0).id_salt("stream_hex_scroll").show(
+                    ui,
+                    |ui| {
+                        for line in &lines {
+                            ui.monospace(line);
+                        }
+                    },
+                );
+            });
+        } else {
+            ui.separator();
+            ui.label("Stream could not be decoded");
+        }
+    } else if let Some(ref text) = detail.stream_text {
         ui.separator();
         ui.collapsing("Stream content", |ui| {
-            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                ui.monospace(text);
-            });
+            egui::ScrollArea::vertical().max_height(300.0).id_salt("stream_text_scroll").show(
+                ui,
+                |ui| {
+                    ui.monospace(text);
+                },
+            );
         });
+    } else if detail.stream_raw.is_some() {
+        ui.separator();
+        ui.label("Stream contains binary data (toggle Hex to view)");
     }
 }
 
@@ -284,7 +373,7 @@ fn show_references(
                 for (r_obj, r_gen) in references_from {
                     let label = format!("{} {} R", r_obj, r_gen);
                     if ui.link(&label).clicked() {
-                        app.selected_object = Some((*r_obj, *r_gen));
+                        app.navigate_to_object(*r_obj, *r_gen);
                     }
                 }
             });
@@ -298,7 +387,7 @@ fn show_references(
                 for (r_obj, r_gen) in references_to {
                     let label = format!("{} {} R", r_obj, r_gen);
                     if ui.link(&label).clicked() {
-                        app.selected_object = Some((*r_obj, *r_gen));
+                        app.navigate_to_object(*r_obj, *r_gen);
                     }
                 }
             });

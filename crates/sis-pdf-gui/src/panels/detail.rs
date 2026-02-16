@@ -43,11 +43,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     let evidence: Vec<_> = f
         .evidence
         .iter()
-        .map(|ev| {
-            (
-                format!("offset: {}, length: {}, source: {:?}", ev.offset, ev.length, ev.source),
-                ev.note.clone(),
-            )
+        .map(|ev| EvidenceDisplay {
+            info: format!("offset: {}, length: {}, source: {:?}", ev.offset, ev.length, ev.source),
+            note: ev.note.clone(),
+            offset: ev.offset,
+            length: ev.length,
+            is_file_source: matches!(ev.source, sis_pdf_core::model::EvidenceSource::File),
         })
         .collect();
     let reader_impacts: Vec<String> = f
@@ -122,10 +123,24 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         if !evidence.is_empty() {
             ui.separator();
             ui.label(format!("Evidence ({}):", evidence.len()));
-            for (info, note) in &evidence {
+            for ev in &evidence {
                 ui.group(|ui| {
-                    ui.label(info);
-                    if let Some(ref n) = note {
+                    ui.horizontal(|ui| {
+                        ui.label(&ev.info);
+                        if ev.is_file_source && ev.length > 0 {
+                            if ui.small_button("View hex").clicked() {
+                                let label = ev
+                                    .note
+                                    .as_deref()
+                                    .unwrap_or("evidence")
+                                    .chars()
+                                    .take(40)
+                                    .collect::<String>();
+                                app.open_hex_at_evidence(ev.offset, ev.length, label);
+                            }
+                        }
+                    });
+                    if let Some(ref n) = ev.note {
                         ui.monospace(n);
                     }
                 });
@@ -138,9 +153,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             ui.label("Objects:");
             ui.horizontal_wrapped(|ui| {
                 for (obj_str, parsed) in &object_refs {
-                    if let Some(obj_ref) = parsed {
+                    if let Some((obj_num, gen_num)) = parsed {
                         if ui.link(obj_str).clicked() {
-                            app.selected_object = Some(*obj_ref);
+                            app.navigate_to_object(*obj_num, *gen_num);
                             app.show_objects = true;
                         }
                     } else {
@@ -171,6 +186,14 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             });
         }
     });
+}
+
+struct EvidenceDisplay {
+    info: String,
+    note: Option<String>,
+    offset: u64,
+    length: u32,
+    is_file_source: bool,
 }
 
 /// Parse an object reference string like "5 0 R" into (obj, gen).

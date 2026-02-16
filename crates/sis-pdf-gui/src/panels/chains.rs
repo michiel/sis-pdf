@@ -32,6 +32,31 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                     (fid.clone(), idx)
                 })
                 .collect();
+
+            // Extract flow nodes from trigger/action/payload
+            let mut flow_nodes = Vec::new();
+            if let Some(ref trigger) = chain.trigger {
+                flow_nodes.push(FlowNode {
+                    stage: "Trigger".to_string(),
+                    description: trigger.clone(),
+                    object_ref: extract_obj_ref_from_text(trigger),
+                });
+            }
+            if let Some(ref action) = chain.action {
+                flow_nodes.push(FlowNode {
+                    stage: "Action".to_string(),
+                    description: action.clone(),
+                    object_ref: extract_obj_ref_from_text(action),
+                });
+            }
+            if let Some(ref payload) = chain.payload {
+                flow_nodes.push(FlowNode {
+                    stage: "Payload".to_string(),
+                    description: payload.clone(),
+                    object_ref: extract_obj_ref_from_text(payload),
+                });
+            }
+
             ChainDisplay {
                 index: i,
                 score: chain.score,
@@ -41,6 +66,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 payload: chain.payload.clone(),
                 reasons: chain.reasons.clone(),
                 finding_links,
+                flow_nodes,
             }
         })
         .collect();
@@ -79,6 +105,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                     });
                 }
 
+                // Flow diagram
+                if chain.flow_nodes.len() >= 2 {
+                    ui.add_space(4.0);
+                    show_flow_diagram(ui, app, &chain.flow_nodes);
+                }
+
                 if !chain.reasons.is_empty() {
                     ui.add_space(4.0);
                     ui.label("Reasons:");
@@ -109,6 +141,55 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     });
 }
 
+/// Render a horizontal flow diagram: [Stage: desc] --> [Stage: desc] --> ...
+fn show_flow_diagram(ui: &mut egui::Ui, app: &mut SisApp, nodes: &[FlowNode]) {
+    ui.horizontal_wrapped(|ui| {
+        for (i, node) in nodes.iter().enumerate() {
+            if i > 0 {
+                ui.label(egui::RichText::new(" --> ").color(egui::Color32::GRAY).monospace());
+            }
+
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.strong(&node.stage);
+                    ui.label(&node.description);
+                    if let Some((obj, gen)) = node.object_ref {
+                        if ui.link(format!("obj {} {}", obj, gen)).clicked() {
+                            app.navigate_to_object(obj, gen);
+                            app.show_objects = true;
+                        }
+                    }
+                });
+            });
+        }
+    });
+}
+
+/// Try to extract an object reference like "obj 5 0" or "5 0 R" from descriptive text.
+fn extract_obj_ref_from_text(text: &str) -> Option<(u32, u16)> {
+    // Try "N M R" pattern
+    for word_group in text.split(|c: char| c == ',' || c == ';' || c == '(' || c == ')') {
+        let trimmed = word_group.trim();
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.len() >= 3 && parts.last() == Some(&"R") {
+            if let (Ok(obj), Ok(gen)) =
+                (parts[parts.len() - 3].parse::<u32>(), parts[parts.len() - 2].parse::<u16>())
+            {
+                return Some((obj, gen));
+            }
+        }
+    }
+    // Try "obj N" pattern (gen defaults to 0)
+    if let Some(pos) = text.to_lowercase().find("obj ") {
+        let rest = &text[pos + 4..];
+        let num_str: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(obj) = num_str.parse::<u32>() {
+            return Some((obj, 0));
+        }
+    }
+    None
+}
+
 struct ChainDisplay {
     index: usize,
     score: f64,
@@ -118,4 +199,11 @@ struct ChainDisplay {
     payload: Option<String>,
     reasons: Vec<String>,
     finding_links: Vec<(String, Option<usize>)>,
+    flow_nodes: Vec<FlowNode>,
+}
+
+struct FlowNode {
+    stage: String,
+    description: String,
+    object_ref: Option<(u32, u16)>,
 }

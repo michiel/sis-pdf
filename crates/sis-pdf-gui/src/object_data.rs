@@ -32,6 +32,7 @@ pub struct ObjectSummary {
     pub dict_entries: Vec<(String, String)>,
     pub has_stream: bool,
     pub stream_text: Option<String>,
+    pub stream_raw: Option<Vec<u8>>,
     pub stream_filters: Vec<String>,
     pub stream_length: Option<usize>,
     pub references_from: Vec<(u32, u16)>,
@@ -128,6 +129,7 @@ fn extract_one_object(
     let mut dict_entries = Vec::new();
     let mut has_stream = false;
     let mut stream_text = None;
+    let mut stream_raw = None;
     let mut stream_filters = Vec::new();
     let mut stream_length = None;
     let mut references_from = Vec::new();
@@ -147,8 +149,9 @@ fn extract_one_object(
             let raw_len = (s.data_span.end as usize).saturating_sub(s.data_span.start as usize);
             stream_length = Some(raw_len);
 
-            // Try to decode and display as text
+            // Try to decode stream and capture both raw bytes and text representation
             if let Ok(decoded) = decode_stream(bytes, s, MAX_STREAM_DECODE) {
+                stream_raw = Some(decoded.data.clone());
                 if let Ok(text) = std::str::from_utf8(&decoded.data) {
                     let truncated = if text.len() > MAX_STREAM_DECODE {
                         &text[..MAX_STREAM_DECODE]
@@ -183,6 +186,7 @@ fn extract_one_object(
         dict_entries,
         has_stream,
         stream_text,
+        stream_raw,
         stream_filters,
         stream_length,
         references_from,

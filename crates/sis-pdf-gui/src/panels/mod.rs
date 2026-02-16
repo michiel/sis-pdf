@@ -1,7 +1,9 @@
 pub mod chains;
+pub mod command_bar;
 pub mod detail;
 pub mod drop_zone;
 pub mod findings;
+pub mod hex_viewer;
 pub mod metadata;
 pub mod nav;
 pub mod objects;

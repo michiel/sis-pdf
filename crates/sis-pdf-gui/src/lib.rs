@@ -3,9 +3,13 @@
 pub mod analysis;
 #[cfg(feature = "gui")]
 pub mod app;
+pub mod hex_format;
 pub mod object_data;
 #[cfg(feature = "gui")]
 pub mod panels;
+pub mod query;
+#[cfg(feature = "gui")]
+pub mod workspace;
 
 /// WASM entry point: start eframe in the browser.
 #[cfg(all(target_arch = "wasm32", feature = "gui"))]

@@ -23,5 +23,15 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         if ui.selectable_label(app.show_objects, "Objects").clicked() {
             app.show_objects = !app.show_objects;
         }
+
+        if ui.selectable_label(app.show_hex, "Hex").clicked() {
+            app.show_hex = !app.show_hex;
+        }
+
+        ui.separator();
+
+        if ui.selectable_label(app.show_command_bar, "Command").clicked() {
+            app.show_command_bar = !app.show_command_bar;
+        }
     });
 }
