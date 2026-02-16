@@ -1,5 +1,5 @@
 use crate::app::SisApp;
-use crate::graph_data::{self, GraphData, GraphError, MAX_GRAPH_NODES};
+use crate::graph_data::{self, GraphData, GraphError};
 use crate::graph_layout::LayoutState;
 
 /// Persistent state for the graph viewer panel.
@@ -176,8 +176,8 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         egui::pos2(sx as f32, sy as f32)
     };
 
-    // Inverse: screen coords -> graph coords
-    let from_screen = |sx: f32, sy: f32| -> (f64, f64) {
+    // Inverse: screen coords -> graph coords (used by click handlers)
+    let _from_screen = |sx: f32, sy: f32| -> (f64, f64) {
         let gx = (sx as f64 - rect.center().x as f64) / zoom + 400.0 - pan[0];
         let gy = (sy as f64 - rect.center().y as f64) / zoom + 300.0 - pan[1];
         (gx, gy)
@@ -269,7 +269,14 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
     // Show tooltip for hovered node
     if let Some(hi) = hovered {
         let (_, _, ref obj_type, ref label, ref roles) = node_data[hi];
-        egui::show_tooltip_at_pointer(ui.ctx(), ui.id().with("graph_tooltip"), |ui| {
+        egui::Tooltip::always_open(
+            ui.ctx().clone(),
+            ui.layer_id(),
+            ui.id().with("graph_tooltip"),
+            &response,
+        )
+        .at_pointer()
+        .show(|ui| {
             ui.strong(label);
             ui.label(format!("Type: {}", obj_type));
             if !roles.is_empty() {
@@ -409,7 +416,7 @@ fn build_graph(app: &mut SisApp) {
     match graph_result {
         Ok(mut graph) => {
             let node_count = graph.nodes.len();
-            let mut layout = LayoutState::new(node_count);
+            let layout = LayoutState::new(node_count);
             layout.initialise_positions(&mut graph);
             app.graph_state.graph = Some(graph);
             app.graph_state.layout = Some(layout);
