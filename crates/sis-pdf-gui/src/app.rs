@@ -724,6 +724,7 @@ impl eframe::App for SisApp {
                 let is_max = state.is_maximised;
                 let mut win =
                     egui::Window::new("Metadata").open(&mut open).resizable(true);
+                win = crate::window_state::clamp_to_viewport(win, ctx);
                 if is_max {
                     let area = ctx.available_rect();
                     win = win.fixed_pos(area.left_top()).fixed_size(area.size());

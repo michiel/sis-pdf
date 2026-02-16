@@ -6,6 +6,7 @@ pub fn show(ctx: &egui::Context, app: &mut SisApp) {
     egui::Window::new("Hex Viewer")
         .open(&mut open)
         .default_size([750.0, 450.0])
+        .max_size(ctx.available_rect().size())
         .resizable(true)
         .show(ctx, |ui| {
             show_inner(ui, app);

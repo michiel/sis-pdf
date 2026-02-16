@@ -5,6 +5,7 @@ pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     let state = app.window_max.entry("Chains".to_string()).or_default();
     let is_max = state.is_maximised;
     let mut win = egui::Window::new("Chains").open(&mut open).resizable(true);
+    win = crate::window_state::clamp_to_viewport(win, ctx);
     if is_max {
         let area = ctx.available_rect();
         win = win.fixed_pos(area.left_top()).fixed_size(area.size());

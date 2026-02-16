@@ -7,6 +7,7 @@ pub fn show(ctx: &egui::Context, app: &mut SisApp) {
     egui::Window::new("Debug / Telemetry")
         .open(&mut open)
         .default_size([450.0, 400.0])
+        .max_size(ctx.available_rect().size())
         .resizable(true)
         .show(ctx, |ui| {
             show_inner(ui, app);

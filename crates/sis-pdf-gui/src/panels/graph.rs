@@ -52,6 +52,7 @@ pub fn show(ctx: &egui::Context, app: &mut SisApp) {
     egui::Window::new("Graph Viewer")
         .open(&mut open)
         .default_size([800.0, 600.0])
+        .max_size(ctx.available_rect().size())
         .resizable(true)
         .show(ctx, |ui| {
             show_inner(ui, ctx, app);
