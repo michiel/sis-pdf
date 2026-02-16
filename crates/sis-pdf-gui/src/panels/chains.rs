@@ -78,7 +78,10 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         for chain in &chain_data {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.strong(format!("Chain #{}", chain.index + 1));
+                    let is_selected = app.selected_chain == Some(chain.index);
+                    if ui.selectable_label(is_selected, format!("Chain #{}", chain.index + 1)).clicked() {
+                        app.selected_chain = if is_selected { None } else { Some(chain.index) };
+                    }
                     ui.separator();
                     ui.label(format!("Score: {:.2}", chain.score));
                     ui.separator();
@@ -166,7 +169,7 @@ fn show_flow_diagram(ui: &mut egui::Ui, app: &mut SisApp, nodes: &[FlowNode]) {
 }
 
 /// Try to extract an object reference like "obj 5 0" or "5 0 R" from descriptive text.
-fn extract_obj_ref_from_text(text: &str) -> Option<(u32, u16)> {
+pub fn extract_obj_ref_from_text(text: &str) -> Option<(u32, u16)> {
     // Try "N M R" pattern
     for word_group in text.split(|c: char| c == ',' || c == ';' || c == '(' || c == ')') {
         let trimmed = word_group.trim();

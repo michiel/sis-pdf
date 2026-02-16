@@ -291,6 +291,19 @@ fn show_object_meta(ui: &mut egui::Ui, app: &mut SisApp, detail: &ObjectDetail) 
             });
             ui.end_row();
         }
+
+        // Show in graph button
+        ui.label("");
+        if ui.small_button("Show in graph").clicked() {
+            app.show_graph = true;
+            // Select the node in the graph if it exists
+            if let Some(ref graph) = app.graph_state.graph {
+                if let Some(&idx) = graph.node_index.get(&(detail.obj, detail.gen)) {
+                    app.graph_state.selected_node = Some(idx);
+                }
+            }
+        }
+        ui.end_row();
     });
 }
 

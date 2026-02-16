@@ -52,6 +52,10 @@ pub enum Query {
     // GUI navigation
     Goto { obj: u32, gen: u16 },
 
+    // Graph commands (M3)
+    GraphFocus { obj: u32, gen: u16 },
+    HighlightChain { index: usize },
+
     // Help
     Help,
 }
@@ -155,6 +159,37 @@ pub fn parse_query(input: &str) -> Result<Query, String> {
                 .map_err(|_| "Invalid object number")?;
             let gen = parts.get(2).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
             Ok(Query::Goto { obj: obj_num, gen })
+        }
+
+        "graph" => {
+            let sub = parts.get(1).map(|s| s.to_lowercase());
+            match sub.as_deref() {
+                Some("focus") => {
+                    // "graph focus <num> [gen]" — third part may be "num gen" or just "num"
+                    let rest = parts.get(2).ok_or("graph focus requires an object number")?;
+                    let rest_parts: Vec<&str> = rest.split_whitespace().collect();
+                    let obj_num = rest_parts
+                        .first()
+                        .ok_or("graph focus requires an object number")?
+                        .parse::<u32>()
+                        .map_err(|_| "Invalid object number")?;
+                    let gen = rest_parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
+                    Ok(Query::GraphFocus { obj: obj_num, gen })
+                }
+                _ => Err("Unknown graph subcommand. Try: graph focus <num> [gen]".to_string()),
+            }
+        }
+
+        "highlight" => {
+            let arg = parts.get(1).ok_or("highlight requires an argument like chain:<index>")?;
+            if let Some(rest) = arg.strip_prefix("chain:") {
+                let index = rest
+                    .parse::<usize>()
+                    .map_err(|_| "Invalid chain index")?;
+                Ok(Query::HighlightChain { index })
+            } else {
+                Err("Unknown highlight target. Try: highlight chain:<index>".to_string())
+            }
         }
 
         "help" | "?" => Ok(Query::Help),
@@ -516,6 +551,26 @@ pub fn execute_query(query: &Query, result: &AnalysisResult) -> QueryOutput {
 
         Query::Goto { obj, gen } => QueryOutput::Navigation { obj: *obj, gen: *gen },
 
+        Query::GraphFocus { obj, gen } => {
+            if result.object_data.index.contains_key(&(*obj, *gen)) {
+                QueryOutput::Text(format!("Graph focus: object {} {}", obj, gen))
+            } else {
+                QueryOutput::Error(format!("Object {} {} not found", obj, gen))
+            }
+        }
+
+        Query::HighlightChain { index } => {
+            if *index < result.report.chains.len() {
+                QueryOutput::Text(format!("Highlighting chain {}", index))
+            } else {
+                QueryOutput::Error(format!(
+                    "Chain index {} out of range (0..{})",
+                    index,
+                    result.report.chains.len()
+                ))
+            }
+        }
+
         Query::Help => QueryOutput::Text(
             "Available queries:\n\
                  \n\
@@ -530,6 +585,7 @@ pub fn execute_query(query: &Query, result: &AnalysisResult) -> QueryOutput {
                  Filtered: javascript, urls, embedded\n\
                  XRef:     xref, xref.count, xref.sections\n\
                  Navigate: goto <num> [gen]\n\
+                 Graph:    graph focus <num> [gen], highlight chain:<index>\n\
                  Help:     help, ?"
                 .to_string(),
         ),
@@ -619,6 +675,9 @@ pub fn query_names() -> &'static [&'static str] {
         "xref.sections",
         "goto",
         "go",
+        "graph",
+        "graph focus",
+        "highlight",
         "help",
     ]
 }
@@ -688,5 +747,39 @@ mod tests {
     fn parse_case_insensitive() {
         assert_eq!(parse_query("PAGES").unwrap(), Query::Pages);
         assert_eq!(parse_query("Objects").unwrap(), Query::Objects);
+    }
+
+    #[test]
+    fn parse_graph_focus() {
+        assert_eq!(
+            parse_query("graph focus 5").unwrap(),
+            Query::GraphFocus { obj: 5, gen: 0 }
+        );
+        assert_eq!(
+            parse_query("graph focus 5 1").unwrap(),
+            Query::GraphFocus { obj: 5, gen: 1 }
+        );
+    }
+
+    #[test]
+    fn parse_highlight_chain() {
+        assert_eq!(
+            parse_query("highlight chain:0").unwrap(),
+            Query::HighlightChain { index: 0 }
+        );
+        assert_eq!(
+            parse_query("highlight chain:3").unwrap(),
+            Query::HighlightChain { index: 3 }
+        );
+    }
+
+    #[test]
+    fn parse_graph_unknown_subcommand() {
+        assert!(parse_query("graph unknown").is_err());
+    }
+
+    #[test]
+    fn parse_highlight_invalid() {
+        assert!(parse_query("highlight foo").is_err());
     }
 }

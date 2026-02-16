@@ -1,8 +1,12 @@
 use crate::analysis::AnalysisResult;
 use crate::app::{HexViewState, SeverityFilters, SortState};
+use crate::panels::graph::GraphViewerState;
 use crate::query::QueryOutput;
 
-/// Maximum number of open tabs.
+/// Maximum number of open tabs: 5 on native, 3 on WASM.
+#[cfg(not(target_arch = "wasm32"))]
+pub const MAX_TABS: usize = 5;
+#[cfg(target_arch = "wasm32")]
 pub const MAX_TABS: usize = 3;
 
 /// Per-tab workspace state, stored when the tab is not active.
@@ -27,4 +31,7 @@ pub struct WorkspaceContext {
     pub command_history: Vec<String>,
     pub command_results: Vec<QueryOutput>,
     pub tab_name: String,
+    pub show_graph: bool,
+    pub graph_state: GraphViewerState,
+    pub selected_chain: Option<usize>,
 }

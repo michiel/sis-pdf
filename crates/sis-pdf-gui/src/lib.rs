@@ -3,11 +3,16 @@
 pub mod analysis;
 #[cfg(feature = "gui")]
 pub mod app;
+pub mod graph_data;
+pub mod graph_layout;
 pub mod hex_format;
 pub mod object_data;
 #[cfg(feature = "gui")]
 pub mod panels;
 pub mod query;
+#[cfg(feature = "gui")]
+pub mod shortcuts;
+pub mod telemetry;
 #[cfg(feature = "gui")]
 pub mod workspace;
 

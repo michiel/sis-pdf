@@ -28,10 +28,20 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             app.show_hex = !app.show_hex;
         }
 
+        if ui.selectable_label(app.show_graph, "Graph").clicked() {
+            app.show_graph = !app.show_graph;
+        }
+
         ui.separator();
 
         if ui.selectable_label(app.show_command_bar, "Command").clicked() {
             app.show_command_bar = !app.show_command_bar;
+        }
+
+        ui.separator();
+
+        if ui.selectable_label(app.show_telemetry, "Debug").clicked() {
+            app.show_telemetry = !app.show_telemetry;
         }
     });
 }

@@ -79,18 +79,43 @@ fn execute_command(app: &mut SisApp) {
     };
 
     match query::parse_query(&input) {
-        Ok(query) => {
-            let output = query::execute_query(&query, result);
-            // Handle navigation outputs
-            match &output {
-                QueryOutput::Navigation { obj, gen } => {
-                    app.navigate_to_object(*obj, *gen);
-                    app.show_objects = true;
+        Ok(ref parsed_query) => {
+            // Handle GUI-specific commands before executing
+            match parsed_query {
+                query::Query::GraphFocus { obj, gen } => {
+                    app.show_graph = true;
+                    // Find the node in the graph and select it
+                    if let Some(ref graph) = app.graph_state.graph {
+                        if let Some(&idx) = graph.node_index.get(&(*obj, *gen)) {
+                            app.graph_state.selected_node = Some(idx);
+                        }
+                    }
                     app.command_results
-                        .push(QueryOutput::Text(format!("Navigated to object {} {}", obj, gen)));
+                        .push(QueryOutput::Text(format!("Graph focused on object {} {}", obj, gen)));
+                }
+                query::Query::HighlightChain { index } => {
+                    app.selected_chain = Some(*index);
+                    app.show_graph = true;
+                    app.graph_state.chain_filter = true;
+                    app.command_results
+                        .push(QueryOutput::Text(format!("Highlighting chain {}", index)));
                 }
                 _ => {
-                    app.command_results.push(output);
+                    let output = query::execute_query(parsed_query, result);
+                    // Handle navigation outputs
+                    match &output {
+                        QueryOutput::Navigation { obj, gen } => {
+                            app.navigate_to_object(*obj, *gen);
+                            app.show_objects = true;
+                            app.command_results.push(QueryOutput::Text(format!(
+                                "Navigated to object {} {}",
+                                obj, gen
+                            )));
+                        }
+                        _ => {
+                            app.command_results.push(output);
+                        }
+                    }
                 }
             }
         }

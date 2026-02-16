@@ -1,0 +1,265 @@
+use crate::graph_data::GraphData;
+
+/// Incremental Fruchterman-Reingold force-directed layout.
+pub struct LayoutState {
+    /// Layout area width.
+    area_w: f64,
+    /// Layout area height.
+    area_h: f64,
+    /// Current temperature (controls step size; decreases over iterations).
+    temperature: f64,
+    /// Initial temperature.
+    initial_temperature: f64,
+    /// Maximum number of iterations before the layout is considered done.
+    max_iterations: usize,
+    /// Iterations completed so far.
+    iterations_done: usize,
+    /// Ideal edge length (derived from area and node count).
+    k: f64,
+}
+
+impl LayoutState {
+    /// Create a new layout state for a graph with `node_count` nodes.
+    pub fn new(node_count: usize) -> Self {
+        let area_w = 800.0;
+        let area_h = 600.0;
+        let area = area_w * area_h;
+        let k = if node_count > 0 {
+            (area / node_count as f64).sqrt()
+        } else {
+            1.0
+        };
+        let temperature = area_w / 4.0;
+        let max_iterations = 200;
+
+        Self {
+            area_w,
+            area_h,
+            temperature,
+            initial_temperature: temperature,
+            max_iterations,
+            iterations_done: 0,
+            k,
+        }
+    }
+
+    /// Run `iterations` steps of the layout algorithm.
+    /// Returns `true` when the layout is finished (all iterations done or
+    /// temperature has cooled below threshold).
+    pub fn step(&mut self, graph: &mut GraphData, iterations: usize) -> bool {
+        let n = graph.nodes.len();
+        if n == 0 {
+            return true;
+        }
+
+        for _ in 0..iterations {
+            if self.is_complete() {
+                return true;
+            }
+            self.one_iteration(graph);
+        }
+
+        self.is_complete()
+    }
+
+    /// Whether the layout is complete.
+    pub fn is_complete(&self) -> bool {
+        self.iterations_done >= self.max_iterations || self.temperature < 0.5
+    }
+
+    /// Number of iterations completed so far.
+    pub fn iterations_done(&self) -> usize {
+        self.iterations_done
+    }
+
+    /// Assign deterministic initial positions (spiral layout).
+    pub fn initialise_positions(&self, graph: &mut GraphData) {
+        let n = graph.nodes.len();
+        if n == 0 {
+            return;
+        }
+
+        let cx = self.area_w / 2.0;
+        let cy = self.area_h / 2.0;
+
+        if n == 1 {
+            graph.nodes[0].position = [cx, cy];
+            return;
+        }
+
+        // Spiral layout: evenly-spaced angular steps with increasing radius
+        let max_radius = self.area_w.min(self.area_h) * 0.4;
+        for (i, node) in graph.nodes.iter_mut().enumerate() {
+            let t = i as f64 / n as f64;
+            let angle = t * 6.0 * std::f64::consts::PI; // ~3 full turns
+            let radius = max_radius * t;
+            node.position = [cx + radius * angle.cos(), cy + radius * angle.sin()];
+        }
+    }
+
+    /// Run a single iteration of the Fruchterman-Reingold algorithm.
+    fn one_iteration(&mut self, graph: &mut GraphData) {
+        let n = graph.nodes.len();
+        let k = self.k;
+        let k_sq = k * k;
+
+        // Displacement accumulator
+        let mut disp = vec![[0.0f64; 2]; n];
+
+        // Repulsive forces: O(n^2)
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let dx = graph.nodes[i].position[0] - graph.nodes[j].position[0];
+                let dy = graph.nodes[i].position[1] - graph.nodes[j].position[1];
+                let dist_sq = dx * dx + dy * dy;
+                let dist = dist_sq.sqrt().max(0.01);
+                let force = k_sq / dist;
+                let fx = (dx / dist) * force;
+                let fy = (dy / dist) * force;
+                disp[i][0] += fx;
+                disp[i][1] += fy;
+                disp[j][0] -= fx;
+                disp[j][1] -= fy;
+            }
+        }
+
+        // Attractive forces along edges
+        for edge in &graph.edges {
+            let dx = graph.nodes[edge.from_idx].position[0] - graph.nodes[edge.to_idx].position[0];
+            let dy = graph.nodes[edge.from_idx].position[1] - graph.nodes[edge.to_idx].position[1];
+            let dist = (dx * dx + dy * dy).sqrt().max(0.01);
+            let force = dist * dist / k;
+            let fx = (dx / dist) * force;
+            let fy = (dy / dist) * force;
+            disp[edge.from_idx][0] -= fx;
+            disp[edge.from_idx][1] -= fy;
+            disp[edge.to_idx][0] += fx;
+            disp[edge.to_idx][1] += fy;
+        }
+
+        // Apply displacements, limited by temperature
+        for (i, node) in graph.nodes.iter_mut().enumerate() {
+            let dx = disp[i][0];
+            let dy = disp[i][1];
+            let dist = (dx * dx + dy * dy).sqrt().max(0.01);
+            let scale = self.temperature.min(dist) / dist;
+            node.position[0] += dx * scale;
+            node.position[1] += dy * scale;
+
+            // Clamp to layout area with a small margin
+            let margin = 20.0;
+            node.position[0] = node.position[0].clamp(margin, self.area_w - margin);
+            node.position[1] = node.position[1].clamp(margin, self.area_h - margin);
+        }
+
+        // Cool down
+        self.iterations_done += 1;
+        let progress = self.iterations_done as f64 / self.max_iterations as f64;
+        self.temperature = self.initial_temperature * (1.0 - progress);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph_data::{GraphData, GraphEdge, GraphNode};
+    use std::collections::HashMap;
+
+    fn simple_graph() -> GraphData {
+        let nodes = vec![
+            GraphNode { obj: 1, gen: 0, obj_type: "catalog".to_string(), roles: vec![], position: [0.0, 0.0] },
+            GraphNode { obj: 2, gen: 0, obj_type: "page".to_string(), roles: vec![], position: [0.0, 0.0] },
+            GraphNode { obj: 3, gen: 0, obj_type: "action".to_string(), roles: vec![], position: [0.0, 0.0] },
+        ];
+        let edges = vec![
+            GraphEdge { from_idx: 0, to_idx: 1, suspicious: false },
+            GraphEdge { from_idx: 0, to_idx: 2, suspicious: false },
+        ];
+        let mut node_index = HashMap::new();
+        for (i, n) in nodes.iter().enumerate() {
+            node_index.insert((n.obj, n.gen), i);
+        }
+        GraphData { nodes, edges, node_index }
+    }
+
+    #[test]
+    fn layout_converges() {
+        let mut graph = simple_graph();
+        let mut layout = LayoutState::new(graph.nodes.len());
+        layout.initialise_positions(&mut graph);
+
+        // Run all iterations
+        let done = layout.step(&mut graph, 300);
+        assert!(done);
+        assert!(layout.is_complete());
+    }
+
+    #[test]
+    fn positions_are_finite_after_layout() {
+        let mut graph = simple_graph();
+        let mut layout = LayoutState::new(graph.nodes.len());
+        layout.initialise_positions(&mut graph);
+        layout.step(&mut graph, 200);
+
+        for node in &graph.nodes {
+            assert!(node.position[0].is_finite(), "x not finite for obj {}", node.obj);
+            assert!(node.position[1].is_finite(), "y not finite for obj {}", node.obj);
+        }
+    }
+
+    #[test]
+    fn initial_positions_are_spread() {
+        let mut graph = simple_graph();
+        let layout = LayoutState::new(graph.nodes.len());
+        layout.initialise_positions(&mut graph);
+
+        // All positions should be different
+        let positions: Vec<[f64; 2]> = graph.nodes.iter().map(|n| n.position).collect();
+        for i in 0..positions.len() {
+            for j in (i + 1)..positions.len() {
+                let dx = positions[i][0] - positions[j][0];
+                let dy = positions[i][1] - positions[j][1];
+                let dist = (dx * dx + dy * dy).sqrt();
+                assert!(dist > 1.0, "nodes {} and {} too close: {}", i, j, dist);
+            }
+        }
+    }
+
+    #[test]
+    fn empty_graph_completes_immediately() {
+        let mut graph = GraphData::default();
+        let mut layout = LayoutState::new(0);
+        layout.initialise_positions(&mut graph);
+        assert!(layout.step(&mut graph, 1));
+    }
+
+    #[test]
+    fn single_node_centred() {
+        let nodes = vec![
+            GraphNode { obj: 1, gen: 0, obj_type: "catalog".to_string(), roles: vec![], position: [0.0, 0.0] },
+        ];
+        let mut node_index = HashMap::new();
+        node_index.insert((1, 0), 0);
+        let mut graph = GraphData { nodes, edges: vec![], node_index };
+        let layout = LayoutState::new(1);
+        layout.initialise_positions(&mut graph);
+        assert!((graph.nodes[0].position[0] - 400.0).abs() < 0.01);
+        assert!((graph.nodes[0].position[1] - 300.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn incremental_step_progresses() {
+        let mut graph = simple_graph();
+        let mut layout = LayoutState::new(graph.nodes.len());
+        layout.initialise_positions(&mut graph);
+
+        // Run 5 iterations
+        let done = layout.step(&mut graph, 5);
+        assert!(!done);
+        assert_eq!(layout.iterations_done(), 5);
+
+        // Run 5 more
+        layout.step(&mut graph, 5);
+        assert_eq!(layout.iterations_done(), 10);
+    }
+}

@@ -1,4 +1,5 @@
 use crate::analysis::{AnalysisError, AnalysisResult};
+use crate::telemetry::TelemetryLog;
 use crate::workspace::{self, WorkspaceContext};
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
@@ -46,6 +47,12 @@ pub struct SisApp {
     pub severity_filters: SeverityFilters,
     /// Current sort column and direction.
     pub sort: SortState,
+    /// Whether to show the graph viewer.
+    pub show_graph: bool,
+    /// Graph viewer state.
+    pub graph_state: crate::panels::graph::GraphViewerState,
+    /// Currently selected chain index (for graph highlighting).
+    pub selected_chain: Option<usize>,
 
     // --- Multi-tab state ---
     /// Inactive workspaces (all tabs except the active one).
@@ -60,6 +67,12 @@ pub struct SisApp {
     // --- Global state ---
     /// Current error, if analysis failed.
     pub error: Option<AnalysisError>,
+    /// Telemetry log (global, not per-tab).
+    pub telemetry: TelemetryLog,
+    /// Whether to show the telemetry debug panel.
+    pub show_telemetry: bool,
+    /// Elapsed time since app start, in seconds.
+    pub elapsed_time: f64,
     #[cfg(target_arch = "wasm32")]
     pending_upload: Rc<RefCell<Option<(String, Vec<u8>)>>>,
 }
@@ -142,10 +155,16 @@ impl SisApp {
             command_results: Vec::new(),
             severity_filters: SeverityFilters::default(),
             sort: SortState::default(),
+            show_graph: false,
+            graph_state: crate::panels::graph::GraphViewerState::default(),
+            selected_chain: None,
             inactive_workspaces: Vec::new(),
             active_tab: 0,
             tab_count: 0,
             active_tab_name: String::new(),
+            telemetry: TelemetryLog::new(),
+            show_telemetry: false,
+            elapsed_time: 0.0,
             #[cfg(target_arch = "wasm32")]
             pending_upload: Rc::new(RefCell::new(None)),
         }
@@ -154,9 +173,17 @@ impl SisApp {
     /// Process a dropped file: run analysis and open as a new tab.
     pub fn handle_file_drop(&mut self, name: String, bytes: &[u8]) {
         self.error = None;
+        let file_size = bytes.len();
 
         match crate::analysis::analyze(bytes, &name) {
             Ok(result) => {
+                self.telemetry.record(
+                    self.elapsed_time,
+                    crate::telemetry::TelemetryEventKind::FileOpened {
+                        file_name: name.clone(),
+                        file_size,
+                    },
+                );
                 // Save the current active workspace (if any) before switching
                 self.save_active_workspace();
 
@@ -184,6 +211,9 @@ impl SisApp {
                 self.show_chains = false;
                 self.show_metadata = false;
                 self.show_objects = false;
+                self.show_graph = false;
+                self.graph_state = crate::panels::graph::GraphViewerState::default();
+                self.selected_chain = None;
                 self.severity_filters = SeverityFilters::default();
                 self.sort = SortState::default();
 
@@ -221,6 +251,9 @@ impl SisApp {
                 command_history: std::mem::take(&mut self.command_history),
                 command_results: std::mem::take(&mut self.command_results),
                 tab_name: std::mem::take(&mut self.active_tab_name),
+                show_graph: self.show_graph,
+                graph_state: std::mem::take(&mut self.graph_state),
+                selected_chain: self.selected_chain.take(),
             };
             self.inactive_workspaces.push(ws);
         }
@@ -252,6 +285,9 @@ impl SisApp {
         self.command_history = ws.command_history;
         self.command_results = ws.command_results;
         self.active_tab_name = ws.tab_name;
+        self.show_graph = ws.show_graph;
+        self.graph_state = ws.graph_state;
+        self.selected_chain = ws.selected_chain;
     }
 
     /// Switch to a different tab by index.
@@ -259,6 +295,13 @@ impl SisApp {
         if tab_index == self.active_tab {
             return;
         }
+        self.telemetry.record(
+            self.elapsed_time,
+            crate::telemetry::TelemetryEventKind::TabSwitched {
+                from: self.active_tab,
+                to: tab_index,
+            },
+        );
         // Save current active as inactive
         self.save_active_workspace();
 
@@ -495,6 +538,11 @@ impl SisApp {
 
 impl eframe::App for SisApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Record frame time for telemetry
+        let dt = ctx.input(|i| i.stable_dt as f64);
+        self.elapsed_time += dt;
+        self.telemetry.record_frame_time(dt);
+
         #[cfg(target_arch = "wasm32")]
         {
             let maybe_upload = self.pending_upload.borrow_mut().take();
@@ -520,6 +568,9 @@ impl eframe::App for SisApp {
                 }
             }
         }
+
+        // Handle keyboard shortcuts (after file drops, before panel rendering)
+        crate::shortcuts::handle_shortcuts(ctx, self);
 
         if self.result.is_some() {
             // Top: tab bar + summary
@@ -561,6 +612,14 @@ impl eframe::App for SisApp {
 
             if self.show_hex {
                 crate::panels::hex_viewer::show(ctx, self);
+            }
+
+            if self.show_graph {
+                crate::panels::graph::show(ctx, self);
+            }
+
+            if self.show_telemetry {
+                crate::panels::telemetry_debug::show(ctx, self);
             }
 
             // Command bar (bottom panels, rendered before central to claim space)
