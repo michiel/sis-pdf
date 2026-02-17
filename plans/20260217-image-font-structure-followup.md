@@ -282,8 +282,11 @@ Close remaining high-value gaps after initial image/font structural hardening, w
   - `parse: 0ms`
   - `detection: 1ms`
   - `resource_usage_semantics` detector runtime: `0ms` on the baseline fixture
+- Added corpus regression guardrails in `crates/sis-pdf-core/tests/corpus_captured_regressions.rs` asserting modern captured fixtures do not silently start emitting the new image/font structural follow-up kinds.
+- Verified corpus baseline suite with:
+  `cargo test -p sis-pdf-core --test corpus_captured_regressions -- --nocapture`
 - Remaining Stage 9 work:
-  - Add corpus-captured fixtures that intentionally exercise new image/font structural findings and update manifest provenance.
+  - Add corpus-captured fixtures that intentionally exercise positive image/font structural follow-up findings and update manifest provenance.
   - Record runtime-profile baseline deltas for at least one modern structural fixture using `sis scan <fixture> --deep --runtime-profile --runtime-profile-format json`.
 6. `cargo test -p sis-pdf batch_query_supports_findings_composite_predicate -- --nocapture`
 7. `cargo test -p sis-pdf execute_query_supports_findings_composite_predicate -- --nocapture`

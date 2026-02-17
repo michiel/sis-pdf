@@ -53,6 +53,41 @@ fn meta_as_u32(finding: &sis_pdf_core::model::Finding, key: &str) -> u32 {
         .unwrap_or_else(|_| panic!("metadata key {key} should be numeric"))
 }
 
+fn assert_no_image_font_structural_followup_findings(
+    report: &sis_pdf_core::report::Report,
+    fixture_label: &str,
+) {
+    let followup_kinds = [
+        "resource.declared_but_unused",
+        "resource.hidden_invocation_pattern",
+        "resource.operator_usage_anomalous",
+        "resource.inheritance_conflict_font",
+        "resource.inheritance_conflict_xobject",
+        "resource.inheritance_override_suspicious",
+        "resource.override_outside_signature_scope",
+        "image.override_outside_signature_scope",
+        "font.override_outside_signature_scope",
+        "image.inline_structure_filter_chain_inconsistent",
+        "image.inline_decode_array_invalid",
+        "image.inline_mask_inconsistent",
+        "font.type3_charproc_complexity_high",
+        "font.type3_charproc_resource_abuse",
+        "font.type3_charproc_recursion_like_pattern",
+        "font.cmap_range_overlap",
+        "font.cmap_cardinality_anomalous",
+        "font.cmap_subtype_inconsistent",
+        "composite.decode_amplification_chain",
+        "composite.resource_overrides_with_decoder_pressure",
+    ];
+
+    for kind in followup_kinds {
+        assert!(
+            report.findings.iter().all(|finding| finding.kind != kind),
+            "{fixture_label} unexpectedly emitted follow-up finding kind: {kind}"
+        );
+    }
+}
+
 fn corpus_captured_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/corpus_captured")
 }
@@ -168,6 +203,8 @@ fn corpus_captured_modern_openaction_staged_baseline_stays_stable() {
     let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
     assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
     assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
+
+    assert_no_image_font_structural_followup_findings(&report, "modern-openaction-staged");
 }
 
 #[test]
@@ -198,6 +235,8 @@ fn corpus_captured_modern_renderer_revision_baseline_stays_stable() {
     let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
     assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
     assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
+
+    assert_no_image_font_structural_followup_findings(&report, "modern-renderer-revision");
 }
 
 #[test]
