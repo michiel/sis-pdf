@@ -97,6 +97,34 @@ fn build_unknown_operator_fixture() -> Vec<u8> {
     build_pdf(&objects, 5)
 }
 
+fn build_non_content_cmap_fixture() -> Vec<u8> {
+    let page_stream_payload = "BT /F1 12 Tf (ok) Tj ET\n";
+    let cmap_payload = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\nendcmap\nend\n";
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
+            .to_string(),
+        format!(
+            "4 0 obj\n<< /Length {} >>\nstream\n{}endstream\nendobj\n",
+            page_stream_payload.len(),
+            page_stream_payload
+        ),
+        "5 0 obj\n<< /Type /Font /Subtype /Type0 /BaseFont /Dummy /Encoding /Identity-H /DescendantFonts [6 0 R] /ToUnicode 8 0 R >>\nendobj\n"
+            .to_string(),
+        "6 0 obj\n<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Dummy /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 7 0 R >>\nendobj\n"
+            .to_string(),
+        "7 0 obj\n<< /Type /FontDescriptor /FontName /Dummy /Flags 4 /FontBBox [0 -200 1000 900] /Ascent 800 /Descent -200 /CapHeight 700 /ItalicAngle 0 /StemV 80 >>\nendobj\n"
+            .to_string(),
+        format!(
+            "8 0 obj\n<< /Length {} >>\nstream\n{}endstream\nendobj\n",
+            cmap_payload.len(),
+            cmap_payload
+        ),
+    ];
+    build_pdf(&objects, 9)
+}
+
 #[test]
 fn detects_parser_divergence_findings() {
     let bytes = build_divergence_fixture();
@@ -149,4 +177,17 @@ fn unknown_operator_records_unknown_op_metadata() {
     let list =
         finding.meta.get("content.unknown_op_list").expect("unknown op list should be present");
     assert!(list.contains("XYZ"));
+}
+
+#[test]
+fn non_content_cmap_stream_does_not_raise_content_stream_anomaly() {
+    let bytes = build_non_content_cmap_fixture();
+    let detectors = default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+    assert!(
+        report.findings.iter().all(|finding| finding.kind != "content_stream_anomaly"),
+        "non-page content streams like ToUnicode CMaps should not trigger content_stream_anomaly"
+    );
 }

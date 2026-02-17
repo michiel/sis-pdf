@@ -53,7 +53,7 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
     }
 
     let options = ScanOptions {
-        deep: false,
+        deep: true,
         max_decode_bytes: MAX_DECODE_BYTES,
         max_total_decoded_bytes: MAX_TOTAL_DECODED_BYTES,
         recover_xref: true,

@@ -3,10 +3,11 @@ use sha2::{Digest, Sha256};
 use sis_pdf_core::canonical::canonical_filter_chain;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
+use sis_pdf_core::page_tree::build_page_tree;
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::content::{parse_content_ops, ContentOperand};
-use sis_pdf_pdf::object::PdfAtom;
+use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStream};
 
 use crate::entry_dict;
 
@@ -114,6 +115,7 @@ impl Detector for ParserDivergenceDetector {
             divergence_reasons.push("duplicate_stream_filters".to_string());
         }
 
+        let content_stream_ids = collect_content_stream_ids(ctx);
         for entry in &ctx.graph.objects {
             if timeout.check().is_err() {
                 break;
@@ -121,12 +123,7 @@ impl Detector for ParserDivergenceDetector {
             let PdfAtom::Stream(stream) = &entry.atom else {
                 continue;
             };
-            let Some(dict) = entry_dict(entry) else {
-                continue;
-            };
-            let likely_content_stream = dict.get_first(b"/Length").is_some()
-                && (dict.get_first(b"/Filter").is_none() || dict.get_first(b"/Type").is_none());
-            if !likely_content_stream {
+            if !content_stream_ids.contains(&(entry.obj, entry.gen)) {
                 continue;
             }
             let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, stream) else {
@@ -395,6 +392,121 @@ fn is_known_content_operator(operator: &str) -> bool {
 enum OperatorIssue {
     Arity,
     Type(&'static str),
+}
+
+fn collect_content_stream_ids(
+    ctx: &sis_pdf_core::scan::ScanContext<'_>,
+) -> std::collections::HashSet<(u32, u16)> {
+    let mut ids = std::collections::HashSet::new();
+    let page_tree = build_page_tree(&ctx.graph);
+    for page in &page_tree.pages {
+        let Some(page_entry) = ctx.graph.get_object(page.obj, page.gen) else {
+            continue;
+        };
+        let Some(page_dict) = entry_dict(page_entry) else {
+            continue;
+        };
+        for stream in page_content_streams(ctx, page_dict) {
+            if let Some((obj, gen)) = stream_object_ref(ctx, &stream) {
+                ids.insert((obj, gen));
+            }
+        }
+    }
+    ids.extend(type3_charproc_stream_ids(ctx));
+    ids
+}
+
+fn page_content_streams<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
+    dict: &PdfDict<'a>,
+) -> Vec<PdfStream<'a>> {
+    let mut out = Vec::new();
+    if let Some((_, obj)) = dict.get_first(b"/Contents") {
+        match &obj.atom {
+            PdfAtom::Stream(st) => out.push(st.clone()),
+            PdfAtom::Array(arr) => {
+                for o in arr {
+                    if let Some(st) = resolve_stream(ctx, o) {
+                        out.push(st);
+                    }
+                }
+            }
+            _ => {
+                if let Some(st) = resolve_stream(ctx, obj) {
+                    out.push(st);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn type3_charproc_stream_ids(
+    ctx: &sis_pdf_core::scan::ScanContext<'_>,
+) -> std::collections::HashSet<(u32, u16)> {
+    let mut ids = std::collections::HashSet::new();
+    for entry in &ctx.graph.objects {
+        let Some(dict) = entry_dict(entry) else {
+            continue;
+        };
+        if !dict.has_name(b"/Subtype", b"/Type3") {
+            continue;
+        }
+        let Some((_, charprocs_obj)) = dict.get_first(b"/CharProcs") else {
+            continue;
+        };
+        let Some(charprocs_dict) = resolve_dict(ctx, charprocs_obj) else {
+            continue;
+        };
+        for (_, glyph_obj) in &charprocs_dict.entries {
+            if let Some(st) = resolve_stream(ctx, glyph_obj) {
+                if let Some((obj, gen)) = stream_object_ref(ctx, &st) {
+                    ids.insert((obj, gen));
+                }
+            }
+        }
+    }
+    ids
+}
+
+fn stream_object_ref(
+    ctx: &sis_pdf_core::scan::ScanContext<'_>,
+    stream: &PdfStream<'_>,
+) -> Option<(u32, u16)> {
+    ctx.graph.objects.iter().find_map(|entry| match &entry.atom {
+        PdfAtom::Stream(st) if st.data_span == stream.data_span => Some((entry.obj, entry.gen)),
+        _ => None,
+    })
+}
+
+fn resolve_stream<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
+    obj: &PdfObj<'a>,
+) -> Option<PdfStream<'a>> {
+    match &obj.atom {
+        PdfAtom::Stream(st) => Some(st.clone()),
+        PdfAtom::Ref { .. } => ctx.graph.resolve_ref(obj).and_then(|e| match &e.atom {
+            PdfAtom::Stream(st) => Some(st.clone()),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+fn resolve_dict<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
+    obj: &PdfObj<'a>,
+) -> Option<PdfDict<'a>> {
+    match &obj.atom {
+        PdfAtom::Dict(dict) => Some(dict.clone()),
+        PdfAtom::Ref { .. } => ctx.graph.resolve_ref(obj).and_then(|entry| match &entry.atom {
+            PdfAtom::Dict(dict) => Some(dict.clone()),
+            PdfAtom::Stream(stream) => Some(stream.dict.clone()),
+            _ => None,
+        }),
+        PdfAtom::Stream(stream) => Some(stream.dict.clone()),
+        _ => None,
+    }
 }
 
 fn validate_operator_operands(op: &str, operands: &[ContentOperand]) -> Option<OperatorIssue> {
