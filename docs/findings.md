@@ -3717,11 +3717,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 
 - ID: `content_stream_anomaly`
 - Label: Content stream syntax anomaly
-- Description: Decoded content stream contains unknown operators or suspicious operand counts.
+- Description: Decoded content stream includes explicit unknown operator, operand arity, or operand type mismatch counts.
 - Tags: content, evasion, parser
 - Details:
   - Relevance: malformed content streams can render differently across readers.
-  - Meaning: operator set or operand arity deviates from expected content syntax.
+  - Meaning: operator set or operand validation (arity/type) deviates from expected content syntax.
   - Chain usage: parser-divergence signal for triage and replay.
 
 ## signature_present

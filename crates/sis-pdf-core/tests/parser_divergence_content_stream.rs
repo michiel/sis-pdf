@@ -88,17 +88,9 @@ fn content_stream_anomaly_reports_unknown_operator_metadata() {
     assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Probable);
     assert_eq!(finding.impact, Some(sis_pdf_core::model::Impact::Low));
     assert_eq!(finding.meta.get("content.unknown_ops"), Some(&"1".to_string()));
-    assert_eq!(
-        finding.meta.get("content.arity_mismatches"),
-        Some(&"0".to_string())
-    );
-    assert_eq!(
-        finding.meta.get("content.type_mismatches"),
-        Some(&"0".to_string())
-    );
-    let unknown_list = finding
-        .meta
-        .get("content.unknown_op_list")
-        .expect("unknown op list should be present");
+    assert_eq!(finding.meta.get("content.arity_mismatches"), Some(&"0".to_string()));
+    assert_eq!(finding.meta.get("content.type_mismatches"), Some(&"0".to_string()));
+    let unknown_list =
+        finding.meta.get("content.unknown_op_list").expect("unknown op list should be present");
     assert!(unknown_list.contains("XYZ"));
 }

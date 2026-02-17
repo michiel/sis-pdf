@@ -198,6 +198,13 @@ impl Detector for ParserDivergenceDetector {
             if !type_sample_list.is_empty() {
                 meta.insert("content.type_mismatch_list".into(), type_sample_list.join(","));
             }
+            let mut description = format!(
+                "Decoded content stream produced {} operators with {} unknown operators, {} operand arity mismatches, and {} operand type mismatches.",
+                ops.len(), unknown_ops, arity_mismatches, type_mismatches
+            );
+            if !samples.is_empty() {
+                description.push_str(&format!(" Sample signals: {}.", samples.join(", ")));
+            }
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::FileStructure,
@@ -210,9 +217,7 @@ impl Detector for ParserDivergenceDetector {
                 confidence: Confidence::Probable,
                 impact: Some(Impact::Low),
                 title: "Content stream syntax anomaly".into(),
-                description:
-                    "Decoded content stream contains unknown operators or suspicious operand counts that can yield parser-dependent rendering."
-                        .into(),
+                description,
                 objects: vec![object_ref],
                 evidence: vec![span_to_evidence(stream.data_span, "Decoded content stream")],
                 remediation: Some(
