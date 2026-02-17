@@ -8,6 +8,10 @@ use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr};
 
 /// Maximum bytes to attempt decoding per stream for display purposes.
 const MAX_STREAM_DECODE: usize = 64 * 1024; // 64 KB
+/// Hard limits for GUI image previews from hostile documents.
+const MAX_PREVIEW_PIXELS: u64 = 16_000_000;
+const MAX_PREVIEW_RGBA_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_PREVIEW_DECODE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Owned summary of all objects extracted from a parsed PDF.
 ///
@@ -383,14 +387,55 @@ fn reconstruct_image_preview(
 #[cfg(feature = "gui")]
 fn decode_jpeg_preview(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     use image::GenericImageView;
+    use image::ImageDecoder;
+    use std::io::Cursor;
 
-    let img = image::load_from_memory_with_format(data, image::ImageFormat::Jpeg).ok()?;
-    let (w, h) = img.dimensions();
+    let decoder = image::codecs::jpeg::JpegDecoder::new(Cursor::new(data)).ok()?;
+    let (w, h) = decoder.dimensions();
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let pixel_count = (w as u64).checked_mul(h as u64)?;
+    if pixel_count > MAX_PREVIEW_PIXELS {
+        return None;
+    }
+    let decode_bytes = decoder.total_bytes();
+    if decode_bytes > MAX_PREVIEW_DECODE_BYTES {
+        return None;
+    }
+    let color = decoder.color_type();
+    let mut decoded = vec![0u8; usize::try_from(decode_bytes).ok()?];
+    let decoder = image::codecs::jpeg::JpegDecoder::new(Cursor::new(data)).ok()?;
+    decoder.read_image(&mut decoded).ok()?;
+
+    let rgba = match color {
+        image::ColorType::L8 => {
+            let mut rgba = Vec::with_capacity(usize::try_from(pixel_count.checked_mul(4)?).ok()?);
+            for &v in &decoded {
+                rgba.extend_from_slice(&[v, v, v, 255]);
+            }
+            rgba
+        }
+        image::ColorType::Rgb8 => {
+            let mut rgba = Vec::with_capacity(usize::try_from(pixel_count.checked_mul(4)?).ok()?);
+            for chunk in decoded.chunks_exact(3) {
+                rgba.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+            }
+            rgba
+        }
+        _ => return None,
+    };
+
+    if (rgba.len() as u64) > MAX_PREVIEW_RGBA_BYTES {
+        return None;
+    }
+
+    let img = image::RgbaImage::from_raw(w, h, rgba)?;
     let max_dim = w.max(h);
     let thumb = if max_dim > 256 {
-        img.thumbnail(256, 256)
+        image::DynamicImage::ImageRgba8(img).thumbnail(256, 256)
     } else {
-        img
+        image::DynamicImage::ImageRgba8(img)
     };
     let (tw, th) = thumb.dimensions();
     let rgba = thumb.to_rgba8().into_raw();

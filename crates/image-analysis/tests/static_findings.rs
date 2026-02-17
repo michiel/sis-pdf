@@ -27,18 +27,13 @@ fn pdf_obj_int(value: i64) -> PdfObj<'static> {
     PdfObj { span: zero_span(), atom: PdfAtom::Int(value) }
 }
 
-fn make_image_stream(
-    dict_entries: Vec<(PdfName<'static>, PdfObj<'static>)>,
-) -> PdfStream<'static> {
+fn make_image_stream(dict_entries: Vec<(PdfName<'static>, PdfObj<'static>)>) -> PdfStream<'static> {
     let mut entries = vec![
         (pdf_name("/Type"), pdf_obj_name("/XObject")),
         (pdf_name("/Subtype"), pdf_obj_name("/Image")),
     ];
     entries.extend(dict_entries);
-    PdfStream {
-        dict: PdfDict { span: zero_span(), entries },
-        data_span: zero_span(),
-    }
+    PdfStream { dict: PdfDict { span: zero_span(), entries }, data_span: zero_span() }
 }
 
 fn make_graph(objects: Vec<ObjEntry<'static>>) -> (Vec<u8>, ObjectGraph<'static>) {
@@ -79,10 +74,8 @@ fn default_opts() -> ImageStaticOptions {
 #[test]
 fn colour_space_invalid_detected() {
     // Image with [/ICCBased] (missing stream ref)
-    let cs_array = PdfObj {
-        span: zero_span(),
-        atom: PdfAtom::Array(vec![pdf_obj_name("/ICCBased")]),
-    };
+    let cs_array =
+        PdfObj { span: zero_span(), atom: PdfAtom::Array(vec![pdf_obj_name("/ICCBased")]) };
     let stream = make_image_stream(vec![
         (pdf_name("/Width"), pdf_obj_int(10)),
         (pdf_name("/Height"), pdf_obj_int(10)),
@@ -204,6 +197,38 @@ fn decode_array_invalid_detected() {
 }
 
 #[test]
+fn decode_array_non_numeric_detected() {
+    let decode_arr = PdfObj {
+        span: zero_span(),
+        atom: PdfAtom::Array(vec![
+            PdfObj { span: zero_span(), atom: PdfAtom::Real(0.0) },
+            PdfObj { span: zero_span(), atom: PdfAtom::Name(pdf_name("/NotNumeric")) },
+        ]),
+    };
+    let stream = make_image_stream(vec![
+        (pdf_name("/Width"), pdf_obj_int(10)),
+        (pdf_name("/Height"), pdf_obj_int(10)),
+        (pdf_name("/BitsPerComponent"), pdf_obj_int(8)),
+        (pdf_name("/ColorSpace"), pdf_obj_name("/DeviceGray")),
+        (pdf_name("/Decode"), decode_arr),
+    ]);
+    let entry = make_entry(1, stream);
+    let (_, graph) = make_graph(vec![entry]);
+
+    let result = analyze_static_images(&graph, &default_opts());
+    assert!(
+        result.findings.iter().any(|f| {
+            f.kind == "image.decode_array_invalid"
+                && f.meta
+                    .get("image.decode_array_issue")
+                    .map(|issue| issue.starts_with("non_numeric_entry_at_index_"))
+                    .unwrap_or(false)
+        }),
+        "expected decode_array_invalid for non-numeric entry"
+    );
+}
+
+#[test]
 fn valid_image_produces_no_new_findings() {
     // A normal DeviceRGB image should not trigger any of the new findings
     let stream = make_image_stream(vec![
@@ -224,10 +249,6 @@ fn valid_image_produces_no_new_findings() {
         "image.decode_array_invalid",
     ];
     for kind in &new_kinds {
-        assert!(
-            !result.findings.iter().any(|f| f.kind == *kind),
-            "unexpected finding: {}",
-            kind
-        );
+        assert!(!result.findings.iter().any(|f| f.kind == *kind), "unexpected finding: {}", kind);
     }
 }

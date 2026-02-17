@@ -85,17 +85,15 @@ pub fn reconstruct_pixels(
         return Err(PixelError::UnsupportedColourSpace(format!("{:?}", cs)));
     }
 
-    let channels = cs.channels().ok_or_else(|| {
-        PixelError::UnsupportedColourSpace("unknown channel count".to_string())
-    })? as u64;
+    let channels = cs
+        .channels()
+        .ok_or_else(|| PixelError::UnsupportedColourSpace("unknown channel count".to_string()))?
+        as u64;
 
     // For Indexed colour spaces, each sample is a single palette index
     // and the number of source channels is 1 regardless of base
-    let source_channels: u64 = if matches!(cs, ResolvedColourSpace::Indexed { .. }) {
-        1
-    } else {
-        channels
-    };
+    let source_channels: u64 =
+        if matches!(cs, ResolvedColourSpace::Indexed { .. }) { 1 } else { channels };
 
     let bpc = dict_u32(dict, b"/BitsPerComponent").unwrap_or(8);
     if !matches!(bpc, 1 | 2 | 4 | 8) {
@@ -146,14 +144,8 @@ pub fn reconstruct_pixels(
     let decode_array = extract_decode_array(dict, source_channels as usize)?;
 
     // Unpack samples from stream data
-    let samples = unpack_samples(
-        decoded,
-        width,
-        height,
-        source_channels as u32,
-        bpc,
-        bytes_per_row as usize,
-    );
+    let samples =
+        unpack_samples(decoded, width, height, source_channels as u32, bpc, bytes_per_row as usize);
 
     // Apply /Decode array remapping if present
     let samples = if let Some(ref decode) = decode_array {
@@ -173,9 +165,10 @@ fn extract_decode_array(
     dict: &PdfDict<'_>,
     source_channels: usize,
 ) -> Result<Option<Vec<f64>>, PixelError> {
-    let Some(arr) = dict_f64_array(dict, b"/Decode") else {
+    let Some(arr_result) = dict_f64_array(dict, b"/Decode") else {
         return Ok(None);
     };
+    let arr = arr_result.map_err(PixelError::InvalidDecodeArray)?;
 
     let expected_len = source_channels * 2;
     if arr.len() != expected_len {
@@ -189,10 +182,7 @@ fn extract_decode_array(
     // Validate values are finite
     for (i, v) in arr.iter().enumerate() {
         if !v.is_finite() {
-            return Err(PixelError::InvalidDecodeArray(format!(
-                "non-finite value at index {}",
-                i
-            )));
+            return Err(PixelError::InvalidDecodeArray(format!("non-finite value at index {}", i)));
         }
     }
 
@@ -435,12 +425,7 @@ mod tests {
         }
     }
 
-    fn image_dict(
-        width: u32,
-        height: u32,
-        bpc: u32,
-        cs_name: &'static str,
-    ) -> PdfDict<'static> {
+    fn image_dict(width: u32, height: u32, bpc: u32, cs_name: &'static str) -> PdfDict<'static> {
         make_dict(vec![
             (pdf_name("/Width"), pdf_obj_int(width as i64)),
             (pdf_name("/Height"), pdf_obj_int(height as i64)),
@@ -496,7 +481,7 @@ mod tests {
         let data = vec![0b10101010];
         let result = reconstruct_pixels(&data, &dict, &graph).expect("should succeed");
         assert_eq!(result.rgba.len(), 32); // 8 pixels * 4 bytes
-        // First pixel: bit 7 = 1 -> 255
+                                           // First pixel: bit 7 = 1 -> 255
         assert_eq!(&result.rgba[0..4], &[255, 255, 255, 255]);
         // Second pixel: bit 6 = 0 -> 0
         assert_eq!(&result.rgba[4..8], &[0, 0, 0, 255]);

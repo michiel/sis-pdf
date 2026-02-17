@@ -7,7 +7,7 @@ use sis_pdf_pdf::ObjectGraph;
 
 use crate::colour_space::{resolve_colour_space, ResolvedColourSpace};
 use crate::pixel_buffer::MAX_PREVIEW_BUFFER_BYTES;
-use crate::util::{dict_u32, string_bytes};
+use crate::util::{dict_f64_array, dict_u32, string_bytes};
 use crate::{ImageFinding, ImageStaticOptions, ImageStaticResult};
 
 const DEFAULT_HEADER_BYTES: usize = 4096;
@@ -175,12 +175,16 @@ pub fn analyze_static_images(
                 } else {
                     channels as u64
                 };
-                let bits = (w as u64).checked_mul(h as u64).and_then(|v| v.checked_mul(ch)).and_then(|v| v.checked_mul(bpc_val));
+                let bits = (w as u64)
+                    .checked_mul(h as u64)
+                    .and_then(|v| v.checked_mul(ch))
+                    .and_then(|v| v.checked_mul(bpc_val));
                 let buffer_bytes = bits.map(|b| (b + 7) / 8);
                 if let Some(buf) = buffer_bytes {
                     if buf > MAX_PREVIEW_BUFFER_BYTES {
                         let mut overflow_meta = meta.clone();
-                        overflow_meta.insert("image.calculated_buffer_bytes".into(), buf.to_string());
+                        overflow_meta
+                            .insert("image.calculated_buffer_bytes".into(), buf.to_string());
                         overflow_meta.insert("image.channels".into(), ch.to_string());
                         overflow_meta.insert("image.bpc".into(), bpc_val.to_string());
                         findings.push(ImageFinding {
@@ -210,7 +214,10 @@ pub fn analyze_static_images(
             let expected_palette_bytes = (hival as usize + 1) * base_channels;
             if palette.len() < expected_palette_bytes {
                 let mut pal_meta = meta.clone();
-                pal_meta.insert("image.palette_expected_bytes".into(), expected_palette_bytes.to_string());
+                pal_meta.insert(
+                    "image.palette_expected_bytes".into(),
+                    expected_palette_bytes.to_string(),
+                );
                 pal_meta.insert("image.palette_actual_bytes".into(), palette.len().to_string());
                 pal_meta.insert("image.hival".into(), hival.to_string());
                 findings.push(ImageFinding {
@@ -230,13 +237,38 @@ pub fn analyze_static_images(
                 cs_val.channels().unwrap_or(0) as usize
             };
             if source_channels > 0 {
-                if let Some((_, decode_obj)) = stream.dict.get_first(b"/Decode") {
-                    if let PdfAtom::Array(arr) = &decode_obj.atom {
-                        let expected_len = source_channels * 2;
-                        if arr.len() != expected_len {
-                            let mut da_meta = meta.clone();
-                            da_meta.insert("image.decode_array_length".into(), arr.len().to_string());
-                            da_meta.insert("image.decode_array_expected_length".into(), expected_len.to_string());
+                if let Some(parsed_decode) = dict_f64_array(&stream.dict, b"/Decode") {
+                    let expected_len = source_channels * 2;
+                    let mut da_meta = meta.clone();
+                    match parsed_decode {
+                        Ok(values) => {
+                            if values.len() != expected_len {
+                                da_meta.insert(
+                                    "image.decode_array_length".into(),
+                                    values.len().to_string(),
+                                );
+                                da_meta.insert(
+                                    "image.decode_array_expected_length".into(),
+                                    expected_len.to_string(),
+                                );
+                                da_meta.insert(
+                                    "image.decode_array_issue".into(),
+                                    "length_mismatch".into(),
+                                );
+                                findings.push(ImageFinding {
+                                    kind: "image.decode_array_invalid".into(),
+                                    obj: entry.obj,
+                                    gen: entry.gen,
+                                    meta: da_meta,
+                                });
+                            }
+                        }
+                        Err(issue) => {
+                            da_meta.insert("image.decode_array_issue".into(), issue);
+                            da_meta.insert(
+                                "image.decode_array_expected_length".into(),
+                                expected_len.to_string(),
+                            );
                             findings.push(ImageFinding {
                                 kind: "image.decode_array_invalid".into(),
                                 obj: entry.obj,

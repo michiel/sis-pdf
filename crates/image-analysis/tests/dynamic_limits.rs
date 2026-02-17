@@ -42,6 +42,8 @@ fn make_image_entry(
         (pdf_name("/Subtype"), pdf_obj_name("/Image")),
         (pdf_name("/Width"), pdf_obj_int(width as i64)),
         (pdf_name("/Height"), pdf_obj_int(height as i64)),
+        (pdf_name("/ColorSpace"), pdf_obj_name("/DeviceGray")),
+        (pdf_name("/BitsPerComponent"), pdf_obj_int(8)),
     ];
     if let Some(filter_name) = filter {
         entries.push((
@@ -106,6 +108,19 @@ fn build_png_sample() -> Vec<u8> {
 }
 
 const MALFORMED_JPEG: &[u8] = b"\xff\xd8\xff\x00\x00\x01\x02";
+
+fn build_jpeg_with_app1(payload: &[u8]) -> Vec<u8> {
+    let max_payload = (u16::MAX as usize).saturating_sub(2);
+    let payload_len = payload.len().min(max_payload);
+    let seg_len = (payload_len + 2) as u16;
+    let mut out = Vec::with_capacity(payload_len + 8);
+    out.extend_from_slice(&[0xFF, 0xD8]); // SOI
+    out.extend_from_slice(&[0xFF, 0xE1]); // APP1
+    out.extend_from_slice(&seg_len.to_be_bytes());
+    out.extend_from_slice(&payload[..payload_len]);
+    out.extend_from_slice(&[0xFF, 0xD9]); // EOI
+    out
+}
 
 #[test]
 fn timeout_enforced() {
@@ -287,4 +302,98 @@ fn png_decode_success_no_findings() {
 
     let result = analyze_dynamic_images(&graph, &opts);
     assert!(result.findings.is_empty());
+}
+
+#[test]
+fn raw_pixel_size_mismatch_detected() {
+    let mut bytes = Vec::new();
+    // Width=2, Height=2, DeviceGray defaults to BPC=8 => expected 4 bytes. Provide 3.
+    let sample = [1u8, 2u8, 3u8];
+    let (objects, index) = append_image_entries(&mut bytes, 1, &sample, 2, 2, None);
+    let graph = ObjectGraph {
+        bytes: bytes.as_slice(),
+        objects,
+        index,
+        trailers: Vec::new(),
+        startxrefs: Vec::new(),
+        xref_sections: Vec::new(),
+        deviations: Vec::new(),
+        telemetry_events: Vec::new(),
+    };
+    let opts = ImageDynamicOptions {
+        max_pixels: 1_000_000,
+        max_decode_bytes: 64 * 1024,
+        timeout_ms: 1_000,
+        total_budget_ms: 10_000,
+        skip_threshold: 50,
+    };
+    let result = analyze_dynamic_images(&graph, &opts);
+    assert!(result.findings.iter().any(|f| {
+        f.kind == "image.pixel_data_size_mismatch"
+            && f.meta.get("image.expected_bytes").map(|v| v == "4").unwrap_or(false)
+            && f.meta.get("image.actual_bytes").map(|v| v == "3").unwrap_or(false)
+            && f.meta
+                .get("image.size_check_basis")
+                .map(|v| v == "decoded_raw_pixels")
+                .unwrap_or(false)
+    }));
+}
+
+#[test]
+fn metadata_oversized_detected() {
+    let mut bytes = Vec::new();
+    let mut payload = b"Exif\0\0".to_vec();
+    payload.extend(vec![b'A'; 40 * 1024]);
+    let jpeg = build_jpeg_with_app1(&payload);
+    let (objects, index) = append_image_entries(&mut bytes, 1, &jpeg, 64, 64, Some("/DCTDecode"));
+    let graph = ObjectGraph {
+        bytes: bytes.as_slice(),
+        objects,
+        index,
+        trailers: Vec::new(),
+        startxrefs: Vec::new(),
+        xref_sections: Vec::new(),
+        deviations: Vec::new(),
+        telemetry_events: Vec::new(),
+    };
+    let opts = ImageDynamicOptions {
+        max_pixels: 1_000_000,
+        max_decode_bytes: 256 * 1024,
+        timeout_ms: 1_000,
+        total_budget_ms: 10_000,
+        skip_threshold: 50,
+    };
+    let result = analyze_dynamic_images(&graph, &opts);
+    assert!(result.findings.iter().any(|f| f.kind == "image.metadata_oversized"));
+}
+
+#[test]
+fn metadata_scriptable_content_detected() {
+    let mut bytes = Vec::new();
+    let payload = b"<?xpacket><script>alert(1)</script>".to_vec();
+    let jpeg = build_jpeg_with_app1(&payload);
+    let (objects, index) = append_image_entries(&mut bytes, 1, &jpeg, 64, 64, Some("/DCTDecode"));
+    let graph = ObjectGraph {
+        bytes: bytes.as_slice(),
+        objects,
+        index,
+        trailers: Vec::new(),
+        startxrefs: Vec::new(),
+        xref_sections: Vec::new(),
+        deviations: Vec::new(),
+        telemetry_events: Vec::new(),
+    };
+    let opts = ImageDynamicOptions {
+        max_pixels: 1_000_000,
+        max_decode_bytes: 256 * 1024,
+        timeout_ms: 1_000,
+        total_budget_ms: 10_000,
+        skip_threshold: 50,
+    };
+    let result = analyze_dynamic_images(&graph, &opts);
+    assert!(
+        result.findings.iter().any(|f| f.kind == "image.metadata_scriptable_content"),
+        "expected scriptable metadata finding, got {:?}",
+        result.findings.iter().map(|f| f.kind.clone()).collect::<Vec<_>>()
+    );
 }

@@ -1246,6 +1246,54 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: invalid /Decode arrays may cause index-out-of-bounds or numeric instability in decoders.
   - Metadata: `image.decode_array_length`, `image.decode_array_expected_length`.
 
+## image.metadata_oversized
+
+- ID: `image.metadata_oversized`
+- Label: Oversized image metadata
+- Severity: Medium
+- Confidence: Strong
+- Description: Embedded image metadata segment exceeds safe size limits.
+- Tags: image, metadata, resource-exhaustion
+- Details:
+  - Relevance: oversized metadata segments can trigger parser stress and conceal payloads.
+  - Metadata: `image.metadata.kind`, `image.metadata.bytes`.
+
+## image.metadata_malformed
+
+- ID: `image.metadata_malformed`
+- Label: Malformed image metadata
+- Severity: Medium
+- Confidence: Probable
+- Description: Embedded image metadata structure is malformed or truncated.
+- Tags: image, metadata, malformed
+- Details:
+  - Relevance: malformed metadata can target parser edge-cases in viewers and tooling.
+  - Metadata: `image.metadata.issue`.
+
+## image.metadata_suspicious_density
+
+- ID: `image.metadata_suspicious_density`
+- Label: Suspicious metadata density
+- Severity: Low
+- Confidence: Probable
+- Description: Image metadata occupies an unusually large share of the image payload.
+- Tags: image, metadata, evasion
+- Details:
+  - Relevance: abnormally dense metadata can indicate covert channels or padding-based obfuscation.
+  - Metadata: `image.metadata.total_bytes`, `image.metadata.ratio_percent`.
+
+## image.metadata_scriptable_content
+
+- ID: `image.metadata_scriptable_content`
+- Label: Scriptable metadata content
+- Severity: Medium
+- Confidence: Tentative
+- Description: Embedded image metadata contains script-like markers.
+- Tags: image, metadata, active-content
+- Details:
+  - Relevance: script-like markers in metadata can indicate active-content experiments or exploit scaffolding.
+  - Metadata: `image.metadata.scriptable`.
+
 ## incremental_update_chain
 
 - ID: `incremental_update_chain`

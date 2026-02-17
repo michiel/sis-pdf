@@ -23,21 +23,24 @@ pub(crate) fn string_bytes(value: &PdfStr<'_>) -> Vec<u8> {
 }
 
 /// Extract a `/Decode` array as pairs of f64 values from a dict entry.
-/// Returns `None` if the key is absent; returns `Some(vec)` with the pairs.
-pub(crate) fn dict_f64_array(dict: &PdfDict<'_>, key: &[u8]) -> Option<Vec<f64>> {
+/// Returns `None` if the key is absent.
+/// Returns `Some(Err(_))` for invalid non-array/non-numeric forms.
+pub(crate) fn dict_f64_array(dict: &PdfDict<'_>, key: &[u8]) -> Option<Result<Vec<f64>, String>> {
     let (_, obj) = dict.get_first(key)?;
     match &obj.atom {
         PdfAtom::Array(arr) => {
             let mut out = Vec::with_capacity(arr.len());
-            for item in arr {
+            for (index, item) in arr.iter().enumerate() {
                 match &item.atom {
                     PdfAtom::Int(v) => out.push(*v as f64),
                     PdfAtom::Real(v) => out.push(*v as f64),
-                    _ => return Some(out), // stop at non-numeric
+                    _ => {
+                        return Some(Err(format!("non_numeric_entry_at_index_{}", index)));
+                    }
                 }
             }
-            Some(out)
+            Some(Ok(out))
         }
-        _ => None,
+        _ => Some(Err("decode_not_array".to_string())),
     }
 }

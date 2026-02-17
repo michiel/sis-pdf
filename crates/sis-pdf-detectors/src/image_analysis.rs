@@ -358,6 +358,34 @@ fn image_finding_summary(
             "Image /Decode array has incorrect length for the colour space.".into(),
             "Inspect decode parameters for malformed or crafted values.".into(),
         ),
+        "image.metadata_oversized" => (
+            Severity::Medium,
+            Confidence::Strong,
+            "Oversized image metadata".into(),
+            "Embedded image metadata segment exceeds safe size limits.".into(),
+            "Inspect metadata payloads for covert content or parser stress attempts.".into(),
+        ),
+        "image.metadata_malformed" => (
+            Severity::Medium,
+            Confidence::Probable,
+            "Malformed image metadata".into(),
+            "Embedded image metadata structure is malformed or truncated.".into(),
+            "Review metadata blocks and parser behaviour for exploit-like structure.".into(),
+        ),
+        "image.metadata_suspicious_density" => (
+            Severity::Low,
+            Confidence::Probable,
+            "Suspicious metadata density".into(),
+            "Image metadata is disproportionately large relative to the image payload.".into(),
+            "Inspect metadata for hidden payloads and obfuscation.".into(),
+        ),
+        "image.metadata_scriptable_content" => (
+            Severity::Medium,
+            Confidence::Tentative,
+            "Scriptable metadata content".into(),
+            "Embedded image metadata contains script-like markers.".into(),
+            "Validate whether metadata carries active content indicators.".into(),
+        ),
         other => (
             Severity::Low,
             Confidence::Probable,
@@ -371,6 +399,16 @@ fn image_finding_summary(
 fn image_finding_impact(kind: &str) -> Option<Impact> {
     match kind {
         "image.zero_click_jbig2" => Some(Impact::High),
+        "image.metadata_oversized"
+        | "image.metadata_malformed"
+        | "image.metadata_scriptable_content"
+        | "image.pixel_data_size_mismatch"
+        | "image.pixel_buffer_overflow"
+        | "image.colour_space_invalid" => Some(Impact::Medium),
+        "image.metadata_suspicious_density"
+        | "image.decode_array_invalid"
+        | "image.indexed_palette_short"
+        | "image.bpc_anomalous" => Some(Impact::Low),
         _ => None,
     }
 }
