@@ -15,8 +15,18 @@ use crate::js_payload_candidates_from_entry;
 
 pub struct JavaScriptSandboxDetector;
 
-const JS_WALLCLOCK_TIMEOUT: Duration = Duration::from_secs(5);
 const JS_SANDBOX_MAX_BYTES: usize = 256 * 1024;
+#[cfg(not(target_arch = "wasm32"))]
+const JS_WALLCLOCK_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(target_arch = "wasm32")]
+const JS_WALLCLOCK_TIMEOUT: Duration = Duration::from_millis(900);
+#[cfg(not(target_arch = "wasm32"))]
+const JS_PHASE_TIMEOUT_MS: u128 = 1_250;
+#[cfg(target_arch = "wasm32")]
+const JS_PHASE_TIMEOUT_MS: u128 = 250;
+
+#[cfg(target_arch = "wasm32")]
+const JS_DOCUMENT_BUDGET: Duration = Duration::from_millis(1_500);
 
 struct ProfileRun {
     profile_id: String,
@@ -103,6 +113,17 @@ struct RuntimeProfilePlan {
     phases: Vec<RuntimePhase>,
 }
 
+fn sandbox_document_budget() -> Option<Duration> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        return Some(JS_DOCUMENT_BUDGET);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
+
 fn is_risky_call(name: &str) -> bool {
     name.eq_ignore_ascii_case("eval")
         || name.eq_ignore_ascii_case("app.eval")
@@ -133,79 +154,95 @@ fn impact_for_kind(kind: &str) -> Option<Impact> {
     }
 }
 
-fn configured_profiles() -> [RuntimeProfilePlan; 5] {
-    [
-        RuntimeProfilePlan {
+fn configured_profiles() -> Vec<RuntimeProfilePlan> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        vec![RuntimeProfilePlan {
             profile: RuntimeProfile {
                 kind: RuntimeKind::PdfReader,
                 vendor: "adobe".to_string(),
                 version: "11".to_string(),
                 mode: RuntimeMode::Compat,
             },
-            phases: vec![
-                RuntimePhase::Open,
-                RuntimePhase::Idle,
-                RuntimePhase::Click,
-                RuntimePhase::Form,
-            ],
-        },
-        RuntimeProfilePlan {
-            profile: RuntimeProfile {
-                kind: RuntimeKind::Browser,
-                vendor: "chromium".to_string(),
-                version: "120".to_string(),
-                mode: RuntimeMode::Compat,
+            phases: vec![RuntimePhase::Open, RuntimePhase::Click],
+        }]
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        vec![
+            RuntimeProfilePlan {
+                profile: RuntimeProfile {
+                    kind: RuntimeKind::PdfReader,
+                    vendor: "adobe".to_string(),
+                    version: "11".to_string(),
+                    mode: RuntimeMode::Compat,
+                },
+                phases: vec![
+                    RuntimePhase::Open,
+                    RuntimePhase::Idle,
+                    RuntimePhase::Click,
+                    RuntimePhase::Form,
+                ],
             },
-            phases: vec![
-                RuntimePhase::Open,
-                RuntimePhase::Idle,
-                RuntimePhase::Click,
-                RuntimePhase::Form,
-            ],
-        },
-        RuntimeProfilePlan {
-            profile: RuntimeProfile {
-                kind: RuntimeKind::Browser,
-                vendor: "chromium".to_string(),
-                version: "120".to_string(),
-                mode: RuntimeMode::DeceptionHardened,
+            RuntimeProfilePlan {
+                profile: RuntimeProfile {
+                    kind: RuntimeKind::Browser,
+                    vendor: "chromium".to_string(),
+                    version: "120".to_string(),
+                    mode: RuntimeMode::Compat,
+                },
+                phases: vec![
+                    RuntimePhase::Open,
+                    RuntimePhase::Idle,
+                    RuntimePhase::Click,
+                    RuntimePhase::Form,
+                ],
             },
-            phases: vec![
-                RuntimePhase::Open,
-                RuntimePhase::Idle,
-                RuntimePhase::Click,
-                RuntimePhase::Form,
-            ],
-        },
-        RuntimeProfilePlan {
-            profile: RuntimeProfile {
-                kind: RuntimeKind::Node,
-                vendor: "nodejs".to_string(),
-                version: "20".to_string(),
-                mode: RuntimeMode::Compat,
+            RuntimeProfilePlan {
+                profile: RuntimeProfile {
+                    kind: RuntimeKind::Browser,
+                    vendor: "chromium".to_string(),
+                    version: "120".to_string(),
+                    mode: RuntimeMode::DeceptionHardened,
+                },
+                phases: vec![
+                    RuntimePhase::Open,
+                    RuntimePhase::Idle,
+                    RuntimePhase::Click,
+                    RuntimePhase::Form,
+                ],
             },
-            phases: vec![
-                RuntimePhase::Open,
-                RuntimePhase::Idle,
-                RuntimePhase::Click,
-                RuntimePhase::Form,
-            ],
-        },
-        RuntimeProfilePlan {
-            profile: RuntimeProfile {
-                kind: RuntimeKind::Bun,
-                vendor: "bun".to_string(),
-                version: "1.1".to_string(),
-                mode: RuntimeMode::Compat,
+            RuntimeProfilePlan {
+                profile: RuntimeProfile {
+                    kind: RuntimeKind::Node,
+                    vendor: "nodejs".to_string(),
+                    version: "20".to_string(),
+                    mode: RuntimeMode::Compat,
+                },
+                phases: vec![
+                    RuntimePhase::Open,
+                    RuntimePhase::Idle,
+                    RuntimePhase::Click,
+                    RuntimePhase::Form,
+                ],
             },
-            phases: vec![
-                RuntimePhase::Open,
-                RuntimePhase::Idle,
-                RuntimePhase::Click,
-                RuntimePhase::Form,
-            ],
-        },
-    ]
+            RuntimeProfilePlan {
+                profile: RuntimeProfile {
+                    kind: RuntimeKind::Bun,
+                    vendor: "bun".to_string(),
+                    version: "1.1".to_string(),
+                    mode: RuntimeMode::Compat,
+                },
+                phases: vec![
+                    RuntimePhase::Open,
+                    RuntimePhase::Idle,
+                    RuntimePhase::Click,
+                    RuntimePhase::Form,
+                ],
+            },
+        ]
+    }
 }
 
 fn unresolved_error_counters(errors: &[String]) -> (usize, usize, usize, usize) {
@@ -247,6 +284,7 @@ fn execute_profiles(bytes: &[u8]) -> (Vec<ProfileRun>, ProfileDivergenceSummary)
         let options = DynamicOptions {
             max_bytes: JS_SANDBOX_MAX_BYTES,
             timeout_ms: JS_WALLCLOCK_TIMEOUT.as_millis(),
+            phase_timeout_ms: JS_PHASE_TIMEOUT_MS,
             runtime_profile: profile.clone(),
             phases: plan.phases.clone(),
             ..Default::default()
@@ -1331,6 +1369,48 @@ fn extend_with_script_timeout_finding(
     });
 }
 
+fn push_budget_skipped_finding(
+    findings: &mut Vec<Finding>,
+    detector_surface: AttackSurface,
+    object_ref: String,
+    evidence: &[sis_pdf_core::model::EvidenceSpan],
+    source_label: Option<&str>,
+    budget_ms: u128,
+    elapsed_ms: u128,
+) {
+    let mut meta = std::collections::HashMap::new();
+    meta.insert("js.sandbox_exec".into(), "false".into());
+    meta.insert("js.sandbox_skip_reason".into(), "document_budget_exhausted".into());
+    meta.insert("js.sandbox_budget_ms".into(), budget_ms.to_string());
+    meta.insert("js.sandbox_elapsed_ms".into(), elapsed_ms.to_string());
+    if let Some(label) = source_label {
+        meta.insert("js.source".into(), label.to_string());
+    }
+
+    findings.push(Finding {
+        id: String::new(),
+        surface: detector_surface,
+        kind: "js_sandbox_skipped".into(),
+        severity: Severity::Info,
+        confidence: Confidence::Strong,
+        impact: impact_for_kind("js_sandbox_skipped"),
+        title: "JavaScript sandbox skipped".into(),
+        description: "Sandbox execution skipped because the per-document dynamic analysis budget was exhausted."
+            .into(),
+        objects: vec![object_ref],
+        evidence: evidence.to_vec(),
+        remediation: Some(
+            "Re-run in CLI/native mode or with a higher dynamic budget when deeper JavaScript runtime coverage is required."
+                .into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    });
+}
+
 fn detect_downloader_pattern(calls: &[String]) -> Option<(usize, usize, usize)> {
     let create_count = calls
         .iter()
@@ -1810,6 +1890,8 @@ impl Detector for JavaScriptSandboxDetector {
 
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
+        let document_budget = sandbox_document_budget();
+        let budget_start = std::time::Instant::now();
         for entry in &ctx.graph.objects {
             let candidates = js_payload_candidates_from_entry(ctx, entry);
             if candidates.is_empty() {
@@ -1822,6 +1904,21 @@ impl Detector for JavaScriptSandboxDetector {
                     evidence.push(span_to_evidence(entry.full_span, "JavaScript object"));
                 }
                 let object_ref = format!("{} {} obj", entry.obj, entry.gen);
+                if let Some(budget) = document_budget {
+                    let elapsed = budget_start.elapsed();
+                    if elapsed >= budget {
+                        push_budget_skipped_finding(
+                            &mut findings,
+                            self.surface(),
+                            object_ref,
+                            &evidence,
+                            candidate.source.meta_value(),
+                            budget.as_millis(),
+                            elapsed.as_millis(),
+                        );
+                        continue;
+                    }
+                }
                 if let Some(format_hint) = likely_non_javascript_payload(&info.bytes) {
                     extend_with_payload_format_finding(
                         &mut findings,

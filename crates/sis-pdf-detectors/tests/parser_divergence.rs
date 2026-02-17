@@ -99,7 +99,8 @@ fn build_unknown_operator_fixture() -> Vec<u8> {
 
 fn build_non_content_cmap_fixture() -> Vec<u8> {
     let page_stream_payload = "BT /F1 12 Tf (ok) Tj ET\n";
-    let cmap_payload = "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\nendcmap\nend\n";
+    let cmap_payload =
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\nendcmap\nend\n";
     let objects = vec![
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
         "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),

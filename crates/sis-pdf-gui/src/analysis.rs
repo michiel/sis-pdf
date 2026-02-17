@@ -52,33 +52,7 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
         return Err(AnalysisError::FileTooLarge { size: bytes.len(), limit: MAX_FILE_SIZE });
     }
 
-    let options = ScanOptions {
-        deep: true,
-        max_decode_bytes: MAX_DECODE_BYTES,
-        max_total_decoded_bytes: MAX_TOTAL_DECODED_BYTES,
-        recover_xref: true,
-        parallel: false,
-        batch_parallel: false,
-        diff_parser: false,
-        max_objects: MAX_OBJECTS,
-        max_recursion_depth: MAX_RECURSION_DEPTH,
-        fast: false,
-        focus_trigger: None,
-        focus_depth: 0,
-        yara_scope: None,
-        strict: false,
-        strict_summary: false,
-        ir: false,
-        ml_config: None,
-        font_analysis: FontAnalysisOptions::default(),
-        image_analysis: ImageAnalysisOptions::default(),
-        filter_allowlist: None,
-        filter_allowlist_strict: false,
-        profile: false,
-        profile_format: ProfileFormat::Text,
-        group_chains: true,
-        correlation: CorrelationOptions::default(),
-    };
+    let options = gui_scan_options();
 
     let detectors = sis_pdf_detectors::default_detectors();
 
@@ -101,6 +75,42 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
         pdf_version,
         page_count,
     })
+}
+
+fn gui_scan_options() -> ScanOptions {
+    ScanOptions {
+        deep: true,
+        max_decode_bytes: MAX_DECODE_BYTES,
+        max_total_decoded_bytes: MAX_TOTAL_DECODED_BYTES,
+        recover_xref: true,
+        parallel: false,
+        batch_parallel: false,
+        diff_parser: false,
+        max_objects: MAX_OBJECTS,
+        max_recursion_depth: MAX_RECURSION_DEPTH,
+        fast: false,
+        focus_trigger: None,
+        focus_depth: 0,
+        yara_scope: None,
+        strict: false,
+        strict_summary: false,
+        ir: false,
+        ml_config: None,
+        font_analysis: FontAnalysisOptions {
+            dynamic_enabled: true,
+            ..FontAnalysisOptions::default()
+        },
+        image_analysis: ImageAnalysisOptions {
+            dynamic_enabled: true,
+            ..ImageAnalysisOptions::default()
+        },
+        filter_allowlist: None,
+        filter_allowlist_strict: false,
+        profile: false,
+        profile_format: ProfileFormat::Text,
+        group_chains: true,
+        correlation: CorrelationOptions::default(),
+    }
 }
 
 fn extract_object_data(bytes: &[u8]) -> ObjectData {
@@ -173,5 +183,27 @@ mod tests {
         let result = result.unwrap();
         assert_eq!(result.file_name, "minimal.pdf");
         assert_eq!(result.file_size, pdf.len());
+    }
+
+    #[test]
+    fn gui_defaults_enable_dynamic_analysis_paths() {
+        let options = gui_scan_options();
+        assert!(options.deep, "GUI should default to deep analysis");
+        assert!(
+            options.font_analysis.dynamic_enabled,
+            "GUI should enable dynamic font analysis by default"
+        );
+        assert!(
+            options.image_analysis.dynamic_enabled,
+            "GUI should enable dynamic image analysis by default"
+        );
+    }
+
+    #[test]
+    fn gui_build_has_js_sandbox_support() {
+        assert!(
+            sis_pdf_detectors::sandbox_available(),
+            "GUI detector build should include js-sandbox support"
+        );
     }
 }

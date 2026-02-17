@@ -18,10 +18,10 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 # Analysis pipeline (no filesystem, no parallelism, no ML)
 sis-pdf-core = { path = "../sis-pdf-core", default-features = false }
 sis-pdf-pdf = { path = "../sis-pdf-pdf" }
-sis-pdf-detectors = { path = "../sis-pdf-detectors", default-features = false, features = ["js-ast"] }
 image-analysis = { path = "../image-analysis", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+sis-pdf-detectors = { path = "../sis-pdf-detectors", default-features = false, features = ["js-ast", "js-sandbox"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
@@ -33,6 +33,7 @@ flate2 = { version = "1.0", default-features = false, features = ["rust_backend"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rfd = "0.15"
+sis-pdf-detectors = { path = "../sis-pdf-detectors", default-features = false, features = ["js-ast", "js-sandbox", "font-dynamic"] }
 
 [features]
 default = ["gui"]
