@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 libfuzzer-sys = "0.4"
 sis-pdf-pdf = { path = "../crates/sis-pdf-pdf" }
+image-analysis = { path = "../crates/image-analysis", default-features = false, features = ["jpeg", "png", "tiff"] }
 
 [profile.release]
 debug = true
@@ -46,5 +47,11 @@ doc = false
 [[bin]]
 name = "parser"
 path = "fuzz_targets/parser.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "image_metadata"
+path = "fuzz_targets/image_metadata.rs"
 test = false
 doc = false

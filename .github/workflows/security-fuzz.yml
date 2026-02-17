@@ -1,0 +1,49 @@
+name: security-fuzz
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        run: cargo audit
+
+  fuzz-smoke:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run parser fuzz smoke
+        working-directory: fuzz
+        run: cargo fuzz run parser -- -max_total_time=20
+
+      - name: Run image metadata fuzz smoke
+        working-directory: fuzz
+        run: cargo fuzz run image_metadata -- -max_total_time=20

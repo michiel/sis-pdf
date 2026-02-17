@@ -51,6 +51,31 @@ Because the JSON is deterministic, it can be checked into the performance repo (
 
 The recorded JSON is stored at `docs/performance-data/profile-launch-cve.json`. The repository-level regression test `crates/sis-pdf-core/tests/runtime_profile.rs` reads this file and asserts that the `parse` and `detection` phases stay below the 10 ms / 50 ms SLO thresholds so the canonicalisation and reader-context changes stay within budget.
 
+## 2026-02-17 robustness follow-up baseline
+
+After the image robustness hardening pass (colour space cycle guards, strict decode-array handling, metadata checks), we reran the canonical fixture profile and verified the SLO gate:
+
+```bash
+target/debug/sis scan \
+  crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf \
+  --deep \
+  --runtime-profile \
+  --runtime-profile-format json \
+ 2> docs/performance-data/profile-launch-cve.latest.json
+
+cargo run -p perf-guard -- \
+  --profile docs/performance-data/profile-launch-cve.latest.json \
+  --baseline docs/performance-data/profile-launch-cve.json
+```
+
+Observed profile:
+
+- `parse`: `0 ms`
+- `detection`: `2 ms`
+- `total_duration_ms`: `7 ms`
+
+`perf-guard` passed (`parse <= 10 ms`, `detection <= 50 ms`). The baseline file has been refreshed from this run.
+
 ## Next steps
 
 1. Repeat the run with other CVE fixtures if you need evidence that the SLO table holds for filters, XFA forms, or rich media content.

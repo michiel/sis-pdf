@@ -1,5 +1,5 @@
 {
-  "total_duration_ms": 6,
+  "total_duration_ms": 7,
   "phases": [
     {
       "name": "parse",
@@ -9,22 +9,505 @@
     {
       "name": "detection",
       "duration_ms": 2,
-      "percentage": 33.3
+      "percentage": 28.57142857142857
     }
   ],
   "detectors": [
     {
+      "id": "polyglot_signature_conflict",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "xref_conflict",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "incremental_update_chain",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "object_id_shadowing",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "shadow_object_payload_divergence",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "shadow_attacks",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "revision_forensics",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "linearization_anomaly",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "parser_divergence",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "renderer_divergence",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 1,
+      "percentage": 0.0
+    },
+    {
+      "id": "objstm_density_high",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "objstm_embedded_summary",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "open_action_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 1,
+      "percentage": 0.0
+    },
+    {
+      "id": "aa_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "aa_event_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "action_trigger_analysis",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 1,
+      "percentage": 0.0
+    },
+    {
+      "id": "js_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "js_polymorphic",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "js_time_evasion",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "js_env_probe",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "supply_chain",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "advanced_crypto",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "multi_stage_attack",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
       "id": "content_first_stage1",
       "cost": "Expensive",
-      "duration_ms": 1,
+      "duration_ms": 0,
       "findings_count": 1,
-      "percentage": 16.7
+      "percentage": 0.0
+    },
+    {
+      "id": "quantum_risk",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
     },
     {
       "id": "launch_action_present",
       "cost": "Cheap",
       "duration_ms": 0,
       "findings_count": 2,
+      "percentage": 0.0
+    },
+    {
+      "id": "gotor_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "uri_listing",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "uri_content_analysis",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "submitform_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "external_action_risk_context",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "passive_render_pipeline",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "fontmatrix_payload_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "pdfjs_font_injection",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "font_js_exploitation_bridge",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "pdfjs_rendering_indicators",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "font_exploit",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "font_external_reference",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "image_analysis",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "vector_graphics_anomaly",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "embedded_file_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "richmedia_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "rich_media_content",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "3d_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "sound_movie_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "filespec_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "icc_profile",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "annotation_attack",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "page_tree_anomalies",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "object_reference_cycle",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "crypto_signatures",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "encryption_obfuscation",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "xfa_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "acroform_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "xfa_forms",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "ocg_present",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "filter_chain_depth_high",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "filter_chain_anomaly",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "decoder_risk_present",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "decompression_ratio_suspicious",
+      "cost": "Expensive",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "huge_image_dimensions",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "content_phishing",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "content_deception",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "metadata_analysis",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "strict_parse_deviation",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "telemetry_bridge",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "ir_graph_static",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 1,
+      "percentage": 0.0
+    },
+    {
+      "id": "structural_anomalies",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 1,
+      "percentage": 0.0
+    },
+    {
+      "id": "xref_trailer_search_invalid",
+      "cost": "Cheap",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "objstm_torture",
+      "cost": "Moderate",
+      "duration_ms": 0,
+      "findings_count": 0,
+      "percentage": 0.0
+    },
+    {
+      "id": "js_sandbox",
+      "cost": "Expensive",
+      "duration_ms": 0,
+      "findings_count": 0,
       "percentage": 0.0
     }
   ],
