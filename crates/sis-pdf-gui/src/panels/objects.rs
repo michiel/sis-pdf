@@ -222,6 +222,12 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
             stream_text: obj.stream_text.clone(),
             stream_raw: obj.stream_raw.clone(),
             stream_source_raw,
+            stream_content_type: obj.stream_content_type.clone(),
+            image_width: obj.image_width,
+            image_height: obj.image_height,
+            image_bits: obj.image_bits,
+            image_color_space: obj.image_color_space.clone(),
+            image_preview: obj.image_preview.clone(),
             dict_entries: obj.dict_entries.clone(),
             references_from: obj.references_from.clone(),
             references_to: obj.references_to.clone(),
@@ -271,6 +277,12 @@ struct ObjectDetail {
     stream_text: Option<String>,
     stream_raw: Option<Vec<u8>>,
     stream_source_raw: Option<Vec<u8>>,
+    stream_content_type: Option<String>,
+    image_width: Option<u32>,
+    image_height: Option<u32>,
+    image_bits: Option<u32>,
+    image_color_space: Option<String>,
+    image_preview: Option<(u32, u32, Vec<u8>)>,
     dict_entries: Vec<(String, String)>,
     references_from: Vec<(u32, u16)>,
     references_to: Vec<(u32, u16)>,
@@ -365,6 +377,67 @@ fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool)
         return;
     }
 
+    // Stream metadata section
+    let has_metadata = detail.stream_content_type.is_some()
+        || detail.image_width.is_some()
+        || detail.stream_raw.is_some();
+    if has_metadata {
+        ui.separator();
+        ui.collapsing("Stream metadata", |ui| {
+            egui::Grid::new("stream_meta_grid")
+                .num_columns(2)
+                .spacing([8.0, 2.0])
+                .show(ui, |ui| {
+                    if let Some(ref ct) = detail.stream_content_type {
+                        ui.label("Content type:");
+                        ui.label(ct);
+                        ui.end_row();
+                    }
+                    if let (Some(w), Some(h)) = (detail.image_width, detail.image_height) {
+                        ui.label("Dimensions:");
+                        ui.label(format!("{} x {}", w, h));
+                        ui.end_row();
+                    }
+                    if let Some(ref cs) = detail.image_color_space {
+                        ui.label("Colour space:");
+                        ui.label(cs);
+                        ui.end_row();
+                    }
+                    if let Some(bits) = detail.image_bits {
+                        ui.label("Bits/component:");
+                        ui.label(format!("{}", bits));
+                        ui.end_row();
+                    }
+                    if let Some(ref raw) = detail.stream_raw {
+                        ui.label("Decoded size:");
+                        ui.label(format_byte_size(raw.len()));
+                        ui.end_row();
+                        if let Some(raw_len) = detail.stream_length {
+                            if raw_len != raw.len() {
+                                ui.label("Raw size:");
+                                ui.label(format_byte_size(raw_len));
+                                ui.end_row();
+                            }
+                        }
+                    }
+                });
+        });
+    }
+
+    // JPEG image preview
+    if let Some((tw, th, ref pixels)) = detail.image_preview {
+        ui.separator();
+        ui.collapsing("Image preview", |ui| {
+            let tex_id = format!("img_preview_{}_{}", detail.obj, detail.gen);
+            let texture = ui.ctx().load_texture(
+                &tex_id,
+                egui::ColorImage::from_rgba_unmultiplied([tw as usize, th as usize], pixels),
+                egui::TextureOptions::LINEAR,
+            );
+            ui.image(&texture);
+        });
+    }
+
     if show_hex {
         // Show hex view of stream raw bytes
         if let Some(ref raw) = detail.stream_raw {
@@ -397,6 +470,16 @@ fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool)
     } else if detail.stream_raw.is_some() {
         ui.separator();
         ui.label("Stream contains binary data (toggle Hex to view)");
+    }
+}
+
+fn format_byte_size(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{} bytes", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
     }
 }
 

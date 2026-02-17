@@ -21,6 +21,11 @@ pub struct LayoutState {
 impl LayoutState {
     /// Create a new layout state for a graph with `node_count` nodes.
     pub fn new(node_count: usize) -> Self {
+        Self::new_with_min_edge_length(node_count, 0.0)
+    }
+
+    /// Create a new layout state with an optional minimum ideal edge length.
+    pub fn new_with_min_edge_length(node_count: usize, min_edge_length: f64) -> Self {
         let area_w = 800.0;
         let area_h = 600.0;
         let area = area_w * area_h;
@@ -28,7 +33,8 @@ impl LayoutState {
             (area / node_count as f64).sqrt()
         } else {
             1.0
-        };
+        }
+        .max(min_edge_length.max(0.0));
         let temperature = area_w / 4.0;
         let max_iterations = 200;
 
@@ -278,5 +284,11 @@ mod tests {
 
         assert_eq!(graph.nodes[0].position[0], 5_000.0);
         assert_eq!(graph.nodes[0].position[1], -200.0);
+    }
+
+    #[test]
+    fn minimum_edge_length_overrides_small_ideal_length() {
+        let layout = LayoutState::new_with_min_edge_length(2_000, 120.0);
+        assert!(layout.k >= 120.0);
     }
 }

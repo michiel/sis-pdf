@@ -11,6 +11,15 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         });
         return;
     }
+    if let AppState::LoadingPath { ref file_name, .. } = app.app_state {
+        ui.vertical_centered(|ui| {
+            ui.add_space(ui.available_height() / 3.0);
+            ui.heading(format!("Loading {}...", file_name));
+            ui.add_space(20.0);
+            ui.spinner();
+        });
+        return;
+    }
 
     ui.vertical_centered(|ui| {
         ui.add_space(ui.available_height() / 3.0);

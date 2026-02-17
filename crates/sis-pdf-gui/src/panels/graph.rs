@@ -23,6 +23,8 @@ pub struct GraphViewerState {
     pub chain_filter: bool,
     /// BFS depth limit from selected node. 0 = no limit (show all).
     pub depth_limit: usize,
+    /// Minimum ideal edge length used by the layout engine (0 = auto).
+    pub min_edge_length: f64,
     /// Whether to show node labels.
     pub show_labels: bool,
     /// Error message if graph could not be built.
@@ -31,7 +33,12 @@ pub struct GraphViewerState {
     pub built: bool,
     /// Timestamp when layout started (for telemetry).
     pub layout_start_time: f64,
+    /// Object requested for focus before the graph is built.
+    pub pending_focus: Option<(u32, u16)>,
 }
+
+const WORLD_CENTRE_X: f64 = 400.0;
+const WORLD_CENTRE_Y: f64 = 300.0;
 
 /// Node type colour mapping.
 fn node_colour(obj_type: &str) -> egui::Color32 {
@@ -60,11 +67,19 @@ pub fn show(ctx: &egui::Context, app: &mut SisApp) {
     app.show_graph = open;
 }
 
+/// Focus the graph on a specific object reference.
+pub fn focus_object(app: &mut SisApp, obj: u32, gen: u16) {
+    app.show_graph = true;
+    app.graph_state.pending_focus = Some((obj, gen));
+    apply_pending_focus(app);
+}
+
 fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
     // Build graph if not yet done
     if !app.graph_state.built {
         build_graph(app);
     }
+    apply_pending_focus(app);
 
     // Show error if graph could not be built
     if let Some(ref err) = app.graph_state.error {
@@ -135,6 +150,7 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
     let selected = app.graph_state.selected_node;
     let show_labels = app.graph_state.show_labels;
     let is_layout_running = app.graph_state.layout.is_some();
+    let node_radius = (6.0 * zoom).clamp(3.0, 20.0) as f32;
 
     // Allocate painter for custom drawing
     let available = ui.available_size();
@@ -172,15 +188,15 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Transform: graph coords -> screen coords
     let to_screen = |gx: f64, gy: f64| -> egui::Pos2 {
-        let sx = rect.center().x as f64 + (gx - 400.0 + pan[0]) * zoom;
-        let sy = rect.center().y as f64 + (gy - 300.0 + pan[1]) * zoom;
+        let sx = rect.center().x as f64 + (gx - WORLD_CENTRE_X + pan[0]) * zoom;
+        let sy = rect.center().y as f64 + (gy - WORLD_CENTRE_Y + pan[1]) * zoom;
         egui::pos2(sx as f32, sy as f32)
     };
 
     // Inverse: screen coords -> graph coords (used by click handlers)
     let _from_screen = |sx: f32, sy: f32| -> (f64, f64) {
-        let gx = (sx as f64 - rect.center().x as f64) / zoom + 400.0 - pan[0];
-        let gy = (sy as f64 - rect.center().y as f64) / zoom + 300.0 - pan[1];
+        let gx = (sx as f64 - rect.center().x as f64) / zoom + WORLD_CENTRE_X - pan[0];
+        let gy = (sy as f64 - rect.center().y as f64) / zoom + WORLD_CENTRE_Y - pan[1];
         (gx, gy)
     };
 
@@ -202,21 +218,36 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         } else {
             egui::Color32::from_rgba_premultiplied(100, 100, 100, 120)
         };
+        let mut width = if suspicious { 2.0 } else { 1.0 };
+        let selected_connection = selected == Some(from_idx) || selected == Some(to_idx);
+
+        if let Some(selected_idx) = selected {
+            if from_idx == selected_idx && to_idx == selected_idx {
+                colour = egui::Color32::from_rgb(220, 120, 220);
+                width = 3.0;
+            } else if from_idx == selected_idx {
+                colour = egui::Color32::from_rgb(80, 220, 255);
+                width = 3.0;
+            } else if to_idx == selected_idx {
+                colour = egui::Color32::from_rgb(255, 180, 80);
+                width = 3.0;
+            }
+        }
 
         if dim_non_chain {
             let from_in_chain = chain_node_set.contains(&from_idx);
             let to_in_chain = chain_node_set.contains(&to_idx);
-            if !from_in_chain || !to_in_chain {
+            if (!from_in_chain || !to_in_chain) && !selected_connection {
                 colour = egui::Color32::from_rgba_premultiplied(60, 60, 60, 40);
             }
         }
 
-        let width = if suspicious { 2.0 } else { 1.0 };
-        painter.line_segment([p1, p2], egui::Stroke::new(width, colour));
+        let stroke = egui::Stroke::new(width, colour);
+        painter.line_segment([p1, p2], stroke);
+        draw_edge_arrowhead(&painter, p1, p2, stroke, node_radius);
     }
 
     // Draw nodes
-    let node_radius = (6.0 * zoom).clamp(3.0, 20.0) as f32;
     let mut hovered = None;
 
     let pointer_pos = ui.input(|i| i.pointer.hover_pos());
@@ -368,6 +399,18 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
 
         ui.separator();
 
+        ui.label("Min edge len:");
+        let mut min_edge_len = app.graph_state.min_edge_length;
+        if ui
+            .add(egui::Slider::new(&mut min_edge_len, 0.0..=200.0).text("px"))
+            .changed()
+        {
+            app.graph_state.min_edge_length = min_edge_len;
+            rebuild_graph(app);
+        }
+
+        ui.separator();
+
         // Chain-only toggle
         ui.toggle_value(&mut app.graph_state.chain_filter, "Chain only");
 
@@ -417,7 +460,8 @@ fn build_graph(app: &mut SisApp) {
     match graph_result {
         Ok(mut graph) => {
             let node_count = graph.nodes.len();
-            let layout = LayoutState::new(node_count);
+            let layout =
+                LayoutState::new_with_min_edge_length(node_count, app.graph_state.min_edge_length);
             layout.initialise_positions(&mut graph);
             app.graph_state.graph = Some(graph);
             app.graph_state.layout = Some(layout);
@@ -493,4 +537,53 @@ fn build_chain_node_set(app: &SisApp) -> std::collections::HashSet<usize> {
     }
 
     set
+}
+
+fn draw_edge_arrowhead(
+    painter: &egui::Painter,
+    from: egui::Pos2,
+    to: egui::Pos2,
+    stroke: egui::Stroke,
+    target_node_radius: f32,
+) {
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len <= 0.001 {
+        return;
+    }
+
+    let dir = egui::vec2(dx / len, dy / len);
+    let perp = egui::vec2(-dir.y, dir.x);
+    let arrow_len = (6.0 + stroke.width * 2.0).clamp(6.0, 10.0);
+    let arrow_half_width = (3.0 + stroke.width).clamp(3.0, 6.0);
+
+    let offset = target_node_radius + 2.0;
+    let tip = to - dir * offset;
+    let base = tip - dir * arrow_len;
+    let left = base + perp * arrow_half_width;
+    let right = base - perp * arrow_half_width;
+
+    painter.add(egui::Shape::convex_polygon(
+        vec![tip, left, right],
+        stroke.color,
+        egui::Stroke::NONE,
+    ));
+}
+
+fn apply_pending_focus(app: &mut SisApp) {
+    let Some((obj, gen)) = app.graph_state.pending_focus else {
+        return;
+    };
+    let Some(ref graph) = app.graph_state.graph else {
+        return;
+    };
+    let Some(&idx) = graph.node_index.get(&(obj, gen)) else {
+        return;
+    };
+
+    let node = &graph.nodes[idx];
+    app.graph_state.selected_node = Some(idx);
+    app.graph_state.pan = [WORLD_CENTRE_X - node.position[0], WORLD_CENTRE_Y - node.position[1]];
+    app.graph_state.pending_focus = None;
 }

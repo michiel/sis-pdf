@@ -106,13 +106,7 @@ fn execute_command(app: &mut SisApp) {
             // Handle GUI-specific commands before executing
             match parsed_query {
                 query::Query::GraphFocus { obj, gen } => {
-                    app.show_graph = true;
-                    // Find the node in the graph and select it
-                    if let Some(ref graph) = app.graph_state.graph {
-                        if let Some(&idx) = graph.node_index.get(&(*obj, *gen)) {
-                            app.graph_state.selected_node = Some(idx);
-                        }
-                    }
+                    crate::panels::graph::focus_object(app, *obj, *gen);
                     app.command_results
                         .push(QueryOutput::Text(format!("Graph focused on object {} {}", obj, gen)));
                 }

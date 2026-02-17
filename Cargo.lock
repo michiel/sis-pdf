@@ -2721,6 +2721,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff 0.10.3",
+ "zune-core 0.5.1",
+ "zune-jpeg 0.5.12",
 ]
 
 [[package]]
@@ -5402,6 +5404,7 @@ dependencies = [
  "egui_extras",
  "flate2",
  "getrandom 0.3.4",
+ "image",
  "js-sys",
  "rfd",
  "serde",

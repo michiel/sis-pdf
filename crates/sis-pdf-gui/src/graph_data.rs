@@ -214,6 +214,13 @@ mod tests {
             stream_raw: None,
             stream_filters: Vec::new(),
             stream_length: None,
+            stream_data_span: None,
+            stream_content_type: None,
+            image_width: None,
+            image_height: None,
+            image_bits: None,
+            image_color_space: None,
+            image_preview: None,
             references_from: refs,
             references_to: Vec::new(),
         }

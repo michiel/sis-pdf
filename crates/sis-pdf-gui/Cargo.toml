@@ -13,6 +13,7 @@ tracing = { workspace = true }
 eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts"], optional = true }
 egui = { version = "0.33", optional = true }
 egui_extras = { version = "0.33", optional = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"], optional = true }
 
 # Analysis pipeline (no filesystem, no parallelism, no ML)
 sis-pdf-core = { path = "../sis-pdf-core", default-features = false }
@@ -24,7 +25,7 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Element", "HtmlInputElement", "HtmlElement", "Event", "ProgressEvent", "FileReader", "Blob"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Element", "HtmlInputElement", "HtmlElement", "Event", "ProgressEvent", "FileReader", "Blob", "Url"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 # Force pure-Rust zlib for WASM (C zlib cannot cross-compile without clang)
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
@@ -34,7 +35,7 @@ rfd = "0.15"
 
 [features]
 default = ["gui"]
-gui = ["eframe", "egui", "egui_extras"]
+gui = ["eframe", "egui", "egui_extras", "image"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]

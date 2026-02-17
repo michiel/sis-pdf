@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
 use sis_pdf_pdf::classification::ClassificationMap;
 use sis_pdf_pdf::decode::decode_stream;
 use sis_pdf_pdf::graph::{Deviation, ObjectGraph, XrefSectionSummary};
@@ -35,6 +36,14 @@ pub struct ObjectSummary {
     pub stream_raw: Option<Vec<u8>>,
     pub stream_filters: Vec<String>,
     pub stream_length: Option<usize>,
+    pub stream_data_span: Option<(usize, usize)>,
+    pub stream_content_type: Option<String>,
+    pub image_width: Option<u32>,
+    pub image_height: Option<u32>,
+    pub image_bits: Option<u32>,
+    pub image_color_space: Option<String>,
+    /// JPEG image preview: (width, height, RGBA pixels).
+    pub image_preview: Option<(u32, u32, Vec<u8>)>,
     pub references_from: Vec<(u32, u16)>,
     pub references_to: Vec<(u32, u16)>,
 }
@@ -132,6 +141,14 @@ fn extract_one_object(
     let mut stream_raw = None;
     let mut stream_filters = Vec::new();
     let mut stream_length = None;
+    let mut stream_data_span = None;
+    let mut stream_content_type = None;
+    let mut image_width = None;
+    let mut image_height = None;
+    let mut image_bits = None;
+    let mut image_color_space = None;
+    #[allow(unused_mut)]
+    let mut image_preview: Option<(u32, u32, Vec<u8>)> = None;
     let mut references_from = Vec::new();
 
     match &entry.atom {
@@ -146,11 +163,34 @@ fn extract_one_object(
             stream_filters = sis_pdf_pdf::decode::stream_filters(&s.dict);
 
             // Compute raw stream length from span
-            let raw_len = (s.data_span.end as usize).saturating_sub(s.data_span.start as usize);
+            let start = s.data_span.start as usize;
+            let end = s.data_span.end as usize;
+            let raw_len = end.saturating_sub(start);
             stream_length = Some(raw_len);
+            stream_data_span = Some((start, end));
 
             // Try to decode stream and capture both raw bytes and text representation
             if let Ok(decoded) = decode_stream(bytes, s, MAX_STREAM_DECODE) {
+                // Classify the decoded stream content
+                let blob_kind = classify_blob(&decoded.data);
+                if blob_kind != BlobKind::Unknown {
+                    stream_content_type = Some(blob_kind.as_str().to_string());
+                }
+
+                // Extract image metadata from dictionary for image objects
+                if obj_type == "image" {
+                    image_width = dict_entry_as_u32(&dict_entries, "Width");
+                    image_height = dict_entry_as_u32(&dict_entries, "Height");
+                    image_bits = dict_entry_as_u32(&dict_entries, "BitsPerComponent");
+                    image_color_space = dict_entry_as_name(&dict_entries, "ColorSpace");
+                }
+
+                // Generate JPEG preview thumbnail
+                #[cfg(feature = "gui")]
+                if blob_kind == BlobKind::Jpeg {
+                    image_preview = decode_jpeg_preview(&decoded.data);
+                }
+
                 stream_raw = Some(decoded.data.clone());
                 if let Ok(text) = std::str::from_utf8(&decoded.data) {
                     let truncated = if text.len() > MAX_STREAM_DECODE {
@@ -189,6 +229,13 @@ fn extract_one_object(
         stream_raw,
         stream_filters,
         stream_length,
+        stream_data_span,
+        stream_content_type,
+        image_width,
+        image_height,
+        image_bits,
+        image_color_space,
+        image_preview,
         references_from,
         references_to: Vec::new(),
     }
@@ -282,4 +329,32 @@ fn xref_section_to_owned(sec: &XrefSectionSummary) -> XrefSectionInfo {
 
 fn deviation_to_owned(dev: &Deviation) -> DeviationInfo {
     DeviationInfo { kind: dev.kind.clone(), offset: dev.span.start, note: dev.note.clone() }
+}
+
+/// Look up a dictionary entry value as u32 (for Width, Height, BitsPerComponent).
+fn dict_entry_as_u32(entries: &[(String, String)], key: &str) -> Option<u32> {
+    entries.iter().find(|(k, _)| k == key).and_then(|(_, v)| v.trim().parse::<u32>().ok())
+}
+
+/// Look up a dictionary entry value as a name string (for ColorSpace).
+fn dict_entry_as_name(entries: &[(String, String)], key: &str) -> Option<String> {
+    entries.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+}
+
+/// Decode JPEG bytes into a low-resolution RGBA preview thumbnail (max 256px on longest side).
+#[cfg(feature = "gui")]
+fn decode_jpeg_preview(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    use image::GenericImageView;
+
+    let img = image::load_from_memory_with_format(data, image::ImageFormat::Jpeg).ok()?;
+    let (w, h) = img.dimensions();
+    let max_dim = w.max(h);
+    let thumb = if max_dim > 256 {
+        img.thumbnail(256, 256)
+    } else {
+        img
+    };
+    let (tw, th) = thumb.dimensions();
+    let rgba = thumb.to_rgba8().into_raw();
+    Some((tw, th, rgba))
 }
