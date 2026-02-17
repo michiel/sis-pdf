@@ -521,3 +521,28 @@ fn corpus_captured_structural_cmap_cardinality_baseline_stays_stable() {
     assert_eq!(cardinality.impact, Some(sis_pdf_core::model::Impact::Medium));
     assert!(meta_as_u32(cardinality, "font.cmap.range_count") > 4096);
 }
+
+#[test]
+fn corpus_captured_structural_signature_overrides_baseline_stays_stable() {
+    let bytes =
+        include_bytes!("fixtures/corpus_captured/structural-signature-overrides-5e736721.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let resource = finding_by_kind(&report, "resource.override_outside_signature_scope");
+    assert_eq!(resource.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(resource.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(resource.impact, Some(sis_pdf_core::model::Impact::High));
+    assert_eq!(resource.meta.get("resource.signature_boundary"), Some(&"140".to_string()));
+
+    let font = finding_by_kind(&report, "font.override_outside_signature_scope");
+    assert_eq!(font.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(font.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(font.impact, Some(sis_pdf_core::model::Impact::High));
+
+    let image = finding_by_kind(&report, "image.override_outside_signature_scope");
+    assert_eq!(image.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(image.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(image.impact, Some(sis_pdf_core::model::Impact::High));
+}

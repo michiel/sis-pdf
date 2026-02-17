@@ -306,10 +306,11 @@ Close remaining high-value gaps after initial image/font structural hardening, w
   - `structural-inline-filter-mask-97762d41.pdf` for `image.inline_structure_filter_chain_inconsistent` and `image.inline_mask_inconsistent`
   - `structural-type3-complexity-b4c499af.pdf` for `font.type3_charproc_complexity_high`
   - `structural-cmap-cardinality-53ab048f.pdf` for `font.cmap_cardinality_anomalous`
+  - `structural-signature-overrides-5e736721.pdf` for `resource.override_outside_signature_scope`, `font.override_outside_signature_scope`, and `image.override_outside_signature_scope`
 - Verified corpus baseline suite with:
   `cargo test -p sis-pdf-core --test corpus_captured_regressions -- --nocapture`
 - Remaining Stage 9 work:
-  - Extend positive corpus fixture set to cover signature-scope override kinds (`resource.override_outside_signature_scope`, `font.override_outside_signature_scope`, `image.override_outside_signature_scope`) with deterministic signed-revision fixtures.
+  - None for this follow-up scope; continue normal corpus refresh and performance trend monitoring.
 6. `cargo test -p sis-pdf batch_query_supports_findings_composite_predicate -- --nocapture`
 7. `cargo test -p sis-pdf execute_query_supports_findings_composite_predicate -- --nocapture`
 

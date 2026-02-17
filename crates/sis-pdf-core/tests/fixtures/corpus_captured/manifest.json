@@ -166,6 +166,17 @@
         "font.cmap_cardinality_anomalous medium/probable",
         "cmap cardinality metadata invariants"
       ]
+    },
+    {
+      "path": "structural-signature-overrides-5e736721.pdf",
+      "sha256": "5e736721963040ed628ffa0f56c3aecf5ee463859dce916445c4b24735b25074",
+      "source_path": "generated/synthetic/2026-02-17/structural-signature-overrides",
+      "regression_targets": [
+        "resource.override_outside_signature_scope high/strong",
+        "font.override_outside_signature_scope high/strong",
+        "image.override_outside_signature_scope high/strong",
+        "signature boundary metadata invariant"
+      ]
     }
   ]
 }
