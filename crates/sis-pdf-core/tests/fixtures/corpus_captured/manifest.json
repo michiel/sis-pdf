@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-02-14",
+  "captured_at": "2026-02-17",
   "source_root": "tmp/corpus",
   "fixtures": [
     {
@@ -71,6 +71,24 @@
         "content_first_guardrail_applied info/strong with timeout_heavy_guardrail reason",
         "content_first_analysis_truncated includes timeout_heavy_guardrail metadata",
         "timeout-heavy sample completes with bounded analysis output"
+      ]
+    },
+    {
+      "path": "structural-unused-resource-c4afbb69.pdf",
+      "sha256": "c4afbb6983ba8c731b5efe84f97c33242000296e014259834df92cf37afec4c9",
+      "source_path": "generated/synthetic/2026-02-17/structural-unused-resource",
+      "regression_targets": [
+        "resource.declared_but_unused low/probable",
+        "unused font metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-inline-decode-invalid-eac2732d.pdf",
+      "sha256": "eac2732dfc06a75af555a6e915875d76dd824f1c0af26090ee95adc4d78c20a2",
+      "source_path": "generated/synthetic/2026-02-17/structural-inline-decode-invalid",
+      "regression_targets": [
+        "image.inline_decode_array_invalid low/strong",
+        "inline decode metadata invariants"
       ]
     }
   ]

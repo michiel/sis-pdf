@@ -8,6 +8,7 @@ This directory contains malware-PDF fixtures extracted from corpus triage and co
 - Keep fixture filenames deterministic and hash-referenced where practical.
 - Record provenance and expected behaviours in `manifest.json`.
 - Update or add regression tests in `crates/sis-pdf-core/tests/corpus_captured_regressions.rs` for every new captured fixture.
+- Synthetic fixtures are allowed for deterministic edge-case coverage; mark them clearly in `manifest.json` via `source_path` under `generated/synthetic/...`.
 
 ## Integrity
 

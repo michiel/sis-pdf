@@ -282,12 +282,26 @@ Close remaining high-value gaps after initial image/font structural hardening, w
   - `parse: 0ms`
   - `detection: 1ms`
   - `resource_usage_semantics` detector runtime: `0ms` on the baseline fixture
+- Runtime profile baseline captured on 2026-02-17 for new structural-positive fixture:
+  `cargo run -p sis-pdf --bin sis -- scan crates/sis-pdf-core/tests/fixtures/corpus_captured/structural-unused-resource-c4afbb69.pdf --deep --runtime-profile --runtime-profile-format json`
+  - `total_duration_ms: 3`
+  - `parse: 0ms`
+  - `detection: 1ms`
+  - `resource_usage_semantics` detector runtime: `0ms` with `findings_count: 1`
+- Runtime profile baseline captured on 2026-02-17 for modern corpus fixture:
+  `cargo run -p sis-pdf --bin sis -- scan crates/sis-pdf-core/tests/fixtures/corpus_captured/modern-renderer-revision-8d42d425.pdf --deep --runtime-profile --runtime-profile-format json`
+  - `total_duration_ms: 969`
+  - `parse: 16ms`
+  - `detection: 927ms`
+  - Top detector by runtime remained `content_first_stage1` (`922ms`)
 - Added corpus regression guardrails in `crates/sis-pdf-core/tests/corpus_captured_regressions.rs` asserting modern captured fixtures do not silently start emitting the new image/font structural follow-up kinds.
+- Added positive corpus fixtures and provenance entries:
+  - `structural-unused-resource-c4afbb69.pdf` for `resource.declared_but_unused`
+  - `structural-inline-decode-invalid-eac2732d.pdf` for `image.inline_decode_array_invalid`
 - Verified corpus baseline suite with:
   `cargo test -p sis-pdf-core --test corpus_captured_regressions -- --nocapture`
 - Remaining Stage 9 work:
-  - Add corpus-captured fixtures that intentionally exercise positive image/font structural follow-up findings and update manifest provenance.
-  - Record runtime-profile baseline deltas for at least one modern structural fixture using `sis scan <fixture> --deep --runtime-profile --runtime-profile-format json`.
+  - Extend positive corpus fixture set to cover the remaining new kinds (`resource.hidden_invocation_pattern`, Type 3/CMap family, and signature-scope overrides) while preserving deterministic assertions.
 6. `cargo test -p sis-pdf batch_query_supports_findings_composite_predicate -- --nocapture`
 7. `cargo test -p sis-pdf execute_query_supports_findings_composite_predicate -- --nocapture`
 

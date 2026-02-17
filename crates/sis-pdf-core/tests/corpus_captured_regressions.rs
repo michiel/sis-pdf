@@ -347,3 +347,35 @@ fn corpus_captured_timeout_heavy_guardrail_metadata_stays_stable() {
         .expect("adaptive budget reasons should be present");
     assert!(adaptive_reasons.contains("timeout_heavy_guardrail"));
 }
+
+#[test]
+fn corpus_captured_structural_unused_resource_baseline_stays_stable() {
+    let bytes = include_bytes!("fixtures/corpus_captured/structural-unused-resource-c4afbb69.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let finding = finding_by_kind(&report, "resource.declared_but_unused");
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::Low);
+    assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert_eq!(finding.impact, Some(sis_pdf_core::model::Impact::Low));
+    assert_eq!(meta_as_u32(finding, "resource.unused_font_count"), 1);
+    assert_eq!(meta_as_u32(finding, "resource.unused_xobject_count"), 0);
+    assert_eq!(finding.meta.get("resource.unused_fonts"), Some(&"/F1".to_string()));
+}
+
+#[test]
+fn corpus_captured_structural_inline_decode_invalid_baseline_stays_stable() {
+    let bytes =
+        include_bytes!("fixtures/corpus_captured/structural-inline-decode-invalid-eac2732d.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let finding = finding_by_kind(&report, "image.inline_decode_array_invalid");
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::Low);
+    assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(finding.impact, Some(sis_pdf_core::model::Impact::Low));
+    assert_eq!(meta_as_u32(finding, "inline_image.decode_count"), 3);
+    assert_eq!(meta_as_u32(finding, "inline_image.filter_count"), 0);
+}
