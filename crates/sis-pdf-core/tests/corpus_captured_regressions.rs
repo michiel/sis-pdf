@@ -379,3 +379,40 @@ fn corpus_captured_structural_inline_decode_invalid_baseline_stays_stable() {
     assert_eq!(meta_as_u32(finding, "inline_image.decode_count"), 3);
     assert_eq!(meta_as_u32(finding, "inline_image.filter_count"), 0);
 }
+
+#[test]
+fn corpus_captured_structural_hidden_invocation_baseline_stays_stable() {
+    let bytes =
+        include_bytes!("fixtures/corpus_captured/structural-hidden-invocation-19004614.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let finding = finding_by_kind(&report, "resource.hidden_invocation_pattern");
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert_eq!(finding.impact, Some(sis_pdf_core::model::Impact::Medium));
+    assert_eq!(meta_as_u32(finding, "resource.hidden_invocation_count"), 1);
+}
+
+#[test]
+fn corpus_captured_structural_inheritance_conflict_font_baseline_stays_stable() {
+    let bytes = include_bytes!(
+        "fixtures/corpus_captured/structural-inheritance-conflict-font-4e033b8b.pdf"
+    );
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let conflict = finding_by_kind(&report, "resource.inheritance_conflict_font");
+    assert_eq!(conflict.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(conflict.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(conflict.impact, Some(sis_pdf_core::model::Impact::Medium));
+    assert_eq!(conflict.meta.get("resource.font_conflicts"), Some(&"/F1".to_string()));
+
+    let override_finding = finding_by_kind(&report, "resource.inheritance_override_suspicious");
+    assert_eq!(override_finding.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(override_finding.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert_eq!(override_finding.impact, Some(sis_pdf_core::model::Impact::Medium));
+    assert_eq!(meta_as_u32(override_finding, "resource.override_conflict_count"), 1);
+}

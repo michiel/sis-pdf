@@ -90,6 +90,25 @@
         "image.inline_decode_array_invalid low/strong",
         "inline decode metadata invariants"
       ]
+    },
+    {
+      "path": "structural-hidden-invocation-19004614.pdf",
+      "sha256": "19004614e9a7ae244e6eb618df7371d353ed67be6f00061ba0dd14be1817ad41",
+      "source_path": "generated/synthetic/2026-02-17/structural-hidden-invocation",
+      "regression_targets": [
+        "resource.hidden_invocation_pattern medium/probable",
+        "hidden invocation count metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-inheritance-conflict-font-4e033b8b.pdf",
+      "sha256": "4e033b8b1eaa93a5971fd6bae37b696bdd2b2c3f6297faa428b14113cb4cd89f",
+      "source_path": "generated/synthetic/2026-02-17/structural-inheritance-conflict-font",
+      "regression_targets": [
+        "resource.inheritance_conflict_font medium/strong",
+        "resource.inheritance_override_suspicious medium/probable",
+        "override conflict metadata invariants"
+      ]
     }
   ]
 }

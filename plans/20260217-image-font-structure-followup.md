@@ -298,10 +298,12 @@ Close remaining high-value gaps after initial image/font structural hardening, w
 - Added positive corpus fixtures and provenance entries:
   - `structural-unused-resource-c4afbb69.pdf` for `resource.declared_but_unused`
   - `structural-inline-decode-invalid-eac2732d.pdf` for `image.inline_decode_array_invalid`
+  - `structural-hidden-invocation-19004614.pdf` for `resource.hidden_invocation_pattern`
+  - `structural-inheritance-conflict-font-4e033b8b.pdf` for `resource.inheritance_conflict_font` and `resource.inheritance_override_suspicious`
 - Verified corpus baseline suite with:
   `cargo test -p sis-pdf-core --test corpus_captured_regressions -- --nocapture`
 - Remaining Stage 9 work:
-  - Extend positive corpus fixture set to cover the remaining new kinds (`resource.hidden_invocation_pattern`, Type 3/CMap family, and signature-scope overrides) while preserving deterministic assertions.
+  - Extend positive corpus fixture set to cover the remaining new kinds (Type 3/CMap family and signature-scope overrides) while preserving deterministic assertions.
 6. `cargo test -p sis-pdf batch_query_supports_findings_composite_predicate -- --nocapture`
 7. `cargo test -p sis-pdf execute_query_supports_findings_composite_predicate -- --nocapture`
 
