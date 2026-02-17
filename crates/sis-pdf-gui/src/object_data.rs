@@ -18,7 +18,7 @@ const MAX_PREVIEW_DECODE_BYTES: u64 = 64 * 1024 * 1024;
 /// This captures displayable object information while the borrowed
 /// `ObjectGraph` is still alive, so the GUI can access it after the
 /// graph is dropped.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct ObjectData {
     pub objects: Vec<ObjectSummary>,
     /// (obj, gen) to index into `objects`.
@@ -28,7 +28,7 @@ pub struct ObjectData {
 }
 
 /// Owned summary of a single PDF object for display in the Object Inspector.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ObjectSummary {
     pub obj: u32,
     pub gen: u16,
@@ -53,7 +53,7 @@ pub struct ObjectSummary {
 }
 
 /// Owned copy of xref section metadata.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct XrefSectionInfo {
     pub offset: u64,
     pub kind: String,
@@ -64,7 +64,7 @@ pub struct XrefSectionInfo {
 }
 
 /// Owned copy of a parser deviation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeviationInfo {
     pub kind: String,
     pub offset: u64,

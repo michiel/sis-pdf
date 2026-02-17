@@ -15,11 +15,22 @@ const MAX_TOTAL_DECODED_BYTES: usize = 256 * 1024 * 1024; // 256 MB
 const MAX_RECURSION_DEPTH: usize = 50;
 
 /// Result of browser-side PDF analysis.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct AnalysisResult {
     pub report: Report,
     pub object_data: ObjectData,
     pub bytes: Vec<u8>,
+    pub file_name: String,
+    pub file_size: usize,
+    pub pdf_version: Option<String>,
+    pub page_count: usize,
+}
+
+/// Serializable analysis payload used by WASM worker orchestration.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct WorkerAnalysisResult {
+    pub report: Report,
+    pub object_data: ObjectData,
     pub file_name: String,
     pub file_size: usize,
     pub pdf_version: Option<String>,
@@ -75,6 +86,33 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
         pdf_version,
         page_count,
     })
+}
+
+pub fn analyze_for_worker(
+    bytes: &[u8],
+    file_name: &str,
+) -> Result<WorkerAnalysisResult, AnalysisError> {
+    let result = analyze(bytes, file_name)?;
+    Ok(WorkerAnalysisResult {
+        report: result.report,
+        object_data: result.object_data,
+        file_name: result.file_name,
+        file_size: result.file_size,
+        pdf_version: result.pdf_version,
+        page_count: result.page_count,
+    })
+}
+
+pub fn worker_result_into_analysis(worker: WorkerAnalysisResult, bytes: Vec<u8>) -> AnalysisResult {
+    AnalysisResult {
+        report: worker.report,
+        object_data: worker.object_data,
+        bytes,
+        file_name: worker.file_name,
+        file_size: worker.file_size,
+        pdf_version: worker.pdf_version,
+        page_count: worker.page_count,
+    }
 }
 
 fn gui_scan_options() -> ScanOptions {

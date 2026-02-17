@@ -26,19 +26,40 @@ pub fn start_wasm() {
     use wasm_bindgen::JsCast;
 
     console_error_panic_hook::set_once();
+    let Some(window) = web_sys::window() else {
+        // Worker context: no UI bootstrap required.
+        return;
+    };
+    let Some(document) = window.document() else {
+        // Worker context: no UI bootstrap required.
+        return;
+    };
+    let Some(canvas_el) = document.get_element_by_id("sis_canvas") else {
+        // Worker context: no UI canvas available.
+        return;
+    };
     let web_options = eframe::WebOptions::default();
     wasm_bindgen_futures::spawn_local(async {
-        let document = web_sys::window().expect("no window").document().expect("no document");
-        let canvas = document
-            .get_element_by_id("sis_canvas")
-            .expect("no canvas element with id 'sis_canvas'")
-            .dyn_into::<web_sys::HtmlCanvasElement>()
-            .expect("element is not a canvas");
+        let canvas =
+            canvas_el.dyn_into::<web_sys::HtmlCanvasElement>().expect("element is not a canvas");
         eframe::WebRunner::new()
             .start(canvas, web_options, Box::new(|cc| Ok(Box::new(app::SisApp::new(cc)))))
             .await
             .expect("failed to start eframe");
     });
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn wasm_analyze_json(
+    bytes: Vec<u8>,
+    file_name: String,
+) -> Result<String, wasm_bindgen::JsValue> {
+    let result = crate::analysis::analyze_for_worker(&bytes, &file_name)
+        .map_err(|err| wasm_bindgen::JsValue::from_str(&err.to_string()))?;
+    serde_json::to_string(&result).map_err(|err| {
+        wasm_bindgen::JsValue::from_str(&format!("serialize analysis result: {err}"))
+    })
 }
 
 /// Native entry point: run eframe in a desktop window.

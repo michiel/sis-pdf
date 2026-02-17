@@ -1,4 +1,4 @@
-use crate::analysis::{AnalysisError, AnalysisResult};
+use crate::analysis::{AnalysisError, AnalysisResult, WorkerAnalysisResult};
 use crate::telemetry::TelemetryLog;
 use crate::window_state::WindowMaxState;
 use crate::workspace::{self, WorkspaceContext};
@@ -8,6 +8,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsCast;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsValue;
 
 /// Application state for the PDF security analyser.
 pub struct SisApp {
@@ -102,6 +106,41 @@ pub struct SisApp {
     pub elapsed_time: f64,
     #[cfg(target_arch = "wasm32")]
     pending_upload: Rc<RefCell<Option<(String, Vec<u8>)>>>,
+    #[cfg(target_arch = "wasm32")]
+    pending_worker_result: Rc<RefCell<Option<WorkerAnalysisOutcome>>>,
+    #[cfg(target_arch = "wasm32")]
+    analysis_worker: Option<web_sys::Worker>,
+    #[cfg(target_arch = "wasm32")]
+    analysis_worker_onmessage:
+        Option<wasm_bindgen::closure::Closure<dyn FnMut(web_sys::MessageEvent)>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct WorkerRequest {
+    file_name: String,
+    bytes: Vec<u8>,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct WorkerResponseOk {
+    ok: bool,
+    result_json: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct WorkerResponseErr {
+    ok: bool,
+    error: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug)]
+enum WorkerAnalysisOutcome {
+    Ok { result: WorkerAnalysisResult },
+    Err(String),
 }
 
 pub struct SeverityFilters {
@@ -148,6 +187,9 @@ pub enum AppState {
     LoadingPath { file_name: String, path: PathBuf, shown_once: bool },
     /// Analysis is queued (renders spinner on next frame).
     Analysing { file_name: String, bytes: Vec<u8>, shown_once: bool },
+    #[cfg(target_arch = "wasm32")]
+    /// Analysis has been dispatched to the browser worker and is still running.
+    AnalysingWorker { file_name: String, bytes: Vec<u8> },
 }
 
 #[derive(Default, PartialEq)]
@@ -232,6 +274,12 @@ impl SisApp {
             elapsed_time: 0.0,
             #[cfg(target_arch = "wasm32")]
             pending_upload: Rc::new(RefCell::new(None)),
+            #[cfg(target_arch = "wasm32")]
+            pending_worker_result: Rc::new(RefCell::new(None)),
+            #[cfg(target_arch = "wasm32")]
+            analysis_worker: None,
+            #[cfg(target_arch = "wasm32")]
+            analysis_worker_onmessage: None,
         }
     }
 
@@ -250,68 +298,144 @@ impl SisApp {
     }
 
     /// Run analysis and open the result as a new tab.
+    #[cfg(not(target_arch = "wasm32"))]
     fn process_analysis(&mut self, name: String, bytes: &[u8]) {
         let file_size = bytes.len();
 
         match crate::analysis::analyze(bytes, &name) {
             Ok(result) => {
-                self.telemetry.record(
-                    self.elapsed_time,
-                    crate::telemetry::TelemetryEventKind::FileOpened {
-                        file_name: name.clone(),
-                        file_size,
-                    },
-                );
-                // Save the current active workspace (if any) before switching
-                self.save_active_workspace();
-
-                // Enforce tab limit: evict oldest inactive tab if needed
-                while self.inactive_workspaces.len() >= workspace::MAX_TABS {
-                    self.inactive_workspaces.remove(0);
-                }
-
-                // Set up the new workspace as active
-                self.active_tab_name = result.file_name.clone();
-                self.result = Some(result);
-                self.selected_finding = None;
-                self.selected_object = None;
-                self.object_type_filter = None;
-                self.object_nav_stack.clear();
-                self.object_nav_pos = 0;
-                self.object_search.clear();
-                self.show_stream_hex = false;
-                self.show_hex = false;
-                self.hex_view = HexViewState::default();
-                self.show_command_bar = false;
-                self.command_input.clear();
-                self.command_history.clear();
-                self.command_results.clear();
-                self.show_findings = true;
-                self.show_chains = false;
-                self.show_metadata = false;
-                self.show_objects = false;
-                self.show_graph = false;
-                self.graph_state = crate::panels::graph::GraphViewerState::default();
-                self.selected_chain = None;
-                self.severity_filters = SeverityFilters::default();
-                self.sort = SortState::default();
-                self.findings_search.clear();
-                self.surface_filter = None;
-                self.min_confidence = 0;
-                self.has_cve_filter = false;
-                self.auto_triggered_filter = false;
-                self.chain_sort_column = ChainSortColumn::default();
-                self.chain_sort_ascending = false;
-                self.command_history_pos = None;
-
-                // Active tab is the last one
-                self.active_tab = self.inactive_workspaces.len();
-                self.tab_count = self.inactive_workspaces.len() + 1;
+                self.open_analysis_result(name, file_size, result);
             }
             Err(err) => {
                 self.error = Some(err);
             }
         }
+    }
+
+    fn open_analysis_result(&mut self, name: String, file_size: usize, result: AnalysisResult) {
+        self.telemetry.record(
+            self.elapsed_time,
+            crate::telemetry::TelemetryEventKind::FileOpened { file_name: name, file_size },
+        );
+        // Save the current active workspace (if any) before switching
+        self.save_active_workspace();
+
+        // Enforce tab limit: evict oldest inactive tab if needed
+        while self.inactive_workspaces.len() >= workspace::MAX_TABS {
+            self.inactive_workspaces.remove(0);
+        }
+
+        // Set up the new workspace as active
+        self.active_tab_name = result.file_name.clone();
+        self.result = Some(result);
+        self.selected_finding = None;
+        self.selected_object = None;
+        self.object_type_filter = None;
+        self.object_nav_stack.clear();
+        self.object_nav_pos = 0;
+        self.object_search.clear();
+        self.show_stream_hex = false;
+        self.show_hex = false;
+        self.hex_view = HexViewState::default();
+        self.show_command_bar = false;
+        self.command_input.clear();
+        self.command_history.clear();
+        self.command_results.clear();
+        self.show_findings = true;
+        self.show_chains = false;
+        self.show_metadata = false;
+        self.show_objects = false;
+        self.show_graph = false;
+        self.graph_state = crate::panels::graph::GraphViewerState::default();
+        self.selected_chain = None;
+        self.severity_filters = SeverityFilters::default();
+        self.sort = SortState::default();
+        self.findings_search.clear();
+        self.surface_filter = None;
+        self.min_confidence = 0;
+        self.has_cve_filter = false;
+        self.auto_triggered_filter = false;
+        self.chain_sort_column = ChainSortColumn::default();
+        self.chain_sort_ascending = false;
+        self.command_history_pos = None;
+
+        // Active tab is the last one
+        self.active_tab = self.inactive_workspaces.len();
+        self.tab_count = self.inactive_workspaces.len() + 1;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn ensure_analysis_worker(&mut self) -> Result<(), AnalysisError> {
+        if self.analysis_worker.is_some() {
+            return Ok(());
+        }
+        let worker = web_sys::Worker::new("./analysis_worker.js").map_err(|_| {
+            AnalysisError::ParseFailed("Failed to initialise analysis worker".to_string())
+        })?;
+        let pending_result = Rc::clone(&self.pending_worker_result);
+        let onmessage = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
+            move |event: web_sys::MessageEvent| {
+                let Some(payload): Option<String> = event.data().as_string() else {
+                    *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
+                        "Worker returned non-string payload".to_string(),
+                    ));
+                    return;
+                };
+                let Ok(ok_payload) = serde_json::from_str::<WorkerResponseOk>(&payload) else {
+                    let Ok(err_payload) = serde_json::from_str::<WorkerResponseErr>(&payload)
+                    else {
+                        *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
+                            "Worker returned invalid payload".to_string(),
+                        ));
+                        return;
+                    };
+                    *pending_result.borrow_mut() =
+                        Some(WorkerAnalysisOutcome::Err(err_payload.error));
+                    return;
+                };
+                if !ok_payload.ok {
+                    *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
+                        "Worker reported unsuccessful analysis".to_string(),
+                    ));
+                    return;
+                }
+                match serde_json::from_str::<WorkerAnalysisResult>(&ok_payload.result_json) {
+                    Ok(parsed) => {
+                        *pending_result.borrow_mut() =
+                            Some(WorkerAnalysisOutcome::Ok { result: parsed });
+                    }
+                    Err(err) => {
+                        *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(format!(
+                            "Failed to decode worker result: {}",
+                            err
+                        )));
+                    }
+                }
+            },
+        );
+        worker.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
+        self.analysis_worker_onmessage = Some(onmessage);
+        self.analysis_worker = Some(worker);
+        Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn dispatch_worker_analysis(
+        &mut self,
+        file_name: String,
+        bytes: Vec<u8>,
+    ) -> Result<(), AnalysisError> {
+        self.ensure_analysis_worker()?;
+        let worker = self.analysis_worker.as_ref().ok_or_else(|| {
+            AnalysisError::ParseFailed("Analysis worker is unavailable".to_string())
+        })?;
+        let request = WorkerRequest { file_name, bytes };
+        let request_json = serde_json::to_string(&request)
+            .map_err(|err| AnalysisError::ParseFailed(format!("Encode worker request: {}", err)))?;
+        worker.post_message(&JsValue::from_str(&request_json)).map_err(|_| {
+            AnalysisError::ParseFailed("Failed to send work to analysis worker".to_string())
+        })?;
+        Ok(())
     }
 
     /// Save the current active workspace into the inactive list.
@@ -723,6 +847,35 @@ impl eframe::App for SisApp {
             if let Some((name, bytes)) = maybe_upload {
                 self.handle_file_drop(name, &bytes);
             }
+            let maybe_worker_result = self.pending_worker_result.borrow_mut().take();
+            if let Some(outcome) = maybe_worker_result {
+                match outcome {
+                    WorkerAnalysisOutcome::Ok { result, .. } => {
+                        let state = std::mem::replace(&mut self.app_state, AppState::Idle);
+                        let bytes = match state {
+                            AppState::AnalysingWorker { bytes, .. } => bytes,
+                            other => {
+                                self.app_state = other;
+                                self.error = Some(AnalysisError::ParseFailed(
+                                    "Worker result arrived without active worker state".to_string(),
+                                ));
+                                Vec::new()
+                            }
+                        };
+                        if !bytes.is_empty() {
+                            let file_size = bytes.len();
+                            let file_name = result.file_name.clone();
+                            let analysis =
+                                crate::analysis::worker_result_into_analysis(result, bytes);
+                            self.open_analysis_result(file_name, file_size, analysis);
+                        }
+                    }
+                    WorkerAnalysisOutcome::Err(err) => {
+                        self.app_state = AppState::Idle;
+                        self.error = Some(AnalysisError::ParseFailed(err));
+                    }
+                }
+            }
         }
 
         // Handle file drops
@@ -746,6 +899,10 @@ impl eframe::App for SisApp {
                 Some(("Loading PDF".to_string(), file_name.clone()))
             }
             AppState::Analysing { file_name, .. } => {
+                Some(("Processing PDF".to_string(), file_name.clone()))
+            }
+            #[cfg(target_arch = "wasm32")]
+            AppState::AnalysingWorker { file_name, .. } => {
                 Some(("Processing PDF".to_string(), file_name.clone()))
             }
         };
@@ -865,6 +1022,8 @@ impl eframe::App for SisApp {
                         false
                     }
                 }
+                #[cfg(target_arch = "wasm32")]
+                AppState::AnalysingWorker { .. } => false,
                 AppState::Idle => false,
             };
 
@@ -898,7 +1057,21 @@ impl eframe::App for SisApp {
                     }
                 }
                 AppState::Analysing { file_name, bytes, .. } => {
+                    #[cfg(not(target_arch = "wasm32"))]
                     self.process_analysis(file_name, &bytes);
+                    #[cfg(target_arch = "wasm32")]
+                    match self.dispatch_worker_analysis(file_name.clone(), bytes.clone()) {
+                        Ok(()) => {
+                            self.app_state = AppState::AnalysingWorker { file_name, bytes };
+                        }
+                        Err(err) => {
+                            self.error = Some(err);
+                        }
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                AppState::AnalysingWorker { file_name, bytes } => {
+                    self.app_state = AppState::AnalysingWorker { file_name, bytes };
                 }
                 AppState::Idle => {}
             }
