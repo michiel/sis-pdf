@@ -2,6 +2,11 @@ let wasmModulePromise = null;
 
 async function loadWasmModule() {
   if (!wasmModulePromise) {
+    // Some Rust/WASM code paths probe `window` for timing APIs.
+    // In workers, map `window` to the worker global to preserve compatibility.
+    if (typeof self.window === "undefined") {
+      self.window = self;
+    }
     wasmModulePromise = import("./sis-pdf-gui.js").then(async (module) => {
       if (typeof module.default === "function") {
         await module.default();

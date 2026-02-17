@@ -10,6 +10,7 @@ use js_analysis::{
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_core::time_compat::Instant;
 
 use crate::js_payload_candidates_from_entry;
 
@@ -1891,7 +1892,7 @@ impl Detector for JavaScriptSandboxDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         let document_budget = sandbox_document_budget();
-        let budget_start = std::time::Instant::now();
+        let budget_start = Instant::now();
         for entry in &ctx.graph.objects {
             let candidates = js_payload_candidates_from_entry(ctx, entry);
             if candidates.is_empty() {

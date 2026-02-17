@@ -14,7 +14,11 @@ mod sandbox_impl {
     use std::rc::Rc;
     use std::sync::mpsc::{self, RecvTimeoutError};
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
+    #[cfg(not(target_arch = "wasm32"))]
+    use std::time::Instant;
+    #[cfg(target_arch = "wasm32")]
+    use web_time::Instant;
 
     use boa_engine::object::builtins::JsFunction;
     use boa_engine::object::{FunctionObjectBuilder, JsObject, ObjectInitializer};
@@ -345,7 +349,7 @@ mod sandbox_impl {
         variable_timeline: Vec<VariableEvent>,
         scope_transitions: Vec<ScopeTransition>,
         exception_handling: Vec<ExceptionEvent>,
-        start_time: Option<std::time::Instant>,
+        start_time: Option<Instant>,
     }
 
     #[derive(Debug, Clone)]
@@ -4215,7 +4219,7 @@ mod sandbox_impl {
         args: &[JsValue],
         ctx: &mut Context,
     ) {
-        let call_start = std::time::Instant::now();
+        let call_start = Instant::now();
 
         // Standard call recording
         record_call(log, name, args, ctx);
@@ -4306,7 +4310,7 @@ mod sandbox_impl {
             let phase_timeout_ms = initial_log.options.phase_timeout_ms;
             let timeout_budget_ms = initial_log.options.timeout_ms;
             // Initialize execution flow tracking
-            initial_log.execution_flow.start_time = Some(std::time::Instant::now());
+            initial_log.execution_flow.start_time = Some(Instant::now());
             let log = Rc::new(RefCell::new(initial_log));
             let scope = Rc::new(RefCell::new(DynamicScope::default()));
             let normalised = normalise_js_source(&bytes);

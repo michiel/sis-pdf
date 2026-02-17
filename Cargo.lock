@@ -2969,6 +2969,7 @@ dependencies = [
  "boa_parser",
  "regex",
  "serde_json",
+ "web-time",
 ]
 
 [[package]]
