@@ -2,23 +2,13 @@ use crate::app::SisApp;
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.selected_finding.is_some();
-    let state = app.window_max.entry("Finding Detail".to_string()).or_default();
-    let is_max = state.is_maximised;
-    let mut win = egui::Window::new("Finding Detail").open(&mut open).resizable(true);
-    win = crate::window_state::clamp_to_viewport(win, ctx);
-    if is_max {
-        let area = ctx.available_rect();
-        win = win.fixed_pos(area.left_top()).fixed_size(area.size());
-    } else {
-        win = win.default_size([400.0, 500.0]);
-    }
+    let mut ws = app.window_max.remove("Finding Detail").unwrap_or_default();
+    let win = crate::window_state::dialog_window(ctx, "Finding Detail", [400.0, 500.0], &mut ws);
     win.show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            let ws = app.window_max.entry("Finding Detail".to_string()).or_default();
-            crate::window_state::maximise_button(ui, ws);
-        });
+        crate::window_state::dialog_title_bar(ui, "Finding Detail", &mut open, &mut ws);
         show(ui, app);
     });
+    app.window_max.insert("Finding Detail".to_string(), ws);
     if !open {
         app.selected_finding = None;
     }

@@ -835,24 +835,13 @@ impl eframe::App for SisApp {
 
             if self.show_metadata {
                 let mut open = true;
-                let state =
-                    self.window_max.entry("Metadata".to_string()).or_default();
-                let is_max = state.is_maximised;
-                let mut win =
-                    egui::Window::new("Metadata").open(&mut open).resizable(true);
-                win = crate::window_state::clamp_to_viewport(win, ctx);
-                if is_max {
-                    let area = ctx.available_rect();
-                    win = win.fixed_pos(area.left_top()).fixed_size(area.size());
-                } else {
-                    win = win.default_size([400.0, 500.0]);
-                }
+                let mut ws = self.window_max.remove("Metadata").unwrap_or_default();
+                let win = crate::window_state::dialog_window(ctx, "Metadata", [400.0, 500.0], &mut ws);
                 win.show(ctx, |ui| {
-                    let ws =
-                        self.window_max.entry("Metadata".to_string()).or_default();
-                    crate::window_state::dialog_top_bar(ui, ws);
+                    crate::window_state::dialog_title_bar(ui, "Metadata", &mut open, &mut ws);
                     crate::panels::metadata::show(ui, self);
                 });
+                self.window_max.insert("Metadata".to_string(), ws);
                 self.show_metadata = open;
             }
 

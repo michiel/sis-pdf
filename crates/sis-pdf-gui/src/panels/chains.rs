@@ -2,23 +2,13 @@ use crate::app::{ChainSortColumn, SisApp};
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_chains;
-    let state = app.window_max.entry("Chains".to_string()).or_default();
-    let is_max = state.is_maximised;
-    let mut win = egui::Window::new("Chains").open(&mut open).resizable(true);
-    win = crate::window_state::clamp_to_viewport(win, ctx);
-    if is_max {
-        let area = ctx.available_rect();
-        win = win.fixed_pos(area.left_top()).fixed_size(area.size());
-    } else {
-        win = win.default_size([600.0, 400.0]);
-    }
+    let mut ws = app.window_max.remove("Chains").unwrap_or_default();
+    let win = crate::window_state::dialog_window(ctx, "Chains", [600.0, 400.0], &mut ws);
     win.show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            let ws = app.window_max.entry("Chains".to_string()).or_default();
-            crate::window_state::maximise_button(ui, ws);
-        });
+        crate::window_state::dialog_title_bar(ui, "Chains", &mut open, &mut ws);
         show(ui, app);
     });
+    app.window_max.insert("Chains".to_string(), ws);
     app.show_chains = open;
 }
 

@@ -4,23 +4,13 @@ use sis_pdf_core::model::{Confidence, Severity};
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_findings;
-    let state = app.window_max.entry("Findings".to_string()).or_default();
-    let is_max = state.is_maximised;
-    let mut win = egui::Window::new("Findings").open(&mut open).resizable(true);
-    win = crate::window_state::clamp_to_viewport(win, ctx);
-    if is_max {
-        let area = ctx.available_rect();
-        win = win.fixed_pos(area.left_top()).fixed_size(area.size());
-    } else {
-        win = win.default_size([600.0, 400.0]);
-    }
+    let mut ws = app.window_max.remove("Findings").unwrap_or_default();
+    let win = crate::window_state::dialog_window(ctx, "Findings", [600.0, 400.0], &mut ws);
     win.show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            let ws = app.window_max.entry("Findings".to_string()).or_default();
-            crate::window_state::maximise_button(ui, ws);
-        });
+        crate::window_state::dialog_title_bar(ui, "Findings", &mut open, &mut ws);
         show(ui, app);
     });
+    app.window_max.insert("Findings".to_string(), ws);
     app.show_findings = open;
 }
 
@@ -115,7 +105,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             }
 
             // Confidence filter
-            if confidence_rank(&f.confidence) > app.min_confidence {
+            if !passes_min_confidence_filter(&f.confidence, app.min_confidence) {
                 return false;
             }
 
@@ -316,6 +306,10 @@ fn confidence_label(c: &Confidence) -> &'static str {
     }
 }
 
+fn passes_min_confidence_filter(confidence: &Confidence, min_level: u8) -> bool {
+    min_level == 0 || confidence_rank(confidence) <= min_level
+}
+
 /// Label shown next to the confidence slider to indicate the threshold.
 fn confidence_threshold_label(level: u8) -> &'static str {
     match level {
@@ -358,4 +352,35 @@ fn collect_surface_names(result: &crate::analysis::AnalysisResult) -> Vec<String
     names.sort();
     names.dedup();
     names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn min_confidence_all_includes_all_confidences() {
+        let all = [
+            Confidence::Certain,
+            Confidence::Strong,
+            Confidence::Probable,
+            Confidence::Tentative,
+            Confidence::Weak,
+            Confidence::Heuristic,
+        ];
+
+        for confidence in all {
+            assert!(passes_min_confidence_filter(&confidence, 0));
+        }
+    }
+
+    #[test]
+    fn min_confidence_strong_only_allows_strong_or_higher() {
+        assert!(passes_min_confidence_filter(&Confidence::Certain, 1));
+        assert!(passes_min_confidence_filter(&Confidence::Strong, 1));
+        assert!(!passes_min_confidence_filter(&Confidence::Probable, 1));
+        assert!(!passes_min_confidence_filter(&Confidence::Tentative, 1));
+        assert!(!passes_min_confidence_filter(&Confidence::Weak, 1));
+        assert!(!passes_min_confidence_filter(&Confidence::Heuristic, 1));
+    }
 }

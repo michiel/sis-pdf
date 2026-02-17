@@ -4,23 +4,13 @@ use egui_extras::{Column, TableBuilder};
 
 pub fn show(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_objects;
-    let state = app.window_max.entry("Object Inspector".to_string()).or_default();
-    let is_max = state.is_maximised;
-    let mut win = egui::Window::new("Object Inspector").open(&mut open).resizable(true);
-    win = crate::window_state::clamp_to_viewport(win, ctx);
-    if is_max {
-        let area = ctx.available_rect();
-        win = win.fixed_pos(area.left_top()).fixed_size(area.size());
-    } else {
-        win = win.default_size([700.0, 500.0]);
-    }
+    let mut ws = app.window_max.remove("Object Inspector").unwrap_or_default();
+    let win = crate::window_state::dialog_window(ctx, "Object Inspector", [700.0, 500.0], &mut ws);
     win.show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            let ws = app.window_max.entry("Object Inspector".to_string()).or_default();
-            crate::window_state::maximise_button(ui, ws);
-        });
+        crate::window_state::dialog_title_bar(ui, "Object Inspector", &mut open, &mut ws);
         show_inner(ui, app);
     });
+    app.window_max.insert("Object Inspector".to_string(), ws);
     app.show_objects = open;
 }
 
@@ -220,6 +210,7 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
             return;
         };
         let obj = &result.object_data.objects[idx];
+        let stream_source_raw = stream_source_bytes(&result.bytes, obj.stream_data_span);
         ObjectDetail {
             obj: obj.obj,
             gen: obj.gen,
@@ -230,6 +221,7 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
             stream_length: obj.stream_length,
             stream_text: obj.stream_text.clone(),
             stream_raw: obj.stream_raw.clone(),
+            stream_source_raw,
             dict_entries: obj.dict_entries.clone(),
             references_from: obj.references_from.clone(),
             references_to: obj.references_to.clone(),
@@ -278,6 +270,7 @@ struct ObjectDetail {
     stream_length: Option<usize>,
     stream_text: Option<String>,
     stream_raw: Option<Vec<u8>>,
+    stream_source_raw: Option<Vec<u8>>,
     dict_entries: Vec<(String, String)>,
     references_from: Vec<(u32, u16)>,
     references_to: Vec<(u32, u16)>,
@@ -316,6 +309,18 @@ fn show_object_meta(ui: &mut egui::Ui, app: &mut SisApp, detail: &ObjectDetail) 
                         app.open_hex_for_stream(detail.obj, detail.gen);
                     }
                 }
+                if let Some(raw) = &detail.stream_source_raw {
+                    if ui.small_button("Download raw").clicked() {
+                        let file_name = format!("obj-{}-{}-raw.bin", detail.obj, detail.gen);
+                        app.download_bytes(&file_name, raw);
+                    }
+                }
+                if let Some(decoded) = &detail.stream_raw {
+                    if ui.small_button("Download decoded").clicked() {
+                        let file_name = format!("obj-{}-{}-decoded.bin", detail.obj, detail.gen);
+                        app.download_bytes(&file_name, decoded);
+                    }
+                }
             });
             ui.end_row();
         }
@@ -323,13 +328,7 @@ fn show_object_meta(ui: &mut egui::Ui, app: &mut SisApp, detail: &ObjectDetail) 
         // Show in graph button
         ui.label("");
         if ui.small_button("Show in graph").clicked() {
-            app.show_graph = true;
-            // Select the node in the graph if it exists
-            if let Some(ref graph) = app.graph_state.graph {
-                if let Some(&idx) = graph.node_index.get(&(detail.obj, detail.gen)) {
-                    app.graph_state.selected_node = Some(idx);
-                }
-            }
+            crate::panels::graph::focus_object(app, detail.obj, detail.gen);
         }
         ui.end_row();
     });
@@ -462,4 +461,34 @@ fn parse_obj_ref(s: &str) -> Option<(u32, u16)> {
         return None;
     }
     crate::util::parse_obj_ref(s)
+}
+
+fn stream_source_bytes(bytes: &[u8], span: Option<(usize, usize)>) -> Option<Vec<u8>> {
+    let (start, end) = span?;
+    if start < end && end <= bytes.len() {
+        Some(bytes[start..end].to_vec())
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stream_source_bytes;
+
+    #[test]
+    fn stream_source_bytes_returns_slice_for_valid_span() {
+        let bytes = b"abcdef";
+        let raw = stream_source_bytes(bytes, Some((1, 4))).expect("valid span");
+        assert_eq!(raw, b"bcd");
+    }
+
+    #[test]
+    fn stream_source_bytes_rejects_invalid_or_empty_spans() {
+        let bytes = b"abcdef";
+        assert!(stream_source_bytes(bytes, None).is_none());
+        assert!(stream_source_bytes(bytes, Some((3, 3))).is_none());
+        assert!(stream_source_bytes(bytes, Some((5, 3))).is_none());
+        assert!(stream_source_bytes(bytes, Some((0, 10))).is_none());
+    }
 }
