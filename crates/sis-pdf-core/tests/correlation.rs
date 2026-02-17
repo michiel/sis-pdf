@@ -218,12 +218,21 @@ fn correlate_decode_amplification_chain() {
         AttackSurface::FileStructure,
     );
     let composites = correlation::correlate_findings(&[a, b, c], &CorrelationOptions::default());
-    assert!(composites.iter().any(|f| f.kind == "composite.decode_amplification_chain"));
-    assert!(
-        composites
-            .iter()
-            .any(|f| f.kind == "composite.resource_overrides_with_decoder_pressure")
-    );
+    let decode_chain = composites
+        .iter()
+        .find(|f| f.kind == "composite.decode_amplification_chain")
+        .expect("decode amplification composite should exist");
+    assert_eq!(decode_chain.severity, Severity::High);
+    assert_eq!(decode_chain.confidence, Confidence::Strong);
+    assert_eq!(decode_chain.impact, None);
+
+    let override_chain = composites
+        .iter()
+        .find(|f| f.kind == "composite.resource_overrides_with_decoder_pressure")
+        .expect("override/decoder-pressure composite should exist");
+    assert_eq!(override_chain.severity, Severity::High);
+    assert_eq!(override_chain.confidence, Confidence::Probable);
+    assert_eq!(override_chain.impact, None);
 }
 
 #[test]

@@ -452,10 +452,7 @@ fn correlate_decode_amplification_chain(findings: &[Finding]) -> Vec<Finding> {
             confidence: Confidence::Probable,
             sources: &sources,
             extra_meta: vec![
-                (
-                    "composite.decode_pressure_count",
-                    Some(decode_pressure.len().to_string()),
-                ),
+                ("composite.decode_pressure_count", Some(decode_pressure.len().to_string())),
                 ("composite.provenance_count", Some(provenance.len().to_string())),
             ],
         }));

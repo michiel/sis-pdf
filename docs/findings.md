@@ -3426,6 +3426,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Description: Font subtype and ToUnicode CMap style are inconsistent.
 - Tags: font, cmap, structure
 
+### Calibration Notes: Image/Font Structural Follow-up (2026-02-17)
+
+- Deterministic structural contradictions (for example inheritance conflicts, CMap overlaps, signature-scope overrides) are calibrated at `Strong` confidence.
+- Heuristic/high-volume behavioural patterns (for example operator density and Type 3 complexity spikes) remain `Probable` or `Tentative` unless corroborated.
+- Escalation rule: when provenance override signals co-occur with structural contradictions, emit correlated `High` severity composite findings (`composite.resource_overrides_with_decoder_pressure`, `composite.decode_amplification_chain`) for triage priority.
+
 ## polyglot_signature_conflict
 
 - ID: `polyglot_signature_conflict`

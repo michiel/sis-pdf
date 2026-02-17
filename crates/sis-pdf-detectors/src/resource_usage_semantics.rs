@@ -102,6 +102,9 @@ impl Detector for ResourceUsageSemanticsDetector {
                 .cloned()
                 .collect::<Vec<_>>();
             if !unused_fonts.is_empty() || !unused_xobjects.is_empty() {
+                let (severity, confidence, impact) =
+                    resource_semantics_profile("resource.declared_but_unused")
+                        .expect("profile exists for declared-but-unused resources");
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("resource.page".into(), page.number.to_string());
                 meta.insert("resource.unused_font_count".into(), unused_fonts.len().to_string());
@@ -119,9 +122,9 @@ impl Detector for ResourceUsageSemanticsDetector {
                     id: String::new(),
                     surface: AttackSurface::FileStructure,
                     kind: "resource.declared_but_unused".into(),
-                    severity: Severity::Low,
-                    confidence: Confidence::Probable,
-                    impact: Some(Impact::Low),
+                    severity,
+                    confidence,
+                    impact: Some(impact),
                     title: "Declared resources are unused".into(),
                     description:
                         "Page resources declare fonts or XObjects that were not referenced by content operators."
@@ -140,6 +143,9 @@ impl Detector for ResourceUsageSemanticsDetector {
             }
 
             if hidden_invocations > 0 {
+                let (severity, confidence, impact) =
+                    resource_semantics_profile("resource.hidden_invocation_pattern")
+                        .expect("profile exists for hidden invocation pattern");
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("resource.page".into(), page.number.to_string());
                 meta.insert(
@@ -150,9 +156,9 @@ impl Detector for ResourceUsageSemanticsDetector {
                     id: String::new(),
                     surface: AttackSurface::FileStructure,
                     kind: "resource.hidden_invocation_pattern".into(),
-                    severity: Severity::Medium,
-                    confidence: Confidence::Probable,
-                    impact: Some(Impact::Medium),
+                    severity,
+                    confidence,
+                    impact: Some(impact),
                     title: "Hidden resource invocation pattern".into(),
                     description:
                         "XObject invocations occurred while clipping context was active, indicating potentially concealed rendering."
@@ -171,6 +177,9 @@ impl Detector for ResourceUsageSemanticsDetector {
             }
 
             if do_count + tf_count >= 250 {
+                let (severity, confidence, impact) =
+                    resource_semantics_profile("resource.operator_usage_anomalous")
+                        .expect("profile exists for anomalous operator usage");
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("resource.page".into(), page.number.to_string());
                 meta.insert("resource.do_count".into(), do_count.to_string());
@@ -179,9 +188,9 @@ impl Detector for ResourceUsageSemanticsDetector {
                     id: String::new(),
                     surface: AttackSurface::FileStructure,
                     kind: "resource.operator_usage_anomalous".into(),
-                    severity: Severity::Medium,
-                    confidence: Confidence::Tentative,
-                    impact: Some(Impact::Medium),
+                    severity,
+                    confidence,
+                    impact: Some(impact),
                     title: "Anomalous resource operator usage".into(),
                     description:
                         "Content stream contains unusually high resource invocation volume, which can indicate obfuscation or parser stress behaviour."
@@ -200,6 +209,9 @@ impl Detector for ResourceUsageSemanticsDetector {
             let font_conflicts =
                 conflicting_resource_keys(&resources.local_fonts, &resources.inherited_fonts);
             if !font_conflicts.is_empty() {
+                let (severity, confidence, impact) =
+                    resource_semantics_profile("resource.inheritance_conflict_font")
+                        .expect("profile exists for font inheritance conflict");
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("resource.page".into(), page.number.to_string());
                 meta.insert("resource.font_conflicts".into(), font_conflicts.join(","));
@@ -207,9 +219,9 @@ impl Detector for ResourceUsageSemanticsDetector {
                     id: String::new(),
                     surface: AttackSurface::FileStructure,
                     kind: "resource.inheritance_conflict_font".into(),
-                    severity: Severity::Medium,
-                    confidence: Confidence::Strong,
-                    impact: Some(Impact::Medium),
+                    severity,
+                    confidence,
+                    impact: Some(impact),
                     title: "Font inheritance conflict".into(),
                     description:
                         "Page-local font resources override inherited entries with conflicting targets."
@@ -227,6 +239,9 @@ impl Detector for ResourceUsageSemanticsDetector {
             let xobject_conflicts =
                 conflicting_resource_keys(&resources.local_xobjects, &resources.inherited_xobjects);
             if !xobject_conflicts.is_empty() {
+                let (severity, confidence, impact) =
+                    resource_semantics_profile("resource.inheritance_conflict_xobject")
+                        .expect("profile exists for xobject inheritance conflict");
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("resource.page".into(), page.number.to_string());
                 meta.insert("resource.xobject_conflicts".into(), xobject_conflicts.join(","));
@@ -234,9 +249,9 @@ impl Detector for ResourceUsageSemanticsDetector {
                     id: String::new(),
                     surface: AttackSurface::FileStructure,
                     kind: "resource.inheritance_conflict_xobject".into(),
-                    severity: Severity::Medium,
-                    confidence: Confidence::Strong,
-                    impact: Some(Impact::Medium),
+                    severity,
+                    confidence,
+                    impact: Some(impact),
                     title: "XObject inheritance conflict".into(),
                     description:
                         "Page-local XObject resources override inherited entries with conflicting targets."
@@ -254,6 +269,9 @@ impl Detector for ResourceUsageSemanticsDetector {
                 });
             }
             if !font_conflicts.is_empty() || !xobject_conflicts.is_empty() {
+                let (severity, confidence, impact) =
+                    resource_semantics_profile("resource.inheritance_override_suspicious")
+                        .expect("profile exists for suspicious inheritance override");
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("resource.page".into(), page.number.to_string());
                 meta.insert(
@@ -264,9 +282,9 @@ impl Detector for ResourceUsageSemanticsDetector {
                     id: String::new(),
                     surface: AttackSurface::FileStructure,
                     kind: "resource.inheritance_override_suspicious".into(),
-                    severity: Severity::Medium,
-                    confidence: Confidence::Probable,
-                    impact: Some(Impact::Medium),
+                    severity,
+                    confidence,
+                    impact: Some(impact),
                     title: "Suspicious resource inheritance override".into(),
                     description:
                         "Page resources override inherited mappings in conflicting ways, which may cause renderer differentials."
@@ -471,13 +489,16 @@ fn find_signature_scope_overrides(ctx: &sis_pdf_core::scan::ScanContext<'_>) -> 
         common_meta.insert("resource.shadowed_revisions".into(), revisions.to_string());
         common_meta.insert("resource.signature_boundary".into(), boundary.to_string());
         if is_image_dict(dict) && emitted.insert((entry.obj, entry.gen, "image")) {
+            let (severity, confidence, impact) =
+                resource_semantics_profile("image.override_outside_signature_scope")
+                    .expect("profile exists for image signature override");
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::Images,
                 kind: "image.override_outside_signature_scope".into(),
-                severity: Severity::High,
-                confidence: Confidence::Strong,
-                impact: Some(Impact::High),
+                severity,
+                confidence,
+                impact: Some(impact),
                 title: "Image override outside signature scope".into(),
                 description: "Image object override occurs after signature coverage boundary."
                     .into(),
@@ -494,13 +515,16 @@ fn find_signature_scope_overrides(ctx: &sis_pdf_core::scan::ScanContext<'_>) -> 
             });
         }
         if is_font_related_dict(dict) && emitted.insert((entry.obj, entry.gen, "font")) {
+            let (severity, confidence, impact) =
+                resource_semantics_profile("font.override_outside_signature_scope")
+                    .expect("profile exists for font signature override");
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::StreamsAndFilters,
                 kind: "font.override_outside_signature_scope".into(),
-                severity: Severity::High,
-                confidence: Confidence::Strong,
-                impact: Some(Impact::High),
+                severity,
+                confidence,
+                impact: Some(impact),
                 title: "Font override outside signature scope".into(),
                 description: "Font object override occurs after signature coverage boundary."
                     .into(),
@@ -517,13 +541,16 @@ fn find_signature_scope_overrides(ctx: &sis_pdf_core::scan::ScanContext<'_>) -> 
             });
         }
         if emitted.insert((entry.obj, entry.gen, "resource")) {
+            let (severity, confidence, impact) =
+                resource_semantics_profile("resource.override_outside_signature_scope")
+                    .expect("profile exists for resource signature override");
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::FileStructure,
                 kind: "resource.override_outside_signature_scope".into(),
-                severity: Severity::High,
-                confidence: Confidence::Strong,
-                impact: Some(Impact::High),
+                severity,
+                confidence,
+                impact: Some(impact),
                 title: "Resource override outside signature scope".into(),
                 description:
                     "Object override occurs after signature coverage boundary and may alter rendered semantics."
@@ -566,13 +593,16 @@ fn inline_image_findings(
     let mut findings = Vec::new();
     for info in parse_inline_images(decoded) {
         if info.filter_count > 1 && info.decode_parms_count == 1 {
+            let (severity, confidence, impact) =
+                resource_semantics_profile("image.inline_structure_filter_chain_inconsistent")
+                    .expect("profile exists for inline filter chain inconsistency");
             findings.push(inline_finding(
                 "image.inline_structure_filter_chain_inconsistent",
                 "Inline image filter/decode parms mismatch",
                 "Inline image uses multiple filters with a single decode parms entry.",
-                Severity::Medium,
-                Confidence::Strong,
-                Impact::Medium,
+                severity,
+                confidence,
+                impact,
                 obj,
                 gen,
                 span,
@@ -580,13 +610,16 @@ fn inline_image_findings(
             ));
         }
         if info.decode_count > 0 && info.decode_count % 2 != 0 {
+            let (severity, confidence, impact) =
+                resource_semantics_profile("image.inline_decode_array_invalid")
+                    .expect("profile exists for inline decode array invalid");
             findings.push(inline_finding(
                 "image.inline_decode_array_invalid",
                 "Inline image decode array invalid",
                 "Inline image /Decode entry has non-paired element count.",
-                Severity::Low,
-                Confidence::Strong,
-                Impact::Low,
+                severity,
+                confidence,
+                impact,
                 obj,
                 gen,
                 span,
@@ -594,13 +627,16 @@ fn inline_image_findings(
             ));
         }
         if info.image_mask && info.has_smask {
+            let (severity, confidence, impact) =
+                resource_semantics_profile("image.inline_mask_inconsistent")
+                    .expect("profile exists for inline mask inconsistency");
             findings.push(inline_finding(
                 "image.inline_mask_inconsistent",
                 "Inline image mask inconsistency",
                 "Inline image sets ImageMask together with SMask-style semantics.",
-                Severity::Medium,
-                Confidence::Probable,
-                Impact::Medium,
+                severity,
+                confidence,
+                impact,
                 obj,
                 gen,
                 span,
@@ -644,6 +680,39 @@ fn inline_finding(
         position: None,
         positions: Vec::new(),
         ..Finding::default()
+    }
+}
+
+fn resource_semantics_profile(kind: &str) -> Option<(Severity, Confidence, Impact)> {
+    match kind {
+        "resource.declared_but_unused" => Some((Severity::Low, Confidence::Probable, Impact::Low)),
+        "resource.hidden_invocation_pattern" => {
+            Some((Severity::Medium, Confidence::Probable, Impact::Medium))
+        }
+        "resource.operator_usage_anomalous" => {
+            Some((Severity::Medium, Confidence::Tentative, Impact::Medium))
+        }
+        "resource.inheritance_conflict_font" | "resource.inheritance_conflict_xobject" => {
+            Some((Severity::Medium, Confidence::Strong, Impact::Medium))
+        }
+        "resource.inheritance_override_suspicious" => {
+            Some((Severity::Medium, Confidence::Probable, Impact::Medium))
+        }
+        "resource.override_outside_signature_scope"
+        | "image.override_outside_signature_scope"
+        | "font.override_outside_signature_scope" => {
+            Some((Severity::High, Confidence::Strong, Impact::High))
+        }
+        "image.inline_structure_filter_chain_inconsistent" => {
+            Some((Severity::Medium, Confidence::Strong, Impact::Medium))
+        }
+        "image.inline_decode_array_invalid" => {
+            Some((Severity::Low, Confidence::Strong, Impact::Low))
+        }
+        "image.inline_mask_inconsistent" => {
+            Some((Severity::Medium, Confidence::Probable, Impact::Medium))
+        }
+        _ => None,
     }
 }
 
@@ -767,7 +836,9 @@ fn parse_inline_dict(dict_text: &str) -> InlineImageInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_inline_dict, parse_inline_images};
+    use sis_pdf_core::model::{Confidence, Impact, Severity};
+
+    use super::{parse_inline_dict, parse_inline_images, resource_semantics_profile};
 
     #[test]
     fn inline_dict_detects_filter_decode_mismatch() {
@@ -784,5 +855,79 @@ mod tests {
         let parsed = parse_inline_images(content);
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].decode_count, 3);
+    }
+
+    #[test]
+    fn resource_semantics_profiles_match_expected_calibration() {
+        let expected = [
+            ("resource.declared_but_unused", Severity::Low, Confidence::Probable, Impact::Low),
+            (
+                "resource.hidden_invocation_pattern",
+                Severity::Medium,
+                Confidence::Probable,
+                Impact::Medium,
+            ),
+            (
+                "resource.operator_usage_anomalous",
+                Severity::Medium,
+                Confidence::Tentative,
+                Impact::Medium,
+            ),
+            (
+                "resource.inheritance_conflict_font",
+                Severity::Medium,
+                Confidence::Strong,
+                Impact::Medium,
+            ),
+            (
+                "resource.inheritance_conflict_xobject",
+                Severity::Medium,
+                Confidence::Strong,
+                Impact::Medium,
+            ),
+            (
+                "resource.inheritance_override_suspicious",
+                Severity::Medium,
+                Confidence::Probable,
+                Impact::Medium,
+            ),
+            (
+                "resource.override_outside_signature_scope",
+                Severity::High,
+                Confidence::Strong,
+                Impact::High,
+            ),
+            (
+                "image.override_outside_signature_scope",
+                Severity::High,
+                Confidence::Strong,
+                Impact::High,
+            ),
+            (
+                "font.override_outside_signature_scope",
+                Severity::High,
+                Confidence::Strong,
+                Impact::High,
+            ),
+            (
+                "image.inline_structure_filter_chain_inconsistent",
+                Severity::Medium,
+                Confidence::Strong,
+                Impact::Medium,
+            ),
+            ("image.inline_decode_array_invalid", Severity::Low, Confidence::Strong, Impact::Low),
+            (
+                "image.inline_mask_inconsistent",
+                Severity::Medium,
+                Confidence::Probable,
+                Impact::Medium,
+            ),
+        ];
+        for (kind, severity, confidence, impact) in expected {
+            let got = resource_semantics_profile(kind).expect("profile must exist");
+            assert_eq!(got.0, severity, "severity drift for {kind}");
+            assert_eq!(got.1, confidence, "confidence drift for {kind}");
+            assert_eq!(got.2, impact, "impact drift for {kind}");
+        }
     }
 }
