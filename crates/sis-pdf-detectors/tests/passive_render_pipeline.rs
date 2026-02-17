@@ -182,4 +182,32 @@ fn detects_ntlm_risk_for_passive_render_without_automatic_trigger() {
         .find(|finding| finding.kind == "passive_credential_leak_risk")
         .expect("passive_credential_leak_risk");
     assert_eq!(credential.severity, Severity::Medium);
+    let high_risk = report
+        .findings
+        .iter()
+        .find(|finding| finding.kind == "resource.external_reference_high_risk_scheme")
+        .expect("resource.external_reference_high_risk_scheme");
+    assert_eq!(high_risk.severity, Severity::High);
+}
+
+#[test]
+fn detects_obfuscated_external_targets() {
+    let bytes = include_bytes!("fixtures/passive_obfuscated_http_uri.pdf");
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+
+    let obfuscated = report
+        .findings
+        .iter()
+        .find(|finding| finding.kind == "resource.external_reference_obfuscated")
+        .expect("resource.external_reference_obfuscated");
+    assert_eq!(obfuscated.severity, Severity::Medium);
+    assert_eq!(
+        obfuscated.meta.get("resource.obfuscated_target_count").map(std::string::String::as_str),
+        Some("1")
+    );
 }
