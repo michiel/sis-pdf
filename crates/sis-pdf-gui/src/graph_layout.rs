@@ -29,12 +29,8 @@ impl LayoutState {
         let area_w = 800.0;
         let area_h = 600.0;
         let area = area_w * area_h;
-        let k = if node_count > 0 {
-            (area / node_count as f64).sqrt()
-        } else {
-            1.0
-        }
-        .max(min_edge_length.max(0.0));
+        let k = if node_count > 0 { (area / node_count as f64).sqrt() } else { 1.0 }
+            .max(min_edge_length.max(0.0));
         let temperature = area_w / 4.0;
         let max_iterations = 200;
 
@@ -168,9 +164,27 @@ mod tests {
 
     fn simple_graph() -> GraphData {
         let nodes = vec![
-            GraphNode { obj: 1, gen: 0, obj_type: "catalog".to_string(), roles: vec![], position: [0.0, 0.0] },
-            GraphNode { obj: 2, gen: 0, obj_type: "page".to_string(), roles: vec![], position: [0.0, 0.0] },
-            GraphNode { obj: 3, gen: 0, obj_type: "action".to_string(), roles: vec![], position: [0.0, 0.0] },
+            GraphNode {
+                obj: 1,
+                gen: 0,
+                obj_type: "catalog".to_string(),
+                roles: vec![],
+                position: [0.0, 0.0],
+            },
+            GraphNode {
+                obj: 2,
+                gen: 0,
+                obj_type: "page".to_string(),
+                roles: vec![],
+                position: [0.0, 0.0],
+            },
+            GraphNode {
+                obj: 3,
+                gen: 0,
+                obj_type: "action".to_string(),
+                roles: vec![],
+                position: [0.0, 0.0],
+            },
         ];
         let edges = vec![
             GraphEdge { from_idx: 0, to_idx: 1, suspicious: false },
@@ -236,9 +250,13 @@ mod tests {
 
     #[test]
     fn single_node_centred() {
-        let nodes = vec![
-            GraphNode { obj: 1, gen: 0, obj_type: "catalog".to_string(), roles: vec![], position: [0.0, 0.0] },
-        ];
+        let nodes = vec![GraphNode {
+            obj: 1,
+            gen: 0,
+            obj_type: "catalog".to_string(),
+            roles: vec![],
+            position: [0.0, 0.0],
+        }];
         let mut node_index = HashMap::new();
         node_index.insert((1, 0), 0);
         let mut graph = GraphData { nodes, edges: vec![], node_index };
@@ -266,15 +284,13 @@ mod tests {
 
     #[test]
     fn step_does_not_force_positions_into_fixed_rectangle() {
-        let nodes = vec![
-            GraphNode {
-                obj: 42,
-                gen: 0,
-                obj_type: "other".to_string(),
-                roles: vec![],
-                position: [5_000.0, -200.0],
-            },
-        ];
+        let nodes = vec![GraphNode {
+            obj: 42,
+            gen: 0,
+            obj_type: "other".to_string(),
+            roles: vec![],
+            position: [5_000.0, -200.0],
+        }];
         let mut node_index = HashMap::new();
         node_index.insert((42, 0), 0);
         let mut graph = GraphData { nodes, edges: vec![], node_index };

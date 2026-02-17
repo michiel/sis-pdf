@@ -2,10 +2,10 @@ use crate::analysis::{AnalysisError, AnalysisResult};
 use crate::telemetry::TelemetryLog;
 use crate::window_state::WindowMaxState;
 use crate::workspace::{self, WorkspaceContext};
-use std::collections::HashMap;
-use std::path::PathBuf;
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::PathBuf;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
 
@@ -125,10 +125,7 @@ pub struct SortState {
 
 impl Default for SortState {
     fn default() -> Self {
-        Self {
-            column: SortColumn::Severity,
-            ascending: true,
-        }
+        Self { column: SortColumn::Severity, ascending: true }
     }
 }
 
@@ -148,17 +145,9 @@ pub enum AppState {
     #[default]
     Idle,
     /// File is being loaded from disk before analysis.
-    LoadingPath {
-        file_name: String,
-        path: PathBuf,
-        shown_once: bool,
-    },
+    LoadingPath { file_name: String, path: PathBuf, shown_once: bool },
     /// Analysis is queued (renders spinner on next frame).
-    Analysing {
-        file_name: String,
-        bytes: Vec<u8>,
-        shown_once: bool,
-    },
+    Analysing { file_name: String, bytes: Vec<u8>, shown_once: bool },
 }
 
 #[derive(Default, PartialEq)]
@@ -250,21 +239,14 @@ impl SisApp {
     /// so the progress spinner has a chance to render.
     pub fn handle_file_drop(&mut self, name: String, bytes: &[u8]) {
         self.error = None;
-        self.app_state = AppState::Analysing {
-            file_name: name,
-            bytes: bytes.to_vec(),
-            shown_once: false,
-        };
+        self.app_state =
+            AppState::Analysing { file_name: name, bytes: bytes.to_vec(), shown_once: false };
     }
 
     /// Queue a file path for loading before analysis.
     pub fn handle_file_path_drop(&mut self, file_name: String, path: PathBuf) {
         self.error = None;
-        self.app_state = AppState::LoadingPath {
-            file_name,
-            path,
-            shown_once: false,
-        };
+        self.app_state = AppState::LoadingPath { file_name, path, shown_once: false };
     }
 
     /// Run analysis and open the result as a new tab.
@@ -570,10 +552,8 @@ impl SisApp {
     fn download_bytes_native(&mut self, suggested_name: &str, bytes: &[u8]) {
         if let Some(path) = rfd::FileDialog::new().set_file_name(suggested_name).save_file() {
             if let Err(err) = std::fs::write(path, bytes) {
-                self.error = Some(AnalysisError::ParseFailed(format!(
-                    "Failed to save file: {}",
-                    err
-                )));
+                self.error =
+                    Some(AnalysisError::ParseFailed(format!("Failed to save file: {}", err)));
             }
         }
     }
@@ -602,34 +582,30 @@ impl SisApp {
             return;
         };
         let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) else {
-            self.error = Some(AnalysisError::ParseFailed(
-                "Failed to create download URL".to_string(),
-            ));
+            self.error =
+                Some(AnalysisError::ParseFailed("Failed to create download URL".to_string()));
             return;
         };
 
         let Ok(element) = document.create_element("a") else {
             let _ = web_sys::Url::revoke_object_url(&url);
-            self.error = Some(AnalysisError::ParseFailed(
-                "Failed to create download link".to_string(),
-            ));
+            self.error =
+                Some(AnalysisError::ParseFailed("Failed to create download link".to_string()));
             return;
         };
         if element.set_attribute("href", &url).is_err()
             || element.set_attribute("download", suggested_name).is_err()
         {
             let _ = web_sys::Url::revoke_object_url(&url);
-            self.error = Some(AnalysisError::ParseFailed(
-                "Failed to configure download link".to_string(),
-            ));
+            self.error =
+                Some(AnalysisError::ParseFailed("Failed to configure download link".to_string()));
             return;
         }
 
         let Ok(anchor) = element.dyn_into::<web_sys::HtmlElement>() else {
             let _ = web_sys::Url::revoke_object_url(&url);
-            self.error = Some(AnalysisError::ParseFailed(
-                "Failed to initialise download link".to_string(),
-            ));
+            self.error =
+                Some(AnalysisError::ParseFailed("Failed to initialise download link".to_string()));
             return;
         };
 
@@ -805,12 +781,12 @@ impl eframe::App for SisApp {
             });
 
             // Left: navigation column
-            egui::SidePanel::left("nav_panel")
-                .exact_width(120.0)
-                .resizable(false)
-                .show(ctx, |ui| {
+            egui::SidePanel::left("nav_panel").exact_width(120.0).resizable(false).show(
+                ctx,
+                |ui| {
                     crate::panels::nav::show(ui, self);
-                });
+                },
+            );
 
             // Command bar (bottom panels, rendered before central to claim space)
             if self.show_command_bar {
@@ -836,7 +812,8 @@ impl eframe::App for SisApp {
             if self.show_metadata {
                 let mut open = true;
                 let mut ws = self.window_max.remove("Metadata").unwrap_or_default();
-                let win = crate::window_state::dialog_window(ctx, "Metadata", [400.0, 500.0], &mut ws);
+                let win =
+                    crate::window_state::dialog_window(ctx, "Metadata", [400.0, 500.0], &mut ws);
                 win.show(ctx, |ui| {
                     crate::window_state::dialog_title_bar(ui, "Metadata", &mut open, &mut ws);
                     crate::panels::metadata::show(ui, self);
@@ -901,11 +878,8 @@ impl eframe::App for SisApp {
                     #[cfg(not(target_arch = "wasm32"))]
                     match std::fs::read(&path) {
                         Ok(bytes) => {
-                            self.app_state = AppState::Analysing {
-                                file_name,
-                                bytes,
-                                shown_once: false,
-                            };
+                            self.app_state =
+                                AppState::Analysing { file_name, bytes, shown_once: false };
                         }
                         Err(err) => {
                             self.error = Some(AnalysisError::ParseFailed(format!(
@@ -934,10 +908,17 @@ impl eframe::App for SisApp {
 
 fn show_analysis_progress_overlay(ctx: &egui::Context, phase: &str, file_name: &str) {
     let screen_rect = ctx.content_rect();
-    let dimmer =
-        egui::Color32::from_rgba_premultiplied(0, 0, 0, if phase == "Loading PDF" { 170 } else { 190 });
-    ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("analysis_dimmer")))
-        .rect_filled(screen_rect, 0.0, dimmer);
+    let dimmer = egui::Color32::from_rgba_premultiplied(
+        0,
+        0,
+        0,
+        if phase == "Loading PDF" { 170 } else { 190 },
+    );
+    ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("analysis_dimmer"),
+    ))
+    .rect_filled(screen_rect, 0.0, dimmer);
 
     egui::Area::new("analysis_progress_modal_blocker".into())
         .order(egui::Order::Foreground)

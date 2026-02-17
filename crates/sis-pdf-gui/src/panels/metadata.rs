@@ -175,11 +175,9 @@ fn show_revision_timeline(ui: &mut egui::Ui, result: &crate::analysis::AnalysisR
     }
 
     ui.collapsing(format!("Revision Timeline ({} versions)", snapshots.len()), |ui| {
-        egui::Grid::new("timeline_grid")
-            .num_columns(4)
-            .spacing([8.0, 4.0])
-            .striped(true)
-            .show(ui, |ui| {
+        egui::Grid::new("timeline_grid").num_columns(4).spacing([8.0, 4.0]).striped(true).show(
+            ui,
+            |ui| {
                 ui.strong("Version");
                 ui.strong("Score");
                 ui.strong("High Sev");
@@ -193,7 +191,8 @@ fn show_revision_timeline(ui: &mut egui::Ui, result: &crate::analysis::AnalysisR
                     ui.label(format!("{}", snap.finding_count));
                     ui.end_row();
                 }
-            });
+            },
+        );
     });
 }
 

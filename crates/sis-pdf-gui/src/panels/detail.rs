@@ -164,39 +164,35 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         // Evidence (collapsible, default open)
         if !evidence.is_empty() {
             let ev_id = ui.make_persistent_id("detail_evidence");
-            egui::collapsing_header::CollapsingState::load_with_default_open(
-                ui.ctx(),
-                ev_id,
-                true,
-            )
-            .show_header(ui, |ui| {
-                ui.strong(format!("Evidence ({})", evidence.len()));
-            })
-            .body(|ui| {
-                for ev in &evidence {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(&ev.info);
-                            if ev.is_file_source
-                                && ev.length > 0
-                                && ui.small_button("View hex").clicked()
-                            {
-                                let label = ev
-                                    .note
-                                    .as_deref()
-                                    .unwrap_or("evidence")
-                                    .chars()
-                                    .take(40)
-                                    .collect::<String>();
-                                app.open_hex_at_evidence(ev.offset, ev.length, label);
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), ev_id, true)
+                .show_header(ui, |ui| {
+                    ui.strong(format!("Evidence ({})", evidence.len()));
+                })
+                .body(|ui| {
+                    for ev in &evidence {
+                        ui.group(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(&ev.info);
+                                if ev.is_file_source
+                                    && ev.length > 0
+                                    && ui.small_button("View hex").clicked()
+                                {
+                                    let label = ev
+                                        .note
+                                        .as_deref()
+                                        .unwrap_or("evidence")
+                                        .chars()
+                                        .take(40)
+                                        .collect::<String>();
+                                    app.open_hex_at_evidence(ev.offset, ev.length, label);
+                                }
+                            });
+                            if let Some(ref n) = ev.note {
+                                ui.monospace(n);
                             }
                         });
-                        if let Some(ref n) = ev.note {
-                            ui.monospace(n);
-                        }
-                    });
-                }
-            });
+                    }
+                });
         }
 
         // Objects (collapsible, default open)
@@ -229,23 +225,19 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         // Chain membership (collapsible, default open)
         if !chain_membership.is_empty() {
             let cm_id = ui.make_persistent_id("detail_chains");
-            egui::collapsing_header::CollapsingState::load_with_default_open(
-                ui.ctx(),
-                cm_id,
-                true,
-            )
-            .show_header(ui, |ui| {
-                ui.strong(format!("Chain Membership ({})", chain_membership.len()));
-            })
-            .body(|ui| {
-                for (chain_idx, path) in &chain_membership {
-                    let label = format!("Chain #{}: {}", chain_idx + 1, path);
-                    if ui.link(&label).clicked() {
-                        app.show_chains = true;
-                        app.selected_chain = Some(*chain_idx);
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), cm_id, true)
+                .show_header(ui, |ui| {
+                    ui.strong(format!("Chain Membership ({})", chain_membership.len()));
+                })
+                .body(|ui| {
+                    for (chain_idx, path) in &chain_membership {
+                        let label = format!("Chain #{}: {}", chain_idx + 1, path);
+                        if ui.link(&label).clicked() {
+                            app.show_chains = true;
+                            app.selected_chain = Some(*chain_idx);
+                        }
                     }
-                }
-            });
+                });
         }
 
         // CVE references (collapsible, default open when present)

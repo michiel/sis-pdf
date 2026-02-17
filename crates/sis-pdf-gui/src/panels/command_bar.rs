@@ -107,8 +107,10 @@ fn execute_command(app: &mut SisApp) {
             match parsed_query {
                 query::Query::GraphFocus { obj, gen } => {
                     crate::panels::graph::focus_object(app, *obj, *gen);
-                    app.command_results
-                        .push(QueryOutput::Text(format!("Graph focused on object {} {}", obj, gen)));
+                    app.command_results.push(QueryOutput::Text(format!(
+                        "Graph focused on object {} {}",
+                        obj, gen
+                    )));
                 }
                 query::Query::HighlightChain { index } => {
                     app.selected_chain = Some(*index);

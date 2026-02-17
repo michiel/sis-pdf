@@ -65,11 +65,7 @@ pub fn dialog_title_bar(
             }
 
             let icon = if state.is_maximised { "\u{2750}" } else { "\u{25A2}" };
-            let tooltip = if state.is_maximised {
-                "Restore window"
-            } else {
-                "Maximise window"
-            };
+            let tooltip = if state.is_maximised { "Restore window" } else { "Maximise window" };
             if ui.small_button(icon).on_hover_text(tooltip).clicked() {
                 state.is_maximised = !state.is_maximised;
             }

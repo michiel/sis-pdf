@@ -167,10 +167,7 @@ mod tests {
     fn cap_at_1000_events() {
         let mut log = TelemetryLog::new();
         for i in 0..1200 {
-            log.record(
-                i as f64,
-                TelemetryEventKind::PanelOpened { panel: format!("p{}", i) },
-            );
+            log.record(i as f64, TelemetryEventKind::PanelOpened { panel: format!("p{}", i) });
         }
         assert_eq!(log.event_count(), MAX_EVENTS);
         // Oldest events should have been dropped; first remaining should be event 200

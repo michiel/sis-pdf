@@ -58,13 +58,8 @@ fn handle_modifier_shortcuts(ctx: &egui::Context, app: &mut SisApp, is_wasm: boo
     }
 
     // Tab switching: Ctrl+1..5 (native) or Alt+1..5 (WASM)
-    let tab_keys = [
-        egui::Key::Num1,
-        egui::Key::Num2,
-        egui::Key::Num3,
-        egui::Key::Num4,
-        egui::Key::Num5,
-    ];
+    let tab_keys =
+        [egui::Key::Num1, egui::Key::Num2, egui::Key::Num3, egui::Key::Num4, egui::Key::Num5];
     for (i, key) in tab_keys.iter().enumerate() {
         let tab_switch = if is_wasm {
             modifiers.alt && ctx.input(|input| input.key_pressed(*key))

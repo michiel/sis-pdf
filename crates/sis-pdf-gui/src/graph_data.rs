@@ -58,10 +58,7 @@ impl std::fmt::Display for GraphError {
 /// Build a complete graph from all objects in the data set.
 pub fn from_object_data(data: &ObjectData) -> Result<GraphData, GraphError> {
     if data.objects.len() > MAX_GRAPH_NODES {
-        return Err(GraphError::TooManyNodes {
-            count: data.objects.len(),
-            limit: MAX_GRAPH_NODES,
-        });
+        return Err(GraphError::TooManyNodes { count: data.objects.len(), limit: MAX_GRAPH_NODES });
     }
     build_graph(data, |_| true)
 }
@@ -71,9 +68,7 @@ pub fn from_object_data_filtered(
     data: &ObjectData,
     types: &[&str],
 ) -> Result<GraphData, GraphError> {
-    build_graph(data, |obj| {
-        types.iter().any(|t| obj.obj_type.eq_ignore_ascii_case(t))
-    })
+    build_graph(data, |obj| types.iter().any(|t| obj.obj_type.eq_ignore_ascii_case(t)))
 }
 
 /// Build a graph via BFS from a centre node up to `max_depth` hops.
@@ -165,7 +160,8 @@ fn build_graph(
         };
         for &(target_obj, target_gen) in &obj.references_from {
             if let Some(&to_idx) = node_index.get(&(target_obj, target_gen)) {
-                let suspicious = is_suspicious_edge(obj, &data.objects[data.index[&(target_obj, target_gen)]]);
+                let suspicious =
+                    is_suspicious_edge(obj, &data.objects[data.index[&(target_obj, target_gen)]]);
                 edges.push(GraphEdge { from_idx, to_idx, suspicious });
             }
         }
@@ -303,9 +299,10 @@ mod tests {
         let suspicious: Vec<_> = graph.edges.iter().filter(|e| e.suspicious).collect();
         assert!(!suspicious.is_empty(), "Expected at least one suspicious edge");
         // Find the specific edge 3->4
-        let action_to_stream = graph.edges.iter().find(|e| {
-            graph.nodes[e.from_idx].obj == 3 && graph.nodes[e.to_idx].obj == 4
-        });
+        let action_to_stream = graph
+            .edges
+            .iter()
+            .find(|e| graph.nodes[e.from_idx].obj == 3 && graph.nodes[e.to_idx].obj == 4);
         assert!(action_to_stream.is_some(), "action->stream edge should exist");
         assert!(action_to_stream.expect("checked").suspicious);
     }

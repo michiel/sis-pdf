@@ -115,9 +115,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             }
 
             // Auto-triggered filter
-            if app.auto_triggered_filter
-                && f.action_initiation.as_deref() != Some("automatic")
-            {
+            if app.auto_triggered_filter && f.action_initiation.as_deref() != Some("automatic") {
                 return false;
             }
 
@@ -153,10 +151,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             if total_count == 0 {
                 ui.label("No findings detected");
             } else {
-                ui.label(format!(
-                    "No findings match the current filters ({} total)",
-                    total_count
-                ));
+                ui.label(format!("No findings match the current filters ({} total)", total_count));
                 if ui.button("Reset filters").clicked() {
                     app.severity_filters = crate::app::SeverityFilters::default();
                     app.findings_search.clear();
@@ -343,12 +338,8 @@ fn surface_label(s: &sis_pdf_core::model::AttackSurface) -> &'static str {
 
 /// Collect unique surface names present in the findings for the filter dropdown.
 fn collect_surface_names(result: &crate::analysis::AnalysisResult) -> Vec<String> {
-    let mut names: Vec<String> = result
-        .report
-        .findings
-        .iter()
-        .map(|f| surface_label(&f.surface).to_string())
-        .collect();
+    let mut names: Vec<String> =
+        result.report.findings.iter().map(|f| surface_label(&f.surface).to_string()).collect();
     names.sort();
     names.dedup();
     names

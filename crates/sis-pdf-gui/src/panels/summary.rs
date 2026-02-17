@@ -10,10 +10,7 @@ pub fn show_menu_bar(ui: &mut egui::Ui, app: &mut SisApp) {
                 ui.close();
             }
             ui.separator();
-            if ui
-                .add_enabled(app.tab_count > 0, egui::Button::new("Close tab"))
-                .clicked()
-            {
+            if ui.add_enabled(app.tab_count > 0, egui::Button::new("Close tab")).clicked() {
                 app.close_tab(app.active_tab);
                 ui.close();
             }
@@ -22,11 +19,8 @@ pub fn show_menu_bar(ui: &mut egui::Ui, app: &mut SisApp) {
         // Push remaining items to the right edge.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let theme_icon = if app.dark_mode { "\u{2600}" } else { "\u{263E}" };
-            let theme_text = if app.dark_mode {
-                "Switch to light theme"
-            } else {
-                "Switch to dark theme"
-            };
+            let theme_text =
+                if app.dark_mode { "Switch to light theme" } else { "Switch to dark theme" };
             if ui.button(theme_icon).on_hover_text(theme_text).clicked() {
                 app.dark_mode = !app.dark_mode;
             }

@@ -43,13 +43,13 @@ const WORLD_CENTRE_Y: f64 = 300.0;
 /// Node type colour mapping.
 fn node_colour(obj_type: &str) -> egui::Color32 {
     match obj_type.to_lowercase().as_str() {
-        "page" => egui::Color32::from_rgb(70, 130, 230),   // blue
-        "action" => egui::Color32::from_rgb(220, 60, 60),   // red
-        "stream" => egui::Color32::from_rgb(60, 180, 80),   // green
-        "font" => egui::Color32::from_rgb(160, 160, 160),   // grey
+        "page" => egui::Color32::from_rgb(70, 130, 230), // blue
+        "action" => egui::Color32::from_rgb(220, 60, 60), // red
+        "stream" => egui::Color32::from_rgb(60, 180, 80), // green
+        "font" => egui::Color32::from_rgb(160, 160, 160), // grey
         "catalog" | "catalogue" => egui::Color32::from_rgb(160, 80, 200), // purple
-        "image" => egui::Color32::from_rgb(230, 160, 40),   // orange
-        _ => egui::Color32::from_rgb(140, 140, 140),        // default grey
+        "image" => egui::Color32::from_rgb(230, 160, 40), // orange
+        _ => egui::Color32::from_rgb(140, 140, 140),     // default grey
     }
 }
 
@@ -136,11 +136,8 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         })
         .collect();
 
-    let edge_data: Vec<(usize, usize, bool)> = graph
-        .edges
-        .iter()
-        .map(|e| (e.from_idx, e.to_idx, e.suspicious))
-        .collect();
+    let edge_data: Vec<(usize, usize, bool)> =
+        graph.edges.iter().map(|e| (e.from_idx, e.to_idx, e.suspicious)).collect();
 
     let selected_chain = app.selected_chain;
     let chain_node_set = build_chain_node_set(app);
@@ -166,7 +163,8 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Handle zoom via scroll
     let scroll_delta = ui.input(|i| i.smooth_scroll_delta.y);
-    if scroll_delta != 0.0 && rect.contains(ui.input(|i| i.pointer.hover_pos().unwrap_or_default())) {
+    if scroll_delta != 0.0 && rect.contains(ui.input(|i| i.pointer.hover_pos().unwrap_or_default()))
+    {
         let zoom_factor = 1.0 + scroll_delta as f64 * 0.002;
         let new_zoom = (app.graph_state.zoom * zoom_factor).clamp(0.1, 10.0);
         app.graph_state.zoom = new_zoom;
@@ -367,9 +365,9 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
         } else {
             app.graph_state.type_filter.join(", ")
         };
-        egui::ComboBox::from_id_salt("graph_type_filter")
-            .selected_text(&current_filter)
-            .show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("graph_type_filter").selected_text(&current_filter).show_ui(
+            ui,
+            |ui| {
                 if ui.selectable_label(app.graph_state.type_filter.is_empty(), "All").clicked() {
                     app.graph_state.type_filter.clear();
                     rebuild_graph(app);
@@ -385,7 +383,8 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
                         rebuild_graph(app);
                     }
                 }
-            });
+            },
+        );
 
         ui.separator();
 
@@ -401,10 +400,7 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
 
         ui.label("Min edge len:");
         let mut min_edge_len = app.graph_state.min_edge_length;
-        if ui
-            .add(egui::Slider::new(&mut min_edge_len, 0.0..=200.0).text("px"))
-            .changed()
-        {
+        if ui.add(egui::Slider::new(&mut min_edge_len, 0.0..=200.0).text("px")).changed() {
             app.graph_state.min_edge_length = min_edge_len;
             rebuild_graph(app);
         }
@@ -444,10 +440,15 @@ fn build_graph(app: &mut SisApp) {
         graph_data::from_object_data_filtered(&result.object_data, &types)
     } else if app.graph_state.depth_limit > 0 {
         // Use depth limit from selected node or catalog
-        let centre = app.graph_state.selected_node
+        let centre = app
+            .graph_state
+            .selected_node
             .and_then(|i| app.graph_state.graph.as_ref().map(|g| (g.nodes[i].obj, g.nodes[i].gen)))
             .or_else(|| {
-                result.object_data.objects.iter()
+                result
+                    .object_data
+                    .objects
+                    .iter()
                     .find(|o| o.obj_type == "catalog")
                     .map(|o| (o.obj, o.gen))
             })
@@ -499,10 +500,7 @@ fn run_layout_step(app: &mut SisApp) {
         let duration_ms = (app.elapsed_time - app.graph_state.layout_start_time) * 1000.0;
         app.telemetry.record(
             app.elapsed_time,
-            crate::telemetry::TelemetryEventKind::GraphLayoutCompleted {
-                node_count,
-                duration_ms,
-            },
+            crate::telemetry::TelemetryEventKind::GraphLayoutCompleted { node_count, duration_ms },
         );
         app.graph_state.layout = None;
     }

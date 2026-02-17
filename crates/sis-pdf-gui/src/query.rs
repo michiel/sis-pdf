@@ -183,9 +183,7 @@ pub fn parse_query(input: &str) -> Result<Query, String> {
         "highlight" => {
             let arg = parts.get(1).ok_or("highlight requires an argument like chain:<index>")?;
             if let Some(rest) = arg.strip_prefix("chain:") {
-                let index = rest
-                    .parse::<usize>()
-                    .map_err(|_| "Invalid chain index")?;
+                let index = rest.parse::<usize>().map_err(|_| "Invalid chain index")?;
                 Ok(Query::HighlightChain { index })
             } else {
                 Err("Unknown highlight target. Try: highlight chain:<index>".to_string())
@@ -751,26 +749,14 @@ mod tests {
 
     #[test]
     fn parse_graph_focus() {
-        assert_eq!(
-            parse_query("graph focus 5").unwrap(),
-            Query::GraphFocus { obj: 5, gen: 0 }
-        );
-        assert_eq!(
-            parse_query("graph focus 5 1").unwrap(),
-            Query::GraphFocus { obj: 5, gen: 1 }
-        );
+        assert_eq!(parse_query("graph focus 5").unwrap(), Query::GraphFocus { obj: 5, gen: 0 });
+        assert_eq!(parse_query("graph focus 5 1").unwrap(), Query::GraphFocus { obj: 5, gen: 1 });
     }
 
     #[test]
     fn parse_highlight_chain() {
-        assert_eq!(
-            parse_query("highlight chain:0").unwrap(),
-            Query::HighlightChain { index: 0 }
-        );
-        assert_eq!(
-            parse_query("highlight chain:3").unwrap(),
-            Query::HighlightChain { index: 3 }
-        );
+        assert_eq!(parse_query("highlight chain:0").unwrap(), Query::HighlightChain { index: 0 });
+        assert_eq!(parse_query("highlight chain:3").unwrap(), Query::HighlightChain { index: 3 });
     }
 
     #[test]

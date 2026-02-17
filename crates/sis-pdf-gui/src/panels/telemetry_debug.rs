@@ -1,5 +1,5 @@
 use crate::app::SisApp;
-use crate::telemetry::{TelemetryEventKind, FrameTimePercentiles};
+use crate::telemetry::{FrameTimePercentiles, TelemetryEventKind};
 
 /// Show the telemetry debug panel as a floating window.
 pub fn show(ctx: &egui::Context, app: &mut SisApp) {
@@ -48,26 +48,23 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
 }
 
 fn show_frame_times(ui: &mut egui::Ui, p: &FrameTimePercentiles, sample_count: usize) {
-    egui::Grid::new("frame_times_grid")
-        .num_columns(2)
-        .spacing([12.0, 4.0])
-        .show(ui, |ui| {
-            ui.label("Samples:");
-            ui.label(format!("{}", sample_count));
-            ui.end_row();
+    egui::Grid::new("frame_times_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+        ui.label("Samples:");
+        ui.label(format!("{}", sample_count));
+        ui.end_row();
 
-            ui.label("p50:");
-            ui.label(format_frame_time(p.p50_ms));
-            ui.end_row();
+        ui.label("p50:");
+        ui.label(format_frame_time(p.p50_ms));
+        ui.end_row();
 
-            ui.label("p95:");
-            ui.label(format_frame_time(p.p95_ms));
-            ui.end_row();
+        ui.label("p95:");
+        ui.label(format_frame_time(p.p95_ms));
+        ui.end_row();
 
-            ui.label("p99:");
-            ui.label(format_frame_time(p.p99_ms));
-            ui.end_row();
-        });
+        ui.label("p99:");
+        ui.label(format_frame_time(p.p99_ms));
+        ui.end_row();
+    });
 }
 
 fn format_frame_time(ms: f64) -> String {

@@ -88,16 +88,10 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     // Sort controls
     ui.horizontal(|ui| {
         ui.label("Sort by:");
-        if ui
-            .selectable_label(app.chain_sort_column == ChainSortColumn::Score, "Score")
-            .clicked()
-        {
+        if ui.selectable_label(app.chain_sort_column == ChainSortColumn::Score, "Score").clicked() {
             toggle_chain_sort(app, ChainSortColumn::Score);
         }
-        if ui
-            .selectable_label(app.chain_sort_column == ChainSortColumn::Path, "Path")
-            .clicked()
-        {
+        if ui.selectable_label(app.chain_sort_column == ChainSortColumn::Path, "Path").clicked() {
             toggle_chain_sort(app, ChainSortColumn::Path);
         }
         if ui
@@ -117,11 +111,17 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         let ca = &chain_data[a];
         let cb = &chain_data[b];
         let ord = match app.chain_sort_column {
-            ChainSortColumn::Score => ca.score.partial_cmp(&cb.score).unwrap_or(std::cmp::Ordering::Equal),
+            ChainSortColumn::Score => {
+                ca.score.partial_cmp(&cb.score).unwrap_or(std::cmp::Ordering::Equal)
+            }
             ChainSortColumn::Path => ca.path.cmp(&cb.path),
             ChainSortColumn::Findings => ca.finding_links.len().cmp(&cb.finding_links.len()),
         };
-        if app.chain_sort_ascending { ord } else { ord.reverse() }
+        if app.chain_sort_ascending {
+            ord
+        } else {
+            ord.reverse()
+        }
     });
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -130,7 +130,10 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     let is_selected = app.selected_chain == Some(chain.index);
-                    if ui.selectable_label(is_selected, format!("Chain #{}", chain.index + 1)).clicked() {
+                    if ui
+                        .selectable_label(is_selected, format!("Chain #{}", chain.index + 1))
+                        .clicked()
+                    {
                         app.selected_chain = if is_selected { None } else { Some(chain.index) };
                     }
                     ui.separator();

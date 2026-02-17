@@ -240,11 +240,8 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
         ui.horizontal(|ui| {
             ui.heading(format!("Object {} {}", detail.obj, detail.gen));
             if ui.small_button("Copy as JSON").clicked() {
-                let dict: std::collections::BTreeMap<&str, &str> = detail
-                    .dict_entries
-                    .iter()
-                    .map(|(k, v)| (k.as_str(), v.as_str()))
-                    .collect();
+                let dict: std::collections::BTreeMap<&str, &str> =
+                    detail.dict_entries.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
                 let json = serde_json::json!({
                     "obj": detail.obj,
                     "gen": detail.gen,
@@ -384,43 +381,40 @@ fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool)
     if has_metadata {
         ui.separator();
         ui.collapsing("Stream metadata", |ui| {
-            egui::Grid::new("stream_meta_grid")
-                .num_columns(2)
-                .spacing([8.0, 2.0])
-                .show(ui, |ui| {
-                    if let Some(ref ct) = detail.stream_content_type {
-                        ui.label("Content type:");
-                        ui.label(ct);
-                        ui.end_row();
-                    }
-                    if let (Some(w), Some(h)) = (detail.image_width, detail.image_height) {
-                        ui.label("Dimensions:");
-                        ui.label(format!("{} x {}", w, h));
-                        ui.end_row();
-                    }
-                    if let Some(ref cs) = detail.image_color_space {
-                        ui.label("Colour space:");
-                        ui.label(cs);
-                        ui.end_row();
-                    }
-                    if let Some(bits) = detail.image_bits {
-                        ui.label("Bits/component:");
-                        ui.label(format!("{}", bits));
-                        ui.end_row();
-                    }
-                    if let Some(ref raw) = detail.stream_raw {
-                        ui.label("Decoded size:");
-                        ui.label(format_byte_size(raw.len()));
-                        ui.end_row();
-                        if let Some(raw_len) = detail.stream_length {
-                            if raw_len != raw.len() {
-                                ui.label("Raw size:");
-                                ui.label(format_byte_size(raw_len));
-                                ui.end_row();
-                            }
+            egui::Grid::new("stream_meta_grid").num_columns(2).spacing([8.0, 2.0]).show(ui, |ui| {
+                if let Some(ref ct) = detail.stream_content_type {
+                    ui.label("Content type:");
+                    ui.label(ct);
+                    ui.end_row();
+                }
+                if let (Some(w), Some(h)) = (detail.image_width, detail.image_height) {
+                    ui.label("Dimensions:");
+                    ui.label(format!("{} x {}", w, h));
+                    ui.end_row();
+                }
+                if let Some(ref cs) = detail.image_color_space {
+                    ui.label("Colour space:");
+                    ui.label(cs);
+                    ui.end_row();
+                }
+                if let Some(bits) = detail.image_bits {
+                    ui.label("Bits/component:");
+                    ui.label(format!("{}", bits));
+                    ui.end_row();
+                }
+                if let Some(ref raw) = detail.stream_raw {
+                    ui.label("Decoded size:");
+                    ui.label(format_byte_size(raw.len()));
+                    ui.end_row();
+                    if let Some(raw_len) = detail.stream_length {
+                        if raw_len != raw.len() {
+                            ui.label("Raw size:");
+                            ui.label(format_byte_size(raw_len));
+                            ui.end_row();
                         }
                     }
-                });
+                }
+            });
         });
     }
 
