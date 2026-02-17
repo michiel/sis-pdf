@@ -967,11 +967,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 
 - ID: `icc_profile_anomaly`
 - Label: ICC profile header anomaly
-- Description: Detected icc profile header anomaly.
+- Description: Decoded ICC profile fails concrete validation checks (for example declared-size bounds, `acsp` signature, tag-table bounds/overlap, or `/N` component mismatch).
 - Tags: color
 - Details:
   - Relevance: color profile parsing risk.
-  - Meaning: malformed or oversized ICC profiles can stress parsers.
+  - Meaning: malformed or contradictory ICC metadata can trigger parser/decoder differentials and unsafe code paths.
   - Chain usage: used as a payload signal for renderer exploitation.
 
 ## icc_profile_oversized
