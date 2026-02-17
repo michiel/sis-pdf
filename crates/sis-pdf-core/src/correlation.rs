@@ -14,6 +14,9 @@ pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> 
     composites.extend(correlate_encrypted_payload_delivery(findings, config));
     composites.extend(correlate_obfuscated_payload(findings, config));
     composites.extend(correlate_image_decoder_exploit_chain(findings));
+    composites.extend(correlate_font_structure_with_provenance_evasion(findings));
+    composites.extend(correlate_image_structure_with_hidden_path(findings));
+    composites.extend(correlate_resource_external_with_trigger_surface(findings));
     composites
 }
 
@@ -271,6 +274,124 @@ fn correlate_image_decoder_exploit_chain(findings: &[Finding]) -> Vec<Finding> {
     composites
 }
 
+fn correlate_font_structure_with_provenance_evasion(findings: &[Finding]) -> Vec<Finding> {
+    let mut composites = Vec::new();
+    let structure = findings
+        .iter()
+        .filter(|finding| finding.kind.starts_with("font.structure_"))
+        .collect::<Vec<_>>();
+    let provenance = findings
+        .iter()
+        .filter(|finding| {
+            finding.kind == "font.provenance_incremental_override"
+                || finding.kind == "resource.provenance_xref_conflict"
+        })
+        .collect::<Vec<_>>();
+    if structure.is_empty() || provenance.is_empty() {
+        return composites;
+    }
+    let mut sources = Vec::new();
+    sources.extend(structure.iter().copied());
+    sources.extend(provenance.iter().copied());
+    composites.push(build_composite(CompositeConfig {
+        kind: "composite.font_structure_with_provenance_evasion",
+        title: "Font structure and provenance evasion composite",
+        description: "Font structure anomalies co-occur with revision/provenance conflict signals.",
+        surface: AttackSurface::StreamsAndFilters,
+        severity: Severity::High,
+        confidence: Confidence::Strong,
+        sources: &sources,
+        extra_meta: vec![
+            ("composite.font_structure_count", Some(structure.len().to_string())),
+            ("composite.provenance_count", Some(provenance.len().to_string())),
+        ],
+    }));
+    composites
+}
+
+fn correlate_image_structure_with_hidden_path(findings: &[Finding]) -> Vec<Finding> {
+    let mut composites = Vec::new();
+    let structure = findings
+        .iter()
+        .filter(|finding| finding.kind.starts_with("image.structure_"))
+        .collect::<Vec<_>>();
+    let hidden = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "resource.hidden_render_path" | "image.orphaned_but_reachable"
+            )
+        })
+        .collect::<Vec<_>>();
+    if structure.is_empty() || hidden.is_empty() {
+        return composites;
+    }
+    let mut sources = Vec::new();
+    sources.extend(structure.iter().copied());
+    sources.extend(hidden.iter().copied());
+    composites.push(build_composite(CompositeConfig {
+        kind: "composite.image_structure_with_hidden_path",
+        title: "Image structure with hidden render path",
+        description:
+            "Image structure anomalies coincide with hidden or orphaned render-path indicators.",
+        surface: AttackSurface::Images,
+        severity: Severity::High,
+        confidence: Confidence::Strong,
+        sources: &sources,
+        extra_meta: vec![
+            ("composite.image_structure_count", Some(structure.len().to_string())),
+            ("composite.hidden_path_count", Some(hidden.len().to_string())),
+        ],
+    }));
+    composites
+}
+
+fn correlate_resource_external_with_trigger_surface(findings: &[Finding]) -> Vec<Finding> {
+    let mut composites = Vec::new();
+    let external = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "resource.external_reference_high_risk_scheme"
+                    | "resource.external_reference_obfuscated"
+                    | "passive_credential_leak_risk"
+            )
+        })
+        .collect::<Vec<_>>();
+    let triggers = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "action_automatic_trigger" | "passive_render_pipeline_risk_composite"
+            )
+        })
+        .collect::<Vec<_>>();
+    if external.is_empty() || triggers.is_empty() {
+        return composites;
+    }
+    let mut sources = Vec::new();
+    sources.extend(external.iter().copied());
+    sources.extend(triggers.iter().copied());
+    composites.push(build_composite(CompositeConfig {
+        kind: "composite.resource_external_with_trigger_surface",
+        title: "External resource and trigger surface composite",
+        description:
+            "High-risk external resource references co-occur with automatic trigger surfaces.",
+        surface: AttackSurface::Actions,
+        severity: Severity::High,
+        confidence: Confidence::Strong,
+        sources: &sources,
+        extra_meta: vec![
+            ("composite.external_signal_count", Some(external.len().to_string())),
+            ("composite.trigger_signal_count", Some(triggers.len().to_string())),
+        ],
+    }));
+    composites
+}
+
 struct CompositeConfig<'a> {
     kind: &'static str,
     title: &'static str,
@@ -377,4 +498,60 @@ fn is_external_url(url: &str) -> bool {
         || lower.contains("::1")
         || lower.contains("intranet")
         || lower.contains("internal"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::correlate_findings;
+    use crate::model::{AttackSurface, Confidence, Finding, Severity};
+    use crate::scan::CorrelationOptions;
+    use std::collections::HashMap;
+
+    fn finding(kind: &str, object: &str) -> Finding {
+        Finding {
+            id: String::new(),
+            surface: AttackSurface::Actions,
+            kind: kind.to_string(),
+            severity: Severity::Low,
+            confidence: Confidence::Probable,
+            title: kind.to_string(),
+            description: kind.to_string(),
+            objects: vec![object.to_string()],
+            evidence: Vec::new(),
+            remediation: None,
+            position: None,
+            positions: Vec::new(),
+            meta: HashMap::new(),
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            yara: None,
+            impact: None,
+        }
+    }
+
+    #[test]
+    fn correlation_emits_font_structure_provenance_composite() {
+        let findings = vec![
+            finding("font.structure_subtype_mismatch", "10 0 obj"),
+            finding("font.provenance_incremental_override", "10 0 obj"),
+        ];
+        let composites = correlate_findings(&findings, &CorrelationOptions::default());
+        assert!(composites
+            .iter()
+            .any(|f| { f.kind == "composite.font_structure_with_provenance_evasion" }));
+    }
+
+    #[test]
+    fn correlation_emits_image_structure_hidden_path_composite() {
+        let findings = vec![
+            finding("image.structure_mask_inconsistent", "11 0 obj"),
+            finding("resource.hidden_render_path", "11 0 obj"),
+        ];
+        let composites = correlate_findings(&findings, &CorrelationOptions::default());
+        assert!(composites
+            .iter()
+            .any(|f| { f.kind == "composite.image_structure_with_hidden_path" }));
+    }
 }

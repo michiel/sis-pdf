@@ -122,6 +122,17 @@ pub fn analyze_static_images(
                 meta: meta.clone(),
             });
         }
+        if filter_decode_parms_mismatch(stream, filters.len()) {
+            let mut structure_meta = meta.clone();
+            structure_meta
+                .insert("image.structure_issue".into(), "filter_decodeparms_mismatch".into());
+            findings.push(ImageFinding {
+                kind: "image.structure_filter_chain_inconsistent".into(),
+                obj: entry.obj,
+                gen: entry.gen,
+                meta: structure_meta,
+            });
+        }
         if let Some(data) = stream_data(graph, stream) {
             let header = &data[..data.len().min(max_header_bytes)];
             if header_starts_with(header, b"\x00\x00\x00\x0cjP  \r\n\x87\n") {
@@ -280,6 +291,32 @@ pub fn analyze_static_images(
                 }
             }
         }
+
+        // --- Mask consistency validation ---
+        if has_inconsistent_masks(stream) {
+            let mut mask_meta = meta.clone();
+            mask_meta.insert("image.structure_issue".into(), "mask_inconsistent".into());
+            findings.push(ImageFinding {
+                kind: "image.structure_mask_inconsistent".into(),
+                obj: entry.obj,
+                gen: entry.gen,
+                meta: mask_meta,
+            });
+        }
+
+        // --- Geometry plausibility validation ---
+        if let (Some(w), Some(h)) = (width, height) {
+            if is_improbable_geometry(w, h) {
+                let mut geometry_meta = meta.clone();
+                geometry_meta.insert("image.structure_issue".into(), "geometry_improbable".into());
+                findings.push(ImageFinding {
+                    kind: "image.structure_geometry_improbable".into(),
+                    obj: entry.obj,
+                    gen: entry.gen,
+                    meta: geometry_meta,
+                });
+            }
+        }
     }
     findings.extend(analyze_xfa_images(graph, opts, max_header_bytes));
     ImageStaticResult { findings }
@@ -328,6 +365,41 @@ fn stream_filters(stream: &PdfStream<'_>) -> (Vec<String>, String) {
 
 fn header_starts_with(buf: &[u8], sig: &[u8]) -> bool {
     buf.len() >= sig.len() && &buf[..sig.len()] == sig
+}
+
+fn filter_decode_parms_mismatch(stream: &PdfStream<'_>, filter_count: usize) -> bool {
+    if filter_count <= 1 {
+        return false;
+    }
+    let Some((_, decode_parms_obj)) = stream.dict.get_first(b"/DecodeParms") else {
+        return false;
+    };
+    match &decode_parms_obj.atom {
+        PdfAtom::Array(items) => !items.is_empty() && items.len() != filter_count,
+        PdfAtom::Dict(_) => true,
+        _ => true,
+    }
+}
+
+fn has_inconsistent_masks(stream: &PdfStream<'_>) -> bool {
+    let image_mask = stream.dict.get_first(b"/ImageMask").and_then(|(_, obj)| match obj.atom {
+        PdfAtom::Bool(value) => Some(value),
+        _ => None,
+    });
+    let has_smask = stream.dict.get_first(b"/SMask").is_some();
+    let has_color_space = stream.dict.get_first(b"/ColorSpace").is_some();
+
+    (image_mask == Some(true) && has_smask) || (image_mask == Some(true) && has_color_space)
+}
+
+fn is_improbable_geometry(width: u32, height: u32) -> bool {
+    let long = width.max(height) as u64;
+    let short = width.min(height) as u64;
+    if short == 0 {
+        return true;
+    }
+    let ratio = long / short;
+    ratio >= 10_000 || long >= 10_000_000
 }
 
 fn stream_data<'a>(graph: &'a ObjectGraph<'a>, stream: &PdfStream<'_>) -> Option<&'a [u8]> {

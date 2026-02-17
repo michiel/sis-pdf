@@ -332,6 +332,9 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
         // Form field edges
         self.extract_form_edges(src, dict);
 
+        // Resource semantics (/Resources, /Font, /XObject)
+        self.extract_resource_edges(src, dict);
+
         // Generic dictionary references (fallback)
         self.extract_generic_dict_edges(src, dict);
     }
@@ -592,6 +595,81 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
         }
     }
 
+    /// Extracts resource-related semantic edges
+    fn extract_resource_edges(&mut self, src: (u32, u16), dict: &PdfDict<'a>) {
+        if let Some((_, resources_obj)) = dict.get_first(b"/Resources") {
+            if let Some(dst) = self.resolve_ref(resources_obj) {
+                self.edges.push(TypedEdge::new(src, dst, EdgeType::PageResources));
+            }
+            self.extract_resource_dict_edges(src, resources_obj);
+        }
+        if let Some((_, font_obj)) = dict.get_first(b"/Font") {
+            self.extract_font_edges(src, font_obj);
+        }
+        if let Some((_, xobject_obj)) = dict.get_first(b"/XObject") {
+            self.extract_xobject_edges(src, xobject_obj);
+        }
+    }
+
+    fn extract_resource_dict_edges(&mut self, src: (u32, u16), obj: &PdfObj<'a>) {
+        let Some(dict) = self.resolve_dict(obj) else {
+            return;
+        };
+        if let Some((_, font_obj)) = dict.get_first(b"/Font") {
+            self.extract_font_edges(src, font_obj);
+        }
+        if let Some((_, xobject_obj)) = dict.get_first(b"/XObject") {
+            self.extract_xobject_edges(src, xobject_obj);
+        }
+    }
+
+    fn extract_font_edges(&mut self, src: (u32, u16), obj: &PdfObj<'a>) {
+        self.collect_reference_targets(obj).into_iter().for_each(|dst| {
+            self.edges.push(TypedEdge::new(src, dst, EdgeType::FontReference));
+        });
+    }
+
+    fn extract_xobject_edges(&mut self, src: (u32, u16), obj: &PdfObj<'a>) {
+        self.collect_reference_targets(obj).into_iter().for_each(|dst| {
+            self.edges.push(TypedEdge::new(src, dst, EdgeType::XObjectReference));
+        });
+    }
+
+    fn collect_reference_targets(&self, obj: &PdfObj<'a>) -> Vec<(u32, u16)> {
+        match &obj.atom {
+            PdfAtom::Ref { obj, gen } => vec![(*obj, *gen)],
+            PdfAtom::Array(items) => items
+                .iter()
+                .filter_map(|item| match item.atom {
+                    PdfAtom::Ref { obj, gen } => Some((obj, gen)),
+                    _ => None,
+                })
+                .collect(),
+            PdfAtom::Dict(dict) => dict
+                .entries
+                .iter()
+                .filter_map(|(_, value)| match value.atom {
+                    PdfAtom::Ref { obj, gen } => Some((obj, gen)),
+                    _ => None,
+                })
+                .collect(),
+            _ => {
+                let resolved_dict = self.resolve_dict(obj);
+                resolved_dict
+                    .map(|dict| {
+                        dict.entries
+                            .iter()
+                            .filter_map(|(_, value)| match value.atom {
+                                PdfAtom::Ref { obj, gen } => Some((obj, gen)),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            }
+        }
+    }
+
     /// Extracts generic dictionary references
     fn extract_generic_dict_edges(&mut self, src: (u32, u16), dict: &PdfDict<'a>) {
         // Extract all references that weren't handled by specific extractors
@@ -645,6 +723,20 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
     fn resolve_ref_static(obj: &PdfObj<'a>) -> Option<(u32, u16)> {
         match obj.atom {
             PdfAtom::Ref { obj, gen } => Some((obj, gen)),
+            _ => None,
+        }
+    }
+
+    fn resolve_dict<'c>(&self, obj: &'c PdfObj<'a>) -> Option<&'c PdfDict<'a>> {
+        match &obj.atom {
+            PdfAtom::Dict(dict) => Some(dict),
+            PdfAtom::Ref { obj, gen } => {
+                self.graph.get_object(*obj, *gen).and_then(|entry| match &entry.atom {
+                    PdfAtom::Dict(dict) => Some(dict),
+                    PdfAtom::Stream(stream) => Some(&stream.dict),
+                    _ => None,
+                })
+            }
             _ => None,
         }
     }

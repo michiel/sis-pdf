@@ -5,6 +5,7 @@ use image_analysis::{ImageDynamicOptions, ImageFinding as AnalysisFinding, Image
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_pdf::graph::ObjProvenance;
 use sis_pdf_pdf::object::{PdfAtom, PdfStream};
 
 pub struct ImageAnalysisDetector;
@@ -56,6 +57,7 @@ impl Detector for ImageAnalysisDetector {
                 image_analysis::dynamic::analyze_dynamic_images(&ctx.graph, &dynamic_opts);
             findings.extend(map_findings(ctx, dynamic_result.findings, true));
         }
+        findings.extend(image_provenance_findings(ctx));
 
         Ok(findings)
     }
@@ -88,6 +90,16 @@ fn map_finding(
     }
     if let Some(filters) = meta.get("image.filters") {
         meta.insert("stream.filters".into(), filters.clone());
+    }
+    if let Some(entry) = entry {
+        meta.insert("image.object_provenance".into(), object_provenance_label(entry.provenance));
+        let shadowed = ctx.graph.all_objects_by_id(finding.obj, finding.gen).len();
+        if shadowed > 1 {
+            meta.insert("image.object_shadowed_revisions".into(), shadowed.to_string());
+        }
+        if ctx.graph.deviations.iter().any(|deviation| deviation.kind.contains("xref")) {
+            meta.insert("image.xref_conflict_signal".into(), "true".into());
+        }
     }
     if let Some(format) = payload_format(&meta) {
         meta.insert("payload.format".into(), format.clone());
@@ -182,6 +194,104 @@ fn payload_summary(meta: &HashMap<String, String>) -> Option<String> {
 
 fn is_risky_format(format: &str) -> bool {
     matches!(format, "JBIG2" | "JPX" | "CCITT")
+}
+
+fn image_provenance_findings(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<Finding> {
+    let mut out = Vec::new();
+    let has_xref_conflict =
+        ctx.graph.deviations.iter().any(|deviation| deviation.kind.contains("xref"));
+    for entry in &ctx.graph.objects {
+        let PdfAtom::Stream(stream) = &entry.atom else {
+            continue;
+        };
+        let Some((_, subtype_obj)) = stream.dict.get_first(b"/Subtype") else {
+            continue;
+        };
+        let PdfAtom::Name(name) = &subtype_obj.atom else {
+            continue;
+        };
+        if name.decoded.as_slice() != b"/Image" && name.decoded.as_slice() != b"Image" {
+            continue;
+        }
+
+        let revisions = ctx.graph.all_objects_by_id(entry.obj, entry.gen).len();
+        if revisions <= 1 {
+            continue;
+        }
+        let mut meta = HashMap::new();
+        meta.insert("image.object_id".into(), format!("{} {} obj", entry.obj, entry.gen));
+        meta.insert("image.object_shadowed_revisions".into(), revisions.to_string());
+        meta.insert("image.object_provenance".into(), object_provenance_label(entry.provenance));
+        if has_xref_conflict {
+            meta.insert("image.xref_conflict_signal".into(), "true".into());
+        }
+
+        out.push(Finding {
+            id: String::new(),
+            surface: AttackSurface::Images,
+            kind: "image.provenance_incremental_override".into(),
+            severity: Severity::Medium,
+            confidence: Confidence::Strong,
+            impact: Some(Impact::Medium),
+            title: "Image object overridden across revisions".into(),
+            description:
+                "The image object identifier appears in multiple revisions, indicating override behaviour that can hide payload changes."
+                    .into(),
+            objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+            evidence: vec![span_to_evidence(entry.full_span, "Image object revision override")],
+            remediation: Some(
+                "Review earlier and final revisions of this image object for hidden content changes."
+                    .into(),
+            ),
+            meta,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+            ..Finding::default()
+        });
+
+        if has_xref_conflict {
+            let mut conflict_meta = HashMap::new();
+            conflict_meta
+                .insert("resource.object_id".into(), format!("{} {} obj", entry.obj, entry.gen));
+            conflict_meta
+                .insert("resource.provenance".into(), object_provenance_label(entry.provenance));
+            conflict_meta
+                .insert("resource.object_shadowed_revisions".into(), revisions.to_string());
+            out.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::FileStructure,
+                kind: "resource.provenance_xref_conflict".into(),
+                severity: Severity::High,
+                confidence: Confidence::Probable,
+                impact: Some(Impact::High),
+                title: "Resource provenance intersects xref conflict".into(),
+                description:
+                    "Image resource revision overrides co-occur with xref conflict signals, increasing parser differential risk."
+                        .into(),
+                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                evidence: vec![span_to_evidence(entry.full_span, "Resource provenance xref conflict")],
+                remediation: Some(
+                    "Treat resource history as high-risk and validate xref consistency across revisions."
+                        .into(),
+                ),
+                meta: conflict_meta,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+                ..Finding::default()
+            });
+        }
+    }
+    out
+}
+
+fn object_provenance_label(provenance: ObjProvenance) -> String {
+    match provenance {
+        ObjProvenance::Indirect => "indirect".into(),
+        ObjProvenance::ObjStm { obj, gen } => format!("objstm:{}:{}", obj, gen),
+        ObjProvenance::CarvedStream { obj, gen } => format!("carved_stream:{}:{}", obj, gen),
+    }
 }
 
 fn image_finding_summary(
@@ -386,6 +496,35 @@ fn image_finding_summary(
             "Embedded image metadata contains script-like markers.".into(),
             "Validate whether metadata carries active content indicators.".into(),
         ),
+        "image.provenance_incremental_override" => (
+            Severity::Medium,
+            Confidence::Strong,
+            "Image revision override".into(),
+            "Image object appears in multiple revisions, indicating override behaviour.".into(),
+            "Review object history across revisions for hidden payload changes.".into(),
+        ),
+        "image.structure_filter_chain_inconsistent" => (
+            Severity::Medium,
+            Confidence::Strong,
+            "Inconsistent image filter chain parameters".into(),
+            "Image filter and DecodeParms declarations are structurally inconsistent.".into(),
+            "Validate filter/decode parameter structure and decoded output semantics.".into(),
+        ),
+        "image.structure_mask_inconsistent" => (
+            Severity::Medium,
+            Confidence::Probable,
+            "Inconsistent image mask declarations".into(),
+            "Image mask-related keys (/ImageMask, /SMask, /ColorSpace) contain contradictions."
+                .into(),
+            "Inspect mask semantics for renderer differential behaviour.".into(),
+        ),
+        "image.structure_geometry_improbable" => (
+            Severity::Low,
+            Confidence::Tentative,
+            "Improbable image geometry".into(),
+            "Image dimensions form an extreme aspect ratio or size profile.".into(),
+            "Inspect geometry for parser stress or concealment techniques.".into(),
+        ),
         other => (
             Severity::Low,
             Confidence::Probable,
@@ -404,11 +543,15 @@ fn image_finding_impact(kind: &str) -> Option<Impact> {
         | "image.metadata_scriptable_content"
         | "image.pixel_data_size_mismatch"
         | "image.pixel_buffer_overflow"
-        | "image.colour_space_invalid" => Some(Impact::Medium),
+        | "image.colour_space_invalid"
+        | "image.provenance_incremental_override"
+        | "image.structure_filter_chain_inconsistent"
+        | "image.structure_mask_inconsistent" => Some(Impact::Medium),
         "image.metadata_suspicious_density"
         | "image.decode_array_invalid"
         | "image.indexed_palette_short"
-        | "image.bpc_anomalous" => Some(Impact::Low),
+        | "image.bpc_anomalous"
+        | "image.structure_geometry_improbable" => Some(Impact::Low),
         _ => None,
     }
 }

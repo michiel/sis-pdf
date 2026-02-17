@@ -3065,6 +3065,187 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `passive.preview_prone_surface`
     - `passive.external_protocols`
 
+## resource.external_reference_obfuscated
+
+- ID: `resource.external_reference_obfuscated`
+- Label: Obfuscated external reference target
+- Severity: Medium
+- Confidence: Probable
+- Description: External targets include encoding or normalisation anomalies that indicate obfuscation.
+- Tags: network, passive, evasion
+- Details:
+  - Relevance: obfuscated targets can bypass simple allowlists and triage heuristics.
+  - Metadata highlights:
+    - `resource.obfuscated_target_count`
+    - `passive.external_targets_sample`
+    - `passive.external_targets_normalised`
+
+## resource.external_reference_high_risk_scheme
+
+- ID: `resource.external_reference_high_risk_scheme`
+- Label: High-risk external reference scheme
+- Severity: High
+- Confidence: Strong
+- Description: External references use high-risk schemes (UNC/SMB/file/data) in renderable contexts.
+- Tags: network, passive, credential
+- Details:
+  - Relevance: high-risk schemes can trigger credential leakage or unsafe host interactions.
+  - Metadata highlights:
+    - `resource.high_risk_scheme_count`
+    - `passive.protocol_risk_class`
+    - `passive.ntlm_target_count`
+
+## resource.hidden_render_path
+
+- ID: `resource.hidden_render_path`
+- Label: Hidden resource render path
+- Severity: Medium
+- Confidence: Probable
+- Description: Image/font objects are reachable through indirect resource paths without clear direct page ancestry.
+- Tags: structure, render, evasion
+- Details:
+  - Relevance: nested resource indirection can conceal suspicious payload activation paths.
+  - Metadata highlights:
+    - `resource.hidden_render_path_count`
+    - `passive.source_context_breakdown`
+
+## resource.provenance_xref_conflict
+
+- ID: `resource.provenance_xref_conflict`
+- Label: Resource provenance with xref conflict
+- Severity: High
+- Confidence: Probable
+- Description: Resource revision overrides co-occur with xref conflict signals.
+- Tags: structure, xref, provenance
+- Details:
+  - Relevance: combined provenance and xref anomalies increase parser differential risk.
+  - Metadata highlights:
+    - `resource.object_id`
+    - `resource.provenance`
+    - `resource.object_shadowed_revisions`
+
+## font.provenance_incremental_override
+
+- ID: `font.provenance_incremental_override`
+- Label: Font revision override
+- Severity: Medium
+- Confidence: Strong
+- Description: Font object identifier appears across multiple revisions.
+- Tags: font, structure, provenance
+- Details:
+  - Relevance: revision overrides can hide embedded font payload changes.
+  - Metadata highlights:
+    - `font.object_shadowed_revisions`
+    - `font.object_provenance`
+
+## font.structure_subtype_mismatch
+
+- ID: `font.structure_subtype_mismatch`
+- Label: Font subtype mismatch
+- Severity: High
+- Confidence: Probable
+- Description: Font dictionary subtype and embedded stream key usage are inconsistent.
+- Tags: font, structure, malformed
+
+## font.structure_encoding_inconsistent
+
+- ID: `font.structure_encoding_inconsistent`
+- Label: Font encoding inconsistent
+- Severity: Medium
+- Confidence: Strong
+- Description: Font dictionary contains inconsistent encoding declarations.
+- Tags: font, structure, malformed
+
+## font.structure_mapping_anomalous
+
+- ID: `font.structure_mapping_anomalous`
+- Label: Font mapping anomalous
+- Severity: Medium
+- Confidence: Probable
+- Description: Font CID/GID mapping declarations are unusual and potentially evasive.
+- Tags: font, structure, mapping
+
+## font.orphaned_but_reachable
+
+- ID: `font.orphaned_but_reachable`
+- Label: Font orphaned but reachable
+- Severity: Low
+- Confidence: Tentative
+- Description: Font appears reachable through indirect resource chains without direct page linkage.
+- Tags: font, structure, render
+
+## image.provenance_incremental_override
+
+- ID: `image.provenance_incremental_override`
+- Label: Image revision override
+- Severity: Medium
+- Confidence: Strong
+- Description: Image object identifier appears across multiple revisions.
+- Tags: image, structure, provenance
+
+## image.structure_filter_chain_inconsistent
+
+- ID: `image.structure_filter_chain_inconsistent`
+- Label: Image filter chain inconsistent
+- Severity: Medium
+- Confidence: Strong
+- Description: Image `/Filter` and `/DecodeParms` declarations are structurally inconsistent.
+- Tags: image, filters, malformed
+
+## image.structure_mask_inconsistent
+
+- ID: `image.structure_mask_inconsistent`
+- Label: Image mask inconsistent
+- Severity: Medium
+- Confidence: Probable
+- Description: Image mask-related keys (`/ImageMask`, `/SMask`, `/ColorSpace`) contain contradictions.
+- Tags: image, mask, malformed
+
+## image.structure_geometry_improbable
+
+- ID: `image.structure_geometry_improbable`
+- Label: Image geometry improbable
+- Severity: Low
+- Confidence: Tentative
+- Description: Image dimensions form extreme aspect ratios or implausible geometry.
+- Tags: image, geometry, evasion
+
+## image.orphaned_but_reachable
+
+- ID: `image.orphaned_but_reachable`
+- Label: Image orphaned but reachable
+- Severity: Low
+- Confidence: Tentative
+- Description: Image appears reachable through indirect resource chains without direct page linkage.
+- Tags: image, structure, render
+
+## composite.font_structure_with_provenance_evasion
+
+- ID: `composite.font_structure_with_provenance_evasion`
+- Label: Font structure and provenance evasion composite
+- Severity: High
+- Confidence: Strong
+- Description: Font structure anomalies coincide with provenance conflict signals.
+- Tags: composite, font, provenance
+
+## composite.image_structure_with_hidden_path
+
+- ID: `composite.image_structure_with_hidden_path`
+- Label: Image structure with hidden path composite
+- Severity: High
+- Confidence: Strong
+- Description: Image structure anomalies coincide with hidden or orphaned render-path signals.
+- Tags: composite, image, render
+
+## composite.resource_external_with_trigger_surface
+
+- ID: `composite.resource_external_with_trigger_surface`
+- Label: External resource with trigger surface composite
+- Severity: High
+- Confidence: Strong
+- Description: High-risk external resource references coincide with automatic trigger surfaces.
+- Tags: composite, network, actions
+
 ## polyglot_signature_conflict
 
 - ID: `polyglot_signature_conflict`

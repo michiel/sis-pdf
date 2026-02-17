@@ -33,6 +33,7 @@ pub mod encryption_obfuscation;
 pub mod evasion_env;
 pub mod evasion_time;
 pub mod external_context;
+pub mod external_target;
 pub mod filter_chain_anomaly;
 pub mod filter_depth;
 pub mod font_exploits;
