@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 
+pub mod colour_space;
 pub mod dynamic;
+pub mod pixel_buffer;
 pub mod static_analysis;
 mod timeout;
-mod util;
+pub(crate) mod util;
 
 use serde::{Deserialize, Serialize};
 

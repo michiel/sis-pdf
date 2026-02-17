@@ -5,6 +5,8 @@ use sis_pdf_pdf::object::{PdfAtom, PdfStream};
 use sis_pdf_pdf::xfa::extract_xfa_image_payloads;
 use sis_pdf_pdf::ObjectGraph;
 
+use crate::colour_space::{resolve_colour_space, ResolvedColourSpace};
+use crate::pixel_buffer::MAX_PREVIEW_BUFFER_BYTES;
 use crate::util::{dict_u32, string_bytes};
 use crate::{ImageFinding, ImageStaticOptions, ImageStaticResult};
 
@@ -130,6 +132,120 @@ pub fn analyze_static_images(
             }
             if header_starts_with(header, b"\x89PNG\r\n\x1a\n") {
                 meta.insert("image.header.png".into(), "true".into());
+            }
+        }
+
+        // --- Colour space validation ---
+        let cs = resolve_colour_space(&stream.dict, graph);
+        if let Some(ref cs_val) = cs {
+            meta.insert("image.colour_space".into(), format!("{:?}", cs_val));
+            if let ResolvedColourSpace::Unknown(ref reason) = cs_val {
+                let mut cs_meta = meta.clone();
+                cs_meta.insert("image.colour_space_issue".into(), reason.clone());
+                findings.push(ImageFinding {
+                    kind: "image.colour_space_invalid".into(),
+                    obj: entry.obj,
+                    gen: entry.gen,
+                    meta: cs_meta,
+                });
+            }
+        }
+
+        // --- BitsPerComponent validation ---
+        let bpc = dict_u32(&stream.dict, b"/BitsPerComponent");
+        if let Some(bpc_val) = bpc {
+            if !matches!(bpc_val, 1 | 2 | 4 | 8 | 16) {
+                let mut bpc_meta = meta.clone();
+                bpc_meta.insert("image.bits_per_component".into(), bpc_val.to_string());
+                findings.push(ImageFinding {
+                    kind: "image.bpc_anomalous".into(),
+                    obj: entry.obj,
+                    gen: entry.gen,
+                    meta: bpc_meta,
+                });
+            }
+        }
+
+        // --- Pixel buffer overflow detection ---
+        if let (Some(w), Some(h), Some(ref cs_val)) = (width, height, &cs) {
+            if let Some(channels) = cs_val.channels() {
+                let bpc_val = bpc.unwrap_or(8) as u64;
+                let ch = if matches!(cs_val, ResolvedColourSpace::Indexed { .. }) {
+                    1u64
+                } else {
+                    channels as u64
+                };
+                let bits = (w as u64).checked_mul(h as u64).and_then(|v| v.checked_mul(ch)).and_then(|v| v.checked_mul(bpc_val));
+                let buffer_bytes = bits.map(|b| (b + 7) / 8);
+                if let Some(buf) = buffer_bytes {
+                    if buf > MAX_PREVIEW_BUFFER_BYTES {
+                        let mut overflow_meta = meta.clone();
+                        overflow_meta.insert("image.calculated_buffer_bytes".into(), buf.to_string());
+                        overflow_meta.insert("image.channels".into(), ch.to_string());
+                        overflow_meta.insert("image.bpc".into(), bpc_val.to_string());
+                        findings.push(ImageFinding {
+                            kind: "image.pixel_buffer_overflow".into(),
+                            obj: entry.obj,
+                            gen: entry.gen,
+                            meta: overflow_meta,
+                        });
+                    }
+                } else {
+                    // Arithmetic overflow
+                    let mut overflow_meta = meta.clone();
+                    overflow_meta.insert("image.overflow".into(), "arithmetic".into());
+                    findings.push(ImageFinding {
+                        kind: "image.pixel_buffer_overflow".into(),
+                        obj: entry.obj,
+                        gen: entry.gen,
+                        meta: overflow_meta,
+                    });
+                }
+            }
+        }
+
+        // --- Indexed palette validation ---
+        if let Some(ResolvedColourSpace::Indexed { ref base, hival, ref palette }) = cs {
+            let base_channels = base.channels().unwrap_or(3) as usize;
+            let expected_palette_bytes = (hival as usize + 1) * base_channels;
+            if palette.len() < expected_palette_bytes {
+                let mut pal_meta = meta.clone();
+                pal_meta.insert("image.palette_expected_bytes".into(), expected_palette_bytes.to_string());
+                pal_meta.insert("image.palette_actual_bytes".into(), palette.len().to_string());
+                pal_meta.insert("image.hival".into(), hival.to_string());
+                findings.push(ImageFinding {
+                    kind: "image.indexed_palette_short".into(),
+                    obj: entry.obj,
+                    gen: entry.gen,
+                    meta: pal_meta,
+                });
+            }
+        }
+
+        // --- Decode array validation ---
+        if let Some(ref cs_val) = cs {
+            let source_channels = if matches!(cs_val, ResolvedColourSpace::Indexed { .. }) {
+                1usize
+            } else {
+                cs_val.channels().unwrap_or(0) as usize
+            };
+            if source_channels > 0 {
+                if let Some((_, decode_obj)) = stream.dict.get_first(b"/Decode") {
+                    if let PdfAtom::Array(arr) = &decode_obj.atom {
+                        let expected_len = source_channels * 2;
+                        if arr.len() != expected_len {
+                            let mut da_meta = meta.clone();
+                            da_meta.insert("image.decode_array_length".into(), arr.len().to_string());
+                            da_meta.insert("image.decode_array_expected_length".into(), expected_len.to_string());
+                            findings.push(ImageFinding {
+                                kind: "image.decode_array_invalid".into(),
+                                obj: entry.obj,
+                                gen: entry.gen,
+                                meta: da_meta,
+                            });
+                        }
+                    }
+                }
             }
         }
     }

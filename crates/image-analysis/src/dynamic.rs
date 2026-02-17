@@ -6,6 +6,7 @@ use sis_pdf_pdf::object::{PdfAtom, PdfStream};
 use sis_pdf_pdf::xfa::extract_xfa_image_payloads;
 use sis_pdf_pdf::ObjectGraph;
 
+use crate::colour_space::{resolve_colour_space, ResolvedColourSpace};
 use crate::timeout::TimeoutChecker;
 use crate::util::dict_u32;
 use crate::{ImageDynamicOptions, ImageDynamicResult, ImageFinding};
@@ -140,6 +141,18 @@ pub fn analyze_dynamic_images(
         match decode_result {
             DecodeStatus::Ok => {
                 meta.insert("image.decode".into(), "success".into());
+
+                // Check pixel data size mismatch for raw pixel streams
+                // (streams with no image-specific filter, where the data IS the pixels)
+                if filters.is_empty() || filters.iter().all(|f| {
+                    matches!(f.as_str(), "FlateDecode" | "Fl" | "LZWDecode" | "LZW"
+                        | "ASCIIHexDecode" | "AHx" | "ASCII85Decode" | "A85"
+                        | "RunLengthDecode" | "RL")
+                }) {
+                    check_pixel_data_size(
+                        graph, stream, data, entry.obj, entry.gen, &meta, &mut findings,
+                    );
+                }
             }
             DecodeStatus::Skipped(reason) => {
                 meta.insert("image.decode".into(), "skipped".into());
@@ -351,6 +364,61 @@ fn decode_image_data(
         }
     }
     DecodeStatus::Skipped("unknown_format".into())
+}
+
+/// Check if the decoded stream size matches the expected pixel data size.
+///
+/// For raw pixel streams (no image-specific filter), the decoded data should
+/// match Width * Height * channels * BPC / 8 (with row padding for sub-byte BPC).
+fn check_pixel_data_size(
+    graph: &ObjectGraph<'_>,
+    stream: &PdfStream<'_>,
+    data: &[u8],
+    obj: u32,
+    gen: u16,
+    base_meta: &BTreeMap<String, String>,
+    findings: &mut Vec<ImageFinding>,
+) {
+    let Some(width) = dict_u32(&stream.dict, b"/Width") else { return };
+    let Some(height) = dict_u32(&stream.dict, b"/Height") else { return };
+    if width == 0 || height == 0 {
+        return;
+    }
+
+    let cs = resolve_colour_space(&stream.dict, graph);
+    let channels = cs
+        .as_ref()
+        .and_then(|c| {
+            if matches!(c, ResolvedColourSpace::Indexed { .. }) {
+                Some(1u64)
+            } else {
+                c.channels().map(|ch| ch as u64)
+            }
+        });
+    let Some(channels) = channels else { return };
+
+    let bpc = dict_u32(&stream.dict, b"/BitsPerComponent").unwrap_or(8) as u64;
+    let bits_per_row = match (width as u64).checked_mul(channels).and_then(|v| v.checked_mul(bpc)) {
+        Some(v) => v,
+        None => return,
+    };
+    let bytes_per_row = (bits_per_row + 7) / 8;
+    let expected = match bytes_per_row.checked_mul(height as u64) {
+        Some(v) => v as usize,
+        None => return,
+    };
+
+    if expected > 0 && data.len() != expected {
+        let mut meta = base_meta.clone();
+        meta.insert("image.expected_bytes".into(), expected.to_string());
+        meta.insert("image.actual_bytes".into(), data.len().to_string());
+        findings.push(ImageFinding {
+            kind: "image.pixel_data_size_mismatch".into(),
+            obj,
+            gen,
+            meta,
+        });
+    }
 }
 
 fn analyze_xfa_images(graph: &ObjectGraph<'_>, opts: &ImageDynamicOptions) -> Vec<ImageFinding> {

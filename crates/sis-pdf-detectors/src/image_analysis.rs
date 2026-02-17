@@ -312,6 +312,52 @@ fn image_finding_summary(
             "XFA content embeds image data.".into(),
             "Review embedded images in XFA forms.".into(),
         ),
+        "image.colour_space_invalid" => (
+            Severity::Medium,
+            Confidence::Strong,
+            "Invalid colour space".into(),
+            "Image colour space is malformed, unresolved, or violates the PDF specification."
+                .into(),
+            "Inspect image colour space structure for evasion or malformed data.".into(),
+        ),
+        "image.bpc_anomalous" => (
+            Severity::Low,
+            Confidence::Strong,
+            "Anomalous bits per component".into(),
+            "Image BitsPerComponent value is not a standard value (1, 2, 4, 8, or 16).".into(),
+            "Inspect image parameters for malformed or crafted values.".into(),
+        ),
+        "image.pixel_buffer_overflow" => (
+            Severity::Medium,
+            Confidence::Certain,
+            "Image pixel buffer overflow".into(),
+            "Image dimensions and colour depth would produce a pixel buffer exceeding safe limits."
+                .into(),
+            "Inspect image for resource exhaustion or denial of service attempt.".into(),
+        ),
+        "image.pixel_data_size_mismatch" => (
+            Severity::Medium,
+            Confidence::Probable,
+            "Image stream size mismatch".into(),
+            "Decoded stream length does not match the expected pixel data size for the declared dimensions."
+                .into(),
+            "Inspect image stream for hidden data, truncation, or metadata inconsistency.".into(),
+        ),
+        "image.indexed_palette_short" => (
+            Severity::Low,
+            Confidence::Strong,
+            "Indexed palette too short".into(),
+            "Indexed colour space palette has fewer bytes than required by the declared hival."
+                .into(),
+            "Inspect palette data for truncation or crafted values.".into(),
+        ),
+        "image.decode_array_invalid" => (
+            Severity::Low,
+            Confidence::Strong,
+            "Invalid decode array".into(),
+            "Image /Decode array has incorrect length for the colour space.".into(),
+            "Inspect decode parameters for malformed or crafted values.".into(),
+        ),
         other => (
             Severity::Low,
             Confidence::Probable,

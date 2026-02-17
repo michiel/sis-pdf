@@ -5405,6 +5405,7 @@ dependencies = [
  "flate2",
  "getrandom 0.3.4",
  "image",
+ "image-analysis",
  "js-sys",
  "rfd",
  "serde",

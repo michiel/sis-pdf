@@ -85,13 +85,13 @@ pub fn extract_object_data(
         if index.contains_key(&key) {
             // Update the existing entry (later version overrides)
             let existing_idx = index[&key];
-            let summary = extract_one_object(bytes, entry, classifications);
+            let summary = extract_one_object(bytes, graph, entry, classifications);
             all_refs[existing_idx] = summary.references_from.clone();
             objects[existing_idx] = summary;
             continue;
         }
 
-        let summary = extract_one_object(bytes, entry, classifications);
+        let summary = extract_one_object(bytes, graph, entry, classifications);
         let idx = objects.len();
         all_refs.push(summary.references_from.clone());
         objects.push(summary);
@@ -122,6 +122,7 @@ pub fn extract_object_data(
 
 fn extract_one_object(
     bytes: &[u8],
+    #[allow(unused_variables)] graph: &ObjectGraph<'_>,
     entry: &sis_pdf_pdf::graph::ObjEntry<'_>,
     classifications: &ClassificationMap,
 ) -> ObjectSummary {
@@ -189,6 +190,15 @@ fn extract_one_object(
                 #[cfg(feature = "gui")]
                 if blob_kind == BlobKind::Jpeg {
                     image_preview = decode_jpeg_preview(&decoded.data);
+                }
+
+                // Fallback: reconstruct raw pixel preview for non-JPEG image streams
+                #[cfg(feature = "gui")]
+                if image_preview.is_none() && obj_type == "image" {
+                    if let PdfAtom::Stream(stream) = &entry.atom {
+                        image_preview =
+                            reconstruct_image_preview(&decoded.data, &stream.dict, graph);
+                    }
                 }
 
                 stream_raw = Some(decoded.data.clone());
@@ -339,6 +349,34 @@ fn dict_entry_as_u32(entries: &[(String, String)], key: &str) -> Option<u32> {
 /// Look up a dictionary entry value as a name string (for ColorSpace).
 fn dict_entry_as_name(entries: &[(String, String)], key: &str) -> Option<String> {
     entries.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+}
+
+/// Reconstruct raw pixel data into a preview thumbnail (max 256px on longest side).
+///
+/// This handles FlateDecode + DeviceGray/RGB/CMYK/Indexed images where the
+/// decoded bytes are raw pixel samples (not a self-contained image format).
+#[cfg(feature = "gui")]
+fn reconstruct_image_preview(
+    decoded: &[u8],
+    dict: &PdfDict<'_>,
+    graph: &ObjectGraph<'_>,
+) -> Option<(u32, u32, Vec<u8>)> {
+    use image::GenericImageView;
+
+    let pixel_buf = image_analysis::pixel_buffer::reconstruct_pixels(decoded, dict, graph).ok()?;
+    let (w, h) = (pixel_buf.width, pixel_buf.height);
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let max_dim = w.max(h);
+    if max_dim <= 256 {
+        return Some((w, h, pixel_buf.rgba));
+    }
+    let img = image::RgbaImage::from_raw(w, h, pixel_buf.rgba)?;
+    let dynamic = image::DynamicImage::ImageRgba8(img);
+    let thumb = dynamic.thumbnail(256, 256);
+    let (tw, th) = thumb.dimensions();
+    Some((tw, th, thumb.to_rgba8().into_raw()))
 }
 
 /// Decode JPEG bytes into a low-resolution RGBA preview thumbnail (max 256px on longest side).

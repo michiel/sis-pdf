@@ -21,3 +21,23 @@ pub(crate) fn string_bytes(value: &PdfStr<'_>) -> Vec<u8> {
         PdfStr::Hex { decoded, .. } => decoded.clone(),
     }
 }
+
+/// Extract a `/Decode` array as pairs of f64 values from a dict entry.
+/// Returns `None` if the key is absent; returns `Some(vec)` with the pairs.
+pub(crate) fn dict_f64_array(dict: &PdfDict<'_>, key: &[u8]) -> Option<Vec<f64>> {
+    let (_, obj) = dict.get_first(key)?;
+    match &obj.atom {
+        PdfAtom::Array(arr) => {
+            let mut out = Vec::with_capacity(arr.len());
+            for item in arr {
+                match &item.atom {
+                    PdfAtom::Int(v) => out.push(*v as f64),
+                    PdfAtom::Real(v) => out.push(*v as f64),
+                    _ => return Some(out), // stop at non-numeric
+                }
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}

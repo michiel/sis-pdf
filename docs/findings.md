@@ -1173,6 +1173,79 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: XFA images expand rendering attack surface.
   - Chain usage: used as supporting context for XFA payloads.
 
+## image.colour_space_invalid
+
+- ID: `image.colour_space_invalid`
+- Label: Invalid colour space
+- Severity: Medium
+- Confidence: Strong
+- Description: Image colour space is malformed, unresolved, or violates the PDF specification.
+- Tags: image, colour-space, malformed
+- Details:
+  - Relevance: malformed colour space arrays may indicate evasion, crafted exploits, or corrupted PDFs.
+  - Meaning: the /ColorSpace entry could not be resolved to a known type.
+  - Metadata: `image.colour_space_issue` describes the specific problem (missing elements, unresolved reference, invalid /N, depth exceeded).
+
+## image.bpc_anomalous
+
+- ID: `image.bpc_anomalous`
+- Label: Anomalous bits per component
+- Severity: Low
+- Confidence: Strong
+- Description: Image BitsPerComponent value is not a standard value (1, 2, 4, 8, or 16).
+- Tags: image, malformed
+- Details:
+  - Relevance: non-standard BPC values violate the PDF specification and may target decoder edge cases.
+  - Metadata: `image.bits_per_component` contains the declared value.
+
+## image.pixel_buffer_overflow
+
+- ID: `image.pixel_buffer_overflow`
+- Label: Image pixel buffer overflow
+- Severity: Medium
+- Confidence: Certain
+- Description: Image dimensions and colour depth would produce a pixel buffer exceeding safe limits.
+- Tags: image, resource-exhaustion
+- Details:
+  - Relevance: potential denial of service via memory exhaustion or integer overflow in decoders.
+  - Metadata: `image.calculated_buffer_bytes`, `image.channels`, `image.bpc`.
+
+## image.pixel_data_size_mismatch
+
+- ID: `image.pixel_data_size_mismatch`
+- Label: Image stream size mismatch
+- Severity: Medium
+- Confidence: Probable
+- Description: Decoded stream length does not match the expected pixel data size for the declared dimensions.
+- Tags: image, data-hiding
+- Details:
+  - Relevance: may indicate hidden data appended to image streams, truncated content, or inconsistent metadata.
+  - Metadata: `image.expected_bytes`, `image.actual_bytes`.
+
+## image.indexed_palette_short
+
+- ID: `image.indexed_palette_short`
+- Label: Indexed palette too short
+- Severity: Low
+- Confidence: Strong
+- Description: Indexed colour space palette has fewer bytes than required by the declared hival.
+- Tags: image, colour-space, malformed
+- Details:
+  - Relevance: short palettes may cause out-of-bounds reads in vulnerable decoders.
+  - Metadata: `image.palette_expected_bytes`, `image.palette_actual_bytes`, `image.hival`.
+
+## image.decode_array_invalid
+
+- ID: `image.decode_array_invalid`
+- Label: Invalid decode array
+- Severity: Low
+- Confidence: Strong
+- Description: Image /Decode array has incorrect length for the colour space.
+- Tags: image, malformed
+- Details:
+  - Relevance: invalid /Decode arrays may cause index-out-of-bounds or numeric instability in decoders.
+  - Metadata: `image.decode_array_length`, `image.decode_array_expected_length`.
+
 ## incremental_update_chain
 
 - ID: `incremental_update_chain`
