@@ -1,7 +1,7 @@
 # Image and Font Structural Hardening Follow-up Plan
 
 Date: 2026-02-17  
-Status: Planned  
+Status: In Progress  
 Scope: `sis-pdf-pdf`, `sis-pdf-detectors`, `sis-pdf-core`, `image-analysis`, `font-analysis`, corpus fixtures, fuzz
 
 ## Objective
@@ -14,6 +14,18 @@ Close remaining high-value gaps after initial image/font structural hardening, w
 2. Improve coverage for PDF-native payload carriers (inline images, Type 3 glyph programs, CMaps).
 3. Strengthen high-confidence triage for signed/incremental override abuse.
 4. Preserve deterministic limits and throughput under large corpora.
+
+## Execution Progress
+
+- Completed: Stage 1 (content stream resource semantics detector and findings)
+- Completed: Stage 2 (inline image structural checks and findings)
+- Completed: Stage 3 (Type 3 charproc risk detections)
+- Completed: Stage 4 (ToUnicode/CMap consistency checks)
+- Completed: Stage 5 (resource inheritance conflict detection)
+- Completed: Stage 6 (signature-aware override findings for image/font/resource)
+- Completed: Stage 7 (decode/provenance composite correlators)
+- Completed: Stage 8 (calibration guardrail tests + findings calibration notes)
+- In progress: Stage 9 (fuzz/performance/corpus validation)
 
 ## Stage 1: Content Stream Operator Semantics
 
@@ -258,6 +270,21 @@ Close remaining high-value gaps after initial image/font structural hardening, w
 3. `cargo test -p font-analysis`
 4. `cargo test -p sis-pdf-detectors`
 5. `cargo test -p sis-pdf-core --test corpus_captured_regressions`
+
+### Stage 9 Progress Notes
+
+- Added fuzz target: `fuzz/fuzz_targets/content_ops.rs` for hostile content stream operator parsing over raw data and decoded streams.
+- Added fuzz target: `fuzz/fuzz_targets/page_tree.rs` for page-tree/inheritance resolution robustness.
+- Registered new fuzz bins in `fuzz/Cargo.toml`; validated with `cd fuzz && cargo fuzz list`.
+- Runtime profile baseline captured on 2026-02-17 with:
+  `cargo run -p sis-pdf --bin sis -- scan crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf --deep --runtime-profile --runtime-profile-format json`
+  - `total_duration_ms: 4`
+  - `parse: 0ms`
+  - `detection: 1ms`
+  - `resource_usage_semantics` detector runtime: `0ms` on the baseline fixture
+- Remaining Stage 9 work:
+  - Add corpus-captured fixtures that intentionally exercise new image/font structural findings and update manifest provenance.
+  - Record runtime-profile baseline deltas for at least one modern structural fixture using `sis scan <fixture> --deep --runtime-profile --runtime-profile-format json`.
 6. `cargo test -p sis-pdf batch_query_supports_findings_composite_predicate -- --nocapture`
 7. `cargo test -p sis-pdf execute_query_supports_findings_composite_predicate -- --nocapture`
 
