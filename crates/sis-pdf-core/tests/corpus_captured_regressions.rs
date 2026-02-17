@@ -416,3 +416,108 @@ fn corpus_captured_structural_inheritance_conflict_font_baseline_stays_stable() 
     assert_eq!(override_finding.impact, Some(sis_pdf_core::model::Impact::Medium));
     assert_eq!(meta_as_u32(override_finding, "resource.override_conflict_count"), 1);
 }
+
+#[test]
+fn corpus_captured_structural_type3_charproc_abuse_baseline_stays_stable() {
+    let bytes =
+        include_bytes!("fixtures/corpus_captured/structural-type3-charproc-abuse-f942b416.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let abuse = finding_by_kind(&report, "font.type3_charproc_resource_abuse");
+    assert_eq!(abuse.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(abuse.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert_eq!(abuse.impact, Some(sis_pdf_core::model::Impact::High));
+    assert_eq!(meta_as_u32(abuse, "font.type3.resource_ops"), 1);
+
+    let recursion = finding_by_kind(&report, "font.type3_charproc_recursion_like_pattern");
+    assert_eq!(recursion.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(recursion.confidence, sis_pdf_core::model::Confidence::Tentative);
+    assert_eq!(recursion.impact, Some(sis_pdf_core::model::Impact::Medium));
+    assert_eq!(meta_as_u32(recursion, "font.type3.q_depth_final"), 1);
+}
+
+#[test]
+fn corpus_captured_structural_cmap_overlap_baseline_stays_stable() {
+    let bytes = include_bytes!("fixtures/corpus_captured/structural-cmap-overlap-e51348dc.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let overlap = finding_by_kind(&report, "font.cmap_range_overlap");
+    assert_eq!(overlap.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(overlap.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(overlap.impact, Some(sis_pdf_core::model::Impact::Medium));
+    assert_eq!(meta_as_u32(overlap, "font.cmap.range_count"), 2);
+
+    let subtype = finding_by_kind(&report, "font.cmap_subtype_inconsistent");
+    assert_eq!(subtype.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(subtype.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(subtype.impact, Some(sis_pdf_core::model::Impact::Medium));
+}
+
+#[test]
+fn corpus_captured_structural_inheritance_conflict_xobject_baseline_stays_stable() {
+    let bytes = include_bytes!(
+        "fixtures/corpus_captured/structural-inheritance-conflict-xobject-246bb53b.pdf"
+    );
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let conflict = finding_by_kind(&report, "resource.inheritance_conflict_xobject");
+    assert_eq!(conflict.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(conflict.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(conflict.impact, Some(sis_pdf_core::model::Impact::Medium));
+    assert_eq!(conflict.meta.get("resource.xobject_conflicts"), Some(&"/Im1".to_string()));
+}
+
+#[test]
+fn corpus_captured_structural_inline_filter_mask_baseline_stays_stable() {
+    let bytes =
+        include_bytes!("fixtures/corpus_captured/structural-inline-filter-mask-97762d41.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let filter_chain = finding_by_kind(&report, "image.inline_structure_filter_chain_inconsistent");
+    assert_eq!(filter_chain.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(filter_chain.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(filter_chain.impact, Some(sis_pdf_core::model::Impact::Medium));
+    assert_eq!(meta_as_u32(filter_chain, "inline_image.filter_count"), 2);
+    assert_eq!(meta_as_u32(filter_chain, "inline_image.decode_parms_count"), 1);
+
+    let mask = finding_by_kind(&report, "image.inline_mask_inconsistent");
+    assert_eq!(mask.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(mask.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert_eq!(mask.impact, Some(sis_pdf_core::model::Impact::Medium));
+}
+
+#[test]
+fn corpus_captured_structural_type3_complexity_baseline_stays_stable() {
+    let bytes = include_bytes!("fixtures/corpus_captured/structural-type3-complexity-b4c499af.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let complexity = finding_by_kind(&report, "font.type3_charproc_complexity_high");
+    assert_eq!(complexity.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(complexity.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert_eq!(complexity.impact, Some(sis_pdf_core::model::Impact::Medium));
+    assert!(meta_as_u32(complexity, "font.type3.total_ops") >= 1200);
+}
+
+#[test]
+fn corpus_captured_structural_cmap_cardinality_baseline_stays_stable() {
+    let bytes = include_bytes!("fixtures/corpus_captured/structural-cmap-cardinality-53ab048f.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let cardinality = finding_by_kind(&report, "font.cmap_cardinality_anomalous");
+    assert_eq!(cardinality.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(cardinality.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert_eq!(cardinality.impact, Some(sis_pdf_core::model::Impact::Medium));
+    assert!(meta_as_u32(cardinality, "font.cmap.range_count") > 4096);
+}

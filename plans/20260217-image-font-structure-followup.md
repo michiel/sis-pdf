@@ -300,10 +300,16 @@ Close remaining high-value gaps after initial image/font structural hardening, w
   - `structural-inline-decode-invalid-eac2732d.pdf` for `image.inline_decode_array_invalid`
   - `structural-hidden-invocation-19004614.pdf` for `resource.hidden_invocation_pattern`
   - `structural-inheritance-conflict-font-4e033b8b.pdf` for `resource.inheritance_conflict_font` and `resource.inheritance_override_suspicious`
+  - `structural-type3-charproc-abuse-f942b416.pdf` for `font.type3_charproc_resource_abuse` and `font.type3_charproc_recursion_like_pattern`
+  - `structural-cmap-overlap-e51348dc.pdf` for `font.cmap_range_overlap` and `font.cmap_subtype_inconsistent`
+  - `structural-inheritance-conflict-xobject-246bb53b.pdf` for `resource.inheritance_conflict_xobject`
+  - `structural-inline-filter-mask-97762d41.pdf` for `image.inline_structure_filter_chain_inconsistent` and `image.inline_mask_inconsistent`
+  - `structural-type3-complexity-b4c499af.pdf` for `font.type3_charproc_complexity_high`
+  - `structural-cmap-cardinality-53ab048f.pdf` for `font.cmap_cardinality_anomalous`
 - Verified corpus baseline suite with:
   `cargo test -p sis-pdf-core --test corpus_captured_regressions -- --nocapture`
 - Remaining Stage 9 work:
-  - Extend positive corpus fixture set to cover the remaining new kinds (Type 3/CMap family and signature-scope overrides) while preserving deterministic assertions.
+  - Extend positive corpus fixture set to cover signature-scope override kinds (`resource.override_outside_signature_scope`, `font.override_outside_signature_scope`, `image.override_outside_signature_scope`) with deterministic signed-revision fixtures.
 6. `cargo test -p sis-pdf batch_query_supports_findings_composite_predicate -- --nocapture`
 7. `cargo test -p sis-pdf execute_query_supports_findings_composite_predicate -- --nocapture`
 
