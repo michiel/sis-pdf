@@ -1,38 +1,47 @@
 use crate::app::SisApp;
 use sis_pdf_core::model::Severity;
 
-/// Display the top bar: File menu, tab labels, theme toggle.
-pub fn show_top_bar(ui: &mut egui::Ui, app: &mut SisApp) {
-    ui.horizontal(|ui| {
-        // File menu
-        egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                if ui.button("Open file...").clicked() {
-                    app.request_file_upload();
-                    ui.close();
-                }
-            });
+/// Display the menu bar: File menu, then cog and theme toggle on the far right.
+pub fn show_menu_bar(ui: &mut egui::Ui, app: &mut SisApp) {
+    egui::MenuBar::new().ui(ui, |ui| {
+        ui.menu_button("File", |ui| {
+            if ui.button("Open file...").clicked() {
+                app.request_file_upload();
+                ui.close();
+            }
+            ui.separator();
+            if ui
+                .add_enabled(app.tab_count > 0, egui::Button::new("Close tab"))
+                .clicked()
+            {
+                app.close_tab(app.active_tab);
+                ui.close();
+            }
         });
 
-        ui.separator();
-
-        // Tab labels (always shown, even for single file)
-        show_tab_bar_inner(ui, app);
-
-        // Right-align theme toggle
+        // Push remaining items to the right edge.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let label = if app.dark_mode { "Dark" } else { "Light" };
-            if ui.button(label).clicked() {
+            let theme_icon = if app.dark_mode { "\u{2600}" } else { "\u{263E}" };
+            let theme_text = if app.dark_mode {
+                "Switch to light theme"
+            } else {
+                "Switch to dark theme"
+            };
+            if ui.button(theme_icon).on_hover_text(theme_text).clicked() {
                 app.dark_mode = !app.dark_mode;
+            }
+            if ui.button("\u{2699}").on_hover_text("Options").clicked() {
+                app.show_telemetry = !app.show_telemetry;
             }
         });
     });
 }
 
-/// Display the tab bar for multi-tab switching.
-fn show_tab_bar_inner(ui: &mut egui::Ui, app: &mut SisApp) {
+/// Display the tab strip for multi-tab switching (shown only when >1 tab).
+pub fn show_tab_strip(ui: &mut egui::Ui, app: &mut SisApp) {
     let tab_names = app.tab_names();
     let active = app.active_tab;
+    let btn_height = ui.spacing().interact_size.y;
     let mut switch_to = None;
     let mut close_tab = None;
 
@@ -42,21 +51,25 @@ fn show_tab_bar_inner(ui: &mut egui::Ui, app: &mut SisApp) {
             let truncated =
                 if name.len() > 20 { format!("{}...", &name[..17]) } else { name.clone() };
 
-            ui.horizontal(|ui| {
-                if ui.selectable_label(is_active, &truncated).clicked() && !is_active {
-                    switch_to = Some(i);
-                }
-                if ui.small_button("x").clicked() {
-                    close_tab = Some(i);
-                }
-            });
+            let mut button = egui::Button::new(&truncated);
+            if is_active {
+                button = button.fill(ui.visuals().selection.bg_fill);
+            }
+            if ui.add_sized([120.0, btn_height], button).clicked() && !is_active {
+                switch_to = Some(i);
+            }
+            if ui.add_sized([btn_height, btn_height], egui::Button::new("x")).clicked() {
+                close_tab = Some(i);
+            }
+
+            ui.add_space(2.0);
         }
 
         // "+" button to open a new file
-        if tab_names.len() < crate::workspace::MAX_TABS
-            && ui.small_button("+").clicked()
-        {
-            app.request_file_upload();
+        if tab_names.len() < crate::workspace::MAX_TABS {
+            if ui.add_sized([btn_height, btn_height], egui::Button::new("+")).clicked() {
+                app.request_file_upload();
+            }
         }
     });
 

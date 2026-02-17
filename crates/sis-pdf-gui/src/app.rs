@@ -3,6 +3,7 @@ use crate::telemetry::TelemetryLog;
 use crate::window_state::WindowMaxState;
 use crate::workspace::{self, WorkspaceContext};
 use std::collections::HashMap;
+use std::path::PathBuf;
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
 #[cfg(target_arch = "wasm32")]
@@ -117,10 +118,18 @@ impl Default for SeverityFilters {
     }
 }
 
-#[derive(Default)]
 pub struct SortState {
     pub column: SortColumn,
     pub ascending: bool,
+}
+
+impl Default for SortState {
+    fn default() -> Self {
+        Self {
+            column: SortColumn::Severity,
+            ascending: true,
+        }
+    }
 }
 
 #[derive(Default, PartialEq)]
@@ -138,8 +147,18 @@ pub enum AppState {
     /// No analysis in progress.
     #[default]
     Idle,
+    /// File is being loaded from disk before analysis.
+    LoadingPath {
+        file_name: String,
+        path: PathBuf,
+        shown_once: bool,
+    },
     /// Analysis is queued (renders spinner on next frame).
-    Analysing { file_name: String, bytes: Vec<u8> },
+    Analysing {
+        file_name: String,
+        bytes: Vec<u8>,
+        shown_once: bool,
+    },
 }
 
 #[derive(Default, PartialEq)]
@@ -178,10 +197,10 @@ pub struct HexHighlight {
 
 impl SisApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        cc.egui_ctx.set_visuals(egui::Visuals::dark());
+        cc.egui_ctx.set_visuals(egui::Visuals::light());
         Self {
             result: None,
-            dark_mode: true,
+            dark_mode: false,
             error: None,
             selected_finding: None,
             show_findings: true,
@@ -231,7 +250,21 @@ impl SisApp {
     /// so the progress spinner has a chance to render.
     pub fn handle_file_drop(&mut self, name: String, bytes: &[u8]) {
         self.error = None;
-        self.app_state = AppState::Analysing { file_name: name, bytes: bytes.to_vec() };
+        self.app_state = AppState::Analysing {
+            file_name: name,
+            bytes: bytes.to_vec(),
+            shown_once: false,
+        };
+    }
+
+    /// Queue a file path for loading before analysis.
+    pub fn handle_file_path_drop(&mut self, file_name: String, path: PathBuf) {
+        self.error = None;
+        self.app_state = AppState::LoadingPath {
+            file_name,
+            path,
+            shown_once: false,
+        };
     }
 
     /// Run analysis and open the result as a new tab.
@@ -526,25 +559,100 @@ impl SisApp {
         self.request_file_upload_native();
     }
 
+    pub fn download_bytes(&mut self, suggested_name: &str, bytes: &[u8]) {
+        #[cfg(target_arch = "wasm32")]
+        self.download_bytes_wasm(suggested_name, bytes);
+        #[cfg(not(target_arch = "wasm32"))]
+        self.download_bytes_native(suggested_name, bytes);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn download_bytes_native(&mut self, suggested_name: &str, bytes: &[u8]) {
+        if let Some(path) = rfd::FileDialog::new().set_file_name(suggested_name).save_file() {
+            if let Err(err) = std::fs::write(path, bytes) {
+                self.error = Some(AnalysisError::ParseFailed(format!(
+                    "Failed to save file: {}",
+                    err
+                )));
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn download_bytes_wasm(&mut self, suggested_name: &str, bytes: &[u8]) {
+        use wasm_bindgen::JsCast;
+
+        let Some(window) = web_sys::window() else {
+            self.error =
+                Some(AnalysisError::ParseFailed("No browser window available".to_string()));
+            return;
+        };
+        let Some(document) = window.document() else {
+            self.error =
+                Some(AnalysisError::ParseFailed("No browser document available".to_string()));
+            return;
+        };
+
+        let uint8 = js_sys::Uint8Array::from(bytes);
+        let parts = js_sys::Array::new();
+        parts.push(&uint8.buffer());
+        let Ok(blob) = web_sys::Blob::new_with_u8_array_sequence(&parts) else {
+            self.error =
+                Some(AnalysisError::ParseFailed("Failed to create download blob".to_string()));
+            return;
+        };
+        let Ok(url) = web_sys::Url::create_object_url_with_blob(&blob) else {
+            self.error = Some(AnalysisError::ParseFailed(
+                "Failed to create download URL".to_string(),
+            ));
+            return;
+        };
+
+        let Ok(element) = document.create_element("a") else {
+            let _ = web_sys::Url::revoke_object_url(&url);
+            self.error = Some(AnalysisError::ParseFailed(
+                "Failed to create download link".to_string(),
+            ));
+            return;
+        };
+        if element.set_attribute("href", &url).is_err()
+            || element.set_attribute("download", suggested_name).is_err()
+        {
+            let _ = web_sys::Url::revoke_object_url(&url);
+            self.error = Some(AnalysisError::ParseFailed(
+                "Failed to configure download link".to_string(),
+            ));
+            return;
+        }
+
+        let Ok(anchor) = element.dyn_into::<web_sys::HtmlElement>() else {
+            let _ = web_sys::Url::revoke_object_url(&url);
+            self.error = Some(AnalysisError::ParseFailed(
+                "Failed to initialise download link".to_string(),
+            ));
+            return;
+        };
+
+        if let Some(body) = document.body() {
+            let _ = body.append_child(&anchor);
+            anchor.click();
+            let _ = body.remove_child(&anchor);
+        } else {
+            anchor.click();
+        }
+
+        let _ = web_sys::Url::revoke_object_url(&url);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn request_file_upload_native(&mut self) {
         if let Some(path) = rfd::FileDialog::new().add_filter("PDF document", &["pdf"]).pick_file()
         {
-            match std::fs::read(&path) {
-                Ok(bytes) => {
-                    let name = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "uploaded.pdf".to_string());
-                    self.handle_file_drop(name, &bytes);
-                }
-                Err(err) => {
-                    self.error = Some(AnalysisError::ParseFailed(format!(
-                        "Failed to read selected file: {}",
-                        err
-                    )));
-                }
-            }
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "uploaded.pdf".to_string());
+            self.handle_file_path_drop(name, path);
         }
     }
 
@@ -648,27 +756,28 @@ impl eframe::App for SisApp {
             if let Some(bytes) = file.bytes {
                 self.handle_file_drop(name, &bytes);
             } else if let Some(path) = &file.path {
-                // Native: read from filesystem
-                if let Ok(bytes) = std::fs::read(path) {
-                    let path_name = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| name.clone());
-                    self.handle_file_drop(path_name, &bytes);
-                }
+                let path_name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| name.clone());
+                self.handle_file_path_drop(path_name, path.clone());
             }
         }
 
-        // Process queued analysis (deferred by one frame so spinner can render)
-        if let AppState::Analysing { .. } = &self.app_state {
-            let state = std::mem::replace(&mut self.app_state, AppState::Idle);
-            if let AppState::Analysing { file_name, bytes } = state {
-                self.process_analysis(file_name, &bytes);
+        let progress_state = match &self.app_state {
+            AppState::Idle => None,
+            AppState::LoadingPath { file_name, .. } => {
+                Some(("Loading PDF".to_string(), file_name.clone()))
             }
-        }
+            AppState::Analysing { file_name, .. } => {
+                Some(("Processing PDF".to_string(), file_name.clone()))
+            }
+        };
 
         // Handle keyboard shortcuts (after file drops, before panel rendering)
-        crate::shortcuts::handle_shortcuts(ctx, self);
+        if matches!(self.app_state, AppState::Idle) {
+            crate::shortcuts::handle_shortcuts(ctx, self);
+        }
 
         // Apply theme
         ctx.set_visuals(if self.dark_mode {
@@ -678,10 +787,17 @@ impl eframe::App for SisApp {
         });
 
         if self.result.is_some() {
-            // Top bar: File menu + tabs + theme toggle
-            egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
-                crate::panels::summary::show_top_bar(ui, self);
+            // Menu bar: File menu + cog + theme toggle
+            egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+                crate::panels::summary::show_menu_bar(ui, self);
             });
+
+            // Tab strip (only when multiple tabs are open)
+            if self.tab_count > 1 {
+                egui::TopBottomPanel::top("tab_strip").show(ctx, |ui| {
+                    crate::panels::summary::show_tab_strip(ui, self);
+                });
+            }
 
             // Workspace bar: file summary
             egui::TopBottomPanel::top("workspace_bar").show(ctx, |ui| {
@@ -732,11 +848,9 @@ impl eframe::App for SisApp {
                     win = win.default_size([400.0, 500.0]);
                 }
                 win.show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        let ws =
-                            self.window_max.entry("Metadata".to_string()).or_default();
-                        crate::window_state::maximise_button(ui, ws);
-                    });
+                    let ws =
+                        self.window_max.entry("Metadata".to_string()).or_default();
+                    crate::window_state::dialog_top_bar(ui, ws);
                     crate::panels::metadata::show(ui, self);
                 });
                 self.show_metadata = open;
@@ -763,5 +877,107 @@ impl eframe::App for SisApp {
                 crate::panels::drop_zone::show(ui, self);
             });
         }
+
+        if let Some((phase, file_name)) = progress_state {
+            show_analysis_progress_overlay(ctx, &phase, &file_name);
+            ctx.request_repaint();
+
+            let process_now = match &mut self.app_state {
+                AppState::LoadingPath { shown_once, .. } => {
+                    if *shown_once {
+                        true
+                    } else {
+                        *shown_once = true;
+                        false
+                    }
+                }
+                AppState::Analysing { shown_once, .. } => {
+                    if *shown_once {
+                        true
+                    } else {
+                        *shown_once = true;
+                        false
+                    }
+                }
+                AppState::Idle => false,
+            };
+
+            if !process_now {
+                return;
+            }
+
+            let state = std::mem::replace(&mut self.app_state, AppState::Idle);
+            match state {
+                AppState::LoadingPath { file_name, path, .. } => {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    match std::fs::read(&path) {
+                        Ok(bytes) => {
+                            self.app_state = AppState::Analysing {
+                                file_name,
+                                bytes,
+                                shown_once: false,
+                            };
+                        }
+                        Err(err) => {
+                            self.error = Some(AnalysisError::ParseFailed(format!(
+                                "Failed to read selected file: {}",
+                                err
+                            )));
+                        }
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let _ = path;
+                        self.error = Some(AnalysisError::ParseFailed(format!(
+                            "Loading from path is not supported in browser mode for {}",
+                            file_name
+                        )));
+                    }
+                }
+                AppState::Analysing { file_name, bytes, .. } => {
+                    self.process_analysis(file_name, &bytes);
+                }
+                AppState::Idle => {}
+            }
+        }
     }
+}
+
+fn show_analysis_progress_overlay(ctx: &egui::Context, phase: &str, file_name: &str) {
+    let screen_rect = ctx.content_rect();
+    let dimmer =
+        egui::Color32::from_rgba_premultiplied(0, 0, 0, if phase == "Loading PDF" { 170 } else { 190 });
+    ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("analysis_dimmer")))
+        .rect_filled(screen_rect, 0.0, dimmer);
+
+    egui::Area::new("analysis_progress_modal_blocker".into())
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen_rect.min)
+        .show(ctx, |ui| {
+            ui.allocate_rect(
+                egui::Rect::from_min_size(egui::Pos2::ZERO, screen_rect.size()),
+                egui::Sense::click_and_drag(),
+            );
+        });
+
+    let overlay_size = egui::vec2(380.0, 140.0);
+    let position = screen_rect.center() - overlay_size * 0.5;
+
+    egui::Area::new("analysis_progress_overlay".into())
+        .order(egui::Order::Foreground)
+        .fixed_pos(position)
+        .show(ctx, |ui| {
+            egui::Frame::window(ui.style()).show(ui, |ui| {
+                ui.set_min_size(overlay_size);
+                ui.vertical_centered(|ui| {
+                    ui.add_space(10.0);
+                    ui.heading(phase);
+                    ui.label(file_name);
+                    ui.add_space(8.0);
+                    ui.add(egui::ProgressBar::new(0.0).animate(true).show_percentage());
+                    ui.add_space(6.0);
+                    ui.spinner();
+                });
+            });
+        });
 }
