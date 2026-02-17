@@ -17,6 +17,7 @@ pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> 
     composites.extend(correlate_font_structure_with_provenance_evasion(findings));
     composites.extend(correlate_image_structure_with_hidden_path(findings));
     composites.extend(correlate_resource_external_with_trigger_surface(findings));
+    composites.extend(correlate_decode_amplification_chain(findings));
     composites
 }
 
@@ -389,6 +390,76 @@ fn correlate_resource_external_with_trigger_surface(findings: &[Finding]) -> Vec
             ("composite.trigger_signal_count", Some(triggers.len().to_string())),
         ],
     }));
+    composites
+}
+
+fn correlate_decode_amplification_chain(findings: &[Finding]) -> Vec<Finding> {
+    let mut composites = Vec::new();
+    let decode_pressure = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "image.decode_too_large"
+                    | "image.pixel_buffer_overflow"
+                    | "image.metadata_oversized"
+                    | "font_payload_present"
+                    | "icc_profile_oversized"
+            )
+        })
+        .collect::<Vec<_>>();
+    let provenance = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "image.provenance_incremental_override"
+                    | "font.provenance_incremental_override"
+                    | "resource.provenance_xref_conflict"
+                    | "resource.override_outside_signature_scope"
+            )
+        })
+        .collect::<Vec<_>>();
+
+    if decode_pressure.len() >= 2 {
+        composites.push(build_composite(CompositeConfig {
+            kind: "composite.decode_amplification_chain",
+            title: "Decode amplification chain indicators",
+            description:
+                "Multiple decode-pressure signals co-occur across image/font/metadata structures.",
+            surface: AttackSurface::StreamsAndFilters,
+            severity: Severity::High,
+            confidence: Confidence::Strong,
+            sources: &decode_pressure,
+            extra_meta: vec![(
+                "composite.decode_pressure_count",
+                Some(decode_pressure.len().to_string()),
+            )],
+        }));
+    }
+
+    if !decode_pressure.is_empty() && !provenance.is_empty() {
+        let mut sources = Vec::new();
+        sources.extend(decode_pressure.iter().copied());
+        sources.extend(provenance.iter().copied());
+        composites.push(build_composite(CompositeConfig {
+            kind: "composite.resource_overrides_with_decoder_pressure",
+            title: "Resource override with decoder pressure",
+            description:
+                "Resource provenance override signals co-occur with decode pressure indicators.",
+            surface: AttackSurface::FileStructure,
+            severity: Severity::High,
+            confidence: Confidence::Probable,
+            sources: &sources,
+            extra_meta: vec![
+                (
+                    "composite.decode_pressure_count",
+                    Some(decode_pressure.len().to_string()),
+                ),
+                ("composite.provenance_count", Some(provenance.len().to_string())),
+            ],
+        }));
+    }
     composites
 }
 

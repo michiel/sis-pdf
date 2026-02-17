@@ -198,6 +198,35 @@ fn correlate_resource_external_with_trigger_surface() {
 }
 
 #[test]
+fn correlate_decode_amplification_chain() {
+    let a = make_finding(
+        "image.decode_too_large",
+        &["70 0 obj"],
+        &[("image.decode_too_large", "true")],
+        AttackSurface::Images,
+    );
+    let b = make_finding(
+        "font_payload_present",
+        &["71 0 obj"],
+        &[("font.stream_len", "5000000")],
+        AttackSurface::StreamsAndFilters,
+    );
+    let c = make_finding(
+        "resource.provenance_xref_conflict",
+        &["71 0 obj"],
+        &[("resource.object_shadowed_revisions", "2")],
+        AttackSurface::FileStructure,
+    );
+    let composites = correlation::correlate_findings(&[a, b, c], &CorrelationOptions::default());
+    assert!(composites.iter().any(|f| f.kind == "composite.decode_amplification_chain"));
+    assert!(
+        composites
+            .iter()
+            .any(|f| f.kind == "composite.resource_overrides_with_decoder_pressure")
+    );
+}
+
+#[test]
 fn correlation_launch_obfuscated_integration() {
     let detectors = default_detectors();
     let report = run_scan_with_detectors(

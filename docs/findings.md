@@ -3246,6 +3246,186 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Description: High-risk external resource references coincide with automatic trigger surfaces.
 - Tags: composite, network, actions
 
+## composite.decode_amplification_chain
+
+- ID: `composite.decode_amplification_chain`
+- Label: Decode amplification chain
+- Severity: High
+- Confidence: Strong
+- Description: Multiple decode-pressure signals co-occur across image/font/metadata structures.
+- Tags: composite, decode, resource-exhaustion
+
+## composite.resource_overrides_with_decoder_pressure
+
+- ID: `composite.resource_overrides_with_decoder_pressure`
+- Label: Resource overrides with decoder pressure
+- Severity: High
+- Confidence: Probable
+- Description: Resource provenance override signals co-occur with decode-pressure indicators.
+- Tags: composite, provenance, decode
+
+## resource.declared_but_unused
+
+- ID: `resource.declared_but_unused`
+- Label: Declared resources unused
+- Severity: Low
+- Confidence: Probable
+- Description: Page resources declare fonts/XObjects not referenced by content operators.
+- Tags: resource, structure, evasion
+
+## resource.hidden_invocation_pattern
+
+- ID: `resource.hidden_invocation_pattern`
+- Label: Hidden invocation pattern
+- Severity: Medium
+- Confidence: Probable
+- Description: XObject invocations occur inside clipping context patterns consistent with concealed rendering.
+- Tags: resource, render, evasion
+
+## resource.operator_usage_anomalous
+
+- ID: `resource.operator_usage_anomalous`
+- Label: Anomalous operator usage
+- Severity: Medium
+- Confidence: Tentative
+- Description: Resource invocation operator volume is unusually high.
+- Tags: resource, parser-stress, evasion
+
+## resource.inheritance_conflict_font
+
+- ID: `resource.inheritance_conflict_font`
+- Label: Font inheritance conflict
+- Severity: Medium
+- Confidence: Strong
+- Description: Page-local font resources conflict with inherited page-tree resources.
+- Tags: resource, inheritance, font
+
+## resource.inheritance_conflict_xobject
+
+- ID: `resource.inheritance_conflict_xobject`
+- Label: XObject inheritance conflict
+- Severity: Medium
+- Confidence: Strong
+- Description: Page-local XObject resources conflict with inherited page-tree resources.
+- Tags: resource, inheritance, image
+
+## resource.inheritance_override_suspicious
+
+- ID: `resource.inheritance_override_suspicious`
+- Label: Suspicious inheritance override
+- Severity: Medium
+- Confidence: Probable
+- Description: Resource inheritance overrides are conflicting and potentially parser-differential.
+- Tags: resource, inheritance, differential
+
+## resource.override_outside_signature_scope
+
+- ID: `resource.override_outside_signature_scope`
+- Label: Resource override outside signature scope
+- Severity: High
+- Confidence: Strong
+- Description: Object override appears after signature coverage boundary.
+- Tags: signature, provenance, resource
+
+## image.override_outside_signature_scope
+
+- ID: `image.override_outside_signature_scope`
+- Label: Image override outside signature scope
+- Severity: High
+- Confidence: Strong
+- Description: Image resource override appears after signature coverage boundary.
+- Tags: signature, image, provenance
+
+## font.override_outside_signature_scope
+
+- ID: `font.override_outside_signature_scope`
+- Label: Font override outside signature scope
+- Severity: High
+- Confidence: Strong
+- Description: Font resource override appears after signature coverage boundary.
+- Tags: signature, font, provenance
+
+## image.inline_structure_filter_chain_inconsistent
+
+- ID: `image.inline_structure_filter_chain_inconsistent`
+- Label: Inline image filter chain inconsistent
+- Severity: Medium
+- Confidence: Strong
+- Description: Inline image filter and decode parms declarations are inconsistent.
+- Tags: image, inline, malformed
+
+## image.inline_decode_array_invalid
+
+- ID: `image.inline_decode_array_invalid`
+- Label: Inline image decode array invalid
+- Severity: Low
+- Confidence: Strong
+- Description: Inline image `/Decode` entry has invalid non-paired value count.
+- Tags: image, inline, malformed
+
+## image.inline_mask_inconsistent
+
+- ID: `image.inline_mask_inconsistent`
+- Label: Inline image mask inconsistent
+- Severity: Medium
+- Confidence: Probable
+- Description: Inline image mask semantics are contradictory.
+- Tags: image, inline, mask
+
+## font.type3_charproc_complexity_high
+
+- ID: `font.type3_charproc_complexity_high`
+- Label: Type 3 charproc complexity high
+- Severity: Medium
+- Confidence: Probable
+- Description: Type 3 glyph programs have unusually high complexity.
+- Tags: font, type3, complexity
+
+## font.type3_charproc_resource_abuse
+
+- ID: `font.type3_charproc_resource_abuse`
+- Label: Type 3 charproc resource abuse
+- Severity: High
+- Confidence: Probable
+- Description: Type 3 glyph programs invoke resource/state operators in suspicious ways.
+- Tags: font, type3, resource
+
+## font.type3_charproc_recursion_like_pattern
+
+- ID: `font.type3_charproc_recursion_like_pattern`
+- Label: Type 3 recursion-like pattern
+- Severity: Medium
+- Confidence: Tentative
+- Description: Type 3 glyph programs show deep/unbalanced graphics state nesting.
+- Tags: font, type3, recursion
+
+## font.cmap_range_overlap
+
+- ID: `font.cmap_range_overlap`
+- Label: CMap range overlap
+- Severity: Medium
+- Confidence: Strong
+- Description: ToUnicode CMap contains overlapping ranges.
+- Tags: font, cmap, malformed
+
+## font.cmap_cardinality_anomalous
+
+- ID: `font.cmap_cardinality_anomalous`
+- Label: CMap cardinality anomalous
+- Severity: Medium
+- Confidence: Probable
+- Description: ToUnicode CMap range count is unusually large.
+- Tags: font, cmap, evasion
+
+## font.cmap_subtype_inconsistent
+
+- ID: `font.cmap_subtype_inconsistent`
+- Label: CMap subtype inconsistent
+- Severity: Medium
+- Confidence: Strong
+- Description: Font subtype and ToUnicode CMap style are inconsistent.
+- Tags: font, cmap, structure
+
 ## polyglot_signature_conflict
 
 - ID: `polyglot_signature_conflict`

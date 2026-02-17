@@ -56,6 +56,7 @@ pub mod passive_render_pipeline;
 pub mod polyglot;
 pub mod quantum_risk;
 pub mod renderer_divergence;
+pub mod resource_usage_semantics;
 pub mod revision_forensics;
 pub mod rich_media_analysis;
 pub mod shadow_attacks;
@@ -119,6 +120,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(SubmitFormDetector),
         Box::new(external_context::ExternalActionContextDetector),
         Box::new(passive_render_pipeline::PassiveRenderPipelineDetector),
+        Box::new(resource_usage_semantics::ResourceUsageSemanticsDetector),
         Box::new(FontMatrixDetector),
         Box::new(PdfjsFontInjectionDetector),
         Box::new(FontJsExploitationBridgeDetector { enable_ast: settings.js_ast }),
