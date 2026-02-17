@@ -177,6 +177,27 @@ fn correlate_image_decoder_exploit_chain() {
 }
 
 #[test]
+fn correlate_resource_external_with_trigger_surface() {
+    let external = make_finding(
+        "resource.external_reference_high_risk_scheme",
+        &["60 0 obj"],
+        &[("resource.high_risk_scheme_count", "1")],
+        AttackSurface::Actions,
+    );
+    let trigger = make_finding(
+        "action_automatic_trigger",
+        &["60 0 obj"],
+        &[("action.trigger", "OpenAction")],
+        AttackSurface::Actions,
+    );
+    let composites =
+        correlation::correlate_findings(&[external, trigger], &CorrelationOptions::default());
+    assert!(composites
+        .iter()
+        .any(|f| f.kind == "composite.resource_external_with_trigger_surface"));
+}
+
+#[test]
 fn correlation_launch_obfuscated_integration() {
     let detectors = default_detectors();
     let report = run_scan_with_detectors(

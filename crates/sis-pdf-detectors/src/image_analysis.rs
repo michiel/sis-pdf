@@ -555,3 +555,37 @@ fn image_finding_impact(kind: &str) -> Option<Impact> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{image_finding_impact, image_finding_summary};
+    use sis_pdf_core::model::{Confidence, Impact, Severity};
+    use std::collections::HashMap;
+
+    #[test]
+    fn structural_image_mappings_have_expected_calibration() {
+        let meta = HashMap::new();
+        let (severity, confidence, _, _, _) =
+            image_finding_summary("image.structure_filter_chain_inconsistent", &meta);
+        assert_eq!(severity, Severity::Medium);
+        assert_eq!(confidence, Confidence::Strong);
+        assert_eq!(
+            image_finding_impact("image.structure_filter_chain_inconsistent"),
+            Some(Impact::Medium)
+        );
+        assert_eq!(image_finding_impact("image.structure_geometry_improbable"), Some(Impact::Low));
+    }
+
+    #[test]
+    fn provenance_image_mapping_is_medium_strong() {
+        let meta = HashMap::new();
+        let (severity, confidence, _, _, _) =
+            image_finding_summary("image.provenance_incremental_override", &meta);
+        assert_eq!(severity, Severity::Medium);
+        assert_eq!(confidence, Confidence::Strong);
+        assert_eq!(
+            image_finding_impact("image.provenance_incremental_override"),
+            Some(Impact::Medium)
+        );
+    }
+}
