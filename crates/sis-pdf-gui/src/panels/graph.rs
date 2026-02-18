@@ -11,7 +11,6 @@ pub enum GraphViewMode {
 }
 
 /// Persistent state for the graph viewer panel.
-#[derive(Default)]
 pub struct GraphViewerState {
     /// The current graph data (None until a file is loaded and graph is built).
     pub graph: Option<GraphData>,
@@ -55,6 +54,33 @@ pub struct GraphViewerState {
 
 const WORLD_CENTRE_X: f64 = 400.0;
 const WORLD_CENTRE_Y: f64 = 300.0;
+const GRAPH_TOOLTIP_WIDTH: f32 = 400.0;
+
+impl Default for GraphViewerState {
+    fn default() -> Self {
+        Self {
+            graph: None,
+            layout: None,
+            pan: [0.0, 0.0],
+            zoom: 1.0,
+            hovered_node: None,
+            selected_node: None,
+            type_filter: Vec::new(),
+            mode: GraphViewMode::Structure,
+            chain_filter: false,
+            chain_overlay: false,
+            event_node_kind_filter: None,
+            event_trigger_filter: None,
+            depth_limit: 0,
+            min_edge_length: 0.0,
+            show_labels: true,
+            error: None,
+            built: false,
+            layout_start_time: 0.0,
+            pending_focus: None,
+        }
+    }
+}
 
 /// Node type colour mapping.
 fn node_colour(obj_type: &str) -> egui::Color32 {
@@ -114,9 +140,6 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Show toolbar
     show_toolbar(ui, app);
-    if app.graph_state.mode == GraphViewMode::Event {
-        show_event_legend(ui);
-    }
     ui.separator();
 
     // Run incremental layout if still active
@@ -390,6 +413,7 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         )
         .at_pointer()
         .show(|ui| {
+            ui.set_min_width(GRAPH_TOOLTIP_WIDTH);
             ui.strong(label);
             ui.label(format!("Type: {}", obj_type));
             if !roles.is_empty() {
@@ -407,6 +431,7 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
             )
             .at_pointer()
             .show(|ui| {
+                ui.set_min_width(GRAPH_TOOLTIP_WIDTH);
                 ui.strong(edge_kind);
                 if let Some(provenance) = provenance {
                     ui.label(format!("Provenance: {provenance}"));
@@ -597,17 +622,6 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
             app.graph_state.zoom = 1.0;
             rebuild_graph(app);
         }
-    });
-}
-
-fn show_event_legend(ui: &mut egui::Ui) {
-    ui.horizontal_wrapped(|ui| {
-        ui.label("Legend:");
-        ui.colored_label(egui::Color32::from_rgb(245, 170, 66), "Event node");
-        ui.colored_label(egui::Color32::from_rgb(220, 80, 80), "Outcome node");
-        ui.colored_label(egui::Color32::from_rgb(120, 120, 120), "Collapsed structure");
-        ui.label("Purple edge: chain overlay path");
-        ui.label("Red edge: execution/outcome");
     });
 }
 

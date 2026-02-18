@@ -353,24 +353,26 @@ fn show_dict_entries(ui: &mut egui::Ui, app: &mut SisApp, entries: &[(String, St
     }
 
     ui.separator();
-    ui.collapsing(format!("Dictionary ({} entries)", entries.len()), |ui| {
-        egui::Grid::new("obj_dict_grid").num_columns(2).spacing([8.0, 2.0]).striped(true).show(
-            ui,
-            |ui| {
-                for (key, val) in entries {
-                    ui.monospace(key);
-                    if let Some(ref_id) = parse_obj_ref(val) {
-                        if ui.link(val).clicked() {
-                            app.navigate_to_object(ref_id.0, ref_id.1);
+    egui::CollapsingHeader::new(format!("Dictionary ({} entries)", entries.len()))
+        .default_open(true)
+        .show(ui, |ui| {
+            egui::Grid::new("obj_dict_grid").num_columns(2).spacing([8.0, 2.0]).striped(true).show(
+                ui,
+                |ui| {
+                    for (key, val) in entries {
+                        ui.monospace(key);
+                        if let Some(ref_id) = parse_obj_ref(val) {
+                            if ui.link(val).clicked() {
+                                app.navigate_to_object(ref_id.0, ref_id.1);
+                            }
+                        } else {
+                            ui.label(val);
                         }
-                    } else {
-                        ui.label(val);
+                        ui.end_row();
                     }
-                    ui.end_row();
-                }
-            },
-        );
-    });
+                },
+            );
+        });
 }
 
 fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool) {
@@ -489,30 +491,34 @@ fn show_references(
 ) {
     if !references_from.is_empty() {
         ui.separator();
-        ui.collapsing(format!("References from ({} objects)", references_from.len()), |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for (r_obj, r_gen) in references_from {
-                    let label = format!("{} {} R", r_obj, r_gen);
-                    if ui.link(&label).clicked() {
-                        app.navigate_to_object(*r_obj, *r_gen);
+        egui::CollapsingHeader::new(format!("References from ({} objects)", references_from.len()))
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (r_obj, r_gen) in references_from {
+                        let label = format!("{} {} R", r_obj, r_gen);
+                        if ui.link(&label).clicked() {
+                            app.navigate_to_object(*r_obj, *r_gen);
+                        }
                     }
-                }
+                });
             });
-        });
     }
 
     if !references_to.is_empty() {
         ui.separator();
-        ui.collapsing(format!("Referenced by ({} objects)", references_to.len()), |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for (r_obj, r_gen) in references_to {
-                    let label = format!("{} {} R", r_obj, r_gen);
-                    if ui.link(&label).clicked() {
-                        app.navigate_to_object(*r_obj, *r_gen);
+        egui::CollapsingHeader::new(format!("Referenced by ({} objects)", references_to.len()))
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (r_obj, r_gen) in references_to {
+                        let label = format!("{} {} R", r_obj, r_gen);
+                        if ui.link(&label).clicked() {
+                            app.navigate_to_object(*r_obj, *r_gen);
+                        }
                     }
-                }
+                });
             });
-        });
     }
 }
 
