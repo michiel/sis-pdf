@@ -78,6 +78,8 @@ pub struct SisApp {
     pub graph_state: crate::panels::graph::GraphViewerState,
     /// Currently selected chain index (for graph highlighting).
     pub selected_chain: Option<usize>,
+    /// Whether chain views should include single-item chains.
+    pub include_singleton_chains: bool,
 
     // --- Multi-tab state ---
     /// Inactive workspaces (all tabs except the active one).
@@ -252,6 +254,7 @@ impl SisApp {
             show_graph: false,
             graph_state: crate::panels::graph::GraphViewerState::default(),
             selected_chain: None,
+            include_singleton_chains: false,
             inactive_workspaces: Vec::new(),
             active_tab: 0,
             tab_count: 0,
@@ -337,6 +340,7 @@ impl SisApp {
         self.show_graph = false;
         self.graph_state = crate::panels::graph::GraphViewerState::default();
         self.selected_chain = None;
+        self.include_singleton_chains = false;
         self.severity_filters = SeverityFilters::default();
         self.sort = SortState::default();
         self.findings_search.clear();
@@ -493,6 +497,7 @@ impl SisApp {
                 show_graph: self.show_graph,
                 graph_state: std::mem::take(&mut self.graph_state),
                 selected_chain: self.selected_chain.take(),
+                include_singleton_chains: self.include_singleton_chains,
             };
             self.inactive_workspaces.push(ws);
         }
@@ -536,6 +541,7 @@ impl SisApp {
         self.show_graph = ws.show_graph;
         self.graph_state = ws.graph_state;
         self.selected_chain = ws.selected_chain;
+        self.include_singleton_chains = ws.include_singleton_chains;
     }
 
     /// Switch to a different tab by index.

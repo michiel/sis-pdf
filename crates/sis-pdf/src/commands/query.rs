@@ -6,7 +6,7 @@ use globset::Glob;
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{self, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -266,12 +266,17 @@ pub enum Query {
     Chains,
     ChainsCount,
     ChainsJs,
+    ChainsAll,
+    ChainsAllCount,
+    ChainsJsAll,
     Cycles,
     CyclesPage,
 
     // Export queries
     ExportOrgDot,
     ExportOrgJson,
+    ExportStructureDot,
+    ExportStructureJson,
     ExportEventDot,
     ExportEventJson,
     ExportEventDotHops(usize),
@@ -550,6 +555,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "launch.embedded.count" => Ok(Query::FindingsByKindCount("launch_embedded_file".into())),
         "actions.chains" => Ok(Query::Chains),
         "actions.chains.count" => Ok(Query::ChainsCount),
+        "actions.chains.all" => Ok(Query::ChainsAll),
+        "actions.chains.all.count" => Ok(Query::ChainsAllCount),
+        "actions.chains.js.all" => Ok(Query::ChainsJsAll),
         "actions.chains.complex" => Ok(Query::FindingsByKind("action_chain_complex".into())),
         "actions.chains.complex.count" => {
             Ok(Query::FindingsByKindCount("action_chain_complex".into()))
@@ -614,7 +622,10 @@ pub fn parse_query(input: &str) -> Result<Query> {
 
         // Advanced
         "chains" => Ok(Query::Chains),
+        "chains.all" => Ok(Query::ChainsAll),
+        "chains.all.count" => Ok(Query::ChainsAllCount),
         "chains.js" => Ok(Query::ChainsJs),
+        "chains.js.all" => Ok(Query::ChainsJsAll),
         "cycles" => Ok(Query::Cycles),
         "cycles.page" => Ok(Query::CyclesPage),
 
@@ -625,6 +636,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "graph.org" => Ok(Query::ExportOrgDot),
         "graph.org.dot" => Ok(Query::ExportOrgDot),
         "graph.org.json" => Ok(Query::ExportOrgJson),
+        "graph.structure" => Ok(Query::ExportStructureDot),
+        "graph.structure.dot" => Ok(Query::ExportStructureDot),
+        "graph.structure.json" => Ok(Query::ExportStructureJson),
         "graph.event" => Ok(Query::ExportEventDot),
         "graph.event.dot" => Ok(Query::ExportEventDot),
         "graph.event.json" => Ok(Query::ExportEventJson),
@@ -1273,6 +1287,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
     let resolved = match format {
         OutputFormat::Json | OutputFormat::Jsonl | OutputFormat::Yaml => match query {
             Query::ExportOrgDot => Query::ExportOrgJson,
+            Query::ExportStructureDot => Query::ExportStructureJson,
             Query::ExportEventDot => Query::ExportEventJson,
             Query::ExportEventDotHops(hops) => Query::ExportEventJsonHops(hops),
             Query::ExportIrText => Query::ExportIrJson,
@@ -1281,13 +1296,14 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         },
         OutputFormat::Dot => match query {
             Query::ExportOrgJson | Query::ExportOrgDot => Query::ExportOrgDot,
+            Query::ExportStructureJson | Query::ExportStructureDot => Query::ExportStructureDot,
             Query::ExportEventJson | Query::ExportEventDot => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) | Query::ExportEventDotHops(hops) => {
                 Query::ExportEventDotHops(hops)
             }
             _ => {
                 return Err(anyhow!(
-                    "--format dot is only supported for graph.org and graph.event queries"
+                    "--format dot is only supported for graph.org, graph.structure, and graph.event queries"
                 ))
             }
         },
@@ -1297,6 +1313,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         },
         OutputFormat::Text | OutputFormat::Readable => match query {
             Query::ExportOrgJson => Query::ExportOrgDot,
+            Query::ExportStructureJson => Query::ExportStructureDot,
             Query::ExportEventJson => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) => Query::ExportEventDotHops(hops),
             Query::ExportIrJson => Query::ExportIrText,
@@ -1370,7 +1387,7 @@ pub fn apply_chain_summary(
     if !matches!(output_format, OutputFormat::Text | OutputFormat::Readable) {
         return result;
     }
-    if !matches!(query, Query::Chains | Query::ChainsJs) {
+    if !matches!(query, Query::Chains | Query::ChainsJs | Query::ChainsAll | Query::ChainsJsAll) {
         return result;
     }
 
@@ -2186,16 +2203,29 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::Scalar(ScalarValue::Number(revisions.len() as i64)))
             }
             Query::Chains => {
-                let chains = list_action_chains(ctx, predicate)?;
+                let chains = list_action_chains(ctx, predicate, false)?;
                 Ok(QueryResult::Structure(chains))
             }
             Query::ChainsCount => {
-                let chains = list_action_chains(ctx, predicate)?;
+                let chains = list_action_chains(ctx, predicate, false)?;
                 let count = chains.get("count").and_then(|value| value.as_u64()).unwrap_or(0);
                 Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
             }
             Query::ChainsJs => {
-                let chains = list_js_chains(ctx, predicate)?;
+                let chains = list_js_chains(ctx, predicate, false)?;
+                Ok(QueryResult::Structure(chains))
+            }
+            Query::ChainsAll => {
+                let chains = list_action_chains(ctx, predicate, true)?;
+                Ok(QueryResult::Structure(chains))
+            }
+            Query::ChainsAllCount => {
+                let chains = list_action_chains(ctx, predicate, true)?;
+                let count = chains.get("count").and_then(|value| value.as_u64()).unwrap_or(0);
+                Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
+            }
+            Query::ChainsJsAll => {
+                let chains = list_js_chains(ctx, predicate, true)?;
                 Ok(QueryResult::Structure(chains))
             }
             Query::Cycles => {
@@ -2253,6 +2283,30 @@ pub fn execute_query_with_context(
                     &typed_graph,
                 );
                 let json_output = sis_pdf_core::org_export::export_org_json(&org_graph);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportStructureDot => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let dot_output = export_structure_dot(&org_graph, &typed_graph);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportStructureJson => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let json_output = export_structure_json(&org_graph, &typed_graph);
                 Ok(QueryResult::Structure(json_output))
             }
             Query::ExportEventDot => {
@@ -4170,6 +4224,11 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::Chains
         | Query::ChainsCount
         | Query::ChainsJs
+        | Query::ChainsAll
+        | Query::ChainsAllCount
+        | Query::ChainsJsAll
+        | Query::ExportStructureDot
+        | Query::ExportStructureJson
         | Query::ExportEventDot
         | Query::ExportEventJson
         | Query::ExportEventDotHops(_)
@@ -6811,21 +6870,119 @@ fn trailer_ref_value(trailer: &sis_pdf_pdf::object::PdfDict<'_>, key: &[u8]) -> 
     })
 }
 
+fn export_structure_json(
+    org_graph: &sis_pdf_core::org::OrgGraph,
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+) -> serde_json::Value {
+    let org = sis_pdf_core::org_export::export_org_json(org_graph);
+    let typed_edge_stats = typed_edge_type_stats(typed_graph);
+    let path_summary = action_path_summary(typed_graph);
+    json!({
+        "type": "structure_graph",
+        "org": org,
+        "typed_edges": typed_edge_stats,
+        "action_paths": path_summary,
+    })
+}
+
+fn export_structure_dot(
+    org_graph: &sis_pdf_core::org::OrgGraph,
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+) -> String {
+    let mut dot = sis_pdf_core::org_export::export_org_dot(org_graph);
+    let typed_edge_stats = typed_edge_type_stats(typed_graph);
+    let path_summary = action_path_summary(typed_graph);
+    let edge_type_count = typed_edge_stats
+        .get("by_type")
+        .and_then(|v| v.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
+    let multi_step = path_summary.get("multi_step_chains").and_then(|v| v.as_u64()).unwrap_or(0);
+    let max_len = path_summary.get("max_chain_length").and_then(|v| v.as_u64()).unwrap_or(0);
+    let overlay = format!(
+        "  // structure overlay: {} typed edge types, multi-step chains={}, max_chain_length={}\n",
+        edge_type_count, multi_step, max_len
+    );
+    if let Some(index) = dot.rfind('}') {
+        dot.insert_str(index, &overlay);
+    } else {
+        dot.push_str(&overlay);
+    }
+    dot
+}
+
+fn typed_edge_type_stats(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+) -> serde_json::Value {
+    let mut stats = BTreeMap::<String, (usize, usize, usize)>::new();
+    for edge in &typed_graph.edges {
+        let key = edge.edge_type.as_str().to_string();
+        let entry = stats.entry(key).or_insert((0, 0, 0));
+        entry.0 += 1;
+        if edge.suspicious {
+            entry.1 += 1;
+        }
+        if edge.edge_type.is_executable() {
+            entry.2 += 1;
+        }
+    }
+    let by_type = stats
+        .into_iter()
+        .map(|(edge_type, (count, suspicious, executable))| {
+            json!({
+                "edge_type": edge_type,
+                "count": count,
+                "suspicious": suspicious,
+                "executable": executable,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "total_edges": typed_graph.edges.len(),
+        "suspicious_edges": typed_graph.suspicious_edges().len(),
+        "by_type": by_type,
+    })
+}
+
+fn action_path_summary(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+) -> serde_json::Value {
+    let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(typed_graph);
+    let chains = path_finder.find_all_action_chains();
+    let multi_step = chains.iter().filter(|chain| chain.length() > 1).count();
+    let automatic = chains.iter().filter(|chain| chain.automatic).count();
+    let js = chains.iter().filter(|chain| chain.involves_js).count();
+    let external = chains.iter().filter(|chain| chain.involves_external).count();
+    let max_chain_length = chains.iter().map(|chain| chain.length()).max().unwrap_or(0);
+    json!({
+        "total_chains": chains.len(),
+        "multi_step_chains": multi_step,
+        "automatic_chains": automatic,
+        "js_chains": js,
+        "external_chains": external,
+        "max_chain_length": max_chain_length,
+    })
+}
+
 /// List all action chains
 fn list_action_chains(
     ctx: &ScanContext,
     predicate: Option<&PredicateExpr>,
+    include_singleton_chains: bool,
 ) -> Result<serde_json::Value> {
     let classifications = ctx.classifications();
     let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
     let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(&typed_graph);
 
     let chains = path_finder.find_all_action_chains();
-    let total_chains = chains.iter().filter(|chain| is_default_visible_chain(chain)).count();
+    let total_chains = chains
+        .iter()
+        .filter(|chain| is_default_visible_chain(chain, include_singleton_chains))
+        .count();
     let filtered: Vec<_> = chains
         .iter()
         .enumerate()
-        .filter(|(_, chain)| is_default_visible_chain(chain))
+        .filter(|(_, chain)| is_default_visible_chain(chain, include_singleton_chains))
         .filter(|(_, chain)| chain_matches_predicate(chain, predicate))
         .collect();
 
@@ -6841,17 +6998,21 @@ fn list_action_chains(
 fn list_js_chains(
     ctx: &ScanContext,
     predicate: Option<&PredicateExpr>,
+    include_singleton_chains: bool,
 ) -> Result<serde_json::Value> {
     let classifications = ctx.classifications();
     let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
     let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(&typed_graph);
 
     let chains = path_finder.find_all_action_chains();
-    let total_chains = chains.iter().filter(|chain| is_default_visible_chain(chain)).count();
+    let total_chains = chains
+        .iter()
+        .filter(|chain| is_default_visible_chain(chain, include_singleton_chains))
+        .count();
     let filtered: Vec<_> = chains
         .iter()
         .enumerate()
-        .filter(|(_, chain)| is_default_visible_chain(chain))
+        .filter(|(_, chain)| is_default_visible_chain(chain, include_singleton_chains))
         .filter(|(_, chain)| chain_matches_predicate(chain, predicate))
         .filter(|(_, chain)| chain.involves_js)
         .collect();
@@ -7271,8 +7432,11 @@ fn chain_matches_predicate(
     predicate.map(|pred| pred.evaluate(&predicate_context_for_chain(chain))).unwrap_or(true)
 }
 
-fn is_default_visible_chain(chain: &sis_pdf_pdf::path_finder::ActionChain<'_>) -> bool {
-    chain.length() > 1
+fn is_default_visible_chain(
+    chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
+    include_singleton_chains: bool,
+) -> bool {
+    include_singleton_chains || chain.length() > 1
 }
 
 fn predicate_context_for_chain(
@@ -7918,11 +8082,11 @@ mod tests {
     #[test]
     fn advanced_query_json_outputs_are_structured() {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
-            let chains = list_action_chains(ctx, None).expect("chains");
+            let chains = list_action_chains(ctx, None, false).expect("chains");
             assert_eq!(chains["type"], json!("chains"));
             assert!(chains["chains"].is_array());
 
-            let js_chains = list_js_chains(ctx, None).expect("js chains");
+            let js_chains = list_js_chains(ctx, None, false).expect("js chains");
             assert_eq!(js_chains["type"], json!("chains.js"));
 
             let cycles = list_cycles(ctx).expect("cycles");
@@ -8061,8 +8225,9 @@ mod tests {
             involves_js: true,
             involves_external: false,
         };
-        assert!(!is_default_visible_chain(&single_edge));
-        assert!(is_default_visible_chain(&multi_edge));
+        assert!(!is_default_visible_chain(&single_edge, false));
+        assert!(is_default_visible_chain(&single_edge, true));
+        assert!(is_default_visible_chain(&multi_edge, false));
     }
 
     #[test]
@@ -8190,6 +8355,9 @@ mod tests {
         let query = apply_output_format(Query::ExportOrgDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportOrgJson));
 
+        let query = apply_output_format(Query::ExportStructureDot, OutputFormat::Json).unwrap();
+        assert!(matches!(query, Query::ExportStructureJson));
+
         let query = apply_output_format(Query::ExportEventDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportEventJson));
 
@@ -8201,6 +8369,9 @@ mod tests {
 
         let query = apply_output_format(Query::ExportOrgJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportOrgDot));
+
+        let query = apply_output_format(Query::ExportStructureJson, OutputFormat::Dot).unwrap();
+        assert!(matches!(query, Query::ExportStructureDot));
 
         let query = apply_output_format(Query::ExportEventJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportEventDot));
@@ -8600,7 +8771,7 @@ mod tests {
         with_fixture_context("action_chain_complex.pdf", |ctx| {
             let query = parse_query("actions.chains.count").expect("query");
             let predicate = parse_predicate("has_js == 'true'").expect("predicate");
-            let expected = list_action_chains(ctx, Some(&predicate)).expect("chains");
+            let expected = list_action_chains(ctx, Some(&predicate), false).expect("chains");
             let expected_count = expected["count"].as_i64().expect("count");
             let result = execute_query_with_context(
                 &query,
@@ -8721,6 +8892,10 @@ mod tests {
         assert!(matches!(query, Query::ExportOrgDot));
         let query = parse_query("org.json").expect("org json query");
         assert!(matches!(query, Query::ExportOrgJson));
+        let query = parse_query("graph.structure").expect("structure query");
+        assert!(matches!(query, Query::ExportStructureDot));
+        let query = parse_query("graph.structure.json").expect("structure json query");
+        assert!(matches!(query, Query::ExportStructureJson));
         let query = parse_query("graph.event").expect("event query");
         assert!(matches!(query, Query::ExportEventDot));
         let query = parse_query("graph.event.json").expect("event json query");
@@ -8729,10 +8904,39 @@ mod tests {
         assert!(matches!(query, Query::ExportEventDot));
         let query = parse_query("graph.event.hops 2").expect("event hops query");
         assert!(matches!(query, Query::ExportEventDotHops(2)));
+        let query = parse_query("chains.all").expect("chains all query");
+        assert!(matches!(query, Query::ChainsAll));
+        let query = parse_query("actions.chains.all.count").expect("chains all count query");
+        assert!(matches!(query, Query::ChainsAllCount));
         let query = parse_query("ir").expect("ir query");
         assert!(matches!(query, Query::ExportIrText));
         let query = parse_query("ir.json").expect("ir json query");
         assert!(matches!(query, Query::ExportIrJson));
+    }
+
+    #[test]
+    fn graph_structure_json_includes_typed_edges_and_action_path_summary() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("graph.structure.json").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("query");
+            match result {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value["type"], json!("structure_graph"));
+                    assert!(value["typed_edges"]["total_edges"].is_number());
+                    assert!(value["typed_edges"]["by_type"].is_array());
+                    assert!(value["action_paths"]["total_chains"].is_number());
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
     }
 
     #[test]

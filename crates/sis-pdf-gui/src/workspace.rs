@@ -43,4 +43,5 @@ pub struct WorkspaceContext {
     pub show_graph: bool,
     pub graph_state: GraphViewerState,
     pub selected_chain: Option<usize>,
+    pub include_singleton_chains: bool,
 }

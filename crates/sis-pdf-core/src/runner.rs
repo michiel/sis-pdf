@@ -739,7 +739,16 @@ pub fn run_scan_with_detectors(
     findings.extend(composites);
     apply_default_global_kind_cap(&mut findings);
     assign_stable_ids(&mut findings);
-    let intent_summary = Some(crate::intent::apply_intent(&mut findings));
+    let typed_graph = ctx.build_typed_graph();
+    let event_graph_for_intent = crate::event_graph::build_event_graph(
+        &typed_graph,
+        &findings,
+        crate::event_graph::EventGraphOptions::default(),
+    );
+    let intent_summary = Some(crate::intent::apply_intent_with_event_graph(
+        &mut findings,
+        Some(&event_graph_for_intent),
+    ));
     let yara_rules =
         crate::yara::annotate_findings(&mut findings, ctx.options.yara_scope.as_deref());
     findings.sort_by(|a, b| {

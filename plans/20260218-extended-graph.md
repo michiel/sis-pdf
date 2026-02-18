@@ -10,10 +10,10 @@ Scope: `crates/sis-pdf-pdf`, `crates/sis-pdf-core`, `crates/sis-pdf`, `crates/si
 
 | Stage | Status | Notes |
 |---|---|---|
-| Stage A (Chain changes) | Partial | Default chain views now suppress singleton chains (`length > 1`), but `include_singleton_chains` toggle is not yet implemented in CLI/GUI options. |
+| Stage A (Chain changes) | Complete | Default chain views suppress singleton chains and explicit include-singleton options now exist in CLI query surface (`chains.all`, `actions.chains.all`) and GUI chain panel toggle. |
 | Stage B (Core model + typed graph uplift) | Complete | `event_graph` core model added; typed graph uplift landed (`NextAction`, page/form action connectivity, URI target extraction paths), with tests. |
-| Stage C (Derivation + connectivity) | Partial | Event/outcome derivation, collapse, MITRE tagging, outcome confidence/severity hints, graph caps/truncation, and edge metadata (`event_key`, `branch_index`, `initiation`) are implemented. Intent connectivity boost remains pending. |
-| Stage D (CLI integration + structure uplift) | Partial | `graph.event`/`graph.action` alias, predicates, hops subgraph queries, and outcome metadata exposure are implemented. `events.graph_ref` bridge is now implemented. Structure uplift track (`graph.structure` enhancements) remains pending. |
+| Stage C (Derivation + connectivity) | Complete | Event/outcome derivation, collapse, MITRE tagging, outcome confidence/severity hints, graph caps/truncation, edge metadata, and intent connectivity boost are implemented. |
+| Stage D (CLI integration + structure uplift) | Partial | `graph.event`/`graph.action` alias, predicates, hops subgraph queries, outcome metadata, and `events.graph_ref` bridge are implemented. `graph.structure` export now includes typed-edge/action-path overlays; additional structure path helper refinements remain. |
 | Stage E (GUI integration) | Partial | Structure/Event mode, chain overlay, event filters, directed path overlay, edge hover metadata, and outcome confidence styling are implemented. Finding detail path-context panel and reader-profile filter remain pending. |
 | Stage F (Docs/rollout) | Partial | Query/predicate docs updated for event graph and hops. Full schema doc, migration notes, and deprecation timeline details remain pending. |
 
@@ -25,12 +25,15 @@ Scope: `crates/sis-pdf-pdf`, `crates/sis-pdf-core`, `crates/sis-pdf`, `crates/si
 4. Extended CLI event graph query support for induced hop subgraphs (`graph.event.hops N` / `graph.action.hops N`).
 5. Added `events.graph_ref` linkage from `events*` query rows to event graph node IDs.
 6. Updated GUI graph data/renderer to carry event edge metadata and outcome confidence visual intensity.
+7. Added `graph.structure` export mode with typed-edge statistics and action-chain summary overlay.
+8. Added singleton-chain inclusion controls in CLI query surface (`chains.all`, `actions.chains.all`, `chains.js.all`) and GUI chain panel toggle.
+9. Added event-graph connectivity boost to `apply_intent()` and unit coverage.
 
 ### 0.3 Next implementation focus
 
-1. Implement structure graph uplift (`graph.structure` typed-edge/action-path overlays) without breaking legacy ORG defaults.
-2. Add CLI/GUI option for singleton chain inclusion to complete Stage A parity.
-3. Implement intent connectivity boost in `apply_intent()` using event path correlation.
+1. Add richer `graph.structure` path helpers ("reachable from trigger", "path to outcome" summaries) while keeping default ORG compatibility unchanged.
+2. Add reader-profile-aware filters for event graph view and finding detail path context in GUI.
+3. Finalise docs rollout for structure/event graph query surfaces and singleton-chain controls.
 
 ## 1. Context and current state
 

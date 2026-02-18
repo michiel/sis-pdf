@@ -3507,13 +3507,18 @@ fn print_repl_help() {
     println!();
     println!("Advanced queries:");
     println!("  chains             - Describe action chains (rich JSON output)");
+    println!("  chains.all         - Include single-item chains in action chain view");
     println!("  chains.js          - JavaScript action chains with edge details");
+    println!("  chains.js.all      - JavaScript chains including single-item chains");
     println!("  cycles             - Document reference cycles");
     println!("  cycles.page        - Page tree cycles");
     println!("  ref OBJ GEN        - Incoming references for an object (generation optional)");
     println!();
     println!("Graph exports:");
     println!("  org                - Export ORG graph (dot/text output, use :json for JSON, :readable for dot)");
+    println!(
+        "  graph.structure    - Export structure graph with typed-edge and chain summary overlay (dot/text, use :json for JSON)"
+    );
     println!(
         "  graph.event        - Export event graph with outcomes (dot/text output, use :json for JSON)"
     );

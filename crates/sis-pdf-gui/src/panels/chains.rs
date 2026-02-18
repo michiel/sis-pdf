@@ -22,13 +22,13 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         .chains
         .iter()
         .enumerate()
-        .filter(|(_, chain)| chain.findings.len() > 1)
+        .filter(|(_, chain)| app.include_singleton_chains || chain.findings.len() > 1)
         .collect();
 
     if chains.is_empty() {
         ui.vertical_centered(|ui| {
             ui.add_space(20.0);
-            ui.label("No multi-step exploit chains detected");
+            ui.label("No exploit chains match the current filter");
         });
         return;
     }
@@ -89,6 +89,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         .collect();
 
     ui.heading(format!("{} Exploit Chains", chain_data.len()));
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut app.include_singleton_chains, "Include single-item chains");
+    });
 
     // Sort controls
     ui.horizontal(|ui| {
