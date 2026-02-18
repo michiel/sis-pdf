@@ -15,6 +15,7 @@ Predicate filtering is supported for:
 - `objects.list`, `objects.with`, `objects.count`
 - `urls`, `urls.count`
 - `events`, `events.document`, `events.page`, `events.field`, `events.count`
+- `graph.event`, `graph.event.dot`, `graph.event.json` (and `graph.action*` alias)
 - `findings`, `findings.count`, `findings.kind`, `findings.high`, `findings.medium`, `findings.low`, `findings.info`, `findings.critical`
 - `findings.composite`, `findings.composite.count`
 - `correlations`, `correlations.count`
@@ -145,6 +146,19 @@ Predicates can use these fields:
 - `type`: `Event`
 - `filter`: event level (`document`, `page`, `field`)
 - `subtype`: `event_type`
+
+### Event graph (`graph.event*`, `graph.action*`)
+- `type`: node type (`Event`, `Outcome`, `Object`, `Collapse`)
+- `filter`: node class (`event`, `outcome`, `object`, `collapse`)
+- `subtype`: event type, outcome type, or object subtype (for object nodes)
+- `name`: graph node id (`obj:*`, `ev:*`, `out:*`, `collapse:*`)
+- `action_target`: outcome target value when present
+- `meta.event_type`: event type value (for example `DocumentOpen`, `PageOpen`, `NextAction`)
+- `meta.outcome_type`: outcome type value (for example `NetworkEgress`, `ExternalLaunch`)
+- `meta.node_kind`: one of `event`, `outcome`, `object`, `collapse`
+- `meta.trigger_class`: `automatic`, `hidden`, `user` (event nodes)
+- `meta.target`: target string for outcome nodes
+- `meta.source_obj`: source object reference (`obj gen`) when available
 
 ### Findings (`findings*`)
 - `length`: finding `description` length

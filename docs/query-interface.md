@@ -20,7 +20,7 @@ Start an interactive REPL:
 sis query sample.pdf
 ```
 
-Inside the REPL you can now emit the ORG and IR graphs with `org` and `ir` commands; they default to dot/text output but respond to `:json`, `:yaml`, or `:readable` just like other queries (e.g., `org | jq '.'` or `ir | jq .`).
+Inside the REPL you can now emit the ORG, Event, and IR graphs with `org`, `graph.event`, and `ir` commands; they default to dot/text output but respond to `:json`, `:yaml`, or `:readable` just like other queries (for example `org | jq '.'` or `graph.event | jq .`).
 
 By default the REPL uses the new `:readable` formatter so lists render as ASCII tables and objects show simple trees. Use `:json`, `:yaml`, `:readable`, etc., to switch formats, and append `| <shell command>` or `> <path>` to any query (for example `findings | jq .` or `org > graph.dot`) to pipe or redirect the formatter output.
 
@@ -227,6 +227,26 @@ sis query sample.pdf actions.chains --format json
 ```
 
 `actions.chains` also supports the `--format dot` export that can be rendered with Graphviz.
+
+## Event Graph Queries
+
+Use `graph.event` to export the connected event/outcome graph used by the GUI event mode.  
+`graph.action` is an alias of `graph.event`.
+
+```bash
+sis query sample.pdf graph.event
+sis query sample.pdf graph.event --format json
+sis query sample.pdf graph.event --where "event_type == 'DocumentOpen'"
+sis query sample.pdf graph.event --where "outcome_type == 'NetworkEgress'"
+sis query sample.pdf graph.action --format dot
+```
+
+Useful predicate keys for `graph.event` are exposed via `meta` fields:
+- `event_type`
+- `outcome_type`
+- `node_kind` (`event`, `outcome`, `object`, `collapse`)
+- `trigger_class` (`automatic`, `hidden`, `user`)
+- `target`
 
 ## XFA form queries
 

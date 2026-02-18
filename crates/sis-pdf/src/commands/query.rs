@@ -6,7 +6,7 @@ use globset::Glob;
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{self, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -2236,22 +2236,28 @@ pub fn execute_query_with_context(
             Query::ExportEventDot => {
                 let typed_graph = ctx.build_typed_graph();
                 let findings = findings_with_cache(ctx)?;
-                let event_graph = sis_pdf_core::event_graph::build_event_graph(
+                let mut event_graph = sis_pdf_core::event_graph::build_event_graph(
                     &typed_graph,
                     &findings,
                     sis_pdf_core::event_graph::EventGraphOptions::default(),
                 );
+                if let Some(pred) = predicate {
+                    event_graph = filter_event_graph_by_predicate(event_graph, pred);
+                }
                 let dot_output = sis_pdf_core::event_graph::export_event_graph_dot(&event_graph);
                 Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
             }
             Query::ExportEventJson => {
                 let typed_graph = ctx.build_typed_graph();
                 let findings = findings_with_cache(ctx)?;
-                let event_graph = sis_pdf_core::event_graph::build_event_graph(
+                let mut event_graph = sis_pdf_core::event_graph::build_event_graph(
                     &typed_graph,
                     &findings,
                     sis_pdf_core::event_graph::EventGraphOptions::default(),
                 );
+                if let Some(pred) = predicate {
+                    event_graph = filter_event_graph_by_predicate(event_graph, pred);
+                }
                 let json_output = sis_pdf_core::event_graph::export_event_graph_json(&event_graph);
                 Ok(QueryResult::Structure(json_output))
             }
@@ -4114,6 +4120,8 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::Chains
         | Query::ChainsCount
         | Query::ChainsJs
+        | Query::ExportEventDot
+        | Query::ExportEventJson
         | Query::Findings
         | Query::FindingsCount
         | Query::FindingsBySeverity(_)
@@ -4138,7 +4146,7 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::RevisionsDetail
         | Query::RevisionsCount => Ok(()),
         _ => Err(anyhow!(
-            "Predicate filtering is only supported for js, embedded, urls, images, events, findings, correlations, objects, xref, and revisions queries"
+            "Predicate filtering is only supported for js, embedded, urls, images, events, graph.event, findings, correlations, objects, xref, and revisions queries"
         )),
     }
 }
@@ -5107,6 +5115,175 @@ fn predicate_context_for_event(event: &serde_json::Value) -> Option<PredicateCon
         action_target: None,
         action_initiation: None,
         meta: HashMap::new(),
+    })
+}
+
+fn filter_event_graph_by_predicate(
+    event_graph: sis_pdf_core::event_graph::EventGraph,
+    predicate: &PredicateExpr,
+) -> sis_pdf_core::event_graph::EventGraph {
+    use sis_pdf_core::event_graph::{EventEdge, EventNode, EventNodeKind};
+
+    let mut keep_nodes = HashSet::new();
+    let mut object_nodes = HashSet::new();
+    for node in &event_graph.nodes {
+        if let EventNodeKind::Object { .. } = node.kind {
+            object_nodes.insert(node.id.clone());
+        }
+    }
+
+    for node in &event_graph.nodes {
+        if let Some(ctx) = predicate_context_for_event_graph_node(node) {
+            if predicate.evaluate(&ctx) {
+                keep_nodes.insert(node.id.clone());
+            }
+        }
+    }
+
+    if keep_nodes.is_empty() {
+        return sis_pdf_core::event_graph::EventGraph {
+            schema_version: event_graph.schema_version,
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            node_index: HashMap::new(),
+            forward_index: HashMap::new(),
+            reverse_index: HashMap::new(),
+        };
+    }
+
+    for edge in &event_graph.edges {
+        if keep_nodes.contains(&edge.from) && object_nodes.contains(&edge.to) {
+            keep_nodes.insert(edge.to.clone());
+        }
+        if keep_nodes.contains(&edge.to) && object_nodes.contains(&edge.from) {
+            keep_nodes.insert(edge.from.clone());
+        }
+    }
+
+    let nodes = event_graph
+        .nodes
+        .into_iter()
+        .filter(|node| keep_nodes.contains(&node.id))
+        .collect::<Vec<EventNode>>();
+    let edges = event_graph
+        .edges
+        .into_iter()
+        .filter(|edge| keep_nodes.contains(&edge.from) && keep_nodes.contains(&edge.to))
+        .collect::<Vec<EventEdge>>();
+    rebuild_event_graph_indices(event_graph.schema_version, nodes, edges)
+}
+
+fn rebuild_event_graph_indices(
+    schema_version: &'static str,
+    nodes: Vec<sis_pdf_core::event_graph::EventNode>,
+    edges: Vec<sis_pdf_core::event_graph::EventEdge>,
+) -> sis_pdf_core::event_graph::EventGraph {
+    let mut node_index = HashMap::new();
+    for (idx, node) in nodes.iter().enumerate() {
+        node_index.insert(node.id.clone(), idx);
+    }
+    let mut forward_index = HashMap::new();
+    let mut reverse_index = HashMap::new();
+    for (idx, edge) in edges.iter().enumerate() {
+        forward_index.entry(edge.from.clone()).or_insert_with(Vec::new).push(idx);
+        reverse_index.entry(edge.to.clone()).or_insert_with(Vec::new).push(idx);
+    }
+    sis_pdf_core::event_graph::EventGraph {
+        schema_version,
+        nodes,
+        edges,
+        node_index,
+        forward_index,
+        reverse_index,
+    }
+}
+
+fn predicate_context_for_event_graph_node(
+    node: &sis_pdf_core::event_graph::EventNode,
+) -> Option<PredicateContext> {
+    use sis_pdf_core::event_graph::{EventNodeKind, OutcomeType};
+
+    let mut meta = HashMap::new();
+    let (type_name, filter, subtype, action_target) = match &node.kind {
+        EventNodeKind::Event { event_type, trigger, label, source_obj } => {
+            let event_name = format!("{:?}", event_type);
+            meta.insert("event_type".to_string(), event_name);
+            meta.insert("trigger_class".to_string(), trigger.as_str().to_string());
+            meta.insert("node_kind".to_string(), "event".to_string());
+            meta.insert("label".to_string(), label.clone());
+            if let Some((obj, gen)) = source_obj {
+                meta.insert("source_obj".to_string(), format!("{obj} {gen}"));
+            }
+            (
+                "Event".to_string(),
+                Some("event".to_string()),
+                Some(format!("{:?}", event_type)),
+                None,
+            )
+        }
+        EventNodeKind::Outcome {
+            outcome_type,
+            label,
+            target,
+            source_obj,
+            confidence_source,
+            ..
+        } => {
+            let outcome_name = format!("{:?}", outcome_type);
+            meta.insert("outcome_type".to_string(), outcome_name.clone());
+            meta.insert("node_kind".to_string(), "outcome".to_string());
+            meta.insert("label".to_string(), label.clone());
+            if let Some(value) = target {
+                meta.insert("target".to_string(), value.clone());
+            }
+            if let Some((obj, gen)) = source_obj {
+                meta.insert("source_obj".to_string(), format!("{obj} {gen}"));
+            }
+            if let Some(confidence) = confidence_source {
+                meta.insert("confidence_source".to_string(), confidence.clone());
+            }
+            if *outcome_type == OutcomeType::NetworkEgress {
+                meta.insert("risk".to_string(), "high".to_string());
+            }
+            ("Outcome".to_string(), Some("outcome".to_string()), Some(outcome_name), target.clone())
+        }
+        EventNodeKind::Object { obj, gen, obj_type } => {
+            meta.insert("node_kind".to_string(), "object".to_string());
+            meta.insert("source_obj".to_string(), format!("{obj} {gen}"));
+            ("Object".to_string(), Some("object".to_string()), obj_type.clone(), None)
+        }
+        EventNodeKind::Collapse { label, member_count, .. } => {
+            meta.insert("node_kind".to_string(), "collapse".to_string());
+            meta.insert("label".to_string(), label.clone());
+            meta.insert("member_count".to_string(), member_count.to_string());
+            ("Collapse".to_string(), Some("collapse".to_string()), None, None)
+        }
+    };
+
+    Some(PredicateContext {
+        length: node.id.len(),
+        filter,
+        type_name,
+        subtype,
+        entropy: 0.0,
+        width: 0,
+        height: 0,
+        pixels: 0,
+        risky: false,
+        severity: None,
+        confidence: None,
+        surface: None,
+        kind: None,
+        object_count: 0,
+        evidence_count: 0,
+        name: Some(node.id.clone()),
+        hash: None,
+        magic: None,
+        impact: None,
+        action_type: None,
+        action_target,
+        action_initiation: None,
+        meta,
     })
 }
 
@@ -7425,6 +7602,35 @@ mod tests {
         bytes
     }
 
+    fn build_pdf(objects: &[String], size: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"%PDF-1.4\n");
+        let mut offsets = vec![0usize; size];
+        for object in objects {
+            let id = object
+                .split_whitespace()
+                .next()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            if id < offsets.len() {
+                offsets[id] = out.len();
+            }
+            out.extend_from_slice(object.as_bytes());
+        }
+        let startxref = out.len();
+        out.extend_from_slice(format!("xref\n0 {}\n", size).as_bytes());
+        out.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n", size).as_bytes(),
+        );
+        out.extend_from_slice(startxref.to_string().as_bytes());
+        out.extend_from_slice(b"\n%%EOF\n");
+        out
+    }
+
     fn build_simple_stream_pdf() -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(b"%PDF-1.4\n");
@@ -8308,6 +8514,52 @@ mod tests {
                 other => panic!("expected structure, got {:?}", other),
             }
         });
+    }
+
+    #[test]
+    fn graph_event_query_supports_event_type_predicate() {
+        let bytes = {
+            let objects = vec![
+                "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 3 0 R >>\nendobj\n"
+                    .to_string(),
+                "2 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n".to_string(),
+                "3 0 obj\n<< /Type /Action /S /JavaScript /JS (app.alert(1)) >>\nendobj\n"
+                    .to_string(),
+            ];
+            build_pdf(&objects, 4)
+        };
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+        {
+            let predicate = parse_predicate("event_type == 'DocumentOpen'").expect("predicate");
+            let json = execute_query_with_context(
+                &Query::ExportEventJson,
+                &ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("event json");
+            match json {
+                QueryResult::Structure(value) => {
+                    let nodes = value["nodes"].as_array().expect("nodes");
+                    assert!(!nodes.is_empty());
+                    let event_nodes = nodes
+                        .iter()
+                        .filter(|node| {
+                            node.get("kind").and_then(|kind| kind.as_str()) == Some("event")
+                        })
+                        .collect::<Vec<_>>();
+                    assert!(!event_nodes.is_empty());
+                    assert!(event_nodes.iter().all(|node| {
+                        node.get("event_type").and_then(|event_type| event_type.as_str())
+                            == Some("DocumentOpen")
+                    }));
+                }
+                other => panic!("expected structure, got {:?}", other),
+            }
+        }
     }
 
     #[test]

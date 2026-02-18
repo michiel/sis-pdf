@@ -110,6 +110,9 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Show toolbar
     show_toolbar(ui, app);
+    if app.graph_state.mode == GraphViewMode::Event {
+        show_event_legend(ui);
+    }
     ui.separator();
 
     // Run incremental layout if still active
@@ -460,6 +463,17 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
     });
 }
 
+fn show_event_legend(ui: &mut egui::Ui) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Legend:");
+        ui.colored_label(egui::Color32::from_rgb(245, 170, 66), "Event node");
+        ui.colored_label(egui::Color32::from_rgb(220, 80, 80), "Outcome node");
+        ui.colored_label(egui::Color32::from_rgb(120, 120, 120), "Collapsed structure");
+        ui.label("Purple edge: chain overlay path");
+        ui.label("Red edge: execution/outcome");
+    });
+}
+
 /// Build the graph from the current analysis result.
 fn build_graph(app: &mut SisApp) {
     app.graph_state.built = true;
@@ -626,11 +640,72 @@ fn build_chain_path_edges(
     for window in ordered_object_nodes.windows(2) {
         let from = window[0];
         let to = window[1];
-        if graph_edges.iter().any(|edge| edge.from_idx == from && edge.to_idx == to) {
-            pairs.insert((from, to));
+        let path = find_directed_path_edges(graph_edges, from, to, 24);
+        for edge in path {
+            pairs.insert(edge);
         }
     }
     pairs
+}
+
+fn find_directed_path_edges(
+    graph_edges: &[crate::graph_data::GraphEdge],
+    from: usize,
+    to: usize,
+    max_hops: usize,
+) -> Vec<(usize, usize)> {
+    if from == to {
+        return Vec::new();
+    }
+
+    let mut adjacency: std::collections::HashMap<usize, Vec<usize>> =
+        std::collections::HashMap::new();
+    for edge in graph_edges {
+        adjacency.entry(edge.from_idx).or_default().push(edge.to_idx);
+    }
+
+    let mut queue = std::collections::VecDeque::new();
+    let mut visited = std::collections::HashSet::new();
+    let mut prev: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut depth: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+
+    queue.push_back(from);
+    visited.insert(from);
+    depth.insert(from, 0);
+
+    while let Some(node) = queue.pop_front() {
+        let current_depth = depth.get(&node).copied().unwrap_or(0);
+        if current_depth >= max_hops {
+            continue;
+        }
+        let Some(neighbours) = adjacency.get(&node) else {
+            continue;
+        };
+        for next in neighbours {
+            if visited.contains(next) {
+                continue;
+            }
+            visited.insert(*next);
+            prev.insert(*next, node);
+            depth.insert(*next, current_depth + 1);
+            if *next == to {
+                let mut cursor = to;
+                let mut nodes = vec![to];
+                while let Some(parent) = prev.get(&cursor).copied() {
+                    nodes.push(parent);
+                    if parent == from {
+                        break;
+                    }
+                    cursor = parent;
+                }
+                nodes.reverse();
+                return nodes.windows(2).map(|w| (w[0], w[1])).collect();
+            }
+            queue.push_back(*next);
+        }
+    }
+
+    Vec::new()
 }
 
 fn draw_edge_arrowhead(
@@ -684,7 +759,7 @@ fn apply_pending_focus(app: &mut SisApp) {
 
 #[cfg(test)]
 mod tests {
-    use super::build_chain_path_edges;
+    use super::{build_chain_path_edges, find_directed_path_edges};
     use crate::graph_data::GraphEdge;
 
     #[test]
@@ -699,5 +774,17 @@ mod tests {
         assert!(overlay_edges.contains(&(10, 20)));
         assert!(overlay_edges.contains(&(20, 30)));
         assert!(!overlay_edges.contains(&(30, 20)));
+    }
+
+    #[test]
+    fn directed_path_search_finds_multi_hop_route() {
+        let graph_edges = vec![
+            GraphEdge { from_idx: 1, to_idx: 2, suspicious: false },
+            GraphEdge { from_idx: 2, to_idx: 5, suspicious: false },
+            GraphEdge { from_idx: 5, to_idx: 9, suspicious: false },
+            GraphEdge { from_idx: 1, to_idx: 3, suspicious: false },
+        ];
+        let path = find_directed_path_edges(&graph_edges, 1, 9, 8);
+        assert_eq!(path, vec![(1, 2), (2, 5), (5, 9)]);
     }
 }
