@@ -1143,7 +1143,7 @@ fn show_analysis_progress_overlay(ctx: &egui::Context, phase: &str, file_name: &
     let position = screen_rect.center() - overlay_size * 0.5;
 
     egui::Area::new("analysis_progress_overlay".into())
-        .order(egui::Order::Foreground)
+        .order(egui::Order::Tooltip)
         .fixed_pos(position)
         .show(ctx, |ui| {
             egui::Frame::window(ui.style()).show(ui, |ui| {
