@@ -167,9 +167,6 @@ MITRE ATT&CK mapping table (static, embedded in binary):
 
 Nodes carry `mitre_techniques: Vec<&'static str>` populated at construction time.
 
-```text (closing the schema section)
-```
-
 Primary node/edge model:
 
 ```rust
@@ -294,15 +291,18 @@ Before event/outcome derivation, improve typed action connectivity in `crates/si
 5. Keep legacy `DictReference { key: "/Next" }` for non-action contexts only.
 6. Add edge metadata support for `event_key`, `branch_index`, and initiation hint where derivable.
 
-#### 4.2.2 `/Next` call site migration
+#### 4.2.2 `/Next` and `EdgeType` full migration requirement
 
-When `EdgeType::NextAction` is introduced, update all call sites currently matching on `DictReference { key: "/Next" }`:
+When `EdgeType::NextAction` is introduced, migration must cover the full workspace, not only known call sites.
 
-| File | Location | Current usage | Migration |
-|---|---|---|---|
-| `crates/sis-pdf-pdf/src/typed_graph.rs` | `is_executable()` ~line 162 | `matches!(self, EdgeType::DictReference { key } if key == "/Next")` | Add `EdgeType::NextAction` arm; keep `DictReference` arm for non-action `/Next` |
-| `crates/sis-pdf-detectors/src/supply_chain.rs` | `is_action_trigger_edge()` ~line 430 | `matches!(&edge.edge_type, EdgeType::DictReference { key } if key == "/Next")` | Match on `EdgeType::NextAction` instead |
-| `crates/sis-pdf-detectors/src/actions_triggers.rs` | `action_chain_summary()` ~line 640 | Direct dict lookup `dict.get_first(b"/Next")` (not EdgeType) | No change needed (operates on raw dict, not typed edges) |
+Minimum requirement:
+1. Enumerate all `EdgeType` usages/matches across `crates/` and review impact of adding `NextAction`.
+2. Update executable/action-link logic to handle `NextAction` where appropriate.
+3. Preserve compatibility by retaining `DictReference { key: "/Next" }` behaviour for non-action dictionaries.
+4. Add regression tests proving unchanged behaviour for existing findings/chains on baseline fixtures.
+5. Add a migration gate for Stage B:
+   - workspace compiles with no broken/non-exhaustive `EdgeType` match behaviour,
+   - detector/query/path regressions covering `/Next` continue to pass.
 
 ### 4.3 Event node derivation
 
@@ -322,6 +322,10 @@ Derive event nodes from typed edges and dictionaries:
    - page/content stream execution points (at least `PageContents` + XObject/annotation render-linked actions in stage 1)
 
 #### 4.3.1 EventType derivation mapping
+
+Context disambiguation rule:
+- `/C` under **Page `/AA`** means `PageClose`.
+- `/C` under **Field `/AA`** means `FieldCalculate`.
 
 | Source | AA key | EventType | TriggerClass |
 |---|---|---|---|
@@ -466,14 +470,7 @@ After baseline event graph stabilises, add richer semantics already available in
    - automatic vs user initiation.
 4. Add confidence-calibrated edge weighting:
    - combine typed-edge certainty with detector confidence for ranking/overlay.
-5. Comparative event graph topology for campaign detection:
-   - compute graph fingerprint (sorted edge-kind sequence hash) from event graph topology,
-   - compare fingerprints across batch scans to detect documents with identical trigger→outcome patterns (same campaign, different payloads),
-   - power `sis batch --detect-campaigns` without full document comparison.
-6. Event graph diff for revision analysis:
-   - build event graph per revision, diff to show which trigger→outcome paths were added/removed in incremental updates,
-   - answers "what malicious capability was introduced in this revision?" without manual inspection.
-7. Supply chain risk metric via graph reachability:
+5. Supply chain risk metric via graph reachability:
    - compute minimum hop count from `DocumentOpen` (or any Automatic event) to any outcome node,
    - documents where auto-trigger reaches external outcome in 2 hops = higher risk than 5 hops through user-initiated events,
    - emit as numeric `supply_chain_reachability_score` on event graph summary.
@@ -490,8 +487,6 @@ Extend `crates/sis-pdf/src/commands/query.rs` with:
 4. `graph.event.dot`
 5. `graph.event.count` (nodes/edges summary)
 6. `graph.event.outcomes`
-7. `graph.event.iocs` -- extract and deduplicate `target` values from all outcome nodes; defang URLs by default (`hxxps://`); output as structured list with IOC type, value, source outcome node ID, and MITRE technique IDs. Supersedes `--export-intents` as a superset (includes launch targets, embedded file refs, JS-derived indicators in addition to network intents).
-8. `graph.event.narrative` -- walk each root event node (no incoming `Triggers` edges) forward through `Executes`/`ProducesOutcome` edges and render one sentence per path describing the trigger→action→outcome flow in natural language. Deterministic (graph-structure-based, not ML-generated).
 
 Add predicates for event graph fields (`node_kind`, `event_type`, `outcome_type`, `trigger`, `target`, `mitre`).
 
@@ -500,7 +495,6 @@ Add predicates for event graph fields (`node_kind`, `event_type`, `outcome_type`
 1. **JSON**: machine-stable schema with explicit `schema_version` field (initial value `"1.0"`), node/edge kinds, provenance, MITRE technique IDs, and collapse metadata.
 2. **DOT**: separate styling for object/event/outcome/collapse nodes.
 3. **Readable/text**: compact summary table (events by class, outcomes by target/type, collapse counts).
-4. **SARIF**: embed event graph in SARIF 2.1 `graphs` property (nodes as SARIF graph nodes, edges as `graphTraversal` objects). Extends existing `--sarif` output so CI/CD pipelines see event→outcome relationships alongside findings.
 
 ### 5.3 Backward compatibility
 
@@ -604,16 +598,14 @@ The branch is `feature/egui-wasm` and the GUI is being ported to WASM. Event gra
 6. Implement `EdgeType::NextAction` and extractor support for `/Next` ref + array branches.
 7. Implement extraction for `PageAction { event }` and `FormFieldAction { event }`.
 8. Implement `UriTarget` extraction from `/S /URI` actions (with best-effort target metadata capture).
-9. Update `/Next` call sites (see section 4.2.2):
-   - `typed_graph.rs` `is_executable()`: add `NextAction` arm, keep `DictReference` arm for non-action contexts.
-   - `supply_chain.rs` `is_action_trigger_edge()`: match on `NextAction` instead of `DictReference { key: "/Next" }`.
-   - `actions_triggers.rs` `action_chain_summary()`: no change (raw dict lookup, not EdgeType).
+9. Execute the full `EdgeType` migration requirement from section 4.2.2 across all crates.
 10. Add targeted tests in `crates/sis-pdf-pdf/tests/` for each new extraction path.
+11. Add cross-crate detector/query/path regressions for `NextAction` compatibility.
 
 **Part 3: Builder scaffold** (depends on Part 1):
 
-11. Implement builder scaffold: `build_event_graph()` that ingests ObjectGraph + TypedGraph + ClassificationMap and produces object nodes + structural edges.
-12. Add explicit wiring tasks in query layer for findings retrieval/caching and pass-through into `EventGraphOptions::findings`.
+12. Implement builder scaffold: `build_event_graph()` that ingests ObjectGraph + TypedGraph + ClassificationMap and produces object nodes + structural edges.
+13. Add explicit wiring tasks in query layer for findings retrieval/caching and pass-through into `EventGraphOptions::findings`.
 
 Parts 1 and 2 can proceed in parallel (different crates). Part 3 depends on Part 1 completing.
 
@@ -640,9 +632,7 @@ Depends on Stage B (all parts).
 4. Add `events.graph_ref` field to existing `events` list output.
 5. Set up `graph.action` as `Query::GraphEvent` with pre-applied filter in `EventGraphOptions`.
 6. Add deprecation `warn!` to `export_action_graph_*` functions.
-7. Add `graph.event.iocs` query: extract/deduplicate targets from outcome nodes, defang URLs, include IOC type + source node ID + MITRE technique IDs.
-8. Add `graph.event.narrative` query: walk root event nodes forward to outcomes, render one sentence per path.
-9. Integration tests on fixtures with known triggers/outcomes, IOC extraction, and narrative output.
+7. Integration tests on fixtures with known triggers/outcomes.
 
 **Part 2: Structure graph uplift** (section 4.7, all items):
 
@@ -671,10 +661,7 @@ Depends on Stage B (all parts).
 3. Add migration note for chain singleton removal.
 4. Document `graph.action` deprecation path and timeline.
 5. Document `events.graph_ref` bridge field.
-6. Document `graph.event.iocs` query and IOC export format.
-7. Document `graph.event.narrative` query.
-8. Add SARIF graph embedding: populate SARIF 2.1 `graphs` property with event graph nodes/edges when `--sarif` is used.
-9. Document MITRE ATT&CK technique mapping and add examples.
+6. Document MITRE ATT&CK technique mapping and add examples.
 
 ## 8. Testing strategy
 
@@ -723,9 +710,6 @@ Fixtures must be committed to `crates/sis-pdf-core/tests/fixtures/` and register
 - No singleton chains by default; singleton chains present when `include_singleton_chains=true`.
 - Chain overlay references valid graph node IDs.
 - Schema version field present and correct.
-- `graph.event.iocs` returns deduplicated, defanged IOCs with source node IDs and MITRE technique IDs.
-- `graph.event.narrative` produces deterministic sentences matching known trigger→outcome paths in fixtures.
-- SARIF output with `--sarif` includes `graphs` property when event graph is available.
 
 ### 8.4 Regression fixtures
 
@@ -777,10 +761,15 @@ Fixtures must be committed to `crates/sis-pdf-core/tests/fixtures/` and register
 14. Typed graph emits `NextAction`, `PageAction`, `FormFieldAction`, and `UriTarget` where applicable.
 15. `graph.structure` gains typed-edge/action-path visibility without breaking legacy `org` compatibility.
 16. All `/Next` call sites updated to match on `NextAction` where appropriate.
-17. `graph.event.iocs` extracts and defangs outcome targets as structured IOC list with MITRE technique IDs.
-18. `graph.event.narrative` produces deterministic natural-language attack path descriptions.
-19. Event and outcome nodes carry MITRE ATT&CK technique IDs from static mapping.
-20. `apply_intent()` boosts confidence for findings connected via event graph paths.
-21. SARIF output embeds event graph in `graphs` property.
-22. GUI finding detail panel shows event graph path context for selected findings.
-23. GUI event graph supports reader profile filter (Acrobat/Pdfium/Preview).
+17. Event and outcome nodes carry MITRE ATT&CK technique IDs from static mapping.
+18. `apply_intent()` boosts confidence for findings connected via event graph paths.
+19. GUI finding detail panel shows event graph path context for selected findings.
+20. GUI event graph supports reader profile filter (Acrobat/Pdfium/Preview).
+
+## 11. Future steps (out of current execution scope)
+
+1. Comparative event graph topology for campaign detection.
+2. Event graph diff for revision analysis.
+3. `graph.event.iocs` query with structured defanged IOC output.
+4. `graph.event.narrative` query for deterministic path narratives.
+5. SARIF graph embedding of event graph nodes/edges.
