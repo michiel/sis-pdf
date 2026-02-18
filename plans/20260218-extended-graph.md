@@ -1,0 +1,494 @@
+# Extended Graph Plan: Structure + Event + Outcomes
+
+Date: 2026-02-18
+Status: Planned
+Scope: `crates/sis-pdf-pdf`, `crates/sis-pdf-core`, `crates/sis-pdf`, `crates/sis-pdf-gui`, docs/tests
+
+## 1. Context and current state
+
+The current graph capabilities are split:
+
+1. **Structure graph (ORG / object graph)** exists and is object-reference driven.
+   - Core export: `crates/sis-pdf-core/src/org_export.rs`
+   - GUI rendering: `crates/sis-pdf-gui/src/graph_data.rs`, `crates/sis-pdf-gui/src/panels/graph.rs`
+2. **Action graph** exists as a filtered view of the typed graph, separate from the structure graph.
+   - `export_action_graph_json()`, `export_action_graph_dot()` in `crates/sis-pdf-core/src/org_export.rs`
+   - Private `TriggerClass` enum (Automatic, Hidden, User) and `classify_action_edge()` for edge colouring.
+   - Limitation: only exports edges, no outcome nodes, no collapse/connectivity logic.
+3. **Event/trigger extraction** exists, but as a disconnected list output, not as a unified connected graph.
+   - Query implementation: `extract_event_triggers` in `crates/sis-pdf/src/commands/query.rs`
+   - Covers document (`/OpenAction`, catalog `/AA`), page (`/AA`), and field/widget (`/A`, `/AA`) events.
+   - Missing: Link annotation actions, `/Next` chain traversal, delayed/independent events.
+4. **Typed semantic edges** already exist and are rich enough to seed an event graph.
+   - `EdgeType` includes 35+ semantic edge types in `crates/sis-pdf-pdf/src/typed_graph.rs`.
+   - Structural (17): DictReference, ArrayElement, PagesKids, PageParent, PageContents, PageResources, PageAnnots, ObjStmReference, FormFieldKids, etc.
+   - Semantic action (5): OpenAction, PageAction{event}, AnnotationAction, AdditionalAction{event}, FormFieldAction{event}.
+   - `/Next` is currently represented as `DictReference { key: "/Next" }` and treated executable by `is_executable()`.
+   - JavaScript (2): JavaScriptPayload, JavaScriptNames.
+   - External action (4): UriTarget, LaunchTarget, SubmitFormTarget, GoToRTarget.
+   - Content/Resource (4): EmbeddedFileRef, FontReference, XObjectReference, ExtGStateReference.
+   - Crypto/Media (6): EncryptRef, SignatureRef, RichMediaRef, ThreeDRef, SoundRef, MovieRef.
+   - Key methods: `is_suspicious()`, `is_executable()`, forward/reverse indices.
+5. **Chain synthesis** currently emits singleton chains (one finding per chain), which is noisy.
+   - `synthesise_chains` in `crates/sis-pdf-core/src/chain_synth.rs`
+   - Creates a chain for every finding individually; no minimum cardinality filter.
+6. **GUI graph panel** renders a single-mode object graph.
+   - `GraphNode` is tightly coupled to PDF objects (`obj: u32, gen: u16, obj_type: String`).
+   - `GraphEdge` carries only a `suspicious` flag, no typed edge information.
+   - Interactions: pan, zoom, hover, click select, double-click navigate to object inspector.
+   - Chain filter exists but only dims non-chain nodes; no event->outcome path highlighting.
+   - `MAX_GRAPH_NODES = 2000` performance cap.
+
+### 1.1 Disposition of existing action graph
+
+The existing action graph exports (`export_action_graph_json`, `export_action_graph_dot`) in `org_export.rs` will be **superseded** by the new event graph. The event graph is a strict superset: it includes action edges plus event nodes, outcome nodes, and collapse semantics.
+
+Migration path:
+1. During development, both action graph and event graph exports coexist.
+2. After Stage D (CLI integration), `graph.action` becomes an alias for `graph.event` with a filter preset (event and action edges only, no collapse).
+3. The private `TriggerClass` enum moves to the new `event_graph` module as a public type and is re-exported for `org_export.rs` backward compatibility.
+4. `export_action_graph_*` functions are deprecated in docs after Stage F.
+
+## 2. Goals
+
+1. Keep current ORG behaviour as the **Structure Graph**.
+2. Introduce an **Event Graph** that is connected and includes:
+   - structure objects,
+   - event nodes (document/page/form/annotation/link/independent/delayed/rendering),
+   - outcome nodes (network exfiltration, filesystem write, launch, submission, etc).
+3. Remove chains with only one item from default outputs and GUI overlays.
+4. Support chain overlay on the Event Graph.
+5. Include all Structure Graph elements in Event Graph semantics, but collapse structure-only nodes not participating in event flow.
+6. Provide equivalent capability in CLI and GUI.
+
+## 3. Non-goals (first delivery)
+
+1. No probabilistic causal inference engine; use deterministic graph construction.
+2. No full timeline simulator of every PDF reader.
+3. No breaking change to existing `org` queries; new graph modes are additive.
+
+## 4. Proposed architecture
+
+### 4.1 New graph model in core
+
+Add a new core module: `crates/sis-pdf-core/src/event_graph.rs`.
+
+Primary model:
+
+```rust
+pub enum EventNodeKind {
+    Object { obj: u32, gen: u16, obj_type: Option<String> },
+    Event {
+        event_type: EventType,
+        trigger: TriggerClass,
+        label: String,
+        source_obj: Option<(u32, u16)>,
+    },
+    Outcome {
+        outcome_type: OutcomeType,
+        label: String,
+        target: Option<String>,
+        source_obj: Option<(u32, u16)>,
+        evidence: Vec<String>,        // finding IDs or edge-type labels
+        confidence_source: Option<String>,
+    },
+    Collapse { label: String, member_count: usize, collapsed_members: Vec<EventNodeId> },
+}
+
+pub enum EventEdgeKind {
+    Structural,
+    Triggers,
+    Executes,       // action -> next action (including /Next chains)
+    References,
+    ProducesOutcome,
+    ChainMembership,
+    CollapsedStructural,
+}
+
+pub struct EventEdge {
+    pub from: EventNodeId,
+    pub to: EventNodeId,
+    pub kind: EventEdgeKind,
+    pub provenance: EdgeProvenance,
+}
+
+pub enum EdgeProvenance {
+    TypedEdge(EdgeType),   // derived from typed graph edge
+    Finding(String),       // derived from detector finding (finding ID)
+    Heuristic,             // derived from builder heuristic (e.g., collapse connector)
+}
+```
+
+#### 4.1.1 Node ID scheme
+
+Node IDs use a structured short-readable format. IDs are guaranteed stable within a release, but not across releases.
+
+- Object nodes: `"obj:{obj}:{gen}"` (e.g., `"obj:5:0"`)
+- Event nodes: `"ev:{obj}:{gen}:{event_type}:{k}"` (e.g., `"ev:5:0:OpenAction:0"`)
+- Outcome nodes: `"out:{obj}:{gen}:{outcome_type}:{k}"` (e.g., `"out:12:0:UriTarget:1"`)
+- Synthetic outcome nodes (no backing object): `"outcome:synthetic:{monotonic_index}:{outcome_type}"`
+- Collapse nodes: `"collapse:{monotonic_index}"`
+
+Where `k` is a deterministic small ordinal among sibling nodes sharing `(obj, gen, type)` and sorted by stable key (action key + target hash prefix). This prevents ID collisions for repeated same-type events/outcomes on one object.
+
+Type alias:
+
+```rust
+pub type EventNodeId = String;
+```
+
+#### 4.1.2 Graph container
+
+```rust
+pub struct EventGraph {
+    pub schema_version: &'static str,  // "1.0"
+    pub nodes: Vec<EventNode>,
+    pub edges: Vec<EventEdge>,
+    pub node_index: HashMap<EventNodeId, usize>,
+    pub forward_index: HashMap<EventNodeId, Vec<usize>>,  // node -> outgoing edge indices
+    pub reverse_index: HashMap<EventNodeId, Vec<usize>>,  // node -> incoming edge indices
+}
+```
+
+**Ownership constraint:** `EventGraph` must be fully owned (`'static`-compatible) since it crosses the core-to-GUI boundary and must be serialisable. The builder extracts and clones all needed data from the borrowed `TypedGraph` and `ScanContext` during construction. This clone cost is acceptable since it happens once per scan and the event graph is a subset of the full object graph.
+
+### 4.2 Event graph builder inputs
+
+Builder should consume:
+
+1. `ObjectGraph` + `ClassificationMap`
+2. `TypedGraph`
+3. detector findings and correlations (for outcomes and confidence lift)
+4. optional chain list
+
+Proposed builder API:
+
+```rust
+pub fn build_event_graph(ctx: &ScanContext<'_>, options: EventGraphOptions) -> EventGraph;
+```
+
+The builder internally uses the existing typed-graph construction path (`TypedGraph::build(&ctx.graph, classifications)`), extracts needed data into owned structures, and constructs the fully-owned `EventGraph`.
+Findings input is explicit:
+- primary: `EventGraphOptions::findings: Option<&[Finding]>`
+- fallback: query layer resolves findings using existing findings execution/caching, then passes them in.
+
+### 4.3 Event node derivation
+
+Derive event nodes from typed edges and dictionaries:
+
+1. **Document events**: `/OpenAction`, catalog `/AA` (`/WC`, `/WS`, `/WP`, `/DS`, `/DP`, etc)
+2. **Page events**: page `/AA` (`/O`, `/C`, etc)
+3. **Form/field events**: widget/field `/A`, `/AA` (`/K`, `/V`, `/Fo`, `/Bl`, `/F`, `/C`, `/D`, `/U`, `/E`, `/X`, etc)
+4. **Annotation activation events**:
+   - Widget annotation `/A` and related triggers (existing coverage)
+   - **Link annotation** (`/Subtype /Link`) with `/A` actions: common malware vector for phishing URIs and JS execution on click
+   - Other annotation subtypes with `/A` or `/AA` dictionaries
+5. **Independent/delayed events**:
+   - `/Next` action chains: traverse typed edges where `edge_type == DictReference { key: "/Next" }` to connect multi-step action sequences into ordered event subgraphs, producing `Executes` edges between sequential action nodes
+   - JavaScript timing primitives detected by sandbox/static findings (`setTimeout`, `setInterval`, delayed dispatch)
+6. **Rendering events**:
+   - page/content stream execution points (at least `PageContents` + XObject/annotation render-linked actions in stage 1)
+
+#### 4.3.1 `/Next` chain edge semantics
+
+When the typed graph contains `/Next` dictionary-reference edges forming a chain (A -> B -> C), the event graph produces:
+- Event nodes for each action in the chain
+- `Executes` edges preserving chain order: event(A) --Executes--> event(B) --Executes--> event(C)
+- Each `Executes` edge carries `provenance: TypedEdge(DictReference { key: "/Next" })`
+- The chain is traversed with a depth bound of 20 to prevent infinite loops from circular `/Next` references
+
+### 4.4 Outcome node derivation
+
+Outcome nodes should be explicit and connected:
+
+1. **Network exfiltration/egress**:
+   - URI actions (`UriTarget`) -- edge provenance: `TypedEdge(UriTarget)`
+   - submit form targets (`SubmitFormTarget`) -- edge provenance: `TypedEdge(SubmitFormTarget)`
+   - JS runtime network intent findings (see 4.4.1)
+2. **Filesystem/system outcomes**:
+   - launch targets (`LaunchTarget`, `GoToRTarget`) -- edge provenance: `TypedEdge(LaunchTarget)` / `TypedEdge(GoToRTarget)`
+   - JS runtime file write/probe findings (see 4.4.1)
+3. **Embedded payload staging outcomes**:
+   - embedded file access/extract-like behaviour (`EmbeddedFileRef`)
+4. **Code execution outcomes**:
+   - JS runtime exec payload findings (see 4.4.1)
+
+Outcome nodes include metadata: `target` (URL, path, or command), `evidence` (list of finding IDs and edge types), `confidence_source` (detector name or edge derivation).
+
+#### 4.4.1 JavaScript finding to outcome mapping
+
+JS analysis findings from the `js-analysis` crate carry rich metadata that maps to specific outcome types:
+
+| JS Finding Kind | OutcomeType | Evidence Field |
+|---|---|---|
+| `JsNetworkIntent`, `JsXhrOpen`, `JsFetch` | `NetworkEgress` | finding ID + `payload.summary` |
+| `JsFileWrite`, `JsFileProbe` | `FilesystemWrite` | finding ID + target path if available |
+| `JsExecPayload`, `JsEval`, `JsShellExec` | `CodeExecution` | finding ID + `payload.summary` |
+| `JsDocSubmit` | `FormSubmission` | finding ID + target URL if available |
+
+The query/scan layer passes JS findings into `EventGraphOptions::findings`. Each matching JS finding produces an outcome node with `provenance: Finding(finding_id)` on the connecting `ProducesOutcome` edge. When a JS finding references a specific object (via `obj`/`gen` metadata), the outcome node is connected to that object's event node; otherwise it connects to the nearest JS container event node.
+
+### 4.5 Connectivity and collapse rules
+
+To satisfy "all connected":
+
+1. Build full directed graph first.
+2. Compute event-participating object set:
+   - objects incident to any `Triggers/Executes/ProducesOutcome` edge,
+   - plus shortest-path connectors between event and outcome anchors (**bounded to 3 hops**).
+3. Collapse remaining structure-only connected components into `Collapse` supernodes.
+4. Preserve reversibility metadata (`collapsed_members`) for CLI JSON output.
+
+#### 4.5.1 Collapse specifics
+
+- **Disconnected structural components** (no path to any event or outcome within 3 hops): collapsed unconditionally into a single `Collapse` supernode per connected component.
+- **Isolated event nodes** (event with no reachable outcome): **kept visible**, not collapsed. These represent dead triggers and are forensically interesting (e.g., an OpenAction pointing to a deleted/broken action object).
+- **Collapse supernode edges**: a `CollapsedStructural` edge connects each collapse supernode to the nearest event-participating object that originally referenced any member of the collapsed component.
+- **Determinism**: collapse ordering is deterministic based on lowest `(obj, gen)` in each component.
+
+### 4.6 Chain policy change (singleton removal in default views)
+
+In CLI/GUI chain presentation paths:
+
+1. Keep synthesis internals unchanged initially to minimise regression risk.
+2. Default views filter out singleton chains (`len(findings) == 1` and no multi-node path evidence).
+3. Add compatibility flag/query option for legacy display (`include_singleton_chains=true`).
+4. Ensure grouped chain metadata and counts remain deterministic with filtering.
+
+## 5. CLI integration plan
+
+### 5.1 Query surface
+
+Extend `crates/sis-pdf/src/commands/query.rs` with:
+
+1. `graph.structure` (alias existing ORG output)
+2. `graph.event`
+3. `graph.event.json`
+4. `graph.event.dot`
+5. `graph.event.count` (nodes/edges summary)
+6. `graph.event.outcomes`
+
+Add predicates for event graph fields (`node_kind`, `event_type`, `outcome_type`, `trigger`, `target`).
+
+### 5.2 Output contracts
+
+1. **JSON**: machine-stable schema with explicit `schema_version` field (initial value `"1.0"`), node/edge kinds, provenance, and collapse metadata.
+2. **DOT**: separate styling for object/event/outcome/collapse nodes.
+3. **Readable/text**: compact summary table (events by class, outcomes by target/type, collapse counts).
+
+### 5.3 Backward compatibility
+
+1. Keep `org`, `org.dot`, `org.json` unchanged.
+2. Keep `events` list query unchanged.
+3. Add `events.graph_ref` field to each event in the existing `events` list output by default, containing the corresponding `EventNodeId` in the event graph. This bridge is always present in event rows (nullable only if mapping fails due to malformed edge provenance).
+
+### 5.4 Action graph deprecation
+
+1. `graph.action` query becomes a parser-level alias in `parse_query()` to a new `Query::GraphAction` variant; execution reuses event graph builder then applies an internal filter preset (`node_kind in {event,outcome}`, action-related edges only).
+2. `export_action_graph_json()` and `export_action_graph_dot()` emit a deprecation log (`warn!`) recommending `graph.event`.
+3. Full removal deferred to a future major version.
+
+## 6. GUI visualisation plan
+
+### 6.1 Graph data model refactor
+
+The current `GraphNode` is tightly coupled to PDF objects and cannot represent event, outcome, or collapse nodes. This requires an internal API change in `crates/sis-pdf-gui/src/graph_data.rs`:
+
+```rust
+pub enum GraphNodeKind {
+    Object { obj: u32, gen: u16, obj_type: String, roles: Vec<String> },
+    Event { event_type: String, trigger: String, label: String, source_obj: Option<(u32, u16)> },
+    Outcome { outcome_type: String, label: String, target: Option<String> },
+    Collapse { label: String, member_count: usize },
+}
+
+pub struct GraphNode {
+    pub id: String,
+    pub kind: GraphNodeKind,
+    pub x: f64,
+    pub y: f64,
+}
+```
+
+The existing `from_object_data*` builders continue to produce `GraphNodeKind::Object` nodes for structure mode. A new `from_event_graph()` builder converts the core `EventGraph` into the GUI `GraphData` format.
+
+### 6.2 Dual graph mode
+
+In `crates/sis-pdf-gui/src/panels/graph.rs`:
+
+1. Add mode switch: `Structure` vs `Event`.
+2. Preserve current structure graph behaviour in `Structure` mode.
+3. In `Event` mode, render typed node shapes:
+   - Object: circle (same as structure mode)
+   - Event: diamond/hex-like marker
+   - Outcome: square/pill marker
+   - Collapse: grouped cluster node (dashed border)
+
+### 6.3 Overlay and focus behaviour
+
+1. Chain overlay toggle applies in both modes.
+2. In event mode, selecting a chain highlights full event->outcome path.
+3. "Show in graph" centres selected object/event node and keeps in/out edge highlighting.
+4. Add legend and filters:
+   - event class filter,
+   - outcome type filter,
+   - collapse on/off,
+   - hide isolated structural nodes.
+
+### 6.4 Performance guardrails
+
+1. Cap expanded nodes (reuse `MAX_GRAPH_NODES` strategy, add event-specific caps).
+2. Lazy expand collapse nodes on click.
+3. Deterministic layout seed to reduce jitter between toggles.
+
+### 6.5 WASM compatibility
+
+The branch is `feature/egui-wasm` and the GUI is being ported to WASM. Event graph construction and layout must respect WASM constraints:
+
+1. **No threads**: event graph builder and force-directed layout run single-threaded. The builder should complete within a bounded time budget (target: <50ms for documents with <500 objects).
+2. **Memory budget**: event graph node/edge allocation should be bounded. Apply `MAX_GRAPH_NODES` cap before layout, not after. For documents exceeding the cap, auto-enable collapse before refusing to render.
+3. **Web worker compatibility**: if event graph construction is expensive (>50ms), consider running the builder in a web worker using the same payload transport pattern as the existing WASM worker infrastructure.
+4. **No thread-spawn assumptions**: no `std::thread` usage; cache/synchronisation primitives must remain wasm-compatible and single-thread safe.
+
+## 7. Implementation stages
+
+### Stage A: Chain changes (independent, quick win)
+
+**Rationale**: singleton removal is independent of the event graph, lower risk, and delivers immediate noise reduction. Running first lets the event graph build on cleaner chain data.
+
+1. Implement singleton filtering in default CLI/GUI chain views (leave synthesis internals unchanged initially).
+2. Add `include_singleton_chains` option (default false) to CLI/GUI view options.
+3. Update chain rendering/query tests and fixtures.
+4. Verify no downstream breakage in CLI/GUI chain rendering and counters.
+
+### Stage B: Core model + builder scaffold
+
+1. Add `event_graph` module to `crates/sis-pdf-core/src/`.
+2. Define schema types: `EventNodeKind`, `EventEdgeKind`, `EventType`, `OutcomeType`, `EdgeProvenance`, `EventGraph`.
+3. Move `TriggerClass` from `org_export.rs` to `event_graph` module as public enum; re-export from `org_export.rs` for backward compatibility.
+4. Implement builder scaffold: `build_event_graph()` that ingests ObjectGraph + TypedGraph + ClassificationMap and produces object nodes + structural edges.
+5. Add JSON export function with `schema_version: "1.0"`.
+6. Add unit tests for node ID generation and basic graph construction.
+7. Add explicit wiring tasks in query layer for findings retrieval/caching and pass-through into `EventGraphOptions::findings`.
+
+### Stage C: Event/outcome derivation + connectivity
+
+1. Map typed edges to event nodes (document, page, field, annotation, link annotation, `/Next` chains).
+2. Derive outcome nodes from typed edges (UriTarget, LaunchTarget, SubmitFormTarget, GoToRTarget, EmbeddedFileRef).
+3. Add JS finding integration: map JS analysis findings to outcome nodes via `FindingsCache`.
+4. Implement collapse algorithm with 3-hop depth bound and deterministic ordering.
+5. Add `EdgeProvenance` to all edges.
+6. Unit tests for each event source and outcome type.
+
+### Stage D: CLI query integration
+
+1. Parse new `graph.event*` queries in `query.rs`.
+2. Wire output format handling (`json`, `dot`, `readable`).
+3. Add predicate support for event graph fields.
+4. Add `events.graph_ref` field to existing `events` list output.
+5. Set up `graph.action` as alias with event/outcome filter preset.
+6. Add deprecation `warn!` to `export_action_graph_*` functions.
+7. Integration tests on fixtures with known triggers/outcomes.
+
+### Stage E: GUI integration
+
+1. Refactor `GraphNode` to use `GraphNodeKind` enum in `graph_data.rs`.
+2. Add `from_event_graph()` builder for converting core `EventGraph` to GUI `GraphData`.
+3. Update all `GraphNode` consumers (rendering, tooltips, click handlers, double-click navigation).
+4. Add mode switch (Structure/Event) in toolbar.
+5. Add node shape rendering (diamond, square, dashed cluster) for event mode.
+6. Add legend, event/outcome filters, and chain path highlighting.
+7. Test WASM compatibility: verify event graph builds and renders within budget in wasm32 target.
+8. Add event graph rendering tests (unit-level for mapping + snapshot-friendly logic where practical).
+
+### Stage F: Docs and rollout
+
+1. Update `docs/query-interface.md` and `docs/ir-org-graph.md`.
+2. Add event graph schema docs and examples.
+3. Add migration note for chain singleton removal.
+4. Document `graph.action` deprecation path and timeline.
+5. Document `events.graph_ref` bridge field.
+
+## 8. Testing strategy
+
+### 8.1 Fixture audit (pre-Stage B)
+
+Before beginning implementation, audit existing fixtures for coverage:
+
+| Required coverage | Fixture needed | Status |
+|---|---|---|
+| Document `/OpenAction` + catalog `/AA` | `launch_cve_2010_1240.pdf` | Exists |
+| Multi-stage `/Next` action chain | TBD | **Needs creation or identification** |
+| URI submit-form action (`SubmitFormTarget`) | TBD | **Needs creation or identification** |
+| JS-triggered network egress (outcome via finding) | TBD | **Needs creation or identification** |
+| Link annotation with `/A` action | TBD | **Needs creation or identification** |
+| Document with collapsed structural regions | Any large document | Likely exists, confirm |
+
+Fixtures must be committed to `crates/sis-pdf-core/tests/fixtures/` and registered in manifest per project guidelines.
+
+### 8.2 Core unit tests
+
+- Event node derivation from each source: OpenAction, Page/AA, field/AA, Link annotation/A, `/Next` chains.
+- Outcome derivation for each type: URI, Launch, SubmitForm, GoToR, EmbeddedFile, JS findings.
+- JS finding -> outcome mapping for each finding kind in the table (section 4.4.1).
+- Collapse determinism: same input produces same collapse grouping and supernode IDs.
+- Collapse reversibility: `collapsed_members` accurately lists all member node IDs.
+- Node ID stability: same document produces same node IDs across runs.
+- `/Next` chain depth bound: circular `/Next` references terminate at depth 20.
+
+### 8.3 Integration tests
+
+(`crates/sis-pdf/tests` / `crates/sis-pdf-core/tests`):
+
+- `graph.event.json` on fixtures with known triggers/outcomes: verify node/edge counts, specific node IDs, and edge connections.
+- `graph.event.outcomes` returns expected outcome nodes.
+- `events.graph_ref` field contains valid event graph node IDs.
+- `graph.action` alias produces same result as filtered `graph.event`.
+- No singleton chains by default; singleton chains present when `include_singleton_chains=true`.
+- Chain overlay references valid graph node IDs.
+- Schema version field present and correct.
+
+### 8.4 Regression fixtures
+
+- Include at least one document with document/page/form triggers and external outcomes.
+- Include at least one document with a multi-stage `/Next` chain leading to an outcome.
+- Include at least one document with a Link annotation action.
+
+### 8.5 GUI tests
+
+- Mapping tests for `GraphNodeKind` variants -> node shape/colour.
+- `from_event_graph()` builder produces correct node/edge counts.
+- Focus/centering and selection-edge highlight behaviour in event mode.
+- Mode switch preserves pan/zoom state.
+- WASM build: event graph construction completes within 50ms budget for test fixture.
+
+### 8.6 Performance tests
+
+- Event graph builder on `launch_cve_2010_1240.pdf`: completes within scan pipeline SLO (<50ms).
+- Event graph builder on a large document (>200 objects): verify collapse reduces node count and builder stays within budget.
+
+## 9. Risks and mitigations
+
+1. **Graph bloat/noise**: collapse non-participating structure nodes by default; cap at `MAX_GRAPH_NODES`.
+2. **False causal links**: encode `EdgeProvenance` on every edge (TypedEdge/Finding/Heuristic) so consumers can filter by confidence. Outcome nodes carry `evidence` and `confidence_source` metadata.
+3. **Runtime cost**: reuse typed graph and bounded path search (3 hops); avoid all-pairs traversals. `/Next` chain traversal bounded at depth 20.
+4. **UX complexity**: keep structure mode default and event mode explicit with legend/tooltips.
+5. **WASM constraints**: bound builder time/memory; use web worker for expensive builds; no thread assumptions.
+6. **Action graph migration**: coexistence period with deprecation warnings; no immediate removal.
+7. **Fixture gaps**: audit and create missing fixtures before Stage B to avoid blocking integration tests.
+
+## 10. Acceptance criteria
+
+1. `graph.structure` preserves current ORG semantics.
+2. `graph.event` outputs connected event/outcome-aware graph with collapsed structure-only regions.
+3. `graph.event.json` includes `schema_version: "1.0"` and `EdgeProvenance` on every edge.
+4. Chain output defaults exclude one-item chains.
+5. GUI graph panel supports mode switch and chain overlay in event mode.
+6. CLI + GUI expose outcomes (network/filesystem/launch/submission/code execution) as connected nodes.
+7. `events.graph_ref` bridges existing event list output to event graph node IDs.
+8. Link annotations with `/A` actions produce event nodes.
+9. `/Next` action chains produce connected `Executes` edge sequences.
+10. JS analysis findings produce outcome nodes with finding ID evidence.
+11. `graph.action` alias works as filtered event graph view.
+12. New behaviour is covered by automated tests and documented in user-facing docs.
+13. Event graph builds and renders correctly under WASM target within performance budget.
