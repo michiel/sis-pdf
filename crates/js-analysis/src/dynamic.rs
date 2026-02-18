@@ -12,8 +12,10 @@ mod sandbox_impl {
     use std::cell::RefCell;
     use std::collections::BTreeSet;
     use std::rc::Rc;
+    #[cfg(not(target_arch = "wasm32"))]
     use std::sync::mpsc::{self, RecvTimeoutError};
     use std::sync::{Arc, Mutex};
+    #[cfg(not(target_arch = "wasm32"))]
     use std::time::Duration;
     #[cfg(not(target_arch = "wasm32"))]
     use std::time::Instant;
@@ -4294,7 +4296,6 @@ mod sandbox_impl {
         }
         let opts = options.clone();
         let bytes = bytes.to_vec();
-        let (tx, rx) = mpsc::channel();
         let timeout_context = Arc::new(Mutex::new(crate::types::TimeoutContext {
             runtime_profile: opts.runtime_profile.id(),
             phase: None,
@@ -4302,7 +4303,7 @@ mod sandbox_impl {
             budget_ratio: None,
         }));
         let timeout_context_thread = Arc::clone(&timeout_context);
-        std::thread::spawn(move || {
+        let execute = move || {
             let mut initial_log = SandboxLog { options: opts, ..SandboxLog::default() };
             initial_log.input_bytes = bytes.len();
             initial_log.runtime_profile = initial_log.options.runtime_profile.id();
@@ -4517,120 +4518,137 @@ mod sandbox_impl {
                 );
             }
             let out = log.borrow().clone();
-            let _ = tx.send(out);
-        });
+            out
+        };
 
-        match rx.recv_timeout(Duration::from_millis(options.timeout_ms as u64)) {
-            Ok(log) => DynamicOutcome::Executed(Box::new(DynamicSignals {
-                replay_id: log.replay_id.clone(),
-                runtime_profile: log.runtime_profile.clone(),
-                calls: log.calls.clone(),
-                call_args: log.call_args.clone(),
-                urls: dedupe_sorted(log.urls.clone()),
-                domains: dedupe_sorted(log.domains.clone()),
-                errors: log.errors.clone(),
-                prop_reads: log.prop_reads.clone(),
-                prop_writes: dedupe_sorted(log.prop_writes.clone()),
-                prop_deletes: dedupe_sorted(log.prop_deletes.clone()),
-                reflection_probes: dedupe_sorted(log.reflection_probes.clone()),
-                dynamic_code_calls: dedupe_sorted(log.dynamic_code_calls.clone()),
-                heap_allocations: log.heap_allocations.clone(),
-                heap_views: log.heap_views.clone(),
-                heap_accesses: log.heap_accesses.clone(),
-                heap_allocation_count: log.heap_allocation_count,
-                heap_view_count: log.heap_view_count,
-                heap_access_count: log.heap_access_count,
-                call_count: log.call_count,
-                unique_calls: log.unique_calls.len(),
-                unique_prop_reads: log.unique_prop_reads.len(),
-                elapsed_ms: log.elapsed_ms,
-                truncation: crate::types::DynamicTruncationSummary {
-                    calls_dropped: log.calls_dropped,
-                    call_args_dropped: log.call_args_dropped,
-                    prop_reads_dropped: log.prop_reads_dropped,
-                    errors_dropped: log.errors_dropped,
-                    urls_dropped: log.urls_dropped,
-                    domains_dropped: log.domains_dropped,
-                    heap_allocations_dropped: log.heap_allocations_dropped,
-                    heap_views_dropped: log.heap_views_dropped,
-                    heap_accesses_dropped: log.heap_accesses_dropped,
-                },
-                phases: render_phase_summaries(&log),
-                delta_summary: log.delta_summary.as_ref().map(|delta| {
-                    crate::types::DynamicDeltaSummary {
-                        phase: delta.phase.clone(),
-                        trigger_calls: delta.trigger_calls.clone(),
-                        generated_snippets: delta.generated_snippets,
-                        added_identifier_count: delta.added_identifier_count,
-                        added_string_literal_count: delta.added_string_literal_count,
-                        added_call_count: delta.added_call_count,
-                        new_identifiers: delta.new_identifiers.clone(),
-                        new_string_literals: delta.new_string_literals.clone(),
-                        new_calls: delta.new_calls.clone(),
-                    }
-                }),
-                behavioral_patterns: log
-                    .behavioral_patterns
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let (tx, rx) = mpsc::channel();
+            std::thread::spawn(move || {
+                let out = execute();
+                let _ = tx.send(out);
+            });
+
+            match rx.recv_timeout(Duration::from_millis(options.timeout_ms as u64)) {
+                Ok(log) => DynamicOutcome::Executed(Box::new(dynamic_signals_from_log(&log))),
+                Err(RecvTimeoutError::Timeout) => {
+                    let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
+                        crate::types::TimeoutContext {
+                            runtime_profile: options.runtime_profile.id(),
+                            phase: Some("mutex_poisoned".to_string()),
+                            elapsed_ms: None,
+                            budget_ratio: None,
+                        },
+                    );
+                    DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
+                }
+                Err(_) => {
+                    let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
+                        crate::types::TimeoutContext {
+                            runtime_profile: options.runtime_profile.id(),
+                            phase: Some("mutex_poisoned".to_string()),
+                            elapsed_ms: None,
+                            budget_ratio: None,
+                        },
+                    );
+                    DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
+                }
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let log = execute();
+            DynamicOutcome::Executed(Box::new(dynamic_signals_from_log(&log)))
+        }
+    }
+
+    fn dynamic_signals_from_log(log: &SandboxLog) -> DynamicSignals {
+        DynamicSignals {
+            replay_id: log.replay_id.clone(),
+            runtime_profile: log.runtime_profile.clone(),
+            calls: log.calls.clone(),
+            call_args: log.call_args.clone(),
+            urls: dedupe_sorted(log.urls.clone()),
+            domains: dedupe_sorted(log.domains.clone()),
+            errors: log.errors.clone(),
+            prop_reads: log.prop_reads.clone(),
+            prop_writes: dedupe_sorted(log.prop_writes.clone()),
+            prop_deletes: dedupe_sorted(log.prop_deletes.clone()),
+            reflection_probes: dedupe_sorted(log.reflection_probes.clone()),
+            dynamic_code_calls: dedupe_sorted(log.dynamic_code_calls.clone()),
+            heap_allocations: log.heap_allocations.clone(),
+            heap_views: log.heap_views.clone(),
+            heap_accesses: log.heap_accesses.clone(),
+            heap_allocation_count: log.heap_allocation_count,
+            heap_view_count: log.heap_view_count,
+            heap_access_count: log.heap_access_count,
+            call_count: log.call_count,
+            unique_calls: log.unique_calls.len(),
+            unique_prop_reads: log.unique_prop_reads.len(),
+            elapsed_ms: log.elapsed_ms,
+            truncation: crate::types::DynamicTruncationSummary {
+                calls_dropped: log.calls_dropped,
+                call_args_dropped: log.call_args_dropped,
+                prop_reads_dropped: log.prop_reads_dropped,
+                errors_dropped: log.errors_dropped,
+                urls_dropped: log.urls_dropped,
+                domains_dropped: log.domains_dropped,
+                heap_allocations_dropped: log.heap_allocations_dropped,
+                heap_views_dropped: log.heap_views_dropped,
+                heap_accesses_dropped: log.heap_accesses_dropped,
+            },
+            phases: render_phase_summaries(log),
+            delta_summary: log.delta_summary.as_ref().map(|delta| crate::types::DynamicDeltaSummary {
+                phase: delta.phase.clone(),
+                trigger_calls: delta.trigger_calls.clone(),
+                generated_snippets: delta.generated_snippets,
+                added_identifier_count: delta.added_identifier_count,
+                added_string_literal_count: delta.added_string_literal_count,
+                added_call_count: delta.added_call_count,
+                new_identifiers: delta.new_identifiers.clone(),
+                new_string_literals: delta.new_string_literals.clone(),
+                new_calls: delta.new_calls.clone(),
+            }),
+            behavioral_patterns: log
+                .behavioral_patterns
+                .iter()
+                .map(|obs| crate::types::BehaviorPattern {
+                    name: obs.pattern_name.clone(),
+                    confidence: obs.confidence,
+                    evidence: obs.evidence.clone(),
+                    severity: format!("{:?}", obs.severity),
+                    metadata: obs.metadata.clone(),
+                })
+                .collect(),
+            execution_stats: crate::types::ExecutionStats {
+                total_function_calls: log.call_count,
+                unique_function_calls: log.unique_calls.len(),
+                variable_promotions: log
+                    .variable_events
                     .iter()
-                    .map(|obs| crate::types::BehaviorPattern {
-                        name: obs.pattern_name.clone(),
-                        confidence: obs.confidence,
-                        evidence: obs.evidence.clone(),
-                        severity: format!("{:?}", obs.severity),
-                        metadata: obs.metadata.clone(),
-                    })
-                    .collect(),
-                execution_stats: crate::types::ExecutionStats {
-                    total_function_calls: log.call_count,
-                    unique_function_calls: log.unique_calls.len(),
-                    variable_promotions: log
-                        .variable_events
-                        .iter()
-                        .filter(|ve| matches!(ve.event_type, VariableEventType::Declaration))
-                        .count(),
-                    error_recoveries: log.execution_flow.exception_handling.len(),
-                    successful_recoveries: log
-                        .execution_flow
-                        .exception_handling
-                        .iter()
-                        .filter(|ex| ex.recovery_successful)
-                        .count(),
-                    execution_depth: log
-                        .execution_flow
-                        .call_stack
-                        .iter()
-                        .map(|call| call.call_depth)
-                        .max()
-                        .unwrap_or(0),
-                    loop_iteration_limit_hits: loop_iteration_limit_hits(&log.errors),
-                    adaptive_loop_iteration_limit: log.adaptive_loop_iteration_limit,
-                    adaptive_loop_profile: log.adaptive_loop_profile.clone(),
-                    downloader_scheduler_hardening: log.downloader_scheduler_hardening,
-                    probe_loop_short_circuit_hits: log.probe_loop_short_circuit_hits,
-                },
-            })),
-            Err(RecvTimeoutError::Timeout) => {
-                let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
-                    crate::types::TimeoutContext {
-                        runtime_profile: options.runtime_profile.id(),
-                        phase: Some("mutex_poisoned".to_string()),
-                        elapsed_ms: None,
-                        budget_ratio: None,
-                    },
-                );
-                DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
-            }
-            Err(_) => {
-                let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
-                    crate::types::TimeoutContext {
-                        runtime_profile: options.runtime_profile.id(),
-                        phase: Some("mutex_poisoned".to_string()),
-                        elapsed_ms: None,
-                        budget_ratio: None,
-                    },
-                );
-                DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
-            }
+                    .filter(|ve| matches!(ve.event_type, VariableEventType::Declaration))
+                    .count(),
+                error_recoveries: log.execution_flow.exception_handling.len(),
+                successful_recoveries: log
+                    .execution_flow
+                    .exception_handling
+                    .iter()
+                    .filter(|ex| ex.recovery_successful)
+                    .count(),
+                execution_depth: log
+                    .execution_flow
+                    .call_stack
+                    .iter()
+                    .map(|call| call.call_depth)
+                    .max()
+                    .unwrap_or(0),
+                loop_iteration_limit_hits: loop_iteration_limit_hits(&log.errors),
+                adaptive_loop_iteration_limit: log.adaptive_loop_iteration_limit,
+                adaptive_loop_profile: log.adaptive_loop_profile.clone(),
+                downloader_scheduler_hardening: log.downloader_scheduler_hardening,
+                probe_loop_short_circuit_hits: log.probe_loop_short_circuit_hits,
+            },
         }
     }
 

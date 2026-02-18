@@ -104,9 +104,11 @@ pub fn analyze_for_worker(
 }
 
 pub fn worker_result_into_analysis(worker: WorkerAnalysisResult, bytes: Vec<u8>) -> AnalysisResult {
+    let mut object_data = worker.object_data;
+    object_data.rebuild_index();
     AnalysisResult {
         report: worker.report,
-        object_data: worker.object_data,
+        object_data,
         bytes,
         file_name: worker.file_name,
         file_size: worker.file_size,
@@ -242,6 +244,20 @@ mod tests {
         assert!(
             sis_pdf_detectors::sandbox_available(),
             "GUI detector build should include js-sandbox support"
+        );
+    }
+
+    #[test]
+    fn worker_result_json_roundtrip_rebuilds_object_index() {
+        let pdf = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\nxref\n0 2\n0000000000 65535 f \n0000000009 00000 n \ntrailer\n<< /Size 2 /Root 1 0 R >>\nstartxref\n58\n%%EOF";
+        let worker = analyze_for_worker(pdf, "minimal.pdf").expect("analysis should succeed");
+        let encoded = serde_json::to_string(&worker).expect("worker result should serialise");
+        let decoded: WorkerAnalysisResult =
+            serde_json::from_str(&encoded).expect("worker result should deserialise");
+        let analysis = worker_result_into_analysis(decoded, pdf.to_vec());
+        assert!(
+            analysis.object_data.index.contains_key(&(1, 0)),
+            "deserialised worker result should rebuild object lookup index"
         );
     }
 }

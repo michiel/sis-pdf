@@ -22,9 +22,19 @@ const MAX_PREVIEW_DECODE_BYTES: u64 = 64 * 1024 * 1024;
 pub struct ObjectData {
     pub objects: Vec<ObjectSummary>,
     /// (obj, gen) to index into `objects`.
+    #[serde(skip_serializing, skip_deserializing, default)]
     pub index: HashMap<(u32, u16), usize>,
     pub xref_sections: Vec<XrefSectionInfo>,
     pub deviations: Vec<DeviationInfo>,
+}
+
+impl ObjectData {
+    pub fn rebuild_index(&mut self) {
+        self.index.clear();
+        for (idx, object) in self.objects.iter().enumerate() {
+            self.index.insert((object.obj, object.gen), idx);
+        }
+    }
 }
 
 /// Owned summary of a single PDF object for display in the Object Inspector.
