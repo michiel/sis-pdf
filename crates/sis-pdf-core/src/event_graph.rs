@@ -528,13 +528,20 @@ pub fn export_event_graph_dot(event_graph: &EventGraph) -> String {
                 "gray",
             ),
             EventNodeKind::Event { label, trigger, .. } => {
-                ("diamond", format!("{}\\n{}", label, trigger.as_str()), "orange")
+                let mut text = format!("{}\\n{}", label, trigger.as_str());
+                if !node.mitre_techniques.is_empty() {
+                    text.push_str(&format!("\\n[{}]", node.mitre_techniques.join(", ")));
+                }
+                ("diamond", text, "orange")
             }
-            EventNodeKind::Outcome { label, target, .. } => (
-                "box",
-                format!("{}\\n{}", label, target.clone().unwrap_or_else(|| "-".into())),
-                "red",
-            ),
+            EventNodeKind::Outcome { label, target, .. } => {
+                let mut text =
+                    format!("{}\\n{}", label, target.clone().unwrap_or_else(|| "-".into()));
+                if !node.mitre_techniques.is_empty() {
+                    text.push_str(&format!("\\n[{}]", node.mitre_techniques.join(", ")));
+                }
+                ("box", text, "red")
+            }
             EventNodeKind::Collapse { label, member_count, .. } => {
                 ("box3d", format!("{}\\n{} members", label, member_count), "lightgray")
             }
@@ -648,12 +655,41 @@ fn edge_to_outcome(edge_type: &EdgeType) -> Option<(OutcomeType, String)> {
     }
 }
 
+/// Map a finding to an outcome type using two-tier priority matching.
+///
+/// Tier 1 (exact prefix): matches specific, unambiguous finding kind prefixes.
+/// These take precedence because they represent precise outcome classifications.
+///
+/// Tier 2 (broad substring): matches broader patterns that may overlap.
+/// A finding matching "exfil_uri_data" hits tier 1 (exfil -> NetworkEgress)
+/// before tier 2 could match "execution" from a different finding.
+///
+/// Fallback: if the action target is an HTTP URL, infer NetworkEgress.
 fn infer_outcome_from_finding(
     finding: &Finding,
     target: Option<&str>,
 ) -> Option<(OutcomeType, String)> {
     let kind = finding.kind.to_ascii_lowercase();
-    if kind.contains("exfil") || kind.contains("uri") || kind.contains("network") {
+
+    // Tier 1: exact-prefix matching (highest precedence)
+    if kind.starts_with("exfil") {
+        return Some((OutcomeType::NetworkEgress, "Network egress".to_string()));
+    }
+    if kind.starts_with("submit_form") || kind.starts_with("form_submit") {
+        return Some((OutcomeType::FormSubmission, "Form submission".to_string()));
+    }
+    if kind.starts_with("launch") || kind.starts_with("gotor") {
+        return Some((OutcomeType::ExternalLaunch, "External launch".to_string()));
+    }
+    if kind.starts_with("embedded_file") || kind.starts_with("embedded_payload") {
+        return Some((OutcomeType::EmbeddedPayload, "Embedded payload".to_string()));
+    }
+    if kind.starts_with("file_write") || kind.starts_with("filesystem") || kind.starts_with("dropper") {
+        return Some((OutcomeType::FilesystemWrite, "Filesystem write".to_string()));
+    }
+
+    // Tier 2: broad substring matching (lower precedence)
+    if kind.contains("uri") || kind.contains("network") {
         return Some((OutcomeType::NetworkEgress, "Network egress".to_string()));
     }
     if kind.contains("submit") || kind.contains("form") {
@@ -671,6 +707,8 @@ fn infer_outcome_from_finding(
     if kind.contains("javascript") || kind.contains("shell") || kind.contains("execution") {
         return Some((OutcomeType::CodeExecution, "Code execution".to_string()));
     }
+
+    // Fallback: infer from action target URL
     if let Some(value) = target {
         let lower = value.to_ascii_lowercase();
         if lower.starts_with("http://") || lower.starts_with("https://") {
@@ -1560,6 +1598,49 @@ mod tests {
     fn test_next_action_has_no_mitre_technique() {
         let techniques = mitre_techniques_for_event(EventType::NextAction);
         assert!(techniques.is_empty(), "NextAction should have no MITRE techniques");
+    }
+
+    #[test]
+    fn test_mitre_in_dot_labels() {
+        let typed = test_typed_graph();
+        let event_graph = build_event_graph(&typed, &[], EventGraphOptions::default());
+        let dot = export_event_graph_dot(&event_graph);
+        // DocumentOpen event should have T1204 in its label
+        assert!(
+            dot.contains("[T1204"),
+            "DOT output should include MITRE technique IDs in Event labels"
+        );
+    }
+
+    #[test]
+    fn test_inference_priority_exfil_over_execution() {
+        let finding = Finding {
+            id: "test-1".to_string(),
+            title: "exfil".to_string(),
+            kind: "exfil_uri_data".to_string(),
+            description: String::new(),
+            severity: crate::model::Severity::High,
+            confidence: crate::model::Confidence::Probable,
+            impact: None,
+            surface: crate::model::AttackSurface::Actions,
+            objects: Vec::new(),
+            evidence: Vec::new(),
+            meta: HashMap::new(),
+            reader_impacts: Vec::new(),
+            remediation: None,
+            position: None,
+            positions: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            yara: None,
+        };
+        let result = infer_outcome_from_finding(&finding, None);
+        assert_eq!(
+            result,
+            Some((OutcomeType::NetworkEgress, "Network egress".to_string())),
+            "exfil_uri_data should map to NetworkEgress via tier 1 prefix"
+        );
     }
 
     #[test]

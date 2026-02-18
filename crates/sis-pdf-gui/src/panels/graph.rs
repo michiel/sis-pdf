@@ -419,8 +419,21 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
             ui.set_min_width(GRAPH_TOOLTIP_WIDTH);
             ui.strong(label);
             ui.label(format!("Type: {}", obj_type));
-            if !roles.is_empty() {
-                ui.label(format!("Roles: {}", roles.join(", ")));
+            let mitre_roles: Vec<&String> =
+                roles.iter().filter(|r| r.starts_with("MITRE:")).collect();
+            let other_roles: Vec<&String> =
+                roles.iter().filter(|r| !r.starts_with("MITRE:")).collect();
+            if !mitre_roles.is_empty() {
+                ui.label(format!(
+                    "MITRE: {}",
+                    mitre_roles.iter().map(|r| &r[6..]).collect::<Vec<_>>().join(", ")
+                ));
+            }
+            if !other_roles.is_empty() {
+                ui.label(format!(
+                    "Roles: {}",
+                    other_roles.iter().map(|r| r.as_str()).collect::<Vec<_>>().join(", ")
+                ));
             }
         });
     }
