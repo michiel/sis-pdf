@@ -102,6 +102,7 @@ pub enum EventEdgeKind {
     Executes,
     ProducesOutcome,
     CollapsedStructural,
+    References,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -383,6 +384,37 @@ pub fn build_event_graph(
         }
     }
 
+    // References edge post-pass: for structural edges (DictReference/ArrayElement) where
+    // both endpoints have an event or outcome node, emit a References edge.
+    // ChainMembership edges are deferred to a future implementation.
+    let event_or_outcome_objects: BTreeSet<(u32, u16)> = nodes
+        .iter()
+        .filter_map(|node| match &node.kind {
+            EventNodeKind::Event { source_obj, .. } => *source_obj,
+            EventNodeKind::Outcome { source_obj, .. } => *source_obj,
+            _ => None,
+        })
+        .collect();
+    for edge in &typed_graph.edges {
+        if !matches!(edge.edge_type, EdgeType::DictReference { .. } | EdgeType::ArrayElement { .. })
+        {
+            continue;
+        }
+        if event_or_outcome_objects.contains(&edge.src)
+            && event_or_outcome_objects.contains(&edge.dst)
+        {
+            edges.push(EventEdge {
+                from: object_node_id(edge.src.0, edge.src.1),
+                to: object_node_id(edge.dst.0, edge.dst.1),
+                kind: EventEdgeKind::References,
+                provenance: EdgeProvenance::TypedEdge {
+                    edge_type: edge.edge_type.as_str().to_string(),
+                },
+                metadata: None,
+            });
+        }
+    }
+
     merge_duplicate_outcomes(&mut nodes, &mut edges);
 
     if options.collapse_structure_only {
@@ -444,6 +476,7 @@ pub fn export_event_graph_dot(event_graph: &EventGraph) -> String {
             EventEdgeKind::Executes => "color=blue",
             EventEdgeKind::ProducesOutcome => "color=red, style=bold",
             EventEdgeKind::CollapsedStructural => "color=gray, style=dashed",
+            EventEdgeKind::References => "color=green, style=dotted",
         };
         out.push_str(&format!(
             "  \"{}\" -> \"{}\" [{}];\n",
@@ -740,6 +773,10 @@ fn collapse_structure_only_nodes(
             _ => {}
         }
     }
+
+    // Deduplicate collapsed edges by (from, to) pair
+    let mut seen_collapsed = BTreeSet::<(EventNodeId, EventNodeId)>::new();
+    collapsed_edges.retain(|edge| seen_collapsed.insert((edge.from.clone(), edge.to.clone())));
 
     nodes.retain(|node| !passive_set.contains(&node.id));
     edges.retain(|edge| !passive_set.contains(&edge.from) && !passive_set.contains(&edge.to));
@@ -1165,6 +1202,77 @@ mod tests {
             nodes.iter().filter(|n| matches!(n.kind, EventNodeKind::Outcome { .. })).count();
         assert_eq!(event_count, 3, "all event nodes should survive truncation");
         assert_eq!(outcome_count, 2, "all outcome nodes should survive truncation");
+    }
+
+    #[test]
+    fn test_collapsed_edges_are_deduplicated() {
+        let mut nodes = vec![
+            EventNode {
+                id: "obj:1:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 1, gen: 0, obj_type: None },
+            },
+            EventNode {
+                id: "obj:2:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 2, gen: 0, obj_type: None },
+            },
+            EventNode {
+                id: "ev:3:0:DocumentOpen:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Event {
+                    event_type: EventType::DocumentOpen,
+                    trigger: TriggerClass::Automatic,
+                    label: "Open".into(),
+                    source_obj: Some((3, 0)),
+                },
+            },
+            EventNode {
+                id: "obj:3:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 3, gen: 0, obj_type: None },
+            },
+        ];
+        // Two passive objects (1, 2) both reference active object 3
+        let mut edges = vec![
+            EventEdge {
+                from: "obj:1:0".into(),
+                to: "obj:3:0".into(),
+                kind: EventEdgeKind::Structural,
+                provenance: EdgeProvenance::Heuristic,
+                metadata: None,
+            },
+            EventEdge {
+                from: "obj:2:0".into(),
+                to: "obj:3:0".into(),
+                kind: EventEdgeKind::Structural,
+                provenance: EdgeProvenance::Heuristic,
+                metadata: None,
+            },
+            EventEdge {
+                from: "obj:3:0".into(),
+                to: "ev:3:0:DocumentOpen:0".into(),
+                kind: EventEdgeKind::Triggers,
+                provenance: EdgeProvenance::Heuristic,
+                metadata: None,
+            },
+        ];
+        let mut object_node_type = HashMap::new();
+        object_node_type.insert("obj:1:0".to_string(), None);
+        object_node_type.insert("obj:2:0".to_string(), None);
+        object_node_type.insert("obj:3:0".to_string(), None);
+
+        collapse_structure_only_nodes(&mut nodes, &mut edges, &object_node_type);
+
+        // Both passive objects collapse; each references obj:3:0, so we should get
+        // exactly one CollapsedStructural edge from collapse -> obj:3:0
+        let collapsed_to_active = edges
+            .iter()
+            .filter(|e| {
+                e.kind == EventEdgeKind::CollapsedStructural && e.to == "obj:3:0"
+            })
+            .count();
+        assert_eq!(collapsed_to_active, 1, "duplicate collapsed edges should be deduplicated");
     }
 
     #[test]
