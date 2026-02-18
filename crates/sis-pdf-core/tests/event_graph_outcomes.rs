@@ -202,3 +202,35 @@ fn next_action_array_edges_include_branch_index_and_initiation_metadata() {
     assert_eq!(branch_indexes, vec![0, 1]);
     assert!(initiations.iter().all(|value| value == "hidden"));
 }
+
+#[test]
+fn test_circular_next_terminates() {
+    // Objects 3 and 4 form a /Next cycle: 3 -> 4 -> 3
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 3 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Action /S /JavaScript /JS (alert(1)) /Next 4 0 R >>\nendobj\n"
+            .to_string(),
+        "4 0 obj\n<< /Type /Action /S /JavaScript /JS (alert(2)) /Next 3 0 R >>\nendobj\n"
+            .to_string(),
+    ];
+    let bytes = build_pdf(&objects, 5);
+    let event_graph = event_graph_for_pdf(&bytes);
+
+    let next_action_count = event_graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                EventNodeKind::Event {
+                    event_type: sis_pdf_core::event_graph::EventType::NextAction,
+                    ..
+                }
+            )
+        })
+        .count();
+    // With cycle detection, we should have at most 2 NextAction events (3->4 and 4->3),
+    // and the graph should not hang
+    assert!(next_action_count <= 2, "expected at most 2 NextAction events, got {next_action_count}");
+}

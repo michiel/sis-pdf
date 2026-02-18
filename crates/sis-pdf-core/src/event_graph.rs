@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 pub type EventNodeId = String;
 const DEFAULT_MAX_EVENT_NODES: usize = 6_000;
 const DEFAULT_MAX_EVENT_EDGES: usize = 20_000;
+const MAX_NEXT_CHAIN_DEPTH: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TriggerClass {
@@ -207,6 +208,9 @@ pub fn build_event_graph(
         object_nodes.insert((entry.obj, entry.gen), id);
     }
 
+    let mut next_visited = BTreeSet::<((u32, u16), (u32, u16))>::new();
+    let mut next_depth = HashMap::<(u32, u16), usize>::new();
+
     for edge in &typed_graph.edges {
         if options.include_structure_edges {
             let provenance =
@@ -221,6 +225,26 @@ pub fn build_event_graph(
         }
 
         if let Some((event_type, trigger, label)) = edge_to_event(&edge.edge_type) {
+            if matches!(edge.edge_type, EdgeType::NextAction) {
+                if !next_visited.insert((edge.src, edge.dst)) {
+                    tracing::debug!(
+                        src = ?edge.src, dst = ?edge.dst,
+                        "skipping cyclic /Next action edge"
+                    );
+                    continue;
+                }
+                let src_depth = next_depth.get(&edge.src).copied().unwrap_or(0);
+                if src_depth >= MAX_NEXT_CHAIN_DEPTH {
+                    tracing::debug!(
+                        src = ?edge.src, dst = ?edge.dst, depth = src_depth,
+                        "skipping /Next action edge exceeding depth limit"
+                    );
+                    continue;
+                }
+                let dst_depth = next_depth.entry(edge.dst).or_insert(0);
+                *dst_depth = (*dst_depth).max(src_depth + 1);
+            }
+
             let id = format!("ev:{}:{}:{:?}:{}", edge.src.0, edge.src.1, event_type, event_counter);
             event_counter += 1;
             let edge_metadata = edge_metadata_for_typed_edge(typed_graph, edge, Some(trigger));
