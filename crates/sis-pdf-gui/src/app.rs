@@ -116,27 +116,6 @@ pub struct SisApp {
 }
 
 #[cfg(target_arch = "wasm32")]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct WorkerRequest {
-    file_name: String,
-    bytes: Vec<u8>,
-}
-
-#[cfg(target_arch = "wasm32")]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct WorkerResponseOk {
-    ok: bool,
-    result_json: String,
-}
-
-#[cfg(target_arch = "wasm32")]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct WorkerResponseErr {
-    ok: bool,
-    error: String,
-}
-
-#[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 enum WorkerAnalysisOutcome {
     Ok { result: WorkerAnalysisResult },
@@ -375,42 +354,45 @@ impl SisApp {
         let pending_result = Rc::clone(&self.pending_worker_result);
         let onmessage = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::MessageEvent)>::new(
             move |event: web_sys::MessageEvent| {
-                let Some(payload): Option<String> = event.data().as_string() else {
-                    *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
-                        "Worker returned non-string payload".to_string(),
-                    ));
-                    return;
-                };
-                let Ok(ok_payload) = serde_json::from_str::<WorkerResponseOk>(&payload) else {
-                    let Ok(err_payload) = serde_json::from_str::<WorkerResponseErr>(&payload)
-                    else {
-                        *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
-                            "Worker returned invalid payload".to_string(),
-                        ));
-                        return;
-                    };
-                    *pending_result.borrow_mut() =
-                        Some(WorkerAnalysisOutcome::Err(err_payload.error));
-                    return;
-                };
-                if !ok_payload.ok {
-                    *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
-                        "Worker reported unsuccessful analysis".to_string(),
-                    ));
+                let payload = event.data();
+                let ok = js_sys::Reflect::get(&payload, &JsValue::from_str("ok"))
+                    .ok()
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                if !ok {
+                    let error = js_sys::Reflect::get(&payload, &JsValue::from_str("error"))
+                        .ok()
+                        .and_then(|value| value.as_string())
+                        .unwrap_or_else(|| "Worker reported unsuccessful analysis".to_string());
+                    *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(error));
                     return;
                 }
-                match serde_json::from_str::<WorkerAnalysisResult>(&ok_payload.result_json) {
-                    Ok(parsed) => {
+
+                let result_value =
+                    match js_sys::Reflect::get(&payload, &JsValue::from_str("result")) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
+                                "Worker response missing result payload".to_string(),
+                            ));
+                            return;
+                        }
+                    };
+                match js_sys::JSON::stringify(&result_value)
+                    .ok()
+                    .and_then(|json| json.as_string())
+                    .and_then(|json| serde_json::from_str::<WorkerAnalysisResult>(&json).ok())
+                {
+                    Some(parsed) => {
                         *pending_result.borrow_mut() =
                             Some(WorkerAnalysisOutcome::Ok { result: parsed });
                     }
-                    Err(err) => {
-                        *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(format!(
-                            "Failed to decode worker result: {}",
-                            err
-                        )));
+                    None => {
+                        *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
+                            "Failed to decode worker result".to_string(),
+                        ));
                     }
-                }
+                };
             },
         );
         worker.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
@@ -423,16 +405,33 @@ impl SisApp {
     fn dispatch_worker_analysis(
         &mut self,
         file_name: String,
-        bytes: Vec<u8>,
+        bytes: &[u8],
     ) -> Result<(), AnalysisError> {
         self.ensure_analysis_worker()?;
         let worker = self.analysis_worker.as_ref().ok_or_else(|| {
             AnalysisError::ParseFailed("Analysis worker is unavailable".to_string())
         })?;
-        let request = WorkerRequest { file_name, bytes };
-        let request_json = serde_json::to_string(&request)
-            .map_err(|err| AnalysisError::ParseFailed(format!("Encode worker request: {}", err)))?;
-        worker.post_message(&JsValue::from_str(&request_json)).map_err(|_| {
+
+        let buffer_len = u32::try_from(bytes.len()).map_err(|_| {
+            AnalysisError::ParseFailed("PDF exceeds browser transfer capacity".to_string())
+        })?;
+        let byte_view = js_sys::Uint8Array::new_with_length(buffer_len);
+        byte_view.copy_from(bytes);
+
+        let request = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &request,
+            &JsValue::from_str("file_name"),
+            &JsValue::from_str(&file_name),
+        )
+        .map_err(|_| AnalysisError::ParseFailed("Failed to encode worker request".to_string()))?;
+        js_sys::Reflect::set(&request, &JsValue::from_str("bytes"), &byte_view.buffer()).map_err(
+            |_| AnalysisError::ParseFailed("Failed to encode worker request".to_string()),
+        )?;
+
+        let transferables = js_sys::Array::new();
+        transferables.push(&byte_view.buffer());
+        worker.post_message_with_transfer(&request, &transferables).map_err(|_| {
             AnalysisError::ParseFailed("Failed to send work to analysis worker".to_string())
         })?;
         Ok(())
@@ -1060,7 +1059,7 @@ impl eframe::App for SisApp {
                     #[cfg(not(target_arch = "wasm32"))]
                     self.process_analysis(file_name, &bytes);
                     #[cfg(target_arch = "wasm32")]
-                    match self.dispatch_worker_analysis(file_name.clone(), bytes.clone()) {
+                    match self.dispatch_worker_analysis(file_name.clone(), &bytes) {
                         Ok(()) => {
                             self.app_state = AppState::AnalysingWorker { file_name, bytes };
                         }

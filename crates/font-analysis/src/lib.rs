@@ -226,19 +226,19 @@ fn run_dynamic_with_timeout(
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-    let (tx, rx) = mpsc::channel();
-    let payload = data.to_vec();
-    let config_clone = config.clone();
-    std::thread::spawn(move || {
-        let findings = dynamic::analyze_with_findings_and_config(&payload, &config_clone);
-        let _ = tx.send(findings);
-    });
+        let (tx, rx) = mpsc::channel();
+        let payload = data.to_vec();
+        let config_clone = config.clone();
+        std::thread::spawn(move || {
+            let findings = dynamic::analyze_with_findings_and_config(&payload, &config_clone);
+            let _ = tx.send(findings);
+        });
 
-    match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-        Ok(findings) => Ok(findings),
-        Err(mpsc::RecvTimeoutError::Timeout) => Err(DynamicError::Timeout),
-        Err(_) => Err(DynamicError::Failure("dynamic worker error".into())),
-    }
+        match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
+            Ok(findings) => Ok(findings),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(DynamicError::Timeout),
+            Err(_) => Err(DynamicError::Failure("dynamic worker error".into())),
+        }
     }
 }
 

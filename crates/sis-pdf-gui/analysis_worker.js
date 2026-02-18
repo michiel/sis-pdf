@@ -19,25 +19,37 @@ async function loadWasmModule() {
 
 self.onmessage = async (event) => {
   try {
-    if (typeof event.data !== "string") {
-      self.postMessage(JSON.stringify({ ok: false, error: "Worker request must be JSON text" }));
+    const request = event.data ?? {};
+    const { file_name, bytes } = request ?? {};
+    if (typeof file_name !== "string") {
+      self.postMessage({ ok: false, error: "Invalid worker request payload" });
       return;
     }
-    const request = JSON.parse(event.data);
-    const { file_name, bytes } = request ?? {};
-    if (typeof file_name !== "string" || !Array.isArray(bytes)) {
-      self.postMessage(JSON.stringify({ ok: false, error: "Invalid worker request payload" }));
+    let byteView = null;
+    if (bytes instanceof ArrayBuffer) {
+      byteView = new Uint8Array(bytes);
+    } else if (bytes && ArrayBuffer.isView(bytes)) {
+      byteView = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    }
+    if (!byteView) {
+      self.postMessage({ ok: false, error: "Invalid worker request payload" });
       return;
     }
     const module = await loadWasmModule();
-    if (typeof module.wasm_analyze_json !== "function") {
-      self.postMessage(JSON.stringify({ ok: false, error: "WASM analysis entrypoint unavailable" }));
+    if (typeof module.wasm_analyze_value === "function") {
+      const result = module.wasm_analyze_value(byteView, file_name);
+      self.postMessage({ ok: true, result });
       return;
     }
-    const result_json = module.wasm_analyze_json(bytes, file_name);
-    self.postMessage(JSON.stringify({ ok: true, result_json }));
+    if (typeof module.wasm_analyze_json === "function") {
+      const result_json = module.wasm_analyze_json(byteView, file_name);
+      const result = JSON.parse(result_json);
+      self.postMessage({ ok: true, result });
+      return;
+    }
+    self.postMessage({ ok: false, error: "WASM analysis entrypoint unavailable" });
   } catch (err) {
     const message = err && typeof err.message === "string" ? err.message : String(err);
-    self.postMessage(JSON.stringify({ ok: false, error: message }));
+    self.postMessage({ ok: false, error: message });
   }
 };

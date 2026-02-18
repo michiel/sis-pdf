@@ -4532,25 +4532,27 @@ mod sandbox_impl {
             match rx.recv_timeout(Duration::from_millis(options.timeout_ms as u64)) {
                 Ok(log) => DynamicOutcome::Executed(Box::new(dynamic_signals_from_log(&log))),
                 Err(RecvTimeoutError::Timeout) => {
-                    let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
-                        crate::types::TimeoutContext {
-                            runtime_profile: options.runtime_profile.id(),
-                            phase: Some("mutex_poisoned".to_string()),
-                            elapsed_ms: None,
-                            budget_ratio: None,
-                        },
-                    );
+                    let context =
+                        timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
+                            crate::types::TimeoutContext {
+                                runtime_profile: options.runtime_profile.id(),
+                                phase: Some("mutex_poisoned".to_string()),
+                                elapsed_ms: None,
+                                budget_ratio: None,
+                            },
+                        );
                     DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
                 }
                 Err(_) => {
-                    let context = timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
-                        crate::types::TimeoutContext {
-                            runtime_profile: options.runtime_profile.id(),
-                            phase: Some("mutex_poisoned".to_string()),
-                            elapsed_ms: None,
-                            budget_ratio: None,
-                        },
-                    );
+                    let context =
+                        timeout_context.lock().ok().map(|guard| (*guard).clone()).unwrap_or(
+                            crate::types::TimeoutContext {
+                                runtime_profile: options.runtime_profile.id(),
+                                phase: Some("mutex_poisoned".to_string()),
+                                elapsed_ms: None,
+                                budget_ratio: None,
+                            },
+                        );
                     DynamicOutcome::TimedOut { timeout_ms: options.timeout_ms, context }
                 }
             }
@@ -4599,16 +4601,18 @@ mod sandbox_impl {
                 heap_accesses_dropped: log.heap_accesses_dropped,
             },
             phases: render_phase_summaries(log),
-            delta_summary: log.delta_summary.as_ref().map(|delta| crate::types::DynamicDeltaSummary {
-                phase: delta.phase.clone(),
-                trigger_calls: delta.trigger_calls.clone(),
-                generated_snippets: delta.generated_snippets,
-                added_identifier_count: delta.added_identifier_count,
-                added_string_literal_count: delta.added_string_literal_count,
-                added_call_count: delta.added_call_count,
-                new_identifiers: delta.new_identifiers.clone(),
-                new_string_literals: delta.new_string_literals.clone(),
-                new_calls: delta.new_calls.clone(),
+            delta_summary: log.delta_summary.as_ref().map(|delta| {
+                crate::types::DynamicDeltaSummary {
+                    phase: delta.phase.clone(),
+                    trigger_calls: delta.trigger_calls.clone(),
+                    generated_snippets: delta.generated_snippets,
+                    added_identifier_count: delta.added_identifier_count,
+                    added_string_literal_count: delta.added_string_literal_count,
+                    added_call_count: delta.added_call_count,
+                    new_identifiers: delta.new_identifiers.clone(),
+                    new_string_literals: delta.new_string_literals.clone(),
+                    new_calls: delta.new_calls.clone(),
+                }
             }),
             behavioral_patterns: log
                 .behavioral_patterns
