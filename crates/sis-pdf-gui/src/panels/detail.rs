@@ -1,4 +1,6 @@
 use crate::app::SisApp;
+use sis_pdf_core::event_graph::{EventGraph, EventNodeKind};
+use sis_pdf_pdf::{parse_pdf, ParseOptions};
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.selected_finding.is_some();
@@ -101,6 +103,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         .filter(|(_, chain)| chain.findings.contains(&finding_id))
         .map(|(i, chain)| (i, chain.path.clone()))
         .collect();
+    let event_graph_paths = event_graph_paths_for_finding(result, f);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading(&title);
@@ -240,6 +243,24 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 });
         }
 
+        // Event graph paths (collapsible, default open)
+        if !event_graph_paths.is_empty() {
+            let egp_id = ui.make_persistent_id("detail_event_graph_paths");
+            egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                egp_id,
+                true,
+            )
+            .show_header(ui, |ui| {
+                ui.strong(format!("Event Graph Paths ({})", event_graph_paths.len()));
+            })
+            .body(|ui| {
+                for path in &event_graph_paths {
+                    ui.label(path);
+                }
+            });
+        }
+
         // CVE references (collapsible, default open when present)
         if !cve_refs.is_empty() {
             let cve_id = ui.make_persistent_id("detail_cve");
@@ -363,4 +384,166 @@ struct YaraDisplay {
 
 fn parse_obj_ref(s: &str) -> Option<(u32, u16)> {
     crate::util::parse_obj_ref(s)
+}
+
+fn event_graph_paths_for_finding(
+    result: &crate::analysis::AnalysisResult,
+    finding: &sis_pdf_core::model::Finding,
+) -> Vec<String> {
+    let parse_options = ParseOptions {
+        recover_xref: true,
+        deep: false,
+        strict: false,
+        max_objstm_bytes: 64 * 1024 * 1024,
+        max_objects: 250_000,
+        max_objstm_total_bytes: 256 * 1024 * 1024,
+        carve_stream_objects: false,
+        max_carved_objects: 0,
+        max_carved_bytes: 0,
+    };
+    let Ok(graph) = parse_pdf(&result.bytes, parse_options) else {
+        return Vec::new();
+    };
+    let classifications = graph.classify_objects();
+    let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&graph, &classifications);
+    let event_graph = sis_pdf_core::event_graph::build_event_graph(
+        &typed_graph,
+        &result.report.findings,
+        sis_pdf_core::event_graph::EventGraphOptions::default(),
+    );
+
+    let mut output = Vec::new();
+    for object in &finding.objects {
+        let Some((obj, gen)) = parse_obj_ref(object) else {
+            continue;
+        };
+        let start_id = format!("obj:{obj}:{gen}");
+        if !event_graph.node_index.contains_key(&start_id) {
+            continue;
+        }
+        if let Some(path) = shortest_path_to_event(&event_graph, &start_id, 8) {
+            output.push(format!("Trigger path: {}", render_event_path(&event_graph, &path)));
+        }
+        if let Some(path) = shortest_path_to_outcome(&event_graph, &start_id, 8) {
+            output.push(format!("Outcome path: {}", render_event_path(&event_graph, &path)));
+        }
+    }
+    output.sort();
+    output.dedup();
+    output
+}
+
+fn shortest_path_to_event(graph: &EventGraph, start: &str, max_hops: usize) -> Option<Vec<String>> {
+    shortest_path(graph, start, max_hops, true)
+}
+
+fn shortest_path_to_outcome(
+    graph: &EventGraph,
+    start: &str,
+    max_hops: usize,
+) -> Option<Vec<String>> {
+    shortest_path(graph, start, max_hops, false)
+}
+
+fn shortest_path(
+    graph: &EventGraph,
+    start: &str,
+    max_hops: usize,
+    reverse: bool,
+) -> Option<Vec<String>> {
+    let mut queue = std::collections::VecDeque::<String>::new();
+    let mut visited = std::collections::HashSet::<String>::new();
+    let mut parent = std::collections::HashMap::<String, String>::new();
+    let mut depth = std::collections::HashMap::<String, usize>::new();
+
+    queue.push_back(start.to_string());
+    visited.insert(start.to_string());
+    depth.insert(start.to_string(), 0);
+
+    while let Some(node_id) = queue.pop_front() {
+        let d = depth.get(&node_id).copied().unwrap_or(0);
+        if d >= max_hops {
+            continue;
+        }
+        let edge_indices = if reverse {
+            graph.reverse_index.get(&node_id)
+        } else {
+            graph.forward_index.get(&node_id)
+        };
+        let Some(indices) = edge_indices else {
+            continue;
+        };
+        for edge_idx in indices {
+            let Some(edge) = graph.edges.get(*edge_idx) else {
+                continue;
+            };
+            let next = if reverse { edge.from.clone() } else { edge.to.clone() };
+            if !visited.insert(next.clone()) {
+                continue;
+            }
+            parent.insert(next.clone(), node_id.clone());
+            depth.insert(next.clone(), d + 1);
+
+            let Some(node_index) = graph.node_index.get(&next) else {
+                continue;
+            };
+            let Some(node) = graph.nodes.get(*node_index) else {
+                continue;
+            };
+            if (reverse && matches!(node.kind, EventNodeKind::Event { .. }))
+                || (!reverse && matches!(node.kind, EventNodeKind::Outcome { .. }))
+            {
+                return Some(reconstruct_path(start, &next, &parent));
+            }
+            queue.push_back(next);
+        }
+    }
+    None
+}
+
+fn reconstruct_path(
+    start: &str,
+    end: &str,
+    parent: &std::collections::HashMap<String, String>,
+) -> Vec<String> {
+    let mut current = end.to_string();
+    let mut path = vec![current.clone()];
+    while current != start {
+        let Some(prev) = parent.get(&current) else {
+            break;
+        };
+        path.push(prev.clone());
+        current = prev.clone();
+    }
+    path.reverse();
+    path
+}
+
+fn render_event_path(graph: &EventGraph, path: &[String]) -> String {
+    path.iter()
+        .map(|node_id| {
+            graph
+                .node_index
+                .get(node_id)
+                .and_then(|idx| graph.nodes.get(*idx))
+                .map(node_label)
+                .unwrap_or_else(|| node_id.clone())
+        })
+        .collect::<Vec<_>>()
+        .join(" -> ")
+}
+
+fn node_label(node: &sis_pdf_core::event_graph::EventNode) -> String {
+    match &node.kind {
+        EventNodeKind::Object { obj, gen, .. } => format!("obj {} {}", obj, gen),
+        EventNodeKind::Event { label, .. } => format!("event {}", label),
+        EventNodeKind::Outcome { label, target, .. } => {
+            if let Some(target) = target {
+                format!("outcome {} ({})", label, target)
+            } else {
+                format!("outcome {}", label)
+            }
+        }
+        EventNodeKind::Collapse { label, .. } => format!("collapse {}", label),
+    }
 }

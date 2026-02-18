@@ -36,6 +36,8 @@ pub struct GraphViewerState {
     pub event_node_kind_filter: Option<String>,
     /// Event-mode trigger-class filter (`automatic`, `hidden`, `user`).
     pub event_trigger_filter: Option<String>,
+    /// Event-mode reader profile filter (`acrobat`, `pdfium`, `preview`).
+    pub event_reader_profile_filter: Option<String>,
     /// BFS depth limit from selected node. 0 = no limit (show all).
     pub depth_limit: usize,
     /// Minimum ideal edge length used by the layout engine (0 = auto).
@@ -71,6 +73,7 @@ impl Default for GraphViewerState {
             chain_overlay: false,
             event_node_kind_filter: None,
             event_trigger_filter: None,
+            event_reader_profile_filter: None,
             depth_limit: 0,
             min_edge_length: 0.0,
             show_labels: true,
@@ -551,6 +554,33 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
                         }
                     }
                 });
+
+            ui.label("Reader:");
+            egui::ComboBox::from_id_salt("graph_event_reader_filter")
+                .selected_text(
+                    app.graph_state
+                        .event_reader_profile_filter
+                        .clone()
+                        .unwrap_or_else(|| "all".to_string()),
+                )
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(
+                            app.graph_state.event_reader_profile_filter.is_none(),
+                            "all",
+                        )
+                        .clicked()
+                    {
+                        app.graph_state.event_reader_profile_filter = None;
+                    }
+                    for value in ["acrobat", "pdfium", "preview"] {
+                        let selected =
+                            app.graph_state.event_reader_profile_filter.as_deref() == Some(value);
+                        if ui.selectable_label(selected, value).clicked() {
+                            app.graph_state.event_reader_profile_filter = Some(value.to_string());
+                        }
+                    }
+                });
             ui.separator();
         }
 
@@ -706,7 +736,36 @@ fn build_event_graph_for_gui(
         &result.report.findings,
         sis_pdf_core::event_graph::EventGraphOptions::default(),
     );
-    graph_data::from_event_graph(&event_graph)
+    let mut graph = graph_data::from_event_graph(&event_graph)?;
+    annotate_reader_profiles(&mut graph, &result.report.findings);
+    Ok(graph)
+}
+
+fn annotate_reader_profiles(graph: &mut GraphData, findings: &[sis_pdf_core::model::Finding]) {
+    for finding in findings {
+        if finding.reader_impacts.is_empty() {
+            continue;
+        }
+        let profiles = finding
+            .reader_impacts
+            .iter()
+            .map(|impact| format!("reader:{}", impact.profile.name()))
+            .collect::<Vec<_>>();
+        for object_ref in &finding.objects {
+            let Some((obj, gen)) = crate::util::parse_obj_ref(object_ref) else {
+                continue;
+            };
+            for node in &mut graph.nodes {
+                if node.object_ref == Some((obj, gen)) {
+                    for profile in &profiles {
+                        if !node.roles.iter().any(|existing| existing == profile) {
+                            node.roles.push(profile.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Rebuild the graph (e.g., after filter changes).
@@ -757,6 +816,13 @@ fn build_visible_node_set(app: &SisApp, graph: &GraphData) -> std::collections::
                 if node.obj_type.eq_ignore_ascii_case("event") {
                     continue;
                 }
+            }
+        }
+
+        if let Some(reader_filter) = app.graph_state.event_reader_profile_filter.as_deref() {
+            let token = format!("reader:{reader_filter}");
+            if !node.roles.iter().any(|role| role.eq_ignore_ascii_case(&token)) {
+                continue;
             }
         }
 

@@ -221,12 +221,30 @@ When using text/readable output, the `--chain-summary` flag (and the REPL prompt
 ```bash
 sis query sample.pdf actions.chains
 sis query sample.pdf actions.chains.count
+sis query sample.pdf actions.chains.all
+sis query sample.pdf actions.chains.all.count
 sis query sample.pdf actions.chains --where "depth >= 3"
 sis query sample.pdf actions.chains --where "has_js == true"
 sis query sample.pdf actions.chains --format json
 ```
 
 `actions.chains` also supports the `--format dot` export that can be rendered with Graphviz.
+Use `actions.chains.all` (and `actions.chains.js.all`) to include single-item chains when needed for forensic completeness.
+
+## Structure Graph Queries
+
+Use `graph.structure` when you want classic ORG output plus typed-edge and action-path summaries:
+
+```bash
+sis query sample.pdf graph.structure
+sis query sample.pdf graph.structure --format json
+sis query sample.pdf graph.structure --format dot
+```
+
+The JSON output includes:
+- `typed_edges` (`total_edges`, `suspicious_edges`, `by_type`)
+- `action_paths` (`total_chains`, `multi_step_chains`, `automatic_chains`, `js_chains`, `external_chains`)
+- `path_helpers` (`reachable_from_trigger`, `paths_to_outcome`)
 
 ## Event Graph Queries
 
@@ -256,6 +274,10 @@ Use this sequence when triaging suspicious PDFs:
 1. Start with structure to confirm parser-level relationships:
 ```bash
 sis query sample.pdf graph.org --format dot
+```
+Or use the enriched structure export:
+```bash
+sis query sample.pdf graph.structure --format json
 ```
 2. Switch to event graph to identify execution-relevant paths:
 ```bash

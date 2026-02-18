@@ -6877,11 +6877,13 @@ fn export_structure_json(
     let org = sis_pdf_core::org_export::export_org_json(org_graph);
     let typed_edge_stats = typed_edge_type_stats(typed_graph);
     let path_summary = action_path_summary(typed_graph);
+    let helpers = structure_path_helpers(typed_graph);
     json!({
         "type": "structure_graph",
         "org": org,
         "typed_edges": typed_edge_stats,
         "action_paths": path_summary,
+        "path_helpers": helpers,
     })
 }
 
@@ -6892,6 +6894,7 @@ fn export_structure_dot(
     let mut dot = sis_pdf_core::org_export::export_org_dot(org_graph);
     let typed_edge_stats = typed_edge_type_stats(typed_graph);
     let path_summary = action_path_summary(typed_graph);
+    let helpers = structure_path_helpers(typed_graph);
     let edge_type_count = typed_edge_stats
         .get("by_type")
         .and_then(|v| v.as_array())
@@ -6899,9 +6902,14 @@ fn export_structure_dot(
         .unwrap_or(0);
     let multi_step = path_summary.get("multi_step_chains").and_then(|v| v.as_u64()).unwrap_or(0);
     let max_len = path_summary.get("max_chain_length").and_then(|v| v.as_u64()).unwrap_or(0);
+    let helper_count = helpers
+        .get("reachable_from_trigger")
+        .and_then(|v| v.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
     let overlay = format!(
-        "  // structure overlay: {} typed edge types, multi-step chains={}, max_chain_length={}\n",
-        edge_type_count, multi_step, max_len
+        "  // structure overlay: {} typed edge types, multi-step chains={}, max_chain_length={}, trigger_helpers={}\n",
+        edge_type_count, multi_step, max_len, helper_count
     );
     if let Some(index) = dot.rfind('}') {
         dot.insert_str(index, &overlay);
@@ -6909,6 +6917,70 @@ fn export_structure_dot(
         dot.push_str(&overlay);
     }
     dot
+}
+
+fn structure_path_helpers(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+) -> serde_json::Value {
+    let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(typed_graph);
+    let chains = path_finder.find_all_action_chains();
+
+    let mut trigger_stats = BTreeMap::<String, (usize, usize)>::new();
+    let mut outcome_paths = Vec::new();
+
+    for chain in &chains {
+        let trigger = chain.trigger.as_str().to_string();
+        let entry = trigger_stats.entry(trigger).or_insert((0, 0));
+        entry.0 += 1;
+        let mut reached = std::collections::HashSet::<(u32, u16)>::new();
+        for edge in &chain.edges {
+            reached.insert(edge.dst);
+        }
+        entry.1 += reached.len();
+
+        if chain.involves_external || chain.involves_js {
+            let mut steps = Vec::new();
+            for edge in &chain.edges {
+                steps.push(format!(
+                    "{} {} -{}-> {} {}",
+                    edge.src.0,
+                    edge.src.1,
+                    edge.edge_type.as_str(),
+                    edge.dst.0,
+                    edge.dst.1
+                ));
+            }
+            outcome_paths.push(json!({
+                "trigger": chain.trigger.as_str(),
+                "automatic": chain.automatic,
+                "length": chain.length(),
+                "involves_js": chain.involves_js,
+                "involves_external": chain.involves_external,
+                "payload": chain.payload.map(|(obj, gen)| format!("{obj} {gen} R")),
+                "steps": steps,
+            }));
+        }
+    }
+
+    let reachable_from_trigger = trigger_stats
+        .into_iter()
+        .map(|(trigger, (chain_count, reachable_nodes))| {
+            json!({
+                "trigger": trigger,
+                "chain_count": chain_count,
+                "reachable_nodes": reachable_nodes,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if outcome_paths.len() > 8 {
+        outcome_paths.truncate(8);
+    }
+
+    json!({
+        "reachable_from_trigger": reachable_from_trigger,
+        "paths_to_outcome": outcome_paths,
+    })
 }
 
 fn typed_edge_type_stats(
@@ -8933,6 +9005,8 @@ mod tests {
                     assert!(value["typed_edges"]["total_edges"].is_number());
                     assert!(value["typed_edges"]["by_type"].is_array());
                     assert!(value["action_paths"]["total_chains"].is_number());
+                    assert!(value["path_helpers"]["reachable_from_trigger"].is_array());
+                    assert!(value["path_helpers"]["paths_to_outcome"].is_array());
                 }
                 other => panic!("Unexpected result type: {:?}", other),
             }

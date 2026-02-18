@@ -441,7 +441,8 @@ mod tests {
 
     #[test]
     fn intent_connectivity_boost_adds_signal_weight_for_connected_network_path() {
-        let mut findings = vec![make_finding("f1", "js_present"), make_finding("f2", "uri_listing")];
+        let mut findings =
+            vec![make_finding("f1", "js_present"), make_finding("f2", "uri_listing")];
         let mut baseline_findings = findings.clone();
         let baseline = apply_intent(&mut baseline_findings);
         let connected = apply_intent_with_event_graph(
