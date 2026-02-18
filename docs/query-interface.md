@@ -238,6 +238,7 @@ sis query sample.pdf graph.event
 sis query sample.pdf graph.event --format json
 sis query sample.pdf graph.event --where "event_type == 'DocumentOpen'"
 sis query sample.pdf graph.event --where "outcome_type == 'NetworkEgress'"
+sis query sample.pdf graph.event.hops 2 --where "outcome_type == 'ExternalLaunch'"
 sis query sample.pdf graph.action --format dot
 ```
 
@@ -247,6 +248,31 @@ Useful predicate keys for `graph.event` are exposed via `meta` fields:
 - `node_kind` (`event`, `outcome`, `object`, `collapse`)
 - `trigger_class` (`automatic`, `hidden`, `user`)
 - `target`
+
+## Structure vs Event Graph Playbook
+
+Use this sequence when triaging suspicious PDFs:
+
+1. Start with structure to confirm parser-level relationships:
+```bash
+sis query sample.pdf graph.org --format dot
+```
+2. Switch to event graph to identify execution-relevant paths:
+```bash
+sis query sample.pdf graph.event --format json
+```
+3. Focus on automatic entry points:
+```bash
+sis query sample.pdf graph.event --where "trigger_class == 'automatic'"
+```
+4. Focus on concrete outcomes:
+```bash
+sis query sample.pdf graph.event --where "outcome_type == 'NetworkEgress'"
+```
+5. Reduce noise with local induced subgraph export:
+```bash
+sis query sample.pdf graph.event.hops 2 --where "outcome_type == 'NetworkEgress'"
+```
 
 ## XFA form queries
 

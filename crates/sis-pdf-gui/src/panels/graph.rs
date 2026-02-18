@@ -33,6 +33,10 @@ pub struct GraphViewerState {
     pub chain_filter: bool,
     /// Whether to overlay the selected chain path.
     pub chain_overlay: bool,
+    /// Event-mode node-kind filter (`event`, `outcome`, `object`, `collapse`).
+    pub event_node_kind_filter: Option<String>,
+    /// Event-mode trigger-class filter (`automatic`, `hidden`, `user`).
+    pub event_trigger_filter: Option<String>,
     /// BFS depth limit from selected node. 0 = no limit (show all).
     pub depth_limit: usize,
     /// Minimum ideal edge length used by the layout engine (0 = auto).
@@ -140,11 +144,18 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Pre-extract data we need for rendering, to avoid borrow issues
     let node_count = graph.nodes.len();
-    let node_data: Vec<(f64, f64, String, String, Vec<String>)> = graph
+    let node_data: Vec<(f64, f64, String, String, Vec<String>, Option<f32>)> = graph
         .nodes
         .iter()
         .map(|n| {
-            (n.position[0], n.position[1], n.obj_type.clone(), n.label.clone(), n.roles.clone())
+            (
+                n.position[0],
+                n.position[1],
+                n.obj_type.clone(),
+                n.label.clone(),
+                n.roles.clone(),
+                n.confidence,
+            )
         })
         .collect();
 
@@ -153,6 +164,7 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     let selected_chain = app.selected_chain;
     let chain_overlay = build_chain_overlay(app);
+    let visible_nodes = build_visible_node_set(app, graph);
 
     let pan = app.graph_state.pan;
     let zoom = if app.graph_state.zoom == 0.0 { 1.0 } else { app.graph_state.zoom };
@@ -214,6 +226,9 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Draw edges
     for &(from_idx, to_idx, suspicious) in &edge_data {
+        if !visible_nodes.contains(&from_idx) || !visible_nodes.contains(&to_idx) {
+            continue;
+        }
         let (fx, fy) = (node_data[from_idx].0, node_data[from_idx].1);
         let (tx, ty) = (node_data[to_idx].0, node_data[to_idx].1);
         let p1 = to_screen(fx, fy);
@@ -267,13 +282,27 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     let pointer_pos = ui.input(|i| i.pointer.hover_pos());
 
-    for (i, (gx, gy, ref obj_type, ref label, ref _roles)) in node_data.iter().enumerate() {
+    for (i, (gx, gy, ref obj_type, ref label, ref _roles, confidence)) in
+        node_data.iter().enumerate()
+    {
+        if !visible_nodes.contains(&i) {
+            continue;
+        }
         let p = to_screen(*gx, *gy);
         if !rect.contains(p) {
             continue;
         }
 
         let mut colour = node_colour(obj_type);
+        if obj_type.eq_ignore_ascii_case("outcome") {
+            let intensity = confidence.unwrap_or(0.5).clamp(0.2, 1.0);
+            let scale = 0.5 + intensity * 0.5;
+            colour = egui::Color32::from_rgb(
+                (colour.r() as f32 * scale) as u8,
+                (colour.g() as f32 * scale) as u8,
+                (colour.b() as f32 * scale) as u8,
+            );
+        }
 
         if dim_non_chain && !chain_overlay.node_set.contains(&i) {
             colour = egui::Color32::from_rgba_premultiplied(80, 80, 80, 60);
@@ -315,7 +344,7 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Show tooltip for hovered node
     if let Some(hi) = hovered {
-        let (_, _, ref obj_type, ref label, ref roles) = node_data[hi];
+        let (_, _, ref obj_type, ref label, ref roles, _) = node_data[hi];
         egui::Tooltip::always_open(
             ui.ctx().clone(),
             ui.layer_id(),
@@ -337,7 +366,7 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         if let Some(pointer) = pointer_pos {
             let mut closest = None;
             let mut closest_dist = f64::MAX;
-            for (i, (gx, gy, _, _, _)) in node_data.iter().enumerate() {
+            for (i, (gx, gy, _, _, _, _)) in node_data.iter().enumerate() {
                 let p = to_screen(*gx, *gy);
                 let dx = (pointer.x - p.x) as f64;
                 let dy = (pointer.y - p.y) as f64;
@@ -391,6 +420,57 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
         }
 
         ui.separator();
+
+        if app.graph_state.mode == GraphViewMode::Event {
+            ui.label("Node kind:");
+            egui::ComboBox::from_id_salt("graph_event_node_kind_filter")
+                .selected_text(
+                    app.graph_state
+                        .event_node_kind_filter
+                        .clone()
+                        .unwrap_or_else(|| "all".to_string()),
+                )
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(app.graph_state.event_node_kind_filter.is_none(), "all")
+                        .clicked()
+                    {
+                        app.graph_state.event_node_kind_filter = None;
+                    }
+                    for value in ["event", "outcome", "object", "collapse"] {
+                        let selected =
+                            app.graph_state.event_node_kind_filter.as_deref() == Some(value);
+                        if ui.selectable_label(selected, value).clicked() {
+                            app.graph_state.event_node_kind_filter = Some(value.to_string());
+                        }
+                    }
+                });
+
+            ui.label("Trigger:");
+            egui::ComboBox::from_id_salt("graph_event_trigger_filter")
+                .selected_text(
+                    app.graph_state
+                        .event_trigger_filter
+                        .clone()
+                        .unwrap_or_else(|| "all".to_string()),
+                )
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(app.graph_state.event_trigger_filter.is_none(), "all")
+                        .clicked()
+                    {
+                        app.graph_state.event_trigger_filter = None;
+                    }
+                    for value in ["automatic", "hidden", "user"] {
+                        let selected =
+                            app.graph_state.event_trigger_filter.as_deref() == Some(value);
+                        if ui.selectable_label(selected, value).clicked() {
+                            app.graph_state.event_trigger_filter = Some(value.to_string());
+                        }
+                    }
+                });
+            ui.separator();
+        }
 
         // Type filter combo
         ui.label("Type:");
@@ -585,6 +665,33 @@ fn run_layout_step(app: &mut SisApp) {
         );
         app.graph_state.layout = None;
     }
+}
+
+fn build_visible_node_set(app: &SisApp, graph: &GraphData) -> std::collections::HashSet<usize> {
+    let mut visible = std::collections::HashSet::new();
+    for (idx, node) in graph.nodes.iter().enumerate() {
+        if app.graph_state.mode != GraphViewMode::Event {
+            visible.insert(idx);
+            continue;
+        }
+
+        if let Some(kind_filter) = app.graph_state.event_node_kind_filter.as_deref() {
+            if !node.obj_type.eq_ignore_ascii_case(kind_filter) {
+                continue;
+            }
+        }
+
+        if let Some(trigger_filter) = app.graph_state.event_trigger_filter.as_deref() {
+            if !node.roles.iter().any(|role| role.eq_ignore_ascii_case(trigger_filter)) {
+                if node.obj_type.eq_ignore_ascii_case("event") {
+                    continue;
+                }
+            }
+        }
+
+        visible.insert(idx);
+    }
+    visible
 }
 
 struct ChainOverlay {

@@ -80,6 +80,8 @@ pub enum EventNodeKind {
         source_obj: Option<(u32, u16)>,
         evidence: Vec<String>,
         confidence_source: Option<String>,
+        confidence_score: Option<u8>,
+        severity_hint: Option<String>,
     },
     Collapse {
         label: String,
@@ -231,6 +233,8 @@ pub fn build_event_graph(
                     source_obj,
                     evidence: vec![edge.edge_type.as_str().to_string()],
                     confidence_source: Some("typed_edge".to_string()),
+                    confidence_score: Some(70),
+                    severity_hint: Some("medium".to_string()),
                 },
             });
             edges.push(EventEdge {
@@ -275,6 +279,8 @@ pub fn build_event_graph(
                 source_obj: Some(base_ref),
                 evidence: vec![finding.id.clone()],
                 confidence_source: Some("finding".to_string()),
+                confidence_score: Some(confidence_to_score(finding.confidence)),
+                severity_hint: Some(format!("{:?}", finding.severity).to_ascii_lowercase()),
             },
         });
 
@@ -458,6 +464,17 @@ fn infer_outcome_from_finding(
         }
     }
     None
+}
+
+fn confidence_to_score(confidence: crate::model::Confidence) -> u8 {
+    match confidence {
+        crate::model::Confidence::Certain => 95,
+        crate::model::Confidence::Strong => 85,
+        crate::model::Confidence::Probable => 72,
+        crate::model::Confidence::Tentative => 55,
+        crate::model::Confidence::Weak => 35,
+        crate::model::Confidence::Heuristic => 45,
+    }
 }
 
 fn parse_object_ref(value: &str) -> Option<(u32, u16)> {

@@ -169,6 +169,7 @@ mod tests {
                 obj_type: "catalog".to_string(),
                 label: "1 0".to_string(),
                 roles: vec![],
+                confidence: None,
                 position: [0.0, 0.0],
             },
             GraphNode {
@@ -176,6 +177,7 @@ mod tests {
                 obj_type: "page".to_string(),
                 label: "2 0".to_string(),
                 roles: vec![],
+                confidence: None,
                 position: [0.0, 0.0],
             },
             GraphNode {
@@ -183,6 +185,7 @@ mod tests {
                 obj_type: "action".to_string(),
                 label: "3 0".to_string(),
                 roles: vec![],
+                confidence: None,
                 position: [0.0, 0.0],
             },
         ];
@@ -257,6 +260,7 @@ mod tests {
             obj_type: "catalog".to_string(),
             label: "1 0".to_string(),
             roles: vec![],
+            confidence: None,
             position: [0.0, 0.0],
         }];
         let mut node_index = HashMap::new();
@@ -291,6 +295,7 @@ mod tests {
             obj_type: "other".to_string(),
             label: "42 0".to_string(),
             roles: vec![],
+            confidence: None,
             position: [5_000.0, -200.0],
         }];
         let mut node_index = HashMap::new();

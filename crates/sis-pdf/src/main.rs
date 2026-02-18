@@ -3517,6 +3517,9 @@ fn print_repl_help() {
     println!(
         "  graph.event        - Export event graph with outcomes (dot/text output, use :json for JSON)"
     );
+    println!(
+        "  graph.event.hops N - Export induced event subgraph around matched nodes up to N hops"
+    );
     println!("  ir                 - Export intent graph (text output, use :json for JSON)");
     println!();
     println!("REPL commands:");

@@ -23,6 +23,7 @@ pub struct GraphNode {
     pub obj_type: String,
     pub label: String,
     pub roles: Vec<String>,
+    pub confidence: Option<f32>,
     pub position: [f64; 2],
 }
 
@@ -77,20 +78,29 @@ pub fn from_event_graph(data: &EventGraph) -> Result<GraphData, GraphError> {
     let mut id_to_idx = HashMap::new();
 
     for node in &data.nodes {
-        let (object_ref, obj_type, label, mut roles) = match &node.kind {
+        let (object_ref, obj_type, label, mut roles, confidence) = match &node.kind {
             EventNodeKind::Object { obj, gen, obj_type } => (
                 Some((*obj, *gen)),
                 obj_type.clone().unwrap_or_else(|| "object".to_string()),
                 format!("{} {}", obj, gen),
                 Vec::new(),
+                None,
             ),
             EventNodeKind::Event { event_type, trigger, label, source_obj } => (
                 *source_obj,
                 "event".to_string(),
                 label.clone(),
                 vec![format!("{:?}", event_type), trigger.as_str().to_string()],
+                None,
             ),
-            EventNodeKind::Outcome { outcome_type, label, target, source_obj, .. } => (
+            EventNodeKind::Outcome {
+                outcome_type,
+                label,
+                target,
+                source_obj,
+                confidence_score,
+                ..
+            } => (
                 *source_obj,
                 "outcome".to_string(),
                 target
@@ -98,12 +108,14 @@ pub fn from_event_graph(data: &EventGraph) -> Result<GraphData, GraphError> {
                     .map(|value| format!("{label} ({value})"))
                     .unwrap_or_else(|| label.clone()),
                 vec![format!("{:?}", outcome_type)],
+                confidence_score.map(|value| value as f32 / 100.0),
             ),
             EventNodeKind::Collapse { label, member_count, .. } => (
                 None,
                 "collapse".to_string(),
                 format!("{label} ({member_count})"),
                 vec!["collapsed".to_string()],
+                None,
             ),
         };
         if !node.mitre_techniques.is_empty() {
@@ -115,7 +127,14 @@ pub fn from_event_graph(data: &EventGraph) -> Result<GraphData, GraphError> {
         if let (Some((obj, gen)), EventNodeKind::Object { .. }) = (object_ref, &node.kind) {
             node_index.insert((obj, gen), idx);
         }
-        nodes.push(GraphNode { object_ref, obj_type, label, roles, position: [0.0, 0.0] });
+        nodes.push(GraphNode {
+            object_ref,
+            obj_type,
+            label,
+            roles,
+            confidence,
+            position: [0.0, 0.0],
+        });
     }
 
     let mut edges = Vec::new();
@@ -215,6 +234,7 @@ fn build_graph(
             obj_type: obj.obj_type.clone(),
             label: format!("{} {}", obj.obj, obj.gen),
             roles: obj.roles.clone(),
+            confidence: None,
             position: [0.0, 0.0],
         });
     }

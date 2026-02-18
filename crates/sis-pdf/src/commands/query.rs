@@ -274,6 +274,8 @@ pub enum Query {
     ExportOrgJson,
     ExportEventDot,
     ExportEventJson,
+    ExportEventDotHops(usize),
+    ExportEventJsonHops(usize),
     ExportIrText,
     ExportIrJson,
     ExportFeatures,
@@ -640,6 +642,21 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "features.json" => Ok(Query::ExportFeaturesJson),
 
         _ => {
+            if let Some(rest) = input.strip_prefix("graph.event.hops ") {
+                let hops = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid hop count: {}", rest.trim()))?;
+                return Ok(Query::ExportEventDotHops(hops));
+            }
+            if let Some(rest) = input.strip_prefix("graph.action.hops ") {
+                let hops = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid hop count: {}", rest.trim()))?;
+                return Ok(Query::ExportEventDotHops(hops));
+            }
+
             // Try to parse ref/references query
             if let Some(rest) = input.strip_prefix("ref ").or(input.strip_prefix("references ")) {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
@@ -1257,6 +1274,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         OutputFormat::Json | OutputFormat::Jsonl | OutputFormat::Yaml => match query {
             Query::ExportOrgDot => Query::ExportOrgJson,
             Query::ExportEventDot => Query::ExportEventJson,
+            Query::ExportEventDotHops(hops) => Query::ExportEventJsonHops(hops),
             Query::ExportIrText => Query::ExportIrJson,
             Query::ExportFeatures => Query::ExportFeaturesJson,
             other => other,
@@ -1264,6 +1282,9 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         OutputFormat::Dot => match query {
             Query::ExportOrgJson | Query::ExportOrgDot => Query::ExportOrgDot,
             Query::ExportEventJson | Query::ExportEventDot => Query::ExportEventDot,
+            Query::ExportEventJsonHops(hops) | Query::ExportEventDotHops(hops) => {
+                Query::ExportEventDotHops(hops)
+            }
             _ => {
                 return Err(anyhow!(
                     "--format dot is only supported for graph.org and graph.event queries"
@@ -1277,6 +1298,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         OutputFormat::Text | OutputFormat::Readable => match query {
             Query::ExportOrgJson => Query::ExportOrgDot,
             Query::ExportEventJson => Query::ExportEventDot,
+            Query::ExportEventJsonHops(hops) => Query::ExportEventDotHops(hops),
             Query::ExportIrJson => Query::ExportIrText,
             Query::ExportFeaturesJson => Query::ExportFeatures,
             other => other,
@@ -2258,6 +2280,34 @@ pub fn execute_query_with_context(
                 if let Some(pred) = predicate {
                     event_graph = filter_event_graph_by_predicate(event_graph, pred);
                 }
+                let json_output = sis_pdf_core::event_graph::export_event_graph_json(&event_graph);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportEventDotHops(hops) => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                let seed_nodes =
+                    event_graph_seed_nodes(&event_graph, predicate).unwrap_or_else(HashSet::new);
+                let event_graph = induced_event_subgraph(event_graph, &seed_nodes, *hops);
+                let dot_output = sis_pdf_core::event_graph::export_event_graph_dot(&event_graph);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportEventJsonHops(hops) => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                let seed_nodes =
+                    event_graph_seed_nodes(&event_graph, predicate).unwrap_or_else(HashSet::new);
+                let event_graph = induced_event_subgraph(event_graph, &seed_nodes, *hops);
                 let json_output = sis_pdf_core::event_graph::export_event_graph_json(&event_graph);
                 Ok(QueryResult::Structure(json_output))
             }
@@ -4122,6 +4172,8 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::ChainsJs
         | Query::ExportEventDot
         | Query::ExportEventJson
+        | Query::ExportEventDotHops(_)
+        | Query::ExportEventJsonHops(_)
         | Query::Findings
         | Query::FindingsCount
         | Query::FindingsBySeverity(_)
@@ -5173,6 +5225,85 @@ fn filter_event_graph_by_predicate(
     rebuild_event_graph_indices(event_graph.schema_version, nodes, edges)
 }
 
+fn event_graph_seed_nodes(
+    event_graph: &sis_pdf_core::event_graph::EventGraph,
+    predicate: Option<&PredicateExpr>,
+) -> Option<HashSet<String>> {
+    use sis_pdf_core::event_graph::EventNodeKind;
+
+    if let Some(predicate) = predicate {
+        let mut seeds = HashSet::new();
+        for node in &event_graph.nodes {
+            if let Some(ctx) = predicate_context_for_event_graph_node(node) {
+                if predicate.evaluate(&ctx) {
+                    seeds.insert(node.id.clone());
+                }
+            }
+        }
+        return Some(seeds);
+    }
+
+    let mut defaults = HashSet::new();
+    for node in &event_graph.nodes {
+        match node.kind {
+            EventNodeKind::Event { .. } | EventNodeKind::Outcome { .. } => {
+                defaults.insert(node.id.clone());
+            }
+            _ => {}
+        }
+    }
+    Some(defaults)
+}
+
+fn induced_event_subgraph(
+    event_graph: sis_pdf_core::event_graph::EventGraph,
+    seed_nodes: &HashSet<String>,
+    hops: usize,
+) -> sis_pdf_core::event_graph::EventGraph {
+    if seed_nodes.is_empty() {
+        return rebuild_event_graph_indices(event_graph.schema_version, Vec::new(), Vec::new());
+    }
+
+    let mut frontier: Vec<String> = seed_nodes.iter().cloned().collect();
+    let mut seen: HashSet<String> = seed_nodes.clone();
+    let mut depth = 0usize;
+    while depth < hops {
+        let mut next = Vec::new();
+        for node_id in &frontier {
+            if let Some(outgoing) = event_graph.forward_index.get(node_id) {
+                for edge_idx in outgoing {
+                    let edge = &event_graph.edges[*edge_idx];
+                    if seen.insert(edge.to.clone()) {
+                        next.push(edge.to.clone());
+                    }
+                }
+            }
+            if let Some(incoming) = event_graph.reverse_index.get(node_id) {
+                for edge_idx in incoming {
+                    let edge = &event_graph.edges[*edge_idx];
+                    if seen.insert(edge.from.clone()) {
+                        next.push(edge.from.clone());
+                    }
+                }
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+        depth += 1;
+    }
+
+    let nodes =
+        event_graph.nodes.into_iter().filter(|node| seen.contains(&node.id)).collect::<Vec<_>>();
+    let edges = event_graph
+        .edges
+        .into_iter()
+        .filter(|edge| seen.contains(&edge.from) && seen.contains(&edge.to))
+        .collect::<Vec<_>>();
+    rebuild_event_graph_indices(event_graph.schema_version, nodes, edges)
+}
+
 fn rebuild_event_graph_indices(
     schema_version: &'static str,
     nodes: Vec<sis_pdf_core::event_graph::EventNode>,
@@ -5227,6 +5358,8 @@ fn predicate_context_for_event_graph_node(
             target,
             source_obj,
             confidence_source,
+            confidence_score,
+            severity_hint,
             ..
         } => {
             let outcome_name = format!("{:?}", outcome_type);
@@ -5241,6 +5374,12 @@ fn predicate_context_for_event_graph_node(
             }
             if let Some(confidence) = confidence_source {
                 meta.insert("confidence_source".to_string(), confidence.clone());
+            }
+            if let Some(score) = confidence_score {
+                meta.insert("confidence_score".to_string(), score.to_string());
+            }
+            if let Some(severity) = severity_hint {
+                meta.insert("severity_hint".to_string(), severity.clone());
             }
             if *outcome_type == OutcomeType::NetworkEgress {
                 meta.insert("risk".to_string(), "high".to_string());
@@ -8471,6 +8610,8 @@ mod tests {
         assert!(matches!(query, Query::ExportEventJson));
         let query = parse_query("graph.action").expect("action alias query");
         assert!(matches!(query, Query::ExportEventDot));
+        let query = parse_query("graph.event.hops 2").expect("event hops query");
+        assert!(matches!(query, Query::ExportEventDotHops(2)));
         let query = parse_query("ir").expect("ir query");
         assert!(matches!(query, Query::ExportIrText));
         let query = parse_query("ir.json").expect("ir json query");
@@ -8560,6 +8701,17 @@ mod tests {
                 other => panic!("expected structure, got {:?}", other),
             }
         }
+    }
+
+    #[test]
+    fn apply_output_format_handles_event_hops_variants() {
+        let json_variant = apply_output_format(Query::ExportEventDotHops(2), OutputFormat::Json)
+            .expect("json conversion");
+        assert!(matches!(json_variant, Query::ExportEventJsonHops(2)));
+
+        let dot_variant = apply_output_format(Query::ExportEventJsonHops(3), OutputFormat::Dot)
+            .expect("dot conversion");
+        assert!(matches!(dot_variant, Query::ExportEventDotHops(3)));
     }
 
     #[test]

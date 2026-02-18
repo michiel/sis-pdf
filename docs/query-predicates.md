@@ -16,6 +16,7 @@ Predicate filtering is supported for:
 - `urls`, `urls.count`
 - `events`, `events.document`, `events.page`, `events.field`, `events.count`
 - `graph.event`, `graph.event.dot`, `graph.event.json` (and `graph.action*` alias)
+- `graph.event.hops <n>` and `graph.action.hops <n>` (induced subgraph around matched nodes)
 - `findings`, `findings.count`, `findings.kind`, `findings.high`, `findings.medium`, `findings.low`, `findings.info`, `findings.critical`
 - `findings.composite`, `findings.composite.count`
 - `correlations`, `correlations.count`
