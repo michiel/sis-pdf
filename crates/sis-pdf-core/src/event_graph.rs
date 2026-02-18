@@ -914,6 +914,15 @@ fn severity_rank(value: &str) -> u8 {
     }
 }
 
+fn truncation_priority(kind: &EventNodeKind) -> u8 {
+    match kind {
+        EventNodeKind::Event { .. } => 0,
+        EventNodeKind::Outcome { .. } => 1,
+        EventNodeKind::Object { .. } => 2,
+        EventNodeKind::Collapse { .. } => 3,
+    }
+}
+
 fn enforce_graph_limits(
     nodes: &mut Vec<EventNode>,
     edges: &mut Vec<EventEdge>,
@@ -926,6 +935,7 @@ fn enforce_graph_limits(
     let mut dropped_edges = 0usize;
 
     if nodes.len() > max_nodes {
+        nodes.sort_by_key(|n| truncation_priority(&n.kind));
         dropped_nodes = nodes.len() - max_nodes;
         let dropped_ids =
             nodes.iter().skip(max_nodes).map(|node| node.id.clone()).collect::<BTreeSet<_>>();
@@ -1027,6 +1037,105 @@ mod tests {
         assert_eq!(dot_escape("{braces}"), "\\{braces\\}");
         assert_eq!(dot_escape("<angle>"), "\\<angle\\>");
         assert_eq!(dot_escape("pipe|char"), "pipe\\|char");
+    }
+
+    #[test]
+    fn test_truncation_preserves_event_and_outcome_nodes() {
+        let mut nodes = vec![
+            EventNode {
+                id: "obj:10:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 10, gen: 0, obj_type: None },
+            },
+            EventNode {
+                id: "obj:11:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 11, gen: 0, obj_type: None },
+            },
+            EventNode {
+                id: "obj:12:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 12, gen: 0, obj_type: None },
+            },
+            EventNode {
+                id: "obj:13:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 13, gen: 0, obj_type: None },
+            },
+            EventNode {
+                id: "obj:14:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 14, gen: 0, obj_type: None },
+            },
+            EventNode {
+                id: "ev:1:0:DocumentOpen:0".into(),
+                mitre_techniques: vec!["T1204.002".into()],
+                kind: EventNodeKind::Event {
+                    event_type: EventType::DocumentOpen,
+                    trigger: TriggerClass::Automatic,
+                    label: "Open".into(),
+                    source_obj: Some((1, 0)),
+                },
+            },
+            EventNode {
+                id: "ev:2:0:NextAction:1".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Event {
+                    event_type: EventType::NextAction,
+                    trigger: TriggerClass::Hidden,
+                    label: "Next".into(),
+                    source_obj: Some((2, 0)),
+                },
+            },
+            EventNode {
+                id: "ev:3:0:NextAction:2".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Event {
+                    event_type: EventType::NextAction,
+                    trigger: TriggerClass::Hidden,
+                    label: "Next2".into(),
+                    source_obj: Some((3, 0)),
+                },
+            },
+            EventNode {
+                id: "out:4:0:NetworkEgress:0".into(),
+                mitre_techniques: vec!["T1071".into()],
+                kind: EventNodeKind::Outcome {
+                    outcome_type: OutcomeType::NetworkEgress,
+                    label: "Network".into(),
+                    target: None,
+                    source_obj: Some((4, 0)),
+                    evidence: Vec::new(),
+                    confidence_source: None,
+                    confidence_score: None,
+                    severity_hint: None,
+                },
+            },
+            EventNode {
+                id: "out:5:0:CodeExecution:1".into(),
+                mitre_techniques: vec!["T1059.007".into()],
+                kind: EventNodeKind::Outcome {
+                    outcome_type: OutcomeType::CodeExecution,
+                    label: "Code exec".into(),
+                    target: None,
+                    source_obj: Some((5, 0)),
+                    evidence: Vec::new(),
+                    confidence_source: None,
+                    confidence_score: None,
+                    severity_hint: None,
+                },
+            },
+        ];
+        let mut edges = Vec::new();
+        // Cap at 6: all 3 Event + 2 Outcome should survive, plus 1 Object
+        let truncation = enforce_graph_limits(&mut nodes, &mut edges, 6, 100);
+        assert!(truncation.is_some());
+        let event_count =
+            nodes.iter().filter(|n| matches!(n.kind, EventNodeKind::Event { .. })).count();
+        let outcome_count =
+            nodes.iter().filter(|n| matches!(n.kind, EventNodeKind::Outcome { .. })).count();
+        assert_eq!(event_count, 3, "all event nodes should survive truncation");
+        assert_eq!(outcome_count, 2, "all outcome nodes should survive truncation");
     }
 
     #[test]
