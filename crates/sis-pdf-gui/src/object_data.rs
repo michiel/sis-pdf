@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
 use sis_pdf_pdf::classification::ClassificationMap;
 use sis_pdf_pdf::decode::decode_stream;
-use sis_pdf_pdf::graph::{Deviation, ObjectGraph, XrefSectionSummary};
+use sis_pdf_pdf::graph::{Deviation, ObjectGraph, ParseOptions, XrefSectionSummary};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr};
 
 /// Maximum bytes to attempt decoding per stream for display purposes.
@@ -12,6 +12,18 @@ const MAX_STREAM_DECODE: usize = 64 * 1024; // 64 KB
 const MAX_PREVIEW_PIXELS: u64 = 16_000_000;
 const MAX_PREVIEW_RGBA_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_PREVIEW_DECODE_BYTES: u64 = 64 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy)]
+pub struct ObjectExtractOptions {
+    pub include_decoded_stream_bytes: bool,
+    pub include_image_preview: bool,
+}
+
+impl ObjectExtractOptions {
+    pub const FULL: Self = Self { include_decoded_stream_bytes: true, include_image_preview: true };
+    pub const WORKER_COMPACT: Self =
+        Self { include_decoded_stream_bytes: false, include_image_preview: false };
+}
 
 /// Owned summary of all objects extracted from a parsed PDF.
 ///
@@ -87,6 +99,16 @@ pub fn extract_object_data(
     graph: &ObjectGraph<'_>,
     classifications: &ClassificationMap,
 ) -> ObjectData {
+    extract_object_data_with_options(bytes, graph, classifications, ObjectExtractOptions::FULL)
+}
+
+/// Extract owned object data with configurable payload size controls.
+pub fn extract_object_data_with_options(
+    bytes: &[u8],
+    graph: &ObjectGraph<'_>,
+    classifications: &ClassificationMap,
+    options: ObjectExtractOptions,
+) -> ObjectData {
     let mut objects = Vec::with_capacity(graph.objects.len());
     let mut index = HashMap::new();
     let mut all_refs: Vec<Vec<(u32, u16)>> = Vec::with_capacity(graph.objects.len());
@@ -99,13 +121,13 @@ pub fn extract_object_data(
         if index.contains_key(&key) {
             // Update the existing entry (later version overrides)
             let existing_idx = index[&key];
-            let summary = extract_one_object(bytes, graph, entry, classifications);
+            let summary = extract_one_object(bytes, graph, entry, classifications, options);
             all_refs[existing_idx] = summary.references_from.clone();
             objects[existing_idx] = summary;
             continue;
         }
 
-        let summary = extract_one_object(bytes, graph, entry, classifications);
+        let summary = extract_one_object(bytes, graph, entry, classifications, options);
         let idx = objects.len();
         all_refs.push(summary.references_from.clone());
         objects.push(summary);
@@ -139,6 +161,7 @@ fn extract_one_object(
     #[allow(unused_variables)] graph: &ObjectGraph<'_>,
     entry: &sis_pdf_pdf::graph::ObjEntry<'_>,
     classifications: &ClassificationMap,
+    options: ObjectExtractOptions,
 ) -> ObjectSummary {
     let key = (entry.obj, entry.gen);
 
@@ -202,20 +225,22 @@ fn extract_one_object(
 
                 // Generate JPEG preview thumbnail
                 #[cfg(feature = "gui")]
-                if blob_kind == BlobKind::Jpeg {
+                if options.include_image_preview && blob_kind == BlobKind::Jpeg {
                     image_preview = decode_jpeg_preview(&decoded.data);
                 }
 
                 // Fallback: reconstruct raw pixel preview for non-JPEG image streams
                 #[cfg(feature = "gui")]
-                if image_preview.is_none() && obj_type == "image" {
+                if options.include_image_preview && image_preview.is_none() && obj_type == "image" {
                     if let PdfAtom::Stream(stream) = &entry.atom {
                         image_preview =
                             reconstruct_image_preview(&decoded.data, &stream.dict, graph);
                     }
                 }
 
-                stream_raw = Some(decoded.data.clone());
+                if options.include_decoded_stream_bytes {
+                    stream_raw = Some(decoded.data.clone());
+                }
                 if let Ok(text) = std::str::from_utf8(&decoded.data) {
                     let truncated = if text.len() > MAX_STREAM_DECODE {
                         &text[..MAX_STREAM_DECODE]
@@ -263,6 +288,32 @@ fn extract_one_object(
         references_from,
         references_to: Vec::new(),
     }
+}
+
+pub fn decode_stream_for_object(
+    bytes: &[u8],
+    obj: u32,
+    gen: u16,
+    max_decode_bytes: usize,
+) -> Option<Vec<u8>> {
+    let parse_opts = ParseOptions {
+        recover_xref: true,
+        deep: false,
+        strict: false,
+        max_objstm_bytes: max_decode_bytes,
+        max_objects: 250_000,
+        max_objstm_total_bytes: max_decode_bytes.saturating_mul(4),
+        carve_stream_objects: false,
+        max_carved_objects: 0,
+        max_carved_bytes: 0,
+    };
+    let graph = sis_pdf_pdf::graph::parse_pdf(bytes, parse_opts).ok()?;
+    let entry = graph.objects.iter().find(|entry| entry.obj == obj && entry.gen == gen)?;
+    let PdfAtom::Stream(stream) = &entry.atom else {
+        return None;
+    };
+    let decoded = decode_stream(bytes, stream, max_decode_bytes).ok()?;
+    Some(decoded.data)
 }
 
 fn extract_dict_entries(dict: &PdfDict<'_>) -> Vec<(String, String)> {

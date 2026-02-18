@@ -5,7 +5,7 @@ use sis_pdf_core::scan::{
 };
 use sis_pdf_pdf::graph::ParseOptions;
 
-use crate::object_data::{self, ObjectData};
+use crate::object_data::{self, ObjectData, ObjectExtractOptions};
 
 /// Browser security profile: non-configurable hard caps for WASM analysis.
 const MAX_FILE_SIZE: usize = 50 * 1024 * 1024; // 50 MB
@@ -92,14 +92,23 @@ pub fn analyze_for_worker(
     bytes: &[u8],
     file_name: &str,
 ) -> Result<WorkerAnalysisResult, AnalysisError> {
-    let result = analyze(bytes, file_name)?;
+    if bytes.len() > MAX_FILE_SIZE {
+        return Err(AnalysisError::FileTooLarge { size: bytes.len(), limit: MAX_FILE_SIZE });
+    }
+    let options = gui_scan_options();
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = run_scan_with_detectors(bytes, options, &detectors)
+        .map_err(|e| AnalysisError::ScanFailed(e.to_string()))?;
+    let object_data = extract_object_data_compact(bytes);
+    let pdf_version = extract_pdf_version(bytes);
+    let page_count = count_pages(&object_data);
     Ok(WorkerAnalysisResult {
-        report: result.report,
-        object_data: result.object_data,
-        file_name: result.file_name,
-        file_size: result.file_size,
-        pdf_version: result.pdf_version,
-        page_count: result.page_count,
+        report,
+        object_data,
+        file_name: file_name.to_string(),
+        file_size: bytes.len(),
+        pdf_version,
+        page_count,
     })
 }
 
@@ -154,6 +163,14 @@ fn gui_scan_options() -> ScanOptions {
 }
 
 fn extract_object_data(bytes: &[u8]) -> ObjectData {
+    extract_object_data_with_options(bytes, ObjectExtractOptions::FULL)
+}
+
+fn extract_object_data_compact(bytes: &[u8]) -> ObjectData {
+    extract_object_data_with_options(bytes, ObjectExtractOptions::WORKER_COMPACT)
+}
+
+fn extract_object_data_with_options(bytes: &[u8], options: ObjectExtractOptions) -> ObjectData {
     let parse_opts = ParseOptions {
         recover_xref: true,
         deep: false,
@@ -170,7 +187,7 @@ fn extract_object_data(bytes: &[u8]) -> ObjectData {
         Err(_) => return ObjectData::default(),
     };
     let classifications = graph.classify_objects();
-    object_data::extract_object_data(bytes, &graph, &classifications)
+    object_data::extract_object_data_with_options(bytes, &graph, &classifications, options)
 }
 
 /// Extract the PDF version from the `%PDF-X.Y` header.
@@ -200,6 +217,7 @@ fn count_pages(object_data: &ObjectData) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object_data::{extract_object_data_with_options, ObjectExtractOptions};
 
     #[test]
     fn rejects_oversized_file() {
@@ -259,5 +277,103 @@ mod tests {
             analysis.object_data.index.contains_key(&(1, 0)),
             "deserialised worker result should rebuild object lookup index"
         );
+    }
+
+    #[test]
+    fn worker_result_uses_compact_object_payload() {
+        let pdf = b"%PDF-1.4\n1 0 obj\n<< /Length 5 >>\nstream\nhello\nendstream\nendobj\nxref\n0 2\n0000000000 65535 f \n0000000009 00000 n \ntrailer\n<< /Size 2 /Root 1 0 R >>\nstartxref\n62\n%%EOF";
+        let worker = analyze_for_worker(pdf, "stream.pdf").expect("analysis should succeed");
+        let stream_obj = worker
+            .object_data
+            .objects
+            .iter()
+            .find(|obj| obj.has_stream)
+            .expect("expected stream object");
+        assert!(stream_obj.stream_raw.is_none(), "worker payload should omit decoded stream bytes");
+        assert!(
+            stream_obj.image_preview.is_none(),
+            "worker payload should omit image preview pixels"
+        );
+    }
+
+    #[test]
+    fn compact_object_payload_stays_within_budget_for_stream_heavy_pdf() {
+        let pdf = build_stream_heavy_pdf(120, 2048);
+        let parse_opts = ParseOptions {
+            recover_xref: true,
+            deep: false,
+            strict: false,
+            max_objstm_bytes: MAX_DECODE_BYTES,
+            max_objects: MAX_OBJECTS,
+            max_objstm_total_bytes: MAX_TOTAL_DECODED_BYTES,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
+        };
+        let graph = sis_pdf_pdf::graph::parse_pdf(&pdf, parse_opts).expect("parse heavy test PDF");
+        let classifications = graph.classify_objects();
+        let full = extract_object_data_with_options(
+            &pdf,
+            &graph,
+            &classifications,
+            ObjectExtractOptions::FULL,
+        );
+        let compact = extract_object_data_with_options(
+            &pdf,
+            &graph,
+            &classifications,
+            ObjectExtractOptions::WORKER_COMPACT,
+        );
+        let full_bytes = serde_json::to_vec(&full).expect("serialise full payload").len();
+        let compact_bytes = serde_json::to_vec(&compact).expect("serialise compact payload").len();
+
+        assert!(
+            compact_bytes < full_bytes / 3,
+            "compact payload should be materially smaller (compact={} full={})",
+            compact_bytes,
+            full_bytes
+        );
+        assert!(
+            compact_bytes <= 1_000_000,
+            "compact payload should stay within budget (got {} bytes)",
+            compact_bytes
+        );
+    }
+
+    fn build_stream_heavy_pdf(stream_count: usize, stream_len: usize) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let mut offsets: Vec<usize> = vec![0]; // xref object 0
+
+        bytes.extend_from_slice(b"%PDF-1.4\n");
+
+        // Root catalog object.
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(b"1 0 obj\n<< /Type /Catalog >>\nendobj\n");
+
+        // Stream objects.
+        let payload = vec![b'A'; stream_len];
+        for obj_num in 2..=(stream_count + 1) {
+            offsets.push(bytes.len());
+            let header = format!("{} 0 obj\n<< /Length {} >>\nstream\n", obj_num, stream_len);
+            bytes.extend_from_slice(header.as_bytes());
+            bytes.extend_from_slice(&payload);
+            bytes.extend_from_slice(b"\nendstream\nendobj\n");
+        }
+
+        let xref_offset = bytes.len();
+        let xref_header = format!("xref\n0 {}\n", offsets.len());
+        bytes.extend_from_slice(xref_header.as_bytes());
+        bytes.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            let line = format!("{:010} 00000 n \n", offset);
+            bytes.extend_from_slice(line.as_bytes());
+        }
+        let trailer = format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF",
+            offsets.len(),
+            xref_offset
+        );
+        bytes.extend_from_slice(trailer.as_bytes());
+        bytes
     }
 }

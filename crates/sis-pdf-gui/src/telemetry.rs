@@ -46,6 +46,13 @@ pub enum TelemetryEventKind {
     FindingSelected { index: usize },
     /// A filter was applied.
     FilterApplied { filter_type: String, value: String },
+    /// Browser worker analysis completed with transfer/parse timings.
+    WorkerAnalysisCompleted {
+        request_bytes: usize,
+        result_bytes: usize,
+        worker_roundtrip_ms: f64,
+        decode_ms: f64,
+    },
 }
 
 /// Frame-time percentiles (p50, p95, p99) in milliseconds.

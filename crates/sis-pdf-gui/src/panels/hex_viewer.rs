@@ -28,7 +28,14 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
                 .object_data
                 .index
                 .get(&(*obj, *gen))
-                .and_then(|&idx| result.object_data.objects[idx].stream_raw.clone());
+                .and_then(|&idx| result.object_data.objects[idx].stream_data_span)
+                .and_then(|(start, end)| {
+                    if start < end && end <= result.bytes.len() {
+                        Some(result.bytes[start..end].to_vec())
+                    } else {
+                        None
+                    }
+                });
             (bytes, label)
         }
     };

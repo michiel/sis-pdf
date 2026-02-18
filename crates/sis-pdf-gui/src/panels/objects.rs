@@ -313,7 +313,7 @@ fn show_object_meta(ui: &mut egui::Ui, app: &mut SisApp, detail: &ObjectDetail) 
             ui.label("");
             ui.horizontal(|ui| {
                 ui.label(if info.is_empty() { "yes".to_string() } else { info });
-                if detail.stream_raw.is_some() {
+                if detail.stream_source_raw.is_some() {
                     if ui.small_button("View raw").clicked() {
                         app.open_hex_for_stream(detail.obj, detail.gen);
                     }
@@ -324,10 +324,14 @@ fn show_object_meta(ui: &mut egui::Ui, app: &mut SisApp, detail: &ObjectDetail) 
                         app.download_bytes(&file_name, raw);
                     }
                 }
-                if let Some(decoded) = &detail.stream_raw {
-                    if ui.small_button("Download decoded").clicked() {
+                if ui.small_button("Download decoded").clicked() {
+                    if let Some(decoded) = decoded_stream_bytes(app, detail) {
                         let file_name = format!("obj-{}-{}-decoded.bin", detail.obj, detail.gen);
-                        app.download_bytes(&file_name, decoded);
+                        app.download_bytes(&file_name, &decoded);
+                    } else {
+                        app.error = Some(crate::analysis::AnalysisError::ParseFailed(
+                            "Unable to decode stream for selected object".to_string(),
+                        ));
                     }
                 }
             });
@@ -547,6 +551,14 @@ fn stream_source_bytes(bytes: &[u8], span: Option<(usize, usize)>) -> Option<Vec
     } else {
         None
     }
+}
+
+fn decoded_stream_bytes(app: &SisApp, detail: &ObjectDetail) -> Option<Vec<u8>> {
+    if let Some(decoded) = &detail.stream_raw {
+        return Some(decoded.clone());
+    }
+    let result = app.result.as_ref()?;
+    crate::object_data::decode_stream_for_object(&result.bytes, detail.obj, detail.gen, 64 * 1024)
 }
 
 #[cfg(test)]

@@ -118,7 +118,7 @@ pub struct SisApp {
 #[cfg(target_arch = "wasm32")]
 #[derive(Debug)]
 enum WorkerAnalysisOutcome {
-    Ok { result: WorkerAnalysisResult },
+    Ok { result: WorkerAnalysisResult, result_bytes: usize, decode_ms: f64, received_ms: f64 },
     Err(String),
 }
 
@@ -168,7 +168,7 @@ pub enum AppState {
     Analysing { file_name: String, bytes: Vec<u8>, shown_once: bool },
     #[cfg(target_arch = "wasm32")]
     /// Analysis has been dispatched to the browser worker and is still running.
-    AnalysingWorker { file_name: String, bytes: Vec<u8> },
+    AnalysingWorker { file_name: String, bytes: Vec<u8>, request_bytes: usize, started_ms: f64 },
 }
 
 #[derive(Default, PartialEq)]
@@ -203,6 +203,16 @@ pub struct HexHighlight {
     pub length: usize,
     pub color: egui::Color32,
     pub label: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+fn now_ms() -> f64 {
+    if let Some(window) = web_sys::window() {
+        if let Some(performance) = window.performance() {
+            return performance.now();
+        }
+    }
+    js_sys::Date::now()
 }
 
 impl SisApp {
@@ -378,14 +388,24 @@ impl SisApp {
                             return;
                         }
                     };
+                let decode_started_ms = now_ms();
+                let result_bytes = js_sys::JSON::stringify(&result_value)
+                    .ok()
+                    .and_then(|json| json.as_string())
+                    .map(|json| json.len())
+                    .unwrap_or(0);
                 match js_sys::JSON::stringify(&result_value)
                     .ok()
                     .and_then(|json| json.as_string())
                     .and_then(|json| serde_json::from_str::<WorkerAnalysisResult>(&json).ok())
                 {
                     Some(parsed) => {
-                        *pending_result.borrow_mut() =
-                            Some(WorkerAnalysisOutcome::Ok { result: parsed });
+                        *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Ok {
+                            result: parsed,
+                            result_bytes,
+                            decode_ms: (now_ms() - decode_started_ms).max(0.0),
+                            received_ms: now_ms(),
+                        });
                     }
                     None => {
                         *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
@@ -406,7 +426,7 @@ impl SisApp {
         &mut self,
         file_name: String,
         bytes: &[u8],
-    ) -> Result<(), AnalysisError> {
+    ) -> Result<usize, AnalysisError> {
         self.ensure_analysis_worker()?;
         let worker = self.analysis_worker.as_ref().ok_or_else(|| {
             AnalysisError::ParseFailed("Analysis worker is unavailable".to_string())
@@ -434,7 +454,7 @@ impl SisApp {
         worker.post_message_with_transfer(&request, &transferables).map_err(|_| {
             AnalysisError::ParseFailed("Failed to send work to analysis worker".to_string())
         })?;
-        Ok(())
+        Ok(bytes.len())
     }
 
     /// Save the current active workspace into the inactive list.
@@ -849,19 +869,30 @@ impl eframe::App for SisApp {
             let maybe_worker_result = self.pending_worker_result.borrow_mut().take();
             if let Some(outcome) = maybe_worker_result {
                 match outcome {
-                    WorkerAnalysisOutcome::Ok { result, .. } => {
+                    WorkerAnalysisOutcome::Ok { result, result_bytes, decode_ms, received_ms } => {
                         let state = std::mem::replace(&mut self.app_state, AppState::Idle);
-                        let bytes = match state {
-                            AppState::AnalysingWorker { bytes, .. } => bytes,
+                        let (bytes, request_bytes, started_ms) = match state {
+                            AppState::AnalysingWorker {
+                                bytes, request_bytes, started_ms, ..
+                            } => (bytes, request_bytes, started_ms),
                             other => {
                                 self.app_state = other;
                                 self.error = Some(AnalysisError::ParseFailed(
                                     "Worker result arrived without active worker state".to_string(),
                                 ));
-                                Vec::new()
+                                (Vec::new(), 0, 0.0)
                             }
                         };
                         if !bytes.is_empty() {
+                            self.telemetry.record(
+                                self.elapsed_time,
+                                crate::telemetry::TelemetryEventKind::WorkerAnalysisCompleted {
+                                    request_bytes,
+                                    result_bytes,
+                                    worker_roundtrip_ms: (received_ms - started_ms).max(0.0),
+                                    decode_ms,
+                                },
+                            );
                             let file_size = bytes.len();
                             let file_name = result.file_name.clone();
                             let analysis =
@@ -1060,8 +1091,13 @@ impl eframe::App for SisApp {
                     self.process_analysis(file_name, &bytes);
                     #[cfg(target_arch = "wasm32")]
                     match self.dispatch_worker_analysis(file_name.clone(), &bytes) {
-                        Ok(()) => {
-                            self.app_state = AppState::AnalysingWorker { file_name, bytes };
+                        Ok(request_bytes) => {
+                            self.app_state = AppState::AnalysingWorker {
+                                file_name,
+                                bytes,
+                                request_bytes,
+                                started_ms: now_ms(),
+                            };
                         }
                         Err(err) => {
                             self.error = Some(err);
@@ -1069,8 +1105,9 @@ impl eframe::App for SisApp {
                     }
                 }
                 #[cfg(target_arch = "wasm32")]
-                AppState::AnalysingWorker { file_name, bytes } => {
-                    self.app_state = AppState::AnalysingWorker { file_name, bytes };
+                AppState::AnalysingWorker { file_name, bytes, request_bytes, started_ms } => {
+                    self.app_state =
+                        AppState::AnalysingWorker { file_name, bytes, request_bytes, started_ms };
                 }
                 AppState::Idle => {}
             }

@@ -104,5 +104,14 @@ fn format_event_kind(kind: &TelemetryEventKind) -> String {
         TelemetryEventKind::FilterApplied { filter_type, value } => {
             format!("Filter: {} = {}", filter_type, value)
         }
+        TelemetryEventKind::WorkerAnalysisCompleted {
+            request_bytes,
+            result_bytes,
+            worker_roundtrip_ms,
+            decode_ms,
+        } => format!(
+            "Worker analysis: req={}B result={}B roundtrip={:.1}ms decode={:.1}ms",
+            request_bytes, result_bytes, worker_roundtrip_ms, decode_ms
+        ),
     }
 }
