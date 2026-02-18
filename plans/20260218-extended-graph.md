@@ -29,6 +29,10 @@ The current graph capabilities are split:
    - Content/Resource (4): EmbeddedFileRef, FontReference, XObjectReference, ExtGStateReference.
    - Crypto/Media (6): EncryptRef, SignatureRef, RichMediaRef, ThreeDRef, SoundRef, MovieRef.
    - Key methods: `is_suspicious()`, `is_executable()`, forward/reverse indices.
+   - Current extraction gaps from implementation review:
+     - `PageAction`, `FormFieldAction`, and `UriTarget` are defined but not emitted consistently by `EdgeExtractor`.
+     - `/Next` branch arrays are traversed by detectors but not represented as first-class typed edges.
+     - action detail semantics (`/N`, trigger initiation, target kind/value) are spread across detectors/query metadata and not unified in graph edges.
 5. **Chain synthesis** currently emits singleton chains (one finding per chain), which is noisy.
    - `synthesise_chains` in `crates/sis-pdf-core/src/chain_synth.rs`
    - Creates a chain for every finding individually; no minimum cardinality filter.
@@ -172,6 +176,21 @@ Findings input is explicit:
 - primary: `EventGraphOptions::findings: Option<&[Finding]>`
 - fallback: query layer resolves findings using existing findings execution/caching, then passes them in.
 
+### 4.2.1 Typed graph uplift (hard prerequisite)
+
+Before event graph construction, improve typed action connectivity in `crates/sis-pdf-pdf/src/typed_graph.rs`:
+
+1. Add explicit `EdgeType::NextAction` and emit it for:
+   - `/Next` as single ref
+   - `/Next` as array of refs (one edge per branch)
+2. Emit `PageAction { event }` for page `/AA` entries.
+3. Emit `FormFieldAction { event }` for field/widget `/AA` entries.
+4. Emit `UriTarget` edges for `/S /URI` actions:
+   - when `/URI` is direct string/name, carry target metadata for event graph outcome creation;
+   - when `/URI` resolves to ref, emit typed edge directly.
+5. Keep legacy `DictReference { key: "/Next" }` for non-action contexts only.
+6. Add edge metadata support for `event_key`, `branch_index`, and initiation hint where derivable.
+
 ### 4.3 Event node derivation
 
 Derive event nodes from typed edges and dictionaries:
@@ -184,17 +203,18 @@ Derive event nodes from typed edges and dictionaries:
    - **Link annotation** (`/Subtype /Link`) with `/A` actions: common malware vector for phishing URIs and JS execution on click
    - Other annotation subtypes with `/A` or `/AA` dictionaries
 5. **Independent/delayed events**:
-   - `/Next` action chains: traverse typed edges where `edge_type == DictReference { key: "/Next" }` to connect multi-step action sequences into ordered event subgraphs, producing `Executes` edges between sequential action nodes
+   - `/Next` action chains: traverse typed `NextAction` edges (including branch arrays) to connect multi-step action sequences into ordered event subgraphs, producing `Executes` edges between sequential action nodes
    - JavaScript timing primitives detected by sandbox/static findings (`setTimeout`, `setInterval`, delayed dispatch)
 6. **Rendering events**:
    - page/content stream execution points (at least `PageContents` + XObject/annotation render-linked actions in stage 1)
 
 #### 4.3.1 `/Next` chain edge semantics
 
-When the typed graph contains `/Next` dictionary-reference edges forming a chain (A -> B -> C), the event graph produces:
+When the typed graph contains `NextAction` edges forming a chain (A -> B -> C), the event graph produces:
 - Event nodes for each action in the chain
 - `Executes` edges preserving chain order: event(A) --Executes--> event(B) --Executes--> event(C)
-- Each `Executes` edge carries `provenance: TypedEdge(DictReference { key: "/Next" })`
+- Each `Executes` edge carries `provenance: TypedEdge(NextAction)`
+- `/Next` array branches preserve `branch_index` metadata so parallel branches remain visible in graph exports.
 - The chain is traversed with a depth bound of 20 to prevent infinite loops from circular `/Next` references
 
 ### 4.4 Outcome node derivation
@@ -254,6 +274,38 @@ In CLI/GUI chain presentation paths:
 2. Default views filter out singleton chains (`len(findings) == 1` and no multi-node path evidence).
 3. Add compatibility flag/query option for legacy display (`include_singleton_chains=true`).
 4. Ensure grouped chain metadata and counts remain deterministic with filtering.
+
+### 4.7 Structure graph enhancements (parallel track)
+
+Enhance `graph.structure` so it remains useful alongside the event graph:
+
+1. Add optional typed-edge overlay in structure mode:
+   - render edge categories (structural/action/resource/external) with distinct styles.
+2. Surface action-link metadata in structure exports:
+   - edge labels include event key (`/AA /O`, `/AA /V`, etc), action `/S`, and initiation class when known.
+3. Add branch-aware `/Next` visualisation:
+   - show fan-out/fan-in explicitly (not flattened).
+4. Add optional structural collapse parity:
+   - collapse low-value isolated components in structure view without changing default ORG output.
+5. Add path helpers:
+   - “reachable from trigger” and “path to outcome” summaries for selected nodes/chains.
+
+### 4.8 Extended graph enhancements (post-MVP)
+
+After baseline event graph stabilises, add richer semantics already available in detectors/query code:
+
+1. Add action dictionary metadata:
+   - `/N` named action target,
+   - `/F` target type (embedded/external),
+   - launch target hash/path metadata,
+   - URI context/visibility/placement indicators.
+2. Expand action-type coverage:
+   - `/GoToE`, `/ImportData`, `/ResetForm`, `/Hide`, `/SetOCGState`, `/Rendition`.
+3. Add trigger-context enrichment:
+   - hidden annotation/field markers,
+   - automatic vs user initiation.
+4. Add confidence-calibrated edge weighting:
+   - combine typed-edge certainty with detector confidence for ranking/overlay.
 
 ## 5. CLI integration plan
 
@@ -371,11 +423,19 @@ The branch is `feature/egui-wasm` and the GUI is being ported to WASM. Event gra
 6. Add unit tests for node ID generation and basic graph construction.
 7. Add explicit wiring tasks in query layer for findings retrieval/caching and pass-through into `EventGraphOptions::findings`.
 
+### Stage B1: Typed graph action connectivity uplift (prerequisite)
+
+1. Implement `EdgeType::NextAction` and extractor support for `/Next` ref + array branches.
+2. Implement extraction for `PageAction { event }` and `FormFieldAction { event }`.
+3. Implement `UriTarget` extraction from `/S /URI` actions (with best-effort target metadata capture).
+4. Add compatibility handling for legacy `/Next` `DictReference` usage in path utilities.
+5. Add targeted tests in `crates/sis-pdf-pdf/tests/` for each new extraction path.
+
 ### Stage C: Event/outcome derivation + connectivity
 
 1. Map typed edges to event nodes (document, page, field, annotation, link annotation, `/Next` chains).
 2. Derive outcome nodes from typed edges (UriTarget, LaunchTarget, SubmitFormTarget, GoToRTarget, EmbeddedFileRef).
-3. Add JS finding integration: map JS analysis findings to outcome nodes via `FindingsCache`.
+3. Add JS finding integration: map JS analysis findings to outcome nodes via query/cache-provided findings.
 4. Implement collapse algorithm with 3-hop depth bound and deterministic ordering.
 5. Add `EdgeProvenance` to all edges.
 6. Unit tests for each event source and outcome type.
@@ -389,6 +449,12 @@ The branch is `feature/egui-wasm` and the GUI is being ported to WASM. Event gra
 5. Set up `graph.action` as alias with event/outcome filter preset.
 6. Add deprecation `warn!` to `export_action_graph_*` functions.
 7. Integration tests on fixtures with known triggers/outcomes.
+
+### Stage D1: Structure graph uplift
+
+1. Add `graph.structure` typed-edge overlay and readable summary options.
+2. Add optional branch-aware `/Next` rendering in DOT/JSON (without changing default legacy ORG output).
+3. Add trigger-reachability/path summaries for interactive query output.
 
 ### Stage E: GUI integration
 
@@ -419,6 +485,7 @@ Before beginning implementation, audit existing fixtures for coverage:
 |---|---|---|
 | Document `/OpenAction` + catalog `/AA` | `launch_cve_2010_1240.pdf` | Exists |
 | Multi-stage `/Next` action chain | TBD | **Needs creation or identification** |
+| `/Next` array branch fan-out (1->many action branches) | TBD | **Needs creation or identification** |
 | URI submit-form action (`SubmitFormTarget`) | TBD | **Needs creation or identification** |
 | JS-triggered network egress (outcome via finding) | TBD | **Needs creation or identification** |
 | Link annotation with `/A` action | TBD | **Needs creation or identification** |
@@ -429,6 +496,8 @@ Fixtures must be committed to `crates/sis-pdf-core/tests/fixtures/` and register
 ### 8.2 Core unit tests
 
 - Event node derivation from each source: OpenAction, Page/AA, field/AA, Link annotation/A, `/Next` chains.
+- Typed graph extraction coverage: `NextAction`, `PageAction`, `FormFieldAction`, `UriTarget`.
+- `/Next` branch preservation: branch index and edge count correctness for array branches.
 - Outcome derivation for each type: URI, Launch, SubmitForm, GoToR, EmbeddedFile, JS findings.
 - JS finding -> outcome mapping for each finding kind in the table (section 4.4.1).
 - Collapse determinism: same input produces same collapse grouping and supernode IDs.
@@ -444,6 +513,7 @@ Fixtures must be committed to `crates/sis-pdf-core/tests/fixtures/` and register
 - `graph.event.outcomes` returns expected outcome nodes.
 - `events.graph_ref` field contains valid event graph node IDs.
 - `graph.action` alias produces same result as filtered `graph.event`.
+- `graph.structure` typed-edge overlay includes action edge categories while default `org` output stays unchanged.
 - No singleton chains by default; singleton chains present when `include_singleton_chains=true`.
 - Chain overlay references valid graph node IDs.
 - Schema version field present and correct.
@@ -452,6 +522,7 @@ Fixtures must be committed to `crates/sis-pdf-core/tests/fixtures/` and register
 
 - Include at least one document with document/page/form triggers and external outcomes.
 - Include at least one document with a multi-stage `/Next` chain leading to an outcome.
+- Include at least one document with `/Next` array branches.
 - Include at least one document with a Link annotation action.
 
 ### 8.5 GUI tests
@@ -476,6 +547,8 @@ Fixtures must be committed to `crates/sis-pdf-core/tests/fixtures/` and register
 5. **WASM constraints**: bound builder time/memory; use web worker for expensive builds; no thread assumptions.
 6. **Action graph migration**: coexistence period with deprecation warnings; no immediate removal.
 7. **Fixture gaps**: audit and create missing fixtures before Stage B to avoid blocking integration tests.
+8. **Edge extraction drift**: new typed edges may shift detector/path behaviour.
+   - Mitigation: compatibility tests for existing findings/chains and strict extraction regression tests.
 
 ## 10. Acceptance criteria
 
@@ -487,8 +560,10 @@ Fixtures must be committed to `crates/sis-pdf-core/tests/fixtures/` and register
 6. CLI + GUI expose outcomes (network/filesystem/launch/submission/code execution) as connected nodes.
 7. `events.graph_ref` bridges existing event list output to event graph node IDs.
 8. Link annotations with `/A` actions produce event nodes.
-9. `/Next` action chains produce connected `Executes` edge sequences.
+9. `/Next` action chains (including array branches) produce connected `Executes` edge sequences.
 10. JS analysis findings produce outcome nodes with finding ID evidence.
 11. `graph.action` alias works as filtered event graph view.
 12. New behaviour is covered by automated tests and documented in user-facing docs.
 13. Event graph builds and renders correctly under WASM target within performance budget.
+14. Typed graph emits `NextAction`, `PageAction`, `FormFieldAction`, and `UriTarget` where applicable.
+15. `graph.structure` gains typed-edge/action-path visibility without breaking legacy `org` compatibility.
