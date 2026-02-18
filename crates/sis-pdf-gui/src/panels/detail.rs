@@ -95,6 +95,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
 
     // Chain membership: find chains containing this finding's ID
     let finding_id = id.clone();
+    let finding_objects = object_refs.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>();
     let chain_membership: Vec<(usize, String)> = result
         .report
         .chains
@@ -103,7 +104,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         .filter(|(_, chain)| chain.findings.contains(&finding_id))
         .map(|(i, chain)| (i, chain.path.clone()))
         .collect();
-    let event_graph_paths = event_graph_paths_for_finding(result, f);
+    let event_graph_paths = event_graph_paths_for_finding(app, &finding_id, &finding_objects);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading(&title);
@@ -387,9 +388,53 @@ fn parse_obj_ref(s: &str) -> Option<(u32, u16)> {
 }
 
 fn event_graph_paths_for_finding(
-    result: &crate::analysis::AnalysisResult,
-    finding: &sis_pdf_core::model::Finding,
+    app: &mut SisApp,
+    finding_id: &str,
+    finding_objects: &[String],
 ) -> Vec<String> {
+    let Some(result) = app.result.as_ref() else {
+        return Vec::new();
+    };
+    if app
+        .finding_detail_graph_cache
+        .as_ref()
+        .map(|cache| cache.file_name != result.file_name || cache.file_size != result.file_size)
+        .unwrap_or(true)
+    {
+        app.finding_detail_graph_cache = build_finding_detail_graph_cache(result);
+    }
+    let Some(cache) = app.finding_detail_graph_cache.as_mut() else {
+        return Vec::new();
+    };
+    if let Some(cached) = cache.finding_paths.get(finding_id) {
+        return cached.clone();
+    }
+
+    let mut output = Vec::new();
+    for object in finding_objects {
+        let Some((obj, generation)) = parse_obj_ref(object) else {
+            continue;
+        };
+        let start_id = format!("obj:{obj}:{generation}");
+        if !cache.event_graph.node_index.contains_key(&start_id) {
+            continue;
+        }
+        if let Some(path) = shortest_path_to_event(&cache.event_graph, &start_id, 8) {
+            output.push(format!("Trigger path: {}", render_event_path(&cache.event_graph, &path)));
+        }
+        if let Some(path) = shortest_path_to_outcome(&cache.event_graph, &start_id, 8) {
+            output.push(format!("Outcome path: {}", render_event_path(&cache.event_graph, &path)));
+        }
+    }
+    output.sort();
+    output.dedup();
+    cache.finding_paths.insert(finding_id.to_string(), output.clone());
+    output
+}
+
+fn build_finding_detail_graph_cache(
+    result: &crate::analysis::AnalysisResult,
+) -> Option<crate::app::FindingDetailGraphCache> {
     let parse_options = ParseOptions {
         recover_xref: true,
         deep: false,
@@ -402,7 +447,7 @@ fn event_graph_paths_for_finding(
         max_carved_bytes: 0,
     };
     let Ok(graph) = parse_pdf(&result.bytes, parse_options) else {
-        return Vec::new();
+        return None;
     };
     let classifications = graph.classify_objects();
     let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&graph, &classifications);
@@ -411,26 +456,12 @@ fn event_graph_paths_for_finding(
         &result.report.findings,
         sis_pdf_core::event_graph::EventGraphOptions::default(),
     );
-
-    let mut output = Vec::new();
-    for object in &finding.objects {
-        let Some((obj, gen)) = parse_obj_ref(object) else {
-            continue;
-        };
-        let start_id = format!("obj:{obj}:{gen}");
-        if !event_graph.node_index.contains_key(&start_id) {
-            continue;
-        }
-        if let Some(path) = shortest_path_to_event(&event_graph, &start_id, 8) {
-            output.push(format!("Trigger path: {}", render_event_path(&event_graph, &path)));
-        }
-        if let Some(path) = shortest_path_to_outcome(&event_graph, &start_id, 8) {
-            output.push(format!("Outcome path: {}", render_event_path(&event_graph, &path)));
-        }
-    }
-    output.sort();
-    output.dedup();
-    output
+    Some(crate::app::FindingDetailGraphCache {
+        file_name: result.file_name.clone(),
+        file_size: result.file_size,
+        event_graph,
+        finding_paths: std::collections::HashMap::new(),
+    })
 }
 
 fn shortest_path_to_event(graph: &EventGraph, start: &str, max_hops: usize) -> Option<Vec<String>> {

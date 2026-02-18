@@ -15,7 +15,7 @@ Scope: `crates/sis-pdf-pdf`, `crates/sis-pdf-core`, `crates/sis-pdf`, `crates/si
 | Stage C (Derivation + connectivity) | Complete | Event/outcome derivation, collapse, MITRE tagging, outcome confidence/severity hints, graph caps/truncation, edge metadata, and intent connectivity boost are implemented. |
 | Stage D (CLI integration + structure uplift) | Complete | `graph.event`/`graph.action` alias, predicates, hops subgraph queries, outcome metadata, `events.graph_ref`, and `graph.structure` typed-edge/action-path plus path-helper summaries are implemented. |
 | Stage E (GUI integration) | Complete | Structure/Event mode, chain overlay, event filters, reader-profile filter, directed path overlay, edge hover metadata, outcome confidence styling, and finding detail event-path context are implemented. |
-| Stage F (Docs/rollout) | Partial | Query/predicate docs updated for event graph and hops. Full schema doc, migration notes, and deprecation timeline details remain pending. |
+| Stage F (Docs/rollout) | Complete | Query docs, schema documentation, migration notes, and `graph.action` compatibility/deprecation guidance have been documented. |
 
 ### 0.2 Newly completed in this pass
 
@@ -32,12 +32,15 @@ Scope: `crates/sis-pdf-pdf`, `crates/sis-pdf-core`, `crates/sis-pdf`, `crates/si
 11. Added GUI reader-profile filter for event graph nodes.
 12. Added finding detail "Event graph paths" context section with trigger/outcome path extraction.
 13. Updated user-facing query docs for `graph.structure` and singleton chain controls.
+14. Added `graph.structure.depth N` depth control support and query test coverage.
+15. Added lightweight GUI finding-detail event graph cache to avoid per-frame parse/build churn.
+16. Updated graph docs with structure/event schema summaries and `graph.action` compatibility guidance.
 
 ### 0.3 Next implementation focus
 
-1. Extend `graph.structure` path helpers with optional branch-aware `/Next` summaries and explicit trigger-reachability depth controls.
-2. Add lightweight caching for finding-detail event-path context to avoid repeat parse/build on every redraw.
-3. Finalise Stage F docs (`docs/ir-org-graph.md` schema/examples and deprecation timeline details for legacy action graph exports).
+1. Add fixture-backed `/Next` array branch regression coverage for `path_helpers.next_action_branches`.
+2. Add lightweight performance assertions for finding-detail path cache behaviour in GUI tests.
+3. Add optional user-configurable max-hop control for finding-detail event paths in GUI.
 
 ## 1. Context and current state
 

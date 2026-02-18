@@ -1,5 +1,21 @@
 # IR and ORG Graph Documentation
 
+## Current graph query surface
+
+Use the query interface for graph exports:
+
+```bash
+sis query sample.pdf org --format dot
+sis query sample.pdf graph.structure --format json
+sis query sample.pdf "graph.structure.depth 3" --format json
+sis query sample.pdf graph.event --format json
+```
+
+- `org` remains the legacy object-reference graph export.
+- `graph.structure` keeps ORG semantics and adds typed edge statistics plus action-path helpers.
+- `graph.event` is the connected event/outcome graph used by the GUI event mode.
+- `graph.action` remains a compatibility alias of `graph.event` in `v1.x`; new integrations should use `graph.event`.
+
 ## Overview
 
 sis-pdf provides two complementary representations of PDF structure:
@@ -229,6 +245,29 @@ ORG represents the PDF as a directed graph where:
 - **Edges** = References between objects (dictionary references, array elements, etc.)
 
 This reveals structural patterns, action chains, and reference relationships.
+
+### Structure graph JSON additions
+
+`graph.structure --format json` returns:
+
+- `type: "structure_graph"`
+- `org`: the ORG export payload
+- `typed_edges`: aggregate typed-edge statistics
+- `action_paths`: action-chain summary counters
+- `path_helpers`:
+  - `max_depth`
+  - `reachable_from_trigger`
+  - `paths_to_outcome`
+  - `next_action_branches` (`/Next` branch index and source kind metadata)
+
+### Event graph schema summary
+
+`graph.event --format json` returns schema version `1.0` and a connected graph with:
+
+- `nodes`: object, event, outcome, and collapse nodes
+- `edges`: structural, trigger, execute, outcome, and collapsed structural links
+- `node_index`, `forward_index`, `reverse_index`: stable lookup indices
+- `truncation` (optional): cap metadata when node/edge limits are reached
 
 ### Basic ORG Structure
 

@@ -239,17 +239,20 @@ Use `graph.structure` when you want classic ORG output plus typed-edge and actio
 sis query sample.pdf graph.structure
 sis query sample.pdf graph.structure --format json
 sis query sample.pdf graph.structure --format dot
+sis query sample.pdf "graph.structure.depth 3" --format json
 ```
 
 The JSON output includes:
 - `typed_edges` (`total_edges`, `suspicious_edges`, `by_type`)
 - `action_paths` (`total_chains`, `multi_step_chains`, `automatic_chains`, `js_chains`, `external_chains`)
-- `path_helpers` (`reachable_from_trigger`, `paths_to_outcome`)
+- `path_helpers` (`max_depth`, `reachable_from_trigger`, `paths_to_outcome`, `next_action_branches`)
+
+Use `graph.structure.depth N` to cap helper traversal depth for large or cyclic action graphs.
 
 ## Event Graph Queries
 
-Use `graph.event` to export the connected event/outcome graph used by the GUI event mode.  
-`graph.action` is an alias of `graph.event`.
+Use `graph.event` to export the connected event/outcome graph used by the GUI event mode.
+`graph.action` is an alias of `graph.event` for compatibility and will remain supported through the `v1.x` series; prefer `graph.event` in new automation and docs.
 
 ```bash
 sis query sample.pdf graph.event

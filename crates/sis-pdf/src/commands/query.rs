@@ -277,6 +277,8 @@ pub enum Query {
     ExportOrgJson,
     ExportStructureDot,
     ExportStructureJson,
+    ExportStructureDotDepth(usize),
+    ExportStructureJsonDepth(usize),
     ExportEventDot,
     ExportEventJson,
     ExportEventDotHops(usize),
@@ -656,6 +658,13 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "features.json" => Ok(Query::ExportFeaturesJson),
 
         _ => {
+            if let Some(rest) = input.strip_prefix("graph.structure.depth ") {
+                let depth = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid depth: {}", rest.trim()))?;
+                return Ok(Query::ExportStructureDotDepth(depth));
+            }
             if let Some(rest) = input.strip_prefix("graph.event.hops ") {
                 let hops = rest
                     .trim()
@@ -1288,6 +1297,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         OutputFormat::Json | OutputFormat::Jsonl | OutputFormat::Yaml => match query {
             Query::ExportOrgDot => Query::ExportOrgJson,
             Query::ExportStructureDot => Query::ExportStructureJson,
+            Query::ExportStructureDotDepth(depth) => Query::ExportStructureJsonDepth(depth),
             Query::ExportEventDot => Query::ExportEventJson,
             Query::ExportEventDotHops(hops) => Query::ExportEventJsonHops(hops),
             Query::ExportIrText => Query::ExportIrJson,
@@ -1297,6 +1307,9 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         OutputFormat::Dot => match query {
             Query::ExportOrgJson | Query::ExportOrgDot => Query::ExportOrgDot,
             Query::ExportStructureJson | Query::ExportStructureDot => Query::ExportStructureDot,
+            Query::ExportStructureJsonDepth(depth) | Query::ExportStructureDotDepth(depth) => {
+                Query::ExportStructureDotDepth(depth)
+            }
             Query::ExportEventJson | Query::ExportEventDot => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) | Query::ExportEventDotHops(hops) => {
                 Query::ExportEventDotHops(hops)
@@ -1314,6 +1327,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         OutputFormat::Text | OutputFormat::Readable => match query {
             Query::ExportOrgJson => Query::ExportOrgDot,
             Query::ExportStructureJson => Query::ExportStructureDot,
+            Query::ExportStructureJsonDepth(depth) => Query::ExportStructureDotDepth(depth),
             Query::ExportEventJson => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) => Query::ExportEventDotHops(hops),
             Query::ExportIrJson => Query::ExportIrText,
@@ -2294,7 +2308,7 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let dot_output = export_structure_dot(&org_graph, &typed_graph);
+                let dot_output = export_structure_dot(&org_graph, &typed_graph, 8);
                 Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
             }
             Query::ExportStructureJson => {
@@ -2306,7 +2320,31 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let json_output = export_structure_json(&org_graph, &typed_graph);
+                let json_output = export_structure_json(&org_graph, &typed_graph, 8);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportStructureDotDepth(depth) => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let dot_output = export_structure_dot(&org_graph, &typed_graph, *depth);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportStructureJsonDepth(depth) => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let json_output = export_structure_json(&org_graph, &typed_graph, *depth);
                 Ok(QueryResult::Structure(json_output))
             }
             Query::ExportEventDot => {
@@ -6873,11 +6911,12 @@ fn trailer_ref_value(trailer: &sis_pdf_pdf::object::PdfDict<'_>, key: &[u8]) -> 
 fn export_structure_json(
     org_graph: &sis_pdf_core::org::OrgGraph,
     typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    helper_max_depth: usize,
 ) -> serde_json::Value {
     let org = sis_pdf_core::org_export::export_org_json(org_graph);
     let typed_edge_stats = typed_edge_type_stats(typed_graph);
     let path_summary = action_path_summary(typed_graph);
-    let helpers = structure_path_helpers(typed_graph);
+    let helpers = structure_path_helpers(typed_graph, helper_max_depth);
     json!({
         "type": "structure_graph",
         "org": org,
@@ -6890,11 +6929,12 @@ fn export_structure_json(
 fn export_structure_dot(
     org_graph: &sis_pdf_core::org::OrgGraph,
     typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    helper_max_depth: usize,
 ) -> String {
     let mut dot = sis_pdf_core::org_export::export_org_dot(org_graph);
     let typed_edge_stats = typed_edge_type_stats(typed_graph);
     let path_summary = action_path_summary(typed_graph);
-    let helpers = structure_path_helpers(typed_graph);
+    let helpers = structure_path_helpers(typed_graph, helper_max_depth);
     let edge_type_count = typed_edge_stats
         .get("by_type")
         .and_then(|v| v.as_array())
@@ -6921,26 +6961,30 @@ fn export_structure_dot(
 
 fn structure_path_helpers(
     typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    max_depth: usize,
 ) -> serde_json::Value {
     let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(typed_graph);
     let chains = path_finder.find_all_action_chains();
 
     let mut trigger_stats = BTreeMap::<String, (usize, usize)>::new();
     let mut outcome_paths = Vec::new();
+    let next_action_branches = collect_next_action_branches(typed_graph);
 
     for chain in &chains {
         let trigger = chain.trigger.as_str().to_string();
         let entry = trigger_stats.entry(trigger).or_insert((0, 0));
         entry.0 += 1;
         let mut reached = std::collections::HashSet::<(u32, u16)>::new();
-        for edge in &chain.edges {
-            reached.insert(edge.dst);
+        if let Some(first) = chain.edges.first() {
+            for dst in reachable_targets_with_depth(typed_graph, first.src, max_depth) {
+                reached.insert(dst);
+            }
         }
         entry.1 += reached.len();
 
         if chain.involves_external || chain.involves_js {
             let mut steps = Vec::new();
-            for edge in &chain.edges {
+            for edge in chain.edges.iter().take(max_depth.max(1)) {
                 steps.push(format!(
                     "{} {} -{}-> {} {}",
                     edge.src.0,
@@ -6958,6 +7002,7 @@ fn structure_path_helpers(
                 "involves_external": chain.involves_external,
                 "payload": chain.payload.map(|(obj, gen)| format!("{obj} {gen} R")),
                 "steps": steps,
+                "truncated_to_depth": chain.edges.len() > max_depth.max(1),
             }));
         }
     }
@@ -6978,9 +7023,89 @@ fn structure_path_helpers(
     }
 
     json!({
+        "max_depth": max_depth,
         "reachable_from_trigger": reachable_from_trigger,
         "paths_to_outcome": outcome_paths,
+        "next_action_branches": next_action_branches,
     })
+}
+
+fn reachable_targets_with_depth(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    start: (u32, u16),
+    max_depth: usize,
+) -> std::collections::HashSet<(u32, u16)> {
+    let mut out = std::collections::HashSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    let mut visited = std::collections::HashSet::new();
+    queue.push_back((start, 0usize));
+    visited.insert(start);
+
+    while let Some((node, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        for edge in typed_graph.outgoing_edges(node.0, node.1) {
+            if visited.insert(edge.dst) {
+                out.insert(edge.dst);
+                queue.push_back((edge.dst, depth + 1));
+            }
+        }
+    }
+
+    out
+}
+
+fn collect_next_action_branches(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for edge in &typed_graph.edges {
+        if !matches!(edge.edge_type, sis_pdf_pdf::typed_graph::EdgeType::NextAction) {
+            continue;
+        }
+        let (branch_index, source_next_kind) =
+            infer_next_branch_details(typed_graph, edge.src, edge.dst);
+        out.push(json!({
+            "from": format!("{} {} R", edge.src.0, edge.src.1),
+            "to": format!("{} {} R", edge.dst.0, edge.dst.1),
+            "branch_index": branch_index,
+            "source_next_kind": source_next_kind,
+        }));
+    }
+    out
+}
+
+fn infer_next_branch_details(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    src: (u32, u16),
+    dst: (u32, u16),
+) -> (Option<usize>, &'static str) {
+    let Some(entry) = typed_graph.graph.get_object(src.0, src.1) else {
+        return (None, "unknown");
+    };
+    let dict = match &entry.atom {
+        PdfAtom::Dict(dict) => dict,
+        PdfAtom::Stream(stream) => &stream.dict,
+        _ => return (None, "unknown"),
+    };
+    let Some((_, next_obj)) = dict.get_first(b"/Next") else {
+        return (None, "missing");
+    };
+    match &next_obj.atom {
+        PdfAtom::Ref { .. } => (None, "single_ref"),
+        PdfAtom::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                if let Some(resolved) = typed_graph.graph.resolve_ref(item) {
+                    if (resolved.obj, resolved.gen) == dst {
+                        return (Some(index), "array");
+                    }
+                }
+            }
+            (None, "array")
+        }
+        _ => (None, "other"),
+    }
 }
 
 fn typed_edge_type_stats(
@@ -8968,6 +9093,8 @@ mod tests {
         assert!(matches!(query, Query::ExportStructureDot));
         let query = parse_query("graph.structure.json").expect("structure json query");
         assert!(matches!(query, Query::ExportStructureJson));
+        let query = parse_query("graph.structure.depth 3").expect("structure depth query");
+        assert!(matches!(query, Query::ExportStructureDotDepth(3)));
         let query = parse_query("graph.event").expect("event query");
         assert!(matches!(query, Query::ExportEventDot));
         let query = parse_query("graph.event.json").expect("event json query");
@@ -9007,6 +9134,30 @@ mod tests {
                     assert!(value["action_paths"]["total_chains"].is_number());
                     assert!(value["path_helpers"]["reachable_from_trigger"].is_array());
                     assert!(value["path_helpers"]["paths_to_outcome"].is_array());
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn graph_structure_depth_query_preserves_depth_in_json_output() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("graph.structure.depth 2").expect("query");
+            let query = apply_output_format(query, OutputFormat::Json).expect("format");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("query");
+            match result {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value["path_helpers"]["max_depth"], json!(2));
+                    assert!(value["path_helpers"]["next_action_branches"].is_array());
                 }
                 other => panic!("Unexpected result type: {:?}", other),
             }

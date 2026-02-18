@@ -2,6 +2,7 @@ use crate::analysis::{AnalysisError, AnalysisResult, WorkerAnalysisResult};
 use crate::telemetry::TelemetryLog;
 use crate::window_state::WindowMaxState;
 use crate::workspace::{self, WorkspaceContext};
+use sis_pdf_core::event_graph::EventGraph;
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -80,6 +81,8 @@ pub struct SisApp {
     pub selected_chain: Option<usize>,
     /// Whether chain views should include single-item chains.
     pub include_singleton_chains: bool,
+    /// Cached event-graph state for finding detail path rendering.
+    pub finding_detail_graph_cache: Option<FindingDetailGraphCache>,
 
     // --- Multi-tab state ---
     /// Inactive workspaces (all tabs except the active one).
@@ -115,6 +118,13 @@ pub struct SisApp {
     #[cfg(target_arch = "wasm32")]
     analysis_worker_onmessage:
         Option<wasm_bindgen::closure::Closure<dyn FnMut(web_sys::MessageEvent)>>,
+}
+
+pub struct FindingDetailGraphCache {
+    pub file_name: String,
+    pub file_size: usize,
+    pub event_graph: EventGraph,
+    pub finding_paths: HashMap<String, Vec<String>>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -255,6 +265,7 @@ impl SisApp {
             graph_state: crate::panels::graph::GraphViewerState::default(),
             selected_chain: None,
             include_singleton_chains: false,
+            finding_detail_graph_cache: None,
             inactive_workspaces: Vec::new(),
             active_tab: 0,
             tab_count: 0,
@@ -341,6 +352,7 @@ impl SisApp {
         self.graph_state = crate::panels::graph::GraphViewerState::default();
         self.selected_chain = None;
         self.include_singleton_chains = false;
+        self.finding_detail_graph_cache = None;
         self.severity_filters = SeverityFilters::default();
         self.sort = SortState::default();
         self.findings_search.clear();
@@ -542,6 +554,7 @@ impl SisApp {
         self.graph_state = ws.graph_state;
         self.selected_chain = ws.selected_chain;
         self.include_singleton_chains = ws.include_singleton_chains;
+        self.finding_detail_graph_cache = None;
     }
 
     /// Switch to a different tab by index.
@@ -573,6 +586,7 @@ impl SisApp {
         if self.tab_count <= 1 {
             // Closing the last tab: reset to drop zone
             self.result = None;
+            self.finding_detail_graph_cache = None;
             self.tab_count = 0;
             self.active_tab = 0;
             self.inactive_workspaces.clear();
