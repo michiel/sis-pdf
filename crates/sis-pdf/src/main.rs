@@ -3514,6 +3514,9 @@ fn print_repl_help() {
     println!();
     println!("Graph exports:");
     println!("  org                - Export ORG graph (dot/text output, use :json for JSON, :readable for dot)");
+    println!(
+        "  graph.event        - Export event graph with outcomes (dot/text output, use :json for JSON)"
+    );
     println!("  ir                 - Export intent graph (text output, use :json for JSON)");
     println!();
     println!("REPL commands:");

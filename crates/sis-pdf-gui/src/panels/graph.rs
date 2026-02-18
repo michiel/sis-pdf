@@ -1,6 +1,14 @@
 use crate::app::SisApp;
 use crate::graph_data::{self, GraphData, GraphError};
 use crate::graph_layout::LayoutState;
+use sis_pdf_pdf::{parse_pdf, ParseOptions};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GraphViewMode {
+    #[default]
+    Structure,
+    Event,
+}
 
 /// Persistent state for the graph viewer panel.
 #[derive(Default)]
@@ -19,6 +27,8 @@ pub struct GraphViewerState {
     pub selected_node: Option<usize>,
     /// Type filter: only show nodes of these types. Empty = all.
     pub type_filter: Vec<String>,
+    /// Graph mode.
+    pub mode: GraphViewMode,
     /// Whether to filter to chain-only nodes.
     pub chain_filter: bool,
     /// BFS depth limit from selected node. 0 = no limit (show all).
@@ -43,13 +53,16 @@ const WORLD_CENTRE_Y: f64 = 300.0;
 /// Node type colour mapping.
 fn node_colour(obj_type: &str) -> egui::Color32 {
     match obj_type.to_lowercase().as_str() {
-        "page" => egui::Color32::from_rgb(70, 130, 230), // blue
+        "event" => egui::Color32::from_rgb(245, 170, 66), // amber
+        "outcome" => egui::Color32::from_rgb(220, 80, 80), // red
+        "collapse" => egui::Color32::from_rgb(120, 120, 120), // dark grey
+        "page" => egui::Color32::from_rgb(70, 130, 230),  // blue
         "action" => egui::Color32::from_rgb(220, 60, 60), // red
         "stream" => egui::Color32::from_rgb(60, 180, 80), // green
         "font" => egui::Color32::from_rgb(160, 160, 160), // grey
         "catalog" | "catalogue" => egui::Color32::from_rgb(160, 80, 200), // purple
         "image" => egui::Color32::from_rgb(230, 160, 40), // orange
-        _ => egui::Color32::from_rgb(140, 140, 140),     // default grey
+        _ => egui::Color32::from_rgb(140, 140, 140),      // default grey
     }
 }
 
@@ -126,13 +139,7 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         .nodes
         .iter()
         .map(|n| {
-            (
-                n.position[0],
-                n.position[1],
-                n.obj_type.clone(),
-                format!("{} {}", n.obj, n.gen),
-                n.roles.clone(),
-            )
+            (n.position[0], n.position[1], n.obj_type.clone(), n.label.clone(), n.roles.clone())
         })
         .collect();
 
@@ -339,8 +346,10 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         if let Some(hi) = hovered {
             if let Some(ref graph) = app.graph_state.graph {
                 let node = &graph.nodes[hi];
-                app.navigate_to_object(node.obj, node.gen);
-                app.show_objects = true;
+                if let Some((obj, gen)) = node.object_ref {
+                    app.navigate_to_object(obj, gen);
+                    app.show_objects = true;
+                }
             }
         }
     }
@@ -358,6 +367,21 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
 fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
     ui.horizontal(|ui| {
+        ui.label("Mode:");
+        if ui
+            .selectable_label(app.graph_state.mode == GraphViewMode::Structure, "Structure")
+            .clicked()
+        {
+            app.graph_state.mode = GraphViewMode::Structure;
+            rebuild_graph(app);
+        }
+        if ui.selectable_label(app.graph_state.mode == GraphViewMode::Event, "Event").clicked() {
+            app.graph_state.mode = GraphViewMode::Event;
+            rebuild_graph(app);
+        }
+
+        ui.separator();
+
         // Type filter combo
         ui.label("Type:");
         let current_filter = if app.graph_state.type_filter.is_empty() {
@@ -365,9 +389,9 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
         } else {
             app.graph_state.type_filter.join(", ")
         };
-        egui::ComboBox::from_id_salt("graph_type_filter").selected_text(&current_filter).show_ui(
-            ui,
-            |ui| {
+        let type_filter_response = egui::ComboBox::from_id_salt("graph_type_filter")
+            .selected_text(&current_filter)
+            .show_ui(ui, |ui| {
                 if ui.selectable_label(app.graph_state.type_filter.is_empty(), "All").clicked() {
                     app.graph_state.type_filter.clear();
                     rebuild_graph(app);
@@ -383,8 +407,12 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
                         rebuild_graph(app);
                     }
                 }
-            },
-        );
+            });
+        if app.graph_state.mode == GraphViewMode::Event {
+            type_filter_response
+                .response
+                .on_hover_text("Type filter is only available in structure mode");
+        }
 
         ui.separator();
 
@@ -435,7 +463,9 @@ fn build_graph(app: &mut SisApp) {
         return;
     };
 
-    let graph_result = if !app.graph_state.type_filter.is_empty() {
+    let graph_result = if app.graph_state.mode == GraphViewMode::Event {
+        build_event_graph_for_gui(result)
+    } else if !app.graph_state.type_filter.is_empty() {
         let types: Vec<&str> = app.graph_state.type_filter.iter().map(|s| s.as_str()).collect();
         graph_data::from_object_data_filtered(&result.object_data, &types)
     } else if app.graph_state.depth_limit > 0 {
@@ -443,7 +473,7 @@ fn build_graph(app: &mut SisApp) {
         let centre = app
             .graph_state
             .selected_node
-            .and_then(|i| app.graph_state.graph.as_ref().map(|g| (g.nodes[i].obj, g.nodes[i].gen)))
+            .and_then(|i| app.graph_state.graph.as_ref().and_then(|g| g.nodes[i].object_ref))
             .or_else(|| {
                 result
                     .object_data
@@ -474,7 +504,36 @@ fn build_graph(app: &mut SisApp) {
                 count, limit
             ));
         }
+        Err(GraphError::ParseFailed(msg)) => {
+            app.graph_state.error = Some(msg);
+        }
     }
+}
+
+fn build_event_graph_for_gui(
+    result: &crate::analysis::AnalysisResult,
+) -> Result<GraphData, GraphError> {
+    let parse_options = ParseOptions {
+        recover_xref: true,
+        deep: false,
+        strict: false,
+        max_objstm_bytes: 64 * 1024 * 1024,
+        max_objects: 250_000,
+        max_objstm_total_bytes: 256 * 1024 * 1024,
+        carve_stream_objects: false,
+        max_carved_objects: 0,
+        max_carved_bytes: 0,
+    };
+    let graph = parse_pdf(&result.bytes, parse_options)
+        .map_err(|err| GraphError::ParseFailed(err.to_string()))?;
+    let classifications = graph.classify_objects();
+    let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&graph, &classifications);
+    let event_graph = sis_pdf_core::event_graph::build_event_graph(
+        &typed_graph,
+        &result.report.findings,
+        sis_pdf_core::event_graph::EventGraphOptions::default(),
+    );
+    graph_data::from_event_graph(&event_graph)
 }
 
 /// Rebuild the graph (e.g., after filter changes).

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::object_data::ObjectData;
+use sis_pdf_core::event_graph::{EventEdgeKind, EventGraph, EventNodeKind};
 
 /// Maximum nodes the graph will render. Beyond this, return an error
 /// prompting the user to filter first.
@@ -18,9 +19,9 @@ pub struct GraphData {
 /// A node in the object reference graph.
 #[derive(Debug, Clone)]
 pub struct GraphNode {
-    pub obj: u32,
-    pub gen: u16,
+    pub object_ref: Option<(u32, u16)>,
     pub obj_type: String,
+    pub label: String,
     pub roles: Vec<String>,
     pub position: [f64; 2],
 }
@@ -39,6 +40,7 @@ pub struct GraphEdge {
 #[derive(Debug, PartialEq)]
 pub enum GraphError {
     TooManyNodes { count: usize, limit: usize },
+    ParseFailed(String),
 }
 
 impl std::fmt::Display for GraphError {
@@ -51,6 +53,7 @@ impl std::fmt::Display for GraphError {
                     count, limit
                 )
             }
+            Self::ParseFailed(msg) => write!(f, "Unable to build event graph: {}", msg),
         }
     }
 }
@@ -61,6 +64,74 @@ pub fn from_object_data(data: &ObjectData) -> Result<GraphData, GraphError> {
         return Err(GraphError::TooManyNodes { count: data.objects.len(), limit: MAX_GRAPH_NODES });
     }
     build_graph(data, |_| true)
+}
+
+/// Build a graph from the core EventGraph model.
+pub fn from_event_graph(data: &EventGraph) -> Result<GraphData, GraphError> {
+    if data.nodes.len() > MAX_GRAPH_NODES {
+        return Err(GraphError::TooManyNodes { count: data.nodes.len(), limit: MAX_GRAPH_NODES });
+    }
+
+    let mut nodes = Vec::new();
+    let mut node_index = HashMap::new();
+    let mut id_to_idx = HashMap::new();
+
+    for node in &data.nodes {
+        let (object_ref, obj_type, label, mut roles) = match &node.kind {
+            EventNodeKind::Object { obj, gen, obj_type } => (
+                Some((*obj, *gen)),
+                obj_type.clone().unwrap_or_else(|| "object".to_string()),
+                format!("{} {}", obj, gen),
+                Vec::new(),
+            ),
+            EventNodeKind::Event { event_type, trigger, label, source_obj } => (
+                *source_obj,
+                "event".to_string(),
+                label.clone(),
+                vec![format!("{:?}", event_type), trigger.as_str().to_string()],
+            ),
+            EventNodeKind::Outcome { outcome_type, label, target, source_obj, .. } => (
+                *source_obj,
+                "outcome".to_string(),
+                target
+                    .clone()
+                    .map(|value| format!("{label} ({value})"))
+                    .unwrap_or_else(|| label.clone()),
+                vec![format!("{:?}", outcome_type)],
+            ),
+            EventNodeKind::Collapse { label, member_count, .. } => (
+                None,
+                "collapse".to_string(),
+                format!("{label} ({member_count})"),
+                vec!["collapsed".to_string()],
+            ),
+        };
+        if !node.mitre_techniques.is_empty() {
+            roles.push(format!("MITRE: {}", node.mitre_techniques.join(",")));
+        }
+
+        let idx = nodes.len();
+        id_to_idx.insert(node.id.clone(), idx);
+        if let (Some((obj, gen)), EventNodeKind::Object { .. }) = (object_ref, &node.kind) {
+            node_index.insert((obj, gen), idx);
+        }
+        nodes.push(GraphNode { object_ref, obj_type, label, roles, position: [0.0, 0.0] });
+    }
+
+    let mut edges = Vec::new();
+    for edge in &data.edges {
+        let Some(&from_idx) = id_to_idx.get(&edge.from) else {
+            continue;
+        };
+        let Some(&to_idx) = id_to_idx.get(&edge.to) else {
+            continue;
+        };
+        let suspicious =
+            matches!(edge.kind, EventEdgeKind::Executes | EventEdgeKind::ProducesOutcome);
+        edges.push(GraphEdge { from_idx, to_idx, suspicious });
+    }
+
+    Ok(GraphData { nodes, edges, node_index })
 }
 
 /// Build a graph including only objects matching one of the given types.
@@ -140,9 +211,9 @@ fn build_graph(
         let idx = nodes.len();
         node_index.insert((obj.obj, obj.gen), idx);
         nodes.push(GraphNode {
-            obj: obj.obj,
-            gen: obj.gen,
+            object_ref: Some((obj.obj, obj.gen)),
             obj_type: obj.obj_type.clone(),
+            label: format!("{} {}", obj.obj, obj.gen),
             roles: obj.roles.clone(),
             position: [0.0, 0.0],
         });
@@ -299,10 +370,10 @@ mod tests {
         let suspicious: Vec<_> = graph.edges.iter().filter(|e| e.suspicious).collect();
         assert!(!suspicious.is_empty(), "Expected at least one suspicious edge");
         // Find the specific edge 3->4
-        let action_to_stream = graph
-            .edges
-            .iter()
-            .find(|e| graph.nodes[e.from_idx].obj == 3 && graph.nodes[e.to_idx].obj == 4);
+        let action_to_stream = graph.edges.iter().find(|e| {
+            graph.nodes[e.from_idx].object_ref == Some((3, 0))
+                && graph.nodes[e.to_idx].object_ref == Some((4, 0))
+        });
         assert!(action_to_stream.is_some(), "action->stream edge should exist");
         assert!(action_to_stream.expect("checked").suspicious);
     }

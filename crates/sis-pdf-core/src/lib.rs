@@ -20,6 +20,7 @@ pub mod crypto_analysis;
 pub mod detect;
 pub mod diff;
 pub mod embedded_index;
+pub mod event_graph;
 pub mod evidence;
 pub mod explainability;
 pub mod features;

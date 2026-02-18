@@ -272,6 +272,8 @@ pub enum Query {
     // Export queries
     ExportOrgDot,
     ExportOrgJson,
+    ExportEventDot,
+    ExportEventJson,
     ExportIrText,
     ExportIrJson,
     ExportFeatures,
@@ -621,6 +623,12 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "graph.org" => Ok(Query::ExportOrgDot),
         "graph.org.dot" => Ok(Query::ExportOrgDot),
         "graph.org.json" => Ok(Query::ExportOrgJson),
+        "graph.event" => Ok(Query::ExportEventDot),
+        "graph.event.dot" => Ok(Query::ExportEventDot),
+        "graph.event.json" => Ok(Query::ExportEventJson),
+        "graph.action" => Ok(Query::ExportEventDot),
+        "graph.action.dot" => Ok(Query::ExportEventDot),
+        "graph.action.json" => Ok(Query::ExportEventJson),
         "ir" => Ok(Query::ExportIrText),
         "ir.text" => Ok(Query::ExportIrText),
         "ir.json" => Ok(Query::ExportIrJson),
@@ -1248,13 +1256,19 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
     let resolved = match format {
         OutputFormat::Json | OutputFormat::Jsonl | OutputFormat::Yaml => match query {
             Query::ExportOrgDot => Query::ExportOrgJson,
+            Query::ExportEventDot => Query::ExportEventJson,
             Query::ExportIrText => Query::ExportIrJson,
             Query::ExportFeatures => Query::ExportFeaturesJson,
             other => other,
         },
         OutputFormat::Dot => match query {
             Query::ExportOrgJson | Query::ExportOrgDot => Query::ExportOrgDot,
-            _ => return Err(anyhow!("--format dot is only supported for graph.org queries")),
+            Query::ExportEventJson | Query::ExportEventDot => Query::ExportEventDot,
+            _ => {
+                return Err(anyhow!(
+                    "--format dot is only supported for graph.org and graph.event queries"
+                ))
+            }
         },
         OutputFormat::Csv => match query {
             Query::ExportFeatures | Query::ExportFeaturesJson => Query::ExportFeatures,
@@ -1262,6 +1276,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         },
         OutputFormat::Text | OutputFormat::Readable => match query {
             Query::ExportOrgJson => Query::ExportOrgDot,
+            Query::ExportEventJson => Query::ExportEventDot,
             Query::ExportIrJson => Query::ExportIrText,
             Query::ExportFeaturesJson => Query::ExportFeatures,
             other => other,
@@ -2216,6 +2231,28 @@ pub fn execute_query_with_context(
                     &typed_graph,
                 );
                 let json_output = sis_pdf_core::org_export::export_org_json(&org_graph);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportEventDot => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                let dot_output = sis_pdf_core::event_graph::export_event_graph_dot(&event_graph);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportEventJson => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                let json_output = sis_pdf_core::event_graph::export_event_graph_json(&event_graph);
                 Ok(QueryResult::Structure(json_output))
             }
             Query::ExportIrText => {
@@ -7691,6 +7728,9 @@ mod tests {
         let query = apply_output_format(Query::ExportOrgDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportOrgJson));
 
+        let query = apply_output_format(Query::ExportEventDot, OutputFormat::Json).unwrap();
+        assert!(matches!(query, Query::ExportEventJson));
+
         let query = apply_output_format(Query::ExportIrText, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportIrJson));
 
@@ -7699,6 +7739,9 @@ mod tests {
 
         let query = apply_output_format(Query::ExportOrgJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportOrgDot));
+
+        let query = apply_output_format(Query::ExportEventJson, OutputFormat::Dot).unwrap();
+        assert!(matches!(query, Query::ExportEventDot));
 
         let error = apply_output_format(Query::Urls, OutputFormat::Csv);
         assert!(error.is_err());
@@ -8216,10 +8259,55 @@ mod tests {
         assert!(matches!(query, Query::ExportOrgDot));
         let query = parse_query("org.json").expect("org json query");
         assert!(matches!(query, Query::ExportOrgJson));
+        let query = parse_query("graph.event").expect("event query");
+        assert!(matches!(query, Query::ExportEventDot));
+        let query = parse_query("graph.event.json").expect("event json query");
+        assert!(matches!(query, Query::ExportEventJson));
+        let query = parse_query("graph.action").expect("action alias query");
+        assert!(matches!(query, Query::ExportEventDot));
         let query = parse_query("ir").expect("ir query");
         assert!(matches!(query, Query::ExportIrText));
         let query = parse_query("ir.json").expect("ir json query");
         assert!(matches!(query, Query::ExportIrJson));
+    }
+
+    #[test]
+    fn graph_event_queries_return_dot_and_json_shapes() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let dot = execute_query_with_context(
+                &Query::ExportEventDot,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("event dot");
+            match dot {
+                QueryResult::Scalar(ScalarValue::String(value)) => {
+                    assert!(value.contains("digraph event_graph"));
+                }
+                other => panic!("expected dot scalar, got {:?}", other),
+            }
+
+            let json = execute_query_with_context(
+                &Query::ExportEventJson,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("event json");
+            match json {
+                QueryResult::Structure(value) => {
+                    assert!(value.get("nodes").is_some());
+                    assert!(value.get("edges").is_some());
+                    assert_eq!(value.get("schema_version"), Some(&json!("1.0")));
+                }
+                other => panic!("expected structure, got {:?}", other),
+            }
+        });
     }
 
     #[test]

@@ -165,23 +165,23 @@ mod tests {
     fn simple_graph() -> GraphData {
         let nodes = vec![
             GraphNode {
-                obj: 1,
-                gen: 0,
+                object_ref: Some((1, 0)),
                 obj_type: "catalog".to_string(),
+                label: "1 0".to_string(),
                 roles: vec![],
                 position: [0.0, 0.0],
             },
             GraphNode {
-                obj: 2,
-                gen: 0,
+                object_ref: Some((2, 0)),
                 obj_type: "page".to_string(),
+                label: "2 0".to_string(),
                 roles: vec![],
                 position: [0.0, 0.0],
             },
             GraphNode {
-                obj: 3,
-                gen: 0,
+                object_ref: Some((3, 0)),
                 obj_type: "action".to_string(),
+                label: "3 0".to_string(),
                 roles: vec![],
                 position: [0.0, 0.0],
             },
@@ -192,7 +192,9 @@ mod tests {
         ];
         let mut node_index = HashMap::new();
         for (i, n) in nodes.iter().enumerate() {
-            node_index.insert((n.obj, n.gen), i);
+            if let Some((obj, gen)) = n.object_ref {
+                node_index.insert((obj, gen), i);
+            }
         }
         GraphData { nodes, edges, node_index }
     }
@@ -217,8 +219,8 @@ mod tests {
         layout.step(&mut graph, 200);
 
         for node in &graph.nodes {
-            assert!(node.position[0].is_finite(), "x not finite for obj {}", node.obj);
-            assert!(node.position[1].is_finite(), "y not finite for obj {}", node.obj);
+            assert!(node.position[0].is_finite(), "x not finite for node {}", node.label);
+            assert!(node.position[1].is_finite(), "y not finite for node {}", node.label);
         }
     }
 
@@ -251,9 +253,9 @@ mod tests {
     #[test]
     fn single_node_centred() {
         let nodes = vec![GraphNode {
-            obj: 1,
-            gen: 0,
+            object_ref: Some((1, 0)),
             obj_type: "catalog".to_string(),
+            label: "1 0".to_string(),
             roles: vec![],
             position: [0.0, 0.0],
         }];
@@ -285,9 +287,9 @@ mod tests {
     #[test]
     fn step_does_not_force_positions_into_fixed_rectangle() {
         let nodes = vec![GraphNode {
-            obj: 42,
-            gen: 0,
+            object_ref: Some((42, 0)),
             obj_type: "other".to_string(),
+            label: "42 0".to_string(),
             roles: vec![],
             position: [5_000.0, -200.0],
         }];
