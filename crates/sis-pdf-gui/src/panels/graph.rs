@@ -31,6 +31,8 @@ pub struct GraphViewerState {
     pub mode: GraphViewMode,
     /// Whether to filter to chain-only nodes.
     pub chain_filter: bool,
+    /// Whether to overlay the selected chain path.
+    pub chain_overlay: bool,
     /// BFS depth limit from selected node. 0 = no limit (show all).
     pub depth_limit: usize,
     /// Minimum ideal edge length used by the layout engine (0 = auto).
@@ -147,7 +149,7 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         graph.edges.iter().map(|e| (e.from_idx, e.to_idx, e.suspicious)).collect();
 
     let selected_chain = app.selected_chain;
-    let chain_node_set = build_chain_node_set(app);
+    let chain_overlay = build_chain_overlay(app);
 
     let pan = app.graph_state.pan;
     let zoom = if app.graph_state.zoom == 0.0 { 1.0 } else { app.graph_state.zoom };
@@ -239,9 +241,14 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
             }
         }
 
+        if app.graph_state.chain_overlay && chain_overlay.path_edges.contains(&(from_idx, to_idx)) {
+            colour = egui::Color32::from_rgb(190, 110, 255);
+            width = 3.0;
+        }
+
         if dim_non_chain {
-            let from_in_chain = chain_node_set.contains(&from_idx);
-            let to_in_chain = chain_node_set.contains(&to_idx);
+            let from_in_chain = chain_overlay.node_set.contains(&from_idx);
+            let to_in_chain = chain_overlay.node_set.contains(&to_idx);
             if (!from_in_chain || !to_in_chain) && !selected_connection {
                 colour = egui::Color32::from_rgba_premultiplied(60, 60, 60, 40);
             }
@@ -265,7 +272,7 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
         let mut colour = node_colour(obj_type);
 
-        if dim_non_chain && !chain_node_set.contains(&i) {
+        if dim_non_chain && !chain_overlay.node_set.contains(&i) {
             colour = egui::Color32::from_rgba_premultiplied(80, 80, 80, 60);
         }
 
@@ -435,8 +442,9 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
 
         ui.separator();
 
-        // Chain-only toggle
-        ui.toggle_value(&mut app.graph_state.chain_filter, "Chain only");
+        // Chain overlay controls
+        ui.toggle_value(&mut app.graph_state.chain_overlay, "Overlay chain");
+        ui.toggle_value(&mut app.graph_state.chain_filter, "Dim non-chain");
 
         // Labels toggle
         ui.toggle_value(&mut app.graph_state.show_labels, "Labels");
@@ -565,21 +573,27 @@ fn run_layout_step(app: &mut SisApp) {
     }
 }
 
-/// Build a set of node indices that belong to the currently selected chain.
-fn build_chain_node_set(app: &SisApp) -> std::collections::HashSet<usize> {
-    let mut set = std::collections::HashSet::new();
+struct ChainOverlay {
+    node_set: std::collections::HashSet<usize>,
+    path_edges: std::collections::HashSet<(usize, usize)>,
+}
+
+/// Build chain overlay node/edge sets for the currently selected chain.
+fn build_chain_overlay(app: &SisApp) -> ChainOverlay {
+    let mut node_set = std::collections::HashSet::new();
+    let mut ordered_object_nodes = Vec::new();
     let Some(chain_idx) = app.selected_chain else {
-        return set;
+        return ChainOverlay { node_set, path_edges: std::collections::HashSet::new() };
     };
     let Some(ref result) = app.result else {
-        return set;
+        return ChainOverlay { node_set, path_edges: std::collections::HashSet::new() };
     };
     let Some(ref graph) = app.graph_state.graph else {
-        return set;
+        return ChainOverlay { node_set, path_edges: std::collections::HashSet::new() };
     };
 
     if chain_idx >= result.report.chains.len() {
-        return set;
+        return ChainOverlay { node_set, path_edges: std::collections::HashSet::new() };
     }
 
     let chain = &result.report.chains[chain_idx];
@@ -588,12 +602,35 @@ fn build_chain_node_set(app: &SisApp) -> std::collections::HashSet<usize> {
     for text in [&chain.trigger, &chain.action, &chain.payload].iter().filter_map(|t| t.as_ref()) {
         if let Some((obj, gen)) = crate::panels::chains::extract_obj_ref_from_text(text) {
             if let Some(&idx) = graph.node_index.get(&(obj, gen)) {
-                set.insert(idx);
+                if !ordered_object_nodes.contains(&idx) {
+                    ordered_object_nodes.push(idx);
+                }
+            }
+            for (idx, node) in graph.nodes.iter().enumerate() {
+                if node.object_ref == Some((obj, gen)) {
+                    node_set.insert(idx);
+                }
             }
         }
     }
 
-    set
+    let path_edges = build_chain_path_edges(&ordered_object_nodes, &graph.edges);
+    ChainOverlay { node_set, path_edges }
+}
+
+fn build_chain_path_edges(
+    ordered_object_nodes: &[usize],
+    graph_edges: &[crate::graph_data::GraphEdge],
+) -> std::collections::HashSet<(usize, usize)> {
+    let mut pairs = std::collections::HashSet::new();
+    for window in ordered_object_nodes.windows(2) {
+        let from = window[0];
+        let to = window[1];
+        if graph_edges.iter().any(|edge| edge.from_idx == from && edge.to_idx == to) {
+            pairs.insert((from, to));
+        }
+    }
+    pairs
 }
 
 fn draw_edge_arrowhead(
@@ -643,4 +680,24 @@ fn apply_pending_focus(app: &mut SisApp) {
     app.graph_state.selected_node = Some(idx);
     app.graph_state.pan = [WORLD_CENTRE_X - node.position[0], WORLD_CENTRE_Y - node.position[1]];
     app.graph_state.pending_focus = None;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_chain_path_edges;
+    use crate::graph_data::GraphEdge;
+
+    #[test]
+    fn chain_path_overlay_keeps_directed_edges_only() {
+        let ordered_object_nodes = vec![10usize, 20usize, 30usize];
+        let graph_edges = vec![
+            GraphEdge { from_idx: 10, to_idx: 20, suspicious: false },
+            GraphEdge { from_idx: 20, to_idx: 30, suspicious: false },
+            GraphEdge { from_idx: 30, to_idx: 20, suspicious: false },
+        ];
+        let overlay_edges = build_chain_path_edges(&ordered_object_nodes, &graph_edges);
+        assert!(overlay_edges.contains(&(10, 20)));
+        assert!(overlay_edges.contains(&(20, 30)));
+        assert!(!overlay_edges.contains(&(30, 20)));
+    }
 }
