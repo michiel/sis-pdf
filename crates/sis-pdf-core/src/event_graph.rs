@@ -51,6 +51,8 @@ pub enum EventType {
     FieldActivation,
     AnnotationActivation,
     NextAction,
+    JsTimerDelayed,
+    ContentStreamExec,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -384,6 +386,83 @@ pub fn build_event_graph(
         }
     }
 
+    // JsTimerDelayed: derive from findings with js_time_evasion kind
+    for finding in findings {
+        if !finding.kind.contains("js_time_evasion") {
+            continue;
+        }
+        let refs =
+            finding.objects.iter().filter_map(|value| parse_object_ref(value)).collect::<Vec<_>>();
+        if refs.is_empty() {
+            continue;
+        }
+        let base_ref = refs[0];
+        let id = format!(
+            "ev:{}:{}:{:?}:{}",
+            base_ref.0, base_ref.1, EventType::JsTimerDelayed, event_counter
+        );
+        event_counter += 1;
+        nodes.push(EventNode {
+            id: id.clone(),
+            mitre_techniques: mitre_techniques_for_event(EventType::JsTimerDelayed),
+            kind: EventNodeKind::Event {
+                event_type: EventType::JsTimerDelayed,
+                trigger: TriggerClass::Hidden,
+                label: "JS timer delayed".to_string(),
+                source_obj: Some(base_ref),
+            },
+        });
+        if object_nodes.contains_key(&base_ref) {
+            edges.push(EventEdge {
+                from: object_node_id(base_ref.0, base_ref.1),
+                to: id,
+                kind: EventEdgeKind::Triggers,
+                provenance: EdgeProvenance::Finding { finding_id: finding.id.clone() },
+                metadata: None,
+            });
+        }
+    }
+
+    // ContentStreamExec: derive from PageContents typed edges
+    for edge in &typed_graph.edges {
+        if !matches!(edge.edge_type, EdgeType::PageContents) {
+            continue;
+        }
+        let id = format!(
+            "ev:{}:{}:{:?}:{}",
+            edge.src.0, edge.src.1, EventType::ContentStreamExec, event_counter
+        );
+        event_counter += 1;
+        nodes.push(EventNode {
+            id: id.clone(),
+            mitre_techniques: mitre_techniques_for_event(EventType::ContentStreamExec),
+            kind: EventNodeKind::Event {
+                event_type: EventType::ContentStreamExec,
+                trigger: TriggerClass::Automatic,
+                label: "Content stream execution".to_string(),
+                source_obj: Some(edge.src),
+            },
+        });
+        edges.push(EventEdge {
+            from: object_node_id(edge.src.0, edge.src.1),
+            to: id.clone(),
+            kind: EventEdgeKind::Triggers,
+            provenance: EdgeProvenance::TypedEdge {
+                edge_type: edge.edge_type.as_str().to_string(),
+            },
+            metadata: None,
+        });
+        edges.push(EventEdge {
+            from: id,
+            to: object_node_id(edge.dst.0, edge.dst.1),
+            kind: EventEdgeKind::Executes,
+            provenance: EdgeProvenance::TypedEdge {
+                edge_type: edge.edge_type.as_str().to_string(),
+            },
+            metadata: None,
+        });
+    }
+
     // References edge post-pass: for structural edges (DictReference/ArrayElement) where
     // both endpoints have an event or outcome node, emit a References edge.
     // ChainMembership edges are deferred to a future implementation.
@@ -679,6 +758,8 @@ fn mitre_techniques_for_event(event: EventType) -> Vec<String> {
             vec!["T1204.001".to_string()]
         }
         EventType::NextAction => Vec::new(),
+        EventType::JsTimerDelayed => vec!["T1497.003".to_string()],
+        EventType::ContentStreamExec => Vec::new(),
         _ => Vec::new(),
     }
 }

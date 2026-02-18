@@ -1,5 +1,6 @@
 use sis_pdf_core::event_graph::{
-    build_event_graph, EdgeProvenance, EventEdgeKind, EventGraphOptions, EventNodeKind, OutcomeType,
+    build_event_graph, EdgeProvenance, EventEdgeKind, EventGraphOptions, EventNodeKind, EventType,
+    OutcomeType,
 };
 use sis_pdf_core::scan::{
     CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat, ScanOptions,
@@ -290,4 +291,25 @@ fn test_collapse_determinism() {
     let ids1: Vec<&str> = graph1.nodes.iter().map(|n| n.id.as_str()).collect();
     let ids2: Vec<&str> = graph2.nodes.iter().map(|n| n.id.as_str()).collect();
     assert_eq!(ids1, ids2, "same graph built twice should produce identical node IDs");
+}
+
+#[test]
+fn test_content_stream_exec_event() {
+    // Page with /Contents reference should produce a ContentStreamExec event
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\nendobj\n".to_string(),
+        "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n".to_string(),
+    ];
+    let bytes = build_pdf(&objects, 5);
+    let event_graph = event_graph_for_pdf(&bytes);
+
+    let has_content_stream_exec = event_graph.nodes.iter().any(|node| {
+        matches!(
+            &node.kind,
+            EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. }
+        )
+    });
+    assert!(has_content_stream_exec, "should have ContentStreamExec event for page with /Contents");
 }
