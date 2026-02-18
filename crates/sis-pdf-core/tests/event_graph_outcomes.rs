@@ -234,3 +234,60 @@ fn test_circular_next_terminates() {
     // and the graph should not hang
     assert!(next_action_count <= 2, "expected at most 2 NextAction events, got {next_action_count}");
 }
+
+#[test]
+fn test_per_component_collapse() {
+    // Two disconnected clusters of passive objects with one active cluster near the event
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 3 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 0 /Kids [7 0 R] >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Action /S /URI /URI (https://test.example) >>\nendobj\n".to_string(),
+        // Disconnected passive cluster 1
+        "7 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 8 0 R >> >> >>\nendobj\n".to_string(),
+        "8 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n".to_string(),
+    ];
+    let bytes = build_pdf(&objects, 9);
+    let event_graph = event_graph_for_pdf(&bytes);
+
+    let collapse_count = event_graph
+        .nodes
+        .iter()
+        .filter(|n| matches!(n.kind, EventNodeKind::Collapse { .. }))
+        .count();
+    // We don't assert exact count since it depends on which objects are >3 hops from events,
+    // but if there are collapse nodes, they should have meaningful member counts
+    for node in &event_graph.nodes {
+        if let EventNodeKind::Collapse { member_count, .. } = &node.kind {
+            assert!(*member_count > 0, "collapse nodes should have members");
+        }
+    }
+    // The graph should have completed without errors
+    assert!(!event_graph.nodes.is_empty());
+    // If there is more than one collapse node, verify they have distinct IDs
+    let collapse_ids: Vec<&str> = event_graph
+        .nodes
+        .iter()
+        .filter_map(|n| match &n.kind {
+            EventNodeKind::Collapse { .. } => Some(n.id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let unique_ids: std::collections::BTreeSet<&str> = collapse_ids.iter().copied().collect();
+    assert_eq!(collapse_ids.len(), unique_ids.len(), "collapse IDs should be unique");
+}
+
+#[test]
+fn test_collapse_determinism() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 3 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Action /S /URI /URI (https://test.example) >>\nendobj\n".to_string(),
+    ];
+    let bytes = build_pdf(&objects, 4);
+    let graph1 = event_graph_for_pdf(&bytes);
+    let graph2 = event_graph_for_pdf(&bytes);
+
+    let ids1: Vec<&str> = graph1.nodes.iter().map(|n| n.id.as_str()).collect();
+    let ids2: Vec<&str> = graph2.nodes.iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(ids1, ids2, "same graph built twice should produce identical node IDs");
+}

@@ -694,35 +694,71 @@ fn mitre_techniques_for_outcome(outcome: OutcomeType) -> Vec<String> {
     }
 }
 
+const ACTIVE_BOUNDARY_HOPS: usize = 3;
+
 fn collapse_structure_only_nodes(
     nodes: &mut Vec<EventNode>,
     edges: &mut Vec<EventEdge>,
     object_node_type: &HashMap<EventNodeId, Option<String>>,
 ) {
-    let event_or_outcome_node_ids = nodes
+    // Identify anchor nodes (event/outcome)
+    let anchor_node_ids: BTreeSet<EventNodeId> = nodes
         .iter()
         .filter_map(|node| match node.kind {
             EventNodeKind::Event { .. } | EventNodeKind::Outcome { .. } => Some(node.id.clone()),
             _ => None,
         })
-        .collect::<BTreeSet<_>>();
-    if event_or_outcome_node_ids.is_empty() {
+        .collect();
+    if anchor_node_ids.is_empty() {
         return;
     }
 
-    let mut active_objects = BTreeSet::<EventNodeId>::new();
+    // Build undirected structural adjacency for object nodes only
+    let mut structural_adj: HashMap<EventNodeId, BTreeSet<EventNodeId>> = HashMap::new();
     for edge in edges.iter() {
-        if event_or_outcome_node_ids.contains(&edge.from) && object_node_type.contains_key(&edge.to)
-        {
-            active_objects.insert(edge.to.clone());
+        if edge.kind != EventEdgeKind::Structural {
+            continue;
         }
-        if event_or_outcome_node_ids.contains(&edge.to) && object_node_type.contains_key(&edge.from)
-        {
-            active_objects.insert(edge.from.clone());
+        if object_node_type.contains_key(&edge.from) && object_node_type.contains_key(&edge.to) {
+            structural_adj.entry(edge.from.clone()).or_default().insert(edge.to.clone());
+            structural_adj.entry(edge.to.clone()).or_default().insert(edge.from.clone());
         }
     }
 
-    let passive_objects = nodes
+    // BFS from anchor nodes through structural edges, depth-bounded at ACTIVE_BOUNDARY_HOPS
+    let mut active_objects = BTreeSet::<EventNodeId>::new();
+    let mut queue = std::collections::VecDeque::<(EventNodeId, usize)>::new();
+
+    // Seed: all object nodes directly connected to an anchor node (via any edge kind)
+    for edge in edges.iter() {
+        if anchor_node_ids.contains(&edge.from) && object_node_type.contains_key(&edge.to) {
+            if active_objects.insert(edge.to.clone()) {
+                queue.push_back((edge.to.clone(), 0));
+            }
+        }
+        if anchor_node_ids.contains(&edge.to) && object_node_type.contains_key(&edge.from) {
+            if active_objects.insert(edge.from.clone()) {
+                queue.push_back((edge.from.clone(), 0));
+            }
+        }
+    }
+
+    // BFS through structural edges up to ACTIVE_BOUNDARY_HOPS
+    while let Some((node_id, depth)) = queue.pop_front() {
+        if depth >= ACTIVE_BOUNDARY_HOPS {
+            continue;
+        }
+        if let Some(neighbours) = structural_adj.get(&node_id) {
+            for neighbour in neighbours {
+                if active_objects.insert(neighbour.clone()) {
+                    queue.push_back((neighbour.clone(), depth + 1));
+                }
+            }
+        }
+    }
+
+    // Identify passive objects (object nodes not reached by BFS)
+    let passive_objects: Vec<EventNodeId> = nodes
         .iter()
         .filter_map(|node| match node.kind {
             EventNodeKind::Object { .. } if !active_objects.contains(&node.id) => {
@@ -730,47 +766,82 @@ fn collapse_structure_only_nodes(
             }
             _ => None,
         })
-        .collect::<Vec<_>>();
+        .collect();
     if passive_objects.is_empty() {
         return;
     }
 
-    let passive_set = passive_objects.iter().cloned().collect::<BTreeSet<_>>();
-    let collapse_id = "collapse:0".to_string();
-    nodes.push(EventNode {
-        id: collapse_id.clone(),
-        mitre_techniques: Vec::new(),
-        kind: EventNodeKind::Collapse {
-            label: "Collapsed structure".to_string(),
-            member_count: passive_objects.len(),
-            collapsed_members: passive_objects.clone(),
-        },
-    });
+    let passive_set: BTreeSet<EventNodeId> = passive_objects.iter().cloned().collect();
 
+    // Group passive objects into connected components via BFS on structural adjacency
+    let mut component_of: HashMap<EventNodeId, usize> = HashMap::new();
+    let mut components: Vec<Vec<EventNodeId>> = Vec::new();
+    for passive_id in &passive_objects {
+        if component_of.contains_key(passive_id) {
+            continue;
+        }
+        let comp_idx = components.len();
+        let mut comp = Vec::new();
+        let mut bfs_queue = std::collections::VecDeque::new();
+        bfs_queue.push_back(passive_id.clone());
+        component_of.insert(passive_id.clone(), comp_idx);
+        while let Some(current) = bfs_queue.pop_front() {
+            comp.push(current.clone());
+            if let Some(neighbours) = structural_adj.get(&current) {
+                for neighbour in neighbours {
+                    if passive_set.contains(neighbour) && !component_of.contains_key(neighbour) {
+                        component_of.insert(neighbour.clone(), comp_idx);
+                        bfs_queue.push_back(neighbour.clone());
+                    }
+                }
+            }
+        }
+        comp.sort();
+        components.push(comp);
+    }
+    components.sort();
+
+    // Create one collapse node per component
     let mut collapsed_edges = Vec::new();
-    for edge in edges.iter() {
-        let from_passive = passive_set.contains(&edge.from);
-        let to_passive = passive_set.contains(&edge.to);
-        match (from_passive, to_passive) {
-            (true, false) => {
-                collapsed_edges.push(EventEdge {
-                    from: collapse_id.clone(),
-                    to: edge.to.clone(),
-                    kind: EventEdgeKind::CollapsedStructural,
-                    provenance: EdgeProvenance::Heuristic,
-                    metadata: None,
-                });
+    for (idx, component) in components.iter().enumerate() {
+        let collapse_id = format!("collapse:{idx}");
+        let comp_set: BTreeSet<&EventNodeId> = component.iter().collect();
+
+        nodes.push(EventNode {
+            id: collapse_id.clone(),
+            mitre_techniques: Vec::new(),
+            kind: EventNodeKind::Collapse {
+                label: format!("Collapsed structure {}", idx),
+                member_count: component.len(),
+                collapsed_members: component.clone(),
+            },
+        });
+
+        // Generate collapsed edges scoped to this component
+        for edge in edges.iter() {
+            let from_in_comp = comp_set.contains(&edge.from);
+            let to_in_comp = comp_set.contains(&edge.to);
+            match (from_in_comp, to_in_comp) {
+                (true, false) => {
+                    collapsed_edges.push(EventEdge {
+                        from: collapse_id.clone(),
+                        to: edge.to.clone(),
+                        kind: EventEdgeKind::CollapsedStructural,
+                        provenance: EdgeProvenance::Heuristic,
+                        metadata: None,
+                    });
+                }
+                (false, true) => {
+                    collapsed_edges.push(EventEdge {
+                        from: edge.from.clone(),
+                        to: collapse_id.clone(),
+                        kind: EventEdgeKind::CollapsedStructural,
+                        provenance: EdgeProvenance::Heuristic,
+                        metadata: None,
+                    });
+                }
+                _ => {}
             }
-            (false, true) => {
-                collapsed_edges.push(EventEdge {
-                    from: edge.from.clone(),
-                    to: collapse_id.clone(),
-                    kind: EventEdgeKind::CollapsedStructural,
-                    provenance: EdgeProvenance::Heuristic,
-                    metadata: None,
-                });
-            }
-            _ => {}
         }
     }
 
@@ -1206,17 +1277,11 @@ mod tests {
 
     #[test]
     fn test_collapsed_edges_are_deduplicated() {
+        // Create a chain: event -> obj:3:0 -> obj:4:0 -> obj:5:0 -> obj:6:0 -> obj:7:0
+        // Objects 7 is 4 hops from anchor, so passive. Objects 8 and 9 also passive,
+        // both connected to obj:6:0 (active at 3 hops). They should produce one
+        // collapsed edge each direction, deduplicated.
         let mut nodes = vec![
-            EventNode {
-                id: "obj:1:0".into(),
-                mitre_techniques: Vec::new(),
-                kind: EventNodeKind::Object { obj: 1, gen: 0, obj_type: None },
-            },
-            EventNode {
-                id: "obj:2:0".into(),
-                mitre_techniques: Vec::new(),
-                kind: EventNodeKind::Object { obj: 2, gen: 0, obj_type: None },
-            },
             EventNode {
                 id: "ev:3:0:DocumentOpen:0".into(),
                 mitre_techniques: Vec::new(),
@@ -1232,23 +1297,35 @@ mod tests {
                 mitre_techniques: Vec::new(),
                 kind: EventNodeKind::Object { obj: 3, gen: 0, obj_type: None },
             },
+            EventNode {
+                id: "obj:4:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 4, gen: 0, obj_type: None },
+            },
+            EventNode {
+                id: "obj:5:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 5, gen: 0, obj_type: None },
+            },
+            EventNode {
+                id: "obj:6:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 6, gen: 0, obj_type: None },
+            },
+            // Passive: 4 hops from anchor
+            EventNode {
+                id: "obj:7:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 7, gen: 0, obj_type: None },
+            },
+            // Also passive, connected to obj:6:0
+            EventNode {
+                id: "obj:8:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: 8, gen: 0, obj_type: None },
+            },
         ];
-        // Two passive objects (1, 2) both reference active object 3
         let mut edges = vec![
-            EventEdge {
-                from: "obj:1:0".into(),
-                to: "obj:3:0".into(),
-                kind: EventEdgeKind::Structural,
-                provenance: EdgeProvenance::Heuristic,
-                metadata: None,
-            },
-            EventEdge {
-                from: "obj:2:0".into(),
-                to: "obj:3:0".into(),
-                kind: EventEdgeKind::Structural,
-                provenance: EdgeProvenance::Heuristic,
-                metadata: None,
-            },
             EventEdge {
                 from: "obj:3:0".into(),
                 to: "ev:3:0:DocumentOpen:0".into(),
@@ -1256,23 +1333,137 @@ mod tests {
                 provenance: EdgeProvenance::Heuristic,
                 metadata: None,
             },
+            EventEdge {
+                from: "obj:3:0".into(),
+                to: "obj:4:0".into(),
+                kind: EventEdgeKind::Structural,
+                provenance: EdgeProvenance::Heuristic,
+                metadata: None,
+            },
+            EventEdge {
+                from: "obj:4:0".into(),
+                to: "obj:5:0".into(),
+                kind: EventEdgeKind::Structural,
+                provenance: EdgeProvenance::Heuristic,
+                metadata: None,
+            },
+            EventEdge {
+                from: "obj:5:0".into(),
+                to: "obj:6:0".into(),
+                kind: EventEdgeKind::Structural,
+                provenance: EdgeProvenance::Heuristic,
+                metadata: None,
+            },
+            EventEdge {
+                from: "obj:6:0".into(),
+                to: "obj:7:0".into(),
+                kind: EventEdgeKind::Structural,
+                provenance: EdgeProvenance::Heuristic,
+                metadata: None,
+            },
+            // Both 7 and 8 reference obj:6:0 (active)
+            EventEdge {
+                from: "obj:7:0".into(),
+                to: "obj:6:0".into(),
+                kind: EventEdgeKind::Structural,
+                provenance: EdgeProvenance::Heuristic,
+                metadata: None,
+            },
+            EventEdge {
+                from: "obj:8:0".into(),
+                to: "obj:6:0".into(),
+                kind: EventEdgeKind::Structural,
+                provenance: EdgeProvenance::Heuristic,
+                metadata: None,
+            },
         ];
         let mut object_node_type = HashMap::new();
-        object_node_type.insert("obj:1:0".to_string(), None);
-        object_node_type.insert("obj:2:0".to_string(), None);
-        object_node_type.insert("obj:3:0".to_string(), None);
+        for id in ["obj:3:0", "obj:4:0", "obj:5:0", "obj:6:0", "obj:7:0", "obj:8:0"] {
+            object_node_type.insert(id.to_string(), None);
+        }
 
         collapse_structure_only_nodes(&mut nodes, &mut edges, &object_node_type);
 
-        // Both passive objects collapse; each references obj:3:0, so we should get
-        // exactly one CollapsedStructural edge from collapse -> obj:3:0
+        // Objects 7 and 8 are in separate components (no passive-only path between them).
+        // Each component creates one collapse node, each with one CollapsedStructural
+        // edge to obj:6:0 — so 2 total. Within each component, duplicates are deduplicated.
         let collapsed_to_active = edges
             .iter()
             .filter(|e| {
-                e.kind == EventEdgeKind::CollapsedStructural && e.to == "obj:3:0"
+                e.kind == EventEdgeKind::CollapsedStructural && e.to == "obj:6:0"
             })
             .count();
-        assert_eq!(collapsed_to_active, 1, "duplicate collapsed edges should be deduplicated");
+        assert_eq!(collapsed_to_active, 2, "one CollapsedStructural per component to active obj");
+
+        // Verify two collapse nodes were created
+        let collapse_count =
+            nodes.iter().filter(|n| matches!(n.kind, EventNodeKind::Collapse { .. })).count();
+        assert_eq!(collapse_count, 2, "separate components produce separate collapse nodes");
+    }
+
+    #[test]
+    fn test_three_hop_active_boundary() {
+        // Chain: event -> obj:1 -> obj:2 -> obj:3 -> obj:4 -> obj:5
+        // obj:1 at depth 0, obj:2 at 1, obj:3 at 2, obj:4 at 3 (active boundary).
+        // obj:5 at depth 4 should be collapsed.
+        let mut nodes = vec![
+            EventNode {
+                id: "ev:1:0:DocumentOpen:0".into(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Event {
+                    event_type: EventType::DocumentOpen,
+                    trigger: TriggerClass::Automatic,
+                    label: "Open".into(),
+                    source_obj: Some((1, 0)),
+                },
+            },
+        ];
+        for i in 1..=5u32 {
+            nodes.push(EventNode {
+                id: format!("obj:{i}:0"),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Object { obj: i, gen: 0, obj_type: None },
+            });
+        }
+        let mut edges = vec![EventEdge {
+            from: "obj:1:0".into(),
+            to: "ev:1:0:DocumentOpen:0".into(),
+            kind: EventEdgeKind::Triggers,
+            provenance: EdgeProvenance::Heuristic,
+            metadata: None,
+        }];
+        for i in 1..5u32 {
+            edges.push(EventEdge {
+                from: format!("obj:{i}:0"),
+                to: format!("obj:{}:0", i + 1),
+                kind: EventEdgeKind::Structural,
+                provenance: EdgeProvenance::Heuristic,
+                metadata: None,
+            });
+        }
+        let mut object_node_type = HashMap::new();
+        for i in 1..=5u32 {
+            object_node_type.insert(format!("obj:{i}:0"), None);
+        }
+
+        collapse_structure_only_nodes(&mut nodes, &mut edges, &object_node_type);
+
+        // obj:1 through obj:4 should be active (within 3 hops), obj:5 should be collapsed
+        let object_ids: BTreeSet<String> = nodes
+            .iter()
+            .filter_map(|n| match n.kind {
+                EventNodeKind::Object { .. } => Some(n.id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(object_ids.contains("obj:1:0"), "hop 0 should be active");
+        assert!(object_ids.contains("obj:2:0"), "hop 1 should be active");
+        assert!(object_ids.contains("obj:3:0"), "hop 2 should be active");
+        assert!(object_ids.contains("obj:4:0"), "hop 3 should be active");
+        assert!(!object_ids.contains("obj:5:0"), "hop 4 should be collapsed");
+
+        let has_collapse = nodes.iter().any(|n| matches!(n.kind, EventNodeKind::Collapse { .. }));
+        assert!(has_collapse, "should have a collapse node for obj:5:0");
     }
 
     #[test]
