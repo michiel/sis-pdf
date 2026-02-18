@@ -123,6 +123,7 @@ pub struct SisApp {
 pub struct FindingDetailGraphCache {
     pub file_name: String,
     pub file_size: usize,
+    pub findings_hash: u64,
     pub event_graph: EventGraph,
     pub finding_paths: HashMap<String, Vec<String>>,
 }

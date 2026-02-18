@@ -395,10 +395,15 @@ fn event_graph_paths_for_finding(
     let Some(result) = app.result.as_ref() else {
         return Vec::new();
     };
+    let findings_hash = compute_findings_hash(&result.report.findings);
     if app
         .finding_detail_graph_cache
         .as_ref()
-        .map(|cache| cache.file_name != result.file_name || cache.file_size != result.file_size)
+        .map(|cache| {
+            cache.file_name != result.file_name
+                || cache.file_size != result.file_size
+                || cache.findings_hash != findings_hash
+        })
         .unwrap_or(true)
     {
         app.finding_detail_graph_cache = build_finding_detail_graph_cache(result);
@@ -419,10 +424,11 @@ fn event_graph_paths_for_finding(
         if !cache.event_graph.node_index.contains_key(&start_id) {
             continue;
         }
-        if let Some(path) = shortest_path_to_event(&cache.event_graph, &start_id, 8) {
+        let max_hops = app.graph_state.finding_detail_max_hops;
+        if let Some(path) = shortest_path_to_event(&cache.event_graph, &start_id, max_hops) {
             output.push(format!("Trigger path: {}", render_event_path(&cache.event_graph, &path)));
         }
-        if let Some(path) = shortest_path_to_outcome(&cache.event_graph, &start_id, 8) {
+        if let Some(path) = shortest_path_to_outcome(&cache.event_graph, &start_id, max_hops) {
             output.push(format!("Outcome path: {}", render_event_path(&cache.event_graph, &path)));
         }
     }
@@ -459,9 +465,20 @@ fn build_finding_detail_graph_cache(
     Some(crate::app::FindingDetailGraphCache {
         file_name: result.file_name.clone(),
         file_size: result.file_size,
+        findings_hash: compute_findings_hash(&result.report.findings),
         event_graph,
         finding_paths: std::collections::HashMap::new(),
     })
+}
+
+fn compute_findings_hash(findings: &[sis_pdf_core::model::Finding]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for finding in findings {
+        finding.id.hash(&mut hasher);
+    }
+    findings.len().hash(&mut hasher);
+    hasher.finish()
 }
 
 fn shortest_path_to_event(graph: &EventGraph, start: &str, max_hops: usize) -> Option<Vec<String>> {

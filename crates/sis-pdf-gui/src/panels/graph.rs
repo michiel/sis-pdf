@@ -52,6 +52,8 @@ pub struct GraphViewerState {
     pub layout_start_time: f64,
     /// Object requested for focus before the graph is built.
     pub pending_focus: Option<(u32, u16)>,
+    /// Maximum hop count for finding-detail event paths.
+    pub finding_detail_max_hops: usize,
 }
 
 const WORLD_CENTRE_X: f64 = 400.0;
@@ -81,6 +83,7 @@ impl Default for GraphViewerState {
             built: false,
             layout_start_time: 0.0,
             pending_focus: None,
+            finding_detail_max_hops: 8,
         }
     }
 }
@@ -594,6 +597,18 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
                         }
                     }
                 });
+            ui.label("Detail hops:");
+            let mut max_hops = app.graph_state.finding_detail_max_hops as i32;
+            if ui.add(egui::Slider::new(&mut max_hops, 1..=20).text("max")).changed() {
+                let new_hops = max_hops as usize;
+                if new_hops != app.graph_state.finding_detail_max_hops {
+                    app.graph_state.finding_detail_max_hops = new_hops;
+                    // Invalidate finding path cache when max_hops changes
+                    if let Some(cache) = app.finding_detail_graph_cache.as_mut() {
+                        cache.finding_paths.clear();
+                    }
+                }
+            }
             ui.separator();
         }
 
@@ -1092,5 +1107,11 @@ mod tests {
         ];
         let path = find_directed_path_edges(&graph_edges, 1, 9, 8);
         assert_eq!(path, vec![(1, 2), (2, 5), (5, 9)]);
+    }
+
+    #[test]
+    fn default_finding_detail_max_hops_is_eight() {
+        let state = super::GraphViewerState::default();
+        assert_eq!(state.finding_detail_max_hops, 8);
     }
 }
