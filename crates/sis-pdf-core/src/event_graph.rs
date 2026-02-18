@@ -372,7 +372,10 @@ pub fn build_event_graph(
 }
 
 pub fn export_event_graph_json(event_graph: &EventGraph) -> serde_json::Value {
-    serde_json::to_value(event_graph).unwrap_or_else(|_| serde_json::json!({}))
+    serde_json::to_value(event_graph).unwrap_or_else(|err| {
+        tracing::warn!(error = %err, "event graph JSON serialisation failed");
+        serde_json::json!({})
+    })
 }
 
 pub fn export_event_graph_dot(event_graph: &EventGraph) -> String {
@@ -403,10 +406,10 @@ pub fn export_event_graph_dot(event_graph: &EventGraph) -> String {
         };
         out.push_str(&format!(
             "  \"{}\" [shape={}, color={}, label=\"{}\"];\n",
-            node.id,
+            dot_escape(&node.id),
             shape,
             color,
-            label.replace('"', "\\\"")
+            dot_escape(&label)
         ));
     }
 
@@ -420,12 +423,31 @@ pub fn export_event_graph_dot(event_graph: &EventGraph) -> String {
         };
         out.push_str(&format!(
             "  \"{}\" -> \"{}\" [{}];\n",
-            edge.from.replace('"', "\\\""),
-            edge.to.replace('"', "\\\""),
+            dot_escape(&edge.from),
+            dot_escape(&edge.to),
             style
         ));
     }
     out.push_str("}\n");
+    out
+}
+
+fn dot_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '{' => out.push_str("\\{"),
+            '}' => out.push_str("\\}"),
+            '<' => out.push_str("\\<"),
+            '>' => out.push_str("\\>"),
+            '|' => out.push_str("\\|"),
+            _ => out.push(ch),
+        }
+    }
     out
 }
 
@@ -994,5 +1016,43 @@ mod tests {
         let event_graph = build_event_graph(&typed, &[], EventGraphOptions::default());
         let dot = export_event_graph_dot(&event_graph);
         assert!(dot.contains("digraph event_graph"));
+    }
+
+    #[test]
+    fn test_dot_escape_hostile_characters() {
+        assert_eq!(dot_escape(r#"hello"world"#), r#"hello\"world"#);
+        assert_eq!(dot_escape("back\\slash"), "back\\\\slash");
+        assert_eq!(dot_escape("new\nline"), "new\\nline");
+        assert_eq!(dot_escape("cr\rreturn"), "cr\\rreturn");
+        assert_eq!(dot_escape("{braces}"), "\\{braces\\}");
+        assert_eq!(dot_escape("<angle>"), "\\<angle\\>");
+        assert_eq!(dot_escape("pipe|char"), "pipe\\|char");
+    }
+
+    #[test]
+    fn test_dot_export_escapes_labels() {
+        let typed = test_typed_graph();
+        let event_graph = build_event_graph(&typed, &[], EventGraphOptions::default());
+        let dot = export_event_graph_dot(&event_graph);
+        // Verify no raw unescaped double quotes inside label attributes
+        for line in dot.lines() {
+            if let Some(label_start) = line.find("label=\"") {
+                let after_label = &line[label_start + 7..];
+                if let Some(end) = after_label.find("\"]") {
+                    let label_content = &after_label[..end];
+                    // No unescaped quotes (every " should be preceded by \)
+                    let chars: Vec<char> = label_content.chars().collect();
+                    for (i, &ch) in chars.iter().enumerate() {
+                        if ch == '"' {
+                            assert!(
+                                i > 0 && chars[i - 1] == '\\',
+                                "Unescaped quote in DOT label: {}",
+                                label_content
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
