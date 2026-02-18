@@ -92,7 +92,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     let medium = result.report.summary.medium;
     let low = result.report.summary.low;
     let info = result.report.summary.info;
-    let chain_count = result.report.chains.len();
+    let chain_count = result.report.chains.iter().filter(|chain| chain.findings.len() > 1).count();
 
     ui.horizontal(|ui| {
         ui.heading(&file_name);

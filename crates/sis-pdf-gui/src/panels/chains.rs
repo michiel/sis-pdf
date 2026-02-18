@@ -17,12 +17,18 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         return;
     };
 
-    let chains = &result.report.chains;
+    let chains: Vec<(usize, &sis_pdf_core::chain::ExploitChain)> = result
+        .report
+        .chains
+        .iter()
+        .enumerate()
+        .filter(|(_, chain)| chain.findings.len() > 1)
+        .collect();
 
     if chains.is_empty() {
         ui.vertical_centered(|ui| {
             ui.add_space(20.0);
-            ui.label("No exploit chains detected");
+            ui.label("No multi-step exploit chains detected");
         });
         return;
     }
@@ -34,8 +40,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     // Pre-extract chain display data to avoid borrowing result inside mutable closure
     let chain_data: Vec<ChainDisplay> = chains
         .iter()
-        .enumerate()
-        .map(|(i, chain)| {
+        .map(|(original_index, chain)| {
             let finding_links: Vec<(String, Option<usize>)> = chain
                 .findings
                 .iter()
@@ -70,7 +75,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             }
 
             ChainDisplay {
-                index: i,
+                index: *original_index,
                 score: chain.score,
                 path: chain.path.clone(),
                 trigger: chain.trigger.clone(),

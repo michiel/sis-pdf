@@ -6351,10 +6351,11 @@ fn list_action_chains(
     let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(&typed_graph);
 
     let chains = path_finder.find_all_action_chains();
-    let total_chains = chains.len();
+    let total_chains = chains.iter().filter(|chain| is_default_visible_chain(chain)).count();
     let filtered: Vec<_> = chains
         .iter()
         .enumerate()
+        .filter(|(_, chain)| is_default_visible_chain(chain))
         .filter(|(_, chain)| chain_matches_predicate(chain, predicate))
         .collect();
 
@@ -6376,10 +6377,11 @@ fn list_js_chains(
     let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(&typed_graph);
 
     let chains = path_finder.find_all_action_chains();
-    let total_chains = chains.len();
+    let total_chains = chains.iter().filter(|chain| is_default_visible_chain(chain)).count();
     let filtered: Vec<_> = chains
         .iter()
         .enumerate()
+        .filter(|(_, chain)| is_default_visible_chain(chain))
         .filter(|(_, chain)| chain_matches_predicate(chain, predicate))
         .filter(|(_, chain)| chain.involves_js)
         .collect();
@@ -6797,6 +6799,10 @@ fn chain_matches_predicate(
     predicate: Option<&PredicateExpr>,
 ) -> bool {
     predicate.map(|pred| pred.evaluate(&predicate_context_for_chain(chain))).unwrap_or(true)
+}
+
+fn is_default_visible_chain(chain: &sis_pdf_pdf::path_finder::ActionChain<'_>) -> bool {
+    chain.length() > 1
 }
 
 fn predicate_context_for_chain(
@@ -7531,6 +7537,33 @@ mod tests {
         assert_eq!(edge_array.len(), 2);
         assert_eq!(edge_array[1]["type"], json!("javascript_payload"));
         assert_eq!(edge_array[1]["suspicious"], json!(true));
+    }
+
+    #[test]
+    fn default_chain_view_filters_single_edge_chains() {
+        let single_edge_backing = [TypedEdge::new((1, 0), (2, 0), EdgeType::OpenAction)];
+        let single_edge = sis_pdf_pdf::path_finder::ActionChain {
+            trigger: TriggerType::OpenAction,
+            edges: vec![&single_edge_backing[0]],
+            payload: Some((2, 0)),
+            automatic: true,
+            involves_js: false,
+            involves_external: false,
+        };
+        let multi_edge_edges = [
+            TypedEdge::new((1, 0), (2, 0), EdgeType::OpenAction),
+            TypedEdge::new((2, 0), (3, 0), EdgeType::JavaScriptPayload),
+        ];
+        let multi_edge = sis_pdf_pdf::path_finder::ActionChain {
+            trigger: TriggerType::OpenAction,
+            edges: vec![&multi_edge_edges[0], &multi_edge_edges[1]],
+            payload: Some((3, 0)),
+            automatic: true,
+            involves_js: true,
+            involves_external: false,
+        };
+        assert!(!is_default_visible_chain(&single_edge));
+        assert!(is_default_visible_chain(&multi_edge));
     }
 
     #[test]

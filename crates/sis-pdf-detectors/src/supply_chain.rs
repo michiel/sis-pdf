@@ -427,6 +427,7 @@ fn is_action_trigger_edge(edge: &TypedEdge) -> bool {
             | EdgeType::AdditionalAction { .. }
             | EdgeType::PageAction { .. }
             | EdgeType::FormFieldAction { .. }
+            | EdgeType::NextAction
     ) || matches!(&edge.edge_type, EdgeType::DictReference { key } if key == "/Next")
 }
 
@@ -508,9 +509,10 @@ fn stage_sources(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_execution_bridge_sources, extract_js_fetch_targets, merge_stage_fetch_targets,
-        stage_sources,
+        collect_execution_bridge_sources, extract_js_fetch_targets, is_action_trigger_edge,
+        merge_stage_fetch_targets, stage_sources,
     };
+    use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge};
 
     #[test]
     fn extracts_js_fetch_targets_for_common_protocols() {
@@ -539,5 +541,11 @@ mod tests {
             stage_sources("javascript", true, true, true),
             "action-trigger,embedded-file,javascript,remote-template-hint"
         );
+    }
+
+    #[test]
+    fn action_trigger_edge_accepts_next_action_variant() {
+        let edge = TypedEdge::new((1, 0), (2, 0), EdgeType::NextAction);
+        assert!(is_action_trigger_edge(&edge));
     }
 }
