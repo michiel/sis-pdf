@@ -1,9 +1,12 @@
 use crate::model::Finding;
 use serde::{Deserialize, Serialize};
+use sis_pdf_pdf::object::{PdfAtom, PdfDict};
 use sis_pdf_pdf::typed_graph::{EdgeType, TypedGraph};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 pub type EventNodeId = String;
+const DEFAULT_MAX_EVENT_NODES: usize = 6_000;
+const DEFAULT_MAX_EVENT_EDGES: usize = 20_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TriggerClass {
@@ -22,7 +25,7 @@ impl TriggerClass {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EventType {
     DocumentOpen,
     DocumentWillClose,
@@ -49,7 +52,7 @@ pub enum EventType {
     NextAction,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OutcomeType {
     NetworkEgress,
     FilesystemWrite,
@@ -109,6 +112,16 @@ pub enum EdgeProvenance {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EdgeMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initiation: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventNode {
     pub id: EventNodeId,
     pub mitre_techniques: Vec<String>,
@@ -122,6 +135,8 @@ pub struct EventEdge {
     pub to: EventNodeId,
     pub kind: EventEdgeKind,
     pub provenance: EdgeProvenance,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<EdgeMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,17 +147,34 @@ pub struct EventGraph {
     pub node_index: HashMap<EventNodeId, usize>,
     pub forward_index: HashMap<EventNodeId, Vec<usize>>,
     pub reverse_index: HashMap<EventNodeId, Vec<usize>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncation: Option<EventGraphTruncation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventGraphTruncation {
+    pub node_cap: usize,
+    pub edge_cap: usize,
+    pub dropped_nodes: usize,
+    pub dropped_edges: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct EventGraphOptions {
     pub include_structure_edges: bool,
     pub collapse_structure_only: bool,
+    pub max_nodes: usize,
+    pub max_edges: usize,
 }
 
 impl Default for EventGraphOptions {
     fn default() -> Self {
-        Self { include_structure_edges: true, collapse_structure_only: true }
+        Self {
+            include_structure_edges: true,
+            collapse_structure_only: true,
+            max_nodes: DEFAULT_MAX_EVENT_NODES,
+            max_edges: DEFAULT_MAX_EVENT_EDGES,
+        }
     }
 }
 
@@ -158,6 +190,7 @@ pub fn build_event_graph(
     let mut event_counter = 0usize;
     let mut outcome_counter = 0usize;
     let mut object_events = HashMap::<(u32, u16), Vec<EventNodeId>>::new();
+    let mut event_trigger_by_id = HashMap::<EventNodeId, TriggerClass>::new();
     let classifications = typed_graph.graph.classify_objects();
 
     for entry in &typed_graph.graph.objects {
@@ -183,12 +216,14 @@ pub fn build_event_graph(
                 to: object_node_id(edge.dst.0, edge.dst.1),
                 kind: EventEdgeKind::Structural,
                 provenance: provenance.clone(),
+                metadata: None,
             });
         }
 
         if let Some((event_type, trigger, label)) = edge_to_event(&edge.edge_type) {
             let id = format!("ev:{}:{}:{:?}:{}", edge.src.0, edge.src.1, event_type, event_counter);
             event_counter += 1;
+            let edge_metadata = edge_metadata_for_typed_edge(typed_graph, edge, Some(trigger));
             nodes.push(EventNode {
                 id: id.clone(),
                 mitre_techniques: mitre_techniques_for_event(event_type),
@@ -199,6 +234,7 @@ pub fn build_event_graph(
                     source_obj: Some(edge.src),
                 },
             });
+            event_trigger_by_id.insert(id.clone(), trigger);
             object_events.entry(edge.src).or_default().push(id.clone());
             edges.push(EventEdge {
                 from: object_node_id(edge.src.0, edge.src.1),
@@ -207,6 +243,7 @@ pub fn build_event_graph(
                 provenance: EdgeProvenance::TypedEdge {
                     edge_type: edge.edge_type.as_str().to_string(),
                 },
+                metadata: edge_metadata.clone(),
             });
             edges.push(EventEdge {
                 from: id,
@@ -215,6 +252,7 @@ pub fn build_event_graph(
                 provenance: EdgeProvenance::TypedEdge {
                     edge_type: edge.edge_type.as_str().to_string(),
                 },
+                metadata: edge_metadata,
             });
         }
 
@@ -244,6 +282,7 @@ pub fn build_event_graph(
                 provenance: EdgeProvenance::TypedEdge {
                     edge_type: edge.edge_type.as_str().to_string(),
                 },
+                metadata: edge_metadata_for_typed_edge(typed_graph, edge, None),
             });
         }
     }
@@ -292,27 +331,44 @@ pub fn build_event_graph(
                     to: id.clone(),
                     kind: EventEdgeKind::ProducesOutcome,
                     provenance: EdgeProvenance::Finding { finding_id: finding.id.clone() },
+                    metadata: Some(EdgeMetadata {
+                        event_key: finding.meta.get("action.event_key").cloned(),
+                        branch_index: None,
+                        initiation: finding.action_initiation.clone(),
+                    }),
                 });
             }
             if let Some(event_ids) = object_events.get(&(obj, gen)) {
                 for event_id in event_ids {
+                    let initiation = event_trigger_by_id
+                        .get(event_id)
+                        .map(|trigger| trigger.as_str().to_string());
                     edges.push(EventEdge {
                         from: event_id.clone(),
                         to: id.clone(),
                         kind: EventEdgeKind::ProducesOutcome,
                         provenance: EdgeProvenance::Finding { finding_id: finding.id.clone() },
+                        metadata: Some(EdgeMetadata {
+                            event_key: finding.meta.get("action.event_key").cloned(),
+                            branch_index: None,
+                            initiation,
+                        }),
                     });
                 }
             }
         }
     }
 
+    merge_duplicate_outcomes(&mut nodes, &mut edges);
+
     if options.collapse_structure_only {
         collapse_structure_only_nodes(&mut nodes, &mut edges, &object_node_type);
     }
 
     dedup_edges(&mut edges);
-    build_indices(nodes, edges)
+    let truncation =
+        enforce_graph_limits(&mut nodes, &mut edges, options.max_nodes, options.max_edges);
+    build_indices(nodes, edges, truncation)
 }
 
 pub fn export_event_graph_json(event_graph: &EventGraph) -> serde_json::Value {
@@ -618,6 +674,7 @@ fn collapse_structure_only_nodes(
                     to: edge.to.clone(),
                     kind: EventEdgeKind::CollapsedStructural,
                     provenance: EdgeProvenance::Heuristic,
+                    metadata: None,
                 });
             }
             (false, true) => {
@@ -626,6 +683,7 @@ fn collapse_structure_only_nodes(
                     to: collapse_id.clone(),
                     kind: EventEdgeKind::CollapsedStructural,
                     provenance: EdgeProvenance::Heuristic,
+                    metadata: None,
                 });
             }
             _ => {}
@@ -638,11 +696,87 @@ fn collapse_structure_only_nodes(
 }
 
 fn dedup_edges(edges: &mut Vec<EventEdge>) {
-    let mut seen = BTreeSet::<(String, String, EventEdgeKind)>::new();
-    edges.retain(|edge| seen.insert((edge.from.clone(), edge.to.clone(), edge.kind)));
+    let mut seen = BTreeSet::<String>::new();
+    edges.retain(|edge| {
+        let key = format!(
+            "{}|{}|{:?}|{:?}|{:?}",
+            edge.from, edge.to, edge.kind, edge.provenance, edge.metadata
+        );
+        seen.insert(key)
+    });
 }
 
-fn build_indices(nodes: Vec<EventNode>, edges: Vec<EventEdge>) -> EventGraph {
+fn edge_metadata_for_typed_edge(
+    typed_graph: &TypedGraph<'_>,
+    edge: &sis_pdf_pdf::typed_graph::TypedEdge,
+    trigger_hint: Option<TriggerClass>,
+) -> Option<EdgeMetadata> {
+    let event_key = edge_type_event_key(&edge.edge_type);
+    let branch_index = if matches!(edge.edge_type, EdgeType::NextAction) {
+        infer_next_branch_index(typed_graph, edge.src, edge.dst)
+    } else {
+        None
+    };
+    let initiation = trigger_hint.map(|trigger| trigger.as_str().to_string());
+    if event_key.is_none() && branch_index.is_none() && initiation.is_none() {
+        return None;
+    }
+    Some(EdgeMetadata { event_key, branch_index, initiation })
+}
+
+fn edge_type_event_key(edge_type: &EdgeType) -> Option<String> {
+    match edge_type {
+        EdgeType::OpenAction => Some("/OpenAction".to_string()),
+        EdgeType::PageAction { event } => Some(event.clone()),
+        EdgeType::AnnotationAction => Some("/A".to_string()),
+        EdgeType::AdditionalAction { event } => Some(event.clone()),
+        EdgeType::FormFieldAction { event } => Some(event.clone()),
+        EdgeType::NextAction => Some("/Next".to_string()),
+        EdgeType::UriTarget => Some("/URI".to_string()),
+        EdgeType::SubmitFormTarget => Some("/F".to_string()),
+        EdgeType::LaunchTarget => Some("/F".to_string()),
+        EdgeType::GoToRTarget => Some("/F".to_string()),
+        _ => None,
+    }
+}
+
+fn infer_next_branch_index(
+    typed_graph: &TypedGraph<'_>,
+    src: (u32, u16),
+    dst: (u32, u16),
+) -> Option<usize> {
+    let entry = typed_graph.graph.get_object(src.0, src.1)?;
+    let dict = entry_dict(entry)?;
+    let (_, next_obj) = dict.get_first(b"/Next")?;
+    match &next_obj.atom {
+        PdfAtom::Ref { .. } => None,
+        PdfAtom::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                if let Some(resolved) = typed_graph.graph.resolve_ref(item) {
+                    if (resolved.obj, resolved.gen) == dst {
+                        return Some(index);
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn entry_dict<'a>(entry: &'a sis_pdf_pdf::graph::ObjEntry<'a>) -> Option<&'a PdfDict<'a>> {
+    match &entry.atom {
+        PdfAtom::Dict(dict) => Some(dict),
+        PdfAtom::Stream(stream) => Some(&stream.dict),
+        _ => None,
+    }
+}
+
+fn build_indices(
+    nodes: Vec<EventNode>,
+    edges: Vec<EventEdge>,
+    truncation: Option<EventGraphTruncation>,
+) -> EventGraph {
     let mut node_index = HashMap::new();
     for (idx, node) in nodes.iter().enumerate() {
         node_index.insert(node.id.clone(), idx);
@@ -653,7 +787,158 @@ fn build_indices(nodes: Vec<EventNode>, edges: Vec<EventEdge>) -> EventGraph {
         forward_index.entry(edge.from.clone()).or_default().push(idx);
         reverse_index.entry(edge.to.clone()).or_default().push(idx);
     }
-    EventGraph { schema_version: "1.0", nodes, edges, node_index, forward_index, reverse_index }
+    EventGraph {
+        schema_version: "1.0",
+        nodes,
+        edges,
+        node_index,
+        forward_index,
+        reverse_index,
+        truncation,
+    }
+}
+
+fn merge_duplicate_outcomes(nodes: &mut Vec<EventNode>, edges: &mut Vec<EventEdge>) {
+    let mut outcome_groups: HashMap<
+        (OutcomeType, Option<String>, Option<(u32, u16)>),
+        Vec<String>,
+    > = HashMap::new();
+    for node in nodes.iter() {
+        if let EventNodeKind::Outcome { outcome_type, target, source_obj, .. } = &node.kind {
+            outcome_groups
+                .entry((*outcome_type, target.clone(), *source_obj))
+                .or_default()
+                .push(node.id.clone());
+        }
+    }
+
+    let mut merge_map = HashMap::<String, String>::new();
+    for ids in outcome_groups.values() {
+        if ids.len() <= 1 {
+            continue;
+        }
+        let canonical = ids[0].clone();
+        for id in ids.iter().skip(1) {
+            merge_map.insert(id.clone(), canonical.clone());
+        }
+    }
+    if merge_map.is_empty() {
+        return;
+    }
+
+    let mut merged_evidence: HashMap<String, BTreeSet<String>> = HashMap::new();
+    let mut max_confidence: HashMap<String, u8> = HashMap::new();
+    let mut best_severity: HashMap<String, String> = HashMap::new();
+
+    for node in nodes.iter() {
+        if let EventNodeKind::Outcome { evidence, confidence_score, severity_hint, .. } = &node.kind
+        {
+            let canonical = merge_map.get(&node.id).cloned().unwrap_or_else(|| node.id.clone());
+            let bucket = merged_evidence.entry(canonical.clone()).or_default();
+            for item in evidence {
+                bucket.insert(item.clone());
+            }
+            if let Some(score) = confidence_score {
+                let entry = max_confidence.entry(canonical.clone()).or_insert(*score);
+                *entry = (*entry).max(*score);
+            }
+            if let Some(severity) = severity_hint {
+                let update = match best_severity.get(&canonical) {
+                    Some(current) => severity_rank(severity) > severity_rank(current),
+                    None => true,
+                };
+                if update {
+                    best_severity.insert(canonical.clone(), severity.clone());
+                }
+            }
+        }
+    }
+
+    nodes.retain(|node| !merge_map.contains_key(&node.id));
+    for node in nodes.iter_mut() {
+        if let EventNodeKind::Outcome { evidence, confidence_score, severity_hint, .. } =
+            &mut node.kind
+        {
+            if let Some(items) = merged_evidence.get(&node.id) {
+                *evidence = items.iter().cloned().collect();
+            }
+            if let Some(score) = max_confidence.get(&node.id) {
+                *confidence_score = Some(*score);
+            }
+            if let Some(severity) = best_severity.get(&node.id) {
+                *severity_hint = Some(severity.clone());
+            }
+        }
+    }
+
+    for edge in edges.iter_mut() {
+        if let Some(mapped) = merge_map.get(&edge.from) {
+            edge.from = mapped.clone();
+        }
+        if let Some(mapped) = merge_map.get(&edge.to) {
+            edge.to = mapped.clone();
+        }
+    }
+}
+
+fn severity_rank(value: &str) -> u8 {
+    match value.to_ascii_lowercase().as_str() {
+        "critical" => 5,
+        "high" => 4,
+        "medium" => 3,
+        "low" => 2,
+        "info" => 1,
+        _ => 0,
+    }
+}
+
+fn enforce_graph_limits(
+    nodes: &mut Vec<EventNode>,
+    edges: &mut Vec<EventEdge>,
+    max_nodes: usize,
+    max_edges: usize,
+) -> Option<EventGraphTruncation> {
+    let original_nodes = nodes.len();
+    let original_edges = edges.len();
+    let mut dropped_nodes = 0usize;
+    let mut dropped_edges = 0usize;
+
+    if nodes.len() > max_nodes {
+        dropped_nodes = nodes.len() - max_nodes;
+        let dropped_ids =
+            nodes.iter().skip(max_nodes).map(|node| node.id.clone()).collect::<BTreeSet<_>>();
+        nodes.truncate(max_nodes);
+        let before = edges.len();
+        edges.retain(|edge| !dropped_ids.contains(&edge.from) && !dropped_ids.contains(&edge.to));
+        dropped_edges += before.saturating_sub(edges.len());
+    }
+    if edges.len() > max_edges {
+        dropped_edges += edges.len() - max_edges;
+        edges.truncate(max_edges);
+    }
+
+    if dropped_nodes > 0 || dropped_edges > 0 {
+        nodes.push(EventNode {
+            id: "collapse:truncated".to_string(),
+            mitre_techniques: Vec::new(),
+            kind: EventNodeKind::Collapse {
+                label: format!(
+                    "Truncated graph (nodes {}, edges {})",
+                    original_nodes, original_edges
+                ),
+                member_count: dropped_nodes,
+                collapsed_members: Vec::new(),
+            },
+        });
+        return Some(EventGraphTruncation {
+            node_cap: max_nodes,
+            edge_cap: max_edges,
+            dropped_nodes,
+            dropped_edges,
+        });
+    }
+
+    None
 }
 
 #[cfg(test)]

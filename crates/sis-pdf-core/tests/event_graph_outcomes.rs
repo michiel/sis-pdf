@@ -1,4 +1,6 @@
-use sis_pdf_core::event_graph::{build_event_graph, EventGraphOptions, EventNodeKind, OutcomeType};
+use sis_pdf_core::event_graph::{
+    build_event_graph, EdgeProvenance, EventEdgeKind, EventGraphOptions, EventNodeKind, OutcomeType,
+};
 use sis_pdf_core::scan::{
     CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat, ScanOptions,
 };
@@ -157,4 +159,46 @@ fn derives_submit_form_outcome_and_next_action_path() {
         })
         .count();
     assert!(next_action_edges >= 1);
+}
+
+#[test]
+fn next_action_array_edges_include_branch_index_and_initiation_metadata() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 3 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Action /S /JavaScript /JS (app.alert(1)) /Next [4 0 R 5 0 R] >>\nendobj\n"
+            .to_string(),
+        "4 0 obj\n<< /Type /Action /S /URI /URI 8 0 R >>\nendobj\n".to_string(),
+        "5 0 obj\n<< /Type /Action /S /Launch /F 9 0 R >>\nendobj\n".to_string(),
+        "8 0 obj\n(https://example.test/branch-a)\nendobj\n".to_string(),
+        "9 0 obj\n(branch-b.exe)\nendobj\n".to_string(),
+    ];
+    let bytes = build_pdf(&objects, 11);
+    let event_graph = event_graph_for_pdf(&bytes);
+
+    let mut branch_indexes = Vec::new();
+    let mut initiations = Vec::new();
+    for edge in &event_graph.edges {
+        if edge.kind != EventEdgeKind::Executes {
+            continue;
+        }
+        let EdgeProvenance::TypedEdge { edge_type } = &edge.provenance else {
+            continue;
+        };
+        if edge_type != "next_action" {
+            continue;
+        }
+        if let Some(metadata) = &edge.metadata {
+            if let Some(branch_index) = metadata.branch_index {
+                branch_indexes.push(branch_index);
+            }
+            if let Some(initiation) = &metadata.initiation {
+                initiations.push(initiation.clone());
+            }
+        }
+    }
+
+    branch_indexes.sort_unstable();
+    assert_eq!(branch_indexes, vec![0, 1]);
+    assert!(initiations.iter().all(|value| value == "hidden"));
 }

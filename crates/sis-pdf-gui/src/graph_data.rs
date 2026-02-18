@@ -35,6 +35,9 @@ pub struct GraphEdge {
     /// Whether this edge is suspicious (action->stream, roles containing
     /// JsContainer or UriTarget).
     pub suspicious: bool,
+    pub edge_kind: Option<String>,
+    pub provenance: Option<String>,
+    pub metadata: Option<String>,
 }
 
 /// Error returned when the graph cannot be built.
@@ -147,7 +150,35 @@ pub fn from_event_graph(data: &EventGraph) -> Result<GraphData, GraphError> {
         };
         let suspicious =
             matches!(edge.kind, EventEdgeKind::Executes | EventEdgeKind::ProducesOutcome);
-        edges.push(GraphEdge { from_idx, to_idx, suspicious });
+        let provenance = match &edge.provenance {
+            sis_pdf_core::event_graph::EdgeProvenance::TypedEdge { edge_type } => {
+                Some(format!("typed:{edge_type}"))
+            }
+            sis_pdf_core::event_graph::EdgeProvenance::Finding { finding_id } => {
+                Some(format!("finding:{finding_id}"))
+            }
+            sis_pdf_core::event_graph::EdgeProvenance::Heuristic => Some("heuristic".to_string()),
+        };
+        edges.push(GraphEdge {
+            from_idx,
+            to_idx,
+            suspicious,
+            edge_kind: Some(format!("{:?}", edge.kind)),
+            provenance,
+            metadata: edge.metadata.as_ref().map(|meta| {
+                let mut fields = Vec::new();
+                if let Some(event_key) = &meta.event_key {
+                    fields.push(format!("event_key={event_key}"));
+                }
+                if let Some(branch_index) = meta.branch_index {
+                    fields.push(format!("branch_index={branch_index}"));
+                }
+                if let Some(initiation) = &meta.initiation {
+                    fields.push(format!("initiation={initiation}"));
+                }
+                fields.join(", ")
+            }),
+        });
     }
 
     Ok(GraphData { nodes, edges, node_index })
@@ -253,7 +284,14 @@ fn build_graph(
             if let Some(&to_idx) = node_index.get(&(target_obj, target_gen)) {
                 let suspicious =
                     is_suspicious_edge(obj, &data.objects[data.index[&(target_obj, target_gen)]]);
-                edges.push(GraphEdge { from_idx, to_idx, suspicious });
+                edges.push(GraphEdge {
+                    from_idx,
+                    to_idx,
+                    suspicious,
+                    edge_kind: None,
+                    provenance: None,
+                    metadata: None,
+                });
             }
         }
     }

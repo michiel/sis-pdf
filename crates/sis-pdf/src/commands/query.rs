@@ -4309,6 +4309,8 @@ fn extract_event_triggers(
         }
     }
 
+    attach_event_graph_refs(ctx, &mut events);
+
     if let Some(pred) = predicate {
         let filtered: Vec<_> = events
             .into_iter()
@@ -4319,6 +4321,105 @@ fn extract_event_triggers(
         Ok(json!(filtered))
     } else {
         Ok(json!(events))
+    }
+}
+
+fn attach_event_graph_refs(ctx: &ScanContext, events: &mut [serde_json::Value]) {
+    use sis_pdf_core::event_graph::{
+        build_event_graph, EventGraphOptions, EventNodeKind, EventType,
+    };
+    let typed_graph = ctx.build_typed_graph();
+    let event_graph = build_event_graph(&typed_graph, &[], EventGraphOptions::default());
+
+    let mut refs = HashMap::<(u32, u16, EventType), String>::new();
+    for node in &event_graph.nodes {
+        if let EventNodeKind::Event { event_type, source_obj: Some((obj, gen)), .. } = &node.kind {
+            let key = (*obj, *gen, *event_type);
+            refs.entry(key)
+                .and_modify(|current| {
+                    if node.id < *current {
+                        *current = node.id.clone();
+                    }
+                })
+                .or_insert_with(|| node.id.clone());
+        }
+    }
+
+    for event in events {
+        let level = event.get("level").and_then(|v| v.as_str());
+        let event_name = event.get("event_type").and_then(|v| v.as_str());
+        let location = event.get("location").and_then(|v| v.as_str());
+        let Some((obj, gen)) = location.and_then(parse_event_location_obj_gen) else {
+            continue;
+        };
+        let Some(types) = map_event_row_to_event_types(level, event_name) else {
+            continue;
+        };
+        for event_type in types {
+            if let Some(graph_ref) = refs.get(&(obj, gen, *event_type)) {
+                if let Some(map) = event.as_object_mut() {
+                    map.insert("graph_ref".to_string(), json!(graph_ref));
+                }
+                break;
+            }
+        }
+    }
+}
+
+fn parse_event_location_obj_gen(location: &str) -> Option<(u32, u16)> {
+    let trimmed = location.strip_prefix("obj ")?;
+    let coords = trimmed.split_whitespace().next()?;
+    let (obj, gen) = coords.split_once(':')?;
+    Some((obj.parse().ok()?, gen.parse().ok()?))
+}
+
+fn map_event_row_to_event_types(
+    level: Option<&str>,
+    event_name: Option<&str>,
+) -> Option<&'static [sis_pdf_core::event_graph::EventType]> {
+    use sis_pdf_core::event_graph::EventType;
+
+    const DOCUMENT_OPEN: &[EventType] = &[EventType::DocumentOpen];
+    const DOCUMENT_WC: &[EventType] = &[EventType::DocumentWillClose];
+    const DOCUMENT_WS: &[EventType] = &[EventType::DocumentWillSave];
+    const DOCUMENT_DS: &[EventType] = &[EventType::DocumentDidSave];
+    const DOCUMENT_WP: &[EventType] = &[EventType::DocumentWillPrint];
+    const DOCUMENT_DP: &[EventType] = &[EventType::DocumentDidPrint];
+    const PAGE_OPEN: &[EventType] = &[EventType::PageOpen];
+    const PAGE_CLOSE: &[EventType] = &[EventType::PageClose];
+    const FIELD_ACTIVATION: &[EventType] = &[EventType::FieldActivation];
+    const FIELD_KEYSTROKE: &[EventType] = &[EventType::FieldKeystroke];
+    const FIELD_FORMAT: &[EventType] = &[EventType::FieldFormat];
+    const FIELD_VALIDATE: &[EventType] = &[EventType::FieldValidate];
+    const FIELD_CALCULATE: &[EventType] = &[EventType::FieldCalculate];
+    const FIELD_MOUSE_DOWN: &[EventType] = &[EventType::FieldMouseDown];
+    const FIELD_MOUSE_UP: &[EventType] = &[EventType::FieldMouseUp];
+    const FIELD_MOUSE_ENTER: &[EventType] = &[EventType::FieldMouseEnter];
+    const FIELD_MOUSE_EXIT: &[EventType] = &[EventType::FieldMouseExit];
+    const FIELD_ON_FOCUS: &[EventType] = &[EventType::FieldOnFocus];
+    const FIELD_ON_BLUR: &[EventType] = &[EventType::FieldOnBlur];
+
+    match (level, event_name) {
+        (_, Some("OpenAction")) => Some(DOCUMENT_OPEN),
+        (_, Some("Doc/WillClose")) => Some(DOCUMENT_WC),
+        (_, Some("Doc/WillSave")) => Some(DOCUMENT_WS),
+        (_, Some("Doc/DidSave")) => Some(DOCUMENT_DS),
+        (_, Some("Doc/WillPrint")) => Some(DOCUMENT_WP),
+        (_, Some("Doc/DidPrint")) => Some(DOCUMENT_DP),
+        (_, Some("Page/Open")) => Some(PAGE_OPEN),
+        (_, Some("Page/Close")) => Some(PAGE_CLOSE),
+        (_, Some("Keystroke")) => Some(FIELD_KEYSTROKE),
+        (_, Some("Format")) => Some(FIELD_FORMAT),
+        (_, Some("Validate")) => Some(FIELD_VALIDATE),
+        (_, Some("Calculate")) => Some(FIELD_CALCULATE),
+        (_, Some("MouseDown")) => Some(FIELD_MOUSE_DOWN),
+        (_, Some("MouseUp")) => Some(FIELD_MOUSE_UP),
+        (_, Some("MouseEnter")) => Some(FIELD_MOUSE_ENTER),
+        (_, Some("MouseExit")) => Some(FIELD_MOUSE_EXIT),
+        (_, Some("OnFocus")) => Some(FIELD_ON_FOCUS),
+        (_, Some("OnBlur")) => Some(FIELD_ON_BLUR),
+        (Some("field"), Some("Action")) => Some(FIELD_ACTIVATION),
+        _ => None,
     }
 }
 
@@ -4563,6 +4664,14 @@ mod event_tests {
             .iter()
             .any(|event| event.get("event_type").and_then(|v| v.as_str()) == Some("OpenAction"));
         assert!(has_open_action, "expected OpenAction event");
+
+        let has_graph_ref = arr.iter().any(|event| {
+            event
+                .get("graph_ref")
+                .and_then(|v| v.as_str())
+                .is_some_and(|value| value.starts_with("ev:"))
+        });
+        assert!(has_graph_ref, "expected graph_ref bridge for event");
     }
 }
 
@@ -5200,6 +5309,7 @@ fn filter_event_graph_by_predicate(
             node_index: HashMap::new(),
             forward_index: HashMap::new(),
             reverse_index: HashMap::new(),
+            truncation: event_graph.truncation,
         };
     }
 
@@ -5222,7 +5332,7 @@ fn filter_event_graph_by_predicate(
         .into_iter()
         .filter(|edge| keep_nodes.contains(&edge.from) && keep_nodes.contains(&edge.to))
         .collect::<Vec<EventEdge>>();
-    rebuild_event_graph_indices(event_graph.schema_version, nodes, edges)
+    rebuild_event_graph_indices(event_graph.schema_version, nodes, edges, event_graph.truncation)
 }
 
 fn event_graph_seed_nodes(
@@ -5261,7 +5371,12 @@ fn induced_event_subgraph(
     hops: usize,
 ) -> sis_pdf_core::event_graph::EventGraph {
     if seed_nodes.is_empty() {
-        return rebuild_event_graph_indices(event_graph.schema_version, Vec::new(), Vec::new());
+        return rebuild_event_graph_indices(
+            event_graph.schema_version,
+            Vec::new(),
+            Vec::new(),
+            event_graph.truncation,
+        );
     }
 
     let mut frontier: Vec<String> = seed_nodes.iter().cloned().collect();
@@ -5301,13 +5416,14 @@ fn induced_event_subgraph(
         .into_iter()
         .filter(|edge| seen.contains(&edge.from) && seen.contains(&edge.to))
         .collect::<Vec<_>>();
-    rebuild_event_graph_indices(event_graph.schema_version, nodes, edges)
+    rebuild_event_graph_indices(event_graph.schema_version, nodes, edges, event_graph.truncation)
 }
 
 fn rebuild_event_graph_indices(
     schema_version: &'static str,
     nodes: Vec<sis_pdf_core::event_graph::EventNode>,
     edges: Vec<sis_pdf_core::event_graph::EventEdge>,
+    truncation: Option<sis_pdf_core::event_graph::EventGraphTruncation>,
 ) -> sis_pdf_core::event_graph::EventGraph {
     let mut node_index = HashMap::new();
     for (idx, node) in nodes.iter().enumerate() {
@@ -5326,6 +5442,7 @@ fn rebuild_event_graph_indices(
         node_index,
         forward_index,
         reverse_index,
+        truncation,
     }
 }
 

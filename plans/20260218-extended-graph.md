@@ -1,8 +1,36 @@
 # Extended Graph Plan: Structure + Event + Outcomes
 
 Date: 2026-02-18
-Status: Planned
+Status: In Progress
 Scope: `crates/sis-pdf-pdf`, `crates/sis-pdf-core`, `crates/sis-pdf`, `crates/sis-pdf-gui`, docs/tests
+
+## 0. Progress review (2026-02-18)
+
+### 0.1 Stage status snapshot
+
+| Stage | Status | Notes |
+|---|---|---|
+| Stage A (Chain changes) | Partial | Default chain views now suppress singleton chains (`length > 1`), but `include_singleton_chains` toggle is not yet implemented in CLI/GUI options. |
+| Stage B (Core model + typed graph uplift) | Complete | `event_graph` core model added; typed graph uplift landed (`NextAction`, page/form action connectivity, URI target extraction paths), with tests. |
+| Stage C (Derivation + connectivity) | Partial | Event/outcome derivation, collapse, MITRE tagging, outcome confidence/severity hints, graph caps/truncation, and edge metadata (`event_key`, `branch_index`, `initiation`) are implemented. Intent connectivity boost remains pending. |
+| Stage D (CLI integration + structure uplift) | Partial | `graph.event`/`graph.action` alias, predicates, hops subgraph queries, and outcome metadata exposure are implemented. `events.graph_ref` bridge is now implemented. Structure uplift track (`graph.structure` enhancements) remains pending. |
+| Stage E (GUI integration) | Partial | Structure/Event mode, chain overlay, event filters, directed path overlay, edge hover metadata, and outcome confidence styling are implemented. Finding detail path-context panel and reader-profile filter remain pending. |
+| Stage F (Docs/rollout) | Partial | Query/predicate docs updated for event graph and hops. Full schema doc, migration notes, and deprecation timeline details remain pending. |
+
+### 0.2 Newly completed in this pass
+
+1. Added event graph outcome confidence/severity metadata and deterministic dedupe merge for duplicate outcomes.
+2. Added event graph truncation guardrails (`max_nodes`, `max_edges`) with explicit truncation metadata in output.
+3. Added fixture-backed event outcome tests in `crates/sis-pdf-core/tests/event_graph_outcomes.rs`.
+4. Extended CLI event graph query support for induced hop subgraphs (`graph.event.hops N` / `graph.action.hops N`).
+5. Added `events.graph_ref` linkage from `events*` query rows to event graph node IDs.
+6. Updated GUI graph data/renderer to carry event edge metadata and outcome confidence visual intensity.
+
+### 0.3 Next implementation focus
+
+1. Implement structure graph uplift (`graph.structure` typed-edge/action-path overlays) without breaking legacy ORG defaults.
+2. Add CLI/GUI option for singleton chain inclusion to complete Stage A parity.
+3. Implement intent connectivity boost in `apply_intent()` using event path correlation.
 
 ## 1. Context and current state
 

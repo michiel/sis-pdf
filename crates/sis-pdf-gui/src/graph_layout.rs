@@ -190,8 +190,22 @@ mod tests {
             },
         ];
         let edges = vec![
-            GraphEdge { from_idx: 0, to_idx: 1, suspicious: false },
-            GraphEdge { from_idx: 0, to_idx: 2, suspicious: false },
+            GraphEdge {
+                from_idx: 0,
+                to_idx: 1,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
+            GraphEdge {
+                from_idx: 0,
+                to_idx: 2,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
         ];
         let mut node_index = HashMap::new();
         for (i, n) in nodes.iter().enumerate() {

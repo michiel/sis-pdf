@@ -159,8 +159,21 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         })
         .collect();
 
-    let edge_data: Vec<(usize, usize, bool)> =
-        graph.edges.iter().map(|e| (e.from_idx, e.to_idx, e.suspicious)).collect();
+    let edge_data: Vec<(usize, usize, bool, Option<String>, Option<String>, Option<String>)> =
+        graph
+            .edges
+            .iter()
+            .map(|e| {
+                (
+                    e.from_idx,
+                    e.to_idx,
+                    e.suspicious,
+                    e.edge_kind.clone(),
+                    e.provenance.clone(),
+                    e.metadata.clone(),
+                )
+            })
+            .collect();
 
     let selected_chain = app.selected_chain;
     let chain_overlay = build_chain_overlay(app);
@@ -224,8 +237,14 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     let dim_non_chain = selected_chain.is_some() && app.graph_state.chain_filter;
 
+    let pointer_pos = ui.input(|i| i.pointer.hover_pos());
+
     // Draw edges
-    for &(from_idx, to_idx, suspicious) in &edge_data {
+    let mut hovered_edge: Option<(String, Option<String>, Option<String>)> = None;
+    for (from_idx, to_idx, suspicious, edge_kind, provenance, edge_metadata) in &edge_data {
+        let from_idx = *from_idx;
+        let to_idx = *to_idx;
+        let suspicious = *suspicious;
         if !visible_nodes.contains(&from_idx) || !visible_nodes.contains(&to_idx) {
             continue;
         }
@@ -275,12 +294,30 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         let stroke = egui::Stroke::new(width, colour);
         painter.line_segment([p1, p2], stroke);
         draw_edge_arrowhead(&painter, p1, p2, stroke, node_radius);
+
+        if let Some(pointer) = pointer_pos {
+            let dx = p2.x - p1.x;
+            let dy = p2.y - p1.y;
+            let len2 = dx * dx + dy * dy;
+            if len2 > 0.0 {
+                let t =
+                    (((pointer.x - p1.x) * dx + (pointer.y - p1.y) * dy) / len2).clamp(0.0, 1.0);
+                let proj = egui::pos2(p1.x + dx * t, p1.y + dy * t);
+                let ex = pointer.x - proj.x;
+                let ey = pointer.y - proj.y;
+                if ex * ex + ey * ey <= 16.0 {
+                    hovered_edge = Some((
+                        edge_kind.clone().unwrap_or_else(|| "edge".to_string()),
+                        provenance.clone(),
+                        edge_metadata.clone(),
+                    ));
+                }
+            }
+        }
     }
 
     // Draw nodes
     let mut hovered = None;
-
-    let pointer_pos = ui.input(|i| i.pointer.hover_pos());
 
     for (i, (gx, gy, ref obj_type, ref label, ref _roles, confidence)) in
         node_data.iter().enumerate()
@@ -359,6 +396,26 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
                 ui.label(format!("Roles: {}", roles.join(", ")));
             }
         });
+    }
+    if hovered.is_none() {
+        if let Some((edge_kind, provenance, edge_metadata)) = hovered_edge {
+            egui::Tooltip::always_open(
+                ui.ctx().clone(),
+                ui.layer_id(),
+                ui.id().with("graph_edge_tooltip"),
+                &response,
+            )
+            .at_pointer()
+            .show(|ui| {
+                ui.strong(edge_kind);
+                if let Some(provenance) = provenance {
+                    ui.label(format!("Provenance: {provenance}"));
+                }
+                if let Some(edge_metadata) = edge_metadata {
+                    ui.label(format!("Metadata: {edge_metadata}"));
+                }
+            });
+        }
     }
 
     // Handle click: select node
@@ -873,9 +930,30 @@ mod tests {
     fn chain_path_overlay_keeps_directed_edges_only() {
         let ordered_object_nodes = vec![10usize, 20usize, 30usize];
         let graph_edges = vec![
-            GraphEdge { from_idx: 10, to_idx: 20, suspicious: false },
-            GraphEdge { from_idx: 20, to_idx: 30, suspicious: false },
-            GraphEdge { from_idx: 30, to_idx: 20, suspicious: false },
+            GraphEdge {
+                from_idx: 10,
+                to_idx: 20,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
+            GraphEdge {
+                from_idx: 20,
+                to_idx: 30,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
+            GraphEdge {
+                from_idx: 30,
+                to_idx: 20,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
         ];
         let overlay_edges = build_chain_path_edges(&ordered_object_nodes, &graph_edges);
         assert!(overlay_edges.contains(&(10, 20)));
@@ -886,10 +964,38 @@ mod tests {
     #[test]
     fn directed_path_search_finds_multi_hop_route() {
         let graph_edges = vec![
-            GraphEdge { from_idx: 1, to_idx: 2, suspicious: false },
-            GraphEdge { from_idx: 2, to_idx: 5, suspicious: false },
-            GraphEdge { from_idx: 5, to_idx: 9, suspicious: false },
-            GraphEdge { from_idx: 1, to_idx: 3, suspicious: false },
+            GraphEdge {
+                from_idx: 1,
+                to_idx: 2,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
+            GraphEdge {
+                from_idx: 2,
+                to_idx: 5,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
+            GraphEdge {
+                from_idx: 5,
+                to_idx: 9,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
+            GraphEdge {
+                from_idx: 1,
+                to_idx: 3,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
         ];
         let path = find_directed_path_edges(&graph_edges, 1, 9, 8);
         assert_eq!(path, vec![(1, 2), (2, 5), (5, 9)]);
