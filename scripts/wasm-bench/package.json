@@ -1,0 +1,12 @@
+{
+  "name": "sis-wasm-bench",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "run": "node run.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.51.0"
+  }
+}

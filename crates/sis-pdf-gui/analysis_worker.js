@@ -19,6 +19,7 @@ async function loadWasmModule() {
 
 self.onmessage = async (event) => {
   try {
+    const workerStart = performance.now();
     const request = event.data ?? {};
     const { file_name, bytes } = request ?? {};
     if (typeof file_name !== "string") {
@@ -38,13 +39,34 @@ self.onmessage = async (event) => {
     const module = await loadWasmModule();
     if (typeof module.wasm_analyze_value === "function") {
       const result = module.wasm_analyze_value(byteView, file_name);
-      self.postMessage({ ok: true, result });
+      const result_json_bytes = (() => {
+        try {
+          return JSON.stringify(result).length;
+        } catch (_) {
+          return 0;
+        }
+      })();
+      self.postMessage({
+        ok: true,
+        result,
+        meta: {
+          worker_ms: Math.max(0, performance.now() - workerStart),
+          result_json_bytes,
+        },
+      });
       return;
     }
     if (typeof module.wasm_analyze_json === "function") {
       const result_json = module.wasm_analyze_json(byteView, file_name);
       const result = JSON.parse(result_json);
-      self.postMessage({ ok: true, result });
+      self.postMessage({
+        ok: true,
+        result,
+        meta: {
+          worker_ms: Math.max(0, performance.now() - workerStart),
+          result_json_bytes: result_json.length,
+        },
+      });
       return;
     }
     self.postMessage({ ok: false, error: "WASM analysis entrypoint unavailable" });

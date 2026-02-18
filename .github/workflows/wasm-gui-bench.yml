@@ -1,0 +1,40 @@
+name: wasm-gui-bench
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install trunk
+        run: cargo install --locked trunk
+
+      - name: Build WASM GUI
+        working-directory: crates/sis-pdf-gui
+        run: NO_COLOR=false trunk build --release
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install benchmark dependencies
+        working-directory: scripts/wasm-bench
+        run: npm_config_cache=/tmp/sis-npm-cache npm install
+
+      - name: Install Chromium
+        working-directory: scripts/wasm-bench
+        run: PLAYWRIGHT_BROWSERS_PATH=/tmp/sis-playwright npx playwright install --with-deps chromium
+
+      - name: Run WASM benchmark guard
+        run: PLAYWRIGHT_BROWSERS_PATH=/tmp/sis-playwright node scripts/wasm-bench/run.mjs

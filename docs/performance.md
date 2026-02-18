@@ -94,3 +94,27 @@ To prove the Stage 0.5 targets remain accurate for the other CVE fixtures refere
 | `swf_cve_2011_0611.pdf` | 2 ms | 5 ms | Rich-media parsing is dominated by `content_first_stage1` (1 ms) and completes in a few milliseconds even with embedded SWF headers. |
 
 These runs demonstrate that filter, XFA, and rich-media workloads stay within the documented SLOs, and the JSON blobs can be regenerated at any time with the same commands used here for future regressions.
+
+## WASM GUI benchmark guard
+
+The repository now includes a browser-executed performance guard for the WASM GUI analysis worker. It measures:
+
+- worker roundtrip wall time per fixture;
+- worker execution time reported by `analysis_worker.js`;
+- serialised result payload size (bytes);
+- optional JS heap usage snapshots (when exposed by the browser).
+
+The guard runs four benchmark classes:
+
+- `small`: minimal synthetic PDF;
+- `medium`: `launch_action.pdf`;
+- `large`: `launch_cve_2010_1240.pdf`;
+- `adversarial`: synthetic stream-heavy PDF designed to stress payload and decode paths.
+
+Run locally with:
+
+```bash
+scripts/run_wasm_gui_bench.sh
+```
+
+CI enforcement is wired in `.github/workflows/wasm-gui-bench.yml` and fails when any class exceeds its budget.
