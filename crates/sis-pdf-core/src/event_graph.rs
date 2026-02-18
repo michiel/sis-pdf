@@ -628,7 +628,12 @@ fn map_additional_event(event: &str) -> EventType {
         "/DS" => EventType::DocumentDidSave,
         "/WP" => EventType::DocumentWillPrint,
         "/DP" => EventType::DocumentDidPrint,
+        "/O" => EventType::PageOpen,
+        "/C" => EventType::PageClose,
+        "/PV" => EventType::PageVisible,
+        "/PI" => EventType::PageInvisible,
         "/K" => EventType::FieldKeystroke,
+        "/F" => EventType::FieldFormat,
         "/V" => EventType::FieldValidate,
         _ => EventType::FieldActivation,
     }
@@ -640,7 +645,7 @@ fn mitre_techniques_for_event(event: EventType) -> Vec<String> {
         EventType::FieldActivation | EventType::AnnotationActivation => {
             vec!["T1204.001".to_string()]
         }
-        EventType::NextAction => vec!["T1059.007".to_string()],
+        EventType::NextAction => Vec::new(),
         _ => Vec::new(),
     }
 }
@@ -1160,6 +1165,21 @@ mod tests {
             nodes.iter().filter(|n| matches!(n.kind, EventNodeKind::Outcome { .. })).count();
         assert_eq!(event_count, 3, "all event nodes should survive truncation");
         assert_eq!(outcome_count, 2, "all outcome nodes should survive truncation");
+    }
+
+    #[test]
+    fn test_additional_action_page_close_mapping() {
+        assert!(matches!(map_additional_event("/C"), EventType::PageClose));
+        assert!(matches!(map_additional_event("/O"), EventType::PageOpen));
+        assert!(matches!(map_additional_event("/PV"), EventType::PageVisible));
+        assert!(matches!(map_additional_event("/PI"), EventType::PageInvisible));
+        assert!(matches!(map_additional_event("/F"), EventType::FieldFormat));
+    }
+
+    #[test]
+    fn test_next_action_has_no_mitre_technique() {
+        let techniques = mitre_techniques_for_event(EventType::NextAction);
+        assert!(techniques.is_empty(), "NextAction should have no MITRE techniques");
     }
 
     #[test]
