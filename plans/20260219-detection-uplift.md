@@ -113,6 +113,20 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - calculate-event severity uplift,
     - benign non-JavaScript field-action control.
   - Documented `acroform_field_action` in `docs/findings.md`.
+- Completed: NO2 Form field oversized value anomaly (initial):
+  - Added `form_field_oversized_value` detector for `/V` and `/DV` payloads exceeding 4 KB.
+  - Detection resolves indirect references and fragmented array payloads before threshold evaluation.
+  - Added metadata for triage:
+    - `field.name`
+    - `field.source`
+    - `field.value_len`
+    - `field.oversized_threshold`
+    - `payload.ref_chain`
+    - chain context (`chain.stage=input`, `chain.capability=oversized_form_value`, `chain.trigger=acroform`)
+  - Added integration tests covering:
+    - distributed fragmented oversized field values,
+    - benign small-value control.
+  - Documented `form_field_oversized_value` in `docs/findings.md`.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.

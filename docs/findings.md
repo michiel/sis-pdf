@@ -990,6 +990,25 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `injection.normalised` and `injection.decode_layers`: present when normalisation was required.
   - Remediation: resolve indirect references and inspect reconstructed values before relying on per-object benign classifications.
 
+## form_field_oversized_value
+
+- ID: `form_field_oversized_value`
+- Label: Oversized form field value
+- Description: Form field value size exceeds expected interactive form bounds.
+- Tags: forms, anomaly
+- Details:
+  - Relevance: unusually large field values can hide staged payloads, encoded content, or fragmented exploit material.
+  - Meaning: `/V` or `/DV` resolved payload length exceeded threshold (4 KB), including indirect references and array-fragment reconstruction.
+  - Chain usage: input-stage anomaly signal that can raise confidence when paired with injection or decode-stage findings.
+  - Metadata:
+    - `field.name`
+    - `field.source` (`/V` or `/DV`)
+    - `field.value_len`
+    - `field.oversized_threshold`
+    - `payload.ref_chain`
+    - `chain.stage=input`, `chain.capability=oversized_form_value`, `chain.trigger=acroform`
+  - Remediation: inspect oversized field payloads for encoded script, staged data, and distributed fragments.
+
 ## obfuscated_name_encoding
 
 - ID: `obfuscated_name_encoding`

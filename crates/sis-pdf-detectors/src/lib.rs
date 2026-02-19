@@ -147,6 +147,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(encryption_obfuscation::EncryptionObfuscationDetector),
         Box::new(XfaDetector),
         Box::new(AcroFormDetector),
+        Box::new(FormFieldOversizedValueDetector),
         Box::new(xfa_forms::XfaFormDetector),
         Box::new(OCGDetector),
         Box::new(filter_depth::FilterChainDepthDetector),
@@ -3768,6 +3769,7 @@ fn analyse_remote_target_from_dict(
 }
 
 struct EmbeddedFileDetector;
+struct FormFieldOversizedValueDetector;
 
 #[derive(Clone, Debug)]
 struct EmbeddedScriptAssessment {
@@ -4187,6 +4189,115 @@ impl Detector for EmbeddedFileDetector {
             }
         }
         Ok(findings)
+    }
+}
+
+impl Detector for FormFieldOversizedValueDetector {
+    fn id(&self) -> &'static str {
+        "form_field_oversized_value"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Forms
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Cheap
+    }
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        const OVERSIZED_THRESHOLD_BYTES: usize = 4 * 1024;
+        let mut findings = Vec::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            if !is_form_field_dict(dict) {
+                continue;
+            }
+            let field_name = extract_form_field_name(dict);
+            for key in [b"/V".as_slice(), b"/DV".as_slice()] {
+                let Some((key_obj, value_obj)) = dict.get_first(key) else {
+                    continue;
+                };
+                let payload_result = resolve_payload(ctx, value_obj);
+                let Some(payload) = payload_result.payload else {
+                    continue;
+                };
+                if payload.bytes.len() <= OVERSIZED_THRESHOLD_BYTES {
+                    continue;
+                }
+                let mut evidence = vec![
+                    span_to_evidence(dict.span, "Form field dict"),
+                    span_to_evidence(
+                        key_obj.span,
+                        &format!("Field key {}", String::from_utf8_lossy(key)),
+                    ),
+                    span_to_evidence(value_obj.span, "Oversized field value"),
+                ];
+                if let Some(origin) = payload.origin {
+                    evidence.push(decoded_evidence_span(
+                        origin,
+                        &payload.bytes,
+                        "Resolved field payload",
+                    ));
+                }
+
+                let mut meta = std::collections::HashMap::new();
+                meta.insert("field.name".into(), field_name.clone());
+                meta.insert("field.source".into(), String::from_utf8_lossy(key).to_string());
+                meta.insert("field.value_len".into(), payload.bytes.len().to_string());
+                meta.insert(
+                    "field.oversized_threshold".into(),
+                    OVERSIZED_THRESHOLD_BYTES.to_string(),
+                );
+                meta.insert("payload.ref_chain".into(), payload.ref_chain);
+                meta.insert("chain.stage".into(), "input".into());
+                meta.insert("chain.capability".into(), "oversized_form_value".into());
+                meta.insert("chain.trigger".into(), "acroform".into());
+
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: AttackSurface::Forms,
+                    kind: "form_field_oversized_value".into(),
+                    severity: Severity::Low,
+                    confidence: Confidence::Tentative,
+                    impact: Some(Impact::Low),
+                    title: "Oversized form field value".into(),
+                    description:
+                        "Form field value length exceeds expected interactive form bounds.".into(),
+                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                    evidence,
+                    remediation: Some(
+                        "Inspect large form field payloads for encoded script, staged data, or obfuscated content."
+                            .into(),
+                    ),
+                    meta,
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+            }
+        }
+        Ok(findings)
+    }
+}
+
+fn is_form_field_dict(dict: &PdfDict<'_>) -> bool {
+    dict.get_first(b"/FT").is_some() || dict.has_name(b"/Subtype", b"/Widget")
+}
+
+fn extract_form_field_name(dict: &PdfDict<'_>) -> String {
+    let Some((_, field_obj)) = dict.get_first(b"/T") else {
+        return "unnamed".into();
+    };
+    match &field_obj.atom {
+        PdfAtom::Str(s) => preview_ascii(&string_bytes(s), 120),
+        _ => "unnamed".into(),
     }
 }
 
