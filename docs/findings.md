@@ -956,10 +956,20 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Tags: font, pdfjs, evasion
 - Details:
   - Relevance: browser-based PDF rendering attack surface.
-  - Meaning: detector emits `pdfjs.subsignal` for one of `fontmatrix_non_numeric`, `fontbbox_non_numeric`, `encoding_string_values`, or `cmap_script_tokens`.
+  - Meaning: detector emits `pdfjs.subsignal` for one of:
+    - `fontmatrix_non_numeric`
+    - `fontbbox_non_numeric`
+    - `encoding_string_values`
+    - `encoding_scriptlike_names`
+    - `cmap_script_tokens`
+    - `uncommon_subtype_combo`
   - Chain usage: renderer-targeted exploitation signal; prioritise when combined with JavaScript/action findings.
   - Metadata:
     - `pdfjs.affected_versions`: currently `<4.2.67`
+    - `font.subtype`: font subtype when present.
+    - `renderer.profile=pdfjs`
+    - `renderer.precondition=pdfjs_font_parse_path_reachable`
+    - `chain.stage=render`, `chain.capability=font_renderer_injection`, `chain.trigger=pdfjs`
     - `reader_impacts`: includes browser-oriented impact notes.
 
 ## pdfjs_annotation_injection
@@ -1113,6 +1123,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: complex font rendering paths can increase browser-side attack exposure.
   - Meaning: font subtype/encoding structure suggests higher-sensitivity render pathways.
   - Chain usage: informational context signal for triage and environment-specific risk assessment.
+  - Metadata:
+    - `pdfjs.eval_path_object_count`
+    - `font.subtypes`
+    - `renderer.profile=pdfjs`
+    - `renderer.precondition=pdfjs_font_eval_path_reachable`
+    - `chain.stage=render`, `chain.capability=font_eval_path`, `chain.trigger=pdfjs`
 
 ## font_js_exploitation_bridge
 
@@ -1123,11 +1139,18 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Details:
   - Relevance: combined font and JS signals strongly suggest staged renderer exploitation attempts.
   - Meaning: bridge correlation requires both suspicious font indicators and JavaScript execution-capable indicators.
-  - Chain usage: prioritisation signal for analyst triage; confidence is uplifted only when both domains match.
+  - Chain usage: prioritisation signal for analyst triage; confidence and severity are adjusted by co-location and high-risk JS semantics.
   - Metadata:
     - `bridge.font_indicators`
     - `bridge.js_indicators`
     - `bridge.confidence_adjusted`
+    - `bridge.co_location` (`shared_object` or `document_level`)
+    - `bridge.shared_object_count`
+    - optional `bridge.shared_objects`
+    - `bridge.js_high_risk`
+    - `renderer.profile=pdfjs`
+    - `renderer.precondition=pdfjs_font_eval_and_js_execution_paths_reachable`
+    - `chain.stage=render`, `chain.capability=font_js_renderer_bridge`, `chain.trigger=pdfjs`
 
 ## gotor_present
 

@@ -96,6 +96,20 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
     - `pdfjs_annotation_injection -> annotation_action_chain` (`edge.reason=annotation_injection_to_action`)
     - `pdfjs_annotation_injection -> js_present(js.source=annotation*)` (`edge.reason=annotation_injection_to_js`)
   - Added regression coverage for distributed annotation payloads and annotation-edge bridge metadata invariants.
+- Completed: WS4 font/renderer bridge quality uplift (initial):
+  - Expanded `pdfjs_font_injection` detection and metadata quality:
+    - added encoding obfuscation subsignal `encoding_scriptlike_names`,
+    - added uncommon structural subsignal `uncommon_subtype_combo`,
+    - attached renderer/chain context metadata (`renderer.profile`, `renderer.precondition`, `chain.*`, `font.subtype`).
+  - Enhanced `pdfjs_eval_path_risk` context modelling:
+    - emits renderer assumptions (`renderer.profile=pdfjs`, `renderer.precondition=pdfjs_font_eval_path_reachable`),
+    - propagates participating font subtype classes via `font.subtypes`,
+    - emits render-stage chain context metadata.
+  - Improved `font_js_exploitation_bridge` quality and prioritisation signals:
+    - co-location-aware confidence and severity guardrails,
+    - edge-quality metadata (`bridge.co_location`, `bridge.shared_object_count`, optional `bridge.shared_objects`),
+    - renderer/chain context metadata for exploit-path explainability.
+  - Added regression coverage for new font subsignals, renderer metadata invariants, and co-located bridge confidence uplift.
 
 ## Objective
 

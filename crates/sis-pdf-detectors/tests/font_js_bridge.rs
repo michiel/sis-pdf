@@ -59,9 +59,15 @@ fn emits_font_js_exploitation_bridge_for_dual_signal_document() {
         .iter()
         .find(|finding| finding.kind == "font_js_exploitation_bridge")
         .expect("expected font_js_exploitation_bridge");
-    assert_eq!(finding.severity, Severity::Medium);
-    assert!(matches!(finding.confidence, Confidence::Strong | Confidence::Certain));
+    assert_eq!(finding.severity, Severity::High);
+    assert_eq!(finding.confidence, Confidence::Strong);
     assert_eq!(finding.meta.get("bridge.confidence_adjusted").map(String::as_str), Some("true"));
+    assert_eq!(finding.meta.get("bridge.co_location").map(String::as_str), Some("document_level"));
+    assert_eq!(finding.meta.get("renderer.profile").map(String::as_str), Some("pdfjs"));
+    assert_eq!(
+        finding.meta.get("renderer.precondition").map(String::as_str),
+        Some("pdfjs_font_eval_and_js_execution_paths_reachable")
+    );
 }
 
 #[test]
@@ -99,4 +105,29 @@ fn does_not_emit_bridge_without_font_signal() {
     )
     .expect("scan");
     assert!(!report.findings.iter().any(|finding| finding.kind == "font_js_exploitation_bridge"));
+}
+
+#[test]
+fn co_located_font_and_js_signals_raise_bridge_confidence() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 200 200] >>\nendobj\n",
+        "4 0 obj\n<< /Type /Font /Subtype /Type1 /FontMatrix [0 0 1 1 (evil) 0] /FontBBox [0 0 100 (bbox)] /JS (eval('alert(1)')) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+    let finding = report
+        .findings
+        .iter()
+        .find(|finding| finding.kind == "font_js_exploitation_bridge")
+        .expect("expected font_js_exploitation_bridge");
+    assert_eq!(finding.confidence, Confidence::Certain);
+    assert_eq!(finding.meta.get("bridge.co_location").map(String::as_str), Some("shared_object"));
+    assert_eq!(finding.meta.get("bridge.shared_object_count").map(String::as_str), Some("1"));
 }

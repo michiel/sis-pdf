@@ -88,8 +88,7 @@ impl Detector for AnnotationAttackDetector {
                     action_type,
                     action_target,
                     action_initiation,
-                ) =
-                    annotation_action_context(ctx, dict);
+                ) = annotation_action_context(ctx, dict);
                 let severity = annotation_action_severity(
                     action_type.as_str(),
                     action_target.as_str(),

@@ -89,7 +89,17 @@ fn detects_pdfjs_eval_path_risk_indicator() {
         &default_detectors(),
     )
     .expect("scan");
-    assert!(report.findings.iter().any(|finding| finding.kind == "pdfjs_eval_path_risk"));
+    let finding = report
+        .findings
+        .iter()
+        .find(|entry| entry.kind == "pdfjs_eval_path_risk")
+        .expect("expected pdfjs_eval_path_risk");
+    assert_eq!(finding.meta.get("renderer.profile").map(String::as_str), Some("pdfjs"));
+    assert_eq!(
+        finding.meta.get("renderer.precondition").map(String::as_str),
+        Some("pdfjs_font_eval_path_reachable")
+    );
+    assert_eq!(finding.meta.get("font.subtypes").map(String::as_str), Some("/Type1"));
 }
 
 #[test]

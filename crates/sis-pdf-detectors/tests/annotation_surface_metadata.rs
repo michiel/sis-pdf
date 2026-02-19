@@ -63,18 +63,12 @@ fn annotation_payloads_emit_subtype_and_trigger_context_metadata() {
         .find(|finding| finding.kind == "pdfjs_annotation_injection")
         .expect("pdfjs annotation injection finding");
     assert_eq!(annotation_injection.severity, sis_pdf_core::model::Severity::Medium);
-    assert_eq!(
-        annotation_injection.meta.get("annot.subtype").map(String::as_str),
-        Some("/Link")
-    );
+    assert_eq!(annotation_injection.meta.get("annot.subtype").map(String::as_str), Some("/Link"));
     assert_eq!(
         annotation_injection.meta.get("annot.trigger_context").map(String::as_str),
         Some("annotation_action")
     );
-    assert_eq!(
-        annotation_injection.meta.get("chain.stage").map(String::as_str),
-        Some("render")
-    );
+    assert_eq!(annotation_injection.meta.get("chain.stage").map(String::as_str), Some("render"));
     assert_eq!(
         annotation_injection.meta.get("chain.capability").map(String::as_str),
         Some("annotation_injection")
