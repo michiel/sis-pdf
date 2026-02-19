@@ -2,12 +2,13 @@ use anyhow::Result;
 use std::collections::HashSet;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict};
 use sis_pdf_pdf::typed_graph::EdgeType;
 
 use crate::entry_dict;
+use crate::external_target::{extract_text_target, normalise_external_target};
 
 pub struct FontExternalReferenceDetector;
 
@@ -63,11 +64,22 @@ impl Detector for FontExternalReferenceDetector {
 
             // Check if any values in the dictionary point to external objects
             let mut referenced_external = Vec::new();
+            let mut normalised_targets = Vec::new();
             for font_key in
                 [b"/FontFile" as &[u8], b"/FontFile2", b"/FontFile3", b"/URI", b"/F", b"/UF"]
             {
-                // Check if the referenced object has external references
                 if let Some((_, obj_ref)) = dict.get_first(font_key) {
+                    if let Some(text_target) = extract_text_target(obj_ref) {
+                        if let Some(normalised) = normalise_external_target(&text_target) {
+                            if normalised.protocol.is_some() {
+                                normalised_targets.push(normalised);
+                                referenced_external.push((
+                                    String::from_utf8_lossy(font_key).to_string(),
+                                    (entry.obj, entry.gen),
+                                ));
+                            }
+                        }
+                    }
                     if let PdfAtom::Ref { obj, gen } = &obj_ref.atom {
                         if external_objects.contains(&(*obj, *gen)) {
                             referenced_external.push((
@@ -99,6 +111,21 @@ impl Detector for FontExternalReferenceDetector {
                 let ref_keys: Vec<String> =
                     referenced_external.iter().map(|(k, _)| k.clone()).collect();
                 meta.insert("font.external_ref_keys".into(), ref_keys.join(", "));
+                if !normalised_targets.is_empty() {
+                    let mut protocols = normalised_targets
+                        .iter()
+                        .filter_map(|target| target.protocol.clone())
+                        .collect::<Vec<_>>();
+                    protocols.sort();
+                    protocols.dedup();
+                    meta.insert("font.external_protocols".into(), protocols.join(", "));
+                    let obfuscated =
+                        normalised_targets.iter().filter(|target| target.obfuscated).count();
+                    let high_risk =
+                        normalised_targets.iter().filter(|target| target.high_risk_scheme).count();
+                    meta.insert("font.external_obfuscated_count".into(), obfuscated.to_string());
+                    meta.insert("font.external_high_risk_count".into(), high_risk.to_string());
+                }
 
                 let ref_objects: Vec<String> = referenced_external
                     .iter()
@@ -111,7 +138,7 @@ impl Detector for FontExternalReferenceDetector {
                     kind: "font.external_reference".into(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
-            impact: None,
+                    impact: Some(Impact::High),
                     title: "Font with external reference detected".into(),
                     description: format!(
                         "Font dictionary contains references to external resources ({}). \

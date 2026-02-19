@@ -51,6 +51,31 @@ Because the JSON is deterministic, it can be checked into the performance repo (
 
 The recorded JSON is stored at `docs/performance-data/profile-launch-cve.json`. The repository-level regression test `crates/sis-pdf-core/tests/runtime_profile.rs` reads this file and asserts that the `parse` and `detection` phases stay below the 10 ms / 50 ms SLO thresholds so the canonicalisation and reader-context changes stay within budget.
 
+## 2026-02-17 robustness follow-up baseline
+
+After the image robustness hardening pass (colour space cycle guards, strict decode-array handling, metadata checks), we reran the canonical fixture profile and verified the SLO gate:
+
+```bash
+target/debug/sis scan \
+  crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf \
+  --deep \
+  --runtime-profile \
+  --runtime-profile-format json \
+ 2> docs/performance-data/profile-launch-cve.latest.json
+
+cargo run -p perf-guard -- \
+  --profile docs/performance-data/profile-launch-cve.latest.json \
+  --baseline docs/performance-data/profile-launch-cve.json
+```
+
+Observed profile:
+
+- `parse`: `0 ms`
+- `detection`: `2 ms`
+- `total_duration_ms`: `7 ms`
+
+`perf-guard` passed (`parse <= 10 ms`, `detection <= 50 ms`). The baseline file has been refreshed from this run.
+
 ## Next steps
 
 1. Repeat the run with other CVE fixtures if you need evidence that the SLO table holds for filters, XFA forms, or rich media content.
@@ -69,3 +94,27 @@ To prove the Stage 0.5 targets remain accurate for the other CVE fixtures refere
 | `swf_cve_2011_0611.pdf` | 2 ms | 5 ms | Rich-media parsing is dominated by `content_first_stage1` (1 ms) and completes in a few milliseconds even with embedded SWF headers. |
 
 These runs demonstrate that filter, XFA, and rich-media workloads stay within the documented SLOs, and the JSON blobs can be regenerated at any time with the same commands used here for future regressions.
+
+## WASM GUI benchmark guard
+
+The repository now includes a browser-executed performance guard for the WASM GUI analysis worker. It measures:
+
+- worker roundtrip wall time per fixture;
+- worker execution time reported by `analysis_worker.js`;
+- serialised result payload size (bytes);
+- optional JS heap usage snapshots (when exposed by the browser).
+
+The guard runs four benchmark classes:
+
+- `small`: minimal synthetic PDF;
+- `medium`: `launch_action.pdf`;
+- `large`: `launch_cve_2010_1240.pdf`;
+- `adversarial`: synthetic stream-heavy PDF designed to stress payload and decode paths.
+
+Run locally with:
+
+```bash
+scripts/run_wasm_gui_bench.sh
+```
+
+CI enforcement is wired in `.github/workflows/wasm-gui-bench.yml` and fails when any class exceeds its budget.

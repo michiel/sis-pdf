@@ -2,6 +2,35 @@
 
 This document describes every finding ID that `sis-pdf` can emit. Each entry includes a label, a short description, tags for quick grouping, and details on relevance, meaning, and exploit-chain usage.
 
+## Chain Query Output
+
+`sis query <file.pdf> findings --with-chain --format json` returns a chain-augmented findings payload.
+
+Schema:
+- `type`: `findings_with_chain`
+- `count`: number of findings in `findings`
+- `chain_count`: number of correlated chains in `chains`
+- `findings`: standard findings array (same shape as `sis query ... findings`)
+- `chains`: correlated chain array. Each chain includes:
+  - `id`, `group_id`, `group_count`, `group_members`
+  - `path`, `score`, `reasons`
+  - `ordered_stages`: ordered chain stages (for example `decode`, `render`, `execute`, `egress`)
+  - `stage_nodes`: per-stage object reference map used to explain stage transitions
+  - `shared_object_refs`: deduplicated object references used by contributing findings
+  - `contributing_findings`: finding summaries (`id`, `kind`, `severity`, `confidence`, `objects`, chain hints)
+  - `edge`: edge metadata (`reason`, `confidence`, `from`, `to`, `shared_objects`)
+  - `exploit`: exploit context (`preconditions`, `blockers`, `outcomes`)
+  - `scatter` (optional): scatter-chain context:
+    - `fragment_count`
+    - `object_refs`
+  - `notes`: raw synthesised chain notes
+
+Text output summary for `--with-chain` includes:
+- Findings count
+- Chain count
+- Up to eight concise potential-chain lines:
+  - `Potential chain: decode -> render -> egress [scatter_to_injection] (id=chain-...)`
+
 ---
 
 ## Evasion-Resistant Metadata Fields
@@ -120,9 +149,16 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Description: 3D content or stream detected (U3D/PRC).
 - Tags: feature
 - Details:
-  - Relevance: expanded attack surface.
-  - Meaning: feature increases parsing or interaction complexity.
-  - Chain usage: used as supporting context for delivery or exploitation stages.
+  - Relevance: viewer-dependent 3D runtimes add execution-adjacent attack surface.
+  - Meaning: 3D object structures (`/3D`, `/U3D`, `/PRC`) are present.
+  - Chain usage: render-stage contextual signal; keep severity conservative unless corroborated by execute findings.
+  - Metadata:
+    - `viewer.feature=3d`
+    - `viewer.support_required=true`
+    - `viewer.support_matrix=viewer_dependent_3d_runtime`
+    - `renderer.profile=3d_viewer`
+    - `renderer.precondition=3d_runtime_enabled`
+    - `chain.stage=render`, `chain.capability=3d_surface`, `chain.trigger=viewer_feature`
 
 ## aa_event_present
 
@@ -134,6 +170,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: specific event-driven execution.
   - Meaning: an AA event entry is present.
   - Chain usage: signals a trigger edge into action/payload nodes.
+  - Metadata:
+    - `action.trigger_context=aa`
+    - `action.trigger_event`, `action.trigger_event_normalised`
+    - `action.trigger_type` (`automatic` for `/O`, `/C`, `/PV`, `/PI`, `/V`, `/PO`; otherwise `user`)
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger=additional_action`
 
 ## aa_present
 
@@ -145,6 +186,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: event-driven execution.
   - Meaning: Additional Actions can fire on viewer events.
   - Chain usage: used as a trigger for action/payload chains.
+  - Metadata:
+    - `action.trigger_context=aa`
+    - `action.trigger_event_normalised=/AA`
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger=additional_action`
 
 ## acroform_present
 
@@ -178,6 +223,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: chained actions can hide payload staging.
   - Meaning: action chains increase execution complexity.
   - Chain usage: treated as a higher-risk action staging indicator.
+  - Metadata:
+    - `action.trigger_context`: normalised trigger surface (`open_action`, `aa`, `annotation_action`, `field_action`, `field_aa`)
+    - `action.trigger_event_normalised`: normalised trigger key (`/OpenAction`, `/O`, `/K`, etc.)
+    - `action.next.depth`, `action.next.branch_count`, `action.next.max_fanout`
+    - optional `action.next.has_cycle=true` when `/Next` traversal detects a cycle
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`
 
 ## action_hidden_trigger
 
@@ -200,6 +251,32 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: automatic triggers execute actions on open or visibility changes.
   - Meaning: viewer may execute actions without user intent.
   - Chain usage: treated as trigger stage in action chains.
+  - Metadata:
+    - `action.trigger_context`: normalised trigger surface
+    - `action.trigger_event_normalised`: normalised trigger key
+    - `action.trigger_type`: initiation class (`automatic`, `user`, `hidden`)
+    - `/Next` telemetry keys when present:
+      - `action.next.depth`
+      - `action.next.branch_count`
+      - `action.next.max_fanout`
+      - optional `action.next.has_cycle=true`
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger` normalised by trigger context
+
+## acroform_field_action
+
+- ID: `acroform_field_action`
+- Label: AcroForm field JavaScript action
+- Description: Per-field `/AA` event (`/K`, `/F`, `/V`, `/C`) executes JavaScript in a widget field context.
+- Tags: action, forms, javascript
+- Details:
+  - Relevance: field-level handlers trigger during typing, formatting, validation, or calculation and are often overlooked compared with document-level actions.
+  - Meaning: interaction or calculation events on form widgets carry JavaScript action dictionaries.
+  - Chain usage: execute-stage signal for form-driven exploit or credential-capture paths.
+  - Metadata:
+    - `action.field_name`
+    - `action.field_event`
+    - `action.field_event_class` (`keystroke`, `format`, `validate`, `calculate`)
+    - `chain.stage=execute`, `chain.capability=acroform_field_action`, `chain.trigger=acroform_field_aa`
 
 ## annotation_action_chain
 
@@ -210,7 +287,13 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Details:
   - Relevance: expanded attack surface.
   - Meaning: feature increases parsing or interaction complexity.
-  - Chain usage: used as supporting context for delivery or exploitation stages.
+  - Chain usage: execute-stage action trigger signal for annotation-driven exploit paths.
+  - Metadata:
+    - `annot.subtype`
+    - `annot.trigger_context` (`annotation_action`, `annotation_aa`)
+    - `action.trigger_event`, `action.trigger_event_normalised`
+    - `action.trigger_type`
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger=annotation_action`
 
 ## annotation_hidden
 
@@ -222,6 +305,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: expanded attack surface.
   - Meaning: feature increases parsing or interaction complexity.
   - Chain usage: used as supporting context for delivery or exploitation stages.
+  - Metadata:
+    - `annot.subtype`
+    - `annot.width`, `annot.height`
+    - `annot.trigger_context=annotation_geometry`
 
 ## content_html_payload
 
@@ -410,6 +497,27 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: double extensions can disguise executable payloads.
   - Meaning: embedded filename attempts to appear benign.
   - Chain usage: used as evasion context for payload delivery.
+
+## embedded_type_mismatch
+
+- ID: `embedded_type_mismatch`
+- Label: Embedded file type mismatch
+- Description: Embedded file extension, declared subtype, and decoded magic markers disagree.
+- Tags: embedded, evasion, relationship
+- Details:
+  - Relevance: mismatched declared and observed types are common in disguised attachment delivery.
+  - Meaning: at least one pair among extension/subtype/magic disagrees (`embedded.mismatch_axes`).
+  - Chain usage: decode-stage indicator that strengthens action-linked attachment risk.
+  - Metadata:
+    - `embedded.relationship.filespec_present`
+    - `embedded.relationship.binding`
+    - `embedded.extension_family`
+    - `embedded.declared_subtype`
+    - `embedded.declared_family`
+    - `embedded.magic_family`
+    - `embedded.family_mismatch`
+    - `embedded.mismatch_axes`
+    - `chain.stage=decode`, `chain.capability=embedded_payload`, `chain.trigger=embedded_file`
 
 ## embedded_encrypted
 
@@ -876,10 +984,20 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Tags: font, pdfjs, evasion
 - Details:
   - Relevance: browser-based PDF rendering attack surface.
-  - Meaning: detector emits `pdfjs.subsignal` for one of `fontmatrix_non_numeric`, `fontbbox_non_numeric`, `encoding_string_values`, or `cmap_script_tokens`.
+  - Meaning: detector emits `pdfjs.subsignal` for one of:
+    - `fontmatrix_non_numeric`
+    - `fontbbox_non_numeric`
+    - `encoding_string_values`
+    - `encoding_scriptlike_names`
+    - `cmap_script_tokens`
+    - `uncommon_subtype_combo`
   - Chain usage: renderer-targeted exploitation signal; prioritise when combined with JavaScript/action findings.
   - Metadata:
     - `pdfjs.affected_versions`: currently `<4.2.67`
+    - `font.subtype`: font subtype when present.
+    - `renderer.profile=pdfjs`
+    - `renderer.precondition=pdfjs_font_parse_path_reachable`
+    - `chain.stage=render`, `chain.capability=font_renderer_injection`, `chain.trigger=pdfjs`
     - `reader_impacts`: includes browser-oriented impact notes.
 
 ## pdfjs_annotation_injection
@@ -892,6 +1010,13 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: browser annotation rendering can expose script injection surfaces.
   - Meaning: `/AP` or annotation content fields include executable-style token patterns.
   - Chain usage: browser-render path indicator; correlate with action and JavaScript findings.
+  - Metadata:
+    - `annot.subtype`
+    - `annot.trigger_context` (`annotation_render_only`, `annotation_action`, `mixed`)
+    - `annot.action_trigger_count`
+    - `injection.sources` (for example `/AP,/Contents,/RC`)
+    - optional `injection.normalised=true` and `injection.decode_layers`
+    - `chain.stage=render`, `chain.capability=annotation_injection`, `chain.trigger=annotation_render`
 
 ## pdfjs_form_injection
 
@@ -903,6 +1028,118 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: interactive forms can carry payload material into rendered contexts.
   - Meaning: `/V`, `/DV`, or `/AP` form fields include injection-like script tokens.
   - Chain usage: form-stage injection indicator; prioritise with external action or JS findings.
+  - Metadata:
+    - `injection.sources`: contributing form keys (`/V`, `/DV`, `/AP`).
+    - `injection.normalised`: `true` when encoded content required decode/normalisation before detection.
+    - `injection.decode_layers`: number of decode rounds applied (bounded).
+  - Confidence note: confidence is boosted when multi-layer decode is required to surface script tokens.
+
+## form_html_injection
+
+- ID: `form_html_injection`
+- Label: HTML injection in form field value
+- Description: Form field value contains HTML tags, event handlers, or context-breaking sequences that could enable XSS if rendered in web context.
+- Tags: forms, html, xss, injection, browser
+- Details:
+  - Relevance: form field values containing HTML injection patterns can execute scripts when the PDF is rendered in browser-based viewers (PDF.js) or when form data is exported to web contexts.
+  - Meaning: `/V`, `/DV`, or `/AP` form entries contain HTML-context indicators such as tags, event-handler attributes, context-breaking sequences, or protocol handlers.
+  - Chain usage: XSS injection indicator; prioritise when PDF is processed by web-based viewers or form data extraction pipelines.
+  - Patterns detected: HTML tags (`<script>`, `<img>`, `<iframe>`, `<svg>`, `<details>`), event handlers (`onclick=`, `onerror=`, `ontoggle=`), context-breaking (`">`, `</`), protocol handlers (`javascript:`, `data:text/html`).
+  - Metadata:
+    - `injection.sources`: contributing form keys (`/V`, `/DV`, `/AP`).
+    - `injection.normalised`: `true` when encoded content required decode/normalisation before detection.
+    - `injection.decode_layers`: number of decode rounds applied (bounded).
+  - Reader impacts: PDF.js and browser-based renderers may interpret HTML in form values, enabling XSS attacks.
+  - Remediation: review form field `/V` and `/DV` entries for HTML tag injection; apply context-appropriate output encoding when displaying form values in web interfaces.
+
+## scattered_payload_assembly
+
+- ID: `scattered_payload_assembly`
+- Label: Scattered payload assembly indicator
+- Description: Form payload fragments are benign in isolation but assemble into an injection-capable payload.
+- Tags: forms, obfuscation, fragmentation, injection
+- Details:
+  - Relevance: modern malicious PDFs can distribute payload fragments across multiple objects to evade single-object token checks.
+  - Meaning: `/V`, `/DV`, or `/AP` fragments from form-linked objects reconstruct into a payload with JavaScript or HTML injection indicators.
+  - Chain usage: decode-stage indicator for distributed payload staging; prioritise when co-occurring with action and renderer findings.
+  - Metadata:
+    - `scatter.fragment_count`: number of fragments used in assembly.
+    - `scatter.object_ids`: contributing object references.
+    - `injection.sources`: contributing source keys (for example `/V`, `/Contents`, `/Title`).
+    - `injection.signal.js` / `injection.signal.html`: assembled payload signal classification.
+    - `injection.normalised` and `injection.decode_layers`: present when normalisation was required.
+  - Remediation: resolve indirect references and inspect reconstructed values before relying on per-object benign classifications.
+
+## form_field_oversized_value
+
+- ID: `form_field_oversized_value`
+- Label: Oversized form field value
+- Description: Form field value size exceeds expected interactive form bounds.
+- Tags: forms, anomaly
+- Details:
+  - Relevance: unusually large field values can hide staged payloads, encoded content, or fragmented exploit material.
+  - Meaning: `/V` or `/DV` resolved payload length exceeded threshold (4 KB), including indirect references and array-fragment reconstruction.
+  - Chain usage: input-stage anomaly signal that can raise confidence when paired with injection or decode-stage findings.
+  - Metadata:
+    - `field.name`
+    - `field.source` (`/V` or `/DV`)
+    - `field.value_len`
+    - `field.oversized_threshold`
+    - `payload.ref_chain`
+    - `chain.stage=input`, `chain.capability=oversized_form_value`, `chain.trigger=acroform`
+  - Remediation: inspect oversized field payloads for encoded script, staged data, and distributed fragments.
+
+## obfuscated_name_encoding
+
+- ID: `obfuscated_name_encoding`
+- Label: Obfuscated PDF name encoding
+- Description: Security-relevant PDF names use `#xx` hex encoding, which may indicate obfuscation.
+- Tags: obfuscation, parser, metadata
+- Details:
+  - Relevance: action and script names can be hidden with PDF name hex encoding to evade simple token matching.
+  - Meaning: at least one security-relevant name token (action/filter/script/form context) contained raw `#xx` encoding.
+  - Chain usage: decode-stage context signal; use as a confidence booster when paired with action or injection findings.
+  - Metadata:
+    - `obfuscation.name_count`: number of distinct encoded security-relevant names.
+    - `obfuscation.names`: decoded names that matched.
+    - `chain.stage=decode`, `chain.capability=name_obfuscation`.
+  - Remediation: inspect raw and decoded name tokens in flagged objects before classifying as benign.
+
+## pdf_string_hex_encoded
+
+- ID: `pdf_string_hex_encoded`
+- Label: Hex-encoded PDF string in security context
+- Description: Security-relevant string values use PDF hex-literal string syntax.
+- Tags: obfuscation, parser, metadata
+- Details:
+  - Relevance: hex-literal strings can conceal action/form payload text from naive literal-string scans.
+  - Meaning: security-relevant keys (for example `/JS`, `/URI`, `/F`, `/V`, `/DV`, `/Contents`, `/T`) carried `PdfStr::Hex` values.
+  - Chain usage: decode-stage context signal used to raise confidence for associated action/injection findings.
+  - Metadata:
+    - `obfuscation.hex_string_count`
+    - `obfuscation.hex_string_keys`
+    - `obfuscation.hex_string_samples`
+    - `chain.stage=decode`, `chain.capability=string_hex_obfuscation`
+  - Remediation: review decoded string values and correlate with action targets, form payloads, and execution-capable findings.
+
+## cross_stream_payload_assembly
+
+- ID: `cross_stream_payload_assembly`
+- Label: Cross-stream payload assembly indicator
+- Description: JavaScript assembly behaviour aligns with payload fragments reconstructed from form, annotation, or metadata objects.
+- Tags: javascript, forms, obfuscation, correlation
+- Details:
+  - Relevance: exploit chains can split payload material between PDF object values and JavaScript runtime reconstruction logic.
+  - Meaning: JavaScript assembly patterns (for example `fromCharCode`, split/join, concat) correlate with reconstructed payloads assembled from form field values, annotation content, or document metadata string fragments.
+  - Chain usage: decode-stage bridge indicator linking JavaScript execution context to distributed payload staging across form, annotation, and metadata surfaces.
+  - Metadata:
+    - `js.object.ref`: object containing JavaScript assembly logic.
+    - `scatter.object_ids`: contributing fragmented source objects.
+    - `injection.sources`: contributing source keys (for example `/V`, `/Contents`, `/Title`).
+    - `cross_stream.source_types`: contributing source domains (`form`, `annotation`, `metadata`).
+    - optional `js.payload.fromcharcode_*` fields when static reconstruction metadata is available.
+    - `chain.stage=decode`, `chain.capability=cross_stream_assembly`, `chain.trigger=pdfjs`.
+  - Remediation: triage as a correlated chain and inspect both JavaScript reconstruction code and referenced form/object fragment sources.
 
 ## pdfjs_eval_path_risk
 
@@ -914,6 +1151,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: complex font rendering paths can increase browser-side attack exposure.
   - Meaning: font subtype/encoding structure suggests higher-sensitivity render pathways.
   - Chain usage: informational context signal for triage and environment-specific risk assessment.
+  - Metadata:
+    - `pdfjs.eval_path_object_count`
+    - `font.subtypes`
+    - `renderer.profile=pdfjs`
+    - `renderer.precondition=pdfjs_font_eval_path_reachable`
+    - `chain.stage=render`, `chain.capability=font_eval_path`, `chain.trigger=pdfjs`
 
 ## font_js_exploitation_bridge
 
@@ -924,11 +1167,18 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Details:
   - Relevance: combined font and JS signals strongly suggest staged renderer exploitation attempts.
   - Meaning: bridge correlation requires both suspicious font indicators and JavaScript execution-capable indicators.
-  - Chain usage: prioritisation signal for analyst triage; confidence is uplifted only when both domains match.
+  - Chain usage: prioritisation signal for analyst triage; confidence and severity are adjusted by co-location and high-risk JS semantics.
   - Metadata:
     - `bridge.font_indicators`
     - `bridge.js_indicators`
     - `bridge.confidence_adjusted`
+    - `bridge.co_location` (`shared_object` or `document_level`)
+    - `bridge.shared_object_count`
+    - optional `bridge.shared_objects`
+    - `bridge.js_high_risk`
+    - `renderer.profile=pdfjs`
+    - `renderer.precondition=pdfjs_font_eval_and_js_execution_paths_reachable`
+    - `chain.stage=render`, `chain.capability=font_js_renderer_bridge`, `chain.trigger=pdfjs`
 
 ## gotor_present
 
@@ -940,6 +1190,43 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: executable action surface.
   - Meaning: viewer can perform external or privileged actions.
   - Chain usage: treated as an action node that can be linked to triggers and payloads.
+
+## hidden_layer_action
+
+- ID: `hidden_layer_action`
+- Label: Hidden-layer action risk
+- Description: Optional content groups (`OCG`/`OCProperties`) co-occur with action execution surfaces, indicating potential hidden-layer action paths.
+- Tags: composite, action, hidden-layer
+- Details:
+  - Relevance: hidden optional-content structures can conceal actionable behaviour from casual inspection.
+  - Meaning: correlates `ocg_present` with action findings; confidence is stronger when object-level co-location is present.
+  - Chain usage: high-priority action-stage context signal for stealth execution paths.
+  - Metadata:
+    - `context.hidden_layer=true`
+    - `context.ocg_signal_count`
+
+## action_remote_target_suspicious
+
+- ID: `action_remote_target_suspicious`
+- Label: Suspicious remote action target
+- Description: Action target uses high-risk remote target patterns or obfuscated target encoding.
+- Tags: action, external, obfuscation
+- Details:
+  - Relevance: remote action targets can drive external fetch/open paths and exfiltration behaviour.
+  - Meaning: flags suspicious `/F` or `/URI` targets for actions such as `/GoToR`, `/GoToE`, `/SubmitForm`, `/Launch`, and `/URI`.
+  - Chain usage: action-stage risk enhancer used to connect action nodes to egress or payload-delivery paths.
+  - Metadata:
+    - `action.remote.indicators`: matched indicators (for example `unc_path`, `data_uri`, `javascript_scheme`, `file_scheme`, `obfuscated_target`, `uri_exfil_pattern`, `uri_userinfo`, `uri_non_standard_port`)
+    - `action.remote.target_preview`: normalised target preview
+    - `action.remote.scheme`: parsed scheme token (or leading path token for UNC-style paths)
+    - `action.param.source`: source key containing the target (`/F` or `/URI`)
+    - `egress.channel`: normalised outbound channel (`remote_goto`, `uri_action`, `submit_form`, `launch_target`)
+    - `egress.target_kind`: target classification (`unc_path`, `data_uri`, `script_uri`, `file_uri`, `remote_target`)
+    - `egress.indicator_count`: count of matched remote-risk indicators
+    - `egress.risk_score`: weighted risk score from indicator profile
+    - `egress.risk_class`: normalised risk band (`low`, `medium`, `high`, `critical`)
+    - `egress.user_interaction_required`: heuristic interaction requirement (`true`, `false`, `unknown`)
+    - `chain.stage=egress`, `chain.capability=remote_action_target`, `chain.trigger=action`
 
 ## header_offset_unusual
 
@@ -967,11 +1254,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 
 - ID: `icc_profile_anomaly`
 - Label: ICC profile header anomaly
-- Description: Detected icc profile header anomaly.
+- Description: Decoded ICC profile fails concrete validation checks (for example declared-size bounds, `acsp` signature, tag-table bounds/overlap, or `/N` component mismatch).
 - Tags: color
 - Details:
   - Relevance: color profile parsing risk.
-  - Meaning: malformed or oversized ICC profiles can stress parsers.
+  - Meaning: malformed or contradictory ICC metadata can trigger parser/decoder differentials and unsafe code paths.
   - Chain usage: used as a payload signal for renderer exploitation.
 
 ## icc_profile_oversized
@@ -1173,6 +1460,127 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: XFA images expand rendering attack surface.
   - Chain usage: used as supporting context for XFA payloads.
 
+## image.colour_space_invalid
+
+- ID: `image.colour_space_invalid`
+- Label: Invalid colour space
+- Severity: Medium
+- Confidence: Strong
+- Description: Image colour space is malformed, unresolved, or violates the PDF specification.
+- Tags: image, colour-space, malformed
+- Details:
+  - Relevance: malformed colour space arrays may indicate evasion, crafted exploits, or corrupted PDFs.
+  - Meaning: the /ColorSpace entry could not be resolved to a known type.
+  - Metadata: `image.colour_space_issue` describes the specific problem (missing elements, unresolved reference, invalid /N, depth exceeded).
+
+## image.bpc_anomalous
+
+- ID: `image.bpc_anomalous`
+- Label: Anomalous bits per component
+- Severity: Low
+- Confidence: Strong
+- Description: Image BitsPerComponent value is not a standard value (1, 2, 4, 8, or 16).
+- Tags: image, malformed
+- Details:
+  - Relevance: non-standard BPC values violate the PDF specification and may target decoder edge cases.
+  - Metadata: `image.bits_per_component` contains the declared value.
+
+## image.pixel_buffer_overflow
+
+- ID: `image.pixel_buffer_overflow`
+- Label: Image pixel buffer overflow
+- Severity: Medium
+- Confidence: Certain
+- Description: Image dimensions and colour depth would produce a pixel buffer exceeding safe limits.
+- Tags: image, resource-exhaustion
+- Details:
+  - Relevance: potential denial of service via memory exhaustion or integer overflow in decoders.
+  - Metadata: `image.calculated_buffer_bytes`, `image.channels`, `image.bpc`.
+
+## image.pixel_data_size_mismatch
+
+- ID: `image.pixel_data_size_mismatch`
+- Label: Image stream size mismatch
+- Severity: Medium
+- Confidence: Probable
+- Description: Decoded stream length does not match the expected pixel data size for the declared dimensions.
+- Tags: image, data-hiding
+- Details:
+  - Relevance: may indicate hidden data appended to image streams, truncated content, or inconsistent metadata.
+  - Metadata: `image.expected_bytes`, `image.actual_bytes`.
+
+## image.indexed_palette_short
+
+- ID: `image.indexed_palette_short`
+- Label: Indexed palette too short
+- Severity: Low
+- Confidence: Strong
+- Description: Indexed colour space palette has fewer bytes than required by the declared hival.
+- Tags: image, colour-space, malformed
+- Details:
+  - Relevance: short palettes may cause out-of-bounds reads in vulnerable decoders.
+  - Metadata: `image.palette_expected_bytes`, `image.palette_actual_bytes`, `image.hival`.
+
+## image.decode_array_invalid
+
+- ID: `image.decode_array_invalid`
+- Label: Invalid decode array
+- Severity: Low
+- Confidence: Strong
+- Description: Image /Decode array has incorrect length for the colour space.
+- Tags: image, malformed
+- Details:
+  - Relevance: invalid /Decode arrays may cause index-out-of-bounds or numeric instability in decoders.
+  - Metadata: `image.decode_array_length`, `image.decode_array_expected_length`.
+
+## image.metadata_oversized
+
+- ID: `image.metadata_oversized`
+- Label: Oversized image metadata
+- Severity: Medium
+- Confidence: Strong
+- Description: Embedded image metadata segment exceeds safe size limits.
+- Tags: image, metadata, resource-exhaustion
+- Details:
+  - Relevance: oversized metadata segments can trigger parser stress and conceal payloads.
+  - Metadata: `image.metadata.kind`, `image.metadata.bytes`.
+
+## image.metadata_malformed
+
+- ID: `image.metadata_malformed`
+- Label: Malformed image metadata
+- Severity: Medium
+- Confidence: Probable
+- Description: Embedded image metadata structure is malformed or truncated.
+- Tags: image, metadata, malformed
+- Details:
+  - Relevance: malformed metadata can target parser edge-cases in viewers and tooling.
+  - Metadata: `image.metadata.issue`.
+
+## image.metadata_suspicious_density
+
+- ID: `image.metadata_suspicious_density`
+- Label: Suspicious metadata density
+- Severity: Low
+- Confidence: Probable
+- Description: Image metadata occupies an unusually large share of the image payload.
+- Tags: image, metadata, evasion
+- Details:
+  - Relevance: abnormally dense metadata can indicate covert channels or padding-based obfuscation.
+  - Metadata: `image.metadata.total_bytes`, `image.metadata.ratio_percent`.
+
+## image.metadata_scriptable_content
+
+- ID: `image.metadata_scriptable_content`
+- Label: Scriptable metadata content
+- Severity: Medium
+- Confidence: Tentative
+- Description: Embedded image metadata contains script-like markers.
+- Tags: image, metadata, active-content
+- Details:
+  - Relevance: script-like markers in metadata can indicate active-content experiments or exploit scaffolding.
+  - Metadata: `image.metadata.scriptable`.
+
 ## incremental_update_chain
 
 - ID: `incremental_update_chain`
@@ -1183,6 +1591,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
+  - Metadata:
+    - `graph.evasion_kind=incremental_overlay`
+    - `graph.depth`
+    - `graph.conflict_count`
+    - `chain.stage=decode`, `chain.capability=graph_incremental_overlay`, `chain.trigger=xref`
 
 ## js_custom_decoder
 
@@ -1359,6 +1772,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: scriptable execution.
   - Meaning: JavaScript executes in the viewer context and may be obfuscated or evasive.
   - Chain usage: used as the action/payload stage and to model evasive or staged execution.
+  - Metadata:
+    - `js.source`: source container class (`action`, `open_action`, `aa_event`, `annotation`, `name_tree`, `catalog_js`, `uri`, `data_uri`, `xfa`, `embedded_file`)
+    - `js.container_path`: normalised container path (for example `/Catalog/OpenAction/JS`, `/Catalog/Names/JavaScript/Names[]`, `/Annot/A/JS`)
+    - `js.object_ref_chain`: resolved object lineage for the selected payload candidate
 
 ## js_runtime_file_probe
 
@@ -2790,6 +3207,25 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: feature increases parsing or interaction complexity.
   - Chain usage: used as supporting context for delivery or exploitation stages.
 
+## null_ref_chain_termination
+
+- ID: `null_ref_chain_termination`
+- Label: Null/missing reference chain termination
+- Description: Security-relevant indirect reference chain terminates at `null`, `0 0 R`, or a missing object.
+- Tags: structure, evasion, parser
+- Details:
+  - Relevance: deep broken reference chains can trigger parser-state confusion and hide malicious intent in action/form contexts.
+  - Meaning: chain depth is at least three indirect references and ends in a null/missing terminal object in keys such as `/OpenAction`, `/A`, `/AA`, `/V`, `/DV`, `/AP`, or `/Contents`.
+  - Chain usage: decode-stage structural risk signal; combine with action/injection findings to prioritise likely exploit paths.
+  - Metadata:
+    - `context.owner`
+    - `context.key`
+    - `termination.kind` (`missing_object`, `null_literal`, `null_object_ref`)
+    - `termination.target`
+    - `ref.depth`
+    - `ref.chain`
+    - `chain.stage=decode`, `chain.capability=null_ref_chain`, `chain.trigger=parser`
+
 ## open_action_present
 
 - ID: `open_action_present`
@@ -2800,6 +3236,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: automatic execution trigger.
   - Meaning: OpenAction runs on document open.
   - Chain usage: treated as the trigger node that links to actions or payloads.
+  - Metadata:
+    - `action.trigger_context=open_action`
+    - `action.trigger_event_normalised=/OpenAction`
+    - `action.trigger_type=automatic`
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger=open_action`
 
 ## orphan_payload_object
 
@@ -2944,6 +3385,416 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `passive.preview_prone_surface`
     - `passive.external_protocols`
 
+## resource.external_reference_obfuscated
+
+- ID: `resource.external_reference_obfuscated`
+- Label: Obfuscated external reference target
+- Severity: Medium
+- Confidence: Probable
+- Description: External targets include encoding or normalisation anomalies that indicate obfuscation.
+- Tags: network, passive, evasion
+- Details:
+  - Relevance: obfuscated targets can bypass simple allowlists and triage heuristics.
+  - Metadata highlights:
+    - `resource.obfuscated_target_count`
+    - `passive.external_targets_sample`
+    - `passive.external_targets_normalised`
+
+## resource.external_reference_high_risk_scheme
+
+- ID: `resource.external_reference_high_risk_scheme`
+- Label: High-risk external reference scheme
+- Severity: High
+- Confidence: Strong
+- Description: External references use high-risk schemes (UNC/SMB/file/data) in renderable contexts.
+- Tags: network, passive, credential
+- Details:
+  - Relevance: high-risk schemes can trigger credential leakage or unsafe host interactions.
+  - Metadata highlights:
+    - `resource.high_risk_scheme_count`
+    - `passive.protocol_risk_class`
+    - `passive.ntlm_target_count`
+
+## resource.hidden_render_path
+
+- ID: `resource.hidden_render_path`
+- Label: Hidden resource render path
+- Severity: Medium
+- Confidence: Probable
+- Description: Image/font objects are reachable through indirect resource paths without clear direct page ancestry.
+- Tags: structure, render, evasion
+- Details:
+  - Relevance: nested resource indirection can conceal suspicious payload activation paths.
+  - Metadata highlights:
+    - `resource.hidden_render_path_count`
+    - `passive.source_context_breakdown`
+
+## resource.provenance_xref_conflict
+
+- ID: `resource.provenance_xref_conflict`
+- Label: Resource provenance with xref conflict
+- Severity: High
+- Confidence: Probable
+- Description: Resource revision overrides co-occur with xref conflict signals.
+- Tags: structure, xref, provenance
+- Details:
+  - Relevance: combined provenance and xref anomalies increase parser differential risk.
+  - Metadata highlights:
+    - `resource.object_id`
+    - `resource.provenance`
+    - `resource.object_shadowed_revisions`
+
+## font.provenance_incremental_override
+
+- ID: `font.provenance_incremental_override`
+- Label: Font revision override
+- Severity: Medium
+- Confidence: Strong
+- Description: Font object identifier appears across multiple revisions.
+- Tags: font, structure, provenance
+- Details:
+  - Relevance: revision overrides can hide embedded font payload changes.
+  - Metadata highlights:
+    - `font.object_shadowed_revisions`
+    - `font.object_provenance`
+
+## font.structure_subtype_mismatch
+
+- ID: `font.structure_subtype_mismatch`
+- Label: Font subtype mismatch
+- Severity: High
+- Confidence: Probable
+- Description: Font dictionary subtype and embedded stream key usage are inconsistent.
+- Tags: font, structure, malformed
+
+## font.structure_encoding_inconsistent
+
+- ID: `font.structure_encoding_inconsistent`
+- Label: Font encoding inconsistent
+- Severity: Medium
+- Confidence: Strong
+- Description: Font dictionary contains inconsistent encoding declarations.
+- Tags: font, structure, malformed
+
+## font.structure_mapping_anomalous
+
+- ID: `font.structure_mapping_anomalous`
+- Label: Font mapping anomalous
+- Severity: Medium
+- Confidence: Probable
+- Description: Font CID/GID mapping declarations are unusual and potentially evasive.
+- Tags: font, structure, mapping
+
+## font.orphaned_but_reachable
+
+- ID: `font.orphaned_but_reachable`
+- Label: Font orphaned but reachable
+- Severity: Low
+- Confidence: Tentative
+- Description: Font appears reachable through indirect resource chains without direct page linkage.
+- Tags: font, structure, render
+
+## image.provenance_incremental_override
+
+- ID: `image.provenance_incremental_override`
+- Label: Image revision override
+- Severity: Medium
+- Confidence: Strong
+- Description: Image object identifier appears across multiple revisions.
+- Tags: image, structure, provenance
+
+## image.structure_filter_chain_inconsistent
+
+- ID: `image.structure_filter_chain_inconsistent`
+- Label: Image filter chain inconsistent
+- Severity: Medium
+- Confidence: Strong
+- Description: Image `/Filter` and `/DecodeParms` declarations are structurally inconsistent.
+- Tags: image, filters, malformed
+
+## image.structure_mask_inconsistent
+
+- ID: `image.structure_mask_inconsistent`
+- Label: Image mask inconsistent
+- Severity: Medium
+- Confidence: Probable
+- Description: Image mask-related keys (`/ImageMask`, `/SMask`, `/ColorSpace`) contain contradictions.
+- Tags: image, mask, malformed
+
+## image.structure_geometry_improbable
+
+- ID: `image.structure_geometry_improbable`
+- Label: Image geometry improbable
+- Severity: Low
+- Confidence: Tentative
+- Description: Image dimensions form extreme aspect ratios or implausible geometry.
+- Tags: image, geometry, evasion
+
+## image.orphaned_but_reachable
+
+- ID: `image.orphaned_but_reachable`
+- Label: Image orphaned but reachable
+- Severity: Low
+- Confidence: Tentative
+- Description: Image appears reachable through indirect resource chains without direct page linkage.
+- Tags: image, structure, render
+
+## composite.font_structure_with_provenance_evasion
+
+- ID: `composite.font_structure_with_provenance_evasion`
+- Label: Font structure and provenance evasion composite
+- Severity: High
+- Confidence: Strong
+- Description: Font structure anomalies coincide with provenance conflict signals.
+- Tags: composite, font, provenance
+
+## composite.image_structure_with_hidden_path
+
+- ID: `composite.image_structure_with_hidden_path`
+- Label: Image structure with hidden path composite
+- Severity: High
+- Confidence: Strong
+- Description: Image structure anomalies coincide with hidden or orphaned render-path signals.
+- Tags: composite, image, render
+
+## composite.resource_external_with_trigger_surface
+
+- ID: `composite.resource_external_with_trigger_surface`
+- Label: External resource with trigger surface composite
+- Severity: Medium to High (trigger-path dependent)
+- Confidence: Probable to Strong (trigger-path dependent)
+- Description: High-risk external resource references coincide with automatic or user-triggered action surfaces.
+- Tags: composite, network, actions
+- Details:
+  - Relevance: external-reference risk depends on whether execution is automatic or user-triggered.
+  - Meaning: correlates external reference indicators with trigger findings and classifies trigger-path initiation.
+  - Metadata:
+    - `composite.trigger_path` (`automatic_or_hidden` or `user_only`)
+    - `composite.trigger_automatic_count`
+    - `composite.trigger_user_count`
+    - `composite.trigger_hidden_count`
+    - `composite.trigger_unknown_count`
+
+## composite.decode_amplification_chain
+
+- ID: `composite.decode_amplification_chain`
+- Label: Decode amplification chain
+- Severity: High
+- Confidence: Strong
+- Description: Multiple decode-pressure signals co-occur across image/font/metadata structures.
+- Tags: composite, decode, resource-exhaustion
+
+## composite.resource_overrides_with_decoder_pressure
+
+- ID: `composite.resource_overrides_with_decoder_pressure`
+- Label: Resource overrides with decoder pressure
+- Severity: High
+- Confidence: Probable
+- Description: Resource provenance override signals co-occur with decode-pressure indicators.
+- Tags: composite, provenance, decode
+
+## composite.injection_edge_bridge
+
+- ID: `composite.injection_edge_bridge`
+- Label: Injection edge bridge
+- Severity: Medium to High (edge-dependent)
+- Confidence: Probable to Strong (edge-dependent)
+- Description: Deterministic bridge between related injection/action findings that forms an exploit path edge.
+- Tags: composite, chain, injection, correlation
+- Details:
+  - Relevance: links otherwise separate findings into machine-readable exploit transitions.
+  - Meaning: emitted when specific preconditions co-locate, such as:
+    - `form_html_injection -> pdfjs_form_injection`
+    - `*_injection -> submitform_present`
+    - `*_injection -> action_remote_target_suspicious`
+    - `pdfjs_annotation_injection -> annotation_action_chain`
+    - `pdfjs_annotation_injection -> js_present(js.source=annotation*)`
+    - `pdfjs_form_injection -> pdfjs_eval_path_risk`
+    - `scattered_payload_assembly|cross_stream_payload_assembly -> *_injection`
+    - `obfuscated_name_encoding -> action_*`
+  - Metadata:
+    - `edge.reason`: stable edge classifier (for example `scatter_to_injection`)
+    - `edge.confidence`: edge confidence label
+    - `edge.from`, `edge.to`: source and target finding kinds
+    - `edge.shared_objects`: shared object identifiers
+    - `edge.stage.from`, `edge.stage.to`: optional stage hints when available
+    - `edge.initiation.from`, `edge.initiation.to`: optional initiation hints (`automatic`, `user`, `hidden`)
+    - `edge.js.source.from`, `edge.js.source.to`: optional JS source classes propagated from linked findings
+    - `edge.js.container_path.from`, `edge.js.container_path.to`: optional JS container paths propagated from linked findings
+    - `exploit.preconditions`: concise exploit prerequisites
+    - `exploit.blockers`: likely controls that block exploitation
+    - `exploit.outcomes`: plausible exploit outcomes for the edge
+    - `chain.confidence`: composed confidence from edge and source/target findings
+    - `chain.severity`: guardrailed chain severity (execution+egress required for `High`)
+
+## resource.declared_but_unused
+
+- ID: `resource.declared_but_unused`
+- Label: Declared resources unused
+- Severity: Low
+- Confidence: Probable
+- Description: Page resources declare fonts/XObjects not referenced by content operators.
+- Tags: resource, structure, evasion
+
+## resource.hidden_invocation_pattern
+
+- ID: `resource.hidden_invocation_pattern`
+- Label: Hidden invocation pattern
+- Severity: Medium
+- Confidence: Probable
+- Description: XObject invocations occur inside clipping context patterns consistent with concealed rendering.
+- Tags: resource, render, evasion
+
+## resource.operator_usage_anomalous
+
+- ID: `resource.operator_usage_anomalous`
+- Label: Anomalous operator usage
+- Severity: Medium
+- Confidence: Tentative
+- Description: Resource invocation operator volume is unusually high.
+- Tags: resource, parser-stress, evasion
+
+## resource.inheritance_conflict_font
+
+- ID: `resource.inheritance_conflict_font`
+- Label: Font inheritance conflict
+- Severity: Medium
+- Confidence: Strong
+- Description: Page-local font resources conflict with inherited page-tree resources.
+- Tags: resource, inheritance, font
+
+## resource.inheritance_conflict_xobject
+
+- ID: `resource.inheritance_conflict_xobject`
+- Label: XObject inheritance conflict
+- Severity: Medium
+- Confidence: Strong
+- Description: Page-local XObject resources conflict with inherited page-tree resources.
+- Tags: resource, inheritance, image
+
+## resource.inheritance_override_suspicious
+
+- ID: `resource.inheritance_override_suspicious`
+- Label: Suspicious inheritance override
+- Severity: Medium
+- Confidence: Probable
+- Description: Resource inheritance overrides are conflicting and potentially parser-differential.
+- Tags: resource, inheritance, differential
+
+## resource.override_outside_signature_scope
+
+- ID: `resource.override_outside_signature_scope`
+- Label: Resource override outside signature scope
+- Severity: High
+- Confidence: Strong
+- Description: Object override appears after signature coverage boundary.
+- Tags: signature, provenance, resource
+
+## image.override_outside_signature_scope
+
+- ID: `image.override_outside_signature_scope`
+- Label: Image override outside signature scope
+- Severity: High
+- Confidence: Strong
+- Description: Image resource override appears after signature coverage boundary.
+- Tags: signature, image, provenance
+
+## font.override_outside_signature_scope
+
+- ID: `font.override_outside_signature_scope`
+- Label: Font override outside signature scope
+- Severity: High
+- Confidence: Strong
+- Description: Font resource override appears after signature coverage boundary.
+- Tags: signature, font, provenance
+
+## image.inline_structure_filter_chain_inconsistent
+
+- ID: `image.inline_structure_filter_chain_inconsistent`
+- Label: Inline image filter chain inconsistent
+- Severity: Medium
+- Confidence: Strong
+- Description: Inline image filter and decode parms declarations are inconsistent.
+- Tags: image, inline, malformed
+
+## image.inline_decode_array_invalid
+
+- ID: `image.inline_decode_array_invalid`
+- Label: Inline image decode array invalid
+- Severity: Low
+- Confidence: Strong
+- Description: Inline image `/Decode` entry has invalid non-paired value count.
+- Tags: image, inline, malformed
+
+## image.inline_mask_inconsistent
+
+- ID: `image.inline_mask_inconsistent`
+- Label: Inline image mask inconsistent
+- Severity: Medium
+- Confidence: Probable
+- Description: Inline image mask semantics are contradictory.
+- Tags: image, inline, mask
+
+## font.type3_charproc_complexity_high
+
+- ID: `font.type3_charproc_complexity_high`
+- Label: Type 3 charproc complexity high
+- Severity: Medium
+- Confidence: Probable
+- Description: Type 3 glyph programs have unusually high complexity.
+- Tags: font, type3, complexity
+
+## font.type3_charproc_resource_abuse
+
+- ID: `font.type3_charproc_resource_abuse`
+- Label: Type 3 charproc resource abuse
+- Severity: High
+- Confidence: Probable
+- Description: Type 3 glyph programs invoke resource/state operators in suspicious ways.
+- Tags: font, type3, resource
+
+## font.type3_charproc_recursion_like_pattern
+
+- ID: `font.type3_charproc_recursion_like_pattern`
+- Label: Type 3 recursion-like pattern
+- Severity: Medium
+- Confidence: Tentative
+- Description: Type 3 glyph programs show deep/unbalanced graphics state nesting.
+- Tags: font, type3, recursion
+
+## font.cmap_range_overlap
+
+- ID: `font.cmap_range_overlap`
+- Label: CMap range overlap
+- Severity: Medium
+- Confidence: Strong
+- Description: ToUnicode CMap contains overlapping ranges.
+- Tags: font, cmap, malformed
+
+## font.cmap_cardinality_anomalous
+
+- ID: `font.cmap_cardinality_anomalous`
+- Label: CMap cardinality anomalous
+- Severity: Medium
+- Confidence: Probable
+- Description: ToUnicode CMap range count is unusually large.
+- Tags: font, cmap, evasion
+
+## font.cmap_subtype_inconsistent
+
+- ID: `font.cmap_subtype_inconsistent`
+- Label: CMap subtype inconsistent
+- Severity: Medium
+- Confidence: Strong
+- Description: Font subtype and ToUnicode CMap style are inconsistent.
+- Tags: font, cmap, structure
+
+### Calibration Notes: Image/Font Structural Follow-up (2026-02-17)
+
+- Deterministic structural contradictions (for example inheritance conflicts, CMap overlaps, signature-scope overrides) are calibrated at `Strong` confidence.
+- Heuristic/high-volume behavioural patterns (for example operator density and Type 3 complexity spikes) remain `Probable` or `Tentative` unless corroborated.
+- Escalation rule: when provenance override signals co-occur with structural contradictions, emit correlated `High` severity composite findings (`composite.resource_overrides_with_decoder_pressure`, `composite.decode_amplification_chain`) for triage priority.
+
 ## polyglot_signature_conflict
 
 - ID: `polyglot_signature_conflict`
@@ -2974,9 +3825,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Description: RichMedia annotations or dictionaries detected.
 - Tags: feature
 - Details:
-  - Relevance: expanded attack surface.
-  - Meaning: feature increases parsing or interaction complexity.
-  - Chain usage: used as supporting context for delivery or exploitation stages.
+  - Relevance: viewer-dependent rich media runtimes can expose interactive execution paths.
+  - Meaning: RichMedia annotations/dictionaries are present.
+  - Chain usage: render-stage contextual signal; severity remains conservative without execute corroboration.
+  - Metadata:
+    - `viewer.feature=richmedia`
+    - `viewer.support_required=true`
+    - `viewer.support_matrix=viewer_dependent_richmedia_runtime`
+    - `renderer.profile=richmedia_viewer`
+    - `renderer.precondition=richmedia_runtime_enabled`
+    - `richmedia.trigger_context` (`feature_present`, `action_linked`)
+    - `chain.stage=render`, `chain.capability=richmedia_surface`, `chain.trigger=viewer_feature`
 
 ## richmedia_3d_structure_anomaly
 
@@ -3229,11 +4088,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 
 - ID: `content_stream_anomaly`
 - Label: Content stream syntax anomaly
-- Description: Decoded content stream contains unknown operators or suspicious operand counts.
+- Description: Decoded content stream includes explicit unknown operator, operand arity, or operand type mismatch counts.
 - Tags: content, evasion, parser
 - Details:
   - Relevance: malformed content streams can render differently across readers.
-  - Meaning: operator set or operand arity deviates from expected content syntax.
+  - Meaning: operator set or operand validation (arity/type) deviates from expected content syntax.
   - Chain usage: parser-divergence signal for triage and replay.
 
 ## signature_present
@@ -3254,9 +4113,18 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Description: Sound/Movie/Rendition objects detected.
 - Tags: feature
 - Details:
-  - Relevance: expanded attack surface.
-  - Meaning: feature increases parsing or interaction complexity.
-  - Chain usage: used as supporting context for delivery or exploitation stages.
+  - Relevance: media/rendition surfaces may fetch or activate external media depending on viewer behaviour.
+  - Meaning: `/Sound`, `/Movie`, or `/Rendition` structures are present.
+  - Chain usage: render-stage contextual signal; egress semantics are attached when external rendition targets are detected.
+  - Metadata:
+    - `viewer.feature=sound_movie_rendition`
+    - `viewer.support_required=true`
+    - `viewer.support_matrix=viewer_dependent_media_runtime`
+    - `renderer.profile=media_viewer`
+    - `renderer.precondition=media_runtime_enabled`
+    - `media.rendition_present`
+    - optional `media.external_target`, `egress.channel=media_rendition`, `egress.target_kind=remote`, `egress.user_interaction_required=true`
+    - `chain.stage=render`, `chain.capability=media_surface`, `chain.trigger=viewer_feature`
 
 ## stream_length_mismatch
 
@@ -3678,6 +4546,49 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
+  - Metadata:
+    - `graph.evasion_kind=xref_conflict`
+    - `graph.depth`
+    - `graph.conflict_count`
+    - `xref.integrity.level`
+    - `chain.stage=decode`, `chain.capability=graph_xref_evasion`, `chain.trigger=xref`
+
+## object_reference_cycle
+
+- ID: `object_reference_cycle`
+- Label: Object reference cycle
+- Description: Circular object-reference chain detected in object graph traversal.
+- Tags: evasion, structure, graph
+- Details:
+  - Relevance: cycle-heavy graphs can hide exploit paths and stress parser traversal.
+  - Meaning: cycle classification and overlap with execute-capable objects are recorded.
+  - Chain usage: decode-stage structural evasion signal; prioritise when execute overlap is non-zero.
+  - Metadata:
+    - `cycle.length`
+    - `cycle.type`
+    - `graph.evasion_kind` (`reference_cycle` or `cycle_near_execute`)
+    - `graph.depth`
+    - `graph.conflict_count`
+    - `graph.execute_overlap_count`
+    - `chain.stage=decode`, `chain.capability=graph_cycle`, `chain.trigger=object_graph`
+
+## object_reference_depth_high
+
+- ID: `object_reference_depth_high`
+- Label: High object reference depth
+- Description: Object reference depth exceeds safe traversal threshold.
+- Tags: evasion, structure, graph
+- Details:
+  - Relevance: deep indirection can conceal exploit staging and increase parser cost.
+  - Meaning: maximum observed reference depth is above threshold and may indicate deliberate indirection.
+  - Chain usage: decode-stage structural evasion signal.
+  - Metadata:
+    - `reference.max_depth`
+    - `graph.evasion_kind=deep_indirection`
+    - `graph.depth`
+    - `graph.conflict_count`
+    - `graph.execute_surface_count`
+    - `chain.stage=decode`, `chain.capability=graph_indirection`, `chain.trigger=object_graph`
 
 ## trailer_root_conflict
 
@@ -3745,6 +4656,65 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: correlation of launch and embedded executable strengthens confidence.
   - Chain usage: delivery/execution stage.
 
+## composite.embedded_relationship_action
+
+- ID: `composite.embedded_relationship_action`
+- Label: Embedded relationship action bridge
+- Severity: High
+- Confidence: Probable to Strong
+- Description: Embedded artefact type mismatch is linked to an executable action surface.
+- Tags: composite, embedded, action, relationship
+- Details:
+  - Relevance: links disguised embedded payload indicators with action execution surfaces.
+  - Meaning: emitted when `embedded_type_mismatch` is linked to launch/remote action findings by object or embedded hash lineage.
+  - Chain usage: bridge from attachment disguise to execution stage.
+  - Metadata:
+    - `composite.link_reason` (`object` or `hash`)
+    - `embedded.mismatch_axes`
+    - `exploit.preconditions`
+    - `exploit.blockers`
+    - `exploit.outcomes`
+
+## composite.graph_evasion_with_execute
+
+- ID: `composite.graph_evasion_with_execute`
+- Label: Graph evasion with execute surface composite
+- Severity: High
+- Confidence: Probable
+- Description: Structural graph-evasion indicators co-occur with executable surfaces.
+- Tags: composite, graph, evasion, execute
+- Details:
+  - Relevance: exploit delivery often pairs graph-level evasion with action/JS execution surfaces.
+  - Meaning: correlates structural graph findings (xref conflicts, cycles, shadowing, deep indirection) with execute-stage findings.
+  - Chain usage: prioritisation composite for evasive execute-capable documents.
+  - Metadata:
+    - `graph.evasion_kinds`
+    - `graph.evasion_count`
+    - `execute.surface_count`
+    - `exploit.preconditions`
+    - `exploit.blockers`
+    - `exploit.outcomes`
+
+## composite.richmedia_execute_path
+
+- ID: `composite.richmedia_execute_path`
+- Label: Rich media execute-path bridge
+- Severity: Medium to High
+- Confidence: Probable
+- Description: Rich media/3D surfaces co-locate with execute or egress findings.
+- Tags: composite, richmedia, 3d, action, chain
+- Details:
+  - Relevance: viewer-dependent media features can form exploit paths when linked to execute/egress surfaces.
+  - Meaning: emitted when richmedia findings share object lineage with action/JS execute findings.
+  - Chain usage: bridge from render-stage richmedia surfaces into execute/egress stages.
+  - Metadata:
+    - `edge.from`
+    - `edge.to`
+    - `edge.shared_objects`
+    - `exploit.preconditions`
+    - `exploit.blockers`
+    - `exploit.outcomes`
+
 ## action_chain_malicious
 
 - ID: `action_chain_malicious`
@@ -3755,6 +4725,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: automatic chains are a hallmark of malware.
   - Meaning: combined evidence of chain depth, trigger, and JS increases signal.
   - Chain usage: multi-stage activation without user interaction.
+  - Metadata:
+    - `js.source_classes`: source containers represented in correlated JS findings.
+    - `js.container_paths`: normalised container paths represented in correlated JS findings.
+    - `js.object_ref_chains`: object lineage paths from correlated JS findings.
 
 ## xfa_data_exfiltration_risk
 

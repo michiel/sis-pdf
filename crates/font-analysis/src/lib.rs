@@ -15,9 +15,9 @@ pub use model::FontAnalysisConfig;
 pub use signatures::{Signature, SignatureRegistry};
 
 use std::collections::HashMap;
-#[cfg(feature = "dynamic")]
+#[cfg(all(feature = "dynamic", not(target_arch = "wasm32")))]
 use std::sync::mpsc;
-#[cfg(feature = "dynamic")]
+#[cfg(all(feature = "dynamic", not(target_arch = "wasm32")))]
 use std::time::Duration;
 
 use model::{Confidence, DynamicAnalysisOutcome, FontFinding, Severity};
@@ -218,18 +218,27 @@ fn run_dynamic_with_timeout(
     timeout_ms: u64,
     config: &FontAnalysisConfig,
 ) -> Result<Vec<FontFinding>, DynamicError> {
-    let (tx, rx) = mpsc::channel();
-    let payload = data.to_vec();
-    let config_clone = config.clone();
-    std::thread::spawn(move || {
-        let findings = dynamic::analyze_with_findings_and_config(&payload, &config_clone);
-        let _ = tx.send(findings);
-    });
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = timeout_ms;
+        return Ok(dynamic::analyze_with_findings_and_config(data, config));
+    }
 
-    match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
-        Ok(findings) => Ok(findings),
-        Err(mpsc::RecvTimeoutError::Timeout) => Err(DynamicError::Timeout),
-        Err(_) => Err(DynamicError::Failure("dynamic worker error".into())),
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let (tx, rx) = mpsc::channel();
+        let payload = data.to_vec();
+        let config_clone = config.clone();
+        std::thread::spawn(move || {
+            let findings = dynamic::analyze_with_findings_and_config(&payload, &config_clone);
+            let _ = tx.send(findings);
+        });
+
+        match rx.recv_timeout(Duration::from_millis(timeout_ms)) {
+            Ok(findings) => Ok(findings),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(DynamicError::Timeout),
+            Err(_) => Err(DynamicError::Failure("dynamic worker error".into())),
+        }
     }
 }
 

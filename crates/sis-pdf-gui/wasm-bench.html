@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>sis WASM GUI Benchmark</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        background: #f8f8f8;
+        color: #222;
+        font-family: "SF Mono", "Menlo", "Consolas", monospace;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 12px 0;
+      }
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>sis WASM GUI Benchmark</h1>
+    <pre id="output">Running benchmarks...</pre>
+    <script type="module" src="./wasm-bench.js"></script>
+  </body>
+</html>

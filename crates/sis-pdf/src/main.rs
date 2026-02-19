@@ -228,6 +228,8 @@ enum Command {
         hexdump: bool,
         #[arg(long, help = "Disable chain grouping in chain output")]
         ungroup_chains: bool,
+        #[arg(long, help = "Augment findings queries with correlated chain output")]
+        with_chain: bool,
     },
     #[command(about = "Scan PDFs for suspicious indicators and report findings")]
     Scan {
@@ -762,6 +764,7 @@ fn main() -> Result<()> {
             decode,
             hexdump,
             ungroup_chains,
+            with_chain,
         } => {
             let where_clause_raw = r#where.clone();
             let config_query_colour = config_path
@@ -845,6 +848,7 @@ fn main() -> Result<()> {
                     !no_recover,
                     max_objects,
                     !ungroup_chains,
+                    with_chain,
                     extract_to.as_deref(),
                     path.as_deref(),
                     &glob,
@@ -881,6 +885,7 @@ fn main() -> Result<()> {
                     !no_recover,
                     max_objects,
                     !ungroup_chains,
+                    with_chain,
                     extract_to.as_deref(),
                     max_extract_bytes,
                     repl_output_format,
@@ -2727,6 +2732,7 @@ fn run_query_oneshot(
     recover_xref: bool,
     max_objects: usize,
     group_chains: bool,
+    with_chain: bool,
     extract_to: Option<&std::path::Path>,
     path: Option<&std::path::Path>,
     glob: &str,
@@ -2766,6 +2772,7 @@ fn run_query_oneshot(
         }
     };
     let query = query::apply_output_format(query, output_format)?;
+    let query = query::apply_with_chain(query, with_chain)?;
 
     // Build scan options
     let scan_options = query::ScanOptions {
@@ -2849,6 +2856,7 @@ fn run_query_repl(
     recover_xref: bool,
     max_objects: usize,
     group_chains: bool,
+    with_chain: bool,
     extract_to: Option<&std::path::Path>,
     max_extract_bytes: usize,
     output_format: commands::query::OutputFormat,
@@ -3085,6 +3093,13 @@ fn run_query_repl(
                             Ok(resolved) => resolved,
                             Err(e) => {
                                 eprintln!("Format error: {}", e);
+                                continue;
+                            }
+                        };
+                        let q = match query::apply_with_chain(q, with_chain) {
+                            Ok(resolved) => resolved,
+                            Err(e) => {
+                                eprintln!("Option error: {}", e);
                                 continue;
                             }
                         };
@@ -3507,13 +3522,24 @@ fn print_repl_help() {
     println!();
     println!("Advanced queries:");
     println!("  chains             - Describe action chains (rich JSON output)");
+    println!("  chains.all         - Include single-item chains in action chain view");
     println!("  chains.js          - JavaScript action chains with edge details");
+    println!("  chains.js.all      - JavaScript chains including single-item chains");
     println!("  cycles             - Document reference cycles");
     println!("  cycles.page        - Page tree cycles");
     println!("  ref OBJ GEN        - Incoming references for an object (generation optional)");
     println!();
     println!("Graph exports:");
     println!("  org                - Export ORG graph (dot/text output, use :json for JSON, :readable for dot)");
+    println!(
+        "  graph.structure    - Export structure graph with typed-edge and chain summary overlay (dot/text, use :json for JSON)"
+    );
+    println!(
+        "  graph.event        - Export event graph with outcomes (dot/text output, use :json for JSON)"
+    );
+    println!(
+        "  graph.event.hops N - Export induced event subgraph around matched nodes up to N hops"
+    );
     println!("  ir                 - Export intent graph (text output, use :json for JSON)");
     println!();
     println!("REPL commands:");

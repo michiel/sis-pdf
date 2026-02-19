@@ -1,14 +1,24 @@
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 use sis_pdf_pdf::decode::{decode_stream_with_meta, DecodeLimits};
 use sis_pdf_pdf::object::{PdfAtom, PdfStream};
 use sis_pdf_pdf::xfa::extract_xfa_image_payloads;
 use sis_pdf_pdf::ObjectGraph;
 
+use crate::colour_space::{resolve_colour_space, ResolvedColourSpace};
 use crate::timeout::TimeoutChecker;
 use crate::util::dict_u32;
 use crate::{ImageDynamicOptions, ImageDynamicResult, ImageFinding};
+
+const MAX_IMAGE_METADATA_SEGMENT_BYTES: usize = 32 * 1024;
+const MAX_IMAGE_METADATA_TOTAL_BYTES: usize = 128 * 1024;
+const SUSPICIOUS_METADATA_RATIO_PERCENT: usize = 60;
 
 pub fn analyze_dynamic_images(
     graph: &ObjectGraph<'_>,
@@ -88,6 +98,8 @@ pub fn analyze_dynamic_images(
             continue;
         };
 
+        inspect_embedded_metadata(data, &filters, entry.obj, entry.gen, &meta, &mut findings);
+
         if let Some(reason) = image_exceeds_limits(stream, data, opts) {
             meta.insert("image.decode_too_large".into(), "true".into());
             meta.insert("image.decode_too_large_reason".into(), reason.into());
@@ -140,6 +152,17 @@ pub fn analyze_dynamic_images(
         match decode_result {
             DecodeStatus::Ok => {
                 meta.insert("image.decode".into(), "success".into());
+                maybe_check_pixel_data_size(
+                    graph,
+                    stream,
+                    data,
+                    &filters,
+                    entry.obj,
+                    entry.gen,
+                    &meta,
+                    opts,
+                    &mut findings,
+                );
             }
             DecodeStatus::Skipped(reason) => {
                 meta.insert("image.decode".into(), "skipped".into());
@@ -150,6 +173,17 @@ pub fn analyze_dynamic_images(
                     gen: entry.gen,
                     meta: meta.clone(),
                 });
+                maybe_check_pixel_data_size(
+                    graph,
+                    stream,
+                    data,
+                    &filters,
+                    entry.obj,
+                    entry.gen,
+                    &meta,
+                    opts,
+                    &mut findings,
+                );
             }
             DecodeStatus::Failed(err) => {
                 meta.insert("image.decode".into(), "failed".into());
@@ -236,6 +270,348 @@ fn image_exceeds_limits(
         Some("pixels")
     } else {
         None
+    }
+}
+
+fn is_raw_pixel_filter_name(name: &str) -> bool {
+    matches!(
+        name,
+        "FlateDecode"
+            | "Fl"
+            | "LZWDecode"
+            | "LZW"
+            | "ASCIIHexDecode"
+            | "AHx"
+            | "ASCII85Decode"
+            | "A85"
+            | "RunLengthDecode"
+            | "RL"
+    )
+}
+
+fn is_raw_pixel_filter_set(filters: &[String]) -> bool {
+    filters.is_empty() || filters.iter().all(|f| is_raw_pixel_filter_name(f.as_str()))
+}
+
+fn looks_like_container_image(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        || bytes.starts_with(b"II*\x00")
+        || bytes.starts_with(b"MM\x00*")
+        || bytes.starts_with(b"\xFF\xD8")
+}
+
+fn maybe_check_pixel_data_size(
+    graph: &ObjectGraph<'_>,
+    stream: &PdfStream<'_>,
+    raw_data: &[u8],
+    filters: &[String],
+    obj: u32,
+    gen: u16,
+    base_meta: &BTreeMap<String, String>,
+    opts: &ImageDynamicOptions,
+    findings: &mut Vec<ImageFinding>,
+) {
+    if !is_raw_pixel_filter_set(filters) {
+        return;
+    }
+    if filters.is_empty() && looks_like_container_image(raw_data) {
+        return;
+    }
+    let decoded = if filters.is_empty() {
+        raw_data.to_vec()
+    } else {
+        let decoded = decode_stream_with_meta(
+            graph.bytes,
+            stream,
+            DecodeLimits { max_decoded_bytes: opts.max_decode_bytes, max_filter_chain_depth: 8 },
+        );
+        let Some(decoded_data) = decoded.data else {
+            return;
+        };
+        decoded_data
+    };
+    check_pixel_data_size(graph, stream, &decoded, filters, obj, gen, base_meta, findings);
+}
+
+#[derive(Clone, Copy)]
+enum ContainerFormat {
+    Jpeg,
+    Png,
+    Tiff,
+}
+
+fn detect_container_format(bytes: &[u8], filters: &[String]) -> Option<ContainerFormat> {
+    if filters.iter().any(|f| f == "DCTDecode" || f == "DCT") {
+        return Some(ContainerFormat::Jpeg);
+    }
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some(ContainerFormat::Png);
+    }
+    if bytes.starts_with(b"II*\x00") || bytes.starts_with(b"MM\x00*") {
+        return Some(ContainerFormat::Tiff);
+    }
+    if bytes.starts_with(b"\xFF\xD8") {
+        return Some(ContainerFormat::Jpeg);
+    }
+    None
+}
+
+fn inspect_embedded_metadata(
+    data: &[u8],
+    filters: &[String],
+    obj: u32,
+    gen: u16,
+    base_meta: &BTreeMap<String, String>,
+    findings: &mut Vec<ImageFinding>,
+) {
+    let Some(format) = detect_container_format(data, filters) else {
+        return;
+    };
+
+    let assessment = match format {
+        ContainerFormat::Jpeg => inspect_jpeg_metadata(data),
+        ContainerFormat::Png => inspect_png_metadata(data),
+        ContainerFormat::Tiff => inspect_tiff_metadata(data),
+    };
+
+    if let Some((kind, bytes)) = assessment.oversized {
+        let mut meta = base_meta.clone();
+        meta.insert("image.metadata.kind".into(), kind.to_string());
+        meta.insert("image.metadata.bytes".into(), bytes.to_string());
+        findings.push(ImageFinding { kind: "image.metadata_oversized".into(), obj, gen, meta });
+    }
+
+    if let Some(reason) = assessment.malformed_reason {
+        let mut meta = base_meta.clone();
+        meta.insert("image.metadata.issue".into(), reason);
+        findings.push(ImageFinding { kind: "image.metadata_malformed".into(), obj, gen, meta });
+    }
+
+    if assessment.scriptable_content {
+        let mut meta = base_meta.clone();
+        meta.insert("image.metadata.scriptable".into(), "true".into());
+        findings.push(ImageFinding {
+            kind: "image.metadata_scriptable_content".into(),
+            obj,
+            gen,
+            meta,
+        });
+    }
+
+    if assessment.total_metadata_bytes > MAX_IMAGE_METADATA_TOTAL_BYTES
+        || assessment.ratio_percent >= SUSPICIOUS_METADATA_RATIO_PERCENT
+            && assessment.total_metadata_bytes > 4096
+    {
+        let mut meta = base_meta.clone();
+        meta.insert(
+            "image.metadata.total_bytes".into(),
+            assessment.total_metadata_bytes.to_string(),
+        );
+        meta.insert("image.metadata.ratio_percent".into(), assessment.ratio_percent.to_string());
+        findings.push(ImageFinding {
+            kind: "image.metadata_suspicious_density".into(),
+            obj,
+            gen,
+            meta,
+        });
+    }
+}
+
+struct MetadataAssessment {
+    oversized: Option<(&'static str, usize)>,
+    malformed_reason: Option<String>,
+    scriptable_content: bool,
+    total_metadata_bytes: usize,
+    ratio_percent: usize,
+}
+
+fn metadata_ratio_percent(total_metadata: usize, total_bytes: usize) -> usize {
+    if total_bytes == 0 {
+        return 0;
+    }
+    total_metadata.saturating_mul(100) / total_bytes
+}
+
+fn contains_scriptable_content(bytes: &[u8]) -> bool {
+    let lowered = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+    lowered.contains("<script") || lowered.contains("javascript:") || lowered.contains("onload=")
+}
+
+fn inspect_jpeg_metadata(bytes: &[u8]) -> MetadataAssessment {
+    let mut oversized = None;
+    let mut malformed_reason = None;
+    let mut scriptable_content = false;
+    let mut total_metadata_bytes = 0usize;
+
+    if bytes.len() < 4 || !bytes.starts_with(b"\xFF\xD8") {
+        return MetadataAssessment {
+            oversized: None,
+            malformed_reason: Some("jpeg_header_invalid".into()),
+            scriptable_content: false,
+            total_metadata_bytes: 0,
+            ratio_percent: 0,
+        };
+    }
+
+    let mut i = 2usize;
+    while i + 4 <= bytes.len() {
+        if bytes[i] != 0xFF {
+            malformed_reason = Some("jpeg_marker_sync_lost".into());
+            break;
+        }
+        let marker = bytes[i + 1];
+        if marker == 0xDA || marker == 0xD9 {
+            break;
+        }
+        let seg_len = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
+        if seg_len < 2 {
+            malformed_reason = Some("jpeg_segment_length_invalid".into());
+            break;
+        }
+        let end = i + 2 + seg_len;
+        if end > bytes.len() {
+            malformed_reason = Some("jpeg_segment_truncated".into());
+            break;
+        }
+
+        let payload = &bytes[i + 4..end];
+        let is_metadata_marker = matches!(marker, 0xE1 | 0xE2 | 0xED | 0xFE);
+        if is_metadata_marker {
+            total_metadata_bytes = total_metadata_bytes.saturating_add(payload.len());
+            if payload.len() > MAX_IMAGE_METADATA_SEGMENT_BYTES {
+                oversized = Some(("jpeg", payload.len()));
+            }
+            if contains_scriptable_content(payload) {
+                scriptable_content = true;
+            }
+        }
+        i = end;
+    }
+
+    MetadataAssessment {
+        oversized,
+        malformed_reason,
+        scriptable_content,
+        total_metadata_bytes,
+        ratio_percent: metadata_ratio_percent(total_metadata_bytes, bytes.len()),
+    }
+}
+
+fn inspect_png_metadata(bytes: &[u8]) -> MetadataAssessment {
+    let mut oversized = None;
+    let mut malformed_reason = None;
+    let mut scriptable_content = false;
+    let mut total_metadata_bytes = 0usize;
+
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return MetadataAssessment {
+            oversized: None,
+            malformed_reason: Some("png_header_invalid".into()),
+            scriptable_content: false,
+            total_metadata_bytes: 0,
+            ratio_percent: 0,
+        };
+    }
+
+    let mut i = 8usize;
+    while i + 12 <= bytes.len() {
+        let len = u32::from_be_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]) as usize;
+        let typ = &bytes[i + 4..i + 8];
+        let data_start = i + 8;
+        let data_end = data_start.saturating_add(len);
+        let crc_end = data_end.saturating_add(4);
+        if crc_end > bytes.len() {
+            malformed_reason = Some("png_chunk_truncated".into());
+            break;
+        }
+        let chunk_data = &bytes[data_start..data_end];
+        let is_metadata =
+            typ == b"iTXt" || typ == b"tEXt" || typ == b"zTXt" || typ == b"iCCP" || typ == b"eXIf";
+        if is_metadata {
+            total_metadata_bytes = total_metadata_bytes.saturating_add(chunk_data.len());
+            if chunk_data.len() > MAX_IMAGE_METADATA_SEGMENT_BYTES {
+                oversized = Some(("png", chunk_data.len()));
+            }
+            if contains_scriptable_content(chunk_data) {
+                scriptable_content = true;
+            }
+        }
+        if typ == b"IEND" {
+            break;
+        }
+        i = crc_end;
+    }
+
+    MetadataAssessment {
+        oversized,
+        malformed_reason,
+        scriptable_content,
+        total_metadata_bytes,
+        ratio_percent: metadata_ratio_percent(total_metadata_bytes, bytes.len()),
+    }
+}
+
+fn inspect_tiff_metadata(bytes: &[u8]) -> MetadataAssessment {
+    if bytes.len() < 8 {
+        return MetadataAssessment {
+            oversized: None,
+            malformed_reason: Some("tiff_header_short".into()),
+            scriptable_content: false,
+            total_metadata_bytes: 0,
+            ratio_percent: 0,
+        };
+    }
+    let little = bytes.starts_with(b"II*\x00");
+    let big = bytes.starts_with(b"MM\x00*");
+    if !little && !big {
+        return MetadataAssessment {
+            oversized: None,
+            malformed_reason: Some("tiff_header_invalid".into()),
+            scriptable_content: false,
+            total_metadata_bytes: 0,
+            ratio_percent: 0,
+        };
+    }
+    let read_u16 = |buf: &[u8]| -> u16 {
+        if little {
+            u16::from_le_bytes([buf[0], buf[1]])
+        } else {
+            u16::from_be_bytes([buf[0], buf[1]])
+        }
+    };
+    let read_u32 = |buf: &[u8]| -> u32 {
+        if little {
+            u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]])
+        } else {
+            u32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]])
+        }
+    };
+
+    let mut malformed_reason = None;
+    let mut ifd_offset = read_u32(&bytes[4..8]) as usize;
+    let mut visited_ifds = 0usize;
+    while ifd_offset > 0 && ifd_offset + 2 <= bytes.len() && visited_ifds < 16 {
+        visited_ifds = visited_ifds.saturating_add(1);
+        let count = read_u16(&bytes[ifd_offset..ifd_offset + 2]) as usize;
+        let entries_end = ifd_offset.saturating_add(2).saturating_add(count.saturating_mul(12));
+        if entries_end + 4 > bytes.len() {
+            malformed_reason = Some("tiff_ifd_truncated".into());
+            break;
+        }
+        let next_offset = read_u32(&bytes[entries_end..entries_end + 4]) as usize;
+        if next_offset == ifd_offset {
+            malformed_reason = Some("tiff_ifd_cycle".into());
+            break;
+        }
+        ifd_offset = next_offset;
+    }
+
+    MetadataAssessment {
+        oversized: None,
+        malformed_reason,
+        scriptable_content: false,
+        total_metadata_bytes: 0,
+        ratio_percent: 0,
     }
 }
 
@@ -351,6 +727,63 @@ fn decode_image_data(
         }
     }
     DecodeStatus::Skipped("unknown_format".into())
+}
+
+/// Check if the decoded stream size matches the expected pixel data size.
+///
+/// For raw pixel streams (no image-specific filter), the decoded data should
+/// match Width * Height * channels * BPC / 8 (with row padding for sub-byte BPC).
+fn check_pixel_data_size(
+    graph: &ObjectGraph<'_>,
+    stream: &PdfStream<'_>,
+    decoded_data: &[u8],
+    filters: &[String],
+    obj: u32,
+    gen: u16,
+    base_meta: &BTreeMap<String, String>,
+    findings: &mut Vec<ImageFinding>,
+) {
+    let Some(width) = dict_u32(&stream.dict, b"/Width") else { return };
+    let Some(height) = dict_u32(&stream.dict, b"/Height") else { return };
+    if width == 0 || height == 0 {
+        return;
+    }
+
+    let cs = resolve_colour_space(&stream.dict, graph);
+    let channels = cs.as_ref().and_then(|c| {
+        if matches!(c, ResolvedColourSpace::Indexed { .. }) {
+            Some(1u64)
+        } else {
+            c.channels().map(|ch| ch as u64)
+        }
+    });
+    let Some(channels) = channels else { return };
+
+    let bpc = dict_u32(&stream.dict, b"/BitsPerComponent").unwrap_or(8) as u64;
+    let bits_per_row = match (width as u64).checked_mul(channels).and_then(|v| v.checked_mul(bpc)) {
+        Some(v) => v,
+        None => return,
+    };
+    let bytes_per_row = (bits_per_row + 7) / 8;
+    let expected = match bytes_per_row.checked_mul(height as u64) {
+        Some(v) => v as usize,
+        None => return,
+    };
+
+    if expected > 0 && decoded_data.len() != expected {
+        let mut meta = base_meta.clone();
+        meta.insert("image.expected_bytes".into(), expected.to_string());
+        meta.insert("image.actual_bytes".into(), decoded_data.len().to_string());
+        meta.insert("image.size_check_basis".into(), "decoded_raw_pixels".into());
+        let filter_summary = if filters.is_empty() { "-".to_string() } else { filters.join(",") };
+        meta.insert("image.size_check_filters".into(), filter_summary);
+        findings.push(ImageFinding {
+            kind: "image.pixel_data_size_mismatch".into(),
+            obj,
+            gen,
+            meta,
+        });
+    }
 }
 
 fn analyze_xfa_images(graph: &ObjectGraph<'_>, opts: &ImageDynamicOptions) -> Vec<ImageFinding> {

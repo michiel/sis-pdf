@@ -1,17 +1,24 @@
+#[cfg(feature = "filesystem")]
 use std::fs;
+#[cfg(feature = "filesystem")]
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "filesystem")]
 use anyhow::{anyhow, Result};
+#[cfg(feature = "filesystem")]
 use serde::Deserialize;
 
+#[cfg(feature = "filesystem")]
 use crate::ml::{LinearModel, StackingClassifier};
 
+#[cfg(feature = "filesystem")]
 #[derive(Debug, Deserialize)]
 struct StackingModelFile {
     base: Vec<LinearModel>,
     meta: LinearModel,
 }
 
+#[cfg(feature = "filesystem")]
 pub fn load_stacking(path: impl AsRef<Path>) -> Result<StackingClassifier> {
     let path = path.as_ref();
     let model_path = resolve_model_path(path)?;
@@ -25,6 +32,7 @@ pub fn load_stacking(path: impl AsRef<Path>) -> Result<StackingClassifier> {
     Ok(StackingClassifier { base, meta })
 }
 
+#[cfg(feature = "filesystem")]
 fn resolve_model_path(path: &Path) -> Result<PathBuf> {
     if path.is_file() {
         return Ok(path.to_path_buf());

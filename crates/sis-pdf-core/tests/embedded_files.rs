@@ -168,6 +168,48 @@ fn launch_embedded_reports_correlation() {
     );
 }
 
+#[test]
+fn embedded_type_mismatch_links_to_launch_relationship_composite() {
+    let objects = vec![
+        "<< /Type /Catalog /Pages 2 0 R /OpenAction 7 0 R >>",
+        "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        "<< /Type /Page /Parent 2 0 R >>",
+        "<< /Type /Filespec /F (invoice.pdf) /EF << /F 6 0 R >> >>",
+        "<< /Producer (test) >>",
+        "<< /Type /EmbeddedFile /Subtype /application#2Fpdf /Length 20 >>stream\nMZPAYLOAD-EXECUTABLE\nendstream",
+        "<< /Type /Action /S /Launch /F 4 0 R >>",
+    ];
+    let bytes = build_pdf(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    let mismatch = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "embedded_type_mismatch")
+        .expect("embedded_type_mismatch finding");
+    assert_eq!(mismatch.severity, sis_pdf_core::model::Severity::Medium);
+    assert_eq!(mismatch.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert_eq!(
+        mismatch.meta.get("embedded.relationship.filespec_present").map(String::as_str),
+        Some("true")
+    );
+    assert_eq!(mismatch.meta.get("embedded.family_mismatch").map(String::as_str), Some("true"));
+    assert_eq!(
+        mismatch.meta.get("embedded.mismatch_axes").map(String::as_str),
+        Some("extension_vs_magic,subtype_vs_magic")
+    );
+
+    let composite = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "composite.embedded_relationship_action")
+        .expect("embedded relationship composite");
+    assert_eq!(composite.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(composite.meta.get("composite.link_reason").map(String::as_str), Some("hash"));
+}
+
 fn build_launch_embedded_pdf() -> Vec<u8> {
     let objects = vec![
         "<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>",

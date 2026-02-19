@@ -12,6 +12,7 @@ boa_ast = { version = "0.21", optional = true }
 boa_engine = { version = "0.21", optional = true }
 boa_interner = { version = "0.21", optional = true }
 boa_gc = { version = "0.21", optional = true }
+web-time = "1.1"
 
 [features]
 default = []

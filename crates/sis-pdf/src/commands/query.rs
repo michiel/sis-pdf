@@ -6,7 +6,7 @@ use globset::Glob;
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{self, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -243,6 +243,10 @@ pub enum Query {
     FindingsByKindCount(String),
     FindingsComposite,
     FindingsCompositeCount,
+    FindingsWithChain,
+    FindingsBySeverityWithChain(Severity),
+    FindingsByKindWithChain(String),
+    FindingsCompositeWithChain,
     Correlations,
     CorrelationsCount,
     CanonicalDiff,
@@ -266,12 +270,23 @@ pub enum Query {
     Chains,
     ChainsCount,
     ChainsJs,
+    ChainsAll,
+    ChainsAllCount,
+    ChainsJsAll,
     Cycles,
     CyclesPage,
 
     // Export queries
     ExportOrgDot,
     ExportOrgJson,
+    ExportStructureDot,
+    ExportStructureJson,
+    ExportStructureDotDepth(usize),
+    ExportStructureJsonDepth(usize),
+    ExportEventDot,
+    ExportEventJson,
+    ExportEventDotHops(usize),
+    ExportEventJsonHops(usize),
     ExportIrText,
     ExportIrJson,
     ExportFeatures,
@@ -546,6 +561,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "launch.embedded.count" => Ok(Query::FindingsByKindCount("launch_embedded_file".into())),
         "actions.chains" => Ok(Query::Chains),
         "actions.chains.count" => Ok(Query::ChainsCount),
+        "actions.chains.all" => Ok(Query::ChainsAll),
+        "actions.chains.all.count" => Ok(Query::ChainsAllCount),
+        "actions.chains.js.all" => Ok(Query::ChainsJsAll),
         "actions.chains.complex" => Ok(Query::FindingsByKind("action_chain_complex".into())),
         "actions.chains.complex.count" => {
             Ok(Query::FindingsByKindCount("action_chain_complex".into()))
@@ -610,7 +628,10 @@ pub fn parse_query(input: &str) -> Result<Query> {
 
         // Advanced
         "chains" => Ok(Query::Chains),
+        "chains.all" => Ok(Query::ChainsAll),
+        "chains.all.count" => Ok(Query::ChainsAllCount),
         "chains.js" => Ok(Query::ChainsJs),
+        "chains.js.all" => Ok(Query::ChainsJsAll),
         "cycles" => Ok(Query::Cycles),
         "cycles.page" => Ok(Query::CyclesPage),
 
@@ -621,6 +642,15 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "graph.org" => Ok(Query::ExportOrgDot),
         "graph.org.dot" => Ok(Query::ExportOrgDot),
         "graph.org.json" => Ok(Query::ExportOrgJson),
+        "graph.structure" => Ok(Query::ExportStructureDot),
+        "graph.structure.dot" => Ok(Query::ExportStructureDot),
+        "graph.structure.json" => Ok(Query::ExportStructureJson),
+        "graph.event" => Ok(Query::ExportEventDot),
+        "graph.event.dot" => Ok(Query::ExportEventDot),
+        "graph.event.json" => Ok(Query::ExportEventJson),
+        "graph.action" => Ok(Query::ExportEventDot),
+        "graph.action.dot" => Ok(Query::ExportEventDot),
+        "graph.action.json" => Ok(Query::ExportEventJson),
         "ir" => Ok(Query::ExportIrText),
         "ir.text" => Ok(Query::ExportIrText),
         "ir.json" => Ok(Query::ExportIrJson),
@@ -632,6 +662,28 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "features.json" => Ok(Query::ExportFeaturesJson),
 
         _ => {
+            if let Some(rest) = input.strip_prefix("graph.structure.depth ") {
+                let depth = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid depth: {}", rest.trim()))?;
+                return Ok(Query::ExportStructureDotDepth(depth));
+            }
+            if let Some(rest) = input.strip_prefix("graph.event.hops ") {
+                let hops = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid hop count: {}", rest.trim()))?;
+                return Ok(Query::ExportEventDotHops(hops));
+            }
+            if let Some(rest) = input.strip_prefix("graph.action.hops ") {
+                let hops = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid hop count: {}", rest.trim()))?;
+                return Ok(Query::ExportEventDotHops(hops));
+            }
+
             // Try to parse ref/references query
             if let Some(rest) = input.strip_prefix("ref ").or(input.strip_prefix("references ")) {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
@@ -1248,13 +1300,29 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
     let resolved = match format {
         OutputFormat::Json | OutputFormat::Jsonl | OutputFormat::Yaml => match query {
             Query::ExportOrgDot => Query::ExportOrgJson,
+            Query::ExportStructureDot => Query::ExportStructureJson,
+            Query::ExportStructureDotDepth(depth) => Query::ExportStructureJsonDepth(depth),
+            Query::ExportEventDot => Query::ExportEventJson,
+            Query::ExportEventDotHops(hops) => Query::ExportEventJsonHops(hops),
             Query::ExportIrText => Query::ExportIrJson,
             Query::ExportFeatures => Query::ExportFeaturesJson,
             other => other,
         },
         OutputFormat::Dot => match query {
             Query::ExportOrgJson | Query::ExportOrgDot => Query::ExportOrgDot,
-            _ => return Err(anyhow!("--format dot is only supported for graph.org queries")),
+            Query::ExportStructureJson | Query::ExportStructureDot => Query::ExportStructureDot,
+            Query::ExportStructureJsonDepth(depth) | Query::ExportStructureDotDepth(depth) => {
+                Query::ExportStructureDotDepth(depth)
+            }
+            Query::ExportEventJson | Query::ExportEventDot => Query::ExportEventDot,
+            Query::ExportEventJsonHops(hops) | Query::ExportEventDotHops(hops) => {
+                Query::ExportEventDotHops(hops)
+            }
+            _ => {
+                return Err(anyhow!(
+                    "--format dot is only supported for graph.org, graph.structure, and graph.event queries"
+                ))
+            }
         },
         OutputFormat::Csv => match query {
             Query::ExportFeatures | Query::ExportFeaturesJson => Query::ExportFeatures,
@@ -1262,12 +1330,34 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         },
         OutputFormat::Text | OutputFormat::Readable => match query {
             Query::ExportOrgJson => Query::ExportOrgDot,
+            Query::ExportStructureJson => Query::ExportStructureDot,
+            Query::ExportStructureJsonDepth(depth) => Query::ExportStructureDotDepth(depth),
+            Query::ExportEventJson => Query::ExportEventDot,
+            Query::ExportEventJsonHops(hops) => Query::ExportEventDotHops(hops),
             Query::ExportIrJson => Query::ExportIrText,
             Query::ExportFeaturesJson => Query::ExportFeatures,
             other => other,
         },
     };
 
+    Ok(resolved)
+}
+
+pub fn apply_with_chain(query: Query, with_chain: bool) -> Result<Query> {
+    if !with_chain {
+        return Ok(query);
+    }
+    let resolved = match query {
+        Query::Findings => Query::FindingsWithChain,
+        Query::FindingsBySeverity(severity) => Query::FindingsBySeverityWithChain(severity),
+        Query::FindingsByKind(kind) => Query::FindingsByKindWithChain(kind),
+        Query::FindingsComposite => Query::FindingsCompositeWithChain,
+        Query::FindingsWithChain
+        | Query::FindingsBySeverityWithChain(_)
+        | Query::FindingsByKindWithChain(_)
+        | Query::FindingsCompositeWithChain => query,
+        _ => return Err(anyhow!("--with-chain is only supported for findings queries")),
+    };
     Ok(resolved)
 }
 
@@ -1291,6 +1381,10 @@ pub fn apply_report_verbosity(
             | Query::FindingsBySeverity(_)
             | Query::FindingsByKind(_)
             | Query::FindingsComposite
+            | Query::FindingsWithChain
+            | Query::FindingsBySeverityWithChain(_)
+            | Query::FindingsByKindWithChain(_)
+            | Query::FindingsCompositeWithChain
     ) {
         if let QueryResult::Structure(value) = result {
             QueryResult::Structure(filter_findings_by_severity(value))
@@ -1303,8 +1397,8 @@ pub fn apply_report_verbosity(
 }
 
 fn filter_findings_by_severity(value: serde_json::Value) -> serde_json::Value {
-    let filtered = match value {
-        serde_json::Value::Array(entries) => serde_json::Value::Array(
+    let filter_array = |entries: Vec<serde_json::Value>| {
+        serde_json::Value::Array(
             entries
                 .into_iter()
                 .filter(|entry| match entry.get("severity").and_then(|v| v.as_str()) {
@@ -1315,10 +1409,21 @@ fn filter_findings_by_severity(value: serde_json::Value) -> serde_json::Value {
                     None => true,
                 })
                 .collect(),
-        ),
-        other => other,
+        )
     };
-    filtered
+
+    match value {
+        serde_json::Value::Array(entries) => filter_array(entries),
+        serde_json::Value::Object(mut object)
+            if object.get("type").and_then(|v| v.as_str()) == Some("findings_with_chain") =>
+        {
+            if let Some(entries) = object.get("findings").and_then(|v| v.as_array()).cloned() {
+                object.insert("findings".into(), filter_array(entries));
+            }
+            serde_json::Value::Object(object)
+        }
+        other => other,
+    }
 }
 
 pub fn apply_chain_summary(
@@ -1333,7 +1438,7 @@ pub fn apply_chain_summary(
     if !matches!(output_format, OutputFormat::Text | OutputFormat::Readable) {
         return result;
     }
-    if !matches!(query, Query::Chains | Query::ChainsJs) {
+    if !matches!(query, Query::Chains | Query::ChainsJs | Query::ChainsAll | Query::ChainsJsAll) {
         return result;
     }
 
@@ -1476,6 +1581,10 @@ pub fn execute_query_with_context(
                     | Query::FindingsByKindCount(_)
                     | Query::FindingsComposite
                     | Query::FindingsCompositeCount
+                    | Query::FindingsWithChain
+                    | Query::FindingsBySeverityWithChain(_)
+                    | Query::FindingsByKindWithChain(_)
+                    | Query::FindingsCompositeWithChain
                     | Query::StreamsEntropy
                     | Query::ObjectsCount
                     | Query::ObjectsList
@@ -1537,12 +1646,32 @@ pub fn execute_query_with_context(
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
+            Query::FindingsBySeverityWithChain(severity) => {
+                let findings = findings_with_cache(ctx)?;
+                let filtered: Vec<sis_pdf_core::model::Finding> =
+                    findings.into_iter().filter(|f| &f.severity == severity).collect();
+                let filtered = filter_findings(filtered, predicate);
+                Ok(QueryResult::Structure(build_findings_with_chain(
+                    filtered,
+                    ctx.options.group_chains,
+                )))
+            }
             Query::FindingsByKind(kind) => {
                 let findings = findings_with_cache(ctx)?;
                 let filtered: Vec<sis_pdf_core::model::Finding> =
                     findings.into_iter().filter(|f| f.kind == *kind).collect();
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
+            }
+            Query::FindingsByKindWithChain(kind) => {
+                let findings = findings_with_cache(ctx)?;
+                let filtered: Vec<sis_pdf_core::model::Finding> =
+                    findings.into_iter().filter(|f| f.kind == *kind).collect();
+                let filtered = filter_findings(filtered, predicate);
+                Ok(QueryResult::Structure(build_findings_with_chain(
+                    filtered,
+                    ctx.options.group_chains,
+                )))
             }
             Query::FindingsByKindCount(kind) => {
                 let findings = findings_with_cache(ctx)?;
@@ -1556,11 +1685,28 @@ pub fn execute_query_with_context(
                 let filtered = filter_findings(findings, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
+            Query::FindingsWithChain => {
+                let findings = findings_with_cache(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                Ok(QueryResult::Structure(build_findings_with_chain(
+                    filtered,
+                    ctx.options.group_chains,
+                )))
+            }
             Query::FindingsComposite => {
                 let findings = findings_with_cache(ctx)?;
                 let filtered = filter_findings(findings, predicate);
                 let composites: Vec<_> = filtered.into_iter().filter(is_composite).collect();
                 Ok(QueryResult::Structure(json!(composites)))
+            }
+            Query::FindingsCompositeWithChain => {
+                let findings = findings_with_cache(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                let composites: Vec<_> = filtered.into_iter().filter(is_composite).collect();
+                Ok(QueryResult::Structure(build_findings_with_chain(
+                    composites,
+                    ctx.options.group_chains,
+                )))
             }
             Query::FindingsCompositeCount => {
                 let findings = findings_with_cache(ctx)?;
@@ -2149,16 +2295,29 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::Scalar(ScalarValue::Number(revisions.len() as i64)))
             }
             Query::Chains => {
-                let chains = list_action_chains(ctx, predicate)?;
+                let chains = list_action_chains(ctx, predicate, false)?;
                 Ok(QueryResult::Structure(chains))
             }
             Query::ChainsCount => {
-                let chains = list_action_chains(ctx, predicate)?;
+                let chains = list_action_chains(ctx, predicate, false)?;
                 let count = chains.get("count").and_then(|value| value.as_u64()).unwrap_or(0);
                 Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
             }
             Query::ChainsJs => {
-                let chains = list_js_chains(ctx, predicate)?;
+                let chains = list_js_chains(ctx, predicate, false)?;
+                Ok(QueryResult::Structure(chains))
+            }
+            Query::ChainsAll => {
+                let chains = list_action_chains(ctx, predicate, true)?;
+                Ok(QueryResult::Structure(chains))
+            }
+            Query::ChainsAllCount => {
+                let chains = list_action_chains(ctx, predicate, true)?;
+                let count = chains.get("count").and_then(|value| value.as_u64()).unwrap_or(0);
+                Ok(QueryResult::Scalar(ScalarValue::Number(count as i64)))
+            }
+            Query::ChainsJsAll => {
+                let chains = list_js_chains(ctx, predicate, true)?;
                 Ok(QueryResult::Structure(chains))
             }
             Query::Cycles => {
@@ -2216,6 +2375,110 @@ pub fn execute_query_with_context(
                     &typed_graph,
                 );
                 let json_output = sis_pdf_core::org_export::export_org_json(&org_graph);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportStructureDot => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let dot_output = export_structure_dot(&org_graph, &typed_graph, 8);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportStructureJson => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let json_output = export_structure_json(&org_graph, &typed_graph, 8);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportStructureDotDepth(depth) => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let dot_output = export_structure_dot(&org_graph, &typed_graph, *depth);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportStructureJsonDepth(depth) => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let json_output = export_structure_json(&org_graph, &typed_graph, *depth);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportEventDot => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let mut event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                if let Some(pred) = predicate {
+                    event_graph = filter_event_graph_by_predicate(event_graph, pred);
+                }
+                let dot_output = sis_pdf_core::event_graph::export_event_graph_dot(&event_graph);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportEventJson => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let mut event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                if let Some(pred) = predicate {
+                    event_graph = filter_event_graph_by_predicate(event_graph, pred);
+                }
+                let json_output = sis_pdf_core::event_graph::export_event_graph_json(&event_graph);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportEventDotHops(hops) => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                let seed_nodes =
+                    event_graph_seed_nodes(&event_graph, predicate).unwrap_or_else(HashSet::new);
+                let event_graph = induced_event_subgraph(event_graph, &seed_nodes, *hops);
+                let dot_output = sis_pdf_core::event_graph::export_event_graph_dot(&event_graph);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportEventJsonHops(hops) => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                let seed_nodes =
+                    event_graph_seed_nodes(&event_graph, predicate).unwrap_or_else(HashSet::new);
+                let event_graph = induced_event_subgraph(event_graph, &seed_nodes, *hops);
+                let json_output = sis_pdf_core::event_graph::export_event_graph_json(&event_graph);
                 Ok(QueryResult::Structure(json_output))
             }
             Query::ExportIrText => {
@@ -2575,10 +2838,47 @@ pub fn format_result(result: &QueryResult, compact: bool) -> String {
             }
         }
         QueryResult::Structure(v) => {
+            if let Some(summary) = format_findings_with_chain_text(v, compact) {
+                return summary;
+            }
             serde_json::to_string_pretty(v).unwrap_or_else(|_| "{}".to_string())
         }
         QueryResult::Error(err) => err.message.clone(),
     }
+}
+
+fn format_findings_with_chain_text(value: &serde_json::Value, compact: bool) -> Option<String> {
+    if value.get("type").and_then(|v| v.as_str()) != Some("findings_with_chain") {
+        return None;
+    }
+    let finding_count = value.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+    let chains = value.get("chains").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    if compact {
+        return Some(format!("{finding_count} findings, {} chains", chains.len()));
+    }
+
+    let mut out = vec![format!("Findings: {finding_count}"), format!("Chains: {}", chains.len())];
+    for chain in chains.iter().take(8) {
+        let stages = chain
+            .get("ordered_stages")
+            .and_then(|v| v.as_array())
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|entry| entry.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let stage_path = if stages.is_empty() { "-".to_string() } else { stages.join(" -> ") };
+        let edge_reason = chain
+            .get("edge")
+            .and_then(|edge| edge.get("reason"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let chain_id = chain.get("id").and_then(|v| v.as_str()).unwrap_or("-");
+        out.push(format!("Potential chain: {stage_path} [{edge_reason}] (id={chain_id})"));
+    }
+    Some(out.join("\n"))
 }
 
 /// Format query result as JSON
@@ -2656,10 +2956,17 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
     if !query.starts_with("findings") {
         return None;
     }
-    if let QueryResult::Structure(serde_json::Value::Array(entries)) = result {
-        if entries.is_empty() {
-            return None;
+    let entries = match result {
+        QueryResult::Structure(serde_json::Value::Array(entries)) => entries.clone(),
+        QueryResult::Structure(serde_json::Value::Object(object))
+            if object.get("type").and_then(|value| value.as_str())
+                == Some("findings_with_chain") =>
+        {
+            object.get("findings").and_then(|value| value.as_array()).cloned().unwrap_or_default()
         }
+        _ => Vec::new(),
+    };
+    if !entries.is_empty() {
         let mut severity_counts: HashMap<String, usize> = HashMap::new();
         let mut surface_counts: HashMap<String, usize> = HashMap::new();
         let mut kind_counts: HashMap<String, usize> = HashMap::new();
@@ -4077,6 +4384,15 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::Chains
         | Query::ChainsCount
         | Query::ChainsJs
+        | Query::ChainsAll
+        | Query::ChainsAllCount
+        | Query::ChainsJsAll
+        | Query::ExportStructureDot
+        | Query::ExportStructureJson
+        | Query::ExportEventDot
+        | Query::ExportEventJson
+        | Query::ExportEventDotHops(_)
+        | Query::ExportEventJsonHops(_)
         | Query::Findings
         | Query::FindingsCount
         | Query::FindingsBySeverity(_)
@@ -4084,6 +4400,10 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::FindingsByKindCount(_)
         | Query::FindingsComposite
         | Query::FindingsCompositeCount
+        | Query::FindingsWithChain
+        | Query::FindingsBySeverityWithChain(_)
+        | Query::FindingsByKindWithChain(_)
+        | Query::FindingsCompositeWithChain
         | Query::Correlations
         | Query::CorrelationsCount
         | Query::ObjectsCount
@@ -4101,7 +4421,7 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::RevisionsDetail
         | Query::RevisionsCount => Ok(()),
         _ => Err(anyhow!(
-            "Predicate filtering is only supported for js, embedded, urls, images, events, findings, correlations, objects, xref, and revisions queries"
+            "Predicate filtering is only supported for js, embedded, urls, images, events, graph.event, findings, correlations, objects, xref, and revisions queries"
         )),
     }
 }
@@ -4212,6 +4532,8 @@ fn extract_event_triggers(
         }
     }
 
+    attach_event_graph_refs(ctx, &mut events);
+
     if let Some(pred) = predicate {
         let filtered: Vec<_> = events
             .into_iter()
@@ -4222,6 +4544,105 @@ fn extract_event_triggers(
         Ok(json!(filtered))
     } else {
         Ok(json!(events))
+    }
+}
+
+fn attach_event_graph_refs(ctx: &ScanContext, events: &mut [serde_json::Value]) {
+    use sis_pdf_core::event_graph::{
+        build_event_graph, EventGraphOptions, EventNodeKind, EventType,
+    };
+    let typed_graph = ctx.build_typed_graph();
+    let event_graph = build_event_graph(&typed_graph, &[], EventGraphOptions::default());
+
+    let mut refs = HashMap::<(u32, u16, EventType), String>::new();
+    for node in &event_graph.nodes {
+        if let EventNodeKind::Event { event_type, source_obj: Some((obj, gen)), .. } = &node.kind {
+            let key = (*obj, *gen, *event_type);
+            refs.entry(key)
+                .and_modify(|current| {
+                    if node.id < *current {
+                        *current = node.id.clone();
+                    }
+                })
+                .or_insert_with(|| node.id.clone());
+        }
+    }
+
+    for event in events {
+        let level = event.get("level").and_then(|v| v.as_str());
+        let event_name = event.get("event_type").and_then(|v| v.as_str());
+        let location = event.get("location").and_then(|v| v.as_str());
+        let Some((obj, gen)) = location.and_then(parse_event_location_obj_gen) else {
+            continue;
+        };
+        let Some(types) = map_event_row_to_event_types(level, event_name) else {
+            continue;
+        };
+        for event_type in types {
+            if let Some(graph_ref) = refs.get(&(obj, gen, *event_type)) {
+                if let Some(map) = event.as_object_mut() {
+                    map.insert("graph_ref".to_string(), json!(graph_ref));
+                }
+                break;
+            }
+        }
+    }
+}
+
+fn parse_event_location_obj_gen(location: &str) -> Option<(u32, u16)> {
+    let trimmed = location.strip_prefix("obj ")?;
+    let coords = trimmed.split_whitespace().next()?;
+    let (obj, gen) = coords.split_once(':')?;
+    Some((obj.parse().ok()?, gen.parse().ok()?))
+}
+
+fn map_event_row_to_event_types(
+    level: Option<&str>,
+    event_name: Option<&str>,
+) -> Option<&'static [sis_pdf_core::event_graph::EventType]> {
+    use sis_pdf_core::event_graph::EventType;
+
+    const DOCUMENT_OPEN: &[EventType] = &[EventType::DocumentOpen];
+    const DOCUMENT_WC: &[EventType] = &[EventType::DocumentWillClose];
+    const DOCUMENT_WS: &[EventType] = &[EventType::DocumentWillSave];
+    const DOCUMENT_DS: &[EventType] = &[EventType::DocumentDidSave];
+    const DOCUMENT_WP: &[EventType] = &[EventType::DocumentWillPrint];
+    const DOCUMENT_DP: &[EventType] = &[EventType::DocumentDidPrint];
+    const PAGE_OPEN: &[EventType] = &[EventType::PageOpen];
+    const PAGE_CLOSE: &[EventType] = &[EventType::PageClose];
+    const FIELD_ACTIVATION: &[EventType] = &[EventType::FieldActivation];
+    const FIELD_KEYSTROKE: &[EventType] = &[EventType::FieldKeystroke];
+    const FIELD_FORMAT: &[EventType] = &[EventType::FieldFormat];
+    const FIELD_VALIDATE: &[EventType] = &[EventType::FieldValidate];
+    const FIELD_CALCULATE: &[EventType] = &[EventType::FieldCalculate];
+    const FIELD_MOUSE_DOWN: &[EventType] = &[EventType::FieldMouseDown];
+    const FIELD_MOUSE_UP: &[EventType] = &[EventType::FieldMouseUp];
+    const FIELD_MOUSE_ENTER: &[EventType] = &[EventType::FieldMouseEnter];
+    const FIELD_MOUSE_EXIT: &[EventType] = &[EventType::FieldMouseExit];
+    const FIELD_ON_FOCUS: &[EventType] = &[EventType::FieldOnFocus];
+    const FIELD_ON_BLUR: &[EventType] = &[EventType::FieldOnBlur];
+
+    match (level, event_name) {
+        (_, Some("OpenAction")) => Some(DOCUMENT_OPEN),
+        (_, Some("Doc/WillClose")) => Some(DOCUMENT_WC),
+        (_, Some("Doc/WillSave")) => Some(DOCUMENT_WS),
+        (_, Some("Doc/DidSave")) => Some(DOCUMENT_DS),
+        (_, Some("Doc/WillPrint")) => Some(DOCUMENT_WP),
+        (_, Some("Doc/DidPrint")) => Some(DOCUMENT_DP),
+        (_, Some("Page/Open")) => Some(PAGE_OPEN),
+        (_, Some("Page/Close")) => Some(PAGE_CLOSE),
+        (_, Some("Keystroke")) => Some(FIELD_KEYSTROKE),
+        (_, Some("Format")) => Some(FIELD_FORMAT),
+        (_, Some("Validate")) => Some(FIELD_VALIDATE),
+        (_, Some("Calculate")) => Some(FIELD_CALCULATE),
+        (_, Some("MouseDown")) => Some(FIELD_MOUSE_DOWN),
+        (_, Some("MouseUp")) => Some(FIELD_MOUSE_UP),
+        (_, Some("MouseEnter")) => Some(FIELD_MOUSE_ENTER),
+        (_, Some("MouseExit")) => Some(FIELD_MOUSE_EXIT),
+        (_, Some("OnFocus")) => Some(FIELD_ON_FOCUS),
+        (_, Some("OnBlur")) => Some(FIELD_ON_BLUR),
+        (Some("field"), Some("Action")) => Some(FIELD_ACTIVATION),
+        _ => None,
     }
 }
 
@@ -4466,6 +4887,14 @@ mod event_tests {
             .iter()
             .any(|event| event.get("event_type").and_then(|v| v.as_str()) == Some("OpenAction"));
         assert!(has_open_action, "expected OpenAction event");
+
+        let has_graph_ref = arr.iter().any(|event| {
+            event
+                .get("graph_ref")
+                .and_then(|v| v.as_str())
+                .is_some_and(|value| value.starts_with("ev:"))
+        });
+        assert!(has_graph_ref, "expected graph_ref bridge for event");
     }
 }
 
@@ -5073,6 +5502,270 @@ fn predicate_context_for_event(event: &serde_json::Value) -> Option<PredicateCon
     })
 }
 
+fn filter_event_graph_by_predicate(
+    event_graph: sis_pdf_core::event_graph::EventGraph,
+    predicate: &PredicateExpr,
+) -> sis_pdf_core::event_graph::EventGraph {
+    use sis_pdf_core::event_graph::{EventEdge, EventNode, EventNodeKind};
+
+    let mut keep_nodes = HashSet::new();
+    let mut object_nodes = HashSet::new();
+    for node in &event_graph.nodes {
+        if let EventNodeKind::Object { .. } = node.kind {
+            object_nodes.insert(node.id.clone());
+        }
+    }
+
+    for node in &event_graph.nodes {
+        if let Some(ctx) = predicate_context_for_event_graph_node(node) {
+            if predicate.evaluate(&ctx) {
+                keep_nodes.insert(node.id.clone());
+            }
+        }
+    }
+
+    if keep_nodes.is_empty() {
+        return sis_pdf_core::event_graph::EventGraph {
+            schema_version: event_graph.schema_version,
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            node_index: HashMap::new(),
+            forward_index: HashMap::new(),
+            reverse_index: HashMap::new(),
+            truncation: event_graph.truncation,
+        };
+    }
+
+    for edge in &event_graph.edges {
+        if keep_nodes.contains(&edge.from) && object_nodes.contains(&edge.to) {
+            keep_nodes.insert(edge.to.clone());
+        }
+        if keep_nodes.contains(&edge.to) && object_nodes.contains(&edge.from) {
+            keep_nodes.insert(edge.from.clone());
+        }
+    }
+
+    let nodes = event_graph
+        .nodes
+        .into_iter()
+        .filter(|node| keep_nodes.contains(&node.id))
+        .collect::<Vec<EventNode>>();
+    let edges = event_graph
+        .edges
+        .into_iter()
+        .filter(|edge| keep_nodes.contains(&edge.from) && keep_nodes.contains(&edge.to))
+        .collect::<Vec<EventEdge>>();
+    rebuild_event_graph_indices(event_graph.schema_version, nodes, edges, event_graph.truncation)
+}
+
+fn event_graph_seed_nodes(
+    event_graph: &sis_pdf_core::event_graph::EventGraph,
+    predicate: Option<&PredicateExpr>,
+) -> Option<HashSet<String>> {
+    use sis_pdf_core::event_graph::EventNodeKind;
+
+    if let Some(predicate) = predicate {
+        let mut seeds = HashSet::new();
+        for node in &event_graph.nodes {
+            if let Some(ctx) = predicate_context_for_event_graph_node(node) {
+                if predicate.evaluate(&ctx) {
+                    seeds.insert(node.id.clone());
+                }
+            }
+        }
+        return Some(seeds);
+    }
+
+    let mut defaults = HashSet::new();
+    for node in &event_graph.nodes {
+        match node.kind {
+            EventNodeKind::Event { .. } | EventNodeKind::Outcome { .. } => {
+                defaults.insert(node.id.clone());
+            }
+            _ => {}
+        }
+    }
+    Some(defaults)
+}
+
+fn induced_event_subgraph(
+    event_graph: sis_pdf_core::event_graph::EventGraph,
+    seed_nodes: &HashSet<String>,
+    hops: usize,
+) -> sis_pdf_core::event_graph::EventGraph {
+    if seed_nodes.is_empty() {
+        return rebuild_event_graph_indices(
+            event_graph.schema_version,
+            Vec::new(),
+            Vec::new(),
+            event_graph.truncation,
+        );
+    }
+
+    let mut frontier: Vec<String> = seed_nodes.iter().cloned().collect();
+    let mut seen: HashSet<String> = seed_nodes.clone();
+    let mut depth = 0usize;
+    while depth < hops {
+        let mut next = Vec::new();
+        for node_id in &frontier {
+            if let Some(outgoing) = event_graph.forward_index.get(node_id) {
+                for edge_idx in outgoing {
+                    let edge = &event_graph.edges[*edge_idx];
+                    if seen.insert(edge.to.clone()) {
+                        next.push(edge.to.clone());
+                    }
+                }
+            }
+            if let Some(incoming) = event_graph.reverse_index.get(node_id) {
+                for edge_idx in incoming {
+                    let edge = &event_graph.edges[*edge_idx];
+                    if seen.insert(edge.from.clone()) {
+                        next.push(edge.from.clone());
+                    }
+                }
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+        depth += 1;
+    }
+
+    let nodes =
+        event_graph.nodes.into_iter().filter(|node| seen.contains(&node.id)).collect::<Vec<_>>();
+    let edges = event_graph
+        .edges
+        .into_iter()
+        .filter(|edge| seen.contains(&edge.from) && seen.contains(&edge.to))
+        .collect::<Vec<_>>();
+    rebuild_event_graph_indices(event_graph.schema_version, nodes, edges, event_graph.truncation)
+}
+
+fn rebuild_event_graph_indices(
+    schema_version: &'static str,
+    nodes: Vec<sis_pdf_core::event_graph::EventNode>,
+    edges: Vec<sis_pdf_core::event_graph::EventEdge>,
+    truncation: Option<sis_pdf_core::event_graph::EventGraphTruncation>,
+) -> sis_pdf_core::event_graph::EventGraph {
+    let mut node_index = HashMap::new();
+    for (idx, node) in nodes.iter().enumerate() {
+        node_index.insert(node.id.clone(), idx);
+    }
+    let mut forward_index = HashMap::new();
+    let mut reverse_index = HashMap::new();
+    for (idx, edge) in edges.iter().enumerate() {
+        forward_index.entry(edge.from.clone()).or_insert_with(Vec::new).push(idx);
+        reverse_index.entry(edge.to.clone()).or_insert_with(Vec::new).push(idx);
+    }
+    sis_pdf_core::event_graph::EventGraph {
+        schema_version,
+        nodes,
+        edges,
+        node_index,
+        forward_index,
+        reverse_index,
+        truncation,
+    }
+}
+
+fn predicate_context_for_event_graph_node(
+    node: &sis_pdf_core::event_graph::EventNode,
+) -> Option<PredicateContext> {
+    use sis_pdf_core::event_graph::{EventNodeKind, OutcomeType};
+
+    let mut meta = HashMap::new();
+    let (type_name, filter, subtype, action_target) = match &node.kind {
+        EventNodeKind::Event { event_type, trigger, label, source_obj } => {
+            let event_name = format!("{:?}", event_type);
+            meta.insert("event_type".to_string(), event_name);
+            meta.insert("trigger_class".to_string(), trigger.as_str().to_string());
+            meta.insert("node_kind".to_string(), "event".to_string());
+            meta.insert("label".to_string(), label.clone());
+            if let Some((obj, gen)) = source_obj {
+                meta.insert("source_obj".to_string(), format!("{obj} {gen}"));
+            }
+            (
+                "Event".to_string(),
+                Some("event".to_string()),
+                Some(format!("{:?}", event_type)),
+                None,
+            )
+        }
+        EventNodeKind::Outcome {
+            outcome_type,
+            label,
+            target,
+            source_obj,
+            confidence_source,
+            confidence_score,
+            severity_hint,
+            ..
+        } => {
+            let outcome_name = format!("{:?}", outcome_type);
+            meta.insert("outcome_type".to_string(), outcome_name.clone());
+            meta.insert("node_kind".to_string(), "outcome".to_string());
+            meta.insert("label".to_string(), label.clone());
+            if let Some(value) = target {
+                meta.insert("target".to_string(), value.clone());
+            }
+            if let Some((obj, gen)) = source_obj {
+                meta.insert("source_obj".to_string(), format!("{obj} {gen}"));
+            }
+            if let Some(confidence) = confidence_source {
+                meta.insert("confidence_source".to_string(), confidence.clone());
+            }
+            if let Some(score) = confidence_score {
+                meta.insert("confidence_score".to_string(), score.to_string());
+            }
+            if let Some(severity) = severity_hint {
+                meta.insert("severity_hint".to_string(), severity.clone());
+            }
+            if *outcome_type == OutcomeType::NetworkEgress {
+                meta.insert("risk".to_string(), "high".to_string());
+            }
+            ("Outcome".to_string(), Some("outcome".to_string()), Some(outcome_name), target.clone())
+        }
+        EventNodeKind::Object { obj, gen, obj_type } => {
+            meta.insert("node_kind".to_string(), "object".to_string());
+            meta.insert("source_obj".to_string(), format!("{obj} {gen}"));
+            ("Object".to_string(), Some("object".to_string()), obj_type.clone(), None)
+        }
+        EventNodeKind::Collapse { label, member_count, .. } => {
+            meta.insert("node_kind".to_string(), "collapse".to_string());
+            meta.insert("label".to_string(), label.clone());
+            meta.insert("member_count".to_string(), member_count.to_string());
+            ("Collapse".to_string(), Some("collapse".to_string()), None, None)
+        }
+    };
+
+    Some(PredicateContext {
+        length: node.id.len(),
+        filter,
+        type_name,
+        subtype,
+        entropy: 0.0,
+        width: 0,
+        height: 0,
+        pixels: 0,
+        risky: false,
+        severity: None,
+        confidence: None,
+        surface: None,
+        kind: None,
+        object_count: 0,
+        evidence_count: 0,
+        name: Some(node.id.clone()),
+        hash: None,
+        magic: None,
+        impact: None,
+        action_type: None,
+        action_target,
+        action_initiation: None,
+        meta,
+    })
+}
+
 fn predicate_context_for_finding(finding: &sis_pdf_core::model::Finding) -> PredicateContext {
     let bytes = finding.description.as_bytes();
     let mut meta_map = HashMap::new();
@@ -5236,6 +5929,178 @@ fn filter_findings(
     } else {
         findings
     }
+}
+
+fn build_findings_with_chain(
+    findings: Vec<sis_pdf_core::model::Finding>,
+    group_chains: bool,
+) -> serde_json::Value {
+    let findings_by_id =
+        findings.iter().map(|finding| (finding.id.clone(), finding)).collect::<HashMap<_, _>>();
+    let (chains, _templates) =
+        sis_pdf_core::chain_synth::synthesise_chains(&findings, group_chains);
+    let chain_values = chains
+        .into_iter()
+        .map(|chain| {
+            let notes = chain.notes.clone();
+            let stages = chain_ordered_stages(&chain, &findings_by_id);
+            let stage_nodes = chain_stage_nodes(&chain, &findings_by_id);
+            let contributing = chain
+                .findings
+                .iter()
+                .filter_map(|id| findings_by_id.get(id))
+                .map(|finding| {
+                    json!({
+                        "id": finding.id,
+                        "kind": finding.kind,
+                        "severity": format!("{:?}", finding.severity),
+                        "confidence": format!("{:?}", finding.confidence),
+                        "objects": finding.objects,
+                        "chain_stage": finding.meta.get("chain.stage"),
+                        "chain_capability": finding.meta.get("chain.capability"),
+                    })
+                })
+                .collect::<Vec<_>>();
+            let scatter = chain_scatter_context(&chain, &findings_by_id);
+            json!({
+                "id": chain.id,
+                "group_id": chain.group_id,
+                "group_count": chain.group_count,
+                "group_members": chain.group_members,
+                "path": chain.path,
+                "score": chain.score,
+                "reasons": chain.reasons,
+                "ordered_stages": stages,
+                "stage_nodes": stage_nodes,
+                "shared_object_refs": chain_shared_object_refs(&chain, &findings_by_id),
+                "contributing_findings": contributing,
+                "edge": {
+                    "reason": notes.get("edge.reason"),
+                    "confidence": notes.get("edge.confidence"),
+                    "from": notes.get("edge.from"),
+                    "to": notes.get("edge.to"),
+                    "shared_objects": notes.get("edge.shared_objects"),
+                },
+                "exploit": {
+                    "preconditions": notes.get("exploit.preconditions"),
+                    "blockers": notes.get("exploit.blockers"),
+                    "outcomes": notes.get("exploit.outcomes"),
+                },
+                "scatter": scatter,
+                "notes": notes,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "type": "findings_with_chain",
+        "count": findings.len(),
+        "chain_count": chain_values.len(),
+        "findings": findings,
+        "chains": chain_values,
+    })
+}
+
+fn chain_ordered_stages(
+    chain: &sis_pdf_core::chain::ExploitChain,
+    findings_by_id: &HashMap<String, &sis_pdf_core::model::Finding>,
+) -> Vec<String> {
+    let mut stages = chain
+        .findings
+        .iter()
+        .filter_map(|id| findings_by_id.get(id))
+        .filter_map(|finding| finding.meta.get("chain.stage"))
+        .cloned()
+        .collect::<Vec<_>>();
+    stages.sort_by_key(|stage| chain_stage_rank(stage));
+    stages.dedup();
+    stages
+}
+
+fn chain_stage_rank(stage: &str) -> usize {
+    match stage {
+        "input" => 0,
+        "decode" => 1,
+        "render" => 2,
+        "execute" => 3,
+        "egress" => 4,
+        _ => 5,
+    }
+}
+
+fn chain_shared_object_refs(
+    chain: &sis_pdf_core::chain::ExploitChain,
+    findings_by_id: &HashMap<String, &sis_pdf_core::model::Finding>,
+) -> Vec<String> {
+    let mut refs = chain
+        .findings
+        .iter()
+        .filter_map(|id| findings_by_id.get(id))
+        .flat_map(|finding| finding.objects.iter().cloned())
+        .collect::<Vec<_>>();
+    refs.sort();
+    refs.dedup();
+    refs
+}
+
+fn chain_stage_nodes(
+    chain: &sis_pdf_core::chain::ExploitChain,
+    findings_by_id: &HashMap<String, &sis_pdf_core::model::Finding>,
+) -> serde_json::Value {
+    let mut by_stage: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for finding in chain.findings.iter().filter_map(|id| findings_by_id.get(id)) {
+        let stage = finding.meta.get("chain.stage").cloned().unwrap_or_else(|| "unknown".into());
+        let entry = by_stage.entry(stage).or_default();
+        entry.extend(finding.objects.iter().cloned());
+    }
+    for refs in by_stage.values_mut() {
+        refs.sort();
+        refs.dedup();
+    }
+    json!(by_stage)
+}
+
+fn chain_scatter_context(
+    chain: &sis_pdf_core::chain::ExploitChain,
+    findings_by_id: &HashMap<String, &sis_pdf_core::model::Finding>,
+) -> Option<serde_json::Value> {
+    let scatter_findings = chain
+        .findings
+        .iter()
+        .filter_map(|id| findings_by_id.get(id))
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "scattered_payload_assembly" | "cross_stream_payload_assembly"
+            )
+        })
+        .collect::<Vec<_>>();
+    if scatter_findings.is_empty() {
+        return None;
+    }
+
+    let mut object_ids = Vec::new();
+    let mut fragment_count = 0usize;
+    for finding in scatter_findings {
+        if let Some(raw_count) = finding.meta.get("scatter.fragment_count") {
+            fragment_count = fragment_count.max(raw_count.parse::<usize>().unwrap_or(0));
+        }
+        if let Some(raw_objects) = finding.meta.get("scatter.object_ids") {
+            object_ids.extend(
+                raw_objects
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|token| !token.is_empty())
+                    .map(str::to_string),
+            );
+        }
+    }
+    object_ids.sort();
+    object_ids.dedup();
+    Some(json!({
+        "fragment_count": fragment_count,
+        "object_refs": object_ids,
+    }))
 }
 
 fn is_composite(finding: &sis_pdf_core::model::Finding) -> bool {
@@ -6341,20 +7206,278 @@ fn trailer_ref_value(trailer: &sis_pdf_pdf::object::PdfDict<'_>, key: &[u8]) -> 
     })
 }
 
+fn export_structure_json(
+    org_graph: &sis_pdf_core::org::OrgGraph,
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    helper_max_depth: usize,
+) -> serde_json::Value {
+    let org = sis_pdf_core::org_export::export_org_json(org_graph);
+    let typed_edge_stats = typed_edge_type_stats(typed_graph);
+    let path_summary = action_path_summary(typed_graph);
+    let helpers = structure_path_helpers(typed_graph, helper_max_depth);
+    json!({
+        "type": "structure_graph",
+        "org": org,
+        "typed_edges": typed_edge_stats,
+        "action_paths": path_summary,
+        "path_helpers": helpers,
+    })
+}
+
+fn export_structure_dot(
+    org_graph: &sis_pdf_core::org::OrgGraph,
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    helper_max_depth: usize,
+) -> String {
+    let mut dot = sis_pdf_core::org_export::export_org_dot(org_graph);
+    let typed_edge_stats = typed_edge_type_stats(typed_graph);
+    let path_summary = action_path_summary(typed_graph);
+    let helpers = structure_path_helpers(typed_graph, helper_max_depth);
+    let edge_type_count = typed_edge_stats
+        .get("by_type")
+        .and_then(|v| v.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
+    let multi_step = path_summary.get("multi_step_chains").and_then(|v| v.as_u64()).unwrap_or(0);
+    let max_len = path_summary.get("max_chain_length").and_then(|v| v.as_u64()).unwrap_or(0);
+    let helper_count = helpers
+        .get("reachable_from_trigger")
+        .and_then(|v| v.as_array())
+        .map(|items| items.len())
+        .unwrap_or(0);
+    let overlay = format!(
+        "  // structure overlay: {} typed edge types, multi-step chains={}, max_chain_length={}, trigger_helpers={}\n",
+        edge_type_count, multi_step, max_len, helper_count
+    );
+    if let Some(index) = dot.rfind('}') {
+        dot.insert_str(index, &overlay);
+    } else {
+        dot.push_str(&overlay);
+    }
+    dot
+}
+
+fn structure_path_helpers(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    max_depth: usize,
+) -> serde_json::Value {
+    let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(typed_graph);
+    let chains = path_finder.find_all_action_chains();
+
+    let mut trigger_stats = BTreeMap::<String, (usize, usize)>::new();
+    let mut outcome_paths = Vec::new();
+    let next_action_branches = collect_next_action_branches(typed_graph);
+
+    for chain in &chains {
+        let trigger = chain.trigger.as_str().to_string();
+        let entry = trigger_stats.entry(trigger).or_insert((0, 0));
+        entry.0 += 1;
+        let mut reached = std::collections::HashSet::<(u32, u16)>::new();
+        if let Some(first) = chain.edges.first() {
+            for dst in reachable_targets_with_depth(typed_graph, first.src, max_depth) {
+                reached.insert(dst);
+            }
+        }
+        entry.1 += reached.len();
+
+        if chain.involves_external || chain.involves_js {
+            let mut steps = Vec::new();
+            for edge in chain.edges.iter().take(max_depth.max(1)) {
+                steps.push(format!(
+                    "{} {} -{}-> {} {}",
+                    edge.src.0,
+                    edge.src.1,
+                    edge.edge_type.as_str(),
+                    edge.dst.0,
+                    edge.dst.1
+                ));
+            }
+            outcome_paths.push(json!({
+                "trigger": chain.trigger.as_str(),
+                "automatic": chain.automatic,
+                "length": chain.length(),
+                "involves_js": chain.involves_js,
+                "involves_external": chain.involves_external,
+                "payload": chain.payload.map(|(obj, gen)| format!("{obj} {gen} R")),
+                "steps": steps,
+                "truncated_to_depth": chain.edges.len() > max_depth.max(1),
+            }));
+        }
+    }
+
+    let reachable_from_trigger = trigger_stats
+        .into_iter()
+        .map(|(trigger, (chain_count, reachable_nodes))| {
+            json!({
+                "trigger": trigger,
+                "chain_count": chain_count,
+                "reachable_nodes": reachable_nodes,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if outcome_paths.len() > 8 {
+        outcome_paths.truncate(8);
+    }
+
+    json!({
+        "max_depth": max_depth,
+        "reachable_from_trigger": reachable_from_trigger,
+        "paths_to_outcome": outcome_paths,
+        "next_action_branches": next_action_branches,
+    })
+}
+
+fn reachable_targets_with_depth(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    start: (u32, u16),
+    max_depth: usize,
+) -> std::collections::HashSet<(u32, u16)> {
+    let mut out = std::collections::HashSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    let mut visited = std::collections::HashSet::new();
+    queue.push_back((start, 0usize));
+    visited.insert(start);
+
+    while let Some((node, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        for edge in typed_graph.outgoing_edges(node.0, node.1) {
+            if visited.insert(edge.dst) {
+                out.insert(edge.dst);
+                queue.push_back((edge.dst, depth + 1));
+            }
+        }
+    }
+
+    out
+}
+
+fn collect_next_action_branches(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for edge in &typed_graph.edges {
+        if !matches!(edge.edge_type, sis_pdf_pdf::typed_graph::EdgeType::NextAction) {
+            continue;
+        }
+        let (branch_index, source_next_kind) =
+            infer_next_branch_details(typed_graph, edge.src, edge.dst);
+        out.push(json!({
+            "from": format!("{} {} R", edge.src.0, edge.src.1),
+            "to": format!("{} {} R", edge.dst.0, edge.dst.1),
+            "branch_index": branch_index,
+            "source_next_kind": source_next_kind,
+        }));
+    }
+    out
+}
+
+fn infer_next_branch_details(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+    src: (u32, u16),
+    dst: (u32, u16),
+) -> (Option<usize>, &'static str) {
+    let Some(entry) = typed_graph.graph.get_object(src.0, src.1) else {
+        return (None, "unknown");
+    };
+    let dict = match &entry.atom {
+        PdfAtom::Dict(dict) => dict,
+        PdfAtom::Stream(stream) => &stream.dict,
+        _ => return (None, "unknown"),
+    };
+    let Some((_, next_obj)) = dict.get_first(b"/Next") else {
+        return (None, "missing");
+    };
+    match &next_obj.atom {
+        PdfAtom::Ref { .. } => (None, "single_ref"),
+        PdfAtom::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                if let Some(resolved) = typed_graph.graph.resolve_ref(item) {
+                    if (resolved.obj, resolved.gen) == dst {
+                        return (Some(index), "array");
+                    }
+                }
+            }
+            (None, "array")
+        }
+        _ => (None, "other"),
+    }
+}
+
+fn typed_edge_type_stats(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+) -> serde_json::Value {
+    let mut stats = BTreeMap::<String, (usize, usize, usize)>::new();
+    for edge in &typed_graph.edges {
+        let key = edge.edge_type.as_str().to_string();
+        let entry = stats.entry(key).or_insert((0, 0, 0));
+        entry.0 += 1;
+        if edge.suspicious {
+            entry.1 += 1;
+        }
+        if edge.edge_type.is_executable() {
+            entry.2 += 1;
+        }
+    }
+    let by_type = stats
+        .into_iter()
+        .map(|(edge_type, (count, suspicious, executable))| {
+            json!({
+                "edge_type": edge_type,
+                "count": count,
+                "suspicious": suspicious,
+                "executable": executable,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "total_edges": typed_graph.edges.len(),
+        "suspicious_edges": typed_graph.suspicious_edges().len(),
+        "by_type": by_type,
+    })
+}
+
+fn action_path_summary(
+    typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
+) -> serde_json::Value {
+    let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(typed_graph);
+    let chains = path_finder.find_all_action_chains();
+    let multi_step = chains.iter().filter(|chain| chain.length() > 1).count();
+    let automatic = chains.iter().filter(|chain| chain.automatic).count();
+    let js = chains.iter().filter(|chain| chain.involves_js).count();
+    let external = chains.iter().filter(|chain| chain.involves_external).count();
+    let max_chain_length = chains.iter().map(|chain| chain.length()).max().unwrap_or(0);
+    json!({
+        "total_chains": chains.len(),
+        "multi_step_chains": multi_step,
+        "automatic_chains": automatic,
+        "js_chains": js,
+        "external_chains": external,
+        "max_chain_length": max_chain_length,
+    })
+}
+
 /// List all action chains
 fn list_action_chains(
     ctx: &ScanContext,
     predicate: Option<&PredicateExpr>,
+    include_singleton_chains: bool,
 ) -> Result<serde_json::Value> {
     let classifications = ctx.classifications();
     let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
     let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(&typed_graph);
 
     let chains = path_finder.find_all_action_chains();
-    let total_chains = chains.len();
+    let total_chains = chains
+        .iter()
+        .filter(|chain| is_default_visible_chain(chain, include_singleton_chains))
+        .count();
     let filtered: Vec<_> = chains
         .iter()
         .enumerate()
+        .filter(|(_, chain)| is_default_visible_chain(chain, include_singleton_chains))
         .filter(|(_, chain)| chain_matches_predicate(chain, predicate))
         .collect();
 
@@ -6370,16 +7493,21 @@ fn list_action_chains(
 fn list_js_chains(
     ctx: &ScanContext,
     predicate: Option<&PredicateExpr>,
+    include_singleton_chains: bool,
 ) -> Result<serde_json::Value> {
     let classifications = ctx.classifications();
     let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
     let path_finder = sis_pdf_pdf::path_finder::PathFinder::new(&typed_graph);
 
     let chains = path_finder.find_all_action_chains();
-    let total_chains = chains.len();
+    let total_chains = chains
+        .iter()
+        .filter(|chain| is_default_visible_chain(chain, include_singleton_chains))
+        .count();
     let filtered: Vec<_> = chains
         .iter()
         .enumerate()
+        .filter(|(_, chain)| is_default_visible_chain(chain, include_singleton_chains))
         .filter(|(_, chain)| chain_matches_predicate(chain, predicate))
         .filter(|(_, chain)| chain.involves_js)
         .collect();
@@ -6797,6 +7925,13 @@ fn chain_matches_predicate(
     predicate: Option<&PredicateExpr>,
 ) -> bool {
     predicate.map(|pred| pred.evaluate(&predicate_context_for_chain(chain))).unwrap_or(true)
+}
+
+fn is_default_visible_chain(
+    chain: &sis_pdf_pdf::path_finder::ActionChain<'_>,
+    include_singleton_chains: bool,
+) -> bool {
+    include_singleton_chains || chain.length() > 1
 }
 
 fn predicate_context_for_chain(
@@ -7382,6 +8517,35 @@ mod tests {
         bytes
     }
 
+    fn build_pdf(objects: &[String], size: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"%PDF-1.4\n");
+        let mut offsets = vec![0usize; size];
+        for object in objects {
+            let id = object
+                .split_whitespace()
+                .next()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            if id < offsets.len() {
+                offsets[id] = out.len();
+            }
+            out.extend_from_slice(object.as_bytes());
+        }
+        let startxref = out.len();
+        out.extend_from_slice(format!("xref\n0 {}\n", size).as_bytes());
+        out.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n", size).as_bytes(),
+        );
+        out.extend_from_slice(startxref.to_string().as_bytes());
+        out.extend_from_slice(b"\n%%EOF\n");
+        out
+    }
+
     fn build_simple_stream_pdf() -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(b"%PDF-1.4\n");
@@ -7413,11 +8577,11 @@ mod tests {
     #[test]
     fn advanced_query_json_outputs_are_structured() {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
-            let chains = list_action_chains(ctx, None).expect("chains");
+            let chains = list_action_chains(ctx, None, false).expect("chains");
             assert_eq!(chains["type"], json!("chains"));
             assert!(chains["chains"].is_array());
 
-            let js_chains = list_js_chains(ctx, None).expect("js chains");
+            let js_chains = list_js_chains(ctx, None, false).expect("js chains");
             assert_eq!(js_chains["type"], json!("chains.js"));
 
             let cycles = list_cycles(ctx).expect("cycles");
@@ -7531,6 +8695,34 @@ mod tests {
         assert_eq!(edge_array.len(), 2);
         assert_eq!(edge_array[1]["type"], json!("javascript_payload"));
         assert_eq!(edge_array[1]["suspicious"], json!(true));
+    }
+
+    #[test]
+    fn default_chain_view_filters_single_edge_chains() {
+        let single_edge_backing = [TypedEdge::new((1, 0), (2, 0), EdgeType::OpenAction)];
+        let single_edge = sis_pdf_pdf::path_finder::ActionChain {
+            trigger: TriggerType::OpenAction,
+            edges: vec![&single_edge_backing[0]],
+            payload: Some((2, 0)),
+            automatic: true,
+            involves_js: false,
+            involves_external: false,
+        };
+        let multi_edge_edges = [
+            TypedEdge::new((1, 0), (2, 0), EdgeType::OpenAction),
+            TypedEdge::new((2, 0), (3, 0), EdgeType::JavaScriptPayload),
+        ];
+        let multi_edge = sis_pdf_pdf::path_finder::ActionChain {
+            trigger: TriggerType::OpenAction,
+            edges: vec![&multi_edge_edges[0], &multi_edge_edges[1]],
+            payload: Some((3, 0)),
+            automatic: true,
+            involves_js: true,
+            involves_external: false,
+        };
+        assert!(!is_default_visible_chain(&single_edge, false));
+        assert!(is_default_visible_chain(&single_edge, true));
+        assert!(is_default_visible_chain(&multi_edge, false));
     }
 
     #[test]
@@ -7658,6 +8850,12 @@ mod tests {
         let query = apply_output_format(Query::ExportOrgDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportOrgJson));
 
+        let query = apply_output_format(Query::ExportStructureDot, OutputFormat::Json).unwrap();
+        assert!(matches!(query, Query::ExportStructureJson));
+
+        let query = apply_output_format(Query::ExportEventDot, OutputFormat::Json).unwrap();
+        assert!(matches!(query, Query::ExportEventJson));
+
         let query = apply_output_format(Query::ExportIrText, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportIrJson));
 
@@ -7666,6 +8864,12 @@ mod tests {
 
         let query = apply_output_format(Query::ExportOrgJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportOrgDot));
+
+        let query = apply_output_format(Query::ExportStructureJson, OutputFormat::Dot).unwrap();
+        assert!(matches!(query, Query::ExportStructureDot));
+
+        let query = apply_output_format(Query::ExportEventJson, OutputFormat::Dot).unwrap();
+        assert!(matches!(query, Query::ExportEventDot));
 
         let error = apply_output_format(Query::Urls, OutputFormat::Csv);
         assert!(error.is_err());
@@ -8062,7 +9266,7 @@ mod tests {
         with_fixture_context("action_chain_complex.pdf", |ctx| {
             let query = parse_query("actions.chains.count").expect("query");
             let predicate = parse_predicate("has_js == 'true'").expect("predicate");
-            let expected = list_action_chains(ctx, Some(&predicate)).expect("chains");
+            let expected = list_action_chains(ctx, Some(&predicate), false).expect("chains");
             let expected_count = expected["count"].as_i64().expect("count");
             let result = execute_query_with_context(
                 &query,
@@ -8183,10 +9387,175 @@ mod tests {
         assert!(matches!(query, Query::ExportOrgDot));
         let query = parse_query("org.json").expect("org json query");
         assert!(matches!(query, Query::ExportOrgJson));
+        let query = parse_query("graph.structure").expect("structure query");
+        assert!(matches!(query, Query::ExportStructureDot));
+        let query = parse_query("graph.structure.json").expect("structure json query");
+        assert!(matches!(query, Query::ExportStructureJson));
+        let query = parse_query("graph.structure.depth 3").expect("structure depth query");
+        assert!(matches!(query, Query::ExportStructureDotDepth(3)));
+        let query = parse_query("graph.event").expect("event query");
+        assert!(matches!(query, Query::ExportEventDot));
+        let query = parse_query("graph.event.json").expect("event json query");
+        assert!(matches!(query, Query::ExportEventJson));
+        let query = parse_query("graph.action").expect("action alias query");
+        assert!(matches!(query, Query::ExportEventDot));
+        let query = parse_query("graph.event.hops 2").expect("event hops query");
+        assert!(matches!(query, Query::ExportEventDotHops(2)));
+        let query = parse_query("chains.all").expect("chains all query");
+        assert!(matches!(query, Query::ChainsAll));
+        let query = parse_query("actions.chains.all.count").expect("chains all count query");
+        assert!(matches!(query, Query::ChainsAllCount));
         let query = parse_query("ir").expect("ir query");
         assert!(matches!(query, Query::ExportIrText));
         let query = parse_query("ir.json").expect("ir json query");
         assert!(matches!(query, Query::ExportIrJson));
+    }
+
+    #[test]
+    fn graph_structure_json_includes_typed_edges_and_action_path_summary() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("graph.structure.json").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("query");
+            match result {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value["type"], json!("structure_graph"));
+                    assert!(value["typed_edges"]["total_edges"].is_number());
+                    assert!(value["typed_edges"]["by_type"].is_array());
+                    assert!(value["action_paths"]["total_chains"].is_number());
+                    assert!(value["path_helpers"]["reachable_from_trigger"].is_array());
+                    assert!(value["path_helpers"]["paths_to_outcome"].is_array());
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn graph_structure_depth_query_preserves_depth_in_json_output() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("graph.structure.depth 2").expect("query");
+            let query = apply_output_format(query, OutputFormat::Json).expect("format");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("query");
+            match result {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value["path_helpers"]["max_depth"], json!(2));
+                    assert!(value["path_helpers"]["next_action_branches"].is_array());
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn graph_event_queries_return_dot_and_json_shapes() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let dot = execute_query_with_context(
+                &Query::ExportEventDot,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("event dot");
+            match dot {
+                QueryResult::Scalar(ScalarValue::String(value)) => {
+                    assert!(value.contains("digraph event_graph"));
+                }
+                other => panic!("expected dot scalar, got {:?}", other),
+            }
+
+            let json = execute_query_with_context(
+                &Query::ExportEventJson,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("event json");
+            match json {
+                QueryResult::Structure(value) => {
+                    assert!(value.get("nodes").is_some());
+                    assert!(value.get("edges").is_some());
+                    assert_eq!(value.get("schema_version"), Some(&json!("1.0")));
+                }
+                other => panic!("expected structure, got {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn graph_event_query_supports_event_type_predicate() {
+        let bytes = {
+            let objects = vec![
+                "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 3 0 R >>\nendobj\n"
+                    .to_string(),
+                "2 0 obj\n<< /Type /Pages /Count 0 >>\nendobj\n".to_string(),
+                "3 0 obj\n<< /Type /Action /S /JavaScript /JS (app.alert(1)) >>\nendobj\n"
+                    .to_string(),
+            ];
+            build_pdf(&objects, 4)
+        };
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+        {
+            let predicate = parse_predicate("event_type == 'DocumentOpen'").expect("predicate");
+            let json = execute_query_with_context(
+                &Query::ExportEventJson,
+                &ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("event json");
+            match json {
+                QueryResult::Structure(value) => {
+                    let nodes = value["nodes"].as_array().expect("nodes");
+                    assert!(!nodes.is_empty());
+                    let event_nodes = nodes
+                        .iter()
+                        .filter(|node| {
+                            node.get("kind").and_then(|kind| kind.as_str()) == Some("event")
+                        })
+                        .collect::<Vec<_>>();
+                    assert!(!event_nodes.is_empty());
+                    assert!(event_nodes.iter().all(|node| {
+                        node.get("event_type").and_then(|event_type| event_type.as_str())
+                            == Some("DocumentOpen")
+                    }));
+                }
+                other => panic!("expected structure, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn apply_output_format_handles_event_hops_variants() {
+        let json_variant = apply_output_format(Query::ExportEventDotHops(2), OutputFormat::Json)
+            .expect("json conversion");
+        assert!(matches!(json_variant, Query::ExportEventJsonHops(2)));
+
+        let dot_variant = apply_output_format(Query::ExportEventJsonHops(3), OutputFormat::Dot)
+            .expect("dot conversion");
+        assert!(matches!(dot_variant, Query::ExportEventDotHops(3)));
     }
 
     #[test]
@@ -9481,5 +10850,106 @@ mod tests {
             assert_eq!(high_findings.len(), expected_high);
             assert!(ctx.findings_cache_info().is_some());
         });
+    }
+
+    #[test]
+    fn apply_with_chain_rejects_non_findings_query() {
+        let result = apply_with_chain(Query::Pages, true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn findings_with_chain_query_returns_chain_schema() {
+        let options = ScanOptions::default();
+        with_fixture_context_opts("actions/launch_cve_2010_1240.pdf", options, |ctx| {
+            let query = apply_with_chain(Query::Findings, true).expect("query with chain");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("findings --with-chain query");
+
+            let value = match result {
+                QueryResult::Structure(value) => value,
+                other => panic!("unexpected result type: {:?}", other),
+            };
+            assert_eq!(value.get("type").and_then(Value::as_str), Some("findings_with_chain"));
+            assert!(value.get("findings").and_then(Value::as_array).is_some());
+            assert!(value.get("chains").and_then(Value::as_array).is_some());
+        });
+    }
+
+    #[test]
+    fn format_result_summarises_findings_with_chain() {
+        let value = json!({
+            "type": "findings_with_chain",
+            "count": 2,
+            "chains": [{
+                "id": "chain-1",
+                "ordered_stages": ["decode", "render", "egress"],
+                "edge": { "reason": "scatter_to_injection" }
+            }]
+        });
+        let text = format_result(&QueryResult::Structure(value), false);
+        assert!(text.contains("Findings: 2"));
+        assert!(text.contains("Potential chain: decode -> render -> egress"));
+        assert!(text.contains("scatter_to_injection"));
+    }
+
+    #[test]
+    fn findings_with_chain_captures_scatter_fragment_context_end_to_end() {
+        let objects = vec![
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>\nendobj\n".to_string(),
+            "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n".to_string(),
+            "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n".to_string(),
+            "6 0 obj\n<< /FT /Tx /T (field) /V [7 0 R 8 0 R 9 0 R] >>\nendobj\n".to_string(),
+            "7 0 obj\n(%3C)\nendobj\n".to_string(),
+            "8 0 obj\n(script%3Ealert(1)%3C)\nendobj\n".to_string(),
+            "9 0 obj\n(%2Fscript%3E)\nendobj\n".to_string(),
+        ];
+        let bytes = build_pdf(&objects, 10);
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+
+        let query = apply_with_chain(Query::Findings, true).expect("query with chain");
+        let result =
+            execute_query_with_context(&query, &ctx, None, 1024 * 1024, DecodeMode::Decode, None)
+                .expect("findings --with-chain");
+
+        let value = match result {
+            QueryResult::Structure(value) => value,
+            other => panic!("unexpected result type: {:?}", other),
+        };
+        let findings =
+            value.get("findings").and_then(Value::as_array).cloned().expect("findings array");
+        assert!(findings.iter().any(|entry| {
+            entry.get("kind").and_then(Value::as_str) == Some("scattered_payload_assembly")
+        }));
+
+        let chains = value.get("chains").and_then(Value::as_array).cloned().expect("chains array");
+        let scatter_chain = chains
+            .iter()
+            .find(|chain| chain.get("scatter").and_then(Value::as_object).is_some())
+            .expect("scatter chain should exist");
+
+        let stages = scatter_chain
+            .get("ordered_stages")
+            .and_then(Value::as_array)
+            .cloned()
+            .expect("ordered stages");
+        assert!(stages.iter().any(|stage| stage.as_str() == Some("decode")));
+
+        let scatter = scatter_chain.get("scatter").and_then(Value::as_object).expect("scatter");
+        assert_eq!(scatter.get("fragment_count").and_then(Value::as_u64), Some(3));
+        let refs =
+            scatter.get("object_refs").and_then(Value::as_array).cloned().expect("object refs");
+        assert!(refs.iter().any(|value| value.as_str() == Some("7 0 obj")));
+        assert!(refs.iter().any(|value| value.as_str() == Some("8 0 obj")));
+        assert!(refs.iter().any(|value| value.as_str() == Some("9 0 obj")));
     }
 }

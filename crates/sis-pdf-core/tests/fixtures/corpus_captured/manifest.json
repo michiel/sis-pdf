@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-02-14",
+  "captured_at": "2026-02-17",
   "source_root": "tmp/corpus",
   "fixtures": [
     {
@@ -71,6 +71,111 @@
         "content_first_guardrail_applied info/strong with timeout_heavy_guardrail reason",
         "content_first_analysis_truncated includes timeout_heavy_guardrail metadata",
         "timeout-heavy sample completes with bounded analysis output"
+      ]
+    },
+    {
+      "path": "structural-unused-resource-c4afbb69.pdf",
+      "sha256": "c4afbb6983ba8c731b5efe84f97c33242000296e014259834df92cf37afec4c9",
+      "source_path": "generated/synthetic/2026-02-17/structural-unused-resource",
+      "regression_targets": [
+        "resource.declared_but_unused low/probable",
+        "unused font metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-inline-decode-invalid-eac2732d.pdf",
+      "sha256": "eac2732dfc06a75af555a6e915875d76dd824f1c0af26090ee95adc4d78c20a2",
+      "source_path": "generated/synthetic/2026-02-17/structural-inline-decode-invalid",
+      "regression_targets": [
+        "image.inline_decode_array_invalid low/strong",
+        "inline decode metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-hidden-invocation-19004614.pdf",
+      "sha256": "19004614e9a7ae244e6eb618df7371d353ed67be6f00061ba0dd14be1817ad41",
+      "source_path": "generated/synthetic/2026-02-17/structural-hidden-invocation",
+      "regression_targets": [
+        "resource.hidden_invocation_pattern medium/probable",
+        "hidden invocation count metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-inheritance-conflict-font-4e033b8b.pdf",
+      "sha256": "4e033b8b1eaa93a5971fd6bae37b696bdd2b2c3f6297faa428b14113cb4cd89f",
+      "source_path": "generated/synthetic/2026-02-17/structural-inheritance-conflict-font",
+      "regression_targets": [
+        "resource.inheritance_conflict_font medium/strong",
+        "resource.inheritance_override_suspicious medium/probable",
+        "override conflict metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-type3-charproc-abuse-f942b416.pdf",
+      "sha256": "f942b4169b83c109aa3b2752eeba3a51781174197018674c5a341fa6ca74e93e",
+      "source_path": "generated/synthetic/2026-02-17/structural-type3-charproc-abuse",
+      "regression_targets": [
+        "font.type3_charproc_resource_abuse high/probable",
+        "font.type3_charproc_recursion_like_pattern medium/tentative",
+        "type3 metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-cmap-overlap-e51348dc.pdf",
+      "sha256": "e51348dc60e07f86407488e6173545b4e4466558cb189b4d17c027641fb87dc8",
+      "source_path": "generated/synthetic/2026-02-17/structural-cmap-overlap",
+      "regression_targets": [
+        "font.cmap_range_overlap medium/strong",
+        "font.cmap_subtype_inconsistent medium/strong",
+        "cmap metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-inheritance-conflict-xobject-246bb53b.pdf",
+      "sha256": "246bb53b76b7fb7ddb0f587fae0015fd6d3aae9d02bb571e2cf52f458dce390b",
+      "source_path": "generated/synthetic/2026-02-17/structural-inheritance-conflict-xobject",
+      "regression_targets": [
+        "resource.inheritance_conflict_xobject medium/strong",
+        "xobject conflict metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-inline-filter-mask-97762d41.pdf",
+      "sha256": "97762d4123bc0788ea016efdd8352f0eb6433117e2d7e852736d42b415aa83de",
+      "source_path": "generated/synthetic/2026-02-17/structural-inline-filter-mask",
+      "regression_targets": [
+        "image.inline_structure_filter_chain_inconsistent medium/strong",
+        "image.inline_mask_inconsistent medium/probable",
+        "inline filter/mask metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-type3-complexity-b4c499af.pdf",
+      "sha256": "b4c499af5d72c89cb73f76a7f9bf4ef97522c3160ad3d7a71cdb77674f0f7cb5",
+      "source_path": "generated/synthetic/2026-02-17/structural-type3-complexity",
+      "regression_targets": [
+        "font.type3_charproc_complexity_high medium/probable",
+        "type3 complexity metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-cmap-cardinality-53ab048f.pdf",
+      "sha256": "53ab048fe3d7fab802f620adfec085e6a9879ce895970a3ab4e4a3d10e71a7d9",
+      "source_path": "generated/synthetic/2026-02-17/structural-cmap-cardinality",
+      "regression_targets": [
+        "font.cmap_cardinality_anomalous medium/probable",
+        "cmap cardinality metadata invariants"
+      ]
+    },
+    {
+      "path": "structural-signature-overrides-5e736721.pdf",
+      "sha256": "5e736721963040ed628ffa0f56c3aecf5ee463859dce916445c4b24735b25074",
+      "source_path": "generated/synthetic/2026-02-17/structural-signature-overrides",
+      "regression_targets": [
+        "resource.override_outside_signature_scope high/strong",
+        "font.override_outside_signature_scope high/strong",
+        "image.override_outside_signature_scope high/strong",
+        "signature boundary metadata invariant"
       ]
     }
   ]

@@ -229,3 +229,63 @@ fn flags_decode_expansion_ratio_for_3d_streams() {
         .map(|value| value.parse::<f64>().ok().is_some_and(|ratio| ratio > 40.0))
         .unwrap_or(false));
 }
+
+#[test]
+fn richmedia_presence_uses_conservative_viewer_dependent_metadata() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /Annots [4 0 R] >>\nendobj\n",
+        "4 0 obj\n<< /Subtype /RichMedia /RichMedia << /Assets 5 0 R >> >>\nendobj\n",
+        "5 0 obj\n<< /Names [] >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &sis_pdf_detectors::default_detectors(),
+    )
+    .expect("scan");
+    let finding = report
+        .findings
+        .iter()
+        .find(|entry| entry.kind == "richmedia_present")
+        .expect("richmedia_present finding");
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::Low);
+    assert_eq!(finding.impact, Some(sis_pdf_core::model::Impact::Low));
+    assert_eq!(finding.meta.get("viewer.feature").map(String::as_str), Some("richmedia"));
+    assert_eq!(
+        finding.meta.get("renderer.precondition").map(String::as_str),
+        Some("richmedia_runtime_enabled")
+    );
+    assert_eq!(finding.meta.get("chain.stage").map(String::as_str), Some("render"));
+}
+
+#[test]
+fn rendition_external_target_adds_egress_context_metadata() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /AA << /O 4 0 R >> >>\nendobj\n",
+        "4 0 obj\n<< /S /Rendition /Rendition << /S /MR /C << /S /URI /URI (https://media.example/payload.mp4) >> >> >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &sis_pdf_detectors::default_detectors(),
+    )
+    .expect("scan");
+    let finding = report
+        .findings
+        .iter()
+        .find(|entry| entry.kind == "sound_movie_present")
+        .expect("sound_movie_present finding");
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::Low);
+    assert_eq!(finding.meta.get("media.rendition_present").map(String::as_str), Some("true"));
+    assert_eq!(
+        finding.meta.get("media.external_target").map(String::as_str),
+        Some("https://media.example/payload.mp4")
+    );
+    assert_eq!(finding.meta.get("egress.channel").map(String::as_str), Some("media_rendition"));
+}

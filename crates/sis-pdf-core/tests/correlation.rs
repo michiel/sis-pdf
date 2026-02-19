@@ -78,14 +78,28 @@ fn correlate_action_chain_malicious() {
     let js = make_finding(
         "embedded_script_present",
         &["10 0 obj"],
-        &[("embedded.filename", "payload.js")],
+        &[
+            ("embedded.filename", "payload.js"),
+            ("js.source", "open_action"),
+            ("js.container_path", "/Catalog/OpenAction/JS"),
+            ("js.object_ref_chain", "10 0 R"),
+        ],
         AttackSurface::EmbeddedFiles,
     );
 
     let config = CorrelationOptions::default();
     let composites =
         correlation::correlate_findings(&[chain.clone(), automatic.clone(), js.clone()], &config);
-    assert!(composites.iter().any(|f| f.kind == "action_chain_malicious"));
+    let composite = composites
+        .iter()
+        .find(|f| f.kind == "action_chain_malicious")
+        .expect("action_chain_malicious composite");
+    assert_eq!(composite.meta.get("js.source_classes").map(String::as_str), Some("open_action"));
+    assert_eq!(
+        composite.meta.get("js.container_paths").map(String::as_str),
+        Some("/Catalog/OpenAction/JS")
+    );
+    assert_eq!(composite.meta.get("js.object_ref_chains").map(String::as_str), Some("10 0 R"));
 }
 
 #[test]
@@ -174,6 +188,483 @@ fn correlate_image_decoder_exploit_chain() {
         &CorrelationOptions::default(),
     );
     assert!(composites.iter().any(|f| f.kind == "image_decoder_exploit_chain"));
+}
+
+#[test]
+fn correlate_resource_external_with_trigger_surface() {
+    let external = make_finding(
+        "resource.external_reference_high_risk_scheme",
+        &["60 0 obj"],
+        &[("resource.high_risk_scheme_count", "1")],
+        AttackSurface::Actions,
+    );
+    let trigger = make_finding(
+        "action_automatic_trigger",
+        &["60 0 obj"],
+        &[("action.trigger", "OpenAction")],
+        AttackSurface::Actions,
+    );
+    let composites =
+        correlation::correlate_findings(&[external, trigger], &CorrelationOptions::default());
+    let composite = composites
+        .iter()
+        .find(|f| f.kind == "composite.resource_external_with_trigger_surface")
+        .expect("resource external composite");
+    assert_eq!(composite.severity, Severity::High);
+    assert_eq!(composite.confidence, Confidence::Strong);
+    assert_eq!(
+        composite.meta.get("composite.trigger_path").map(String::as_str),
+        Some("automatic_or_hidden")
+    );
+    assert_eq!(
+        composite.meta.get("composite.trigger_automatic_count").map(String::as_str),
+        Some("1")
+    );
+}
+
+#[test]
+fn correlate_resource_external_with_user_only_trigger_surface() {
+    let external = make_finding(
+        "resource.external_reference_high_risk_scheme",
+        &["61 0 obj"],
+        &[("resource.high_risk_scheme_count", "1")],
+        AttackSurface::Actions,
+    );
+    let trigger = make_finding(
+        "aa_event_present",
+        &["61 0 obj"],
+        &[("action.trigger_type", "user"), ("action.trigger_event", "/K")],
+        AttackSurface::Actions,
+    );
+    let composites =
+        correlation::correlate_findings(&[external, trigger], &CorrelationOptions::default());
+    let composite = composites
+        .iter()
+        .find(|f| f.kind == "composite.resource_external_with_trigger_surface")
+        .expect("resource external composite");
+    assert_eq!(composite.severity, Severity::Medium);
+    assert_eq!(composite.confidence, Confidence::Probable);
+    assert_eq!(composite.meta.get("composite.trigger_path").map(String::as_str), Some("user_only"));
+    assert_eq!(composite.meta.get("composite.trigger_user_count").map(String::as_str), Some("1"));
+}
+
+#[test]
+fn correlate_decode_amplification_chain() {
+    let a = make_finding(
+        "image.decode_too_large",
+        &["70 0 obj"],
+        &[("image.decode_too_large", "true")],
+        AttackSurface::Images,
+    );
+    let b = make_finding(
+        "font_payload_present",
+        &["71 0 obj"],
+        &[("font.stream_len", "5000000")],
+        AttackSurface::StreamsAndFilters,
+    );
+    let c = make_finding(
+        "resource.provenance_xref_conflict",
+        &["71 0 obj"],
+        &[("resource.object_shadowed_revisions", "2")],
+        AttackSurface::FileStructure,
+    );
+    let composites = correlation::correlate_findings(&[a, b, c], &CorrelationOptions::default());
+    let decode_chain = composites
+        .iter()
+        .find(|f| f.kind == "composite.decode_amplification_chain")
+        .expect("decode amplification composite should exist");
+    assert_eq!(decode_chain.severity, Severity::High);
+    assert_eq!(decode_chain.confidence, Confidence::Strong);
+    assert_eq!(decode_chain.impact, None);
+
+    let override_chain = composites
+        .iter()
+        .find(|f| f.kind == "composite.resource_overrides_with_decoder_pressure")
+        .expect("override/decoder-pressure composite should exist");
+    assert_eq!(override_chain.severity, Severity::High);
+    assert_eq!(override_chain.confidence, Confidence::Probable);
+    assert_eq!(override_chain.impact, None);
+}
+
+#[test]
+fn correlate_injection_edge_bridges_for_scatter_and_submitform() {
+    let html = make_finding(
+        "form_html_injection",
+        &["81 0 obj"],
+        &[("chain.stage", "render"), ("field.name", "payloadField")],
+        AttackSurface::Forms,
+    );
+    let pdfjs = make_finding(
+        "pdfjs_form_injection",
+        &["81 0 obj"],
+        &[("chain.stage", "render"), ("field.name", "payloadField")],
+        AttackSurface::Forms,
+    );
+    let submit = make_finding(
+        "submitform_present",
+        &["81 0 obj"],
+        &[("chain.stage", "egress")],
+        AttackSurface::Actions,
+    );
+    let scattered = make_finding(
+        "scattered_payload_assembly",
+        &["81 0 obj"],
+        &[("chain.stage", "decode"), ("scatter.fragment_count", "3")],
+        AttackSurface::Forms,
+    );
+
+    let composites = correlation::correlate_findings(
+        &[html, pdfjs, submit, scattered],
+        &CorrelationOptions::default(),
+    );
+
+    let mut reasons = composites
+        .iter()
+        .filter(|finding| finding.kind == "composite.injection_edge_bridge")
+        .filter_map(|finding| finding.meta.get("edge.reason"))
+        .cloned()
+        .collect::<Vec<_>>();
+    reasons.sort();
+    reasons.dedup();
+
+    assert!(reasons.contains(&"form_html_to_pdfjs_form".to_string()));
+    assert!(reasons.contains(&"injection_to_submitform".to_string()));
+    assert!(reasons.contains(&"scatter_to_injection".to_string()));
+
+    let scatter_bridge = composites
+        .iter()
+        .find(|finding| {
+            finding.kind == "composite.injection_edge_bridge"
+                && finding.meta.get("edge.reason").map(String::as_str)
+                    == Some("scatter_to_injection")
+        })
+        .expect("scatter bridge should be present");
+    assert_eq!(scatter_bridge.confidence, Confidence::Strong);
+    assert_eq!(
+        scatter_bridge.meta.get("edge.shared_objects").map(String::as_str),
+        Some("81 0 obj")
+    );
+    assert_eq!(scatter_bridge.meta.get("chain.severity").map(String::as_str), Some("Medium"));
+    assert_eq!(
+        scatter_bridge.meta.get("exploit.outcomes").map(String::as_str),
+        Some("payload_staging; render_path_injection")
+    );
+}
+
+#[test]
+fn correlate_injection_edge_bridges_for_name_obfuscation_and_action() {
+    let obfuscated_name = make_finding(
+        "obfuscated_name_encoding",
+        &["90 0 obj"],
+        &[("chain.stage", "decode"), ("pdf.name.raw", "/Jav#61Script")],
+        AttackSurface::FileStructure,
+    );
+    let action = make_finding(
+        "action_automatic_trigger",
+        &["90 0 obj"],
+        &[("chain.stage", "execute"), ("action.trigger", "OpenAction")],
+        AttackSurface::Actions,
+    );
+
+    let composites =
+        correlation::correlate_findings(&[obfuscated_name, action], &CorrelationOptions::default());
+    let bridge = composites
+        .iter()
+        .find(|finding| {
+            finding.kind == "composite.injection_edge_bridge"
+                && finding.meta.get("edge.reason").map(String::as_str)
+                    == Some("name_obfuscation_to_action")
+        })
+        .expect("name obfuscation bridge should be present");
+
+    assert_eq!(bridge.confidence, Confidence::Probable);
+    assert_eq!(bridge.meta.get("edge.from").map(String::as_str), Some("obfuscated_name_encoding"));
+    assert_eq!(bridge.meta.get("edge.to").map(String::as_str), Some("action_automatic_trigger"));
+    assert_eq!(bridge.meta.get("chain.confidence").map(String::as_str), Some("Probable"));
+    assert_eq!(
+        bridge.meta.get("exploit.preconditions").map(String::as_str),
+        Some("name_token_obfuscation_present; action_path_reachable")
+    );
+}
+
+#[test]
+fn correlate_injection_edge_bridges_for_remote_action_egress() {
+    let injection = make_finding(
+        "pdfjs_form_injection",
+        &["95 0 obj"],
+        &[("chain.stage", "render"), ("field.name", "payloadField")],
+        AttackSurface::Forms,
+    );
+    let remote_action = make_finding(
+        "action_remote_target_suspicious",
+        &["95 0 obj"],
+        &[
+            ("chain.stage", "egress"),
+            ("egress.channel", "remote_goto"),
+            ("action.initiation", "automatic"),
+        ],
+        AttackSurface::Actions,
+    );
+    let composites = correlation::correlate_findings(
+        &[injection, remote_action],
+        &CorrelationOptions::default(),
+    );
+    let bridge = composites
+        .iter()
+        .find(|finding| {
+            finding.kind == "composite.injection_edge_bridge"
+                && finding.meta.get("edge.reason").map(String::as_str)
+                    == Some("injection_to_remote_action")
+        })
+        .expect("remote action bridge should be present");
+    assert_eq!(bridge.confidence, Confidence::Probable);
+    assert_eq!(
+        bridge.meta.get("edge.to").map(String::as_str),
+        Some("action_remote_target_suspicious")
+    );
+    assert_eq!(bridge.meta.get("edge.initiation.to").map(String::as_str), Some("automatic"));
+    assert_eq!(
+        bridge.meta.get("exploit.outcomes").map(String::as_str),
+        Some("data_exfiltration; remote_content_retrieval")
+    );
+}
+
+#[test]
+fn correlate_injection_remote_action_chain_severity_is_high_with_execute_and_egress() {
+    let injection = make_finding(
+        "pdfjs_form_injection",
+        &["196 0 obj"],
+        &[("chain.stage", "execute"), ("field.name", "payloadField")],
+        AttackSurface::Forms,
+    );
+    let remote_action = make_finding(
+        "action_remote_target_suspicious",
+        &["196 0 obj"],
+        &[("chain.stage", "egress"), ("egress.channel", "remote_goto")],
+        AttackSurface::Actions,
+    );
+    let bridge = correlation::correlate_findings(
+        &[injection, remote_action],
+        &CorrelationOptions::default(),
+    )
+    .into_iter()
+    .find(|finding| {
+        finding.kind == "composite.injection_edge_bridge"
+            && finding.meta.get("edge.reason").map(String::as_str)
+                == Some("injection_to_remote_action")
+    })
+    .expect("remote action bridge");
+    assert_eq!(bridge.meta.get("chain.severity").map(String::as_str), Some("High"));
+}
+
+#[test]
+fn correlate_injection_edge_bridges_for_annotation_surfaces() {
+    let annotation_injection = make_finding(
+        "pdfjs_annotation_injection",
+        &["96 0 obj"],
+        &[("chain.stage", "render"), ("annot.trigger_context", "annotation_action")],
+        AttackSurface::Actions,
+    );
+    let annotation_action = make_finding(
+        "annotation_action_chain",
+        &["96 0 obj"],
+        &[
+            ("chain.stage", "execute"),
+            ("action.initiation", "automatic"),
+            ("action.trigger_context", "annotation_aa"),
+        ],
+        AttackSurface::Actions,
+    );
+    let annotation_js = make_finding(
+        "js_present",
+        &["96 0 obj"],
+        &[
+            ("chain.stage", "execute"),
+            ("js.source", "annotation"),
+            ("js.container_path", "/Annots/AA/O/JS"),
+        ],
+        AttackSurface::Actions,
+    );
+    let composites = correlation::correlate_findings(
+        &[annotation_injection, annotation_action, annotation_js],
+        &CorrelationOptions::default(),
+    );
+
+    let reasons = composites
+        .iter()
+        .filter(|finding| finding.kind == "composite.injection_edge_bridge")
+        .filter_map(|finding| finding.meta.get("edge.reason"))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(reasons.contains(&"annotation_injection_to_action".to_string()));
+    assert!(reasons.contains(&"annotation_injection_to_js".to_string()));
+
+    let bridge = composites
+        .iter()
+        .find(|finding| {
+            finding.kind == "composite.injection_edge_bridge"
+                && finding.meta.get("edge.reason").map(String::as_str)
+                    == Some("annotation_injection_to_action")
+        })
+        .expect("annotation action bridge should be present");
+    assert_eq!(bridge.confidence, Confidence::Strong);
+    assert_eq!(bridge.severity, Severity::High);
+    assert_eq!(bridge.meta.get("edge.initiation.to").map(String::as_str), Some("automatic"));
+    assert_eq!(
+        bridge.meta.get("exploit.outcomes").map(String::as_str),
+        Some("script_execution; action_execution")
+    );
+}
+
+#[test]
+fn correlate_embedded_relationship_action_bridge() {
+    let embedded_mismatch = make_finding(
+        "embedded_type_mismatch",
+        &["120 0 obj"],
+        &[
+            ("hash.sha256", "beadfeed"),
+            ("embedded.mismatch_axes", "extension_vs_magic,subtype_vs_magic"),
+        ],
+        AttackSurface::EmbeddedFiles,
+    );
+    let launch_embedded = make_finding(
+        "launch_embedded_file",
+        &["220 0 obj"],
+        &[("launch.embedded_file_hash", "beadfeed"), ("action.s", "/Launch")],
+        AttackSurface::Actions,
+    );
+    let composites = correlation::correlate_findings(
+        &[embedded_mismatch, launch_embedded],
+        &CorrelationOptions::default(),
+    );
+    let bridge = composites
+        .iter()
+        .find(|finding| finding.kind == "composite.embedded_relationship_action")
+        .expect("embedded relationship action composite");
+    assert_eq!(bridge.severity, Severity::High);
+    assert_eq!(bridge.confidence, Confidence::Strong);
+    assert_eq!(bridge.meta.get("composite.link_reason").map(String::as_str), Some("hash"));
+    assert_eq!(
+        bridge.meta.get("embedded.mismatch_axes").map(String::as_str),
+        Some("extension_vs_magic,subtype_vs_magic")
+    );
+}
+
+#[test]
+fn correlate_graph_evasion_with_execute_surface() {
+    let xref_conflict = make_finding(
+        "xref_conflict",
+        &["xref"],
+        &[("graph.evasion_kind", "xref_conflict"), ("xref.integrity.level", "broken")],
+        AttackSurface::FileStructure,
+    );
+    let cycle = make_finding(
+        "object_reference_cycle",
+        &["10 0 obj", "11 0 obj"],
+        &[("graph.evasion_kind", "cycle_near_execute"), ("graph.depth", "2")],
+        AttackSurface::FileStructure,
+    );
+    let action = make_finding(
+        "launch_action_present",
+        &["20 0 obj"],
+        &[("chain.stage", "execute"), ("action.s", "/Launch")],
+        AttackSurface::Actions,
+    );
+    let composites = correlation::correlate_findings(
+        &[xref_conflict, cycle, action],
+        &CorrelationOptions::default(),
+    );
+    let composite = composites
+        .iter()
+        .find(|finding| finding.kind == "composite.graph_evasion_with_execute")
+        .expect("graph evasion composite");
+    assert_eq!(composite.severity, Severity::High);
+    assert_eq!(composite.confidence, Confidence::Probable);
+    assert_eq!(composite.meta.get("graph.evasion_count").map(String::as_str), Some("2"));
+    assert_eq!(composite.meta.get("execute.surface_count").map(String::as_str), Some("1"));
+    assert_eq!(
+        composite.meta.get("graph.evasion_kinds").map(String::as_str),
+        Some("cycle_near_execute,xref_conflict")
+    );
+}
+
+#[test]
+fn correlate_richmedia_execute_paths() {
+    let richmedia = make_finding(
+        "richmedia_present",
+        &["130 0 obj"],
+        &[("renderer.precondition", "richmedia_runtime_enabled"), ("chain.stage", "render")],
+        AttackSurface::RichMedia3D,
+    );
+    let execute = make_finding(
+        "launch_action_present",
+        &["130 0 obj"],
+        &[("chain.stage", "execute"), ("action.s", "/Launch")],
+        AttackSurface::Actions,
+    );
+    let composite =
+        correlation::correlate_findings(&[richmedia, execute], &CorrelationOptions::default())
+            .into_iter()
+            .find(|finding| finding.kind == "composite.richmedia_execute_path")
+            .expect("richmedia execute composite");
+    assert_eq!(composite.severity, Severity::Medium);
+    assert_eq!(composite.confidence, Confidence::Probable);
+    assert_eq!(
+        composite.meta.get("exploit.preconditions").map(String::as_str),
+        Some("viewer_supports_media_runtime;richmedia_runtime_enabled")
+    );
+    assert_eq!(
+        composite.meta.get("exploit.outcomes").map(String::as_str),
+        Some("media_triggered_execution")
+    );
+}
+
+#[test]
+fn correlate_hidden_layer_action_when_ocg_and_action_share_object() {
+    let ocg = make_finding(
+        "ocg_present",
+        &["91 0 obj"],
+        &[("ocg.present", "true")],
+        AttackSurface::FileStructure,
+    );
+    let action = make_finding(
+        "action_automatic_trigger",
+        &["91 0 obj"],
+        &[("action.trigger", "OpenAction")],
+        AttackSurface::Actions,
+    );
+    let composites =
+        correlation::correlate_findings(&[ocg, action], &CorrelationOptions::default());
+    let finding = composites
+        .iter()
+        .find(|entry| entry.kind == "hidden_layer_action")
+        .expect("hidden_layer_action should be present");
+    assert_eq!(finding.confidence, Confidence::Strong);
+    assert_eq!(finding.meta.get("context.hidden_layer").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn correlate_hidden_layer_action_on_document_level_ocg_and_action_cooccurrence() {
+    let ocg = make_finding(
+        "ocg_present",
+        &["100 0 obj"],
+        &[("ocg.present", "true")],
+        AttackSurface::FileStructure,
+    );
+    let action = make_finding(
+        "launch_action_present",
+        &["200 0 obj"],
+        &[("action.s", "/Launch")],
+        AttackSurface::Actions,
+    );
+    let composites =
+        correlation::correlate_findings(&[ocg, action], &CorrelationOptions::default());
+    let finding = composites
+        .iter()
+        .find(|entry| entry.kind == "hidden_layer_action")
+        .expect("hidden_layer_action should be present");
+    assert_eq!(finding.confidence, Confidence::Probable);
+    assert_eq!(finding.severity, Severity::High);
 }
 
 #[test]

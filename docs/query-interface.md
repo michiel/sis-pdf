@@ -20,7 +20,7 @@ Start an interactive REPL:
 sis query sample.pdf
 ```
 
-Inside the REPL you can now emit the ORG and IR graphs with `org` and `ir` commands; they default to dot/text output but respond to `:json`, `:yaml`, or `:readable` just like other queries (e.g., `org | jq '.'` or `ir | jq .`).
+Inside the REPL you can now emit the ORG, Event, and IR graphs with `org`, `graph.event`, and `ir` commands; they default to dot/text output but respond to `:json`, `:yaml`, or `:readable` just like other queries (for example `org | jq '.'` or `graph.event | jq .`).
 
 By default the REPL uses the new `:readable` formatter so lists render as ASCII tables and objects show simple trees. Use `:json`, `:yaml`, `:readable`, etc., to switch formats, and append `| <shell command>` or `> <path>` to any query (for example `findings | jq .` or `org > graph.dot`) to pipe or redirect the formatter output.
 
@@ -221,12 +221,83 @@ When using text/readable output, the `--chain-summary` flag (and the REPL prompt
 ```bash
 sis query sample.pdf actions.chains
 sis query sample.pdf actions.chains.count
+sis query sample.pdf actions.chains.all
+sis query sample.pdf actions.chains.all.count
 sis query sample.pdf actions.chains --where "depth >= 3"
 sis query sample.pdf actions.chains --where "has_js == true"
 sis query sample.pdf actions.chains --format json
 ```
 
 `actions.chains` also supports the `--format dot` export that can be rendered with Graphviz.
+Use `actions.chains.all` (and `actions.chains.js.all`) to include single-item chains when needed for forensic completeness.
+
+## Structure Graph Queries
+
+Use `graph.structure` when you want classic ORG output plus typed-edge and action-path summaries:
+
+```bash
+sis query sample.pdf graph.structure
+sis query sample.pdf graph.structure --format json
+sis query sample.pdf graph.structure --format dot
+sis query sample.pdf "graph.structure.depth 3" --format json
+```
+
+The JSON output includes:
+- `typed_edges` (`total_edges`, `suspicious_edges`, `by_type`)
+- `action_paths` (`total_chains`, `multi_step_chains`, `automatic_chains`, `js_chains`, `external_chains`)
+- `path_helpers` (`max_depth`, `reachable_from_trigger`, `paths_to_outcome`, `next_action_branches`)
+
+Use `graph.structure.depth N` to cap helper traversal depth for large or cyclic action graphs.
+
+## Event Graph Queries
+
+Use `graph.event` to export the connected event/outcome graph used by the GUI event mode.
+`graph.action` is an alias of `graph.event` for compatibility and will remain supported through the `v1.x` series; prefer `graph.event` in new automation and docs.
+
+```bash
+sis query sample.pdf graph.event
+sis query sample.pdf graph.event --format json
+sis query sample.pdf graph.event --where "event_type == 'DocumentOpen'"
+sis query sample.pdf graph.event --where "outcome_type == 'NetworkEgress'"
+sis query sample.pdf graph.event.hops 2 --where "outcome_type == 'ExternalLaunch'"
+sis query sample.pdf graph.action --format dot
+```
+
+Useful predicate keys for `graph.event` are exposed via `meta` fields:
+- `event_type`
+- `outcome_type`
+- `node_kind` (`event`, `outcome`, `object`, `collapse`)
+- `trigger_class` (`automatic`, `hidden`, `user`)
+- `target`
+
+## Structure vs Event Graph Playbook
+
+Use this sequence when triaging suspicious PDFs:
+
+1. Start with structure to confirm parser-level relationships:
+```bash
+sis query sample.pdf graph.org --format dot
+```
+Or use the enriched structure export:
+```bash
+sis query sample.pdf graph.structure --format json
+```
+2. Switch to event graph to identify execution-relevant paths:
+```bash
+sis query sample.pdf graph.event --format json
+```
+3. Focus on automatic entry points:
+```bash
+sis query sample.pdf graph.event --where "trigger_class == 'automatic'"
+```
+4. Focus on concrete outcomes:
+```bash
+sis query sample.pdf graph.event --where "outcome_type == 'NetworkEgress'"
+```
+5. Reduce noise with local induced subgraph export:
+```bash
+sis query sample.pdf graph.event.hops 2 --where "outcome_type == 'NetworkEgress'"
+```
 
 ## XFA form queries
 

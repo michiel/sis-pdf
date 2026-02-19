@@ -306,7 +306,20 @@ fn notes_from_findings(
             notes.entry("payload.type".into()).or_insert_with(|| payload_type.clone());
         }
         for (k, v) in &f.meta {
-            if k.starts_with("js.") || k.starts_with("payload.") {
+            if k.starts_with("js.")
+                || k.starts_with("payload.")
+                || k.starts_with("edge.")
+                || k.starts_with("exploit.")
+                || matches!(
+                    k.as_str(),
+                    "chain.stage"
+                        | "chain.capability"
+                        | "chain.trigger"
+                        | "chain.confidence"
+                        | "chain.severity"
+                        | "injection.sources"
+                )
+            {
                 if k == "js.sandbox_exec"
                     && matches!(notes.get(k).map(String::as_str), Some("true"))
                 {

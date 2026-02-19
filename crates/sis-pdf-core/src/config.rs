@@ -1,14 +1,18 @@
 use std::collections::HashMap;
+#[cfg(feature = "filesystem")]
 use std::fs;
+#[cfg(feature = "filesystem")]
 use std::path::Path;
 
 use serde::Deserialize;
 
+#[cfg(feature = "filesystem")]
 use crate::filter_allowlist::load_filter_allowlist;
 use crate::scan::ScanOptions;
 use crate::security_log::{SecurityDomain, SecurityEvent};
 use tracing::{info, warn, Level};
 
+#[cfg(feature = "filesystem")]
 const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 const MAX_OBJECTS: usize = 10_000_000;
 const MAX_DECODE_BYTES: usize = 512 * 1024 * 1024;
@@ -120,6 +124,7 @@ pub struct CorrelationConfig {
 }
 
 impl Config {
+    #[cfg(feature = "filesystem")]
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         if let Ok(meta) = fs::metadata(path) {
             if meta.len() > MAX_CONFIG_BYTES {
@@ -383,6 +388,7 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
     if let Some(strict) = scan.filter_allowlist_strict {
         opts.filter_allowlist_strict = strict;
     }
+    #[cfg(feature = "filesystem")]
     if let Some(path) = scan.filter_allowlist.as_deref() {
         match load_filter_allowlist(std::path::Path::new(path)) {
             Ok(allowlist) => opts.filter_allowlist = Some(allowlist),

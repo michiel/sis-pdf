@@ -72,6 +72,12 @@ fn detects_pdfjs_fontmatrix_injection_signal() {
     let finding = find_pdfjs_finding(&report, "fontmatrix_non_numeric")
         .expect("expected fontmatrix_non_numeric");
     assert_eq!(finding.meta.get("pdfjs.affected_versions").map(String::as_str), Some("<4.2.67"));
+    assert_eq!(finding.meta.get("renderer.profile").map(String::as_str), Some("pdfjs"));
+    assert_eq!(
+        finding.meta.get("renderer.precondition").map(String::as_str),
+        Some("pdfjs_font_parse_path_reachable")
+    );
+    assert_eq!(finding.meta.get("font.subtype").map(String::as_str), Some("/Type1"));
     assert!(!finding.reader_impacts.is_empty());
 }
 
@@ -137,4 +143,39 @@ fn benign_type1_font_does_not_trigger_pdfjs_font_injection() {
     )
     .expect("scan");
     assert!(!report.findings.iter().any(|finding| finding.kind == "pdfjs_font_injection"));
+}
+
+#[test]
+fn detects_pdfjs_encoding_scriptlike_name_signal() {
+    let font = "4 0 obj\n<< /Type /Font /Subtype /Type1 /Encoding << /Differences [0 /Jav#61Script /EvalHook] >> >>\nendobj\n";
+    let objects = base_objects(font);
+    let refs = objects.iter().map(String::as_str).collect::<Vec<_>>();
+    let bytes = build_pdf_with_objects(&refs);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+    assert!(find_pdfjs_finding(&report, "encoding_scriptlike_names").is_some());
+}
+
+#[test]
+fn detects_pdfjs_uncommon_font_subtype_combo_signal() {
+    let font = "4 0 obj\n<< /Type /Font /Subtype /Type0 /FontMatrix [0.001 0 0 0.001 0 0] /DescendantFonts [6 0 R] >>\nendobj\n";
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /MediaBox [0 0 200 200] >>\nendobj\n",
+        font,
+        "6 0 obj\n<< /Type /Font /Subtype /CIDFontType2 >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+    assert!(find_pdfjs_finding(&report, "uncommon_subtype_combo").is_some());
 }

@@ -1,4 +1,6 @@
+use crate::event_graph::{EventGraph, EventNodeKind, OutcomeType};
 use crate::model::{Confidence, Finding};
+use std::collections::{HashSet, VecDeque};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IntentSummary {
@@ -41,6 +43,13 @@ pub struct IntentSignal {
 }
 
 pub fn apply_intent(findings: &mut [Finding]) -> IntentSummary {
+    apply_intent_with_event_graph(findings, None)
+}
+
+pub fn apply_intent_with_event_graph(
+    findings: &mut [Finding],
+    event_graph: Option<&EventGraph>,
+) -> IntentSummary {
     let mut signals = Vec::new();
     let mut has_js = false;
     let mut has_action = false;
@@ -75,6 +84,38 @@ pub fn apply_intent(findings: &mut [Finding]) -> IntentSummary {
     }
     if has_embedded && has_action {
         signals.push(signal(IntentBucket::Persistence, 2, "Embedded payload with action", None));
+    }
+    if let Some(graph) = event_graph {
+        let has_network_path = has_event_path_to_outcome(
+            graph,
+            &[OutcomeType::NetworkEgress, OutcomeType::FormSubmission],
+        );
+        if has_js && (has_uri || has_submit) && has_network_path {
+            signals.push(signal(
+                IntentBucket::DataExfiltration,
+                1,
+                "Connected event-to-network outcome path",
+                None,
+            ));
+        }
+        let has_launch_path = has_event_path_to_outcome(graph, &[OutcomeType::ExternalLaunch]);
+        if has_js && has_launch && has_launch_path {
+            signals.push(signal(
+                IntentBucket::SandboxEscape,
+                1,
+                "Connected event-to-launch outcome path",
+                None,
+            ));
+        }
+        let has_execution_path = has_event_path_to_outcome(graph, &[OutcomeType::CodeExecution]);
+        if has_open_action && has_js && has_execution_path {
+            signals.push(signal(
+                IntentBucket::SandboxEscape,
+                1,
+                "Connected open trigger to executable outcome",
+                None,
+            ));
+        }
     }
 
     let mut buckets: std::collections::BTreeMap<IntentBucket, IntentBucketSummary> =
@@ -122,6 +163,44 @@ pub fn apply_intent(findings: &mut [Finding]) -> IntentSummary {
     }
 
     summary
+}
+
+fn has_event_path_to_outcome(event_graph: &EventGraph, outcomes: &[OutcomeType]) -> bool {
+    let mut queue = VecDeque::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    let wanted = outcomes.iter().copied().collect::<HashSet<_>>();
+
+    for node in &event_graph.nodes {
+        if let EventNodeKind::Event { .. } = node.kind {
+            queue.push_back(node.id.clone());
+            seen.insert(node.id.clone());
+        }
+    }
+
+    while let Some(node_id) = queue.pop_front() {
+        if let Some(indices) = event_graph.forward_index.get(&node_id) {
+            for edge_idx in indices {
+                let Some(edge) = event_graph.edges.get(*edge_idx) else {
+                    continue;
+                };
+                let Some(next_idx) = event_graph.node_index.get(&edge.to) else {
+                    continue;
+                };
+                let Some(next_node) = event_graph.nodes.get(*next_idx) else {
+                    continue;
+                };
+                if let EventNodeKind::Outcome { outcome_type, .. } = next_node.kind {
+                    if wanted.contains(&outcome_type) {
+                        return true;
+                    }
+                }
+                if seen.insert(edge.to.clone()) {
+                    queue.push_back(edge.to.clone());
+                }
+            }
+        }
+    }
+    false
 }
 
 fn signals_from_finding(f: &Finding) -> Vec<IntentSignal> {
@@ -296,4 +375,93 @@ fn bucket_name(bucket: IntentBucket) -> String {
         IntentBucket::ExploitPrimitive => "exploit_primitive",
     }
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event_graph::{EdgeProvenance, EventEdge, EventEdgeKind, EventGraph, EventNode};
+    use std::collections::HashMap;
+
+    fn make_finding(id: &str, kind: &str) -> Finding {
+        Finding { id: id.to_string(), kind: kind.to_string(), ..Finding::default() }
+    }
+
+    fn minimal_event_graph_with_network_outcome() -> EventGraph {
+        let event = EventNode {
+            id: "ev:1:0:DocumentOpen:0".to_string(),
+            mitre_techniques: Vec::new(),
+            kind: EventNodeKind::Event {
+                event_type: crate::event_graph::EventType::DocumentOpen,
+                trigger: crate::event_graph::TriggerClass::Automatic,
+                label: "/OpenAction".to_string(),
+                source_obj: Some((1, 0)),
+            },
+        };
+        let outcome = EventNode {
+            id: "out:1:0:NetworkEgress:0".to_string(),
+            mitre_techniques: Vec::new(),
+            kind: EventNodeKind::Outcome {
+                outcome_type: OutcomeType::NetworkEgress,
+                label: "Network egress".to_string(),
+                target: Some("example.test".to_string()),
+                source_obj: Some((1, 0)),
+                evidence: vec!["f2".to_string()],
+                confidence_source: Some("finding".to_string()),
+                confidence_score: Some(70),
+                severity_hint: Some("medium".to_string()),
+            },
+        };
+        let edge = EventEdge {
+            from: event.id.clone(),
+            to: outcome.id.clone(),
+            kind: EventEdgeKind::ProducesOutcome,
+            provenance: EdgeProvenance::Finding { finding_id: "f2".to_string() },
+            metadata: None,
+        };
+        let nodes = vec![event, outcome];
+        let edges = vec![edge];
+        let mut node_index = HashMap::new();
+        node_index.insert(nodes[0].id.clone(), 0);
+        node_index.insert(nodes[1].id.clone(), 1);
+        let mut forward_index = HashMap::new();
+        forward_index.insert(nodes[0].id.clone(), vec![0]);
+        let mut reverse_index = HashMap::new();
+        reverse_index.insert(nodes[1].id.clone(), vec![0]);
+        EventGraph {
+            schema_version: "1.0",
+            nodes,
+            edges,
+            node_index,
+            forward_index,
+            reverse_index,
+            truncation: None,
+        }
+    }
+
+    #[test]
+    fn intent_connectivity_boost_adds_signal_weight_for_connected_network_path() {
+        let mut findings =
+            vec![make_finding("f1", "js_present"), make_finding("f2", "uri_listing")];
+        let mut baseline_findings = findings.clone();
+        let baseline = apply_intent(&mut baseline_findings);
+        let connected = apply_intent_with_event_graph(
+            &mut findings,
+            Some(&minimal_event_graph_with_network_outcome()),
+        );
+
+        let baseline_score = baseline
+            .buckets
+            .iter()
+            .find(|bucket| bucket.bucket == IntentBucket::DataExfiltration)
+            .map(|bucket| bucket.score)
+            .unwrap_or(0);
+        let connected_score = connected
+            .buckets
+            .iter()
+            .find(|bucket| bucket.bucket == IntentBucket::DataExfiltration)
+            .map(|bucket| bucket.score)
+            .unwrap_or(0);
+        assert!(connected_score > baseline_score);
+    }
 }

@@ -1,3 +1,4 @@
+use crate::event_graph::TriggerClass;
 use crate::explainability::GraphPathExplanation;
 use crate::org::OrgGraph;
 use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge, TypedGraph};
@@ -256,22 +257,6 @@ fn classify_action_edge<'a>(edge: &'a TypedEdge) -> Option<ActionEdgeInfo<'a>> {
 
 fn is_automatic_action_event(event: &str) -> bool {
     matches!(event, "/O" | "/C" | "/PV" | "/PI" | "/V" | "/PO")
-}
-
-enum TriggerClass {
-    Automatic,
-    Hidden,
-    User,
-}
-
-impl TriggerClass {
-    fn as_str(&self) -> &'static str {
-        match self {
-            TriggerClass::Automatic => "automatic",
-            TriggerClass::Hidden => "hidden",
-            TriggerClass::User => "user",
-        }
-    }
 }
 
 fn trigger_color(class: &TriggerClass) -> &'static str {

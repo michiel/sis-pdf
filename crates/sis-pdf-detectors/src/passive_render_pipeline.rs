@@ -4,22 +4,27 @@ use sis_pdf_core::model::{
     AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
 };
 use sis_pdf_core::scan::span_to_evidence;
-use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr};
+use sis_pdf_pdf::object::{PdfAtom, PdfDict};
 use sis_pdf_pdf::typed_graph::EdgeType;
 use std::collections::{BTreeSet, HashMap};
 
 use crate::entry_dict;
+use crate::external_target::{extract_text_target, normalise_external_target};
 
 pub struct PassiveRenderPipelineDetector;
 
 #[derive(Clone)]
 struct ExternalTargetHit {
+    object_id: (u32, u16),
     object_ref: String,
     object_span: sis_pdf_pdf::span::Span,
     source_key: String,
     source_context: String,
     target: String,
+    normalised_target: String,
     protocol: String,
+    high_risk_scheme: bool,
+    obfuscated_target: bool,
     credential_leak_risk: bool,
     ntlm_host: Option<String>,
     ntlm_share: Option<String>,
@@ -98,12 +103,64 @@ impl Detector for PassiveRenderPipelineDetector {
                 continue;
             }
             let object_ref = format!("{} {} obj", entry.obj, entry.gen);
-            collect_external_targets(dict, &context, &object_ref, entry.full_span, &mut hits);
+            collect_external_targets(
+                dict,
+                &context,
+                (entry.obj, entry.gen),
+                &object_ref,
+                entry.full_span,
+                &mut hits,
+            );
         }
 
         if hits.is_empty() {
             return Ok(Vec::new());
         }
+        let mut hidden_path_objects = Vec::new();
+        let mut orphaned_font_objects = Vec::new();
+        let mut orphaned_image_objects = Vec::new();
+        for hit in &hits {
+            if !matches!(hit.source_context.as_str(), "font" | "image") {
+                continue;
+            }
+            let incoming = typed_graph.incoming_edges(hit.object_id.0, hit.object_id.1);
+            if incoming.is_empty() {
+                continue;
+            }
+            let has_page_parent = incoming.iter().any(|edge| {
+                typed_graph
+                    .graph
+                    .classify_objects()
+                    .get(&edge.src)
+                    .map(|classified| {
+                        matches!(
+                            classified.obj_type,
+                            sis_pdf_pdf::classification::PdfObjectType::Page
+                        )
+                    })
+                    .unwrap_or(false)
+            });
+            let has_resource_ref = incoming.iter().any(|edge| {
+                matches!(
+                    edge.edge_type,
+                    EdgeType::PageResources | EdgeType::FontReference | EdgeType::XObjectReference
+                )
+            });
+            if has_resource_ref && !has_page_parent {
+                hidden_path_objects.push(hit.object_ref.clone());
+                if hit.source_context == "font" {
+                    orphaned_font_objects.push(hit.object_ref.clone());
+                } else if hit.source_context == "image" {
+                    orphaned_image_objects.push(hit.object_ref.clone());
+                }
+            }
+        }
+        hidden_path_objects.sort();
+        hidden_path_objects.dedup();
+        orphaned_font_objects.sort();
+        orphaned_font_objects.dedup();
+        orphaned_image_objects.sort();
+        orphaned_image_objects.dedup();
 
         let protocols: BTreeSet<String> = hits.iter().map(|hit| hit.protocol.clone()).collect();
         let contexts: BTreeSet<String> =
@@ -111,6 +168,8 @@ impl Detector for PassiveRenderPipelineDetector {
         let objects: BTreeSet<String> = hits.iter().map(|hit| hit.object_ref.clone()).collect();
         let credential_leak_hits = hits.iter().filter(|hit| hit.credential_leak_risk).count();
         let ntlm_targets = hits.iter().filter(|hit| hit.ntlm_host.is_some()).count();
+        let obfuscated_targets = hits.iter().filter(|hit| hit.obfuscated_target).count();
+        let high_risk_targets = hits.iter().filter(|hit| hit.high_risk_scheme).count();
         let max_protocol_risk = hits
             .iter()
             .map(|hit| protocol_risk_class(&hit.protocol))
@@ -172,6 +231,8 @@ impl Detector for PassiveRenderPipelineDetector {
             if credential_leak_hits > 0 { "true" } else { "false" }.into(),
         );
         base_meta.insert("passive.ntlm_target_count".into(), ntlm_targets.to_string());
+        base_meta.insert("passive.obfuscated_target_count".into(), obfuscated_targets.to_string());
+        base_meta.insert("passive.high_risk_target_count".into(), high_risk_targets.to_string());
         base_meta.insert(
             "passive.ntlm_hash_leak_likelihood".into(),
             ntlm_hash_likelihood(trigger_mode, max_protocol_risk, credential_leak_hits).into(),
@@ -211,6 +272,14 @@ impl Detector for PassiveRenderPipelineDetector {
                 ntlm_shares.into_iter().take(6).collect::<Vec<_>>().join(", "),
             );
         }
+        let mut sample_normalised =
+            hits.iter().map(|hit| hit.normalised_target.clone()).collect::<Vec<_>>();
+        sample_normalised.sort();
+        sample_normalised.dedup();
+        base_meta.insert(
+            "passive.external_targets_normalised".into(),
+            sample_normalised.into_iter().take(6).collect::<Vec<_>>().join(", "),
+        );
 
         let mut findings = Vec::new();
         findings.push(Finding {
@@ -314,6 +383,182 @@ impl Detector for PassiveRenderPipelineDetector {
                         ),
                     },
                 ],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        if high_risk_targets > 0 {
+            let mut meta = base_meta.clone();
+            meta.insert("resource.high_risk_scheme_count".into(), high_risk_targets.to_string());
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Actions,
+                kind: "resource.external_reference_high_risk_scheme".into(),
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                impact: Some(Impact::High),
+                title: "High-risk external reference scheme".into(),
+                description:
+                    "External references use high-risk schemes (UNC/SMB/file/data) in renderable PDF contexts."
+                        .into(),
+                objects: objects.iter().cloned().collect(),
+                evidence: hits
+                    .iter()
+                    .filter(|hit| hit.high_risk_scheme)
+                    .take(8)
+                    .map(|hit| span_to_evidence(hit.object_span, "High-risk external scheme"))
+                    .collect(),
+                remediation: Some(
+                    "Block high-risk external schemes in untrusted documents and isolate rendering."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: vec![],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        if obfuscated_targets > 0 {
+            let mut meta = base_meta.clone();
+            meta.insert("resource.obfuscated_target_count".into(), obfuscated_targets.to_string());
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Actions,
+                kind: "resource.external_reference_obfuscated".into(),
+                severity: Severity::Medium,
+                confidence: Confidence::Probable,
+                impact: Some(Impact::Medium),
+                title: "Obfuscated external reference target".into(),
+                description:
+                    "External targets include obfuscation markers (encoding/normalisation deltas)."
+                        .into(),
+                objects: objects.iter().cloned().collect(),
+                evidence: hits
+                    .iter()
+                    .filter(|hit| hit.obfuscated_target)
+                    .take(8)
+                    .map(|hit| span_to_evidence(hit.object_span, "Obfuscated external target"))
+                    .collect(),
+                remediation: Some(
+                    "Normalise and inspect external targets before trust decisions.".into(),
+                ),
+                meta,
+                reader_impacts: vec![],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        if !hidden_path_objects.is_empty() {
+            let mut meta = base_meta.clone();
+            meta.insert(
+                "resource.hidden_render_path_count".into(),
+                hidden_path_objects.len().to_string(),
+            );
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Actions,
+                kind: "resource.hidden_render_path".into(),
+                severity: Severity::Medium,
+                confidence: Confidence::Probable,
+                impact: Some(Impact::Medium),
+                title: "Hidden resource render path".into(),
+                description:
+                    "Image/font objects are reachable through resource references without clear direct page ancestry."
+                        .into(),
+                objects: hidden_path_objects.clone(),
+                evidence: hits
+                    .iter()
+                    .filter(|hit| hidden_path_objects.contains(&hit.object_ref))
+                    .take(8)
+                    .map(|hit| span_to_evidence(hit.object_span, "Hidden resource render path"))
+                    .collect(),
+                remediation: Some(
+                    "Inspect nested resource dictionaries and form XObject chains for concealed render paths."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: vec![],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        if !orphaned_font_objects.is_empty() {
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::StreamsAndFilters,
+                kind: "font.orphaned_but_reachable".into(),
+                severity: Severity::Low,
+                confidence: Confidence::Tentative,
+                impact: Some(Impact::Low),
+                title: "Font appears orphaned but reachable".into(),
+                description:
+                    "Font objects appear reachable through indirect resource chains without direct page linkage."
+                        .into(),
+                objects: orphaned_font_objects.clone(),
+                evidence: hits
+                    .iter()
+                    .filter(|hit| orphaned_font_objects.contains(&hit.object_ref))
+                    .take(8)
+                    .map(|hit| span_to_evidence(hit.object_span, "Orphaned font resource path"))
+                    .collect(),
+                remediation: Some(
+                    "Trace resource inheritance and nested forms to verify expected font linkage.".into(),
+                ),
+                meta: HashMap::new(),
+                reader_impacts: vec![],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        if !orphaned_image_objects.is_empty() {
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Images,
+                kind: "image.orphaned_but_reachable".into(),
+                severity: Severity::Low,
+                confidence: Confidence::Tentative,
+                impact: Some(Impact::Low),
+                title: "Image appears orphaned but reachable".into(),
+                description:
+                    "Image objects appear reachable through indirect resource chains without direct page linkage."
+                        .into(),
+                objects: orphaned_image_objects.clone(),
+                evidence: hits
+                    .iter()
+                    .filter(|hit| orphaned_image_objects.contains(&hit.object_ref))
+                    .take(8)
+                    .map(|hit| span_to_evidence(hit.object_span, "Orphaned image resource path"))
+                    .collect(),
+                remediation: Some(
+                    "Trace resource inheritance and nested forms to verify expected image linkage.".into(),
+                ),
+                meta: HashMap::new(),
+                reader_impacts: vec![],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -435,6 +680,7 @@ fn is_image_related(dict: &PdfDict<'_>) -> bool {
 fn collect_external_targets(
     dict: &PdfDict<'_>,
     context: &str,
+    object_id: (u32, u16),
     object_ref: &str,
     object_span: sis_pdf_pdf::span::Span,
     out: &mut Vec<ExternalTargetHit>,
@@ -447,82 +693,29 @@ fn collect_external_targets(
         b"/Dest".as_slice(),
     ] {
         if let Some((_, value)) = dict.get_first(key) {
-            if let Some(target) = extract_external_target(value) {
-                if let Some(protocol) = classify_protocol(&target) {
-                    let (ntlm_host, ntlm_share) = extract_ntlm_target_details(&target, protocol);
-                    out.push(ExternalTargetHit {
-                        object_ref: object_ref.to_string(),
-                        object_span,
-                        source_key: String::from_utf8_lossy(key).to_string(),
-                        source_context: context.to_string(),
-                        credential_leak_risk: matches!(protocol, "unc" | "smb"),
-                        ntlm_host,
-                        ntlm_share,
-                        target,
-                        protocol: protocol.to_string(),
-                    });
+            if let Some(target) = extract_text_target(value) {
+                if let Some(normalised) = normalise_external_target(&target) {
+                    if let Some(protocol) = normalised.protocol.as_deref() {
+                        out.push(ExternalTargetHit {
+                            object_id,
+                            object_ref: object_ref.to_string(),
+                            object_span,
+                            source_key: String::from_utf8_lossy(key).to_string(),
+                            source_context: context.to_string(),
+                            credential_leak_risk: normalised.credential_leak_risk,
+                            ntlm_host: normalised.ntlm_host,
+                            ntlm_share: normalised.ntlm_share,
+                            high_risk_scheme: normalised.high_risk_scheme,
+                            obfuscated_target: normalised.obfuscated,
+                            normalised_target: normalised.normalised,
+                            target: normalised.original,
+                            protocol: protocol.to_string(),
+                        });
+                    }
                 }
             }
         }
     }
-}
-
-fn extract_external_target(obj: &PdfObj<'_>) -> Option<String> {
-    match &obj.atom {
-        PdfAtom::Str(text) => Some(String::from_utf8_lossy(&string_bytes(text)).to_string()),
-        PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
-        _ => None,
-    }
-}
-
-fn string_bytes(value: &PdfStr<'_>) -> Vec<u8> {
-    match value {
-        PdfStr::Literal { decoded, .. } => decoded.clone(),
-        PdfStr::Hex { decoded, .. } => decoded.clone(),
-    }
-}
-
-fn classify_protocol(raw: &str) -> Option<&'static str> {
-    let trimmed = raw.trim();
-    let lower = trimmed.to_ascii_lowercase();
-    if lower.starts_with("\\\\") {
-        return Some("unc");
-    }
-    if lower.starts_with("smb://") {
-        return Some("smb");
-    }
-    if lower.starts_with("http://") || lower.starts_with("https://") {
-        return Some("http");
-    }
-    if lower.starts_with("ftp://") {
-        return Some("ftp");
-    }
-    if lower.starts_with("file://") {
-        return Some("file");
-    }
-    None
-}
-
-fn extract_ntlm_target_details(target: &str, protocol: &str) -> (Option<String>, Option<String>) {
-    if protocol == "unc" {
-        let trimmed = target.trim().trim_start_matches('\\');
-        let mut parts = trimmed.split('\\').filter(|part| !part.is_empty());
-        let host = parts.next().map(|value| value.to_string());
-        let share = parts.next().map(|value| value.to_string());
-        return (host, share);
-    }
-    if protocol == "smb" {
-        let trimmed = target.trim();
-        let without_scheme =
-            trimmed.strip_prefix("smb://").or_else(|| trimmed.strip_prefix("SMB://"));
-        if let Some(rest) = without_scheme {
-            let mut parts = rest.split('/').filter(|part| !part.is_empty());
-            let host = parts.next().map(|value| value.to_string());
-            let share = parts.next().map(|value| value.to_string());
-            return (host, share);
-        }
-    }
-    (None, None)
 }
 
 fn protocol_risk_class(protocol: &str) -> ProtocolRiskClass {
@@ -632,10 +825,8 @@ fn render_breakdown(counts: &HashMap<String, usize>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        classify_context, classify_protocol, extract_ntlm_target_details, render_breakdown,
-        PassiveTriggerMode,
-    };
+    use super::{classify_context, render_breakdown, PassiveTriggerMode};
+    use crate::external_target::classify_protocol;
     use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj};
     use sis_pdf_pdf::span::Span;
     use std::borrow::Cow;
@@ -675,18 +866,6 @@ mod tests {
             "passive_render_or_indexer"
         );
         assert_eq!(PassiveTriggerMode::ManualOrUnknown.as_str(), "manual_or_unknown");
-    }
-
-    #[test]
-    fn ntlm_target_details_extract_unc_and_smb_host_share() {
-        assert_eq!(
-            extract_ntlm_target_details("\\\\corp-fs\\finance\\q1.pdf", "unc"),
-            (Some("corp-fs".into()), Some("finance".into()))
-        );
-        assert_eq!(
-            extract_ntlm_target_details("smb://corp-fs.local/fonts/arial.pfb", "smb"),
-            (Some("corp-fs.local".into()), Some("fonts".into()))
-        );
     }
 
     #[test]

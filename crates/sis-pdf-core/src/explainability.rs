@@ -42,6 +42,7 @@ pub struct BenignBaseline {
 
 impl BenignBaseline {
     /// Load baseline from JSON file
+    #[cfg(feature = "filesystem")]
     pub fn load_from_file(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         let content = std::fs::read_to_string(path)?;
         let baseline: BenignBaseline = serde_json::from_str(&content)?;
@@ -49,6 +50,7 @@ impl BenignBaseline {
     }
 
     /// Save baseline to JSON file
+    #[cfg(feature = "filesystem")]
     pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
         let json = serde_json::to_string_pretty(self)?;
         std::fs::write(path, json)?;
@@ -532,6 +534,7 @@ impl CalibrationModel {
     }
 
     /// Load calibration model from JSON file
+    #[cfg(feature = "filesystem")]
     pub fn load_from_file(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         let json = std::fs::read_to_string(path)?;
         let model: CalibrationModel = serde_json::from_str(&json)?;
@@ -539,6 +542,7 @@ impl CalibrationModel {
     }
 
     /// Save calibration model to JSON file
+    #[cfg(feature = "filesystem")]
     pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
         let json = serde_json::to_string_pretty(self)?;
         std::fs::write(path, json)?;

@@ -3,10 +3,11 @@ use sha2::{Digest, Sha256};
 use sis_pdf_core::canonical::canonical_filter_chain;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
+use sis_pdf_core::page_tree::build_page_tree;
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_core::timeout::TimeoutChecker;
-use sis_pdf_pdf::content::parse_content_ops;
-use sis_pdf_pdf::object::PdfAtom;
+use sis_pdf_pdf::content::{parse_content_ops, ContentOperand};
+use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStream};
 
 use crate::entry_dict;
 
@@ -114,6 +115,7 @@ impl Detector for ParserDivergenceDetector {
             divergence_reasons.push("duplicate_stream_filters".to_string());
         }
 
+        let content_stream_ids = collect_content_stream_ids(ctx);
         for entry in &ctx.graph.objects {
             if timeout.check().is_err() {
                 break;
@@ -121,12 +123,7 @@ impl Detector for ParserDivergenceDetector {
             let PdfAtom::Stream(stream) = &entry.atom else {
                 continue;
             };
-            let Some(dict) = entry_dict(entry) else {
-                continue;
-            };
-            let likely_content_stream = dict.get_first(b"/Length").is_some()
-                && (dict.get_first(b"/Filter").is_none() || dict.get_first(b"/Type").is_none());
-            if !likely_content_stream {
+            if !content_stream_ids.contains(&(entry.obj, entry.gen)) {
                 continue;
             }
             let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, stream) else {
@@ -138,24 +135,45 @@ impl Detector for ParserDivergenceDetector {
             }
             let mut unknown_ops = 0usize;
             let mut arity_mismatches = 0usize;
+            let mut type_mismatches = 0usize;
             let mut samples = Vec::new();
+            let mut unknown_sample_list = Vec::new();
+            let mut arity_sample_list = Vec::new();
+            let mut type_sample_list = Vec::new();
             for op in &ops {
                 if !is_known_content_operator(op.op.as_str()) {
                     unknown_ops += 1;
+                    if unknown_sample_list.len() < 12 {
+                        unknown_sample_list.push(op.op.clone());
+                    }
                     if samples.len() < 8 {
                         samples.push(format!("unknown:{}", op.op));
                     }
                 }
-                if let Some(expected) = expected_operand_count(op.op.as_str()) {
-                    if op.operands.len() != expected {
-                        arity_mismatches += 1;
-                        if samples.len() < 8 {
-                            samples.push(format!("arity:{}={}", op.op, op.operands.len()));
+                if let Some(issue) = validate_operator_operands(op.op.as_str(), &op.operands) {
+                    match issue {
+                        OperatorIssue::Arity => {
+                            arity_mismatches += 1;
+                            if arity_sample_list.len() < 12 {
+                                arity_sample_list.push(format!("{}={}", op.op, op.operands.len()));
+                            }
+                            if samples.len() < 8 {
+                                samples.push(format!("arity:{}={}", op.op, op.operands.len()));
+                            }
+                        }
+                        OperatorIssue::Type(kind) => {
+                            type_mismatches += 1;
+                            if type_sample_list.len() < 12 {
+                                type_sample_list.push(format!("{}:{kind}", op.op));
+                            }
+                            if samples.len() < 8 {
+                                samples.push(format!("type:{}:{kind}", op.op));
+                            }
                         }
                     }
                 }
             }
-            if unknown_ops == 0 && arity_mismatches == 0 {
+            if unknown_ops == 0 && arity_mismatches == 0 && type_mismatches == 0 {
                 continue;
             }
             let object_ref = format!("{} {} obj", entry.obj, entry.gen);
@@ -164,14 +182,31 @@ impl Detector for ParserDivergenceDetector {
             meta.insert("content.op_count".into(), ops.len().to_string());
             meta.insert("content.unknown_ops".into(), unknown_ops.to_string());
             meta.insert("content.arity_mismatches".into(), arity_mismatches.to_string());
+            meta.insert("content.type_mismatches".into(), type_mismatches.to_string());
             if !samples.is_empty() {
                 meta.insert("content.samples".into(), samples.join(", "));
+            }
+            if !unknown_sample_list.is_empty() {
+                meta.insert("content.unknown_op_list".into(), unknown_sample_list.join(","));
+            }
+            if !arity_sample_list.is_empty() {
+                meta.insert("content.arity_mismatch_list".into(), arity_sample_list.join(","));
+            }
+            if !type_sample_list.is_empty() {
+                meta.insert("content.type_mismatch_list".into(), type_sample_list.join(","));
+            }
+            let mut description = format!(
+                "Decoded content stream produced {} operators with {} unknown operators, {} operand arity mismatches, and {} operand type mismatches.",
+                ops.len(), unknown_ops, arity_mismatches, type_mismatches
+            );
+            if !samples.is_empty() {
+                description.push_str(&format!(" Sample signals: {}.", samples.join(", ")));
             }
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::FileStructure,
                 kind: "content_stream_anomaly".into(),
-                severity: if unknown_ops + arity_mismatches >= 3 {
+                severity: if unknown_ops + arity_mismatches + type_mismatches >= 3 {
                     Severity::Medium
                 } else {
                     Severity::Low
@@ -179,9 +214,7 @@ impl Detector for ParserDivergenceDetector {
                 confidence: Confidence::Probable,
                 impact: Some(Impact::Low),
                 title: "Content stream syntax anomaly".into(),
-                description:
-                    "Decoded content stream contains unknown operators or suspicious operand counts that can yield parser-dependent rendering."
-                        .into(),
+                description,
                 objects: vec![object_ref],
                 evidence: vec![span_to_evidence(stream.data_span, "Decoded content stream")],
                 remediation: Some(
@@ -341,6 +374,8 @@ fn is_known_content_operator(operator: &str) -> bool {
             | "k"
             | "sh"
             | "Do"
+            | "d0"
+            | "d1"
             | "MP"
             | "DP"
             | "BMC"
@@ -348,23 +383,277 @@ fn is_known_content_operator(operator: &str) -> bool {
             | "EMC"
             | "BX"
             | "EX"
+            | "BI"
+            | "ID"
+            | "EI"
     )
 }
 
-fn expected_operand_count(operator: &str) -> Option<usize> {
-    match operator {
-        "q" | "Q" | "h" | "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "n" | "W"
-        | "W*" | "BT" | "ET" | "T*" | "TJ" | "'" | "\"" => Some(0),
-        "m" | "l" => Some(2),
-        "v" | "y" => Some(4),
-        "c" => Some(6),
-        "re" => Some(4),
-        "cm" => Some(6),
-        "Tf" => Some(2),
-        "Td" | "TD" => Some(2),
-        "Tm" => Some(6),
-        "Tj" => Some(1),
-        "Do" => Some(1),
+enum OperatorIssue {
+    Arity,
+    Type(&'static str),
+}
+
+fn collect_content_stream_ids(
+    ctx: &sis_pdf_core::scan::ScanContext<'_>,
+) -> std::collections::HashSet<(u32, u16)> {
+    let mut ids = std::collections::HashSet::new();
+    let page_tree = build_page_tree(&ctx.graph);
+    for page in &page_tree.pages {
+        let Some(page_entry) = ctx.graph.get_object(page.obj, page.gen) else {
+            continue;
+        };
+        let Some(page_dict) = entry_dict(page_entry) else {
+            continue;
+        };
+        for stream in page_content_streams(ctx, page_dict) {
+            if let Some((obj, gen)) = stream_object_ref(ctx, &stream) {
+                ids.insert((obj, gen));
+            }
+        }
+    }
+    ids.extend(type3_charproc_stream_ids(ctx));
+    ids
+}
+
+fn page_content_streams<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
+    dict: &PdfDict<'a>,
+) -> Vec<PdfStream<'a>> {
+    let mut out = Vec::new();
+    if let Some((_, obj)) = dict.get_first(b"/Contents") {
+        match &obj.atom {
+            PdfAtom::Stream(st) => out.push(st.clone()),
+            PdfAtom::Array(arr) => {
+                for o in arr {
+                    if let Some(st) = resolve_stream(ctx, o) {
+                        out.push(st);
+                    }
+                }
+            }
+            _ => {
+                if let Some(st) = resolve_stream(ctx, obj) {
+                    out.push(st);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn type3_charproc_stream_ids(
+    ctx: &sis_pdf_core::scan::ScanContext<'_>,
+) -> std::collections::HashSet<(u32, u16)> {
+    let mut ids = std::collections::HashSet::new();
+    for entry in &ctx.graph.objects {
+        let Some(dict) = entry_dict(entry) else {
+            continue;
+        };
+        if !dict.has_name(b"/Subtype", b"/Type3") {
+            continue;
+        }
+        let Some((_, charprocs_obj)) = dict.get_first(b"/CharProcs") else {
+            continue;
+        };
+        let Some(charprocs_dict) = resolve_dict(ctx, charprocs_obj) else {
+            continue;
+        };
+        for (_, glyph_obj) in &charprocs_dict.entries {
+            if let Some(st) = resolve_stream(ctx, glyph_obj) {
+                if let Some((obj, gen)) = stream_object_ref(ctx, &st) {
+                    ids.insert((obj, gen));
+                }
+            }
+        }
+    }
+    ids
+}
+
+fn stream_object_ref(
+    ctx: &sis_pdf_core::scan::ScanContext<'_>,
+    stream: &PdfStream<'_>,
+) -> Option<(u32, u16)> {
+    ctx.graph.objects.iter().find_map(|entry| match &entry.atom {
+        PdfAtom::Stream(st) if st.data_span == stream.data_span => Some((entry.obj, entry.gen)),
+        _ => None,
+    })
+}
+
+fn resolve_stream<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
+    obj: &PdfObj<'a>,
+) -> Option<PdfStream<'a>> {
+    match &obj.atom {
+        PdfAtom::Stream(st) => Some(st.clone()),
+        PdfAtom::Ref { .. } => ctx.graph.resolve_ref(obj).and_then(|e| match &e.atom {
+            PdfAtom::Stream(st) => Some(st.clone()),
+            _ => None,
+        }),
         _ => None,
     }
+}
+
+fn resolve_dict<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
+    obj: &PdfObj<'a>,
+) -> Option<PdfDict<'a>> {
+    match &obj.atom {
+        PdfAtom::Dict(dict) => Some(dict.clone()),
+        PdfAtom::Ref { .. } => ctx.graph.resolve_ref(obj).and_then(|entry| match &entry.atom {
+            PdfAtom::Dict(dict) => Some(dict.clone()),
+            PdfAtom::Stream(stream) => Some(stream.dict.clone()),
+            _ => None,
+        }),
+        PdfAtom::Stream(stream) => Some(stream.dict.clone()),
+        _ => None,
+    }
+}
+
+fn validate_operator_operands(op: &str, operands: &[ContentOperand]) -> Option<OperatorIssue> {
+    use OperatorIssue::{Arity, Type};
+    match op {
+        "q" | "Q" | "h" | "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "n" | "W"
+        | "W*" | "BT" | "ET" | "T*" | "EMC" | "BX" | "EX" | "BI" | "ID" | "EI" => {
+            if operands.is_empty() {
+                None
+            } else {
+                Some(Arity)
+            }
+        }
+        "m" | "l" | "Td" | "TD" | "d0" => expect_numbers(operands, 2),
+        "v" | "y" => expect_numbers(operands, 4),
+        "c" | "cm" | "Tm" => expect_numbers(operands, 6),
+        "re" => expect_numbers(operands, 4),
+        "w" | "M" | "i" | "Tr" | "Ts" | "Tc" | "Tw" | "Tz" | "TL" => expect_numbers(operands, 1),
+        "J" | "j" => expect_numbers(operands, 1),
+        "ri" | "gs" | "Do" | "MP" | "BMC" | "CS" | "cs" => expect_name(operands, 1),
+        "DP" => {
+            if operands.len() < 2 {
+                return Some(Arity);
+            }
+            if !is_name(&operands[0]) {
+                return Some(Type("name"));
+            }
+            None
+        }
+        "BDC" => {
+            if operands.len() != 2 {
+                return Some(Arity);
+            }
+            if !is_name(&operands[0]) {
+                return Some(Type("name"));
+            }
+            if !(is_name(&operands[1]) || is_dict(&operands[1])) {
+                return Some(Type("name_or_dict"));
+            }
+            None
+        }
+        "d" => {
+            if operands.len() != 2 {
+                return Some(Arity);
+            }
+            if !is_array(&operands[0]) {
+                return Some(Type("array"));
+            }
+            if !is_number(&operands[1]) {
+                return Some(Type("number"));
+            }
+            None
+        }
+        "Tf" => {
+            if operands.len() != 2 {
+                return Some(Arity);
+            }
+            if !is_name(&operands[0]) {
+                return Some(Type("name"));
+            }
+            if !is_number(&operands[1]) {
+                return Some(Type("number"));
+            }
+            None
+        }
+        "Tj" | "'" => expect_string(operands, 1),
+        "TJ" => {
+            if operands.len() != 1 {
+                return Some(Arity);
+            }
+            if !is_array(&operands[0]) {
+                return Some(Type("array"));
+            }
+            None
+        }
+        "\"" => {
+            if operands.len() != 3 {
+                return Some(Arity);
+            }
+            if !is_number(&operands[0]) || !is_number(&operands[1]) {
+                return Some(Type("number"));
+            }
+            if !is_string(&operands[2]) {
+                return Some(Type("string"));
+            }
+            None
+        }
+        "SC" | "sc" | "SCN" | "scn" | "sh" | "G" | "g" | "RG" | "rg" | "K" | "k" | "d1" => {
+            if operands.is_empty() {
+                Some(Arity)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn expect_numbers(operands: &[ContentOperand], count: usize) -> Option<OperatorIssue> {
+    if operands.len() != count {
+        return Some(OperatorIssue::Arity);
+    }
+    if operands.iter().all(is_number) {
+        None
+    } else {
+        Some(OperatorIssue::Type("number"))
+    }
+}
+
+fn expect_name(operands: &[ContentOperand], count: usize) -> Option<OperatorIssue> {
+    if operands.len() != count {
+        return Some(OperatorIssue::Arity);
+    }
+    if operands.iter().all(is_name) {
+        None
+    } else {
+        Some(OperatorIssue::Type("name"))
+    }
+}
+
+fn expect_string(operands: &[ContentOperand], count: usize) -> Option<OperatorIssue> {
+    if operands.len() != count {
+        return Some(OperatorIssue::Arity);
+    }
+    if operands.iter().all(is_string) {
+        None
+    } else {
+        Some(OperatorIssue::Type("string"))
+    }
+}
+
+fn is_number(operand: &ContentOperand) -> bool {
+    matches!(operand, ContentOperand::Number(_))
+}
+
+fn is_name(operand: &ContentOperand) -> bool {
+    matches!(operand, ContentOperand::Name(_))
+}
+
+fn is_string(operand: &ContentOperand) -> bool {
+    matches!(operand, ContentOperand::Str(_))
+}
+
+fn is_array(operand: &ContentOperand) -> bool {
+    matches!(operand, ContentOperand::Array(_))
+}
+
+fn is_dict(operand: &ContentOperand) -> bool {
+    matches!(operand, ContentOperand::Dict(_))
 }

@@ -25,6 +25,8 @@ pub enum EdgeType {
     AnnotationAction,
     /// Additional actions /AA generic
     AdditionalAction { event: String },
+    /// Action /Next chain step
+    NextAction,
 
     // JavaScript references
     /// /JS or /JavaScript payload
@@ -107,6 +109,7 @@ impl EdgeType {
             EdgeType::PageAction { .. } => "page_action",
             EdgeType::AnnotationAction => "annotation_action",
             EdgeType::AdditionalAction { .. } => "additional_action",
+            EdgeType::NextAction => "next_action",
             EdgeType::JavaScriptPayload => "javascript_payload",
             EdgeType::JavaScriptNames => "javascript_names",
             EdgeType::UriTarget => "uri_target",
@@ -159,6 +162,7 @@ impl EdgeType {
                 | EdgeType::AdditionalAction { .. }
                 | EdgeType::JavaScriptPayload
                 | EdgeType::FormFieldAction { .. }
+                | EdgeType::NextAction
         ) || matches!(self, EdgeType::DictReference { key } if key == "/Next")
     }
 }
@@ -327,13 +331,16 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
         self.extract_javascript_edges(src, dict);
 
         // Additional Actions (/AA)
-        self.extract_aa_edges(src, dict);
+        self.extract_aa_edges(src, dict, obj_type);
 
         // Form field edges
         self.extract_form_edges(src, dict);
 
+        // Resource semantics (/Resources, /Font, /XObject)
+        self.extract_resource_edges(src, dict);
+
         // Generic dictionary references (fallback)
-        self.extract_generic_dict_edges(src, dict);
+        self.extract_generic_dict_edges(src, dict, obj_type);
     }
 
     /// Extracts edges from an array
@@ -464,9 +471,11 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
                         // Already handled by extract_javascript_edges
                     }
                     b"/URI" => {
-                        if let Some((_, _obj)) = dict.get_first(b"/URI") {
-                            // URI strings aren't references, but we track them
-                            // Actual URI target analysis happens in URI detector
+                        if let Some((_, obj)) = dict.get_first(b"/URI") {
+                            if let Some(dst) = self.resolve_ref(obj) {
+                                let edge = TypedEdge::new_suspicious(src, dst, EdgeType::UriTarget);
+                                self.edges.push(edge);
+                            }
                         }
                     }
                     b"/Launch" => {
@@ -497,6 +506,23 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
                     }
                     _ => {}
                 }
+            }
+        }
+
+        // /Next chaining (single ref or array of refs)
+        if let Some((_, next_obj)) = dict.get_first(b"/Next") {
+            match &next_obj.atom {
+                PdfAtom::Ref { obj, gen } => {
+                    self.edges.push(TypedEdge::new(src, (*obj, *gen), EdgeType::NextAction));
+                }
+                PdfAtom::Array(items) => {
+                    for item in items {
+                        if let Some(dst) = self.resolve_ref(item) {
+                            self.edges.push(TypedEdge::new(src, dst, EdgeType::NextAction));
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -532,7 +558,12 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
     }
 
     /// Extracts Additional Actions (/AA) edges
-    fn extract_aa_edges(&mut self, src: (u32, u16), dict: &PdfDict<'a>) {
+    fn extract_aa_edges(
+        &mut self,
+        src: (u32, u16),
+        dict: &PdfDict<'a>,
+        obj_type: Option<PdfObjectType>,
+    ) {
         if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
             // Get AA dict - could be direct or reference
             let aa_dict_opt = match &aa_obj.atom {
@@ -549,15 +580,21 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
 
             if let Some(aa_dict) = aa_dict_opt {
                 // Common AA events
-                let events = ["/O", "/C", "/WC", "/WS", "/WP", "/K", "/F", "/V"];
+                let events = [
+                    "/O", "/C", "/WC", "/WS", "/DS", "/WP", "/DP", "/PV", "/PI", "/K", "/F", "/V",
+                    "/D", "/U", "/E", "/X", "/Fo", "/Bl",
+                ];
                 for event in &events {
                     if let Some((_, obj)) = aa_dict.get_first(event.as_bytes()) {
                         if let Some(dst) = Self::resolve_ref_static(obj) {
-                            let edge = TypedEdge::new_suspicious(
-                                src,
-                                dst,
-                                EdgeType::AdditionalAction { event: event.to_string() },
-                            );
+                            let edge_type = if obj_type == Some(PdfObjectType::Page) {
+                                EdgeType::PageAction { event: event.to_string() }
+                            } else if is_form_field_dict(dict) {
+                                EdgeType::FormFieldAction { event: event.to_string() }
+                            } else {
+                                EdgeType::AdditionalAction { event: event.to_string() }
+                            };
+                            let edge = TypedEdge::new_suspicious(src, dst, edge_type);
                             self.edges.push(edge);
                         }
                     }
@@ -592,14 +629,98 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
         }
     }
 
+    /// Extracts resource-related semantic edges
+    fn extract_resource_edges(&mut self, src: (u32, u16), dict: &PdfDict<'a>) {
+        if let Some((_, resources_obj)) = dict.get_first(b"/Resources") {
+            if let Some(dst) = self.resolve_ref(resources_obj) {
+                self.edges.push(TypedEdge::new(src, dst, EdgeType::PageResources));
+            }
+            self.extract_resource_dict_edges(src, resources_obj);
+        }
+        if let Some((_, font_obj)) = dict.get_first(b"/Font") {
+            self.extract_font_edges(src, font_obj);
+        }
+        if let Some((_, xobject_obj)) = dict.get_first(b"/XObject") {
+            self.extract_xobject_edges(src, xobject_obj);
+        }
+    }
+
+    fn extract_resource_dict_edges(&mut self, src: (u32, u16), obj: &PdfObj<'a>) {
+        let Some(dict) = self.resolve_dict(obj) else {
+            return;
+        };
+        if let Some((_, font_obj)) = dict.get_first(b"/Font") {
+            self.extract_font_edges(src, font_obj);
+        }
+        if let Some((_, xobject_obj)) = dict.get_first(b"/XObject") {
+            self.extract_xobject_edges(src, xobject_obj);
+        }
+    }
+
+    fn extract_font_edges(&mut self, src: (u32, u16), obj: &PdfObj<'a>) {
+        self.collect_reference_targets(obj).into_iter().for_each(|dst| {
+            self.edges.push(TypedEdge::new(src, dst, EdgeType::FontReference));
+        });
+    }
+
+    fn extract_xobject_edges(&mut self, src: (u32, u16), obj: &PdfObj<'a>) {
+        self.collect_reference_targets(obj).into_iter().for_each(|dst| {
+            self.edges.push(TypedEdge::new(src, dst, EdgeType::XObjectReference));
+        });
+    }
+
+    fn collect_reference_targets(&self, obj: &PdfObj<'a>) -> Vec<(u32, u16)> {
+        match &obj.atom {
+            PdfAtom::Ref { obj, gen } => vec![(*obj, *gen)],
+            PdfAtom::Array(items) => items
+                .iter()
+                .filter_map(|item| match item.atom {
+                    PdfAtom::Ref { obj, gen } => Some((obj, gen)),
+                    _ => None,
+                })
+                .collect(),
+            PdfAtom::Dict(dict) => dict
+                .entries
+                .iter()
+                .filter_map(|(_, value)| match value.atom {
+                    PdfAtom::Ref { obj, gen } => Some((obj, gen)),
+                    _ => None,
+                })
+                .collect(),
+            _ => {
+                let resolved_dict = self.resolve_dict(obj);
+                resolved_dict
+                    .map(|dict| {
+                        dict.entries
+                            .iter()
+                            .filter_map(|(_, value)| match value.atom {
+                                PdfAtom::Ref { obj, gen } => Some((obj, gen)),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            }
+        }
+    }
+
     /// Extracts generic dictionary references
-    fn extract_generic_dict_edges(&mut self, src: (u32, u16), dict: &PdfDict<'a>) {
+    fn extract_generic_dict_edges(
+        &mut self,
+        src: (u32, u16),
+        dict: &PdfDict<'a>,
+        obj_type: Option<PdfObjectType>,
+    ) {
         // Extract all references that weren't handled by specific extractors
         for (key, value) in &dict.entries {
             if let Some(dst) = self.resolve_ref(value) {
                 // Check if this edge was already added by specific extractor
                 // For now, we'll skip generic edges for known keys
                 let key_bytes = &key.decoded;
+                // Action /Next is handled semantically as NextAction edges.
+                if key_bytes == b"/Next" && obj_type == Some(PdfObjectType::Action) {
+                    continue;
+                }
                 if !self.is_known_key(key_bytes) {
                     let edge = TypedEdge::new(
                         src,
@@ -633,6 +754,7 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
                 | b"/XFA"
                 | b"/Encrypt"
                 | b"/Names"
+                | b"/Next"
         )
     }
 
@@ -645,6 +767,20 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
     fn resolve_ref_static(obj: &PdfObj<'a>) -> Option<(u32, u16)> {
         match obj.atom {
             PdfAtom::Ref { obj, gen } => Some((obj, gen)),
+            _ => None,
+        }
+    }
+
+    fn resolve_dict<'c>(&self, obj: &'c PdfObj<'a>) -> Option<&'c PdfDict<'a>> {
+        match &obj.atom {
+            PdfAtom::Dict(dict) => Some(dict),
+            PdfAtom::Ref { obj, gen } => {
+                self.graph.get_object(*obj, *gen).and_then(|entry| match &entry.atom {
+                    PdfAtom::Dict(dict) => Some(dict),
+                    PdfAtom::Stream(stream) => Some(&stream.dict),
+                    _ => None,
+                })
+            }
             _ => None,
         }
     }
@@ -676,6 +812,10 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
     }
 }
 
+fn is_form_field_dict(dict: &PdfDict<'_>) -> bool {
+    dict.get_first(b"/FT").is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,6 +828,7 @@ mod tests {
 
         assert!(EdgeType::OpenAction.is_executable());
         assert!(EdgeType::JavaScriptPayload.is_executable());
+        assert!(EdgeType::NextAction.is_executable());
         assert!(!EdgeType::PageParent.is_executable());
     }
 
