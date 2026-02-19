@@ -3,7 +3,8 @@
 use anyhow::Result;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
+use std::str;
 
 use crate::encryption_obfuscation::{encryption_meta_from_dict, resolve_encrypt_dict};
 use sha2::{Digest, Sha256};
@@ -2211,6 +2212,12 @@ impl Detector for PdfjsRenderingIndicatorDetector {
         let mut annotation_objects = Vec::new();
         let mut form_js_objects = Vec::new();
         let mut form_html_objects = Vec::new();
+        let mut form_js_sources = BTreeSet::new();
+        let mut form_html_sources = BTreeSet::new();
+        let mut form_js_normalised = false;
+        let mut form_html_normalised = false;
+        let mut form_js_decode_layers = 0u8;
+        let mut form_html_decode_layers = 0u8;
         let mut eval_path_objects = Vec::new();
 
         for entry in &ctx.graph.objects {
@@ -2234,13 +2241,34 @@ impl Detector for PdfjsRenderingIndicatorDetector {
             if is_form_dict(dict) {
                 let mut signals = InjectionSignals::default();
                 if let Some((_, obj)) = dict.get_first(b"/V") {
-                    signals.merge(obj_collect_injection_signals(obj, ctx, 0));
+                    let field_signals = obj_collect_injection_signals(obj, ctx, 0);
+                    if field_signals.has_js {
+                        form_js_sources.insert("/V");
+                    }
+                    if field_signals.has_html {
+                        form_html_sources.insert("/V");
+                    }
+                    signals.merge(field_signals);
                 }
                 if let Some((_, obj)) = dict.get_first(b"/DV") {
-                    signals.merge(obj_collect_injection_signals(obj, ctx, 0));
+                    let field_signals = obj_collect_injection_signals(obj, ctx, 0);
+                    if field_signals.has_js {
+                        form_js_sources.insert("/DV");
+                    }
+                    if field_signals.has_html {
+                        form_html_sources.insert("/DV");
+                    }
+                    signals.merge(field_signals);
                 }
                 if let Some((_, obj)) = dict.get_first(b"/AP") {
-                    signals.merge(obj_collect_injection_signals(obj, ctx, 0));
+                    let field_signals = obj_collect_injection_signals(obj, ctx, 0);
+                    if field_signals.has_js {
+                        form_js_sources.insert("/AP");
+                    }
+                    if field_signals.has_html {
+                        form_html_sources.insert("/AP");
+                    }
+                    signals.merge(field_signals);
                 }
 
                 let detected = signals.classify();
@@ -2249,13 +2277,23 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 match detected {
                     Some(InjectionType::JavaScript) => {
                         form_js_objects.push(obj_ref);
+                        form_js_normalised |= signals.normalised;
+                        form_js_decode_layers = form_js_decode_layers.max(signals.decode_layers);
                     }
                     Some(InjectionType::Html) => {
                         form_html_objects.push(obj_ref);
+                        form_html_normalised |= signals.normalised;
+                        form_html_decode_layers =
+                            form_html_decode_layers.max(signals.decode_layers);
                     }
                     Some(InjectionType::Both) => {
                         form_js_objects.push(obj_ref.clone());
                         form_html_objects.push(obj_ref);
+                        form_js_normalised |= signals.normalised;
+                        form_html_normalised |= signals.normalised;
+                        form_js_decode_layers = form_js_decode_layers.max(signals.decode_layers);
+                        form_html_decode_layers =
+                            form_html_decode_layers.max(signals.decode_layers);
                     }
                     None => {}
                 }
@@ -2320,18 +2358,30 @@ impl Detector for PdfjsRenderingIndicatorDetector {
             meta.insert("pdfjs.affected_versions".into(), "<4.2.67".into());
             meta.insert("pdfjs.form_object_count".into(), form_js_objects.len().to_string());
             meta.insert("injection.type".into(), "javascript".into());
+            if !form_js_sources.is_empty() {
+                meta.insert("injection.sources".into(), form_js_sources.iter().copied().collect::<Vec<_>>().join(","));
+            }
+            if form_js_normalised {
+                meta.insert("injection.normalised".into(), "true".into());
+                meta.insert("injection.decode_layers".into(), form_js_decode_layers.to_string());
+            }
+            let confidence = if form_js_decode_layers > 1 {
+                Confidence::Strong
+            } else {
+                Confidence::Probable
+            };
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::Forms,
                 kind: "pdfjs_form_injection".into(),
                 severity: Severity::Medium,
-                confidence: Confidence::Probable,
+                confidence,
                 impact: Some(Impact::Medium),
                 title: "PDF.js form injection indicator".into(),
                 description:
                     "Form value/appearance fields contain script-like payload tokens.".into(),
                 objects: form_js_objects,
-                evidence: keyword_evidence(ctx.bytes, b"/AcroForm", "Form dictionary", 2),
+                evidence: form_injection_evidence(ctx.bytes, &form_js_sources, 2),
                 remediation: Some(
                     "Inspect form default/value and appearance entries for injected JavaScript payload content."
                         .into(),
@@ -2358,6 +2408,16 @@ impl Detector for PdfjsRenderingIndicatorDetector {
             meta.insert("injection.type".into(), "html_xss".into());
             meta.insert("form.html_object_count".into(), form_html_objects.len().to_string());
             meta.insert("injection.patterns".into(), "html_tags,event_handlers,context_breaking".into());
+            if !form_html_sources.is_empty() {
+                meta.insert(
+                    "injection.sources".into(),
+                    form_html_sources.iter().copied().collect::<Vec<_>>().join(","),
+                );
+            }
+            if form_html_normalised {
+                meta.insert("injection.normalised".into(), "true".into());
+                meta.insert("injection.decode_layers".into(), form_html_decode_layers.to_string());
+            }
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::Forms,
@@ -2369,7 +2429,7 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 description:
                     "Form field value contains HTML tags, event handlers, or context-breaking sequences that could enable XSS if rendered in web context.".into(),
                 objects: form_html_objects,
-                evidence: keyword_evidence(ctx.bytes, b"/V", "Form field value", 3),
+                evidence: form_injection_evidence(ctx.bytes, &form_html_sources, 3),
                 remediation: Some(
                     "Review form field /V (value) and /DV (default value) entries for HTML tag injection, event handler attributes, or tag-breaking sequences. Validate against web rendering contexts (PDF.js, form data export, HTML conversion).".into(),
                 ),
@@ -2445,6 +2505,23 @@ fn is_form_dict(dict: &PdfDict<'_>) -> bool {
         || dict.get_first(b"/FT").is_some()
         || dict.get_first(b"/T").is_some()
         || dict.get_first(b"/Kids").is_some()
+}
+
+fn form_injection_evidence(
+    bytes: &[u8],
+    sources: &BTreeSet<&'static str>,
+    context_lines: usize,
+) -> Vec<sis_pdf_core::model::EvidenceSpan> {
+    if sources.contains("/AP") {
+        return keyword_evidence(bytes, b"/AP", "Form appearance", context_lines);
+    }
+    if sources.contains("/V") {
+        return keyword_evidence(bytes, b"/V", "Form field value", context_lines);
+    }
+    if sources.contains("/DV") {
+        return keyword_evidence(bytes, b"/DV", "Form default value", context_lines);
+    }
+    keyword_evidence(bytes, b"/AcroForm", "Form dictionary", context_lines)
 }
 
 fn is_pdfjs_eval_path_font(dict: &PdfDict<'_>) -> bool {
@@ -2610,6 +2687,9 @@ fn contains_pdfjs_injection_tokens(payload: &[u8]) -> bool {
     })
 }
 
+const MAX_INJECTION_DECODE_LAYERS: u8 = 3;
+const MAX_INJECTION_DECODE_BYTES: usize = 64 * 1024;
+
 fn contains_html_injection_tokens(payload: &[u8]) -> bool {
     let lower = payload.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<u8>>();
 
@@ -2653,12 +2733,16 @@ enum InjectionType {
 struct InjectionSignals {
     has_js: bool,
     has_html: bool,
+    normalised: bool,
+    decode_layers: u8,
 }
 
 impl InjectionSignals {
     fn merge(&mut self, other: InjectionSignals) {
         self.has_js |= other.has_js;
         self.has_html |= other.has_html;
+        self.normalised |= other.normalised;
+        self.decode_layers = self.decode_layers.max(other.decode_layers);
     }
 
     fn classify(self) -> Option<InjectionType> {
@@ -2672,9 +2756,210 @@ impl InjectionSignals {
 }
 
 fn detect_injection_signals(payload: &[u8]) -> InjectionSignals {
-    InjectionSignals {
+    let mut signals = InjectionSignals {
         has_js: contains_pdfjs_injection_tokens(payload),
         has_html: contains_html_injection_tokens(payload),
+        ..InjectionSignals::default()
+    };
+    let normalised = normalise_injection_payload(payload);
+    if normalised.decode_layers > 0 {
+        signals.normalised = true;
+        signals.decode_layers = normalised.decode_layers;
+        signals.has_js |= contains_pdfjs_injection_tokens(&normalised.bytes);
+        signals.has_html |= contains_html_injection_tokens(&normalised.bytes);
+    }
+    signals
+}
+
+struct NormalisedInjectionPayload {
+    bytes: Vec<u8>,
+    decode_layers: u8,
+}
+
+fn normalise_injection_payload(payload: &[u8]) -> NormalisedInjectionPayload {
+    let mut current = truncate_decode_bytes(payload.to_vec());
+    let mut decode_layers = 0u8;
+
+    for _ in 0..MAX_INJECTION_DECODE_LAYERS {
+        let mut changed = false;
+
+        if let Some(next) = normalise_text_bytes_for_script(&current) {
+            let next = truncate_decode_bytes(next);
+            if next != current {
+                current = next;
+                changed = true;
+            }
+        }
+
+        let (percent_decoded, percent_changed) = decode_percent_encoding(&current);
+        if percent_changed {
+            current = truncate_decode_bytes(percent_decoded);
+            changed = true;
+        }
+
+        let (escape_decoded, escape_changed) = decode_js_escapes(&current);
+        if escape_changed {
+            current = truncate_decode_bytes(escape_decoded);
+            changed = true;
+        }
+
+        let (entity_decoded, entity_changed) = decode_html_entities(&current);
+        if entity_changed {
+            current = truncate_decode_bytes(entity_decoded);
+            changed = true;
+        }
+
+        if !changed {
+            break;
+        }
+        decode_layers = decode_layers.saturating_add(1);
+    }
+
+    NormalisedInjectionPayload { bytes: current, decode_layers }
+}
+
+fn truncate_decode_bytes(mut bytes: Vec<u8>) -> Vec<u8> {
+    if bytes.len() > MAX_INJECTION_DECODE_BYTES {
+        bytes.truncate(MAX_INJECTION_DECODE_BYTES);
+    }
+    bytes
+}
+
+fn decode_percent_encoding(input: &[u8]) -> (Vec<u8>, bool) {
+    let mut out = Vec::with_capacity(input.len().min(MAX_INJECTION_DECODE_BYTES));
+    let mut i = 0usize;
+    let mut changed = false;
+    while i < input.len() && out.len() < MAX_INJECTION_DECODE_BYTES {
+        if input[i] == b'%' && i + 2 < input.len() {
+            let hi = hex_value(input[i + 1]);
+            let lo = hex_value(input[i + 2]);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi << 4) | lo);
+                i += 3;
+                changed = true;
+                continue;
+            }
+        }
+        out.push(input[i]);
+        i += 1;
+    }
+    (out, changed)
+}
+
+fn decode_js_escapes(input: &[u8]) -> (Vec<u8>, bool) {
+    let mut out = Vec::with_capacity(input.len().min(MAX_INJECTION_DECODE_BYTES));
+    let mut i = 0usize;
+    let mut changed = false;
+    while i < input.len() && out.len() < MAX_INJECTION_DECODE_BYTES {
+        if input[i] == b'\\' && i + 1 < input.len() {
+            if input[i + 1] == b'x' && i + 3 < input.len() {
+                let hi = hex_value(input[i + 2]);
+                let lo = hex_value(input[i + 3]);
+                if let (Some(hi), Some(lo)) = (hi, lo) {
+                    out.push((hi << 4) | lo);
+                    i += 4;
+                    changed = true;
+                    continue;
+                }
+            }
+            if input[i + 1] == b'u' && i + 5 < input.len() {
+                let h1 = hex_value(input[i + 2]);
+                let h2 = hex_value(input[i + 3]);
+                let h3 = hex_value(input[i + 4]);
+                let h4 = hex_value(input[i + 5]);
+                if let (Some(h1), Some(h2), Some(h3), Some(h4)) = (h1, h2, h3, h4) {
+                    let codepoint = ((h1 as u32) << 12)
+                        | ((h2 as u32) << 8)
+                        | ((h3 as u32) << 4)
+                        | (h4 as u32);
+                    if let Some(ch) = char::from_u32(codepoint) {
+                        let mut buf = [0u8; 4];
+                        let encoded = ch.encode_utf8(&mut buf);
+                        let remaining = MAX_INJECTION_DECODE_BYTES.saturating_sub(out.len());
+                        if remaining == 0 {
+                            break;
+                        }
+                        let copy_len = encoded.len().min(remaining);
+                        out.extend_from_slice(&encoded.as_bytes()[..copy_len]);
+                        i += 6;
+                        changed = true;
+                        continue;
+                    }
+                }
+            }
+        }
+        out.push(input[i]);
+        i += 1;
+    }
+    (out, changed)
+}
+
+fn decode_html_entities(input: &[u8]) -> (Vec<u8>, bool) {
+    let mut out = Vec::with_capacity(input.len().min(MAX_INJECTION_DECODE_BYTES));
+    let mut i = 0usize;
+    let mut changed = false;
+
+    while i < input.len() && out.len() < MAX_INJECTION_DECODE_BYTES {
+        if input[i] == b'&' {
+            let search_end = (i + 12).min(input.len());
+            if let Some(rel_end) = input[i + 1..search_end].iter().position(|b| *b == b';') {
+                let end = i + 1 + rel_end;
+                let entity_bytes = &input[i + 1..end];
+                if let Some(decoded) = decode_single_html_entity(entity_bytes) {
+                    let remaining = MAX_INJECTION_DECODE_BYTES.saturating_sub(out.len());
+                    if remaining == 0 {
+                        break;
+                    }
+                    let copy_len = decoded.len().min(remaining);
+                    out.extend_from_slice(&decoded[..copy_len]);
+                    i = end + 1;
+                    changed = true;
+                    continue;
+                }
+            }
+        }
+        out.push(input[i]);
+        i += 1;
+    }
+
+    (out, changed)
+}
+
+fn decode_single_html_entity(entity: &[u8]) -> Option<Vec<u8>> {
+    let lowered = entity.iter().map(|b| b.to_ascii_lowercase()).collect::<Vec<u8>>();
+    match lowered.as_slice() {
+        b"lt" => Some(vec![b'<']),
+        b"gt" => Some(vec![b'>']),
+        b"amp" => Some(vec![b'&']),
+        b"quot" => Some(vec![b'"']),
+        b"apos" => Some(vec![b'\'']),
+        _ => {
+            if let Some(hex) = lowered.strip_prefix(b"#x") {
+                return decode_entity_codepoint(hex, 16);
+            }
+            if let Some(dec) = lowered.strip_prefix(b"#") {
+                return decode_entity_codepoint(dec, 10);
+            }
+            None
+        }
+    }
+}
+
+fn decode_entity_codepoint(digits: &[u8], radix: u32) -> Option<Vec<u8>> {
+    let text = str::from_utf8(digits).ok()?;
+    let value = u32::from_str_radix(text, radix).ok()?;
+    let ch = char::from_u32(value)?;
+    let mut buf = [0u8; 4];
+    let encoded = ch.encode_utf8(&mut buf);
+    Some(encoded.as_bytes().to_vec())
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }
 
@@ -4268,6 +4553,18 @@ fn payload_from_dict(
                 meta.insert("payload.ref_chain".into(), payload.ref_chain);
                 meta.insert("payload.preview".into(), preview_ascii(&payload.bytes, 120));
                 meta.insert("payload.decoded_preview".into(), preview_ascii(&payload.bytes, 120));
+                let normalised = normalise_injection_payload(&payload.bytes);
+                if normalised.decode_layers > 0 {
+                    meta.insert("injection.action_param_normalised".into(), "true".into());
+                    meta.insert(
+                        "injection.decode_layers".into(),
+                        normalised.decode_layers.to_string(),
+                    );
+                    meta.insert(
+                        "payload.normalised_preview".into(),
+                        preview_ascii(&normalised.bytes, 120),
+                    );
+                }
                 if let Some(origin) = payload.origin {
                     evidence.push(decoded_evidence_span(origin, &payload.bytes, "Decoded payload"));
                 }

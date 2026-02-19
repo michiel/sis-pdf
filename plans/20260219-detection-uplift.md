@@ -13,6 +13,19 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
 - Completed: WS2 precision tightening (initial):
   - `form_html_injection` now requires HTML-context indicators (tags/event attributes/context-break/protocol handlers) and no longer triggers on script-only DOM tokens by themselves.
   - integration and unit precision guards added for script-only values.
+- Completed: WS3 normalisation uplift (initial):
+  - Added bounded multi-layer payload normalisation (max 3 layers, max 64 KB) for form injection detection with decode passes for UTF-16/null padding, percent-encoding, JavaScript escapes (`\\xNN`, `\\uNNNN`), and HTML entities.
+  - Added finding metadata when normalisation contributes (`injection.normalised=true`, `injection.decode_layers=<n>`).
+  - Added confidence boost for JavaScript form injection when multi-layer decoding is required (`Probable` -> `Strong`).
+  - Added regression fixtures for modern obfuscation styles, including fragmented multi-object payloads with double-encoded percent/entity wrappers and hex-string escaped JavaScript fragments.
+- Completed: WS4 evidence/meta alignment (initial):
+  - Added source-key metadata for form injection findings (`injection.sources=/V,/DV,/AP` as applicable).
+  - Updated form injection evidence anchoring to prefer actual triggering sources (`/AP`, `/V`, `/DV`) instead of fixed fallback markers.
+  - Added regression assertions for source metadata on split-field detections.
+  - Updated `docs/findings.md` entries for `pdfjs_form_injection` and `form_html_injection` to document source metadata, normalisation metadata, confidence behaviour, and refined HTML-context pattern semantics.
+- Completed: WS3 action-parameter normalisation (initial):
+  - Action payload enrichment now applies the same bounded normalisation utility and emits `injection.action_param_normalised=true` and `injection.decode_layers=<n>` when action targets are encoded/obfuscated.
+  - Added integration fixture for obfuscated Launch `/F` target with multi-layer percent encoding and regression assertions for normalisation metadata.
 - Validation run:
   - `cargo test -p sis-pdf-detectors --test pdfjs_rendering_indicators`
   - `cargo test -p sis-pdf-detectors`

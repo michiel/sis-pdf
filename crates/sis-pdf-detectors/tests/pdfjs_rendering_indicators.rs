@@ -309,8 +309,14 @@ fn detects_split_signals_across_v_and_ap_fields() {
         &default_detectors(),
     )
     .expect("scan");
-    assert!(report.findings.iter().any(|f| f.kind == "form_html_injection"));
-    assert!(report.findings.iter().any(|f| f.kind == "pdfjs_form_injection"));
+    let html = report.findings.iter().find(|f| f.kind == "form_html_injection");
+    let js = report.findings.iter().find(|f| f.kind == "pdfjs_form_injection");
+    assert!(html.is_some());
+    assert!(js.is_some());
+    let html = html.expect("html finding");
+    let js = js.expect("js finding");
+    assert_eq!(html.meta.get("injection.sources").map(|v| v.as_str()), Some("/V"));
+    assert_eq!(js.meta.get("injection.sources").map(|v| v.as_str()), Some("/AP"));
 }
 
 #[test]
@@ -353,4 +359,80 @@ fn script_only_form_value_does_not_trigger_html_injection() {
     )
     .expect("scan");
     assert!(!report.findings.iter().any(|f| f.kind == "form_html_injection"));
+}
+
+#[test]
+fn detects_percent_encoded_html_form_value() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n",
+        "6 0 obj\n<< /FT /Tx /T (field) /V (%3Cscript%3Ealert(1)%3C/script%3E) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+    let finding = report.findings.iter().find(|f| f.kind == "form_html_injection");
+    assert!(finding.is_some(), "Expected HTML injection finding");
+    let finding = finding.expect("finding");
+    assert_eq!(finding.meta.get("injection.normalised").map(|v| v.as_str()), Some("true"));
+}
+
+#[test]
+fn detects_js_hex_escape_payload_in_form_value() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n",
+        "6 0 obj\n<< /FT /Tx /T (field) /V <5c7836355c7837365c7836315c78366328616c65727428312929> >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+    let finding = report.findings.iter().find(|f| f.kind == "pdfjs_form_injection");
+    assert!(finding.is_some(), "Expected JavaScript injection finding");
+    let finding = finding.expect("finding");
+    assert_eq!(finding.meta.get("injection.normalised").map(|v| v.as_str()), Some("true"));
+}
+
+#[test]
+fn detects_multilayer_fragmented_obfuscation_and_boosts_confidence() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n",
+        "6 0 obj\n<< /FT /Tx /T (field) /V [7 0 R 8 0 R] >>\nendobj\n",
+        "7 0 obj\n(%2526lt%253Bscript%2526gt%253B)\nendobj\n",
+        "8 0 obj\n(%2565%2576%2561%256c%2528alert(1)%2529%2526lt%253B%252Fscript%2526gt%253B)\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+    let js_finding = report.findings.iter().find(|f| f.kind == "pdfjs_form_injection");
+    assert!(js_finding.is_some(), "Expected JavaScript injection finding");
+    let js_finding = js_finding.expect("finding");
+    assert_eq!(js_finding.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert_eq!(js_finding.meta.get("injection.normalised").map(|v| v.as_str()), Some("true"));
+    let layers = js_finding
+        .meta
+        .get("injection.decode_layers")
+        .and_then(|v| v.parse::<u8>().ok())
+        .unwrap_or(0);
+    assert!(layers >= 2, "Expected multi-layer decode metadata");
+    assert!(report.findings.iter().any(|f| f.kind == "form_html_injection"));
 }

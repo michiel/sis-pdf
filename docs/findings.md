@@ -903,6 +903,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: interactive forms can carry payload material into rendered contexts.
   - Meaning: `/V`, `/DV`, or `/AP` form fields include injection-like script tokens.
   - Chain usage: form-stage injection indicator; prioritise with external action or JS findings.
+  - Metadata:
+    - `injection.sources`: contributing form keys (`/V`, `/DV`, `/AP`).
+    - `injection.normalised`: `true` when encoded content required decode/normalisation before detection.
+    - `injection.decode_layers`: number of decode rounds applied (bounded).
+  - Confidence note: confidence is boosted when multi-layer decode is required to surface script tokens.
 
 ## form_html_injection
 
@@ -912,9 +917,13 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Tags: forms, html, xss, injection, browser
 - Details:
   - Relevance: form field values containing HTML injection patterns can execute scripts when the PDF is rendered in browser-based viewers (PDF.js) or when form data is exported to web contexts.
-  - Meaning: `/V` (value) or `/DV` (default value) form fields contain HTML tags, event handler attributes, context-breaking sequences, or protocol handlers.
+  - Meaning: `/V`, `/DV`, or `/AP` form entries contain HTML-context indicators such as tags, event-handler attributes, context-breaking sequences, or protocol handlers.
   - Chain usage: XSS injection indicator; prioritise when PDF is processed by web-based viewers or form data extraction pipelines.
-  - Patterns detected: HTML tags (`<script>`, `<img>`, `<iframe>`, `<svg>`, `<details>`), event handlers (`onclick=`, `onerror=`, `ontoggle=`), context-breaking (`">`, `</`), DOM access (`document.`, `.cookie`), protocol handlers (`javascript:`, `data:text/html`).
+  - Patterns detected: HTML tags (`<script>`, `<img>`, `<iframe>`, `<svg>`, `<details>`), event handlers (`onclick=`, `onerror=`, `ontoggle=`), context-breaking (`">`, `</`), protocol handlers (`javascript:`, `data:text/html`).
+  - Metadata:
+    - `injection.sources`: contributing form keys (`/V`, `/DV`, `/AP`).
+    - `injection.normalised`: `true` when encoded content required decode/normalisation before detection.
+    - `injection.decode_layers`: number of decode rounds applied (bounded).
   - Reader impacts: PDF.js and browser-based renderers may interpret HTML in form values, enabling XSS attacks.
   - Remediation: review form field `/V` and `/DV` entries for HTML tag injection; apply context-appropriate output encoding when displaying form values in web interfaces.
 
