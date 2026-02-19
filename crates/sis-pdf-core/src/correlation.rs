@@ -18,6 +18,7 @@ pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> 
     composites.extend(correlate_image_structure_with_hidden_path(findings));
     composites.extend(correlate_resource_external_with_trigger_surface(findings));
     composites.extend(correlate_decode_amplification_chain(findings));
+    composites.extend(correlate_injection_edge_bridges(findings));
     composites
 }
 
@@ -460,6 +461,141 @@ fn correlate_decode_amplification_chain(findings: &[Finding]) -> Vec<Finding> {
     composites
 }
 
+fn correlate_injection_edge_bridges(findings: &[Finding]) -> Vec<Finding> {
+    let mut composites = Vec::new();
+    let mut emitted = HashSet::new();
+
+    let html =
+        findings.iter().filter(|finding| finding.kind == "form_html_injection").collect::<Vec<_>>();
+    let injection = findings
+        .iter()
+        .filter(|finding| {
+            matches!(finding.kind.as_str(), "form_html_injection" | "pdfjs_form_injection")
+        })
+        .collect::<Vec<_>>();
+    let pdfjs_injection = findings
+        .iter()
+        .filter(|finding| finding.kind == "pdfjs_form_injection")
+        .collect::<Vec<_>>();
+    let submitform =
+        findings.iter().filter(|finding| finding.kind == "submitform_present").collect::<Vec<_>>();
+    let pdfjs_eval = findings
+        .iter()
+        .filter(|finding| finding.kind == "pdfjs_eval_path_risk")
+        .collect::<Vec<_>>();
+    let scatter = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "scattered_payload_assembly" | "cross_stream_payload_assembly"
+            )
+        })
+        .collect::<Vec<_>>();
+    let name_obfuscation = findings
+        .iter()
+        .filter(|finding| finding.kind == "obfuscated_name_encoding")
+        .collect::<Vec<_>>();
+    let action = findings.iter().filter(|finding| is_action_finding(finding)).collect::<Vec<_>>();
+
+    for src in &html {
+        for dst in &pdfjs_injection {
+            if !shares_object_or_form_lineage(src, dst) {
+                continue;
+            }
+            maybe_push_edge_composite(
+                &mut composites,
+                &mut emitted,
+                "form_html_to_pdfjs_form",
+                "Form HTML to PDF.js injection bridge",
+                "Form HTML injection and PDF.js form injection co-locate, indicating an exploit bridge from input into renderer script handling.",
+                Confidence::Strong,
+                Severity::High,
+                src,
+                dst,
+            );
+        }
+    }
+
+    for src in &injection {
+        for dst in &submitform {
+            if !shares_object(src, dst) {
+                continue;
+            }
+            maybe_push_edge_composite(
+                &mut composites,
+                &mut emitted,
+                "injection_to_submitform",
+                "Injection to SubmitForm bridge",
+                "Injection indicators co-locate with SubmitForm actions, indicating a possible data egress path.",
+                Confidence::Probable,
+                Severity::Medium,
+                src,
+                dst,
+            );
+        }
+    }
+
+    for src in &pdfjs_injection {
+        for dst in &pdfjs_eval {
+            if !shares_object(src, dst) {
+                continue;
+            }
+            maybe_push_edge_composite(
+                &mut composites,
+                &mut emitted,
+                "pdfjs_injection_to_eval_path",
+                "PDF.js injection to eval-path bridge",
+                "PDF.js form injection indicators co-locate with eval-path risk, strengthening renderer execution concern.",
+                Confidence::Strong,
+                Severity::High,
+                src,
+                dst,
+            );
+        }
+    }
+
+    for src in &scatter {
+        for dst in &injection {
+            if !shares_object(src, dst) {
+                continue;
+            }
+            maybe_push_edge_composite(
+                &mut composites,
+                &mut emitted,
+                "scatter_to_injection",
+                "Scattered payload to injection bridge",
+                "Scattered payload assembly feeds an injection-capable object, indicating a distributed exploit preparation path.",
+                Confidence::Strong,
+                Severity::High,
+                src,
+                dst,
+            );
+        }
+    }
+
+    for src in &name_obfuscation {
+        for dst in &action {
+            if !shares_object(src, dst) {
+                continue;
+            }
+            maybe_push_edge_composite(
+                &mut composites,
+                &mut emitted,
+                "name_obfuscation_to_action",
+                "Name obfuscation to action bridge",
+                "Hex-encoded PDF name obfuscation co-locates with action execution surfaces.",
+                Confidence::Probable,
+                Severity::Medium,
+                src,
+                dst,
+            );
+        }
+    }
+
+    composites
+}
+
 struct CompositeConfig<'a> {
     kind: &'static str,
     title: &'static str,
@@ -525,6 +661,84 @@ fn build_composite(config: CompositeConfig<'_>) -> Finding {
         action_target: None,
         action_initiation: None,
     }
+}
+
+fn is_action_finding(finding: &Finding) -> bool {
+    finding.kind.starts_with("action_")
+        || finding.meta.contains_key("action.s")
+        || matches!(
+            finding.kind.as_str(),
+            "submitform_present"
+                | "launch_action_present"
+                | "gotor_present"
+                | "gotoe_present"
+                | "uri_action_present"
+                | "launch_embedded_file"
+        )
+}
+
+fn shares_object_or_form_lineage(a: &Finding, b: &Finding) -> bool {
+    if shares_object(a, b) {
+        return true;
+    }
+    let a_field = get_meta(a, "field.name");
+    let b_field = get_meta(b, "field.name");
+    matches!((a_field, b_field), (Some(left), Some(right)) if left == right)
+}
+
+fn shared_objects(a: &Finding, b: &Finding) -> Vec<String> {
+    a.objects
+        .iter()
+        .filter(|obj| b.objects.contains(*obj))
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+}
+
+fn maybe_push_edge_composite(
+    composites: &mut Vec<Finding>,
+    emitted: &mut HashSet<String>,
+    edge_reason: &'static str,
+    title: &'static str,
+    description: &'static str,
+    edge_confidence: Confidence,
+    severity: Severity,
+    source: &Finding,
+    target: &Finding,
+) {
+    let shared = shared_objects(source, target);
+    let edge_key = format!("{edge_reason}|{}|{}|{}", source.kind, target.kind, shared.join(","));
+    if !emitted.insert(edge_key) {
+        return;
+    }
+
+    let mut extra_meta = vec![
+        ("edge.reason", Some(edge_reason.to_string())),
+        ("edge.confidence", Some(format!("{edge_confidence:?}"))),
+        ("edge.from", Some(source.kind.clone())),
+        ("edge.to", Some(target.kind.clone())),
+    ];
+    if !shared.is_empty() {
+        extra_meta.push(("edge.shared_objects", Some(shared.join(","))));
+    }
+    if let Some(stage) = get_meta(source, "chain.stage") {
+        extra_meta.push(("edge.stage.from", Some(stage.to_string())));
+    }
+    if let Some(stage) = get_meta(target, "chain.stage") {
+        extra_meta.push(("edge.stage.to", Some(stage.to_string())));
+    }
+
+    composites.push(build_composite(CompositeConfig {
+        kind: "composite.injection_edge_bridge",
+        title,
+        description,
+        surface: AttackSurface::Forms,
+        severity,
+        confidence: edge_confidence,
+        sources: &[source, target],
+        extra_meta,
+    }));
 }
 
 fn unique_values(mut values: Vec<String>) -> Vec<String> {

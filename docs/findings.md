@@ -3339,6 +3339,29 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Description: Resource provenance override signals co-occur with decode-pressure indicators.
 - Tags: composite, provenance, decode
 
+## composite.injection_edge_bridge
+
+- ID: `composite.injection_edge_bridge`
+- Label: Injection edge bridge
+- Severity: Medium to High (edge-dependent)
+- Confidence: Probable to Strong (edge-dependent)
+- Description: Deterministic bridge between related injection/action findings that forms an exploit path edge.
+- Tags: composite, chain, injection, correlation
+- Details:
+  - Relevance: links otherwise separate findings into machine-readable exploit transitions.
+  - Meaning: emitted when specific preconditions co-locate, such as:
+    - `form_html_injection -> pdfjs_form_injection`
+    - `*_injection -> submitform_present`
+    - `pdfjs_form_injection -> pdfjs_eval_path_risk`
+    - `scattered_payload_assembly|cross_stream_payload_assembly -> *_injection`
+    - `obfuscated_name_encoding -> action_*`
+  - Metadata:
+    - `edge.reason`: stable edge classifier (for example `scatter_to_injection`)
+    - `edge.confidence`: edge confidence label
+    - `edge.from`, `edge.to`: source and target finding kinds
+    - `edge.shared_objects`: shared object identifiers
+    - `edge.stage.from`, `edge.stage.to`: optional stage hints when available
+
 ## resource.declared_but_unused
 
 - ID: `resource.declared_but_unused`

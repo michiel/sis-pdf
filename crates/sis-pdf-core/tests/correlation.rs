@@ -236,6 +236,97 @@ fn correlate_decode_amplification_chain() {
 }
 
 #[test]
+fn correlate_injection_edge_bridges_for_scatter_and_submitform() {
+    let html = make_finding(
+        "form_html_injection",
+        &["81 0 obj"],
+        &[("chain.stage", "render"), ("field.name", "payloadField")],
+        AttackSurface::Forms,
+    );
+    let pdfjs = make_finding(
+        "pdfjs_form_injection",
+        &["81 0 obj"],
+        &[("chain.stage", "render"), ("field.name", "payloadField")],
+        AttackSurface::Forms,
+    );
+    let submit = make_finding(
+        "submitform_present",
+        &["81 0 obj"],
+        &[("chain.stage", "egress")],
+        AttackSurface::Actions,
+    );
+    let scattered = make_finding(
+        "scattered_payload_assembly",
+        &["81 0 obj"],
+        &[("chain.stage", "decode"), ("scatter.fragment_count", "3")],
+        AttackSurface::Forms,
+    );
+
+    let composites = correlation::correlate_findings(
+        &[html, pdfjs, submit, scattered],
+        &CorrelationOptions::default(),
+    );
+
+    let mut reasons = composites
+        .iter()
+        .filter(|finding| finding.kind == "composite.injection_edge_bridge")
+        .filter_map(|finding| finding.meta.get("edge.reason"))
+        .cloned()
+        .collect::<Vec<_>>();
+    reasons.sort();
+    reasons.dedup();
+
+    assert!(reasons.contains(&"form_html_to_pdfjs_form".to_string()));
+    assert!(reasons.contains(&"injection_to_submitform".to_string()));
+    assert!(reasons.contains(&"scatter_to_injection".to_string()));
+
+    let scatter_bridge = composites
+        .iter()
+        .find(|finding| {
+            finding.kind == "composite.injection_edge_bridge"
+                && finding.meta.get("edge.reason").map(String::as_str)
+                    == Some("scatter_to_injection")
+        })
+        .expect("scatter bridge should be present");
+    assert_eq!(scatter_bridge.confidence, Confidence::Strong);
+    assert_eq!(
+        scatter_bridge.meta.get("edge.shared_objects").map(String::as_str),
+        Some("81 0 obj")
+    );
+}
+
+#[test]
+fn correlate_injection_edge_bridges_for_name_obfuscation_and_action() {
+    let obfuscated_name = make_finding(
+        "obfuscated_name_encoding",
+        &["90 0 obj"],
+        &[("chain.stage", "decode"), ("pdf.name.raw", "/Jav#61Script")],
+        AttackSurface::FileStructure,
+    );
+    let action = make_finding(
+        "action_automatic_trigger",
+        &["90 0 obj"],
+        &[("chain.stage", "execute"), ("action.trigger", "OpenAction")],
+        AttackSurface::Actions,
+    );
+
+    let composites =
+        correlation::correlate_findings(&[obfuscated_name, action], &CorrelationOptions::default());
+    let bridge = composites
+        .iter()
+        .find(|finding| {
+            finding.kind == "composite.injection_edge_bridge"
+                && finding.meta.get("edge.reason").map(String::as_str)
+                    == Some("name_obfuscation_to_action")
+        })
+        .expect("name obfuscation bridge should be present");
+
+    assert_eq!(bridge.confidence, Confidence::Probable);
+    assert_eq!(bridge.meta.get("edge.from").map(String::as_str), Some("obfuscated_name_encoding"));
+    assert_eq!(bridge.meta.get("edge.to").map(String::as_str), Some("action_automatic_trigger"));
+}
+
+#[test]
 fn correlation_launch_obfuscated_integration() {
     let detectors = default_detectors();
     let report = run_scan_with_detectors(

@@ -42,6 +42,20 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - `chain.capability`
     - `chain.trigger`
   - Added regression assertions to lock metadata shape for downstream chain-synthesis work.
+- Completed: CQ2 deterministic edge synthesis (initial):
+  - Added correlation-time edge composites for injection/action joins:
+    - `form_html_injection -> pdfjs_form_injection`
+    - `*_injection -> submitform_present`
+    - `pdfjs_form_injection -> pdfjs_eval_path_risk`
+    - `scattered_payload_assembly|cross_stream_payload_assembly -> *_injection`
+    - `obfuscated_name_encoding -> action_*`
+  - Added stable edge metadata on composites:
+    - `edge.reason`
+    - `edge.confidence`
+    - `edge.from`, `edge.to`
+    - `edge.shared_objects`
+    - `edge.stage.from`, `edge.stage.to` (when available)
+  - Added correlation regression coverage for scatter/injection/submitform and name-obfuscation/action bridge paths.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.
