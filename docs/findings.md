@@ -491,6 +491,27 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: embedded filename attempts to appear benign.
   - Chain usage: used as evasion context for payload delivery.
 
+## embedded_type_mismatch
+
+- ID: `embedded_type_mismatch`
+- Label: Embedded file type mismatch
+- Description: Embedded file extension, declared subtype, and decoded magic markers disagree.
+- Tags: embedded, evasion, relationship
+- Details:
+  - Relevance: mismatched declared and observed types are common in disguised attachment delivery.
+  - Meaning: at least one pair among extension/subtype/magic disagrees (`embedded.mismatch_axes`).
+  - Chain usage: decode-stage indicator that strengthens action-linked attachment risk.
+  - Metadata:
+    - `embedded.relationship.filespec_present`
+    - `embedded.relationship.binding`
+    - `embedded.extension_family`
+    - `embedded.declared_subtype`
+    - `embedded.declared_family`
+    - `embedded.magic_family`
+    - `embedded.family_mismatch`
+    - `embedded.mismatch_axes`
+    - `chain.stage=decode`, `chain.capability=embedded_payload`, `chain.trigger=embedded_file`
+
 ## embedded_encrypted
 
 - ID: `embedded_encrypted`
@@ -4559,6 +4580,25 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: automatic execution tied to obfuscated payloads is high risk.
   - Meaning: correlation of launch and embedded executable strengthens confidence.
   - Chain usage: delivery/execution stage.
+
+## composite.embedded_relationship_action
+
+- ID: `composite.embedded_relationship_action`
+- Label: Embedded relationship action bridge
+- Severity: High
+- Confidence: Probable to Strong
+- Description: Embedded artefact type mismatch is linked to an executable action surface.
+- Tags: composite, embedded, action, relationship
+- Details:
+  - Relevance: links disguised embedded payload indicators with action execution surfaces.
+  - Meaning: emitted when `embedded_type_mismatch` is linked to launch/remote action findings by object or embedded hash lineage.
+  - Chain usage: bridge from attachment disguise to execution stage.
+  - Metadata:
+    - `composite.link_reason` (`object` or `hash`)
+    - `embedded.mismatch_axes`
+    - `exploit.preconditions`
+    - `exploit.blockers`
+    - `exploit.outcomes`
 
 ## action_chain_malicious
 

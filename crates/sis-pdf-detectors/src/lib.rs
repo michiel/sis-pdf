@@ -4471,6 +4471,84 @@ fn embedded_extension_family(name: &str) -> Option<&'static str> {
     None
 }
 
+fn embedded_extension_risk_family(name: &str) -> Option<&'static str> {
+    let lower = name.to_ascii_lowercase();
+    if [
+        ".exe", ".dll", ".com", ".scr", ".msi", ".ps1", ".psm1", ".bat", ".cmd", ".js", ".jse",
+        ".vbs", ".sh", ".bash", ".zsh",
+    ]
+    .iter()
+    .any(|suffix| lower.ends_with(suffix))
+    {
+        return Some("active");
+    }
+    if [".zip", ".rar", ".7z", ".tar", ".gz"].iter().any(|suffix| lower.ends_with(suffix)) {
+        return Some("archive");
+    }
+    if [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".rtf"]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
+    {
+        return Some("document");
+    }
+    if [".swf", ".mp4", ".mov", ".avi"].iter().any(|suffix| lower.ends_with(suffix)) {
+        return Some("media");
+    }
+    None
+}
+
+fn magic_risk_family(magic_type: &str) -> Option<&'static str> {
+    match magic_type {
+        "pe" | "script" => Some("active"),
+        "zip" | "rar" => Some("archive"),
+        "pdf" => Some("document"),
+        "swf" => Some("media"),
+        _ => None,
+    }
+}
+
+fn embedded_declared_subtype(dict: &PdfDict<'_>) -> Option<String> {
+    dict.get_first(b"/Subtype").and_then(|(_, value)| match &value.atom {
+        PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
+        PdfAtom::Str(value) => Some(String::from_utf8_lossy(&string_bytes(value)).to_string()),
+        _ => None,
+    })
+}
+
+fn mime_risk_family(subtype: &str) -> Option<&'static str> {
+    let lower = subtype.to_ascii_lowercase();
+    if lower.contains("application/x-msdownload")
+        || lower.contains("application/x-dosexec")
+        || lower.contains("application/javascript")
+        || lower.contains("application/x-sh")
+        || lower.contains("application/x-bat")
+        || lower.contains("text/javascript")
+        || lower.contains("text/vbscript")
+    {
+        return Some("active");
+    }
+    if lower.contains("application/zip")
+        || lower.contains("application/x-rar")
+        || lower.contains("application/x-7z")
+    {
+        return Some("archive");
+    }
+    if lower.contains("application/pdf")
+        || lower.contains("application/msword")
+        || lower.contains("officedocument")
+        || lower.contains("application/rtf")
+    {
+        return Some("document");
+    }
+    if lower.contains("application/x-shockwave-flash")
+        || lower.contains("video/")
+        || lower.contains("audio/")
+    {
+        return Some("media");
+    }
+    None
+}
+
 fn detect_script_signals(data: &[u8]) -> Vec<(&'static str, &'static str)> {
     let max_scan_bytes = 256 * 1024;
     let slice = if data.len() > max_scan_bytes { &data[..max_scan_bytes] } else { data };
@@ -4633,9 +4711,28 @@ impl Detector for EmbeddedFileDetector {
                     let filename = artefact_ref
                         .and_then(|record| record.filename.clone())
                         .or_else(|| embedded_filename(&st.dict));
+                    let declared_subtype = embedded_declared_subtype(&st.dict);
+                    let extension_family = filename
+                        .as_deref()
+                        .and_then(embedded_extension_risk_family)
+                        .map(str::to_string);
+                    let declared_family =
+                        declared_subtype.as_deref().and_then(mime_risk_family).map(str::to_string);
                     meta.insert(
                         "embedded.stream_ref".into(),
                         format!("{} {}", stream_ref.0, stream_ref.1),
+                    );
+                    meta.insert(
+                        "embedded.relationship.filespec_present".into(),
+                        artefact_ref.and_then(|record| record.filespec_ref).is_some().to_string(),
+                    );
+                    meta.insert(
+                        "embedded.relationship.binding".into(),
+                        if artefact_ref.and_then(|record| record.filespec_ref).is_some() {
+                            "filespec".into()
+                        } else {
+                            "stream_only".into()
+                        },
                     );
                     if let Some((filespec_obj, filespec_gen)) =
                         artefact_ref.and_then(|record| record.filespec_ref)
@@ -4648,12 +4745,22 @@ impl Detector for EmbeddedFileDetector {
                     if let Some(name) = &filename {
                         meta.insert("embedded.filename".into(), name.clone());
                         meta.insert("filename".into(), name.clone());
+                        if let Some(family) = &extension_family {
+                            meta.insert("embedded.extension_family".into(), family.clone());
+                        }
                         has_double = has_double_extension(name);
                         if has_double {
                             meta.insert("embedded.double_extension".into(), "true".into());
                         }
                     }
+                    if let Some(subtype) = &declared_subtype {
+                        meta.insert("embedded.declared_subtype".into(), subtype.clone());
+                    }
+                    if let Some(family) = &declared_family {
+                        meta.insert("embedded.declared_family".into(), family.clone());
+                    }
                     let mut script_assessment: Option<EmbeddedScriptAssessment> = None;
+                    let mut family_mismatch_axes = Vec::new();
                     if let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, st) {
                         let analysis = analyse_stream(&decoded.data, &StreamLimits::default());
                         let hash = sha256_hex(&decoded.data);
@@ -4674,6 +4781,26 @@ impl Detector for EmbeddedFileDetector {
                         meta.insert("embedded.magic".into(), magic_value.clone());
                         meta.insert("magic_type".into(), magic_value.clone());
                         meta.insert("stream.magic_type".into(), magic_value.clone());
+                        if let Some(magic_family) = magic_risk_family(&magic_value) {
+                            meta.insert("embedded.magic_family".into(), magic_family.into());
+                            if let Some(ext_family) = extension_family.as_deref() {
+                                if ext_family != magic_family {
+                                    family_mismatch_axes.push("extension_vs_magic");
+                                }
+                            }
+                            if let Some(declared_family) = declared_family.as_deref() {
+                                if declared_family != magic_family {
+                                    family_mismatch_axes.push("subtype_vs_magic");
+                                }
+                            }
+                        }
+                        if let (Some(ext_family), Some(declared_family)) =
+                            (extension_family.as_deref(), declared_family.as_deref())
+                        {
+                            if ext_family != declared_family {
+                                family_mismatch_axes.push("extension_vs_subtype");
+                            }
+                        }
                         magic = Some(magic_value);
                         script_assessment = classify_embedded_script(
                             filename.as_deref(),
@@ -4715,6 +4842,9 @@ impl Detector for EmbeddedFileDetector {
                         action_target.as_deref(),
                         "automatic",
                     );
+                    meta.insert("chain.stage".into(), "decode".into());
+                    meta.insert("chain.capability".into(), "embedded_payload".into());
+                    meta.insert("chain.trigger".into(), "embedded_file".into());
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -4823,6 +4953,41 @@ impl Detector for EmbeddedFileDetector {
                             ),
                             meta: meta.clone(),
 
+                            reader_impacts: Vec::new(),
+                            action_type: None,
+                            action_target: None,
+                            action_initiation: None,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                        });
+                    }
+                    if !family_mismatch_axes.is_empty() {
+                        family_mismatch_axes.sort_unstable();
+                        family_mismatch_axes.dedup();
+                        meta.insert("embedded.family_mismatch".into(), "true".into());
+                        meta.insert(
+                            "embedded.mismatch_axes".into(),
+                            family_mismatch_axes.join(","),
+                        );
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: self.surface(),
+                            kind: "embedded_type_mismatch".into(),
+                            severity: Severity::Medium,
+                            confidence: Confidence::Probable,
+                            impact: Some(Impact::Medium),
+                            title: "Embedded file type mismatch".into(),
+                            description:
+                                "Embedded file extension, declared subtype, and decoded magic markers disagree."
+                                    .into(),
+                            objects: objects.clone(),
+                            evidence: evidence.clone(),
+                            remediation: Some(
+                                "Treat the embedded file as suspicious and validate true payload type independently."
+                                    .into(),
+                            ),
+                            meta: meta.clone(),
                             reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,

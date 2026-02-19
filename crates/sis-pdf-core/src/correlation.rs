@@ -19,6 +19,7 @@ pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> 
     composites.extend(correlate_resource_external_with_trigger_surface(findings));
     composites.extend(correlate_decode_amplification_chain(findings));
     composites.extend(correlate_injection_edge_bridges(findings));
+    composites.extend(correlate_embedded_relationship_action(findings));
     composites.extend(correlate_hidden_layer_action(findings));
     composites
 }
@@ -776,6 +777,85 @@ fn correlate_injection_edge_bridges(findings: &[Finding]) -> Vec<Finding> {
                 src,
                 dst,
             );
+        }
+    }
+
+    composites
+}
+
+fn correlate_embedded_relationship_action(findings: &[Finding]) -> Vec<Finding> {
+    let embedded_mismatch = findings
+        .iter()
+        .filter(|finding| finding.kind == "embedded_type_mismatch")
+        .collect::<Vec<_>>();
+    let embedded_actions = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "launch_embedded_file"
+                    | "launch_action_present"
+                    | "gotor_present"
+                    | "gotoe_present"
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut composites = Vec::new();
+    let mut emitted = HashSet::new();
+
+    for mismatch in &embedded_mismatch {
+        for action in &embedded_actions {
+            let hash_link = match (
+                get_meta(mismatch, "hash.sha256"),
+                get_meta(action, "launch.embedded_file_hash"),
+            ) {
+                (Some(lhs), Some(rhs)) => lhs == rhs,
+                _ => false,
+            };
+            let linked = shares_object(mismatch, action) || hash_link;
+            if !linked {
+                continue;
+            }
+            let key = format!(
+                "{}|{}|{}",
+                mismatch.objects.join(","),
+                action.objects.join(","),
+                if hash_link { "hash" } else { "object" }
+            );
+            if !emitted.insert(key) {
+                continue;
+            }
+            let mismatch_axes =
+                get_meta(mismatch, "embedded.mismatch_axes").unwrap_or("unknown_axes");
+            composites.push(build_composite(CompositeConfig {
+                kind: "composite.embedded_relationship_action",
+                title: "Embedded relationship action bridge",
+                description:
+                    "Embedded artefact type mismatch is linked to an executable action surface.",
+                surface: AttackSurface::EmbeddedFiles,
+                severity: Severity::High,
+                confidence: if hash_link { Confidence::Strong } else { Confidence::Probable },
+                sources: &[mismatch, action],
+                extra_meta: vec![
+                    (
+                        "composite.link_reason",
+                        Some(if hash_link { "hash" } else { "object" }.into()),
+                    ),
+                    ("embedded.mismatch_axes", Some(mismatch_axes.to_string())),
+                    (
+                        "exploit.preconditions",
+                        Some("embedded_payload_reachable; action_surface_reachable".into()),
+                    ),
+                    (
+                        "exploit.blockers",
+                        Some("attachment_policy_restrictions; launch_action_controls".into()),
+                    ),
+                    (
+                        "exploit.outcomes",
+                        Some("payload_execution; disguised_attachment_delivery".into()),
+                    ),
+                ],
+            }));
         }
     }
 

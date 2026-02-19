@@ -110,6 +110,16 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
     - edge-quality metadata (`bridge.co_location`, `bridge.shared_object_count`, optional `bridge.shared_objects`),
     - renderer/chain context metadata for exploit-path explainability.
   - Added regression coverage for new font subsignals, renderer metadata invariants, and co-located bridge confidence uplift.
+- Completed: WS5 embedded artefact relationship and mismatch uplift (initial):
+  - `embedded_file_present` now emits normalised relationship and family metadata:
+    - filespec linkage (`embedded.relationship.filespec_present`, `embedded.relationship.binding`)
+    - declared vs observed typing (`embedded.extension_family`, `embedded.declared_subtype`, `embedded.declared_family`, `embedded.magic_family`)
+    - chain context (`chain.stage=decode`, `chain.capability=embedded_payload`, `chain.trigger=embedded_file`)
+  - Added detector `embedded_type_mismatch` for extension/subtype/magic disagreement with structured mismatch axes:
+    - `embedded.family_mismatch=true`
+    - `embedded.mismatch_axes` (for example `extension_vs_magic,subtype_vs_magic`)
+  - Added correlation composite `composite.embedded_relationship_action` linking embedded mismatch findings to action surfaces (`/Launch`, `/GoToR`, `/GoToE`) via object/hash lineage.
+  - Added detector/core regression coverage for Filespec-linked mismatched embedded payloads and composite exploit-chain metadata invariants.
 
 ## Objective
 

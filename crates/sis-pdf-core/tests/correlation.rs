@@ -489,6 +489,40 @@ fn correlate_injection_edge_bridges_for_annotation_surfaces() {
 }
 
 #[test]
+fn correlate_embedded_relationship_action_bridge() {
+    let embedded_mismatch = make_finding(
+        "embedded_type_mismatch",
+        &["120 0 obj"],
+        &[
+            ("hash.sha256", "beadfeed"),
+            ("embedded.mismatch_axes", "extension_vs_magic,subtype_vs_magic"),
+        ],
+        AttackSurface::EmbeddedFiles,
+    );
+    let launch_embedded = make_finding(
+        "launch_embedded_file",
+        &["220 0 obj"],
+        &[("launch.embedded_file_hash", "beadfeed"), ("action.s", "/Launch")],
+        AttackSurface::Actions,
+    );
+    let composites = correlation::correlate_findings(
+        &[embedded_mismatch, launch_embedded],
+        &CorrelationOptions::default(),
+    );
+    let bridge = composites
+        .iter()
+        .find(|finding| finding.kind == "composite.embedded_relationship_action")
+        .expect("embedded relationship action composite");
+    assert_eq!(bridge.severity, Severity::High);
+    assert_eq!(bridge.confidence, Confidence::Strong);
+    assert_eq!(bridge.meta.get("composite.link_reason").map(String::as_str), Some("hash"));
+    assert_eq!(
+        bridge.meta.get("embedded.mismatch_axes").map(String::as_str),
+        Some("extension_vs_magic,subtype_vs_magic")
+    );
+}
+
+#[test]
 fn correlate_hidden_layer_action_when_ocg_and_action_share_object() {
     let ocg = make_finding(
         "ocg_present",
