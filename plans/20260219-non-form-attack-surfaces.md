@@ -29,6 +29,16 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
   - Added synthetic distributed fixtures for:
     - nested `/Next` chain fan-out from `/OpenAction`,
     - `/AA` automatic-event trigger-context normalisation.
+- Completed: WS1 baseline action-presence trigger metadata normalisation (initial):
+  - `open_action_present`, `aa_present`, and `aa_event_present` now emit normalised trigger metadata:
+    - `action.trigger_context`
+    - `action.trigger_event` and `action.trigger_event_normalised`
+    - `action.trigger_type` (for AA events)
+  - Added consistent exploit-chain context on these findings:
+    - `chain.stage=execute`
+    - `chain.capability=action_trigger_chain`
+    - context-derived `chain.trigger` (`open_action`, `additional_action`)
+  - Added detector integration coverage for OpenAction and AA event metadata invariants.
 
 ## Objective
 

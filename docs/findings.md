@@ -163,6 +163,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: specific event-driven execution.
   - Meaning: an AA event entry is present.
   - Chain usage: signals a trigger edge into action/payload nodes.
+  - Metadata:
+    - `action.trigger_context=aa`
+    - `action.trigger_event`, `action.trigger_event_normalised`
+    - `action.trigger_type` (`automatic` for `/O`, `/C`, `/PV`, `/PI`, `/V`, `/PO`; otherwise `user`)
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger=additional_action`
 
 ## aa_present
 
@@ -174,6 +179,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: event-driven execution.
   - Meaning: Additional Actions can fire on viewer events.
   - Chain usage: used as a trigger for action/payload chains.
+  - Metadata:
+    - `action.trigger_context=aa`
+    - `action.trigger_event_normalised=/AA`
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger=additional_action`
 
 ## acroform_present
 
@@ -3147,6 +3156,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: automatic execution trigger.
   - Meaning: OpenAction runs on document open.
   - Chain usage: treated as the trigger node that links to actions or payloads.
+  - Metadata:
+    - `action.trigger_context=open_action`
+    - `action.trigger_event_normalised=/OpenAction`
+    - `action.trigger_type=automatic`
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger=open_action`
 
 ## orphan_payload_object
 

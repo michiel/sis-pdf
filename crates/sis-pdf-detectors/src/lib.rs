@@ -801,6 +801,18 @@ impl Detector for OpenActionDetector {
                         evidence.extend(details.evidence);
                         meta.extend(details.meta);
                     }
+                    meta.insert("action.trigger".into(), "OpenAction".into());
+                    meta.insert("action.trigger_event".into(), "OpenAction".into());
+                    meta.insert("action.trigger_event_normalised".into(), "/OpenAction".into());
+                    meta.insert("action.trigger_type".into(), "automatic".into());
+                    meta.insert("action.trigger_context".into(), "open_action".into());
+                    meta.insert("chain.stage".into(), "execute".into());
+                    meta.insert("chain.capability".into(), "action_trigger_chain".into());
+                    meta.insert("chain.trigger".into(), "open_action".into());
+                    let action_type =
+                        meta.get("action.s").cloned().unwrap_or_else(|| "/OpenAction".into());
+                    let target = action_target_from_meta(&meta);
+                    annotate_action_meta(&mut meta, &action_type, target.as_deref(), "automatic");
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -851,6 +863,15 @@ impl Detector for AAPresentDetector {
                     let mut evidence = Vec::new();
                     evidence.push(span_to_evidence(k.span, "Key /AA"));
                     evidence.push(span_to_evidence(v.span, "Value /AA"));
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("action.trigger".into(), "AA".into());
+                    meta.insert("action.trigger_event".into(), "AA".into());
+                    meta.insert("action.trigger_event_normalised".into(), "/AA".into());
+                    meta.insert("action.trigger_type".into(), "mixed".into());
+                    meta.insert("action.trigger_context".into(), "aa".into());
+                    meta.insert("chain.stage".into(), "execute".into());
+                    meta.insert("chain.capability".into(), "action_trigger_chain".into());
+                    meta.insert("chain.trigger".into(), "additional_action".into());
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
@@ -863,7 +884,7 @@ impl Detector for AAPresentDetector {
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence,
                         remediation: Some("Review event actions for unsafe behavior.".into()),
-                        meta: Default::default(),
+                        meta,
 
                         reader_impacts: Vec::new(),
                         action_type: None,
@@ -904,10 +925,24 @@ impl Detector for AAEventDetector {
                     if let PdfAtom::Dict(aa_dict) = &aa_obj.atom {
                         for (k, v) in &aa_dict.entries {
                             let mut meta = std::collections::HashMap::new();
+                            let event_key = String::from_utf8_lossy(&k.decoded).to_string();
+                            let trigger_type = if is_automatic_aa_event(k.decoded.as_slice()) {
+                                "automatic"
+                            } else {
+                                "user"
+                            };
+                            meta.insert("aa.event_key".into(), event_key.clone());
+                            meta.insert("action.trigger".into(), event_key.clone());
+                            meta.insert("action.trigger_event".into(), event_key.clone());
                             meta.insert(
-                                "aa.event_key".into(),
-                                String::from_utf8_lossy(&k.decoded).to_string(),
+                                "action.trigger_event_normalised".into(),
+                                normalise_action_trigger_event(&event_key),
                             );
+                            meta.insert("action.trigger_type".into(), trigger_type.into());
+                            meta.insert("action.trigger_context".into(), "aa".into());
+                            meta.insert("chain.stage".into(), "execute".into());
+                            meta.insert("chain.capability".into(), "action_trigger_chain".into());
+                            meta.insert("chain.trigger".into(), "additional_action".into());
                             if let Some(page) =
                                 annot_parents.get(&sis_pdf_core::graph_walk::ObjRef {
                                     obj: entry.obj,
@@ -928,6 +963,15 @@ impl Detector for AAEventDetector {
                                 evidence.extend(details.evidence);
                                 meta.extend(details.meta);
                             }
+                            let action_type =
+                                meta.get("action.s").cloned().unwrap_or_else(|| event_key.clone());
+                            let target = action_target_from_meta(&meta);
+                            annotate_action_meta(
+                                &mut meta,
+                                &action_type,
+                                target.as_deref(),
+                                trigger_type,
+                            );
                             if let Some(value) = aa_event_value(ctx, v) {
                                 meta.insert("aa.event_value".into(), value);
                             }
@@ -977,6 +1021,20 @@ fn aa_event_value(
         PdfAtom::Name(n) => Some(String::from_utf8_lossy(&n.decoded).to_string()),
         _ => None,
     }
+}
+
+fn is_automatic_aa_event(name: &[u8]) -> bool {
+    matches!(name, b"/O" | b"/C" | b"/PV" | b"/PI" | b"/V" | b"/PO")
+}
+
+fn normalise_action_trigger_event(event: &str) -> String {
+    if event == "OpenAction" {
+        return "/OpenAction".into();
+    }
+    if event.starts_with('/') {
+        return event.to_string();
+    }
+    format!("/{event}")
 }
 
 /// Check if a PDF name represents a JavaScript key
