@@ -85,6 +85,7 @@ fn launch_action_records_normalised_obfuscated_target_metadata() {
             .map(String::as_str),
         Some("true")
     );
+    assert_eq!(finding.meta.get("action.param.source").map(String::as_str), Some("/F"));
     let decode_layers = finding
         .meta
         .get("injection.decode_layers")

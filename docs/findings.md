@@ -927,6 +927,40 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Reader impacts: PDF.js and browser-based renderers may interpret HTML in form values, enabling XSS attacks.
   - Remediation: review form field `/V` and `/DV` entries for HTML tag injection; apply context-appropriate output encoding when displaying form values in web interfaces.
 
+## scattered_payload_assembly
+
+- ID: `scattered_payload_assembly`
+- Label: Scattered payload assembly indicator
+- Description: Form payload fragments are benign in isolation but assemble into an injection-capable payload.
+- Tags: forms, obfuscation, fragmentation, injection
+- Details:
+  - Relevance: modern malicious PDFs can distribute payload fragments across multiple objects to evade single-object token checks.
+  - Meaning: `/V`, `/DV`, or `/AP` fragments from form-linked objects reconstruct into a payload with JavaScript or HTML injection indicators.
+  - Chain usage: decode-stage indicator for distributed payload staging; prioritise when co-occurring with action and renderer findings.
+  - Metadata:
+    - `scatter.fragment_count`: number of fragments used in assembly.
+    - `scatter.object_ids`: contributing object references.
+    - `injection.sources`: contributing form keys.
+    - `injection.signal.js` / `injection.signal.html`: assembled payload signal classification.
+    - `injection.normalised` and `injection.decode_layers`: present when normalisation was required.
+  - Remediation: resolve indirect references and inspect reconstructed values before relying on per-object benign classifications.
+
+## obfuscated_name_encoding
+
+- ID: `obfuscated_name_encoding`
+- Label: Obfuscated PDF name encoding
+- Description: Security-relevant PDF names use `#xx` hex encoding, which may indicate obfuscation.
+- Tags: obfuscation, parser, metadata
+- Details:
+  - Relevance: action and script names can be hidden with PDF name hex encoding to evade simple token matching.
+  - Meaning: at least one security-relevant name token (action/filter/script/form context) contained raw `#xx` encoding.
+  - Chain usage: decode-stage context signal; use as a confidence booster when paired with action or injection findings.
+  - Metadata:
+    - `obfuscation.name_count`: number of distinct encoded security-relevant names.
+    - `obfuscation.names`: decoded names that matched.
+    - `chain.stage=decode`, `chain.capability=name_obfuscation`.
+  - Remediation: inspect raw and decoded name tokens in flagged objects before classifying as benign.
+
 ## pdfjs_eval_path_risk
 
 - ID: `pdfjs_eval_path_risk`

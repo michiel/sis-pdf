@@ -21,7 +21,7 @@ use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
 use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::graph::{Deviation, ObjEntry, ObjProvenance, XrefSectionSummary};
-use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStream};
+use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj, PdfStream};
 use sis_pdf_pdf::xfa::extract_xfa_script_payloads;
 use std::time::Duration;
 
@@ -126,6 +126,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(PdfjsFontInjectionDetector),
         Box::new(FontJsExploitationBridgeDetector { enable_ast: settings.js_ast }),
         Box::new(PdfjsRenderingIndicatorDetector),
+        Box::new(ScatteredPayloadAssemblyDetector),
         Box::new(font_exploits::FontExploitDetector),
         Box::new(font_external_ref::FontExternalReferenceDetector),
         Box::new(image_analysis::ImageAnalysisDetector),
@@ -154,6 +155,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(content_phishing::ContentPhishingDetector),
         Box::new(content_phishing::ContentDeceptionDetector),
         Box::new(metadata_analysis::MetadataAnalysisDetector),
+        Box::new(ObfuscatedNameEncodingDetector),
         Box::new(strict::StrictParseDeviationDetector),
         Box::new(telemetry_bridge::TelemetryBridgeDetector),
         Box::new(ir_graph_static::IrGraphStaticDetector),
@@ -189,6 +191,7 @@ pub fn sandbox_summary(requested: bool) -> sis_pdf_core::report::SandboxSummary 
 }
 
 struct XrefConflictDetector;
+struct ObfuscatedNameEncodingDetector;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum XrefIntegrityLevel {
@@ -2358,6 +2361,9 @@ impl Detector for PdfjsRenderingIndicatorDetector {
             meta.insert("pdfjs.affected_versions".into(), "<4.2.67".into());
             meta.insert("pdfjs.form_object_count".into(), form_js_objects.len().to_string());
             meta.insert("injection.type".into(), "javascript".into());
+            meta.insert("chain.stage".into(), "render".into());
+            meta.insert("chain.capability".into(), "js_injection".into());
+            meta.insert("chain.trigger".into(), "pdfjs".into());
             if !form_js_sources.is_empty() {
                 meta.insert("injection.sources".into(), form_js_sources.iter().copied().collect::<Vec<_>>().join(","));
             }
@@ -2408,6 +2414,9 @@ impl Detector for PdfjsRenderingIndicatorDetector {
             meta.insert("injection.type".into(), "html_xss".into());
             meta.insert("form.html_object_count".into(), form_html_objects.len().to_string());
             meta.insert("injection.patterns".into(), "html_tags,event_handlers,context_breaking".into());
+            meta.insert("chain.stage".into(), "render".into());
+            meta.insert("chain.capability".into(), "html_injection".into());
+            meta.insert("chain.trigger".into(), "pdfjs".into());
             if !form_html_sources.is_empty() {
                 meta.insert(
                     "injection.sources".into(),
@@ -2622,6 +2631,129 @@ fn obj_collect_injection_signals(
             })
             .unwrap_or_default(),
         _ => InjectionSignals::default(),
+    }
+}
+
+const MAX_SCATTER_COLLECT_DEPTH: usize = 12;
+const MAX_SCATTER_FRAGMENT_BYTES: usize = 32 * 1024;
+const MAX_SCATTER_TOTAL_BYTES: usize = 256 * 1024;
+
+struct InjectionFragment {
+    bytes: Vec<u8>,
+    object_ref: String,
+    source_key: &'static str,
+}
+
+fn collect_injection_fragments_from_obj(
+    obj: &PdfObj<'_>,
+    ctx: &sis_pdf_core::scan::ScanContext,
+    depth: usize,
+    current_object_ref: &str,
+    source_key: &'static str,
+    out: &mut Vec<InjectionFragment>,
+) {
+    if depth >= MAX_SCATTER_COLLECT_DEPTH {
+        return;
+    }
+    let current_total: usize = out.iter().map(|fragment| fragment.bytes.len()).sum();
+    if current_total >= MAX_SCATTER_TOTAL_BYTES {
+        return;
+    }
+
+    match &obj.atom {
+        PdfAtom::Str(s) => {
+            let mut bytes = string_bytes(s);
+            if bytes.len() > MAX_SCATTER_FRAGMENT_BYTES {
+                bytes.truncate(MAX_SCATTER_FRAGMENT_BYTES);
+            }
+            if !bytes.is_empty() {
+                out.push(InjectionFragment {
+                    bytes,
+                    object_ref: current_object_ref.to_string(),
+                    source_key,
+                });
+            }
+        }
+        PdfAtom::Name(name) => {
+            if !name.decoded.is_empty() {
+                let mut bytes = name.decoded.clone();
+                if bytes.len() > MAX_SCATTER_FRAGMENT_BYTES {
+                    bytes.truncate(MAX_SCATTER_FRAGMENT_BYTES);
+                }
+                out.push(InjectionFragment {
+                    bytes,
+                    object_ref: current_object_ref.to_string(),
+                    source_key,
+                });
+            }
+        }
+        PdfAtom::Array(values) => {
+            for value in values {
+                collect_injection_fragments_from_obj(
+                    value,
+                    ctx,
+                    depth + 1,
+                    current_object_ref,
+                    source_key,
+                    out,
+                );
+            }
+        }
+        PdfAtom::Dict(dict) => {
+            for (_, value) in &dict.entries {
+                collect_injection_fragments_from_obj(
+                    value,
+                    ctx,
+                    depth + 1,
+                    current_object_ref,
+                    source_key,
+                    out,
+                );
+            }
+        }
+        PdfAtom::Stream(stream) => {
+            let start = stream.data_span.start as usize;
+            let end = stream.data_span.end as usize;
+            if start < end && end <= ctx.bytes.len() {
+                let mut bytes = ctx.bytes[start..end].to_vec();
+                if bytes.len() > MAX_SCATTER_FRAGMENT_BYTES {
+                    bytes.truncate(MAX_SCATTER_FRAGMENT_BYTES);
+                }
+                if !bytes.is_empty() {
+                    out.push(InjectionFragment {
+                        bytes,
+                        object_ref: current_object_ref.to_string(),
+                        source_key,
+                    });
+                }
+            }
+            for (_, value) in &stream.dict.entries {
+                collect_injection_fragments_from_obj(
+                    value,
+                    ctx,
+                    depth + 1,
+                    current_object_ref,
+                    source_key,
+                    out,
+                );
+            }
+        }
+        PdfAtom::Ref { obj, gen } => {
+            if let Some(resolved) = ctx.graph.get_object(*obj, *gen) {
+                let resolved_obj =
+                    PdfObj { span: resolved.body_span, atom: resolved.atom.clone() };
+                let resolved_ref = format!("{} {} obj", obj, gen);
+                collect_injection_fragments_from_obj(
+                    &resolved_obj,
+                    ctx,
+                    depth + 1,
+                    &resolved_ref,
+                    source_key,
+                    out,
+                );
+            }
+        }
+        _ => {}
     }
 }
 
@@ -2969,6 +3101,138 @@ fn detect_injection_type(payload: &[u8]) -> Option<InjectionType> {
 }
 
 struct SubmitFormDetector;
+
+struct ScatteredPayloadAssemblyDetector;
+
+impl Detector for ScatteredPayloadAssemblyDetector {
+    fn id(&self) -> &'static str {
+        "scattered_payload_assembly"
+    }
+
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Forms
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+
+    fn cost(&self) -> Cost {
+        Cost::Moderate
+    }
+
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            if !is_form_dict(dict) {
+                continue;
+            }
+
+            let owner_ref = format!("{} {} obj", entry.obj, entry.gen);
+            let mut fragments = Vec::new();
+            if let Some((_, obj)) = dict.get_first(b"/V") {
+                collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/V", &mut fragments);
+            }
+            if let Some((_, obj)) = dict.get_first(b"/DV") {
+                collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/DV", &mut fragments);
+            }
+            if let Some((_, obj)) = dict.get_first(b"/AP") {
+                collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/AP", &mut fragments);
+            }
+
+            if fragments.len() < 2 {
+                continue;
+            }
+
+            let fragment_has_direct_signal =
+                fragments.iter().any(|fragment| detect_injection_signals(&fragment.bytes).classify().is_some());
+            if fragment_has_direct_signal {
+                continue;
+            }
+
+            let mut assembled = Vec::new();
+            for fragment in &fragments {
+                assembled.extend_from_slice(&fragment.bytes);
+            }
+            let assembled_signals = detect_injection_signals(&assembled);
+            if assembled_signals.classify().is_none() {
+                continue;
+            }
+
+            let mut object_ids = BTreeSet::new();
+            let mut sources = BTreeSet::new();
+            for fragment in &fragments {
+                object_ids.insert(fragment.object_ref.clone());
+                sources.insert(fragment.source_key);
+            }
+
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("chain.stage".into(), "decode".into());
+            meta.insert("chain.capability".into(), "payload_scatter".into());
+            meta.insert("chain.trigger".into(), "pdfjs".into());
+            meta.insert("scatter.fragment_count".into(), fragments.len().to_string());
+            meta.insert(
+                "scatter.object_ids".into(),
+                object_ids.iter().cloned().collect::<Vec<_>>().join(","),
+            );
+            meta.insert(
+                "injection.sources".into(),
+                sources.iter().copied().collect::<Vec<_>>().join(","),
+            );
+            meta.insert("injection.signal.js".into(), assembled_signals.has_js.to_string());
+            meta.insert("injection.signal.html".into(), assembled_signals.has_html.to_string());
+            if assembled_signals.normalised {
+                meta.insert("injection.normalised".into(), "true".into());
+                meta.insert(
+                    "injection.decode_layers".into(),
+                    assembled_signals.decode_layers.to_string(),
+                );
+            }
+
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Forms,
+                kind: "scattered_payload_assembly".into(),
+                severity: Severity::Medium,
+                confidence: Confidence::Probable,
+                impact: Some(Impact::Medium),
+                title: "Scattered payload assembly indicator".into(),
+                description:
+                    "Form payload fragments are benign in isolation but assemble into an injection-capable payload."
+                        .into(),
+                objects: object_ids.iter().cloned().collect(),
+                evidence: form_injection_evidence(ctx.bytes, &sources, 3),
+                remediation: Some(
+                    "Inspect fragmented form values/appearances and resolve indirect references to identify reconstructed payloads."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: vec![ReaderImpact {
+                    profile: ReaderProfile::Pdfium,
+                    surface: AttackSurface::Forms,
+                    severity: Severity::Medium,
+                    impact: Impact::Medium,
+                    note: Some(
+                        "Distributed fragments can reconstruct executable payloads at render time or export-time."
+                            .into(),
+                    ),
+                }],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        Ok(findings)
+    }
+}
 
 impl Detector for SubmitFormDetector {
     fn id(&self) -> &'static str {
@@ -4127,6 +4391,158 @@ impl Detector for HugeImageDetector {
     }
 }
 
+impl Detector for ObfuscatedNameEncodingDetector {
+    fn id(&self) -> &'static str {
+        "obfuscated_name_encoding"
+    }
+
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Metadata
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+
+    fn cost(&self) -> Cost {
+        Cost::Cheap
+    }
+
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut object_refs = Vec::new();
+        let mut matched_names = BTreeSet::new();
+
+        for entry in &ctx.graph.objects {
+            if object_has_obfuscated_security_name(&entry.atom, &mut matched_names, 0) {
+                object_refs.push(format!("{} {} obj", entry.obj, entry.gen));
+            }
+        }
+
+        object_refs.sort();
+        object_refs.dedup();
+        if object_refs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("obfuscation.name_count".into(), matched_names.len().to_string());
+        meta.insert(
+            "obfuscation.names".into(),
+            matched_names.into_iter().collect::<Vec<_>>().join(","),
+        );
+        meta.insert("chain.stage".into(), "decode".into());
+        meta.insert("chain.capability".into(), "name_obfuscation".into());
+
+        Ok(vec![Finding {
+            id: String::new(),
+            surface: AttackSurface::Metadata,
+            kind: "obfuscated_name_encoding".into(),
+            severity: Severity::Low,
+            confidence: Confidence::Tentative,
+            impact: Some(Impact::Low),
+            title: "Obfuscated PDF name encoding".into(),
+            description:
+                "Security-relevant PDF names use #xx hex encoding, which may indicate obfuscation."
+                    .into(),
+            objects: object_refs,
+            evidence: keyword_evidence(ctx.bytes, b"#", "Hex-encoded name marker", 5),
+            remediation: Some(
+                "Decode and review action/filter/script-related name tokens before triage conclusions."
+                    .into(),
+            ),
+            meta,
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+        }])
+    }
+}
+
+fn object_has_obfuscated_security_name(
+    atom: &PdfAtom<'_>,
+    matched_names: &mut BTreeSet<String>,
+    depth: usize,
+) -> bool {
+    if depth >= 10 {
+        return false;
+    }
+
+    match atom {
+        PdfAtom::Name(name) => {
+            if name_looks_obfuscated(name) && name_is_security_relevant(name) {
+                matched_names.insert(String::from_utf8_lossy(&name.decoded).to_string());
+                true
+            } else {
+                false
+            }
+        }
+        PdfAtom::Array(values) => values
+            .iter()
+            .any(|value| object_has_obfuscated_security_name(&value.atom, matched_names, depth + 1)),
+        PdfAtom::Dict(dict) => {
+            let key_hit = dict.entries.iter().any(|(key, value)| {
+                let mut hit = false;
+                if name_looks_obfuscated(key) && name_is_security_relevant(key) {
+                    matched_names.insert(String::from_utf8_lossy(&key.decoded).to_string());
+                    hit = true;
+                }
+                hit || object_has_obfuscated_security_name(&value.atom, matched_names, depth + 1)
+            });
+            key_hit
+        }
+        PdfAtom::Stream(stream) => stream
+            .dict
+            .entries
+            .iter()
+            .any(|(key, value)| {
+                let mut hit = false;
+                if name_looks_obfuscated(key) && name_is_security_relevant(key) {
+                    matched_names.insert(String::from_utf8_lossy(&key.decoded).to_string());
+                    hit = true;
+                }
+                hit || object_has_obfuscated_security_name(&value.atom, matched_names, depth + 1)
+            }),
+        _ => false,
+    }
+}
+
+fn name_looks_obfuscated(name: &PdfName<'_>) -> bool {
+    let raw = name.raw.as_ref();
+    let mut i = 0usize;
+    while i + 2 < raw.len() {
+        if raw[i] == b'#' && hex_value(raw[i + 1]).is_some() && hex_value(raw[i + 2]).is_some() {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+fn name_is_security_relevant(name: &PdfName<'_>) -> bool {
+    let lower = name.decoded.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<u8>>();
+    let needles: &[&[u8]] = &[
+        b"/javascript",
+        b"/js",
+        b"/launch",
+        b"/uri",
+        b"/submitform",
+        b"/gotor",
+        b"/gotoe",
+        b"/openaction",
+        b"/aa",
+        b"/filter",
+        b"/acroform",
+        b"/ap",
+        b"/s",
+        b"/f",
+    ];
+    needles.iter().any(|needle| lower.windows(needle.len()).any(|window| window == *needle))
+}
+
 pub(crate) fn entry_dict<'a>(entry: &'a ObjEntry<'a>) -> Option<&'a PdfDict<'a>> {
     match &entry.atom {
         PdfAtom::Dict(d) => Some(d),
@@ -4543,6 +4959,7 @@ fn payload_from_dict(
             ];
             let mut meta = std::collections::HashMap::new();
             meta.insert("payload.key".into(), String::from_utf8_lossy(key).to_string());
+            meta.insert("action.param.source".into(), String::from_utf8_lossy(key).to_string());
             let res = resolve_payload(ctx, v);
             if let Some(err) = res.error {
                 meta.insert("payload.error".into(), err);

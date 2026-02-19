@@ -136,6 +136,9 @@ fn detects_html_event_handler_injection() {
     assert_eq!(finding.severity, sis_pdf_core::model::Severity::Medium);
     assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Strong);
     assert!(finding.meta.get("injection.type").map(|s| s.as_str()) == Some("html_xss"));
+    assert_eq!(finding.meta.get("chain.stage").map(|s| s.as_str()), Some("render"));
+    assert_eq!(finding.meta.get("chain.capability").map(|s| s.as_str()), Some("html_injection"));
+    assert_eq!(finding.meta.get("chain.trigger").map(|s| s.as_str()), Some("pdfjs"));
 }
 
 #[test]
@@ -435,4 +438,76 @@ fn detects_multilayer_fragmented_obfuscation_and_boosts_confidence() {
         .unwrap_or(0);
     assert!(layers >= 2, "Expected multi-layer decode metadata");
     assert!(report.findings.iter().any(|f| f.kind == "form_html_injection"));
+}
+
+#[test]
+fn detects_scattered_payload_assembly_when_fragments_are_individually_benign() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n",
+        "6 0 obj\n<< /FT /Tx /T (field) /V [7 0 R 8 0 R 9 0 R] >>\nendobj\n",
+        "7 0 obj\n(%3C)\nendobj\n",
+        "8 0 obj\n(script%3Ealert(1)%3C)\nendobj\n",
+        "9 0 obj\n(%2Fscript%3E)\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+
+    let scattered = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "scattered_payload_assembly");
+    assert!(scattered.is_some(), "Expected scattered payload finding");
+    let scattered = scattered.expect("finding");
+    assert_eq!(scattered.meta.get("chain.stage").map(|v| v.as_str()), Some("decode"));
+    assert_eq!(
+        scattered.meta.get("chain.capability").map(|v| v.as_str()),
+        Some("payload_scatter")
+    );
+    assert_eq!(scattered.meta.get("chain.trigger").map(|v| v.as_str()), Some("pdfjs"));
+    assert_eq!(
+        scattered.meta.get("scatter.fragment_count").map(|v| v.as_str()),
+        Some("3")
+    );
+    assert_eq!(
+        scattered.meta.get("injection.sources").map(|v| v.as_str()),
+        Some("/V")
+    );
+    assert!(
+        scattered
+            .meta
+            .get("scatter.object_ids")
+            .map(|v| v.contains("7 0 obj") && v.contains("8 0 obj") && v.contains("9 0 obj"))
+            .unwrap_or(false),
+        "Expected source object ids in scatter metadata"
+    );
+}
+
+#[test]
+fn benign_fragmented_form_values_do_not_trigger_scattered_payload_assembly() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n",
+        "6 0 obj\n<< /FT /Tx /T (field) /V [7 0 R 8 0 R 9 0 R] >>\nendobj\n",
+        "7 0 obj\n(hel)\nendobj\n",
+        "8 0 obj\n(lo )\nendobj\n",
+        "9 0 obj\n(world)\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+    assert!(!report.findings.iter().any(|f| f.kind == "scattered_payload_assembly"));
 }

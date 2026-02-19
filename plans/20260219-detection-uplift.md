@@ -25,7 +25,23 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
   - Updated `docs/findings.md` entries for `pdfjs_form_injection` and `form_html_injection` to document source metadata, normalisation metadata, confidence behaviour, and refined HTML-context pattern semantics.
 - Completed: WS3 action-parameter normalisation (initial):
   - Action payload enrichment now applies the same bounded normalisation utility and emits `injection.action_param_normalised=true` and `injection.decode_layers=<n>` when action targets are encoded/obfuscated.
+  - Added `action.param.source` metadata to identify which action dictionary parameter carried the payload (e.g. `/F`, `/URI`).
   - Added integration fixture for obfuscated Launch `/F` target with multi-layer percent encoding and regression assertions for normalisation metadata.
+- Completed: WS6 scattered payload detection (initial):
+  - Added `scattered_payload_assembly` detector to identify form-linked payload fragments that are benign independently but malicious when assembled.
+  - Added guarded fragment collection over `/V`, `/DV`, `/AP` reference chains with depth and size caps, plus metadata (`scatter.fragment_count`, `scatter.object_ids`, `injection.signal.*`, `chain.stage=decode`).
+  - Added regression fixtures for distributed encoded payload assembly and benign fragmented controls.
+  - Documented `scattered_payload_assembly` in `docs/findings.md`.
+- Completed: CQ1 groundwork (partial):
+  - Added stable chain metadata primitives to form and scatter findings:
+    - `chain.stage`
+    - `chain.capability`
+    - `chain.trigger`
+  - Added regression assertions to lock metadata shape for downstream chain-synthesis work.
+- Completed: WS3 PDF name obfuscation coverage (initial):
+  - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
+  - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.
+  - Documented `obfuscated_name_encoding` in `docs/findings.md`.
 - Validation run:
   - `cargo test -p sis-pdf-detectors --test pdfjs_rendering_indicators`
   - `cargo test -p sis-pdf-detectors`
