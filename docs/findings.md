@@ -1216,12 +1216,15 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: flags suspicious `/F` or `/URI` targets for actions such as `/GoToR`, `/GoToE`, `/SubmitForm`, `/Launch`, and `/URI`.
   - Chain usage: action-stage risk enhancer used to connect action nodes to egress or payload-delivery paths.
   - Metadata:
-    - `action.remote.indicators`: matched indicators (`unc_path`, `data_uri`, `javascript_scheme`, `file_scheme`, `obfuscated_target`)
+    - `action.remote.indicators`: matched indicators (for example `unc_path`, `data_uri`, `javascript_scheme`, `file_scheme`, `obfuscated_target`, `uri_exfil_pattern`, `uri_userinfo`, `uri_non_standard_port`)
     - `action.remote.target_preview`: normalised target preview
     - `action.remote.scheme`: parsed scheme token (or leading path token for UNC-style paths)
     - `action.param.source`: source key containing the target (`/F` or `/URI`)
     - `egress.channel`: normalised outbound channel (`remote_goto`, `uri_action`, `submit_form`, `launch_target`)
     - `egress.target_kind`: target classification (`unc_path`, `data_uri`, `script_uri`, `file_uri`, `remote_target`)
+    - `egress.indicator_count`: count of matched remote-risk indicators
+    - `egress.risk_score`: weighted risk score from indicator profile
+    - `egress.risk_class`: normalised risk band (`low`, `medium`, `high`, `critical`)
     - `egress.user_interaction_required`: heuristic interaction requirement (`true`, `false`, `unknown`)
     - `chain.stage=egress`, `chain.capability=remote_action_target`, `chain.trigger=action`
 

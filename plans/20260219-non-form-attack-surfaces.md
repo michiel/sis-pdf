@@ -16,6 +16,20 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
   - Added shared egress metadata for baseline action findings emitted by `action_by_s` for `/SubmitForm`, `/URI`, `/GoToR`, and `/GoToE`.
   - Added correlation bridge `injection_to_remote_action` (`composite.injection_edge_bridge`) linking injection findings to `action_remote_target_suspicious` when object lineage co-locates.
   - Added regression coverage for detector metadata and correlation exploit-context metadata.
+- Completed: WS8 outbound-risk classification refinement (initial):
+  - Enhanced `action_remote_target_suspicious` indicator model with URI-behaviour signals for remote targets:
+    - exfiltration/query pattern detection,
+    - userinfo credential embedding,
+    - non-standard port usage,
+    - shortener/suspicious host traits and path extension risk.
+  - Added normalised egress risk metadata:
+    - `egress.indicator_count`
+    - `egress.risk_score`
+    - `egress.risk_class` (`low`, `medium`, `high`, `critical`)
+  - Preserved low-noise behaviour for benign HTTPS/relative targets (no suspicious finding emission without risk indicators).
+  - Added regression coverage for:
+    - benign vs exfiltration-style remote target separation,
+    - execute+egress chain-severity escalation guardrail on correlation bridges.
 - Completed: WS1 trigger-surface uplift for nested `/Next` and `/AA` context normalisation (initial):
   - Extended action-chain traversal metadata with `/Next` telemetry:
     - `action.next.depth`

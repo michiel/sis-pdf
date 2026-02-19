@@ -7,6 +7,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::str;
 
 use crate::encryption_obfuscation::{encryption_meta_from_dict, resolve_encrypt_dict};
+use crate::uri_classification::analyze_uri_content;
 use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::embedded_index::{build_embedded_artefact_index, EmbeddedArtefactRef};
@@ -4304,7 +4305,7 @@ impl Detector for ActionRemoteTargetSuspiciousDetector {
             let egress_target_kind = egress_target_kind_for_remote_analysis(&target_analysis);
             meta.insert("action.s".into(), action_type.clone());
             meta.insert("action.remote.indicators".into(), target_analysis.indicators.join(","));
-            meta.insert("action.remote.target_preview".into(), target_analysis.preview);
+            meta.insert("action.remote.target_preview".into(), target_analysis.preview.clone());
             meta.insert("action.remote.scheme".into(), target_analysis.scheme.clone());
             meta.insert("chain.stage".into(), "egress".into());
             meta.insert("chain.capability".into(), "remote_action_target".into());
@@ -4314,6 +4315,15 @@ impl Detector for ActionRemoteTargetSuspiciousDetector {
                 egress_channel_for_action(action_type.as_str()).to_string(),
             );
             meta.insert("egress.target_kind".into(), egress_target_kind.to_string());
+            meta.insert(
+                "egress.indicator_count".into(),
+                target_analysis.indicators.len().to_string(),
+            );
+            meta.insert("egress.risk_score".into(), target_analysis.risk_score.to_string());
+            meta.insert(
+                "egress.risk_class".into(),
+                egress_risk_class_for_remote_analysis(&target_analysis).to_string(),
+            );
             meta.insert(
                 "egress.user_interaction_required".into(),
                 egress_user_interaction_required(action_type.as_str()).to_string(),
@@ -4326,15 +4336,13 @@ impl Detector for ActionRemoteTargetSuspiciousDetector {
                 );
             }
 
-            let (severity, confidence, impact) = if target_analysis
-                .indicators
-                .iter()
-                .any(|indicator| matches!(indicator.as_str(), "javascript_scheme" | "data_uri"))
-            {
-                (Severity::High, Confidence::Strong, Some(Impact::High))
-            } else {
-                (Severity::Medium, Confidence::Probable, Some(Impact::Medium))
-            };
+            let (severity, confidence, impact) =
+                match egress_risk_class_for_remote_analysis(&target_analysis) {
+                    "critical" => (Severity::High, Confidence::Strong, Some(Impact::High)),
+                    "high" => (Severity::High, Confidence::Probable, Some(Impact::High)),
+                    "medium" => (Severity::Medium, Confidence::Probable, Some(Impact::Medium)),
+                    _ => (Severity::Low, Confidence::Probable, Some(Impact::Low)),
+                };
 
             let mut finding = Finding {
                 id: String::new(),
@@ -4373,6 +4381,7 @@ struct ActionRemoteTargetAnalysis {
     scheme: String,
     preview: String,
     decode_layers: u8,
+    risk_score: u8,
 }
 
 fn action_s_name(dict: &PdfDict<'_>) -> Option<String> {
@@ -4427,11 +4436,45 @@ fn analyse_remote_target_from_dict(
         if decode_layers > 0 || lower.contains('%') {
             indicators.push("obfuscated_target".to_string());
         }
+        if lower.contains("://") {
+            let uri = analyze_uri_content(&bytes);
+            if uri.userinfo_present {
+                indicators.push("uri_userinfo".to_string());
+            }
+            if uri.has_data_exfil_pattern {
+                indicators.push("uri_exfil_pattern".to_string());
+            }
+            if uri.has_shortener_domain {
+                indicators.push("uri_shortener_domain".to_string());
+            }
+            if uri.suspicious_tld {
+                indicators.push("uri_suspicious_tld".to_string());
+            }
+            if uri.has_non_standard_port {
+                indicators.push("uri_non_standard_port".to_string());
+            }
+            if uri.is_ip_address {
+                indicators.push("uri_ip_host".to_string());
+            }
+            if uri.has_embedded_ip_host {
+                indicators.push("uri_embedded_ip_host".to_string());
+            }
+            if uri.has_idn_lookalike {
+                indicators.push("uri_idn_lookalike".to_string());
+            }
+            if uri.has_suspicious_extension {
+                indicators.push("uri_suspicious_extension".to_string());
+            }
+        }
         indicators.sort();
         indicators.dedup();
         if indicators.is_empty() {
             return None;
         }
+        let risk_score = indicators
+            .iter()
+            .map(|indicator| remote_indicator_weight(indicator.as_str()))
+            .sum::<u8>();
         let scheme = lower
             .split(':')
             .next()
@@ -4443,9 +4486,35 @@ fn analyse_remote_target_from_dict(
             scheme,
             preview: preview_ascii(&bytes, 160),
             decode_layers,
+            risk_score,
         });
     }
     None
+}
+
+fn remote_indicator_weight(indicator: &str) -> u8 {
+    match indicator {
+        "javascript_scheme" | "data_uri" | "file_scheme" | "unc_path" | "uri_exfil_pattern" => 4,
+        "obfuscated_target" | "uri_userinfo" | "uri_idn_lookalike" | "uri_embedded_ip_host" => 3,
+        "uri_ip_host" | "uri_non_standard_port" | "uri_shortener_domain" => 2,
+        "uri_suspicious_tld" | "uri_suspicious_extension" => 1,
+        _ => 1,
+    }
+}
+
+fn egress_risk_class_for_remote_analysis(analysis: &ActionRemoteTargetAnalysis) -> &'static str {
+    if analysis.indicators.iter().any(|indicator| {
+        matches!(indicator.as_str(), "javascript_scheme" | "data_uri" | "file_scheme" | "unc_path")
+    }) {
+        return "critical";
+    }
+    if analysis.risk_score >= 7 {
+        return "high";
+    }
+    if analysis.risk_score >= 3 {
+        return "medium";
+    }
+    "low"
 }
 
 fn egress_channel_for_action(action_type: &str) -> &'static str {
