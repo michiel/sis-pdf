@@ -71,6 +71,18 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - `exploit.*`
     - `chain.stage`, `chain.capability`, `chain.trigger`, `chain.confidence`, `chain.severity`
   - Added regression coverage (`chain_grouping.rs`) to ensure chain output retains edge/exploit context for downstream query/report consumers.
+- Completed: CQ5 query ergonomics and schema implementation (initial):
+  - Added `sis query ... findings --with-chain` support (including severity/kind/composite findings query variants).
+  - Implemented `findings_with_chain` JSON payload with explicit chain fields:
+    - `ordered_stages`
+    - `shared_object_refs`
+    - `contributing_findings`
+    - `edge.*` and `exploit.*` projections
+  - Added compact text-mode chain summary lines for `--with-chain` output.
+  - Added query regression tests for:
+    - `--with-chain` option validation,
+    - chain-augmented findings schema,
+    - text summary formatting.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.

@@ -2,6 +2,31 @@
 
 This document describes every finding ID that `sis-pdf` can emit. Each entry includes a label, a short description, tags for quick grouping, and details on relevance, meaning, and exploit-chain usage.
 
+## Chain Query Output
+
+`sis query <file.pdf> findings --with-chain --format json` returns a chain-augmented findings payload.
+
+Schema:
+- `type`: `findings_with_chain`
+- `count`: number of findings in `findings`
+- `chain_count`: number of correlated chains in `chains`
+- `findings`: standard findings array (same shape as `sis query ... findings`)
+- `chains`: correlated chain array. Each chain includes:
+  - `id`, `group_id`, `group_count`, `group_members`
+  - `path`, `score`, `reasons`
+  - `ordered_stages`: ordered chain stages (for example `decode`, `render`, `execute`, `egress`)
+  - `shared_object_refs`: deduplicated object references used by contributing findings
+  - `contributing_findings`: finding summaries (`id`, `kind`, `severity`, `confidence`, `objects`, chain hints)
+  - `edge`: edge metadata (`reason`, `confidence`, `from`, `to`, `shared_objects`)
+  - `exploit`: exploit context (`preconditions`, `blockers`, `outcomes`)
+  - `notes`: raw synthesised chain notes
+
+Text output summary for `--with-chain` includes:
+- Findings count
+- Chain count
+- Up to eight concise potential-chain lines:
+  - `Potential chain: decode -> render -> egress [scatter_to_injection] (id=chain-...)`
+
 ---
 
 ## Evasion-Resistant Metadata Fields

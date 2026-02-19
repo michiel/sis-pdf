@@ -228,6 +228,8 @@ enum Command {
         hexdump: bool,
         #[arg(long, help = "Disable chain grouping in chain output")]
         ungroup_chains: bool,
+        #[arg(long, help = "Augment findings queries with correlated chain output")]
+        with_chain: bool,
     },
     #[command(about = "Scan PDFs for suspicious indicators and report findings")]
     Scan {
@@ -762,6 +764,7 @@ fn main() -> Result<()> {
             decode,
             hexdump,
             ungroup_chains,
+            with_chain,
         } => {
             let where_clause_raw = r#where.clone();
             let config_query_colour = config_path
@@ -845,6 +848,7 @@ fn main() -> Result<()> {
                     !no_recover,
                     max_objects,
                     !ungroup_chains,
+                    with_chain,
                     extract_to.as_deref(),
                     path.as_deref(),
                     &glob,
@@ -881,6 +885,7 @@ fn main() -> Result<()> {
                     !no_recover,
                     max_objects,
                     !ungroup_chains,
+                    with_chain,
                     extract_to.as_deref(),
                     max_extract_bytes,
                     repl_output_format,
@@ -2727,6 +2732,7 @@ fn run_query_oneshot(
     recover_xref: bool,
     max_objects: usize,
     group_chains: bool,
+    with_chain: bool,
     extract_to: Option<&std::path::Path>,
     path: Option<&std::path::Path>,
     glob: &str,
@@ -2766,6 +2772,7 @@ fn run_query_oneshot(
         }
     };
     let query = query::apply_output_format(query, output_format)?;
+    let query = query::apply_with_chain(query, with_chain)?;
 
     // Build scan options
     let scan_options = query::ScanOptions {
@@ -2849,6 +2856,7 @@ fn run_query_repl(
     recover_xref: bool,
     max_objects: usize,
     group_chains: bool,
+    with_chain: bool,
     extract_to: Option<&std::path::Path>,
     max_extract_bytes: usize,
     output_format: commands::query::OutputFormat,
@@ -3085,6 +3093,13 @@ fn run_query_repl(
                             Ok(resolved) => resolved,
                             Err(e) => {
                                 eprintln!("Format error: {}", e);
+                                continue;
+                            }
+                        };
+                        let q = match query::apply_with_chain(q, with_chain) {
+                            Ok(resolved) => resolved,
+                            Err(e) => {
+                                eprintln!("Option error: {}", e);
                                 continue;
                             }
                         };

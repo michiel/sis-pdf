@@ -243,6 +243,10 @@ pub enum Query {
     FindingsByKindCount(String),
     FindingsComposite,
     FindingsCompositeCount,
+    FindingsWithChain,
+    FindingsBySeverityWithChain(Severity),
+    FindingsByKindWithChain(String),
+    FindingsCompositeWithChain,
     Correlations,
     CorrelationsCount,
     CanonicalDiff,
@@ -1339,6 +1343,24 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
     Ok(resolved)
 }
 
+pub fn apply_with_chain(query: Query, with_chain: bool) -> Result<Query> {
+    if !with_chain {
+        return Ok(query);
+    }
+    let resolved = match query {
+        Query::Findings => Query::FindingsWithChain,
+        Query::FindingsBySeverity(severity) => Query::FindingsBySeverityWithChain(severity),
+        Query::FindingsByKind(kind) => Query::FindingsByKindWithChain(kind),
+        Query::FindingsComposite => Query::FindingsCompositeWithChain,
+        Query::FindingsWithChain
+        | Query::FindingsBySeverityWithChain(_)
+        | Query::FindingsByKindWithChain(_)
+        | Query::FindingsCompositeWithChain => query,
+        _ => return Err(anyhow!("--with-chain is only supported for findings queries")),
+    };
+    Ok(resolved)
+}
+
 pub fn apply_report_verbosity(
     query: &Query,
     result: QueryResult,
@@ -1359,6 +1381,10 @@ pub fn apply_report_verbosity(
             | Query::FindingsBySeverity(_)
             | Query::FindingsByKind(_)
             | Query::FindingsComposite
+            | Query::FindingsWithChain
+            | Query::FindingsBySeverityWithChain(_)
+            | Query::FindingsByKindWithChain(_)
+            | Query::FindingsCompositeWithChain
     ) {
         if let QueryResult::Structure(value) = result {
             QueryResult::Structure(filter_findings_by_severity(value))
@@ -1371,8 +1397,8 @@ pub fn apply_report_verbosity(
 }
 
 fn filter_findings_by_severity(value: serde_json::Value) -> serde_json::Value {
-    let filtered = match value {
-        serde_json::Value::Array(entries) => serde_json::Value::Array(
+    let filter_array = |entries: Vec<serde_json::Value>| {
+        serde_json::Value::Array(
             entries
                 .into_iter()
                 .filter(|entry| match entry.get("severity").and_then(|v| v.as_str()) {
@@ -1383,10 +1409,21 @@ fn filter_findings_by_severity(value: serde_json::Value) -> serde_json::Value {
                     None => true,
                 })
                 .collect(),
-        ),
-        other => other,
+        )
     };
-    filtered
+
+    match value {
+        serde_json::Value::Array(entries) => filter_array(entries),
+        serde_json::Value::Object(mut object)
+            if object.get("type").and_then(|v| v.as_str()) == Some("findings_with_chain") =>
+        {
+            if let Some(entries) = object.get("findings").and_then(|v| v.as_array()).cloned() {
+                object.insert("findings".into(), filter_array(entries));
+            }
+            serde_json::Value::Object(object)
+        }
+        other => other,
+    }
 }
 
 pub fn apply_chain_summary(
@@ -1544,6 +1581,10 @@ pub fn execute_query_with_context(
                     | Query::FindingsByKindCount(_)
                     | Query::FindingsComposite
                     | Query::FindingsCompositeCount
+                    | Query::FindingsWithChain
+                    | Query::FindingsBySeverityWithChain(_)
+                    | Query::FindingsByKindWithChain(_)
+                    | Query::FindingsCompositeWithChain
                     | Query::StreamsEntropy
                     | Query::ObjectsCount
                     | Query::ObjectsList
@@ -1605,12 +1646,32 @@ pub fn execute_query_with_context(
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
+            Query::FindingsBySeverityWithChain(severity) => {
+                let findings = findings_with_cache(ctx)?;
+                let filtered: Vec<sis_pdf_core::model::Finding> =
+                    findings.into_iter().filter(|f| &f.severity == severity).collect();
+                let filtered = filter_findings(filtered, predicate);
+                Ok(QueryResult::Structure(build_findings_with_chain(
+                    filtered,
+                    ctx.options.group_chains,
+                )))
+            }
             Query::FindingsByKind(kind) => {
                 let findings = findings_with_cache(ctx)?;
                 let filtered: Vec<sis_pdf_core::model::Finding> =
                     findings.into_iter().filter(|f| f.kind == *kind).collect();
                 let filtered = filter_findings(filtered, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
+            }
+            Query::FindingsByKindWithChain(kind) => {
+                let findings = findings_with_cache(ctx)?;
+                let filtered: Vec<sis_pdf_core::model::Finding> =
+                    findings.into_iter().filter(|f| f.kind == *kind).collect();
+                let filtered = filter_findings(filtered, predicate);
+                Ok(QueryResult::Structure(build_findings_with_chain(
+                    filtered,
+                    ctx.options.group_chains,
+                )))
             }
             Query::FindingsByKindCount(kind) => {
                 let findings = findings_with_cache(ctx)?;
@@ -1624,11 +1685,28 @@ pub fn execute_query_with_context(
                 let filtered = filter_findings(findings, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
+            Query::FindingsWithChain => {
+                let findings = findings_with_cache(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                Ok(QueryResult::Structure(build_findings_with_chain(
+                    filtered,
+                    ctx.options.group_chains,
+                )))
+            }
             Query::FindingsComposite => {
                 let findings = findings_with_cache(ctx)?;
                 let filtered = filter_findings(findings, predicate);
                 let composites: Vec<_> = filtered.into_iter().filter(is_composite).collect();
                 Ok(QueryResult::Structure(json!(composites)))
+            }
+            Query::FindingsCompositeWithChain => {
+                let findings = findings_with_cache(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                let composites: Vec<_> = filtered.into_iter().filter(is_composite).collect();
+                Ok(QueryResult::Structure(build_findings_with_chain(
+                    composites,
+                    ctx.options.group_chains,
+                )))
             }
             Query::FindingsCompositeCount => {
                 let findings = findings_with_cache(ctx)?;
@@ -2760,10 +2838,47 @@ pub fn format_result(result: &QueryResult, compact: bool) -> String {
             }
         }
         QueryResult::Structure(v) => {
+            if let Some(summary) = format_findings_with_chain_text(v, compact) {
+                return summary;
+            }
             serde_json::to_string_pretty(v).unwrap_or_else(|_| "{}".to_string())
         }
         QueryResult::Error(err) => err.message.clone(),
     }
+}
+
+fn format_findings_with_chain_text(value: &serde_json::Value, compact: bool) -> Option<String> {
+    if value.get("type").and_then(|v| v.as_str()) != Some("findings_with_chain") {
+        return None;
+    }
+    let finding_count = value.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+    let chains = value.get("chains").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    if compact {
+        return Some(format!("{finding_count} findings, {} chains", chains.len()));
+    }
+
+    let mut out = vec![format!("Findings: {finding_count}"), format!("Chains: {}", chains.len())];
+    for chain in chains.iter().take(8) {
+        let stages = chain
+            .get("ordered_stages")
+            .and_then(|v| v.as_array())
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|entry| entry.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let stage_path = if stages.is_empty() { "-".to_string() } else { stages.join(" -> ") };
+        let edge_reason = chain
+            .get("edge")
+            .and_then(|edge| edge.get("reason"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let chain_id = chain.get("id").and_then(|v| v.as_str()).unwrap_or("-");
+        out.push(format!("Potential chain: {stage_path} [{edge_reason}] (id={chain_id})"));
+    }
+    Some(out.join("\n"))
 }
 
 /// Format query result as JSON
@@ -2841,10 +2956,17 @@ fn build_findings_digest(query: &str, result: &QueryResult) -> Option<serde_json
     if !query.starts_with("findings") {
         return None;
     }
-    if let QueryResult::Structure(serde_json::Value::Array(entries)) = result {
-        if entries.is_empty() {
-            return None;
+    let entries = match result {
+        QueryResult::Structure(serde_json::Value::Array(entries)) => entries.clone(),
+        QueryResult::Structure(serde_json::Value::Object(object))
+            if object.get("type").and_then(|value| value.as_str())
+                == Some("findings_with_chain") =>
+        {
+            object.get("findings").and_then(|value| value.as_array()).cloned().unwrap_or_default()
         }
+        _ => Vec::new(),
+    };
+    if !entries.is_empty() {
         let mut severity_counts: HashMap<String, usize> = HashMap::new();
         let mut surface_counts: HashMap<String, usize> = HashMap::new();
         let mut kind_counts: HashMap<String, usize> = HashMap::new();
@@ -4278,6 +4400,10 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::FindingsByKindCount(_)
         | Query::FindingsComposite
         | Query::FindingsCompositeCount
+        | Query::FindingsWithChain
+        | Query::FindingsBySeverityWithChain(_)
+        | Query::FindingsByKindWithChain(_)
+        | Query::FindingsCompositeWithChain
         | Query::Correlations
         | Query::CorrelationsCount
         | Query::ObjectsCount
@@ -5803,6 +5929,114 @@ fn filter_findings(
     } else {
         findings
     }
+}
+
+fn build_findings_with_chain(
+    findings: Vec<sis_pdf_core::model::Finding>,
+    group_chains: bool,
+) -> serde_json::Value {
+    let findings_by_id =
+        findings.iter().map(|finding| (finding.id.clone(), finding)).collect::<HashMap<_, _>>();
+    let (chains, _templates) =
+        sis_pdf_core::chain_synth::synthesise_chains(&findings, group_chains);
+    let chain_values = chains
+        .into_iter()
+        .map(|chain| {
+            let notes = chain.notes.clone();
+            let stages = chain_ordered_stages(&chain, &findings_by_id);
+            let contributing = chain
+                .findings
+                .iter()
+                .filter_map(|id| findings_by_id.get(id))
+                .map(|finding| {
+                    json!({
+                        "id": finding.id,
+                        "kind": finding.kind,
+                        "severity": format!("{:?}", finding.severity),
+                        "confidence": format!("{:?}", finding.confidence),
+                        "objects": finding.objects,
+                        "chain_stage": finding.meta.get("chain.stage"),
+                        "chain_capability": finding.meta.get("chain.capability"),
+                    })
+                })
+                .collect::<Vec<_>>();
+            json!({
+                "id": chain.id,
+                "group_id": chain.group_id,
+                "group_count": chain.group_count,
+                "group_members": chain.group_members,
+                "path": chain.path,
+                "score": chain.score,
+                "reasons": chain.reasons,
+                "ordered_stages": stages,
+                "shared_object_refs": chain_shared_object_refs(&chain, &findings_by_id),
+                "contributing_findings": contributing,
+                "edge": {
+                    "reason": notes.get("edge.reason"),
+                    "confidence": notes.get("edge.confidence"),
+                    "from": notes.get("edge.from"),
+                    "to": notes.get("edge.to"),
+                    "shared_objects": notes.get("edge.shared_objects"),
+                },
+                "exploit": {
+                    "preconditions": notes.get("exploit.preconditions"),
+                    "blockers": notes.get("exploit.blockers"),
+                    "outcomes": notes.get("exploit.outcomes"),
+                },
+                "notes": notes,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "type": "findings_with_chain",
+        "count": findings.len(),
+        "chain_count": chain_values.len(),
+        "findings": findings,
+        "chains": chain_values,
+    })
+}
+
+fn chain_ordered_stages(
+    chain: &sis_pdf_core::chain::ExploitChain,
+    findings_by_id: &HashMap<String, &sis_pdf_core::model::Finding>,
+) -> Vec<String> {
+    let mut stages = chain
+        .findings
+        .iter()
+        .filter_map(|id| findings_by_id.get(id))
+        .filter_map(|finding| finding.meta.get("chain.stage"))
+        .cloned()
+        .collect::<Vec<_>>();
+    stages.sort_by_key(|stage| chain_stage_rank(stage));
+    stages.dedup();
+    stages
+}
+
+fn chain_stage_rank(stage: &str) -> usize {
+    match stage {
+        "input" => 0,
+        "decode" => 1,
+        "render" => 2,
+        "execute" => 3,
+        "egress" => 4,
+        _ => 5,
+    }
+}
+
+fn chain_shared_object_refs(
+    chain: &sis_pdf_core::chain::ExploitChain,
+    findings_by_id: &HashMap<String, &sis_pdf_core::model::Finding>,
+) -> Vec<String> {
+    let mut refs = chain
+        .findings
+        .iter()
+        .filter_map(|id| findings_by_id.get(id))
+        .flat_map(|finding| finding.objects.iter().cloned())
+        .collect::<Vec<_>>();
+    refs.sort();
+    refs.dedup();
+    refs
 }
 
 fn is_composite(finding: &sis_pdf_core::model::Finding) -> bool {
@@ -10552,5 +10786,53 @@ mod tests {
             assert_eq!(high_findings.len(), expected_high);
             assert!(ctx.findings_cache_info().is_some());
         });
+    }
+
+    #[test]
+    fn apply_with_chain_rejects_non_findings_query() {
+        let result = apply_with_chain(Query::Pages, true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn findings_with_chain_query_returns_chain_schema() {
+        let options = ScanOptions::default();
+        with_fixture_context_opts("actions/launch_cve_2010_1240.pdf", options, |ctx| {
+            let query = apply_with_chain(Query::Findings, true).expect("query with chain");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("findings --with-chain query");
+
+            let value = match result {
+                QueryResult::Structure(value) => value,
+                other => panic!("unexpected result type: {:?}", other),
+            };
+            assert_eq!(value.get("type").and_then(Value::as_str), Some("findings_with_chain"));
+            assert!(value.get("findings").and_then(Value::as_array).is_some());
+            assert!(value.get("chains").and_then(Value::as_array).is_some());
+        });
+    }
+
+    #[test]
+    fn format_result_summarises_findings_with_chain() {
+        let value = json!({
+            "type": "findings_with_chain",
+            "count": 2,
+            "chains": [{
+                "id": "chain-1",
+                "ordered_stages": ["decode", "render", "egress"],
+                "edge": { "reason": "scatter_to_injection" }
+            }]
+        });
+        let text = format_result(&QueryResult::Structure(value), false);
+        assert!(text.contains("Findings: 2"));
+        assert!(text.contains("Potential chain: decode -> render -> egress"));
+        assert!(text.contains("scatter_to_injection"));
     }
 }
