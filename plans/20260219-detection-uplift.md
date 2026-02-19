@@ -56,6 +56,15 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - `edge.shared_objects`
     - `edge.stage.from`, `edge.stage.to` (when available)
   - Added correlation regression coverage for scatter/injection/submitform and name-obfuscation/action bridge paths.
+- Completed: CQ3/CQ4 chain context and composition (initial):
+  - Added exploit context metadata on edge composites:
+    - `exploit.preconditions`
+    - `exploit.blockers`
+    - `exploit.outcomes`
+  - Added composed chain-quality metadata:
+    - `chain.confidence` (edge + source/target confidence composition)
+    - `chain.severity` (guardrailed stage-based composition; `High` requires execute+egress evidence)
+  - Added regression assertions locking composed chain metadata for scatter and obfuscation bridge paths.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.

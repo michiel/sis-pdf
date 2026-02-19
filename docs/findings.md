@@ -3361,6 +3361,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `edge.from`, `edge.to`: source and target finding kinds
     - `edge.shared_objects`: shared object identifiers
     - `edge.stage.from`, `edge.stage.to`: optional stage hints when available
+    - `exploit.preconditions`: concise exploit prerequisites
+    - `exploit.blockers`: likely controls that block exploitation
+    - `exploit.outcomes`: plausible exploit outcomes for the edge
+    - `chain.confidence`: composed confidence from edge and source/target findings
+    - `chain.severity`: guardrailed chain severity (execution+egress required for `High`)
 
 ## resource.declared_but_unused
 

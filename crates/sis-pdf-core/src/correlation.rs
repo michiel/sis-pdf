@@ -713,11 +713,21 @@ fn maybe_push_edge_composite(
         return;
     }
 
+    let (preconditions, blockers, outcomes) = edge_exploit_context(edge_reason);
+    let chain_confidence =
+        compose_chain_confidence(edge_confidence, source.confidence, target.confidence);
+    let chain_severity = compose_chain_severity(edge_reason, source, target);
+
     let mut extra_meta = vec![
         ("edge.reason", Some(edge_reason.to_string())),
         ("edge.confidence", Some(format!("{edge_confidence:?}"))),
         ("edge.from", Some(source.kind.clone())),
         ("edge.to", Some(target.kind.clone())),
+        ("exploit.preconditions", Some(preconditions.to_string())),
+        ("exploit.blockers", Some(blockers.to_string())),
+        ("exploit.outcomes", Some(outcomes.to_string())),
+        ("chain.confidence", Some(format!("{chain_confidence:?}"))),
+        ("chain.severity", Some(format!("{chain_severity:?}"))),
     ];
     if !shared.is_empty() {
         extra_meta.push(("edge.shared_objects", Some(shared.join(","))));
@@ -739,6 +749,92 @@ fn maybe_push_edge_composite(
         sources: &[source, target],
         extra_meta,
     }));
+}
+
+fn edge_exploit_context(edge_reason: &str) -> (&'static str, &'static str, &'static str) {
+    match edge_reason {
+        "form_html_to_pdfjs_form" => (
+            "viewer=pdfjs; form_value_render_path=enabled",
+            "viewer_input_sanitisation; javascript_disabled",
+            "dom_injection; script_staging",
+        ),
+        "injection_to_submitform" => (
+            "submitform_action_enabled; form_payload_reachable",
+            "network_egress_controls; action_policy_restrictions",
+            "data_exfiltration",
+        ),
+        "pdfjs_injection_to_eval_path" => (
+            "pdfjs_eval_path_reachable",
+            "eval_path_hardening; renderer_sandbox_restrictions",
+            "script_execution",
+        ),
+        "scatter_to_injection" => (
+            "fragment_assembly_path_reachable; decode_chain_success",
+            "fragment_validation; decode_limits",
+            "payload_staging; render_path_injection",
+        ),
+        "name_obfuscation_to_action" => (
+            "name_token_obfuscation_present; action_path_reachable",
+            "strict_name_validation; action_restrictions",
+            "evasion_assisted_action_execution",
+        ),
+        _ => ("unknown", "unknown", "unknown"),
+    }
+}
+
+fn compose_chain_confidence(
+    edge_confidence: Confidence,
+    source_confidence: Confidence,
+    target_confidence: Confidence,
+) -> Confidence {
+    let min_score = [
+        confidence_score(edge_confidence),
+        confidence_score(source_confidence),
+        confidence_score(target_confidence),
+    ]
+    .into_iter()
+    .min()
+    .unwrap_or(1);
+    confidence_from_score(min_score)
+}
+
+fn confidence_score(confidence: Confidence) -> u8 {
+    match confidence {
+        Confidence::Certain => 6,
+        Confidence::Strong => 5,
+        Confidence::Probable => 4,
+        Confidence::Tentative => 3,
+        Confidence::Weak => 2,
+        Confidence::Heuristic => 1,
+    }
+}
+
+fn confidence_from_score(score: u8) -> Confidence {
+    match score {
+        6 => Confidence::Certain,
+        5 => Confidence::Strong,
+        4 => Confidence::Probable,
+        3 => Confidence::Tentative,
+        2 => Confidence::Weak,
+        _ => Confidence::Heuristic,
+    }
+}
+
+fn compose_chain_severity(edge_reason: &str, source: &Finding, target: &Finding) -> Severity {
+    let source_stage = get_meta(source, "chain.stage");
+    let target_stage = get_meta(target, "chain.stage");
+    let has_execute =
+        matches!(source_stage, Some("execute")) || matches!(target_stage, Some("execute"));
+    let has_egress =
+        matches!(source_stage, Some("egress")) || matches!(target_stage, Some("egress"));
+
+    if has_execute && has_egress {
+        return Severity::High;
+    }
+    if edge_reason == "scatter_to_injection" {
+        return Severity::Medium;
+    }
+    Severity::Medium
 }
 
 fn unique_values(mut values: Vec<String>) -> Vec<String> {

@@ -293,6 +293,11 @@ fn correlate_injection_edge_bridges_for_scatter_and_submitform() {
         scatter_bridge.meta.get("edge.shared_objects").map(String::as_str),
         Some("81 0 obj")
     );
+    assert_eq!(scatter_bridge.meta.get("chain.severity").map(String::as_str), Some("Medium"));
+    assert_eq!(
+        scatter_bridge.meta.get("exploit.outcomes").map(String::as_str),
+        Some("payload_staging; render_path_injection")
+    );
 }
 
 #[test]
@@ -324,6 +329,11 @@ fn correlate_injection_edge_bridges_for_name_obfuscation_and_action() {
     assert_eq!(bridge.confidence, Confidence::Probable);
     assert_eq!(bridge.meta.get("edge.from").map(String::as_str), Some("obfuscated_name_encoding"));
     assert_eq!(bridge.meta.get("edge.to").map(String::as_str), Some("action_automatic_trigger"));
+    assert_eq!(bridge.meta.get("chain.confidence").map(String::as_str), Some("Probable"));
+    assert_eq!(
+        bridge.meta.get("exploit.preconditions").map(String::as_str),
+        Some("name_token_obfuscation_present; action_path_reachable")
+    );
 }
 
 #[test]
