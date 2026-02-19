@@ -54,6 +54,7 @@ impl Detector for ActionTriggerDetector {
                     "OpenAction",
                     "OpenAction".into(),
                     "automatic",
+                    "open_action",
                     &summary,
                 );
                 let action_type =
@@ -142,6 +143,7 @@ impl Detector for ActionTriggerDetector {
                             &event_label,
                             event_label.clone(),
                             trigger_type,
+                            "aa",
                             &summary,
                         );
                         let action_type = action_type_from_obj(ctx, action_obj)
@@ -254,6 +256,7 @@ impl Detector for ActionTriggerDetector {
                         &event_label,
                         event_label.clone(),
                         "hidden",
+                        "annotation_action",
                         &summary,
                     );
                     let action_type = action_obj
@@ -308,7 +311,14 @@ impl Detector for ActionTriggerDetector {
                     let mut meta = std::collections::HashMap::new();
                     meta.insert("action.trigger".into(), "field".into());
                     meta.insert("action.field_name".into(), field_name.clone());
-                    insert_chain_metadata(&mut meta, "field", field_name.clone(), "user", &summary);
+                    insert_chain_metadata(
+                        &mut meta,
+                        "field",
+                        field_name.clone(),
+                        "user",
+                        "field_action",
+                        &summary,
+                    );
                     let action_type =
                         action_type_from_obj(ctx, action_obj).unwrap_or_else(|| "field".into());
                     let target = meta.get("action.chain_path").cloned();
@@ -411,6 +421,7 @@ impl Detector for ActionTriggerDetector {
                                 &event_label,
                                 field_name.clone(),
                                 trigger_type,
+                                "field_aa",
                                 &summary,
                             );
                             annotate_action_meta(
@@ -664,11 +675,22 @@ const ACTION_CHAIN_MAX_DEPTH: usize = 8;
 struct ChainSummary {
     depth: usize,
     path: Vec<String>,
+    next_depth: usize,
+    next_branch_count: usize,
+    next_max_fanout: usize,
+    has_cycle: bool,
 }
 
 impl ChainSummary {
     fn new(depth: usize) -> Self {
-        Self { depth, path: Vec::new() }
+        Self {
+            depth,
+            path: Vec::new(),
+            next_depth: 0,
+            next_branch_count: 0,
+            next_max_fanout: 0,
+            has_cycle: false,
+        }
     }
 }
 
@@ -688,6 +710,7 @@ fn action_chain_summary(
             if !visited.insert((*obj, *gen)) {
                 let mut summary = ChainSummary::new(depth);
                 summary.path.push(describe_object(classifications, *obj, *gen));
+                summary.has_cycle = true;
                 return summary;
             }
             let Some(entry) = ctx.graph.get_object(*obj, *gen) else {
@@ -696,20 +719,34 @@ fn action_chain_summary(
             let resolved = PdfObj { span: entry.body_span, atom: entry.atom.clone() };
             let mut summary = action_chain_summary(ctx, classifications, &resolved, depth, visited);
             summary.path.insert(0, describe_object(classifications, *obj, *gen));
+            visited.remove(&(*obj, *gen));
             summary
         }
         PdfAtom::Dict(dict) => {
             let mut summary = ChainSummary::new(depth);
             if let Some((_, next)) = dict.get_first(b"/Next") {
-                let next_summary =
-                    action_chain_summary(ctx, classifications, next, depth + 1, visited);
-                summary = best_chain_summary(summary, next_summary);
                 if let PdfAtom::Array(arr) = &next.atom {
+                    let mut best_branch = ChainSummary::new(depth + 1);
                     for entry in arr {
                         let branch_summary =
                             action_chain_summary(ctx, classifications, entry, depth + 1, visited);
-                        summary = best_chain_summary(summary, branch_summary);
+                        best_branch = best_chain_summary(best_branch, branch_summary);
                     }
+                    summary = best_chain_summary(summary, best_branch.clone());
+                    summary.next_depth = summary.next_depth.max(best_branch.next_depth + 1);
+                    summary.next_branch_count = arr.len() + best_branch.next_branch_count;
+                    summary.next_max_fanout =
+                        summary.next_max_fanout.max(arr.len().max(best_branch.next_max_fanout));
+                    summary.has_cycle |= best_branch.has_cycle;
+                } else {
+                    let next_summary =
+                        action_chain_summary(ctx, classifications, next, depth + 1, visited);
+                    summary = best_chain_summary(summary, next_summary.clone());
+                    summary.next_depth = summary.next_depth.max(next_summary.next_depth + 1);
+                    summary.next_branch_count = 1 + next_summary.next_branch_count;
+                    summary.next_max_fanout =
+                        summary.next_max_fanout.max(1.max(next_summary.next_max_fanout));
+                    summary.has_cycle |= next_summary.has_cycle;
                 }
             }
             summary
@@ -728,11 +765,16 @@ fn action_chain_summary(
 }
 
 fn best_chain_summary(a: ChainSummary, b: ChainSummary) -> ChainSummary {
-    if b.depth > a.depth || (b.depth == a.depth && b.path.len() > a.path.len()) {
-        b
+    let mut out = if b.depth > a.depth || (b.depth == a.depth && b.path.len() > a.path.len()) {
+        b.clone()
     } else {
-        a
-    }
+        a.clone()
+    };
+    out.next_depth = out.next_depth.max(a.next_depth.max(b.next_depth));
+    out.next_branch_count = out.next_branch_count.max(a.next_branch_count.max(b.next_branch_count));
+    out.next_max_fanout = out.next_max_fanout.max(a.next_max_fanout.max(b.next_max_fanout));
+    out.has_cycle |= a.has_cycle || b.has_cycle;
+    out
 }
 
 fn describe_object(classifications: &ClassificationMap, obj: u32, gen: u16) -> String {
@@ -755,13 +797,47 @@ fn insert_chain_metadata(
     trigger_label: &str,
     trigger_event: String,
     trigger_type: &str,
+    trigger_context: &str,
     summary: &ChainSummary,
 ) {
     meta.insert("action.chain_depth".into(), summary.depth.to_string());
     meta.insert("threshold.depth".into(), ACTION_CHAIN_COMPLEX_DEPTH.to_string());
     meta.insert("action.trigger_event".into(), trigger_event.clone());
     meta.insert("action.trigger_type".into(), trigger_type.into());
+    meta.insert("action.trigger_context".into(), trigger_context.into());
+    meta.insert("action.trigger_event_normalised".into(), normalise_trigger_event(&trigger_event));
+    if summary.next_depth > 0 {
+        meta.insert("action.next.depth".into(), summary.next_depth.to_string());
+        meta.insert("action.next.branch_count".into(), summary.next_branch_count.to_string());
+        meta.insert("action.next.max_fanout".into(), summary.next_max_fanout.to_string());
+    }
+    if summary.has_cycle {
+        meta.insert("action.next.has_cycle".into(), "true".into());
+    }
+    meta.insert("chain.stage".into(), "execute".into());
+    meta.insert("chain.capability".into(), "action_trigger_chain".into());
+    meta.insert("chain.trigger".into(), chain_trigger_from_context(trigger_context).into());
     meta.insert("action.chain_path".into(), build_chain_path(trigger_label, summary));
+}
+
+fn chain_trigger_from_context(trigger_context: &str) -> &'static str {
+    match trigger_context {
+        "open_action" => "open_action",
+        "aa" | "field_aa" => "additional_action",
+        "annotation_action" => "annotation_action",
+        "field_action" => "field_action",
+        _ => "action",
+    }
+}
+
+fn normalise_trigger_event(trigger_event: &str) -> String {
+    if trigger_event == "OpenAction" {
+        return "/OpenAction".into();
+    }
+    if trigger_event.starts_with('/') {
+        return trigger_event.to_string();
+    }
+    format!("/{trigger_event}")
 }
 
 fn enrich_complex_chain_meta(

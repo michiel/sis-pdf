@@ -207,6 +207,12 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: chained actions can hide payload staging.
   - Meaning: action chains increase execution complexity.
   - Chain usage: treated as a higher-risk action staging indicator.
+  - Metadata:
+    - `action.trigger_context`: normalised trigger surface (`open_action`, `aa`, `annotation_action`, `field_action`, `field_aa`)
+    - `action.trigger_event_normalised`: normalised trigger key (`/OpenAction`, `/O`, `/K`, etc.)
+    - `action.next.depth`, `action.next.branch_count`, `action.next.max_fanout`
+    - optional `action.next.has_cycle=true` when `/Next` traversal detects a cycle
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`
 
 ## action_hidden_trigger
 
@@ -229,6 +235,16 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: automatic triggers execute actions on open or visibility changes.
   - Meaning: viewer may execute actions without user intent.
   - Chain usage: treated as trigger stage in action chains.
+  - Metadata:
+    - `action.trigger_context`: normalised trigger surface
+    - `action.trigger_event_normalised`: normalised trigger key
+    - `action.trigger_type`: initiation class (`automatic`, `user`, `hidden`)
+    - `/Next` telemetry keys when present:
+      - `action.next.depth`
+      - `action.next.branch_count`
+      - `action.next.max_fanout`
+      - optional `action.next.has_cycle=true`
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger` normalised by trigger context
 
 ## acroform_field_action
 

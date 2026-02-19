@@ -3799,10 +3799,7 @@ impl Detector for ActionRemoteTargetSuspiciousDetector {
                 "egress.channel".into(),
                 egress_channel_for_action(action_type.as_str()).to_string(),
             );
-            meta.insert(
-                "egress.target_kind".into(),
-                egress_target_kind.to_string(),
-            );
+            meta.insert("egress.target_kind".into(), egress_target_kind.to_string());
             meta.insert(
                 "egress.user_interaction_required".into(),
                 egress_user_interaction_required(action_type.as_str()).to_string(),

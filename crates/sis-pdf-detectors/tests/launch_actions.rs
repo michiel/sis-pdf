@@ -231,11 +231,8 @@ fn gotor_action_includes_egress_metadata() {
     let report =
         sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
             .expect("scan");
-    let finding = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "gotor_present")
-        .expect("gotor action finding");
+    let finding =
+        report.findings.iter().find(|f| f.kind == "gotor_present").expect("gotor action finding");
     assert_eq!(finding.meta.get("chain.stage").map(String::as_str), Some("egress"));
     assert_eq!(finding.meta.get("chain.capability").map(String::as_str), Some("action_egress"));
     assert_eq!(finding.meta.get("egress.channel").map(String::as_str), Some("remote_goto"));

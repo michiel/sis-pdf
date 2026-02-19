@@ -16,6 +16,19 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
   - Added shared egress metadata for baseline action findings emitted by `action_by_s` for `/SubmitForm`, `/URI`, `/GoToR`, and `/GoToE`.
   - Added correlation bridge `injection_to_remote_action` (`composite.injection_edge_bridge`) linking injection findings to `action_remote_target_suspicious` when object lineage co-locates.
   - Added regression coverage for detector metadata and correlation exploit-context metadata.
+- Completed: WS1 trigger-surface uplift for nested `/Next` and `/AA` context normalisation (initial):
+  - Extended action-chain traversal metadata with `/Next` telemetry:
+    - `action.next.depth`
+    - `action.next.branch_count`
+    - `action.next.max_fanout`
+    - optional `action.next.has_cycle=true` on cycle detection
+  - Added normalised trigger-context metadata across action-trigger findings:
+    - `action.trigger_context` (`open_action`, `aa`, `annotation_action`, `field_action`, `field_aa`)
+    - `action.trigger_event_normalised` (for example `/OpenAction`, `/O`, `/K`)
+    - normalised chain context (`chain.stage=execute`, `chain.capability=action_trigger_chain`, context-derived `chain.trigger`)
+  - Added synthetic distributed fixtures for:
+    - nested `/Next` chain fan-out from `/OpenAction`,
+    - `/AA` automatic-event trigger-context normalisation.
 
 ## Objective
 
