@@ -127,6 +127,14 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - distributed fragmented oversized field values,
     - benign small-value control.
   - Documented `form_field_oversized_value` in `docs/findings.md`.
+- Completed: NO1 hidden-layer action gating (initial):
+  - Added `hidden_layer_action` composite correlation when `ocg_present` co-occurs with action execution surfaces.
+  - Added `context.hidden_layer=true` metadata and OCG signal counters for triage context.
+  - Confidence policy:
+    - `Strong` when OCG and action findings share object lineage,
+    - `Probable` for document-level co-occurrence without direct shared object refs.
+  - Added correlation regression tests for both shared-object and document-level co-occurrence paths.
+  - Documented `hidden_layer_action` in `docs/findings.md`.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.

@@ -337,6 +337,52 @@ fn correlate_injection_edge_bridges_for_name_obfuscation_and_action() {
 }
 
 #[test]
+fn correlate_hidden_layer_action_when_ocg_and_action_share_object() {
+    let ocg = make_finding(
+        "ocg_present",
+        &["91 0 obj"],
+        &[("ocg.present", "true")],
+        AttackSurface::FileStructure,
+    );
+    let action = make_finding(
+        "action_automatic_trigger",
+        &["91 0 obj"],
+        &[("action.trigger", "OpenAction")],
+        AttackSurface::Actions,
+    );
+    let composites = correlation::correlate_findings(&[ocg, action], &CorrelationOptions::default());
+    let finding = composites
+        .iter()
+        .find(|entry| entry.kind == "hidden_layer_action")
+        .expect("hidden_layer_action should be present");
+    assert_eq!(finding.confidence, Confidence::Strong);
+    assert_eq!(finding.meta.get("context.hidden_layer").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn correlate_hidden_layer_action_on_document_level_ocg_and_action_cooccurrence() {
+    let ocg = make_finding(
+        "ocg_present",
+        &["100 0 obj"],
+        &[("ocg.present", "true")],
+        AttackSurface::FileStructure,
+    );
+    let action = make_finding(
+        "launch_action_present",
+        &["200 0 obj"],
+        &[("action.s", "/Launch")],
+        AttackSurface::Actions,
+    );
+    let composites = correlation::correlate_findings(&[ocg, action], &CorrelationOptions::default());
+    let finding = composites
+        .iter()
+        .find(|entry| entry.kind == "hidden_layer_action")
+        .expect("hidden_layer_action should be present");
+    assert_eq!(finding.confidence, Confidence::Probable);
+    assert_eq!(finding.severity, Severity::High);
+}
+
+#[test]
 fn correlation_launch_obfuscated_integration() {
     let detectors = default_detectors();
     let report = run_scan_with_detectors(

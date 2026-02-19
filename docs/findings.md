@@ -1080,6 +1080,20 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: viewer can perform external or privileged actions.
   - Chain usage: treated as an action node that can be linked to triggers and payloads.
 
+## hidden_layer_action
+
+- ID: `hidden_layer_action`
+- Label: Hidden-layer action risk
+- Description: Optional content groups (`OCG`/`OCProperties`) co-occur with action execution surfaces, indicating potential hidden-layer action paths.
+- Tags: composite, action, hidden-layer
+- Details:
+  - Relevance: hidden optional-content structures can conceal actionable behaviour from casual inspection.
+  - Meaning: correlates `ocg_present` with action findings; confidence is stronger when object-level co-location is present.
+  - Chain usage: high-priority action-stage context signal for stealth execution paths.
+  - Metadata:
+    - `context.hidden_layer=true`
+    - `context.ocg_signal_count`
+
 ## action_remote_target_suspicious
 
 - ID: `action_remote_target_suspicious`

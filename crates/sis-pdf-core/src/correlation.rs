@@ -19,6 +19,7 @@ pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> 
     composites.extend(correlate_resource_external_with_trigger_surface(findings));
     composites.extend(correlate_decode_amplification_chain(findings));
     composites.extend(correlate_injection_edge_bridges(findings));
+    composites.extend(correlate_hidden_layer_action(findings));
     composites
 }
 
@@ -458,6 +459,68 @@ fn correlate_decode_amplification_chain(findings: &[Finding]) -> Vec<Finding> {
             ],
         }));
     }
+    composites
+}
+
+fn correlate_hidden_layer_action(findings: &[Finding]) -> Vec<Finding> {
+    let mut composites = Vec::new();
+    let ocg = findings.iter().filter(|finding| finding.kind == "ocg_present").collect::<Vec<_>>();
+    if ocg.is_empty() {
+        return composites;
+    }
+
+    let action = findings.iter().filter(|finding| is_action_finding(finding)).collect::<Vec<_>>();
+    if action.is_empty() {
+        return composites;
+    }
+
+    let mut shared_sources: Vec<&Finding> = Vec::new();
+    for ocg_finding in &ocg {
+        for action_finding in &action {
+            if shares_object(ocg_finding, action_finding) {
+                shared_sources.push(*ocg_finding);
+                shared_sources.push(*action_finding);
+            }
+        }
+    }
+
+    let (sources, confidence, description) = if shared_sources.is_empty() {
+        let mut fallback_sources = Vec::new();
+        fallback_sources.extend(ocg.iter().copied());
+        fallback_sources.extend(action.iter().copied().take(3));
+        (
+            fallback_sources,
+            Confidence::Probable,
+            "Optional content groups and action execution surfaces co-occur; hidden-layer action paths may exist.",
+        )
+    } else {
+        (
+            shared_sources,
+            Confidence::Strong,
+            "Action execution surfaces are co-located with optional-content (OCG/OCProperties) structures, indicating hidden-layer action risk.",
+        )
+    };
+
+    let shared_count = sources
+        .iter()
+        .map(|finding| finding.kind.as_str())
+        .filter(|kind| *kind == "ocg_present")
+        .count();
+
+    composites.push(build_composite(CompositeConfig {
+        kind: "hidden_layer_action",
+        title: "Hidden-layer action risk",
+        description,
+        surface: AttackSurface::Actions,
+        severity: Severity::High,
+        confidence,
+        sources: &sources,
+        extra_meta: vec![
+            ("context.hidden_layer", Some("true".into())),
+            ("context.ocg_signal_count", Some(shared_count.to_string())),
+        ],
+    }));
+
     composites
 }
 
