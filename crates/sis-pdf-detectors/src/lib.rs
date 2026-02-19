@@ -1069,6 +1069,11 @@ fn find_javascript_entries<'a>(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum JsPayloadSource {
     Action,
+    OpenAction,
+    AaEvent,
+    AnnotationAction,
+    NameTree,
+    CatalogJs,
     Uri,
     DataUri,
     Xfa,
@@ -1078,17 +1083,27 @@ pub(crate) enum JsPayloadSource {
 impl JsPayloadSource {
     fn priority(self) -> u8 {
         match self {
-            JsPayloadSource::Action => 0,
-            JsPayloadSource::Uri => 1,
-            JsPayloadSource::DataUri => 2,
-            JsPayloadSource::Xfa => 3,
-            JsPayloadSource::EmbeddedFile => 4,
+            JsPayloadSource::OpenAction => 0,
+            JsPayloadSource::AaEvent => 1,
+            JsPayloadSource::AnnotationAction => 2,
+            JsPayloadSource::NameTree => 3,
+            JsPayloadSource::CatalogJs => 4,
+            JsPayloadSource::Action => 5,
+            JsPayloadSource::Uri => 6,
+            JsPayloadSource::DataUri => 7,
+            JsPayloadSource::Xfa => 8,
+            JsPayloadSource::EmbeddedFile => 9,
         }
     }
 
     fn meta_value(self) -> Option<&'static str> {
         match self {
-            JsPayloadSource::Action => None,
+            JsPayloadSource::Action => Some("action"),
+            JsPayloadSource::OpenAction => Some("open_action"),
+            JsPayloadSource::AaEvent => Some("aa_event"),
+            JsPayloadSource::AnnotationAction => Some("annotation"),
+            JsPayloadSource::NameTree => Some("name_tree"),
+            JsPayloadSource::CatalogJs => Some("catalog_js"),
             JsPayloadSource::Uri => Some("uri"),
             JsPayloadSource::DataUri => Some("data_uri"),
             JsPayloadSource::Xfa => Some("xfa"),
@@ -1102,6 +1117,7 @@ pub(crate) struct JsPayloadCandidate {
     evidence: Vec<sis_pdf_core::model::EvidenceSpan>,
     key_name: String,
     source: JsPayloadSource,
+    container_path: String,
 }
 
 fn javascript_uri_payload_from_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
@@ -1312,6 +1328,7 @@ fn js_payload_candidates_from_action_dict(
             evidence,
             key_name,
             source: JsPayloadSource::Action,
+            container_path: "/Action/JS".into(),
         });
     }
 
@@ -1329,6 +1346,7 @@ fn js_payload_candidates_from_action_dict(
                 evidence,
                 key_name: "/URI javascript".into(),
                 source: JsPayloadSource::Uri,
+                container_path: "/Action/URI".into(),
             });
         } else if let Some(stripped) = data_uri_payload_from_bytes(&payload.bytes) {
             payload.bytes = stripped;
@@ -1337,11 +1355,139 @@ fn js_payload_candidates_from_action_dict(
                 evidence,
                 key_name: "/URI data javascript".into(),
                 source: JsPayloadSource::DataUri,
+                container_path: "/Action/URI".into(),
             });
         }
     }
 
     out
+}
+
+fn push_action_payload_candidates_with_source(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    obj: &sis_pdf_pdf::object::PdfObj<'_>,
+    source: JsPayloadSource,
+    container_path: &str,
+    evidence_label: &str,
+    out: &mut Vec<JsPayloadCandidate>,
+) {
+    let mut pushed = false;
+    if let PdfAtom::Ref { .. } = &obj.atom {
+        if let Some(entry) = ctx.graph.resolve_ref(obj) {
+            let resolved = sis_pdf_pdf::object::PdfObj { span: entry.body_span, atom: entry.atom };
+            push_action_payload_candidates_with_source(
+                ctx,
+                &resolved,
+                source,
+                container_path,
+                evidence_label,
+                out,
+            );
+            pushed = true;
+        }
+    }
+    if pushed {
+        return;
+    }
+    let PdfAtom::Dict(dict) = &obj.atom else {
+        return;
+    };
+    for (k, v) in find_javascript_entries(dict) {
+        let res = resolve_payload(ctx, v);
+        let Some(payload) = res.payload else {
+            continue;
+        };
+        out.push(JsPayloadCandidate {
+            payload,
+            evidence: vec![
+                span_to_evidence(k.span, "JavaScript key"),
+                span_to_evidence(v.span, evidence_label),
+            ],
+            key_name: String::from_utf8_lossy(&k.decoded).to_string(),
+            source,
+            container_path: container_path.to_string(),
+        });
+    }
+}
+
+fn collect_name_tree_js_candidates(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    obj: &sis_pdf_pdf::object::PdfObj<'_>,
+    depth: usize,
+    out: &mut Vec<JsPayloadCandidate>,
+) {
+    if depth >= 8 {
+        return;
+    }
+    match &obj.atom {
+        PdfAtom::Ref { .. } => {
+            if let Some(entry) = ctx.graph.resolve_ref(obj) {
+                let resolved =
+                    sis_pdf_pdf::object::PdfObj { span: entry.body_span, atom: entry.atom };
+                collect_name_tree_js_candidates(ctx, &resolved, depth + 1, out);
+            }
+        }
+        PdfAtom::Dict(dict) => {
+            for (k, v) in find_javascript_entries(dict) {
+                let res = resolve_payload(ctx, v);
+                let Some(payload) = res.payload else {
+                    continue;
+                };
+                out.push(JsPayloadCandidate {
+                    payload,
+                    evidence: vec![
+                        span_to_evidence(k.span, "Name tree JavaScript key"),
+                        span_to_evidence(v.span, "Name tree JavaScript payload"),
+                    ],
+                    key_name: String::from_utf8_lossy(&k.decoded).to_string(),
+                    source: JsPayloadSource::NameTree,
+                    container_path: "/Catalog/Names/JavaScript".into(),
+                });
+            }
+            if let Some((_, names_obj)) = dict.get_first(b"/Names") {
+                if let PdfAtom::Array(items) = &names_obj.atom {
+                    for (index, item) in items.iter().enumerate() {
+                        if index % 2 == 0 {
+                            continue;
+                        }
+                        let res = resolve_payload(ctx, item);
+                        let Some(payload) = res.payload else {
+                            continue;
+                        };
+                        if payload.bytes.is_empty() {
+                            continue;
+                        }
+                        out.push(JsPayloadCandidate {
+                            payload,
+                            evidence: vec![span_to_evidence(
+                                item.span,
+                                "Name tree JavaScript value",
+                            )],
+                            key_name: "/Names value".into(),
+                            source: JsPayloadSource::NameTree,
+                            container_path: "/Catalog/Names/JavaScript/Names[]".into(),
+                        });
+                    }
+                }
+            }
+            if let Some((_, kids_obj)) = dict.get_first(b"/Kids") {
+                if let PdfAtom::Array(items) = &kids_obj.atom {
+                    for item in items {
+                        collect_name_tree_js_candidates(ctx, item, depth + 1, out);
+                    }
+                }
+            }
+            if let Some((_, js_root)) = dict.get_first(b"/JavaScript") {
+                collect_name_tree_js_candidates(ctx, js_root, depth + 1, out);
+            }
+        }
+        PdfAtom::Array(items) => {
+            for item in items {
+                collect_name_tree_js_candidates(ctx, item, depth + 1, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 pub(crate) fn js_payload_candidates_from_entry(
@@ -1352,6 +1498,89 @@ pub(crate) fn js_payload_candidates_from_entry(
     if let Some(dict) = entry_dict(entry) {
         out.extend(js_payload_candidates_from_action_dict(ctx, dict));
         out.extend(js_payload_candidates_from_xfa(ctx, dict));
+        if dict.has_name(b"/Type", b"/Catalog") {
+            for (k, v) in find_javascript_entries(dict) {
+                let res = resolve_payload(ctx, v);
+                let Some(payload) = res.payload else {
+                    continue;
+                };
+                out.push(JsPayloadCandidate {
+                    payload,
+                    evidence: vec![
+                        span_to_evidence(k.span, "Catalog JavaScript key"),
+                        span_to_evidence(v.span, "Catalog JavaScript payload"),
+                    ],
+                    key_name: String::from_utf8_lossy(&k.decoded).to_string(),
+                    source: JsPayloadSource::CatalogJs,
+                    container_path: "/Catalog/JS".into(),
+                });
+            }
+            if let Some((_, open_action)) = dict.get_first(b"/OpenAction") {
+                push_action_payload_candidates_with_source(
+                    ctx,
+                    open_action,
+                    JsPayloadSource::OpenAction,
+                    "/Catalog/OpenAction/JS",
+                    "OpenAction JavaScript payload",
+                    &mut out,
+                );
+            }
+            if let Some((_, names_obj)) = dict.get_first(b"/Names") {
+                if let PdfAtom::Dict(names_dict) = &names_obj.atom {
+                    if let Some((_, js_obj)) = names_dict.get_first(b"/JavaScript") {
+                        collect_name_tree_js_candidates(ctx, js_obj, 0, &mut out);
+                    }
+                }
+            }
+        }
+        if is_name_tree_like_dict(dict) {
+            let root =
+                sis_pdf_pdf::object::PdfObj { span: dict.span, atom: PdfAtom::Dict(dict.clone()) };
+            collect_name_tree_js_candidates(ctx, &root, 0, &mut out);
+        }
+        if is_annotation_dict(dict) {
+            if let Some((_, action_obj)) = dict.get_first(b"/A") {
+                push_action_payload_candidates_with_source(
+                    ctx,
+                    action_obj,
+                    JsPayloadSource::AnnotationAction,
+                    "/Annot/A/JS",
+                    "Annotation action JavaScript payload",
+                    &mut out,
+                );
+            }
+            if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
+                if let PdfAtom::Dict(aa_dict) = &aa_obj.atom {
+                    for (event, action_obj) in &aa_dict.entries {
+                        let path =
+                            format!("/Annot/AA/{}/JS", String::from_utf8_lossy(&event.decoded));
+                        push_action_payload_candidates_with_source(
+                            ctx,
+                            action_obj,
+                            JsPayloadSource::AnnotationAction,
+                            &path,
+                            "Annotation AA JavaScript payload",
+                            &mut out,
+                        );
+                    }
+                }
+            }
+        }
+        if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
+            if let PdfAtom::Dict(aa_dict) = &aa_obj.atom {
+                for (event, action_obj) in &aa_dict.entries {
+                    let path = format!("/AA/{}/JS", String::from_utf8_lossy(&event.decoded));
+                    push_action_payload_candidates_with_source(
+                        ctx,
+                        action_obj,
+                        JsPayloadSource::AaEvent,
+                        &path,
+                        "AA event JavaScript payload",
+                        &mut out,
+                    );
+                }
+            }
+        }
     }
     if let PdfAtom::Stream(st) = &entry.atom {
         if st.dict.has_name(b"/Type", b"/EmbeddedFile") {
@@ -1359,6 +1588,12 @@ pub(crate) fn js_payload_candidates_from_entry(
         }
     }
     out
+}
+
+fn is_name_tree_like_dict(dict: &PdfDict<'_>) -> bool {
+    dict.get_first(b"/Names").is_some()
+        || dict.get_first(b"/Kids").is_some()
+        || dict.get_first(b"/Limits").is_some()
 }
 
 fn js_payload_candidates_from_xfa(
@@ -1389,6 +1624,7 @@ fn js_payload_candidates_from_xfa(
                 evidence,
                 key_name: "/XFA script".into(),
                 source: JsPayloadSource::Xfa,
+                container_path: "/XFA/script".into(),
             });
         }
     }
@@ -1474,6 +1710,7 @@ fn js_payload_candidates_from_embedded_stream(
         evidence,
         key_name,
         source: JsPayloadSource::EmbeddedFile,
+        container_path: "/EmbeddedFile".into(),
     });
     out
 }
@@ -1646,6 +1883,8 @@ impl Detector for JavaScriptDetector {
                         if let Some(label) = candidate.source.meta_value() {
                             meta.insert("js.source".into(), label.into());
                         }
+                        meta.insert("js.container_path".into(), candidate.container_path.clone());
+                        meta.insert("js.object_ref_chain".into(), payload.ref_chain.clone());
                         meta.insert("payload.type".into(), payload.kind.clone());
                         meta.insert("payload.decoded_len".into(), payload.bytes.len().to_string());
                         meta.insert("payload.ref_chain".into(), payload.ref_chain.clone());

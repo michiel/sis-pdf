@@ -1696,6 +1696,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: scriptable execution.
   - Meaning: JavaScript executes in the viewer context and may be obfuscated or evasive.
   - Chain usage: used as the action/payload stage and to model evasive or staged execution.
+  - Metadata:
+    - `js.source`: source container class (`action`, `open_action`, `aa_event`, `annotation`, `name_tree`, `catalog_js`, `uri`, `data_uri`, `xfa`, `embedded_file`)
+    - `js.container_path`: normalised container path (for example `/Catalog/OpenAction/JS`, `/Catalog/Names/JavaScript/Names[]`, `/Annot/A/JS`)
+    - `js.object_ref_chain`: resolved object lineage for the selected payload candidate
 
 ## js_runtime_file_probe
 

@@ -58,6 +58,18 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
     - `action.trigger_event_normalised`
     - `action.trigger_event`
   - Added regression coverage ensuring finding-produced outcome edges preserve user-trigger initiation semantics for `/AA` event findings.
+- Completed: WS2 JavaScript source-lineage metadata uplift (initial):
+  - `js_present` now emits source lineage metadata for container disambiguation:
+    - `js.source`
+    - `js.container_path`
+    - `js.object_ref_chain`
+  - Expanded source extraction inventory for JS payload candidates to include:
+    - catalog `/OpenAction` JavaScript path
+    - `/AA` event action JavaScript paths
+    - annotation `/A` and `/AA` JavaScript paths
+    - catalog `/Names -> /JavaScript` name tree values
+    - direct catalog JavaScript keys
+  - Added mixed-container regression fixture covering open-action, name-tree, annotation, and multi-vector single-object JS surfaces with duplicate-finding guard assertions.
 
 ## Objective
 
