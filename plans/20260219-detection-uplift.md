@@ -32,6 +32,10 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
   - Added guarded fragment collection over `/V`, `/DV`, `/AP` reference chains with depth and size caps, plus metadata (`scatter.fragment_count`, `scatter.object_ids`, `injection.signal.*`, `chain.stage=decode`).
   - Added regression fixtures for distributed encoded payload assembly and benign fragmented controls.
   - Documented `scattered_payload_assembly` in `docs/findings.md`.
+- Completed: WS6 cross-stream payload bridge (initial):
+  - Added `cross_stream_payload_assembly` detector that correlates JavaScript assembly behaviour (`fromCharCode`, split/join, concat) with reconstructed fragmented form payloads.
+  - Added fromCharCode reconstruction matching and cross-object metadata (`js.object.ref`, `scatter.object_ids`, `injection.sources`).
+  - Added integration fixture validating JavaScript/form fragment correlation and documented `cross_stream_payload_assembly` in `docs/findings.md`.
 - Completed: CQ1 groundwork (partial):
   - Added stable chain metadata primitives to form and scatter findings:
     - `chain.stage`

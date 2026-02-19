@@ -127,6 +127,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(FontJsExploitationBridgeDetector { enable_ast: settings.js_ast }),
         Box::new(PdfjsRenderingIndicatorDetector),
         Box::new(ScatteredPayloadAssemblyDetector),
+        Box::new(CrossStreamPayloadAssemblyDetector),
         Box::new(font_exploits::FontExploitDetector),
         Box::new(font_external_ref::FontExternalReferenceDetector),
         Box::new(image_analysis::ImageAnalysisDetector),
@@ -2644,6 +2645,185 @@ struct InjectionFragment {
     source_key: &'static str,
 }
 
+struct ScatteredAssemblyCandidate {
+    assembled: Vec<u8>,
+    signals: InjectionSignals,
+    fragment_count: usize,
+    object_ids: BTreeSet<String>,
+    sources: BTreeSet<&'static str>,
+}
+
+fn collect_scattered_assembly_candidates(
+    ctx: &sis_pdf_core::scan::ScanContext,
+) -> Vec<ScatteredAssemblyCandidate> {
+    let mut out = Vec::new();
+    for entry in &ctx.graph.objects {
+        let Some(dict) = entry_dict(entry) else {
+            continue;
+        };
+        if !is_form_dict(dict) {
+            continue;
+        }
+
+        let owner_ref = format!("{} {} obj", entry.obj, entry.gen);
+        let mut fragments = Vec::new();
+        if let Some((_, obj)) = dict.get_first(b"/V") {
+            collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/V", &mut fragments);
+        }
+        if let Some((_, obj)) = dict.get_first(b"/DV") {
+            collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/DV", &mut fragments);
+        }
+        if let Some((_, obj)) = dict.get_first(b"/AP") {
+            collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/AP", &mut fragments);
+        }
+        if fragments.len() < 2 {
+            continue;
+        }
+
+        let fragment_has_direct_signal =
+            fragments.iter().any(|fragment| detect_injection_signals(&fragment.bytes).classify().is_some());
+        if fragment_has_direct_signal {
+            continue;
+        }
+
+        let mut assembled = Vec::new();
+        for fragment in &fragments {
+            assembled.extend_from_slice(&fragment.bytes);
+        }
+        let assembled_signals = detect_injection_signals(&assembled);
+        if assembled_signals.classify().is_none() {
+            continue;
+        }
+        let normalised = normalise_injection_payload(&assembled);
+        let assembled_for_matching = if normalised.decode_layers > 0 {
+            normalised.bytes
+        } else {
+            assembled
+        };
+
+        let mut object_ids = BTreeSet::new();
+        let mut sources = BTreeSet::new();
+        for fragment in &fragments {
+            object_ids.insert(fragment.object_ref.clone());
+            sources.insert(fragment.source_key);
+        }
+
+        out.push(ScatteredAssemblyCandidate {
+            assembled: assembled_for_matching,
+            signals: assembled_signals,
+            fragment_count: fragments.len(),
+            object_ids,
+            sources,
+        });
+    }
+    out
+}
+
+fn js_payload_has_assembly_pattern(
+    payload: &[u8],
+    js_meta: &std::collections::HashMap<String, String>,
+) -> bool {
+    if js_meta
+        .get("payload.fromCharCode_reconstructed")
+        .map(|value| value == "true")
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    let lower = payload.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<u8>>();
+    let has_from_char_code = lower.windows("fromcharcode".len()).any(|w| w == b"fromcharcode");
+    let has_split = lower.windows("split(".len()).any(|w| w == b"split(");
+    let has_join = lower.windows("join(".len()).any(|w| w == b"join(");
+    let has_concat = lower.windows(".concat(".len()).any(|w| w == b".concat(");
+    has_from_char_code || (has_split && has_join) || has_concat
+}
+
+fn js_payload_matches_scattered_candidate(
+    js_payload: &[u8],
+    js_meta: &std::collections::HashMap<String, String>,
+    assembled: &[u8],
+) -> bool {
+    if assembled.len() < 4 {
+        return false;
+    }
+
+    if let Some(preview) = js_meta.get("payload.fromCharCode_preview") {
+        let preview_bytes = preview.as_bytes();
+        if !preview_bytes.is_empty()
+            && (contains_subslice_case_insensitive(assembled, preview_bytes)
+                || contains_subslice_case_insensitive(preview_bytes, assembled))
+        {
+            return true;
+        }
+    }
+
+    for reconstructed in reconstruct_from_charcode_calls(js_payload) {
+        if contains_subslice_case_insensitive(&reconstructed, assembled)
+            || contains_subslice_case_insensitive(assembled, &reconstructed)
+        {
+            return true;
+        }
+    }
+
+    contains_subslice_case_insensitive(js_payload, assembled)
+        || contains_subslice_case_insensitive(assembled, js_payload)
+}
+
+fn reconstruct_from_charcode_calls(payload: &[u8]) -> Vec<Vec<u8>> {
+    let text = String::from_utf8_lossy(payload);
+    let lower = text.to_ascii_lowercase();
+    let mut out = Vec::new();
+    let mut cursor = 0usize;
+    let marker = "fromcharcode(";
+
+    while cursor < lower.len() {
+        let Some(pos) = lower[cursor..].find(marker) else {
+            break;
+        };
+        let args_start = cursor + pos + marker.len();
+        let Some(end_rel) = lower[args_start..].find(')') else {
+            break;
+        };
+        let args_end = args_start + end_rel;
+        let args = &text[args_start..args_end];
+
+        let mut reconstructed = String::new();
+        let mut valid = true;
+        for token in args.split(',').map(str::trim).filter(|token| !token.is_empty()) {
+            let parsed = if token.starts_with("0x") || token.starts_with("0X") {
+                u32::from_str_radix(&token[2..], 16).ok()
+            } else {
+                token.parse::<u32>().ok()
+            };
+            let Some(codepoint) = parsed else {
+                valid = false;
+                break;
+            };
+            let Some(ch) = char::from_u32(codepoint) else {
+                valid = false;
+                break;
+            };
+            reconstructed.push(ch);
+        }
+        if valid && !reconstructed.is_empty() {
+            out.push(reconstructed.into_bytes());
+        }
+
+        cursor = args_end + 1;
+    }
+
+    out
+}
+
+fn contains_subslice_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return false;
+    }
+    let haystack_lower = haystack.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<u8>>();
+    let needle_lower = needle.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<u8>>();
+    haystack_lower.windows(needle_lower.len()).any(|window| window == needle_lower.as_slice())
+}
+
 fn collect_injection_fragments_from_obj(
     obj: &PdfObj<'_>,
     ctx: &sis_pdf_core::scan::ScanContext,
@@ -3103,6 +3283,7 @@ fn detect_injection_type(payload: &[u8]) -> Option<InjectionType> {
 struct SubmitFormDetector;
 
 struct ScatteredPayloadAssemblyDetector;
+struct CrossStreamPayloadAssemblyDetector;
 
 impl Detector for ScatteredPayloadAssemblyDetector {
     fn id(&self) -> &'static str {
@@ -3123,73 +3304,27 @@ impl Detector for ScatteredPayloadAssemblyDetector {
 
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-
-        for entry in &ctx.graph.objects {
-            let Some(dict) = entry_dict(entry) else {
-                continue;
-            };
-            if !is_form_dict(dict) {
-                continue;
-            }
-
-            let owner_ref = format!("{} {} obj", entry.obj, entry.gen);
-            let mut fragments = Vec::new();
-            if let Some((_, obj)) = dict.get_first(b"/V") {
-                collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/V", &mut fragments);
-            }
-            if let Some((_, obj)) = dict.get_first(b"/DV") {
-                collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/DV", &mut fragments);
-            }
-            if let Some((_, obj)) = dict.get_first(b"/AP") {
-                collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/AP", &mut fragments);
-            }
-
-            if fragments.len() < 2 {
-                continue;
-            }
-
-            let fragment_has_direct_signal =
-                fragments.iter().any(|fragment| detect_injection_signals(&fragment.bytes).classify().is_some());
-            if fragment_has_direct_signal {
-                continue;
-            }
-
-            let mut assembled = Vec::new();
-            for fragment in &fragments {
-                assembled.extend_from_slice(&fragment.bytes);
-            }
-            let assembled_signals = detect_injection_signals(&assembled);
-            if assembled_signals.classify().is_none() {
-                continue;
-            }
-
-            let mut object_ids = BTreeSet::new();
-            let mut sources = BTreeSet::new();
-            for fragment in &fragments {
-                object_ids.insert(fragment.object_ref.clone());
-                sources.insert(fragment.source_key);
-            }
-
+        for candidate in collect_scattered_assembly_candidates(ctx) {
             let mut meta = std::collections::HashMap::new();
             meta.insert("chain.stage".into(), "decode".into());
             meta.insert("chain.capability".into(), "payload_scatter".into());
             meta.insert("chain.trigger".into(), "pdfjs".into());
-            meta.insert("scatter.fragment_count".into(), fragments.len().to_string());
+            meta.insert("scatter.fragment_count".into(), candidate.fragment_count.to_string());
             meta.insert(
                 "scatter.object_ids".into(),
-                object_ids.iter().cloned().collect::<Vec<_>>().join(","),
+                candidate.object_ids.iter().cloned().collect::<Vec<_>>().join(","),
             );
             meta.insert(
                 "injection.sources".into(),
-                sources.iter().copied().collect::<Vec<_>>().join(","),
+                candidate.sources.iter().copied().collect::<Vec<_>>().join(","),
             );
-            meta.insert("injection.signal.js".into(), assembled_signals.has_js.to_string());
-            meta.insert("injection.signal.html".into(), assembled_signals.has_html.to_string());
-            if assembled_signals.normalised {
+            meta.insert("injection.signal.js".into(), candidate.signals.has_js.to_string());
+            meta.insert("injection.signal.html".into(), candidate.signals.has_html.to_string());
+            if candidate.signals.normalised {
                 meta.insert("injection.normalised".into(), "true".into());
                 meta.insert(
                     "injection.decode_layers".into(),
-                    assembled_signals.decode_layers.to_string(),
+                    candidate.signals.decode_layers.to_string(),
                 );
             }
 
@@ -3204,8 +3339,8 @@ impl Detector for ScatteredPayloadAssemblyDetector {
                 description:
                     "Form payload fragments are benign in isolation but assemble into an injection-capable payload."
                         .into(),
-                objects: object_ids.iter().cloned().collect(),
-                evidence: form_injection_evidence(ctx.bytes, &sources, 3),
+                objects: candidate.object_ids.iter().cloned().collect(),
+                evidence: form_injection_evidence(ctx.bytes, &candidate.sources, 3),
                 remediation: Some(
                     "Inspect fragmented form values/appearances and resolve indirect references to identify reconstructed payloads."
                         .into(),
@@ -3228,6 +3363,136 @@ impl Detector for ScatteredPayloadAssemblyDetector {
                 position: None,
                 positions: Vec::new(),
             });
+        }
+
+        Ok(findings)
+    }
+}
+
+impl Detector for CrossStreamPayloadAssemblyDetector {
+    fn id(&self) -> &'static str {
+        "cross_stream_payload_assembly"
+    }
+
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::JavaScript
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+
+    fn cost(&self) -> Cost {
+        Cost::Moderate
+    }
+
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let scattered_candidates = collect_scattered_assembly_candidates(ctx);
+        if scattered_candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut findings = Vec::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+
+            let js_payloads = js_payload_candidates_from_entry(ctx, entry);
+            if js_payloads.is_empty() {
+                continue;
+            }
+
+            let js_object_ref = format!("{} {} obj", entry.obj, entry.gen);
+            for payload_candidate in &js_payloads {
+                let js_meta = js_analysis::static_analysis::extract_js_signals_with_ast(
+                    &payload_candidate.payload.bytes,
+                    false,
+                );
+                if !js_payload_has_assembly_pattern(&payload_candidate.payload.bytes, &js_meta) {
+                    continue;
+                }
+
+                let matched_candidates: Vec<&ScatteredAssemblyCandidate> = scattered_candidates
+                    .iter()
+                    .filter(|candidate| {
+                        js_payload_matches_scattered_candidate(
+                            &payload_candidate.payload.bytes,
+                            &js_meta,
+                            &candidate.assembled,
+                        )
+                    })
+                    .collect();
+                if matched_candidates.is_empty() {
+                    continue;
+                }
+
+                let mut object_ids = BTreeSet::new();
+                object_ids.insert(js_object_ref.clone());
+                let mut matched_scatter_objects = BTreeSet::new();
+                let mut matched_sources = BTreeSet::new();
+                for candidate in matched_candidates {
+                    for object_ref in &candidate.object_ids {
+                        object_ids.insert(object_ref.clone());
+                        matched_scatter_objects.insert(object_ref.clone());
+                    }
+                    for source in &candidate.sources {
+                        matched_sources.insert(*source);
+                    }
+                }
+
+                let mut meta = std::collections::HashMap::new();
+                meta.insert("chain.stage".into(), "decode".into());
+                meta.insert("chain.capability".into(), "cross_stream_assembly".into());
+                meta.insert("chain.trigger".into(), "pdfjs".into());
+                meta.insert("js.object.ref".into(), js_object_ref.clone());
+                meta.insert(
+                    "scatter.object_ids".into(),
+                    matched_scatter_objects.into_iter().collect::<Vec<_>>().join(","),
+                );
+                meta.insert(
+                    "injection.sources".into(),
+                    matched_sources.into_iter().collect::<Vec<_>>().join(","),
+                );
+                if let Some(value) = js_meta.get("payload.fromCharCode_reconstructed") {
+                    meta.insert("js.payload.fromcharcode_reconstructed".into(), value.clone());
+                }
+                if let Some(value) = js_meta.get("payload.fromCharCode_count") {
+                    meta.insert("js.payload.fromcharcode_count".into(), value.clone());
+                }
+                if let Some(value) = js_meta.get("payload.fromCharCode_preview") {
+                    meta.insert("js.payload.fromcharcode_preview".into(), value.clone());
+                }
+
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: AttackSurface::JavaScript,
+                    kind: "cross_stream_payload_assembly".into(),
+                    severity: Severity::Medium,
+                    confidence: Confidence::Probable,
+                    impact: Some(Impact::Medium),
+                    title: "Cross-stream payload assembly indicator".into(),
+                    description:
+                        "JavaScript assembly behaviour aligns with payload fragments reconstructed from form objects."
+                            .into(),
+                    objects: object_ids.into_iter().collect(),
+                    evidence: vec![span_to_evidence(dict.span, "JavaScript assembly context")],
+                    remediation: Some(
+                        "Correlate JavaScript reconstruction logic with fragmented form/object payload sources."
+                            .into(),
+                    ),
+                    meta,
+                    reader_impacts: Vec::new(),
+                    action_type: None,
+                    action_target: None,
+                    action_initiation: None,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                });
+
+                break;
+            }
         }
 
         Ok(findings)

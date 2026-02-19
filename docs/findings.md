@@ -961,6 +961,24 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `chain.stage=decode`, `chain.capability=name_obfuscation`.
   - Remediation: inspect raw and decoded name tokens in flagged objects before classifying as benign.
 
+## cross_stream_payload_assembly
+
+- ID: `cross_stream_payload_assembly`
+- Label: Cross-stream payload assembly indicator
+- Description: JavaScript assembly behaviour aligns with payload fragments reconstructed from form objects.
+- Tags: javascript, forms, obfuscation, correlation
+- Details:
+  - Relevance: exploit chains can split payload material between PDF object values and JavaScript runtime reconstruction logic.
+  - Meaning: JavaScript assembly patterns (for example `fromCharCode`, split/join, concat) correlate with reconstructed payloads assembled from fragmented form-linked object values.
+  - Chain usage: decode-stage bridge indicator linking JavaScript execution context to distributed form payload staging.
+  - Metadata:
+    - `js.object.ref`: object containing JavaScript assembly logic.
+    - `scatter.object_ids`: contributing fragmented source objects.
+    - `injection.sources`: contributing form keys.
+    - optional `js.payload.fromcharcode_*` fields when static reconstruction metadata is available.
+    - `chain.stage=decode`, `chain.capability=cross_stream_assembly`, `chain.trigger=pdfjs`.
+  - Remediation: triage as a correlated chain and inspect both JavaScript reconstruction code and referenced form/object fragment sources.
+
 ## pdfjs_eval_path_risk
 
 - ID: `pdfjs_eval_path_risk`

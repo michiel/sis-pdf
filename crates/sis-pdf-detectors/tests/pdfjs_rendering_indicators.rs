@@ -511,3 +511,46 @@ fn benign_fragmented_form_values_do_not_trigger_scattered_payload_assembly() {
     .expect("scan");
     assert!(!report.findings.iter().any(|f| f.kind == "scattered_payload_assembly"));
 }
+
+#[test]
+fn detects_cross_stream_payload_assembly_from_js_and_form_fragments() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R /OpenAction 10 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n",
+        "6 0 obj\n<< /FT /Tx /T (field) /V [7 0 R 8 0 R 9 0 R] >>\nendobj\n",
+        "7 0 obj\n(%3C)\nendobj\n",
+        "8 0 obj\n(script%3Ealert(1)%3C)\nendobj\n",
+        "9 0 obj\n(%2Fscript%3E)\nendobj\n",
+        "10 0 obj\n<< /S /JavaScript /JS <76617220733d537472696e672e66726f6d43686172436f64652836302c3131352c39392c3131342c3130352c3131322c3131362c36322c39372c3130382c3130312c3131342c3131362c34302c34392c34312c36302c34372c3131352c39392c3131342c3130352c3131322c3131362c3632293b> >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "cross_stream_payload_assembly");
+    assert!(finding.is_some(), "Expected cross_stream_payload_assembly finding");
+    let finding = finding.expect("finding");
+    assert_eq!(finding.meta.get("chain.stage").map(|v| v.as_str()), Some("decode"));
+    assert_eq!(
+        finding.meta.get("chain.capability").map(|v| v.as_str()),
+        Some("cross_stream_assembly")
+    );
+    assert_eq!(finding.meta.get("js.object.ref").map(|v| v.as_str()), Some("10 0 obj"));
+    assert!(
+        finding
+            .meta
+            .get("scatter.object_ids")
+            .map(|v| v.contains("7 0 obj") && v.contains("8 0 obj") && v.contains("9 0 obj"))
+            .unwrap_or(false),
+        "Expected scatter object ids in metadata"
+    );
+}
