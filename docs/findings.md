@@ -280,7 +280,13 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Details:
   - Relevance: expanded attack surface.
   - Meaning: feature increases parsing or interaction complexity.
-  - Chain usage: used as supporting context for delivery or exploitation stages.
+  - Chain usage: execute-stage action trigger signal for annotation-driven exploit paths.
+  - Metadata:
+    - `annot.subtype`
+    - `annot.trigger_context` (`annotation_action`, `annotation_aa`)
+    - `action.trigger_event`, `action.trigger_event_normalised`
+    - `action.trigger_type`
+    - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger=annotation_action`
 
 ## annotation_hidden
 
@@ -292,6 +298,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: expanded attack surface.
   - Meaning: feature increases parsing or interaction complexity.
   - Chain usage: used as supporting context for delivery or exploitation stages.
+  - Metadata:
+    - `annot.subtype`
+    - `annot.width`, `annot.height`
+    - `annot.trigger_context=annotation_geometry`
 
 ## content_html_payload
 
@@ -962,6 +972,13 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: browser annotation rendering can expose script injection surfaces.
   - Meaning: `/AP` or annotation content fields include executable-style token patterns.
   - Chain usage: browser-render path indicator; correlate with action and JavaScript findings.
+  - Metadata:
+    - `annot.subtype`
+    - `annot.trigger_context` (`annotation_render_only`, `annotation_action`, `mixed`)
+    - `annot.action_trigger_count`
+    - `injection.sources` (for example `/AP,/Contents,/RC`)
+    - optional `injection.normalised=true` and `injection.decode_layers`
+    - `chain.stage=render`, `chain.capability=annotation_injection`, `chain.trigger=annotation_render`
 
 ## pdfjs_form_injection
 
@@ -3531,6 +3548,8 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `form_html_injection -> pdfjs_form_injection`
     - `*_injection -> submitform_present`
     - `*_injection -> action_remote_target_suspicious`
+    - `pdfjs_annotation_injection -> annotation_action_chain`
+    - `pdfjs_annotation_injection -> js_present(js.source=annotation*)`
     - `pdfjs_form_injection -> pdfjs_eval_path_risk`
     - `scattered_payload_assembly|cross_stream_payload_assembly -> *_injection`
     - `obfuscated_name_encoding -> action_*`

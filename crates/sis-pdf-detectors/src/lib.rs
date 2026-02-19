@@ -2516,6 +2516,11 @@ impl Detector for PdfjsRenderingIndicatorDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         let mut annotation_objects = Vec::new();
+        let mut annotation_sources = BTreeSet::new();
+        let mut annotation_subtypes = BTreeSet::new();
+        let mut annotation_action_trigger_count = 0usize;
+        let mut annotation_normalised = false;
+        let mut annotation_decode_layers = 0u8;
         let mut form_js_objects = Vec::new();
         let mut form_html_objects = Vec::new();
         let mut form_js_sources = BTreeSet::new();
@@ -2531,16 +2536,46 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 continue;
             };
             if is_annotation_dict(dict) {
-                let has_annotation_payload = dict
-                    .get_first(b"/AP")
-                    .map(|(_, obj)| obj_contains_pdfjs_injection_tokens(obj, ctx, 0))
-                    .unwrap_or(false)
-                    || dict
-                        .get_first(b"/Contents")
-                        .map(|(_, obj)| obj_contains_pdfjs_injection_tokens(obj, ctx, 0))
-                        .unwrap_or(false);
+                let mut annotation_signals = InjectionSignals::default();
+                if let Some((_, obj)) = dict.get_first(b"/AP") {
+                    let signals = obj_collect_injection_signals(obj, ctx, 0);
+                    if signals.classify().is_some() {
+                        annotation_sources.insert("/AP");
+                    }
+                    annotation_signals.merge(signals);
+                }
+                if let Some((_, obj)) = dict.get_first(b"/Contents") {
+                    let signals = obj_collect_injection_signals(obj, ctx, 0);
+                    if signals.classify().is_some() {
+                        annotation_sources.insert("/Contents");
+                    }
+                    annotation_signals.merge(signals);
+                }
+                if let Some((_, obj)) = dict.get_first(b"/RC") {
+                    let signals = obj_collect_injection_signals(obj, ctx, 0);
+                    if signals.classify().is_some() {
+                        annotation_sources.insert("/RC");
+                    }
+                    annotation_signals.merge(signals);
+                }
+                let has_annotation_payload = annotation_signals.classify().is_some();
                 if has_annotation_payload {
                     annotation_objects.push(format!("{} {} obj", entry.obj, entry.gen));
+                    if let Some(subtype) = dict.get_first(b"/Subtype").and_then(|(_, value)| {
+                        if let PdfAtom::Name(name) = &value.atom {
+                            Some(String::from_utf8_lossy(&name.decoded).to_string())
+                        } else {
+                            None
+                        }
+                    }) {
+                        annotation_subtypes.insert(subtype);
+                    }
+                    annotation_normalised |= annotation_signals.normalised;
+                    annotation_decode_layers =
+                        annotation_decode_layers.max(annotation_signals.decode_layers);
+                    if dict.get_first(b"/A").is_some() || dict.get_first(b"/AA").is_some() {
+                        annotation_action_trigger_count += 1;
+                    }
                 }
             }
 
@@ -2626,6 +2661,39 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 "pdfjs.annotation_object_count".into(),
                 annotation_objects.len().to_string(),
             );
+            meta.insert("chain.stage".into(), "render".into());
+            meta.insert("chain.capability".into(), "annotation_injection".into());
+            meta.insert("chain.trigger".into(), "annotation_render".into());
+            meta.insert(
+                "annot.trigger_context".into(),
+                if annotation_action_trigger_count == 0 {
+                    "annotation_render_only".into()
+                } else if annotation_action_trigger_count == annotation_objects.len() {
+                    "annotation_action".into()
+                } else {
+                    "mixed".into()
+                },
+            );
+            meta.insert(
+                "annot.action_trigger_count".into(),
+                annotation_action_trigger_count.to_string(),
+            );
+            if !annotation_subtypes.is_empty() {
+                meta.insert(
+                    "annot.subtype".into(),
+                    annotation_subtypes.into_iter().collect::<Vec<_>>().join(","),
+                );
+            }
+            if !annotation_sources.is_empty() {
+                meta.insert(
+                    "injection.sources".into(),
+                    annotation_sources.iter().copied().collect::<Vec<_>>().join(","),
+                );
+            }
+            if annotation_normalised {
+                meta.insert("injection.normalised".into(), "true".into());
+                meta.insert("injection.decode_layers".into(), annotation_decode_layers.to_string());
+            }
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::Actions,
@@ -2849,51 +2917,6 @@ fn is_pdfjs_eval_path_font(dict: &PdfDict<'_>) -> bool {
     let has_cmap_path =
         dict.get_first(b"/ToUnicode").is_some() || dict.get_first(b"/DescendantFonts").is_some();
     font_like && (subtype_risky || has_custom_encoding || has_cmap_path)
-}
-
-fn obj_contains_pdfjs_injection_tokens(
-    obj: &PdfObj<'_>,
-    ctx: &sis_pdf_core::scan::ScanContext,
-    depth: usize,
-) -> bool {
-    if depth >= 8 {
-        return false;
-    }
-    match &obj.atom {
-        PdfAtom::Str(s) => contains_pdfjs_injection_tokens(&string_bytes(s)),
-        PdfAtom::Name(name) => contains_pdfjs_injection_tokens(&name.decoded),
-        PdfAtom::Array(values) => {
-            values.iter().any(|value| obj_contains_pdfjs_injection_tokens(value, ctx, depth + 1))
-        }
-        PdfAtom::Dict(dict) => dict
-            .entries
-            .iter()
-            .any(|(_, value)| obj_contains_pdfjs_injection_tokens(value, ctx, depth + 1)),
-        PdfAtom::Stream(stream) => {
-            let start = stream.data_span.start as usize;
-            let end = stream.data_span.end as usize;
-            let has_stream_payload = if start < end && end <= ctx.bytes.len() {
-                contains_pdfjs_injection_tokens(&ctx.bytes[start..end])
-            } else {
-                false
-            };
-            has_stream_payload
-                || stream
-                    .dict
-                    .entries
-                    .iter()
-                    .any(|(_, value)| obj_contains_pdfjs_injection_tokens(value, ctx, depth + 1))
-        }
-        PdfAtom::Ref { .. } => ctx
-            .graph
-            .resolve_ref(obj)
-            .map(|resolved| {
-                let resolved_obj = PdfObj { span: resolved.body_span, atom: resolved.atom };
-                obj_contains_pdfjs_injection_tokens(&resolved_obj, ctx, depth + 1)
-            })
-            .unwrap_or(false),
-        _ => false,
-    }
 }
 
 fn obj_collect_injection_signals(

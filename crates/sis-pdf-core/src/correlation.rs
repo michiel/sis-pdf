@@ -575,12 +575,32 @@ fn correlate_injection_edge_bridges(findings: &[Finding]) -> Vec<Finding> {
     let injection = findings
         .iter()
         .filter(|finding| {
-            matches!(finding.kind.as_str(), "form_html_injection" | "pdfjs_form_injection")
+            matches!(
+                finding.kind.as_str(),
+                "form_html_injection" | "pdfjs_form_injection" | "pdfjs_annotation_injection"
+            )
         })
         .collect::<Vec<_>>();
     let pdfjs_injection = findings
         .iter()
         .filter(|finding| finding.kind == "pdfjs_form_injection")
+        .collect::<Vec<_>>();
+    let annotation_injection = findings
+        .iter()
+        .filter(|finding| finding.kind == "pdfjs_annotation_injection")
+        .collect::<Vec<_>>();
+    let annotation_action = findings
+        .iter()
+        .filter(|finding| finding.kind == "annotation_action_chain")
+        .collect::<Vec<_>>();
+    let annotation_js = findings
+        .iter()
+        .filter(|finding| {
+            finding.kind == "js_present"
+                && get_meta(finding, "js.source")
+                    .map(|source| source.starts_with("annotation"))
+                    .unwrap_or(false)
+        })
         .collect::<Vec<_>>();
     let submitform =
         findings.iter().filter(|finding| finding.kind == "submitform_present").collect::<Vec<_>>();
@@ -658,6 +678,44 @@ fn correlate_injection_edge_bridges(findings: &[Finding]) -> Vec<Finding> {
                 "Injection indicators co-locate with suspicious remote-capable actions, indicating an execution-to-egress exploit path.",
                 Confidence::Probable,
                 Severity::Medium,
+                src,
+                dst,
+            );
+        }
+    }
+
+    for src in &annotation_injection {
+        for dst in &annotation_action {
+            if !shares_object(src, dst) {
+                continue;
+            }
+            maybe_push_edge_composite(
+                &mut composites,
+                &mut emitted,
+                "annotation_injection_to_action",
+                "Annotation injection to action bridge",
+                "Annotation render-path injection indicators co-locate with annotation action chains, indicating a render-to-execute exploit path.",
+                Confidence::Strong,
+                Severity::High,
+                src,
+                dst,
+            );
+        }
+    }
+
+    for src in &annotation_injection {
+        for dst in &annotation_js {
+            if !shares_object(src, dst) {
+                continue;
+            }
+            maybe_push_edge_composite(
+                &mut composites,
+                &mut emitted,
+                "annotation_injection_to_js",
+                "Annotation injection to JavaScript bridge",
+                "Annotation render-path injection indicators co-locate with annotation-sourced JavaScript payloads, indicating script execution staging within annotation containers.",
+                Confidence::Strong,
+                Severity::High,
                 src,
                 dst,
             );
@@ -913,6 +971,16 @@ fn edge_exploit_context(edge_reason: &str) -> (&'static str, &'static str, &'sta
             "remote_action_target_reachable; script_or_render_payload_reachable",
             "network_egress_controls; action_policy_restrictions",
             "data_exfiltration; remote_content_retrieval",
+        ),
+        "annotation_injection_to_action" => (
+            "annotation_render_path_reachable; annotation_action_chain_reachable",
+            "annotation_action_restrictions; renderer_input_sanitisation",
+            "script_execution; action_execution",
+        ),
+        "annotation_injection_to_js" => (
+            "annotation_render_path_reachable; annotation_js_payload_reachable",
+            "annotation_payload_sanitisation; javascript_disabled",
+            "script_execution; payload_staging",
         ),
         "pdfjs_injection_to_eval_path" => (
             "pdfjs_eval_path_reachable",

@@ -81,6 +81,21 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
     - `edge.js.container_path.from`
     - `edge.js.container_path.to`
   - Added regression assertions for JS lineage propagation in correlation composites.
+- Completed: WS3 annotation rendering and chain-context uplift (initial):
+  - `pdfjs_annotation_injection` now emits annotation context metadata:
+    - `annot.subtype`
+    - `annot.trigger_context` (`annotation_render_only`, `annotation_action`, `mixed`)
+    - `annot.action_trigger_count`
+    - source/decode context (`injection.sources`, optional `injection.normalised`, `injection.decode_layers`)
+    - chain context (`chain.stage=render`, `chain.capability=annotation_injection`, `chain.trigger=annotation_render`)
+  - `annotation_action_chain` and `annotation_hidden` now emit annotation subtype/trigger metadata:
+    - `annot.subtype`
+    - `annot.trigger_context`
+    - normalised trigger metadata (`action.trigger_context`, `action.trigger_event`, `action.trigger_event_normalised`, `action.trigger_type`)
+  - Added new correlation edges for annotation exploit path connectivity:
+    - `pdfjs_annotation_injection -> annotation_action_chain` (`edge.reason=annotation_injection_to_action`)
+    - `pdfjs_annotation_injection -> js_present(js.source=annotation*)` (`edge.reason=annotation_injection_to_js`)
+  - Added regression coverage for distributed annotation payloads and annotation-edge bridge metadata invariants.
 
 ## Objective
 

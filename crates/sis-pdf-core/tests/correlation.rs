@@ -430,6 +430,65 @@ fn correlate_injection_edge_bridges_for_remote_action_egress() {
 }
 
 #[test]
+fn correlate_injection_edge_bridges_for_annotation_surfaces() {
+    let annotation_injection = make_finding(
+        "pdfjs_annotation_injection",
+        &["96 0 obj"],
+        &[("chain.stage", "render"), ("annot.trigger_context", "annotation_action")],
+        AttackSurface::Actions,
+    );
+    let annotation_action = make_finding(
+        "annotation_action_chain",
+        &["96 0 obj"],
+        &[
+            ("chain.stage", "execute"),
+            ("action.initiation", "automatic"),
+            ("action.trigger_context", "annotation_aa"),
+        ],
+        AttackSurface::Actions,
+    );
+    let annotation_js = make_finding(
+        "js_present",
+        &["96 0 obj"],
+        &[
+            ("chain.stage", "execute"),
+            ("js.source", "annotation"),
+            ("js.container_path", "/Annots/AA/O/JS"),
+        ],
+        AttackSurface::Actions,
+    );
+    let composites = correlation::correlate_findings(
+        &[annotation_injection, annotation_action, annotation_js],
+        &CorrelationOptions::default(),
+    );
+
+    let reasons = composites
+        .iter()
+        .filter(|finding| finding.kind == "composite.injection_edge_bridge")
+        .filter_map(|finding| finding.meta.get("edge.reason"))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(reasons.contains(&"annotation_injection_to_action".to_string()));
+    assert!(reasons.contains(&"annotation_injection_to_js".to_string()));
+
+    let bridge = composites
+        .iter()
+        .find(|finding| {
+            finding.kind == "composite.injection_edge_bridge"
+                && finding.meta.get("edge.reason").map(String::as_str)
+                    == Some("annotation_injection_to_action")
+        })
+        .expect("annotation action bridge should be present");
+    assert_eq!(bridge.confidence, Confidence::Strong);
+    assert_eq!(bridge.severity, Severity::High);
+    assert_eq!(bridge.meta.get("edge.initiation.to").map(String::as_str), Some("automatic"));
+    assert_eq!(
+        bridge.meta.get("exploit.outcomes").map(String::as_str),
+        Some("script_execution; action_execution")
+    );
+}
+
+#[test]
 fn correlate_hidden_layer_action_when_ocg_and_action_share_object() {
     let ocg = make_finding(
         "ocg_present",

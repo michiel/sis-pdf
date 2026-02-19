@@ -41,6 +41,9 @@ impl Detector for AnnotationAttackDetector {
                 continue;
             }
             let mut meta = std::collections::HashMap::new();
+            if let Some(subtype) = annotation_subtype(dict) {
+                meta.insert("annot.subtype".into(), subtype);
+            }
             if let Some(parent) = annot_parent
                 .get(&sis_pdf_core::graph_walk::ObjRef { obj: entry.obj, gen: entry.gen })
             {
@@ -50,6 +53,7 @@ impl Detector for AnnotationAttackDetector {
                 if let Some((w, h)) = rect_size(rect) {
                     meta.insert("annot.width".into(), format!("{:.2}", w));
                     meta.insert("annot.height".into(), format!("{:.2}", h));
+                    meta.insert("annot.trigger_context".into(), "annotation_geometry".into());
                     if w <= 0.1 || h <= 0.1 {
                         findings.push(Finding {
                             id: String::new(),
@@ -77,13 +81,21 @@ impl Detector for AnnotationAttackDetector {
                 }
             }
             if dict.get_first(b"/A").is_some() || dict.get_first(b"/AA").is_some() {
-                let (trigger_kind, action_type, action_target, action_initiation) =
+                let (
+                    trigger_kind,
+                    trigger_context,
+                    trigger_event,
+                    action_type,
+                    action_target,
+                    action_initiation,
+                ) =
                     annotation_action_context(ctx, dict);
                 let severity = annotation_action_severity(
                     action_type.as_str(),
                     action_target.as_str(),
                     action_initiation.as_str(),
                 );
+                meta.insert("annot.trigger_context".into(), trigger_context.clone());
                 if !action_type.is_empty() {
                     meta.insert("action.type".into(), action_type.clone());
                 }
@@ -92,7 +104,19 @@ impl Detector for AnnotationAttackDetector {
                 }
                 if !action_initiation.is_empty() {
                     meta.insert("action.initiation".into(), action_initiation.clone());
+                    meta.insert("action.trigger_type".into(), action_initiation.clone());
                 }
+                if !trigger_event.is_empty() {
+                    meta.insert("action.trigger_event".into(), trigger_event.clone());
+                    meta.insert(
+                        "action.trigger_event_normalised".into(),
+                        normalise_annotation_trigger_event(&trigger_event),
+                    );
+                }
+                meta.insert("action.trigger_context".into(), trigger_context);
+                meta.insert("chain.stage".into(), "execute".into());
+                meta.insert("chain.capability".into(), "action_trigger_chain".into());
+                meta.insert("chain.trigger".into(), "annotation_action".into());
                 findings.push(Finding {
                     id: String::new(),
                     surface: self.surface(),
@@ -217,10 +241,12 @@ fn rect_size(obj: &sis_pdf_pdf::object::PdfObj<'_>) -> Option<(f32, f32)> {
 fn annotation_action_context(
     ctx: &sis_pdf_core::scan::ScanContext,
     dict: &PdfDict<'_>,
-) -> (String, String, String, String) {
+) -> (String, String, String, String, String, String) {
     if let Some((_, action_obj)) = dict.get_first(b"/A") {
         let (action_type, target) = action_type_and_target(ctx, action_obj);
         return (
+            "/A".into(),
+            "annotation_action".into(),
             "/A".into(),
             action_type.unwrap_or_else(|| "unknown".into()),
             target.unwrap_or_else(|| "unknown".into()),
@@ -237,6 +263,8 @@ fn annotation_action_context(
                     if is_automatic_event(&event.decoded) { "automatic" } else { "user" };
                 return (
                     format!("/AA {}", event_name),
+                    "annotation_aa".into(),
+                    event_name,
                     action_type.unwrap_or_else(|| "unknown".into()),
                     target.unwrap_or_else(|| "unknown".into()),
                     initiation.into(),
@@ -245,7 +273,14 @@ fn annotation_action_context(
         }
     }
 
-    ("/A or /AA".into(), "unknown".into(), "unknown".into(), "unknown".into())
+    (
+        "/A or /AA".into(),
+        "annotation_action".into(),
+        "unknown".into(),
+        "unknown".into(),
+        "unknown".into(),
+        "unknown".into(),
+    )
 }
 
 fn action_type_and_target(
@@ -340,6 +375,23 @@ fn uri_target_is_suspicious(target: &str) -> bool {
         || analysis.suspicious_tld
         || analysis.has_shortener_domain
         || analysis.has_idn_lookalike
+}
+
+fn annotation_subtype(dict: &PdfDict<'_>) -> Option<String> {
+    dict.get_first(b"/Subtype").and_then(|(_, obj)| match &obj.atom {
+        PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
+        _ => None,
+    })
+}
+
+fn normalise_annotation_trigger_event(event: &str) -> String {
+    if event == "unknown" || event.is_empty() {
+        return "unknown".into();
+    }
+    if event.starts_with('/') {
+        return event.into();
+    }
+    format!("/{event}")
 }
 
 #[cfg(test)]
