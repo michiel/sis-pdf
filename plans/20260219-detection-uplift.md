@@ -135,6 +135,25 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - `Probable` for document-level co-occurrence without direct shared object refs.
   - Added correlation regression tests for both shared-object and document-level co-occurrence paths.
   - Documented `hidden_layer_action` in `docs/findings.md`.
+- Completed: NO5 null-object reference chain exploitation detection (initial):
+  - Added `null_ref_chain_termination` detector for security-relevant keys (`/OpenAction`, `/A`, `/AA`, `/V`, `/DV`, `/AP`, `/Contents`).
+  - Detector follows bounded indirect-reference chains and flags depth >= 3 chains terminating in:
+    - missing objects,
+    - `null` literals,
+    - `0 0 R` null-object references.
+  - Added metadata for triage and explainability:
+    - `context.owner`
+    - `context.key`
+    - `termination.kind`
+    - `termination.target`
+    - `ref.depth`
+    - `ref.chain`
+    - chain context (`chain.stage=decode`, `chain.capability=null_ref_chain`, `chain.trigger=parser`)
+  - Added integration tests for:
+    - deep missing-object chain detection,
+    - deep null-literal chain detection,
+    - benign short-chain control.
+  - Documented `null_ref_chain_termination` in `docs/findings.md`.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.

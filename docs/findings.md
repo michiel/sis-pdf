@@ -3080,6 +3080,25 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: feature increases parsing or interaction complexity.
   - Chain usage: used as supporting context for delivery or exploitation stages.
 
+## null_ref_chain_termination
+
+- ID: `null_ref_chain_termination`
+- Label: Null/missing reference chain termination
+- Description: Security-relevant indirect reference chain terminates at `null`, `0 0 R`, or a missing object.
+- Tags: structure, evasion, parser
+- Details:
+  - Relevance: deep broken reference chains can trigger parser-state confusion and hide malicious intent in action/form contexts.
+  - Meaning: chain depth is at least three indirect references and ends in a null/missing terminal object in keys such as `/OpenAction`, `/A`, `/AA`, `/V`, `/DV`, `/AP`, or `/Contents`.
+  - Chain usage: decode-stage structural risk signal; combine with action/injection findings to prioritise likely exploit paths.
+  - Metadata:
+    - `context.owner`
+    - `context.key`
+    - `termination.kind` (`missing_object`, `null_literal`, `null_object_ref`)
+    - `termination.target`
+    - `ref.depth`
+    - `ref.chain`
+    - `chain.stage=decode`, `chain.capability=null_ref_chain`, `chain.trigger=parser`
+
 ## open_action_present
 
 - ID: `open_action_present`

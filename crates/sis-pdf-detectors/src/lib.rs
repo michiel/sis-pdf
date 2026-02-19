@@ -143,6 +143,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(annotations_advanced::AnnotationAttackDetector),
         Box::new(page_tree_anomalies::PageTreeManipulationDetector),
         Box::new(object_cycles::ObjectReferenceCycleDetector),
+        Box::new(NullRefChainTerminationDetector),
         Box::new(CryptoDetector),
         Box::new(encryption_obfuscation::EncryptionObfuscationDetector),
         Box::new(XfaDetector),
@@ -3770,6 +3771,7 @@ fn analyse_remote_target_from_dict(
 
 struct EmbeddedFileDetector;
 struct FormFieldOversizedValueDetector;
+struct NullRefChainTerminationDetector;
 
 #[derive(Clone, Debug)]
 struct EmbeddedScriptAssessment {
@@ -4298,6 +4300,225 @@ fn extract_form_field_name(dict: &PdfDict<'_>) -> String {
     match &field_obj.atom {
         PdfAtom::Str(s) => preview_ascii(&string_bytes(s), 120),
         _ => "unnamed".into(),
+    }
+}
+
+impl Detector for NullRefChainTerminationDetector {
+    fn id(&self) -> &'static str {
+        "null_ref_chain_termination"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::FileStructure
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Moderate
+    }
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        const MAX_SCAN_DEPTH: usize = 16;
+        const MAX_TERMINATIONS_PER_OBJECT: usize = 4;
+        let mut findings = Vec::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            let owner_ref = format!("{} {} obj", entry.obj, entry.gen);
+            let mut per_object_count = 0usize;
+            for key in [
+                b"/OpenAction".as_slice(),
+                b"/A".as_slice(),
+                b"/AA".as_slice(),
+                b"/V".as_slice(),
+                b"/DV".as_slice(),
+                b"/AP".as_slice(),
+                b"/Contents".as_slice(),
+            ] {
+                let Some((key_obj, value_obj)) = dict.get_first(key) else {
+                    continue;
+                };
+                let mut visited = HashSet::new();
+                let mut chain = Vec::new();
+                let mut terminations = Vec::new();
+                collect_null_ref_terminations(
+                    ctx,
+                    value_obj,
+                    &mut visited,
+                    &mut chain,
+                    0,
+                    MAX_SCAN_DEPTH,
+                    &mut terminations,
+                );
+                for termination in terminations.into_iter().take(MAX_TERMINATIONS_PER_OBJECT) {
+                    if termination.ref_depth < 3 {
+                        continue;
+                    }
+                    per_object_count += 1;
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("context.owner".into(), owner_ref.clone());
+                    meta.insert("context.key".into(), String::from_utf8_lossy(key).to_string());
+                    meta.insert("termination.kind".into(), termination.kind.clone());
+                    meta.insert("termination.target".into(), termination.target.clone());
+                    meta.insert("ref.depth".into(), termination.ref_depth.to_string());
+                    meta.insert("ref.chain".into(), termination.ref_chain.join(" -> "));
+                    meta.insert("chain.stage".into(), "decode".into());
+                    meta.insert("chain.capability".into(), "null_ref_chain".into());
+                    meta.insert("chain.trigger".into(), "parser".into());
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: self.surface(),
+                        kind: "null_ref_chain_termination".into(),
+                        severity: if termination.ref_depth >= 5 {
+                            Severity::High
+                        } else {
+                            Severity::Medium
+                        },
+                        confidence: Confidence::Probable,
+                        impact: Some(Impact::Medium),
+                        title: "Null/missing reference chain termination".into(),
+                        description:
+                            "Security-relevant reference chain terminates in null or missing object."
+                                .into(),
+                        objects: vec![owner_ref.clone()],
+                        evidence: vec![
+                            span_to_evidence(entry.body_span, "Owner object"),
+                            span_to_evidence(key_obj.span, "Security-relevant key"),
+                            span_to_evidence(value_obj.span, "Reference-chain entry"),
+                        ],
+                        remediation: Some(
+                            "Inspect indirect reference chains for parser-state confusion and broken/null terminal references."
+                                .into(),
+                        ),
+                        meta,
+                        reader_impacts: Vec::new(),
+                        action_type: None,
+                        action_target: None,
+                        action_initiation: None,
+                        yara: None,
+                        position: None,
+                        positions: Vec::new(),
+                    });
+                    if per_object_count >= MAX_TERMINATIONS_PER_OBJECT {
+                        break;
+                    }
+                }
+                if per_object_count >= MAX_TERMINATIONS_PER_OBJECT {
+                    break;
+                }
+            }
+        }
+        Ok(findings)
+    }
+}
+
+#[derive(Clone)]
+struct NullRefTermination {
+    kind: String,
+    target: String,
+    ref_depth: usize,
+    ref_chain: Vec<String>,
+}
+
+fn collect_null_ref_terminations(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    obj: &PdfObj<'_>,
+    visited: &mut HashSet<(u32, u16)>,
+    chain: &mut Vec<String>,
+    depth: usize,
+    max_depth: usize,
+    out: &mut Vec<NullRefTermination>,
+) {
+    if depth > max_depth {
+        return;
+    }
+    match &obj.atom {
+        PdfAtom::Ref { obj, gen } => {
+            if *obj == 0 && *gen == 0 {
+                let mut chain_with_terminal = chain.clone();
+                chain_with_terminal.push("0 0 R".into());
+                out.push(NullRefTermination {
+                    kind: "null_object_ref".into(),
+                    target: "0 0 R".into(),
+                    ref_depth: chain_with_terminal.len(),
+                    ref_chain: chain_with_terminal,
+                });
+                return;
+            }
+            if !visited.insert((*obj, *gen)) {
+                return;
+            }
+            chain.push(format!("{} {} R", obj, gen));
+            if let Some(entry) = ctx.graph.get_object(*obj, *gen) {
+                let resolved = PdfObj { span: entry.body_span, atom: entry.atom.clone() };
+                collect_null_ref_terminations(
+                    ctx,
+                    &resolved,
+                    visited,
+                    chain,
+                    depth + 1,
+                    max_depth,
+                    out,
+                );
+            } else {
+                out.push(NullRefTermination {
+                    kind: "missing_object".into(),
+                    target: format!("{} {} R", obj, gen),
+                    ref_depth: chain.len(),
+                    ref_chain: chain.clone(),
+                });
+            }
+            let _ = chain.pop();
+            visited.remove(&(*obj, *gen));
+        }
+        PdfAtom::Null => {
+            out.push(NullRefTermination {
+                kind: "null_literal".into(),
+                target: "null".into(),
+                ref_depth: chain.len(),
+                ref_chain: chain.clone(),
+            });
+        }
+        PdfAtom::Array(values) => {
+            for value in values {
+                collect_null_ref_terminations(
+                    ctx,
+                    value,
+                    visited,
+                    chain,
+                    depth + 1,
+                    max_depth,
+                    out,
+                );
+            }
+        }
+        PdfAtom::Dict(dict) => {
+            for (_, value) in &dict.entries {
+                collect_null_ref_terminations(
+                    ctx,
+                    value,
+                    visited,
+                    chain,
+                    depth + 1,
+                    max_depth,
+                    out,
+                );
+            }
+        }
+        PdfAtom::Stream(stream) => {
+            for (_, value) in &stream.dict.entries {
+                collect_null_ref_terminations(
+                    ctx,
+                    value,
+                    visited,
+                    chain,
+                    depth + 1,
+                    max_depth,
+                    out,
+                );
+            }
+        }
+        _ => {}
     }
 }
 
