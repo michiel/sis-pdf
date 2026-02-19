@@ -3787,10 +3787,26 @@ impl Detector for ActionRemoteTargetSuspiciousDetector {
             let target = target_analysis.preview.clone();
             let telemetry =
                 annotate_action_meta(&mut meta, &action_type, Some(target.as_str()), "automatic");
+            let egress_target_kind = egress_target_kind_for_remote_analysis(&target_analysis);
             meta.insert("action.s".into(), action_type.clone());
             meta.insert("action.remote.indicators".into(), target_analysis.indicators.join(","));
             meta.insert("action.remote.target_preview".into(), target_analysis.preview);
-            meta.insert("action.remote.scheme".into(), target_analysis.scheme);
+            meta.insert("action.remote.scheme".into(), target_analysis.scheme.clone());
+            meta.insert("chain.stage".into(), "egress".into());
+            meta.insert("chain.capability".into(), "remote_action_target".into());
+            meta.insert("chain.trigger".into(), "action".into());
+            meta.insert(
+                "egress.channel".into(),
+                egress_channel_for_action(action_type.as_str()).to_string(),
+            );
+            meta.insert(
+                "egress.target_kind".into(),
+                egress_target_kind.to_string(),
+            );
+            meta.insert(
+                "egress.user_interaction_required".into(),
+                egress_user_interaction_required(action_type.as_str()).to_string(),
+            );
             if target_analysis.decode_layers > 0 {
                 meta.insert("injection.action_param_normalised".into(), "true".into());
                 meta.insert(
@@ -3919,6 +3935,40 @@ fn analyse_remote_target_from_dict(
         });
     }
     None
+}
+
+fn egress_channel_for_action(action_type: &str) -> &'static str {
+    match action_type.trim_start_matches('/') {
+        "URI" => "uri_action",
+        "SubmitForm" => "submit_form",
+        "GoToR" | "GoToE" => "remote_goto",
+        "Launch" => "launch_target",
+        _ => "action_target",
+    }
+}
+
+fn egress_target_kind_for_remote_analysis(analysis: &ActionRemoteTargetAnalysis) -> &'static str {
+    if analysis.indicators.iter().any(|indicator| indicator == "javascript_scheme") {
+        return "script_uri";
+    }
+    if analysis.indicators.iter().any(|indicator| indicator == "data_uri") {
+        return "data_uri";
+    }
+    if analysis.indicators.iter().any(|indicator| indicator == "file_scheme") {
+        return "file_uri";
+    }
+    if analysis.indicators.iter().any(|indicator| indicator == "unc_path") {
+        return "unc_path";
+    }
+    "remote_target"
+}
+
+fn egress_user_interaction_required(action_type: &str) -> &'static str {
+    match action_type.trim_start_matches('/') {
+        "URI" | "SubmitForm" => "true",
+        "GoToR" | "GoToE" | "Launch" => "false",
+        _ => "unknown",
+    }
 }
 
 struct EmbeddedFileDetector;
@@ -5756,6 +5806,22 @@ fn action_by_s(
                 }
                 let target = action_target_from_meta(&meta);
                 annotate_action_meta(&mut meta, action_type, target.as_deref(), initiation);
+                if matches!(action_type, "/SubmitForm" | "/URI" | "/GoToR" | "/GoToE") {
+                    meta.insert("chain.stage".into(), "egress".into());
+                    meta.insert("chain.capability".into(), "action_egress".into());
+                    meta.insert("chain.trigger".into(), "action".into());
+                    meta.insert(
+                        "egress.channel".into(),
+                        egress_channel_for_action(action_type).to_string(),
+                    );
+                    let target_kind =
+                        target.as_deref().map(egress_target_kind_from_target).unwrap_or("unknown");
+                    meta.insert("egress.target_kind".into(), target_kind.to_string());
+                    meta.insert(
+                        "egress.user_interaction_required".into(),
+                        egress_user_interaction_required(action_type).to_string(),
+                    );
+                }
                 findings.push(Finding {
                     id: String::new(),
                     surface: AttackSurface::Actions,
@@ -5781,6 +5847,27 @@ fn action_by_s(
         }
     }
     Ok(findings)
+}
+
+fn egress_target_kind_from_target(target: &str) -> &'static str {
+    let lower = target.trim().to_ascii_lowercase();
+    if lower.starts_with("javascript:") {
+        return "script_uri";
+    }
+    if lower.starts_with("data:") {
+        return "data_uri";
+    }
+    if lower.starts_with("file://") {
+        return "file_uri";
+    }
+    if lower.starts_with("\\\\") || lower.starts_with("//") {
+        return "unc_path";
+    }
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("ftp://")
+    {
+        return "network_uri";
+    }
+    "remote_target"
 }
 
 pub(crate) fn dict_int(dict: &PdfDict<'_>, key: &[u8]) -> Option<u32> {

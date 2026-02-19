@@ -5,6 +5,18 @@ Status: Proposed
 Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, `sis-pdf-pdf`)
 Related: `plans/20260219-detection-uplift.md` (form-focused phase)
 
+## Implementation status update (2026-02-19)
+
+- Completed: WS8 outbound-capable metadata baseline (initial):
+  - Added normalised egress metadata on `action_remote_target_suspicious`:
+    - `egress.channel`
+    - `egress.target_kind`
+    - `egress.user_interaction_required`
+    - chain context (`chain.stage=egress`, `chain.capability=remote_action_target`, `chain.trigger=action`)
+  - Added shared egress metadata for baseline action findings emitted by `action_by_s` for `/SubmitForm`, `/URI`, `/GoToR`, and `/GoToE`.
+  - Added correlation bridge `injection_to_remote_action` (`composite.injection_edge_bridge`) linking injection findings to `action_remote_target_suspicious` when object lineage co-locates.
+  - Added regression coverage for detector metadata and correlation exploit-context metadata.
+
 ## Objective
 
 Expand exploit-chain coverage beyond forms by adding structured detection, correlation, and explainability across non-form PDF attack surfaces commonly used in malicious documents.

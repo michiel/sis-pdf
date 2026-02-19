@@ -1127,6 +1127,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `action.remote.target_preview`: normalised target preview
     - `action.remote.scheme`: parsed scheme token (or leading path token for UNC-style paths)
     - `action.param.source`: source key containing the target (`/F` or `/URI`)
+    - `egress.channel`: normalised outbound channel (`remote_goto`, `uri_action`, `submit_form`, `launch_target`)
+    - `egress.target_kind`: target classification (`unc_path`, `data_uri`, `script_uri`, `file_uri`, `remote_target`)
+    - `egress.user_interaction_required`: heuristic interaction requirement (`true`, `false`, `unknown`)
+    - `chain.stage=egress`, `chain.capability=remote_action_target`, `chain.trigger=action`
 
 ## header_offset_unusual
 
@@ -3483,6 +3487,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: emitted when specific preconditions co-locate, such as:
     - `form_html_injection -> pdfjs_form_injection`
     - `*_injection -> submitform_present`
+    - `*_injection -> action_remote_target_suspicious`
     - `pdfjs_form_injection -> pdfjs_eval_path_risk`
     - `scattered_payload_assembly|cross_stream_payload_assembly -> *_injection`
     - `obfuscated_name_encoding -> action_*`

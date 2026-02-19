@@ -123,6 +123,13 @@ fn gotor_obfuscated_unc_target_is_flagged_as_suspicious_remote_target() {
             .unwrap_or(false),
         "expected unc and obfuscation indicators"
     );
+    assert_eq!(finding.meta.get("chain.stage").map(String::as_str), Some("egress"));
+    assert_eq!(finding.meta.get("egress.channel").map(String::as_str), Some("remote_goto"));
+    assert_eq!(finding.meta.get("egress.target_kind").map(String::as_str), Some("unc_path"));
+    assert_eq!(
+        finding.meta.get("egress.user_interaction_required").map(String::as_str),
+        Some("false")
+    );
 }
 
 #[test]
@@ -154,6 +161,13 @@ fn gotoe_data_uri_target_is_flagged_as_suspicious_remote_target() {
             .unwrap_or(false),
         "expected data URI and obfuscation indicators"
     );
+    assert_eq!(finding.meta.get("chain.stage").map(String::as_str), Some("egress"));
+    assert_eq!(finding.meta.get("egress.channel").map(String::as_str), Some("remote_goto"));
+    assert_eq!(finding.meta.get("egress.target_kind").map(String::as_str), Some("data_uri"));
+    assert_eq!(
+        finding.meta.get("egress.user_interaction_required").map(String::as_str),
+        Some("false")
+    );
 }
 
 #[test]
@@ -173,5 +187,61 @@ fn benign_gotor_relative_target_does_not_trigger_suspicious_remote_target() {
     assert!(
         !report.findings.iter().any(|f| f.kind == "action_remote_target_suspicious"),
         "relative target should not trigger suspicious remote target finding"
+    );
+}
+
+#[test]
+fn submitform_action_includes_egress_metadata() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /SubmitForm /F (https://collector.example/submit) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "submitform_present")
+        .expect("submitform action finding");
+    assert_eq!(finding.meta.get("chain.stage").map(String::as_str), Some("egress"));
+    assert_eq!(finding.meta.get("chain.capability").map(String::as_str), Some("action_egress"));
+    assert_eq!(finding.meta.get("egress.channel").map(String::as_str), Some("submit_form"));
+    assert_eq!(finding.meta.get("egress.target_kind").map(String::as_str), Some("network_uri"));
+    assert_eq!(
+        finding.meta.get("egress.user_interaction_required").map(String::as_str),
+        Some("true")
+    );
+}
+
+#[test]
+fn gotor_action_includes_egress_metadata() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /GoToR /F (https://example.invalid/next.pdf) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "gotor_present")
+        .expect("gotor action finding");
+    assert_eq!(finding.meta.get("chain.stage").map(String::as_str), Some("egress"));
+    assert_eq!(finding.meta.get("chain.capability").map(String::as_str), Some("action_egress"));
+    assert_eq!(finding.meta.get("egress.channel").map(String::as_str), Some("remote_goto"));
+    assert_eq!(finding.meta.get("egress.target_kind").map(String::as_str), Some("network_uri"));
+    assert_eq!(
+        finding.meta.get("egress.user_interaction_required").map(String::as_str),
+        Some("false")
     );
 }

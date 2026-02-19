@@ -337,6 +337,43 @@ fn correlate_injection_edge_bridges_for_name_obfuscation_and_action() {
 }
 
 #[test]
+fn correlate_injection_edge_bridges_for_remote_action_egress() {
+    let injection = make_finding(
+        "pdfjs_form_injection",
+        &["95 0 obj"],
+        &[("chain.stage", "render"), ("field.name", "payloadField")],
+        AttackSurface::Forms,
+    );
+    let remote_action = make_finding(
+        "action_remote_target_suspicious",
+        &["95 0 obj"],
+        &[("chain.stage", "egress"), ("egress.channel", "remote_goto")],
+        AttackSurface::Actions,
+    );
+    let composites = correlation::correlate_findings(
+        &[injection, remote_action],
+        &CorrelationOptions::default(),
+    );
+    let bridge = composites
+        .iter()
+        .find(|finding| {
+            finding.kind == "composite.injection_edge_bridge"
+                && finding.meta.get("edge.reason").map(String::as_str)
+                    == Some("injection_to_remote_action")
+        })
+        .expect("remote action bridge should be present");
+    assert_eq!(bridge.confidence, Confidence::Probable);
+    assert_eq!(
+        bridge.meta.get("edge.to").map(String::as_str),
+        Some("action_remote_target_suspicious")
+    );
+    assert_eq!(
+        bridge.meta.get("exploit.outcomes").map(String::as_str),
+        Some("data_exfiltration; remote_content_retrieval")
+    );
+}
+
+#[test]
 fn correlate_hidden_layer_action_when_ocg_and_action_share_object() {
     let ocg = make_finding(
         "ocg_present",
@@ -350,7 +387,8 @@ fn correlate_hidden_layer_action_when_ocg_and_action_share_object() {
         &[("action.trigger", "OpenAction")],
         AttackSurface::Actions,
     );
-    let composites = correlation::correlate_findings(&[ocg, action], &CorrelationOptions::default());
+    let composites =
+        correlation::correlate_findings(&[ocg, action], &CorrelationOptions::default());
     let finding = composites
         .iter()
         .find(|entry| entry.kind == "hidden_layer_action")
@@ -373,7 +411,8 @@ fn correlate_hidden_layer_action_on_document_level_ocg_and_action_cooccurrence()
         &[("action.s", "/Launch")],
         AttackSurface::Actions,
     );
-    let composites = correlation::correlate_findings(&[ocg, action], &CorrelationOptions::default());
+    let composites =
+        correlation::correlate_findings(&[ocg, action], &CorrelationOptions::default());
     let finding = composites
         .iter()
         .find(|entry| entry.kind == "hidden_layer_action")

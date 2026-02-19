@@ -542,6 +542,10 @@ fn correlate_injection_edge_bridges(findings: &[Finding]) -> Vec<Finding> {
         .collect::<Vec<_>>();
     let submitform =
         findings.iter().filter(|finding| finding.kind == "submitform_present").collect::<Vec<_>>();
+    let suspicious_remote = findings
+        .iter()
+        .filter(|finding| finding.kind == "action_remote_target_suspicious")
+        .collect::<Vec<_>>();
     let pdfjs_eval = findings
         .iter()
         .filter(|finding| finding.kind == "pdfjs_eval_path_risk")
@@ -591,6 +595,25 @@ fn correlate_injection_edge_bridges(findings: &[Finding]) -> Vec<Finding> {
                 "injection_to_submitform",
                 "Injection to SubmitForm bridge",
                 "Injection indicators co-locate with SubmitForm actions, indicating a possible data egress path.",
+                Confidence::Probable,
+                Severity::Medium,
+                src,
+                dst,
+            );
+        }
+    }
+
+    for src in &injection {
+        for dst in &suspicious_remote {
+            if !shares_object(src, dst) {
+                continue;
+            }
+            maybe_push_edge_composite(
+                &mut composites,
+                &mut emitted,
+                "injection_to_remote_action",
+                "Injection to remote action bridge",
+                "Injection indicators co-locate with suspicious remote-capable actions, indicating an execution-to-egress exploit path.",
                 Confidence::Probable,
                 Severity::Medium,
                 src,
@@ -825,6 +848,11 @@ fn edge_exploit_context(edge_reason: &str) -> (&'static str, &'static str, &'sta
             "submitform_action_enabled; form_payload_reachable",
             "network_egress_controls; action_policy_restrictions",
             "data_exfiltration",
+        ),
+        "injection_to_remote_action" => (
+            "remote_action_target_reachable; script_or_render_payload_reachable",
+            "network_egress_controls; action_policy_restrictions",
+            "data_exfiltration; remote_content_retrieval",
         ),
         "pdfjs_injection_to_eval_path" => (
             "pdfjs_eval_path_reachable",
