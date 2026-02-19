@@ -36,6 +36,11 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
   - Added `cross_stream_payload_assembly` detector that correlates JavaScript assembly behaviour (`fromCharCode`, split/join, concat) with reconstructed fragmented form payloads.
   - Added fromCharCode reconstruction matching and cross-object metadata (`js.object.ref`, `scatter.object_ids`, `injection.sources`).
   - Added integration fixture validating JavaScript/form fragment correlation and documented `cross_stream_payload_assembly` in `docs/findings.md`.
+- Completed: NO6 inverse cross-stream source matching (initial):
+  - Extended `cross_stream_payload_assembly` source collection to include annotation string keys (`/Contents`, `/RC`, `/TU`, `/Subj`, `/T`, `/NM`) and metadata-like dictionary keys (`/Title`, `/Author`, `/Subject`, `/Keywords`, `/Creator`, `/Producer`, `/CreationDate`, `/ModDate`, `/Trapped`) in addition to form keys.
+  - Added source-domain metadata `cross_stream.source_types` (`form`, `annotation`, `metadata`) for downstream chain explainability.
+  - Added integration fixtures for JavaScript assembly correlation against distributed annotation and metadata fragments.
+  - Updated `docs/findings.md` to document expanded source surfaces and source-domain metadata.
 - Completed: CQ1 groundwork (partial):
   - Added stable chain metadata primitives to form and scatter findings:
     - `chain.stage`

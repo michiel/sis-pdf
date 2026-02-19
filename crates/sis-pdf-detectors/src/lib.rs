@@ -2655,6 +2655,7 @@ struct InjectionFragment {
     bytes: Vec<u8>,
     object_ref: String,
     source_key: &'static str,
+    source_type: &'static str,
 }
 
 struct ScatteredAssemblyCandidate {
@@ -2663,39 +2664,119 @@ struct ScatteredAssemblyCandidate {
     fragment_count: usize,
     object_ids: BTreeSet<String>,
     sources: BTreeSet<&'static str>,
+    source_types: BTreeSet<&'static str>,
 }
 
-fn collect_scattered_assembly_candidates(
+#[derive(Clone, Copy)]
+enum AssemblyCandidateScope {
+    FormOnly,
+    CrossStream,
+}
+
+fn collect_assembly_candidates(
     ctx: &sis_pdf_core::scan::ScanContext,
+    scope: AssemblyCandidateScope,
 ) -> Vec<ScatteredAssemblyCandidate> {
     let mut out = Vec::new();
     for entry in &ctx.graph.objects {
         let Some(dict) = entry_dict(entry) else {
             continue;
         };
-        if !is_form_dict(dict) {
-            continue;
-        }
-
         let owner_ref = format!("{} {} obj", entry.obj, entry.gen);
         let mut fragments = Vec::new();
-        if let Some((_, obj)) = dict.get_first(b"/V") {
-            collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/V", &mut fragments);
+        if is_form_dict(dict) {
+            if let Some((_, obj)) = dict.get_first(b"/V") {
+                collect_injection_fragments_from_obj(
+                    obj,
+                    ctx,
+                    0,
+                    &owner_ref,
+                    "/V",
+                    "form",
+                    &mut fragments,
+                );
+            }
+            if let Some((_, obj)) = dict.get_first(b"/DV") {
+                collect_injection_fragments_from_obj(
+                    obj,
+                    ctx,
+                    0,
+                    &owner_ref,
+                    "/DV",
+                    "form",
+                    &mut fragments,
+                );
+            }
+            if let Some((_, obj)) = dict.get_first(b"/AP") {
+                collect_injection_fragments_from_obj(
+                    obj,
+                    ctx,
+                    0,
+                    &owner_ref,
+                    "/AP",
+                    "form",
+                    &mut fragments,
+                );
+            }
         }
-        if let Some((_, obj)) = dict.get_first(b"/DV") {
-            collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/DV", &mut fragments);
+
+        if matches!(scope, AssemblyCandidateScope::CrossStream) {
+            if is_annotation_dict(dict) {
+                for key in [
+                    b"/Contents".as_slice(),
+                    b"/RC".as_slice(),
+                    b"/TU".as_slice(),
+                    b"/Subj".as_slice(),
+                    b"/T".as_slice(),
+                    b"/NM".as_slice(),
+                ] {
+                    if let Some((_, obj)) = dict.get_first(key) {
+                        collect_injection_fragments_from_obj(
+                            obj,
+                            ctx,
+                            0,
+                            &owner_ref,
+                            annotation_source_key(key),
+                            "annotation",
+                            &mut fragments,
+                        );
+                    }
+                }
+            }
+            if is_metadata_like_dict(dict) {
+                for key in METADATA_STRING_KEYS {
+                    if let Some((_, obj)) = dict.get_first(key) {
+                        collect_injection_fragments_from_obj(
+                            obj,
+                            ctx,
+                            0,
+                            &owner_ref,
+                            metadata_source_key(key),
+                            "metadata",
+                            &mut fragments,
+                        );
+                    }
+                }
+            }
         }
-        if let Some((_, obj)) = dict.get_first(b"/AP") {
-            collect_injection_fragments_from_obj(obj, ctx, 0, &owner_ref, "/AP", &mut fragments);
+
+        let min_fragments = match scope {
+            AssemblyCandidateScope::FormOnly => 2,
+            AssemblyCandidateScope::CrossStream => 1,
+        };
+        if fragments.len() < min_fragments {
+            continue;
         }
-        if fragments.len() < 2 {
+        if matches!(scope, AssemblyCandidateScope::FormOnly)
+            && fragments.iter().any(|fragment| fragment.source_type != "form")
+        {
             continue;
         }
 
         let fragment_has_direct_signal = fragments
             .iter()
             .any(|fragment| detect_injection_signals(&fragment.bytes).classify().is_some());
-        if fragment_has_direct_signal {
+        if matches!(scope, AssemblyCandidateScope::FormOnly) && fragment_has_direct_signal {
             continue;
         }
 
@@ -2713,9 +2794,11 @@ fn collect_scattered_assembly_candidates(
 
         let mut object_ids = BTreeSet::new();
         let mut sources = BTreeSet::new();
+        let mut source_types = BTreeSet::new();
         for fragment in &fragments {
             object_ids.insert(fragment.object_ref.clone());
             sources.insert(fragment.source_key);
+            source_types.insert(fragment.source_type);
         }
 
         out.push(ScatteredAssemblyCandidate {
@@ -2724,6 +2807,7 @@ fn collect_scattered_assembly_candidates(
             fragment_count: fragments.len(),
             object_ids,
             sources,
+            source_types,
         });
     }
     out
@@ -2840,6 +2924,7 @@ fn collect_injection_fragments_from_obj(
     depth: usize,
     current_object_ref: &str,
     source_key: &'static str,
+    source_type: &'static str,
     out: &mut Vec<InjectionFragment>,
 ) {
     if depth >= MAX_SCATTER_COLLECT_DEPTH {
@@ -2861,6 +2946,7 @@ fn collect_injection_fragments_from_obj(
                     bytes,
                     object_ref: current_object_ref.to_string(),
                     source_key,
+                    source_type,
                 });
             }
         }
@@ -2874,6 +2960,7 @@ fn collect_injection_fragments_from_obj(
                     bytes,
                     object_ref: current_object_ref.to_string(),
                     source_key,
+                    source_type,
                 });
             }
         }
@@ -2885,6 +2972,7 @@ fn collect_injection_fragments_from_obj(
                     depth + 1,
                     current_object_ref,
                     source_key,
+                    source_type,
                     out,
                 );
             }
@@ -2897,6 +2985,7 @@ fn collect_injection_fragments_from_obj(
                     depth + 1,
                     current_object_ref,
                     source_key,
+                    source_type,
                     out,
                 );
             }
@@ -2914,6 +3003,7 @@ fn collect_injection_fragments_from_obj(
                         bytes,
                         object_ref: current_object_ref.to_string(),
                         source_key,
+                        source_type,
                     });
                 }
             }
@@ -2924,6 +3014,7 @@ fn collect_injection_fragments_from_obj(
                     depth + 1,
                     current_object_ref,
                     source_key,
+                    source_type,
                     out,
                 );
             }
@@ -2938,11 +3029,59 @@ fn collect_injection_fragments_from_obj(
                     depth + 1,
                     &resolved_ref,
                     source_key,
+                    source_type,
                     out,
                 );
             }
         }
         _ => {}
+    }
+}
+
+const METADATA_STRING_KEYS: [&[u8]; 9] = [
+    b"/Title",
+    b"/Author",
+    b"/Subject",
+    b"/Keywords",
+    b"/Creator",
+    b"/Producer",
+    b"/CreationDate",
+    b"/ModDate",
+    b"/Trapped",
+];
+
+fn is_metadata_like_dict(dict: &PdfDict<'_>) -> bool {
+    dict.has_name(b"/Type", b"/Metadata")
+        || METADATA_STRING_KEYS.iter().any(|key| dict.get_first(key).is_some())
+}
+
+fn metadata_source_key(key: &[u8]) -> &'static str {
+    match key {
+        b"/Title" => "/Title",
+        b"/Author" => "/Author",
+        b"/Subject" => "/Subject",
+        b"/Keywords" => "/Keywords",
+        b"/Creator" => "/Creator",
+        b"/Producer" => "/Producer",
+        b"/CreationDate" => "/CreationDate",
+        b"/ModDate" => "/ModDate",
+        _ => "/Trapped",
+    }
+}
+
+fn annotation_source_key(key: &[u8]) -> &'static str {
+    if key == b"/Contents" {
+        "/Contents"
+    } else if key == b"/RC" {
+        "/RC"
+    } else if key == b"/TU" {
+        "/TU"
+    } else if key == b"/Subj" {
+        "/Subj"
+    } else if key == b"/T" {
+        "/T"
+    } else {
+        "/NM"
     }
 }
 
@@ -3339,7 +3478,7 @@ impl Detector for ScatteredPayloadAssemblyDetector {
 
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
-        for candidate in collect_scattered_assembly_candidates(ctx) {
+        for candidate in collect_assembly_candidates(ctx, AssemblyCandidateScope::FormOnly) {
             let mut meta = std::collections::HashMap::new();
             meta.insert("chain.stage".into(), "decode".into());
             meta.insert("chain.capability".into(), "payload_scatter".into());
@@ -3422,7 +3561,8 @@ impl Detector for CrossStreamPayloadAssemblyDetector {
     }
 
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let scattered_candidates = collect_scattered_assembly_candidates(ctx);
+        let scattered_candidates =
+            collect_assembly_candidates(ctx, AssemblyCandidateScope::CrossStream);
         if scattered_candidates.is_empty() {
             return Ok(Vec::new());
         }
@@ -3466,7 +3606,7 @@ impl Detector for CrossStreamPayloadAssemblyDetector {
                 object_ids.insert(js_object_ref.clone());
                 let mut matched_scatter_objects = BTreeSet::new();
                 let mut matched_sources = BTreeSet::new();
-                for candidate in matched_candidates {
+                for candidate in &matched_candidates {
                     for object_ref in &candidate.object_ids {
                         object_ids.insert(object_ref.clone());
                         matched_scatter_objects.insert(object_ref.clone());
@@ -3489,6 +3629,16 @@ impl Detector for CrossStreamPayloadAssemblyDetector {
                     "injection.sources".into(),
                     matched_sources.into_iter().collect::<Vec<_>>().join(","),
                 );
+                let mut matched_source_types = BTreeSet::new();
+                for candidate in &matched_candidates {
+                    for source_type in &candidate.source_types {
+                        matched_source_types.insert(*source_type);
+                    }
+                }
+                meta.insert(
+                    "cross_stream.source_types".into(),
+                    matched_source_types.into_iter().collect::<Vec<_>>().join(","),
+                );
                 if let Some(value) = js_meta.get("payload.fromCharCode_reconstructed") {
                     meta.insert("js.payload.fromcharcode_reconstructed".into(), value.clone());
                 }
@@ -3508,7 +3658,7 @@ impl Detector for CrossStreamPayloadAssemblyDetector {
                     impact: Some(Impact::Medium),
                     title: "Cross-stream payload assembly indicator".into(),
                     description:
-                        "JavaScript assembly behaviour aligns with payload fragments reconstructed from form objects."
+                        "JavaScript assembly behaviour aligns with payload fragments reconstructed from form, annotation, or metadata objects."
                             .into(),
                     objects: object_ids.into_iter().collect(),
                     evidence: vec![span_to_evidence(dict.span, "JavaScript assembly context")],

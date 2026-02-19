@@ -460,26 +460,14 @@ fn detects_scattered_payload_assembly_when_fragments_are_individually_benign() {
     )
     .expect("scan");
 
-    let scattered = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "scattered_payload_assembly");
+    let scattered = report.findings.iter().find(|f| f.kind == "scattered_payload_assembly");
     assert!(scattered.is_some(), "Expected scattered payload finding");
     let scattered = scattered.expect("finding");
     assert_eq!(scattered.meta.get("chain.stage").map(|v| v.as_str()), Some("decode"));
-    assert_eq!(
-        scattered.meta.get("chain.capability").map(|v| v.as_str()),
-        Some("payload_scatter")
-    );
+    assert_eq!(scattered.meta.get("chain.capability").map(|v| v.as_str()), Some("payload_scatter"));
     assert_eq!(scattered.meta.get("chain.trigger").map(|v| v.as_str()), Some("pdfjs"));
-    assert_eq!(
-        scattered.meta.get("scatter.fragment_count").map(|v| v.as_str()),
-        Some("3")
-    );
-    assert_eq!(
-        scattered.meta.get("injection.sources").map(|v| v.as_str()),
-        Some("/V")
-    );
+    assert_eq!(scattered.meta.get("scatter.fragment_count").map(|v| v.as_str()), Some("3"));
+    assert_eq!(scattered.meta.get("injection.sources").map(|v| v.as_str()), Some("/V"));
     assert!(
         scattered
             .meta
@@ -533,10 +521,7 @@ fn detects_cross_stream_payload_assembly_from_js_and_form_fragments() {
     )
     .expect("scan");
 
-    let finding = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "cross_stream_payload_assembly");
+    let finding = report.findings.iter().find(|f| f.kind == "cross_stream_payload_assembly");
     assert!(finding.is_some(), "Expected cross_stream_payload_assembly finding");
     let finding = finding.expect("finding");
     assert_eq!(finding.meta.get("chain.stage").map(|v| v.as_str()), Some("decode"));
@@ -545,6 +530,7 @@ fn detects_cross_stream_payload_assembly_from_js_and_form_fragments() {
         Some("cross_stream_assembly")
     );
     assert_eq!(finding.meta.get("js.object.ref").map(|v| v.as_str()), Some("10 0 obj"));
+    assert_eq!(finding.meta.get("cross_stream.source_types").map(|v| v.as_str()), Some("form"));
     assert!(
         finding
             .meta
@@ -552,5 +538,82 @@ fn detects_cross_stream_payload_assembly_from_js_and_form_fragments() {
             .map(|v| v.contains("7 0 obj") && v.contains("8 0 obj") && v.contains("9 0 obj"))
             .unwrap_or(false),
         "Expected scatter object ids in metadata"
+    );
+}
+
+#[test]
+fn detects_cross_stream_payload_assembly_from_js_and_annotation_fragments() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 10 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /Annots [6 0 R] >>\nendobj\n",
+        "6 0 obj\n<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents [7 0 R 8 0 R 9 0 R] >>\nendobj\n",
+        "7 0 obj\n(%3C)\nendobj\n",
+        "8 0 obj\n(script%3Ealert(1)%3C)\nendobj\n",
+        "9 0 obj\n(%2Fscript%3E)\nendobj\n",
+        "10 0 obj\n<< /S /JavaScript /JS <76617220733d537472696e672e66726f6d43686172436f64652836302c3131352c39392c3131342c3130352c3131322c3131362c36322c39372c3130382c3130312c3131342c3131362c34302c34392c34312c36302c34372c3131352c39392c3131342c3130352c3131322c3131362c3632293b> >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "cross_stream_payload_assembly")
+        .expect("cross-stream finding");
+    assert_eq!(
+        finding.meta.get("cross_stream.source_types").map(|v| v.as_str()),
+        Some("annotation")
+    );
+    assert_eq!(finding.meta.get("injection.sources").map(|v| v.as_str()), Some("/Contents"));
+    assert!(
+        finding
+            .meta
+            .get("scatter.object_ids")
+            .map(|v| v.contains("7 0 obj") && v.contains("8 0 obj") && v.contains("9 0 obj"))
+            .unwrap_or(false),
+        "Expected annotation source object ids in metadata"
+    );
+}
+
+#[test]
+fn detects_cross_stream_payload_assembly_from_js_and_metadata_fragments() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 10 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "11 0 obj\n<< /Title [12 0 R 13 0 R 14 0 R] >>\nendobj\n",
+        "12 0 obj\n(%3C)\nendobj\n",
+        "13 0 obj\n(script%3Ealert(1)%3C)\nendobj\n",
+        "14 0 obj\n(%2Fscript%3E)\nendobj\n",
+        "10 0 obj\n<< /S /JavaScript /JS <76617220733d537472696e672e66726f6d43686172436f64652836302c3131352c39392c3131342c3130352c3131322c3131362c36322c39372c3130382c3130312c3131342c3131362c34302c34392c34312c36302c34372c3131352c39392c3131342c3130352c3131322c3131362c3632293b> >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "cross_stream_payload_assembly")
+        .expect("cross-stream finding");
+    assert_eq!(finding.meta.get("cross_stream.source_types").map(|v| v.as_str()), Some("metadata"));
+    assert_eq!(finding.meta.get("injection.sources").map(|v| v.as_str()), Some("/Title"));
+    assert!(
+        finding
+            .meta
+            .get("scatter.object_ids")
+            .map(|v| v.contains("12 0 obj") && v.contains("13 0 obj") && v.contains("14 0 obj"))
+            .unwrap_or(false),
+        "Expected metadata source object ids in metadata"
     );
 }
