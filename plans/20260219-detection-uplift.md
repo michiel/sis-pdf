@@ -83,6 +83,12 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - `--with-chain` option validation,
     - chain-augmented findings schema,
     - text summary formatting.
+- Completed: CQ6/CQ7 chain fixture and scatter-chain quality uplift (initial):
+  - Added end-to-end regression using a distributed fragmented payload fixture to validate `findings --with-chain` output from raw PDF input.
+  - Added chain detail fields for exploit connectivity clarity:
+    - `stage_nodes` (stage -> object refs)
+    - `scatter` context (`fragment_count`, `object_refs`) for scatter/cross-stream chains.
+  - Added assertions locking scatter chain stage ordering and fragment object linkage in query output.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.

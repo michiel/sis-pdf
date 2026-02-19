@@ -5944,6 +5944,7 @@ fn build_findings_with_chain(
         .map(|chain| {
             let notes = chain.notes.clone();
             let stages = chain_ordered_stages(&chain, &findings_by_id);
+            let stage_nodes = chain_stage_nodes(&chain, &findings_by_id);
             let contributing = chain
                 .findings
                 .iter()
@@ -5960,6 +5961,7 @@ fn build_findings_with_chain(
                     })
                 })
                 .collect::<Vec<_>>();
+            let scatter = chain_scatter_context(&chain, &findings_by_id);
             json!({
                 "id": chain.id,
                 "group_id": chain.group_id,
@@ -5969,6 +5971,7 @@ fn build_findings_with_chain(
                 "score": chain.score,
                 "reasons": chain.reasons,
                 "ordered_stages": stages,
+                "stage_nodes": stage_nodes,
                 "shared_object_refs": chain_shared_object_refs(&chain, &findings_by_id),
                 "contributing_findings": contributing,
                 "edge": {
@@ -5983,6 +5986,7 @@ fn build_findings_with_chain(
                     "blockers": notes.get("exploit.blockers"),
                     "outcomes": notes.get("exploit.outcomes"),
                 },
+                "scatter": scatter,
                 "notes": notes,
             })
         })
@@ -6037,6 +6041,66 @@ fn chain_shared_object_refs(
     refs.sort();
     refs.dedup();
     refs
+}
+
+fn chain_stage_nodes(
+    chain: &sis_pdf_core::chain::ExploitChain,
+    findings_by_id: &HashMap<String, &sis_pdf_core::model::Finding>,
+) -> serde_json::Value {
+    let mut by_stage: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for finding in chain.findings.iter().filter_map(|id| findings_by_id.get(id)) {
+        let stage = finding.meta.get("chain.stage").cloned().unwrap_or_else(|| "unknown".into());
+        let entry = by_stage.entry(stage).or_default();
+        entry.extend(finding.objects.iter().cloned());
+    }
+    for refs in by_stage.values_mut() {
+        refs.sort();
+        refs.dedup();
+    }
+    json!(by_stage)
+}
+
+fn chain_scatter_context(
+    chain: &sis_pdf_core::chain::ExploitChain,
+    findings_by_id: &HashMap<String, &sis_pdf_core::model::Finding>,
+) -> Option<serde_json::Value> {
+    let scatter_findings = chain
+        .findings
+        .iter()
+        .filter_map(|id| findings_by_id.get(id))
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "scattered_payload_assembly" | "cross_stream_payload_assembly"
+            )
+        })
+        .collect::<Vec<_>>();
+    if scatter_findings.is_empty() {
+        return None;
+    }
+
+    let mut object_ids = Vec::new();
+    let mut fragment_count = 0usize;
+    for finding in scatter_findings {
+        if let Some(raw_count) = finding.meta.get("scatter.fragment_count") {
+            fragment_count = fragment_count.max(raw_count.parse::<usize>().unwrap_or(0));
+        }
+        if let Some(raw_objects) = finding.meta.get("scatter.object_ids") {
+            object_ids.extend(
+                raw_objects
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|token| !token.is_empty())
+                    .map(str::to_string),
+            );
+        }
+    }
+    object_ids.sort();
+    object_ids.dedup();
+    Some(json!({
+        "fragment_count": fragment_count,
+        "object_refs": object_ids,
+    }))
 }
 
 fn is_composite(finding: &sis_pdf_core::model::Finding) -> bool {
@@ -10834,5 +10898,58 @@ mod tests {
         assert!(text.contains("Findings: 2"));
         assert!(text.contains("Potential chain: decode -> render -> egress"));
         assert!(text.contains("scatter_to_injection"));
+    }
+
+    #[test]
+    fn findings_with_chain_captures_scatter_fragment_context_end_to_end() {
+        let objects = vec![
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>\nendobj\n".to_string(),
+            "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n".to_string(),
+            "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n".to_string(),
+            "6 0 obj\n<< /FT /Tx /T (field) /V [7 0 R 8 0 R 9 0 R] >>\nendobj\n".to_string(),
+            "7 0 obj\n(%3C)\nendobj\n".to_string(),
+            "8 0 obj\n(script%3Ealert(1)%3C)\nendobj\n".to_string(),
+            "9 0 obj\n(%2Fscript%3E)\nendobj\n".to_string(),
+        ];
+        let bytes = build_pdf(&objects, 10);
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+
+        let query = apply_with_chain(Query::Findings, true).expect("query with chain");
+        let result =
+            execute_query_with_context(&query, &ctx, None, 1024 * 1024, DecodeMode::Decode, None)
+                .expect("findings --with-chain");
+
+        let value = match result {
+            QueryResult::Structure(value) => value,
+            other => panic!("unexpected result type: {:?}", other),
+        };
+        let findings =
+            value.get("findings").and_then(Value::as_array).cloned().expect("findings array");
+        assert!(findings.iter().any(|entry| {
+            entry.get("kind").and_then(Value::as_str) == Some("scattered_payload_assembly")
+        }));
+
+        let chains = value.get("chains").and_then(Value::as_array).cloned().expect("chains array");
+        let scatter_chain = chains
+            .iter()
+            .find(|chain| chain.get("scatter").and_then(Value::as_object).is_some())
+            .expect("scatter chain should exist");
+
+        let stages = scatter_chain
+            .get("ordered_stages")
+            .and_then(Value::as_array)
+            .cloned()
+            .expect("ordered stages");
+        assert!(stages.iter().any(|stage| stage.as_str() == Some("decode")));
+
+        let scatter = scatter_chain.get("scatter").and_then(Value::as_object).expect("scatter");
+        assert_eq!(scatter.get("fragment_count").and_then(Value::as_u64), Some(3));
+        let refs =
+            scatter.get("object_refs").and_then(Value::as_array).cloned().expect("object refs");
+        assert!(refs.iter().any(|value| value.as_str() == Some("7 0 obj")));
+        assert!(refs.iter().any(|value| value.as_str() == Some("8 0 obj")));
+        assert!(refs.iter().any(|value| value.as_str() == Some("9 0 obj")));
     }
 }

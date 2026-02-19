@@ -15,10 +15,14 @@ Schema:
   - `id`, `group_id`, `group_count`, `group_members`
   - `path`, `score`, `reasons`
   - `ordered_stages`: ordered chain stages (for example `decode`, `render`, `execute`, `egress`)
+  - `stage_nodes`: per-stage object reference map used to explain stage transitions
   - `shared_object_refs`: deduplicated object references used by contributing findings
   - `contributing_findings`: finding summaries (`id`, `kind`, `severity`, `confidence`, `objects`, chain hints)
   - `edge`: edge metadata (`reason`, `confidence`, `from`, `to`, `shared_objects`)
   - `exploit`: exploit context (`preconditions`, `blockers`, `outcomes`)
+  - `scatter` (optional): scatter-chain context:
+    - `fragment_count`
+    - `object_refs`
   - `notes`: raw synthesised chain notes
 
 Text output summary for `--with-chain` includes:
