@@ -1045,6 +1045,22 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: viewer can perform external or privileged actions.
   - Chain usage: treated as an action node that can be linked to triggers and payloads.
 
+## action_remote_target_suspicious
+
+- ID: `action_remote_target_suspicious`
+- Label: Suspicious remote action target
+- Description: Action target uses high-risk remote target patterns or obfuscated target encoding.
+- Tags: action, external, obfuscation
+- Details:
+  - Relevance: remote action targets can drive external fetch/open paths and exfiltration behaviour.
+  - Meaning: flags suspicious `/F` or `/URI` targets for actions such as `/GoToR`, `/GoToE`, `/SubmitForm`, `/Launch`, and `/URI`.
+  - Chain usage: action-stage risk enhancer used to connect action nodes to egress or payload-delivery paths.
+  - Metadata:
+    - `action.remote.indicators`: matched indicators (`unc_path`, `data_uri`, `javascript_scheme`, `file_scheme`, `obfuscated_target`)
+    - `action.remote.target_preview`: normalised target preview
+    - `action.remote.scheme`: parsed scheme token (or leading path token for UNC-style paths)
+    - `action.param.source`: source key containing the target (`/F` or `/URI`)
+
 ## header_offset_unusual
 
 - ID: `header_offset_unusual`

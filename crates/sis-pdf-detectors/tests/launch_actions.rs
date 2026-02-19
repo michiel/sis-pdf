@@ -79,10 +79,7 @@ fn launch_action_records_normalised_obfuscated_target_metadata() {
         .find(|f| f.kind == "launch_action_present")
         .expect("launch action finding");
     assert_eq!(
-        finding
-            .meta
-            .get("injection.action_param_normalised")
-            .map(String::as_str),
+        finding.meta.get("injection.action_param_normalised").map(String::as_str),
         Some("true")
     );
     assert_eq!(finding.meta.get("action.param.source").map(String::as_str), Some("/F"));
@@ -92,4 +89,89 @@ fn launch_action_records_normalised_obfuscated_target_metadata() {
         .and_then(|value| value.parse::<u8>().ok())
         .unwrap_or(0);
     assert!(decode_layers >= 2, "expected multi-layer normalisation");
+}
+
+#[test]
+fn gotor_obfuscated_unc_target_is_flagged_as_suspicious_remote_target() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /GoToR /F (%255c%255cserver%255cshare%255cpayload.pdf) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "action_remote_target_suspicious")
+        .expect("suspicious remote target finding");
+    assert_eq!(finding.meta.get("action.s").map(String::as_str), Some("/GoToR"));
+    assert_eq!(
+        finding.meta.get("action.remote.scheme").map(String::as_str),
+        Some("\\\\server\\share\\payload.pdf")
+    );
+    assert!(
+        finding
+            .meta
+            .get("action.remote.indicators")
+            .map(|v| v.contains("unc_path") && v.contains("obfuscated_target"))
+            .unwrap_or(false),
+        "expected unc and obfuscation indicators"
+    );
+}
+
+#[test]
+fn gotoe_data_uri_target_is_flagged_as_suspicious_remote_target() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /GoToE /F (data:text/html,%3Cscript%3Ealert(1)%3C/script%3E) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "action_remote_target_suspicious")
+        .expect("suspicious remote target finding");
+    assert_eq!(finding.meta.get("action.s").map(String::as_str), Some("/GoToE"));
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::High);
+    assert!(
+        finding
+            .meta
+            .get("action.remote.indicators")
+            .map(|v| v.contains("data_uri") && v.contains("obfuscated_target"))
+            .unwrap_or(false),
+        "expected data URI and obfuscation indicators"
+    );
+}
+
+#[test]
+fn benign_gotor_relative_target_does_not_trigger_suspicious_remote_target() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /GoToR /F (chapter2.pdf) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    assert!(
+        !report.findings.iter().any(|f| f.kind == "action_remote_target_suspicious"),
+        "relative target should not trigger suspicious remote target finding"
+    );
 }

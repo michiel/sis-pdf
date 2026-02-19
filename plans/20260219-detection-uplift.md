@@ -89,6 +89,15 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - `stage_nodes` (stage -> object refs)
     - `scatter` context (`fragment_count`, `object_refs`) for scatter/cross-stream chains.
   - Added assertions locking scatter chain stage ordering and fragment object linkage in query output.
+- Completed: NO4 GoToR/GoToE suspicious remote target inspection (initial):
+  - Added `action_remote_target_suspicious` detector for high-risk remote action targets in `/GoToR`, `/GoToE`, `/SubmitForm`, `/Launch`, and `/URI` action dictionaries.
+  - Added suspicious target classification for:
+    - UNC paths
+    - data URIs
+    - `javascript:` and `file://` schemes
+    - obfuscated/encoded targets requiring normalisation
+  - Added integration tests for obfuscated UNC and data-URI targets plus benign relative-path control coverage.
+  - Documented `action_remote_target_suspicious` in `docs/findings.md`.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.

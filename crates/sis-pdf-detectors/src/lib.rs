@@ -116,6 +116,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(quantum_risk::QuantumRiskDetector),
         Box::new(LaunchActionDetector),
         Box::new(GoToRDetector),
+        Box::new(ActionRemoteTargetSuspiciousDetector),
         Box::new(uri_classification::UriPresenceDetector),
         Box::new(uri_classification::UriContentDetector),
         Box::new(SubmitFormDetector),
@@ -2366,17 +2367,17 @@ impl Detector for PdfjsRenderingIndicatorDetector {
             meta.insert("chain.capability".into(), "js_injection".into());
             meta.insert("chain.trigger".into(), "pdfjs".into());
             if !form_js_sources.is_empty() {
-                meta.insert("injection.sources".into(), form_js_sources.iter().copied().collect::<Vec<_>>().join(","));
+                meta.insert(
+                    "injection.sources".into(),
+                    form_js_sources.iter().copied().collect::<Vec<_>>().join(","),
+                );
             }
             if form_js_normalised {
                 meta.insert("injection.normalised".into(), "true".into());
                 meta.insert("injection.decode_layers".into(), form_js_decode_layers.to_string());
             }
-            let confidence = if form_js_decode_layers > 1 {
-                Confidence::Strong
-            } else {
-                Confidence::Probable
-            };
+            let confidence =
+                if form_js_decode_layers > 1 { Confidence::Strong } else { Confidence::Probable };
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::Forms,
@@ -2414,7 +2415,10 @@ impl Detector for PdfjsRenderingIndicatorDetector {
             let mut meta = std::collections::HashMap::new();
             meta.insert("injection.type".into(), "html_xss".into());
             meta.insert("form.html_object_count".into(), form_html_objects.len().to_string());
-            meta.insert("injection.patterns".into(), "html_tags,event_handlers,context_breaking".into());
+            meta.insert(
+                "injection.patterns".into(),
+                "html_tags,event_handlers,context_breaking".into(),
+            );
             meta.insert("chain.stage".into(), "render".into());
             meta.insert("chain.capability".into(), "html_injection".into());
             meta.insert("chain.trigger".into(), "pdfjs".into());
@@ -2602,14 +2606,18 @@ fn obj_collect_injection_signals(
     match &obj.atom {
         PdfAtom::Str(s) => detect_injection_signals(&string_bytes(s)),
         PdfAtom::Name(name) => detect_injection_signals(&name.decoded),
-        PdfAtom::Array(values) => values.iter().fold(InjectionSignals::default(), |mut acc, value| {
-            acc.merge(obj_collect_injection_signals(value, ctx, depth + 1));
-            acc
-        }),
-        PdfAtom::Dict(dict) => dict.entries.iter().fold(InjectionSignals::default(), |mut acc, (_, value)| {
-            acc.merge(obj_collect_injection_signals(value, ctx, depth + 1));
-            acc
-        }),
+        PdfAtom::Array(values) => {
+            values.iter().fold(InjectionSignals::default(), |mut acc, value| {
+                acc.merge(obj_collect_injection_signals(value, ctx, depth + 1));
+                acc
+            })
+        }
+        PdfAtom::Dict(dict) => {
+            dict.entries.iter().fold(InjectionSignals::default(), |mut acc, (_, value)| {
+                acc.merge(obj_collect_injection_signals(value, ctx, depth + 1));
+                acc
+            })
+        }
         PdfAtom::Stream(stream) => {
             let start = stream.data_span.start as usize;
             let end = stream.data_span.end as usize;
@@ -2680,8 +2688,9 @@ fn collect_scattered_assembly_candidates(
             continue;
         }
 
-        let fragment_has_direct_signal =
-            fragments.iter().any(|fragment| detect_injection_signals(&fragment.bytes).classify().is_some());
+        let fragment_has_direct_signal = fragments
+            .iter()
+            .any(|fragment| detect_injection_signals(&fragment.bytes).classify().is_some());
         if fragment_has_direct_signal {
             continue;
         }
@@ -2695,11 +2704,8 @@ fn collect_scattered_assembly_candidates(
             continue;
         }
         let normalised = normalise_injection_payload(&assembled);
-        let assembled_for_matching = if normalised.decode_layers > 0 {
-            normalised.bytes
-        } else {
-            assembled
-        };
+        let assembled_for_matching =
+            if normalised.decode_layers > 0 { normalised.bytes } else { assembled };
 
         let mut object_ids = BTreeSet::new();
         let mut sources = BTreeSet::new();
@@ -2920,8 +2926,7 @@ fn collect_injection_fragments_from_obj(
         }
         PdfAtom::Ref { obj, gen } => {
             if let Some(resolved) = ctx.graph.get_object(*obj, *gen) {
-                let resolved_obj =
-                    PdfObj { span: resolved.body_span, atom: resolved.atom.clone() };
+                let resolved_obj = PdfObj { span: resolved.body_span, atom: resolved.atom.clone() };
                 let resolved_ref = format!("{} {} obj", obj, gen);
                 collect_injection_fragments_from_obj(
                     &resolved_obj,
@@ -3010,19 +3015,47 @@ fn contains_html_injection_tokens(payload: &[u8]) -> bool {
 
     // HTML tags commonly used in XSS attacks
     let tags: &[&[u8]] = &[
-        b"<script", b"<img", b"<iframe", b"<svg", b"<object",
-        b"<embed", b"<details", b"<video", b"<audio", b"<base",
-        b"<link", b"<meta", b"<form", b"<input", b"<button",
+        b"<script",
+        b"<img",
+        b"<iframe",
+        b"<svg",
+        b"<object",
+        b"<embed",
+        b"<details",
+        b"<video",
+        b"<audio",
+        b"<base",
+        b"<link",
+        b"<meta",
+        b"<form",
+        b"<input",
+        b"<button",
     ];
 
     // HTML event handlers
     let events: &[&[u8]] = &[
-        b"onclick=", b"onerror=", b"onload=", b"ontoggle=",
-        b"onmouseover=", b"onfocus=", b"onanimation", b"onbegin=",
-        b"onblur=", b"onchange=", b"ondblclick=", b"ondrag=",
-        b"onsubmit=", b"onkeydown=", b"onkeyup=", b"onmousedown=",
-        b"onmouseenter=", b"onmouseleave=", b"onmousemove=",
-        b"onmouseout=", b"onmouseup=", b"onscroll=",
+        b"onclick=",
+        b"onerror=",
+        b"onload=",
+        b"ontoggle=",
+        b"onmouseover=",
+        b"onfocus=",
+        b"onanimation",
+        b"onbegin=",
+        b"onblur=",
+        b"onchange=",
+        b"ondblclick=",
+        b"ondrag=",
+        b"onsubmit=",
+        b"onkeydown=",
+        b"onkeyup=",
+        b"onmousedown=",
+        b"onmouseenter=",
+        b"onmouseleave=",
+        b"onmousemove=",
+        b"onmouseout=",
+        b"onmouseup=",
+        b"onscroll=",
     ];
 
     // Protocol handlers for XSS
@@ -3180,10 +3213,8 @@ fn decode_js_escapes(input: &[u8]) -> (Vec<u8>, bool) {
                 let h3 = hex_value(input[i + 4]);
                 let h4 = hex_value(input[i + 5]);
                 if let (Some(h1), Some(h2), Some(h3), Some(h4)) = (h1, h2, h3, h4) {
-                    let codepoint = ((h1 as u32) << 12)
-                        | ((h2 as u32) << 8)
-                        | ((h3 as u32) << 4)
-                        | (h4 as u32);
+                    let codepoint =
+                        ((h1 as u32) << 12) | ((h2 as u32) << 8) | ((h3 as u32) << 4) | (h4 as u32);
                     if let Some(ch) = char::from_u32(codepoint) {
                         let mut buf = [0u8; 4];
                         let encoded = ch.encode_utf8(&mut buf);
@@ -3551,6 +3582,189 @@ impl Detector for GoToRDetector {
             "automatic",
         )
     }
+}
+
+struct ActionRemoteTargetSuspiciousDetector;
+
+impl Detector for ActionRemoteTargetSuspiciousDetector {
+    fn id(&self) -> &'static str {
+        "action_remote_target_suspicious"
+    }
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Actions
+    }
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+    fn cost(&self) -> Cost {
+        Cost::Cheap
+    }
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut findings = Vec::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else {
+                continue;
+            };
+            let Some(action_type) = action_s_name(dict) else {
+                continue;
+            };
+            let target_keys = action_target_keys_for_type(&action_type);
+            if target_keys.is_empty() {
+                continue;
+            }
+
+            let mut evidence = vec![span_to_evidence(dict.span, "Action dict")];
+            let mut meta = std::collections::HashMap::new();
+            if let Some(enriched) =
+                payload_from_dict(ctx, dict, &target_keys, "Action remote target value")
+            {
+                evidence.extend(enriched.evidence);
+                meta.extend(enriched.meta);
+            }
+
+            let Some(target_analysis) = analyse_remote_target_from_dict(ctx, dict, &target_keys)
+            else {
+                continue;
+            };
+            if target_analysis.indicators.is_empty() {
+                continue;
+            }
+
+            let target = target_analysis.preview.clone();
+            let telemetry =
+                annotate_action_meta(&mut meta, &action_type, Some(target.as_str()), "automatic");
+            meta.insert("action.s".into(), action_type.clone());
+            meta.insert("action.remote.indicators".into(), target_analysis.indicators.join(","));
+            meta.insert("action.remote.target_preview".into(), target_analysis.preview);
+            meta.insert("action.remote.scheme".into(), target_analysis.scheme);
+            if target_analysis.decode_layers > 0 {
+                meta.insert("injection.action_param_normalised".into(), "true".into());
+                meta.insert(
+                    "injection.decode_layers".into(),
+                    target_analysis.decode_layers.to_string(),
+                );
+            }
+
+            let (severity, confidence, impact) = if target_analysis
+                .indicators
+                .iter()
+                .any(|indicator| matches!(indicator.as_str(), "javascript_scheme" | "data_uri"))
+            {
+                (Severity::High, Confidence::Strong, Some(Impact::High))
+            } else {
+                (Severity::Medium, Confidence::Probable, Some(Impact::Medium))
+            };
+
+            let mut finding = Finding {
+                id: String::new(),
+                surface: AttackSurface::Actions,
+                kind: "action_remote_target_suspicious".into(),
+                severity,
+                confidence,
+                impact,
+                title: "Suspicious remote action target".into(),
+                description: "Action target uses high-risk remote target patterns.".into(),
+                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                evidence,
+                remediation: Some(
+                    "Inspect action target resolution and block remote target schemes or obfuscated paths."
+                        .into(),
+                ),
+                meta,
+                reader_impacts: Vec::new(),
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            };
+            apply_action_telemetry(&mut finding, &telemetry);
+            findings.push(finding);
+        }
+        Ok(findings)
+    }
+}
+
+#[derive(Default)]
+struct ActionRemoteTargetAnalysis {
+    indicators: Vec<String>,
+    scheme: String,
+    preview: String,
+    decode_layers: u8,
+}
+
+fn action_s_name(dict: &PdfDict<'_>) -> Option<String> {
+    let (_, value) = dict.get_first(b"/S")?;
+    let PdfAtom::Name(name) = &value.atom else {
+        return None;
+    };
+    Some(String::from_utf8_lossy(&name.decoded).to_string())
+}
+
+fn action_target_keys_for_type(action_type: &str) -> Vec<&'static [u8]> {
+    match action_type.trim_start_matches('/') {
+        "GoToR" | "GoToE" | "SubmitForm" | "Launch" => vec![b"/F"],
+        "URI" => vec![b"/URI"],
+        _ => Vec::new(),
+    }
+}
+
+fn analyse_remote_target_from_dict(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    dict: &PdfDict<'_>,
+    keys: &[&[u8]],
+) -> Option<ActionRemoteTargetAnalysis> {
+    for key in keys {
+        let Some((_, value)) = dict.get_first(key) else {
+            continue;
+        };
+        let base = resolve_payload(ctx, value)
+            .payload
+            .map(|payload| payload.bytes)
+            .unwrap_or_else(|| payload_string(value));
+        if base.is_empty() {
+            continue;
+        }
+        let normalised = normalise_injection_payload(&base);
+        let decode_layers = normalised.decode_layers;
+        let bytes = if decode_layers > 0 { normalised.bytes } else { base };
+        let lower = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+        let mut indicators = Vec::new();
+        if lower.starts_with("\\\\") || lower.starts_with("//") {
+            indicators.push("unc_path".to_string());
+        }
+        if lower.starts_with("data:") {
+            indicators.push("data_uri".to_string());
+        }
+        if lower.starts_with("javascript:") {
+            indicators.push("javascript_scheme".to_string());
+        }
+        if lower.starts_with("file://") {
+            indicators.push("file_scheme".to_string());
+        }
+        if decode_layers > 0 || lower.contains('%') {
+            indicators.push("obfuscated_target".to_string());
+        }
+        indicators.sort();
+        indicators.dedup();
+        if indicators.is_empty() {
+            return None;
+        }
+        let scheme = lower
+            .split(':')
+            .next()
+            .filter(|token| !token.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| "unknown".into());
+        return Some(ActionRemoteTargetAnalysis {
+            indicators,
+            scheme,
+            preview: preview_ascii(&bytes, 160),
+            decode_layers,
+        });
+    }
+    None
 }
 
 struct EmbeddedFileDetector;
@@ -4745,9 +4959,9 @@ fn object_has_obfuscated_security_name(
                 false
             }
         }
-        PdfAtom::Array(values) => values
-            .iter()
-            .any(|value| object_has_obfuscated_security_name(&value.atom, matched_names, depth + 1)),
+        PdfAtom::Array(values) => values.iter().any(|value| {
+            object_has_obfuscated_security_name(&value.atom, matched_names, depth + 1)
+        }),
         PdfAtom::Dict(dict) => {
             let key_hit = dict.entries.iter().any(|(key, value)| {
                 let mut hit = false;
@@ -4759,18 +4973,14 @@ fn object_has_obfuscated_security_name(
             });
             key_hit
         }
-        PdfAtom::Stream(stream) => stream
-            .dict
-            .entries
-            .iter()
-            .any(|(key, value)| {
-                let mut hit = false;
-                if name_looks_obfuscated(key) && name_is_security_relevant(key) {
-                    matched_names.insert(String::from_utf8_lossy(&key.decoded).to_string());
-                    hit = true;
-                }
-                hit || object_has_obfuscated_security_name(&value.atom, matched_names, depth + 1)
-            }),
+        PdfAtom::Stream(stream) => stream.dict.entries.iter().any(|(key, value)| {
+            let mut hit = false;
+            if name_looks_obfuscated(key) && name_is_security_relevant(key) {
+                matched_names.insert(String::from_utf8_lossy(&key.decoded).to_string());
+                hit = true;
+            }
+            hit || object_has_obfuscated_security_name(&value.atom, matched_names, depth + 1)
+        }),
         _ => false,
     }
 }
