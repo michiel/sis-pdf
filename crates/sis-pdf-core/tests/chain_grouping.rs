@@ -88,3 +88,24 @@ fn records_recovered_payload_summary() {
     let summary = chain.notes.get("payload.summary").unwrap();
     assert!(summary.contains("recovered=/FlateDecode"));
 }
+
+#[test]
+fn propagates_edge_and_exploit_notes_into_chain_output() {
+    let mut finding = base_finding("f1", "composite.injection_edge_bridge", "10 0 obj");
+    finding.meta.insert("edge.reason".into(), "scatter_to_injection".into());
+    finding.meta.insert("edge.confidence".into(), "Strong".into());
+    finding.meta.insert("edge.shared_objects".into(), "10 0 obj".into());
+    finding.meta.insert("exploit.preconditions".into(), "fragment_assembly_path_reachable".into());
+    finding.meta.insert("exploit.blockers".into(), "fragment_validation".into());
+    finding.meta.insert("exploit.outcomes".into(), "payload_staging".into());
+    finding.meta.insert("chain.stage".into(), "decode".into());
+    finding.meta.insert("chain.severity".into(), "Medium".into());
+    finding.meta.insert("chain.confidence".into(), "Strong".into());
+
+    let (chains, _) = synthesise_chains(&[finding], true);
+    let chain = chains.first().expect("single chain");
+    assert_eq!(chain.notes.get("edge.reason").map(String::as_str), Some("scatter_to_injection"));
+    assert_eq!(chain.notes.get("edge.confidence").map(String::as_str), Some("Strong"));
+    assert_eq!(chain.notes.get("exploit.outcomes").map(String::as_str), Some("payload_staging"));
+    assert_eq!(chain.notes.get("chain.severity").map(String::as_str), Some("Medium"));
+}

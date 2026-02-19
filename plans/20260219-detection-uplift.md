@@ -65,6 +65,12 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - `chain.confidence` (edge + source/target confidence composition)
     - `chain.severity` (guardrailed stage-based composition; `High` requires execute+egress evidence)
   - Added regression assertions locking composed chain metadata for scatter and obfuscation bridge paths.
+- Completed: CQ5 groundwork for chain explainability (initial):
+  - Extended `chain_synth.rs` note propagation to preserve correlation metadata families in chain output:
+    - `edge.*`
+    - `exploit.*`
+    - `chain.stage`, `chain.capability`, `chain.trigger`, `chain.confidence`, `chain.severity`
+  - Added regression coverage (`chain_grouping.rs`) to ensure chain output retains edge/exploit context for downstream query/report consumers.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.
