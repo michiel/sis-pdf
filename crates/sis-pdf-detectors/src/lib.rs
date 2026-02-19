@@ -2232,11 +2232,18 @@ impl Detector for PdfjsRenderingIndicatorDetector {
             }
 
             if is_form_dict(dict) {
-                let v_type = dict.get_first(b"/V").and_then(|(_, obj)| obj_detect_injection_type(obj, ctx, 0));
-                let dv_type = dict.get_first(b"/DV").and_then(|(_, obj)| obj_detect_injection_type(obj, ctx, 0));
-                let ap_type = dict.get_first(b"/AP").and_then(|(_, obj)| obj_detect_injection_type(obj, ctx, 0));
+                let mut signals = InjectionSignals::default();
+                if let Some((_, obj)) = dict.get_first(b"/V") {
+                    signals.merge(obj_collect_injection_signals(obj, ctx, 0));
+                }
+                if let Some((_, obj)) = dict.get_first(b"/DV") {
+                    signals.merge(obj_collect_injection_signals(obj, ctx, 0));
+                }
+                if let Some((_, obj)) = dict.get_first(b"/AP") {
+                    signals.merge(obj_collect_injection_signals(obj, ctx, 0));
+                }
 
-                let detected = v_type.or(dv_type).or(ap_type);
+                let detected = signals.classify();
                 let obj_ref = format!("{} {} obj", entry.obj, entry.gen);
 
                 match detected {
@@ -2497,45 +2504,47 @@ fn obj_contains_pdfjs_injection_tokens(
     }
 }
 
-fn obj_detect_injection_type(
+fn obj_collect_injection_signals(
     obj: &PdfObj<'_>,
     ctx: &sis_pdf_core::scan::ScanContext,
     depth: usize,
-) -> Option<InjectionType> {
+) -> InjectionSignals {
     if depth >= 8 {
-        return None;
+        return InjectionSignals::default();
     }
     match &obj.atom {
-        PdfAtom::Str(s) => detect_injection_type(&string_bytes(s)),
-        PdfAtom::Name(name) => detect_injection_type(&name.decoded),
-        PdfAtom::Array(values) => {
-            values.iter().find_map(|value| obj_detect_injection_type(value, ctx, depth + 1))
-        }
-        PdfAtom::Dict(dict) => dict
-            .entries
-            .iter()
-            .find_map(|(_, value)| obj_detect_injection_type(value, ctx, depth + 1)),
+        PdfAtom::Str(s) => detect_injection_signals(&string_bytes(s)),
+        PdfAtom::Name(name) => detect_injection_signals(&name.decoded),
+        PdfAtom::Array(values) => values.iter().fold(InjectionSignals::default(), |mut acc, value| {
+            acc.merge(obj_collect_injection_signals(value, ctx, depth + 1));
+            acc
+        }),
+        PdfAtom::Dict(dict) => dict.entries.iter().fold(InjectionSignals::default(), |mut acc, (_, value)| {
+            acc.merge(obj_collect_injection_signals(value, ctx, depth + 1));
+            acc
+        }),
         PdfAtom::Stream(stream) => {
             let start = stream.data_span.start as usize;
             let end = stream.data_span.end as usize;
-            let stream_type = if start < end && end <= ctx.bytes.len() {
-                detect_injection_type(&ctx.bytes[start..end])
+            let mut signals = if start < end && end <= ctx.bytes.len() {
+                detect_injection_signals(&ctx.bytes[start..end])
             } else {
-                None
+                InjectionSignals::default()
             };
-            stream_type.or_else(|| {
-                stream
-                    .dict
-                    .entries
-                    .iter()
-                    .find_map(|(_, value)| obj_detect_injection_type(value, ctx, depth + 1))
-            })
+            for (_, value) in &stream.dict.entries {
+                signals.merge(obj_collect_injection_signals(value, ctx, depth + 1));
+            }
+            signals
         }
-        PdfAtom::Ref { .. } => ctx.graph.resolve_ref(obj).and_then(|resolved| {
-            let resolved_obj = PdfObj { span: resolved.body_span, atom: resolved.atom };
-            obj_detect_injection_type(&resolved_obj, ctx, depth + 1)
-        }),
-        _ => None,
+        PdfAtom::Ref { .. } => ctx
+            .graph
+            .resolve_ref(obj)
+            .map(|resolved| {
+                let resolved_obj = PdfObj { span: resolved.body_span, atom: resolved.atom };
+                obj_collect_injection_signals(&resolved_obj, ctx, depth + 1)
+            })
+            .unwrap_or_default(),
+        _ => InjectionSignals::default(),
     }
 }
 
@@ -2624,16 +2633,10 @@ fn contains_html_injection_tokens(payload: &[u8]) -> bool {
         b"onmouseout=", b"onmouseup=", b"onscroll=",
     ];
 
-    // DOM and document object access patterns
-    let dom: &[&[u8]] = &[
-        b"document.", b"window.", b"location=", b"innerhtml=",
-        b".cookie", b".localstorage", b"eval(", b".src=",
-    ];
-
     // Protocol handlers for XSS
     let protocols: &[&[u8]] = &[b"javascript:", b"data:text/html", b"data:image/svg"];
 
-    [context_break, tags, events, dom, protocols]
+    [context_break, tags, events, protocols]
         .iter()
         .flat_map(|group| *group)
         .any(|needle| !needle.is_empty() && lower.windows(needle.len()).any(|w| w == *needle))
@@ -2646,16 +2649,38 @@ enum InjectionType {
     Both,
 }
 
-fn detect_injection_type(payload: &[u8]) -> Option<InjectionType> {
-    let has_js = contains_pdfjs_injection_tokens(payload);
-    let has_html = contains_html_injection_tokens(payload);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct InjectionSignals {
+    has_js: bool,
+    has_html: bool,
+}
 
-    match (has_js, has_html) {
-        (true, true) => Some(InjectionType::Both),
-        (true, false) => Some(InjectionType::JavaScript),
-        (false, true) => Some(InjectionType::Html),
-        (false, false) => None,
+impl InjectionSignals {
+    fn merge(&mut self, other: InjectionSignals) {
+        self.has_js |= other.has_js;
+        self.has_html |= other.has_html;
     }
+
+    fn classify(self) -> Option<InjectionType> {
+        match (self.has_js, self.has_html) {
+            (true, true) => Some(InjectionType::Both),
+            (true, false) => Some(InjectionType::JavaScript),
+            (false, true) => Some(InjectionType::Html),
+            (false, false) => None,
+        }
+    }
+}
+
+fn detect_injection_signals(payload: &[u8]) -> InjectionSignals {
+    InjectionSignals {
+        has_js: contains_pdfjs_injection_tokens(payload),
+        has_html: contains_html_injection_tokens(payload),
+    }
+}
+
+#[cfg(test)]
+fn detect_injection_type(payload: &[u8]) -> Option<InjectionType> {
+    detect_injection_signals(payload).classify()
 }
 
 struct SubmitFormDetector;
@@ -4935,15 +4960,15 @@ mod tests {
     }
 
     #[test]
-    fn contains_html_injection_detects_document_cookie() {
+    fn contains_html_injection_rejects_document_cookie_without_html_context() {
         let payload = b"confirm(document.cookie)";
-        assert!(super::contains_html_injection_tokens(payload));
+        assert!(!super::contains_html_injection_tokens(payload));
     }
 
     #[test]
-    fn contains_html_injection_detects_window_location() {
+    fn contains_html_injection_rejects_window_location_without_html_context() {
         let payload = b"window.location=evil";
-        assert!(super::contains_html_injection_tokens(payload));
+        assert!(!super::contains_html_injection_tokens(payload));
     }
 
     #[test]

@@ -4,6 +4,20 @@ Date: 2026-02-19
 Status: Proposed
 Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
 
+## Implementation status update (2026-02-19)
+
+- Completed: WS1 mixed-signal aggregation now accumulates JavaScript and HTML signals across `/V`, `/DV`, `/AP`, nested arrays/dicts/streams, and indirect refs without first-hit short-circuiting.
+- Completed: WS5 initial regression expansion for distributed/fragmented scenarios:
+  - split-signal test across `/V` (HTML) and `/AP` (JavaScript),
+  - fragmented ref-chain test where a single form value aggregates indirect objects containing separate HTML and JavaScript fragments.
+- Completed: WS2 precision tightening (initial):
+  - `form_html_injection` now requires HTML-context indicators (tags/event attributes/context-break/protocol handlers) and no longer triggers on script-only DOM tokens by themselves.
+  - integration and unit precision guards added for script-only values.
+- Validation run:
+  - `cargo test -p sis-pdf-detectors --test pdfjs_rendering_indicators`
+  - `cargo test -p sis-pdf-detectors`
+  - `cargo test -p sis-pdf-detectors contains_html_injection_rejects_`
+
 ## Goals
 
 1. Implement all identified improvements from commit `004088a2a4e77400c025144caef518d14bb46b02` review.

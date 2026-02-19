@@ -292,3 +292,65 @@ fn detects_both_js_and_html_injection() {
     assert!(report.findings.iter().any(|f| f.kind == "form_html_injection"));
     assert!(report.findings.iter().any(|f| f.kind == "pdfjs_form_injection"));
 }
+
+#[test]
+fn detects_split_signals_across_v_and_ap_fields() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n",
+        "6 0 obj\n<< /FT /Tx /T (field) /V (<img src=x onerror=confirm(1)>) /AP << /N (eval(alert(1))) >> >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+    assert!(report.findings.iter().any(|f| f.kind == "form_html_injection"));
+    assert!(report.findings.iter().any(|f| f.kind == "pdfjs_form_injection"));
+}
+
+#[test]
+fn detects_fragmented_signals_across_indirect_refs_in_single_form_value() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n",
+        "6 0 obj\n<< /FT /Tx /T (field) /V [7 0 R 8 0 R 9 0 R] >>\nendobj\n",
+        "7 0 obj\n(<svg onload=alert(1)>)\nendobj\n",
+        "8 0 obj\n(benign filler)\nendobj\n",
+        "9 0 obj\n(eval(confirm(1)))\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+    assert!(report.findings.iter().any(|f| f.kind == "form_html_injection"));
+    assert!(report.findings.iter().any(|f| f.kind == "pdfjs_form_injection"));
+}
+
+#[test]
+fn script_only_form_value_does_not_trigger_html_injection() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "5 0 obj\n<< /Fields [6 0 R] >>\nendobj\n",
+        "6 0 obj\n<< /FT /Tx /T (field) /V (confirm(document.cookie)) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+    assert!(!report.findings.iter().any(|f| f.kind == "form_html_injection"));
+}
