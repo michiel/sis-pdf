@@ -20,6 +20,7 @@ pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> 
     composites.extend(correlate_decode_amplification_chain(findings));
     composites.extend(correlate_injection_edge_bridges(findings));
     composites.extend(correlate_embedded_relationship_action(findings));
+    composites.extend(correlate_graph_evasion_with_execute(findings));
     composites.extend(correlate_hidden_layer_action(findings));
     composites
 }
@@ -860,6 +861,72 @@ fn correlate_embedded_relationship_action(findings: &[Finding]) -> Vec<Finding> 
     }
 
     composites
+}
+
+fn correlate_graph_evasion_with_execute(findings: &[Finding]) -> Vec<Finding> {
+    let graph_evasion = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "xref_conflict"
+                    | "incremental_update_chain"
+                    | "object_id_shadowing"
+                    | "shadow_object_payload_divergence"
+                    | "parse_disagreement"
+                    | "xref_phantom_entries"
+                    | "structural_evasion_composite"
+                    | "object_reference_cycle"
+                    | "object_reference_depth_high"
+            )
+        })
+        .collect::<Vec<_>>();
+    let execute_surface = findings
+        .iter()
+        .filter(|finding| {
+            is_action_finding(finding)
+                || finding.kind == "js_present"
+                || matches!(get_meta(finding, "chain.stage"), Some("execute"))
+        })
+        .collect::<Vec<_>>();
+    if graph_evasion.is_empty() || execute_surface.is_empty() {
+        return Vec::new();
+    }
+
+    let mut sources = Vec::new();
+    let mut evasion_kinds = HashSet::new();
+    for finding in &graph_evasion {
+        sources.push(*finding);
+        evasion_kinds.insert(
+            get_meta(finding, "graph.evasion_kind")
+                .map(str::to_string)
+                .unwrap_or_else(|| finding.kind.clone()),
+        );
+    }
+    for finding in execute_surface.iter().take(3) {
+        sources.push(*finding);
+    }
+
+    let mut evasion_list = evasion_kinds.into_iter().collect::<Vec<_>>();
+    evasion_list.sort();
+    vec![build_composite(CompositeConfig {
+        kind: "composite.graph_evasion_with_execute",
+        title: "Graph evasion with execute surface composite",
+        description:
+            "Structural graph-evasion indicators co-occur with executable surfaces, indicating exploit-delivery hardening.",
+        surface: AttackSurface::FileStructure,
+        severity: Severity::High,
+        confidence: Confidence::Probable,
+        sources: &sources,
+        extra_meta: vec![
+            ("graph.evasion_kinds", Some(evasion_list.join(","))),
+            ("graph.evasion_count", Some(graph_evasion.len().to_string())),
+            ("execute.surface_count", Some(execute_surface.len().to_string())),
+            ("exploit.preconditions", Some("graph_evasion_path_present; execute_surface_reachable".into())),
+            ("exploit.blockers", Some("strict_graph_validation; action_policy_restrictions".into())),
+            ("exploit.outcomes", Some("evasion_assisted_execution; analysis_bypass".into())),
+        ],
+    })]
 }
 
 struct CompositeConfig<'a> {

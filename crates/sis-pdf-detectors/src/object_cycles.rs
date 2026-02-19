@@ -31,6 +31,7 @@ impl Detector for ObjectReferenceCycleDetector {
         let mut stack = Vec::new();
         let mut depths: HashMap<ObjRef, usize> = HashMap::new();
         let mut max_depth = 0;
+        let executable_refs = collect_executable_refs(ctx);
 
         // Check all objects for circular references and track depth
         for entry in &ctx.graph.objects {
@@ -43,6 +44,7 @@ impl Detector for ObjectReferenceCycleDetector {
                     &mut stack,
                     &mut depths,
                     &mut findings,
+                    &executable_refs,
                     0,
                 );
                 if depth > max_depth {
@@ -55,6 +57,13 @@ impl Detector for ObjectReferenceCycleDetector {
         if max_depth > 20 {
             let mut meta = std::collections::HashMap::new();
             meta.insert("reference.max_depth".into(), max_depth.to_string());
+            meta.insert("graph.evasion_kind".into(), "deep_indirection".into());
+            meta.insert("graph.depth".into(), max_depth.to_string());
+            meta.insert("graph.conflict_count".into(), "0".into());
+            meta.insert("graph.execute_surface_count".into(), executable_refs.len().to_string());
+            meta.insert("chain.stage".into(), "decode".into());
+            meta.insert("chain.capability".into(), "graph_indirection".into());
+            meta.insert("chain.trigger".into(), "object_graph".into());
 
             findings.push(Finding {
                 id: String::new(),
@@ -185,13 +194,9 @@ fn detect_cycles_from(
     stack: &mut Vec<ObjRef>,
     depths: &mut HashMap<ObjRef, usize>,
     findings: &mut Vec<Finding>,
+    executable_refs: &HashSet<ObjRef>,
     depth: usize,
 ) -> usize {
-    // Already fully explored - return cached depth
-    if visited.contains(obj_ref) {
-        return depths.get(obj_ref).copied().unwrap_or(0);
-    }
-
     // Check if we've found a cycle
     if let Some(cycle_start) = stack.iter().position(|r| r == obj_ref) {
         let cycle_refs: Vec<ObjRef> = stack[cycle_start..].to_vec();
@@ -207,6 +212,22 @@ fn detect_cycles_from(
         meta.insert("cycle.length".into(), cycle_length.to_string());
         meta.insert("cycle.objects".into(), cycle_objects.join(", "));
         meta.insert("cycle.type".into(), cycle_type.to_string());
+        let execute_overlap =
+            cycle_refs.iter().filter(|obj| executable_refs.contains(*obj)).count();
+        meta.insert(
+            "graph.evasion_kind".into(),
+            if execute_overlap > 0 {
+                "cycle_near_execute".into()
+            } else {
+                "reference_cycle".into()
+            },
+        );
+        meta.insert("graph.depth".into(), cycle_length.to_string());
+        meta.insert("graph.conflict_count".into(), "1".into());
+        meta.insert("graph.execute_overlap_count".into(), execute_overlap.to_string());
+        meta.insert("chain.stage".into(), "decode".into());
+        meta.insert("chain.capability".into(), "graph_cycle".into());
+        meta.insert("chain.trigger".into(), "object_graph".into());
 
         let (title, description) = match severity {
             Severity::Info => (
@@ -272,6 +293,11 @@ fn detect_cycles_from(
         return depth;
     }
 
+    // Already fully explored - return cached depth
+    if visited.contains(obj_ref) {
+        return depths.get(obj_ref).copied().unwrap_or(0);
+    }
+
     // Mark as visited before recursing
     visited.insert(*obj_ref);
     stack.push(*obj_ref);
@@ -288,8 +314,16 @@ fn detect_cycles_from(
 
         // Recursively check all references
         for child_ref in refs {
-            let child_depth =
-                detect_cycles_from(ctx, &child_ref, visited, stack, depths, findings, depth + 1);
+            let child_depth = detect_cycles_from(
+                ctx,
+                &child_ref,
+                visited,
+                stack,
+                depths,
+                findings,
+                executable_refs,
+                depth + 1,
+            );
             if child_depth > max_child_depth {
                 max_child_depth = child_depth;
             }
@@ -323,4 +357,34 @@ fn collect_refs(atom: &PdfAtom, refs: &mut Vec<ObjRef>) {
         }
         _ => {}
     }
+}
+
+fn collect_executable_refs(ctx: &sis_pdf_core::scan::ScanContext) -> HashSet<ObjRef> {
+    let mut refs = HashSet::new();
+    for entry in &ctx.graph.objects {
+        if atom_has_execute_surface(&entry.atom) {
+            refs.insert(ObjRef { obj: entry.obj, gen: entry.gen });
+        }
+    }
+    refs
+}
+
+fn atom_has_execute_surface(atom: &PdfAtom<'_>) -> bool {
+    match atom {
+        PdfAtom::Dict(dict) => dict_has_execute_surface(dict),
+        PdfAtom::Stream(stream) => dict_has_execute_surface(&stream.dict),
+        _ => false,
+    }
+}
+
+fn dict_has_execute_surface(dict: &sis_pdf_pdf::object::PdfDict<'_>) -> bool {
+    dict.has_name(b"/S", b"/JavaScript")
+        || dict.has_name(b"/S", b"/Launch")
+        || dict.has_name(b"/S", b"/URI")
+        || dict.has_name(b"/S", b"/GoToR")
+        || dict.has_name(b"/S", b"/GoToE")
+        || dict.has_name(b"/S", b"/SubmitForm")
+        || dict.get_first(b"/JS").is_some()
+        || dict.get_first(b"/OpenAction").is_some()
+        || dict.get_first(b"/AA").is_some()
 }

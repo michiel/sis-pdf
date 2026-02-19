@@ -120,6 +120,21 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
     - `embedded.mismatch_axes` (for example `extension_vs_magic,subtype_vs_magic`)
   - Added correlation composite `composite.embedded_relationship_action` linking embedded mismatch findings to action surfaces (`/Launch`, `/GoToR`, `/GoToE`) via object/hash lineage.
   - Added detector/core regression coverage for Filespec-linked mismatched embedded payloads and composite exploit-chain metadata invariants.
+- Completed: WS6 structural evasion and graph-manipulation uplift (initial):
+  - Added structured graph-evasion metadata across structural findings:
+    - `graph.evasion_kind`
+    - `graph.depth`
+    - `graph.conflict_count`
+    - decode-stage chain context (`chain.stage`, `chain.capability`, `chain.trigger`)
+  - Fixed object-cycle traversal to detect cycles reliably by checking active recursion stack before visited-cache short-circuit.
+  - Enriched object-graph findings with execution proximity context:
+    - cycle overlap metadata (`graph.execute_overlap_count`) for `object_reference_cycle`
+    - execute-surface inventory metadata (`graph.execute_surface_count`) for `object_reference_depth_high`
+  - Added correlation composite `composite.graph_evasion_with_execute` linking graph-evasion findings with execute-stage surfaces.
+  - Added regression coverage for:
+    - cycle/deep-indirection metadata invariants,
+    - incremental/xref graph metadata invariants,
+    - graph-evasion correlation composite semantics.
 
 ## Objective
 

@@ -523,6 +523,44 @@ fn correlate_embedded_relationship_action_bridge() {
 }
 
 #[test]
+fn correlate_graph_evasion_with_execute_surface() {
+    let xref_conflict = make_finding(
+        "xref_conflict",
+        &["xref"],
+        &[("graph.evasion_kind", "xref_conflict"), ("xref.integrity.level", "broken")],
+        AttackSurface::FileStructure,
+    );
+    let cycle = make_finding(
+        "object_reference_cycle",
+        &["10 0 obj", "11 0 obj"],
+        &[("graph.evasion_kind", "cycle_near_execute"), ("graph.depth", "2")],
+        AttackSurface::FileStructure,
+    );
+    let action = make_finding(
+        "launch_action_present",
+        &["20 0 obj"],
+        &[("chain.stage", "execute"), ("action.s", "/Launch")],
+        AttackSurface::Actions,
+    );
+    let composites = correlation::correlate_findings(
+        &[xref_conflict, cycle, action],
+        &CorrelationOptions::default(),
+    );
+    let composite = composites
+        .iter()
+        .find(|finding| finding.kind == "composite.graph_evasion_with_execute")
+        .expect("graph evasion composite");
+    assert_eq!(composite.severity, Severity::High);
+    assert_eq!(composite.confidence, Confidence::Probable);
+    assert_eq!(composite.meta.get("graph.evasion_count").map(String::as_str), Some("2"));
+    assert_eq!(composite.meta.get("execute.surface_count").map(String::as_str), Some("1"));
+    assert_eq!(
+        composite.meta.get("graph.evasion_kinds").map(String::as_str),
+        Some("cycle_near_execute,xref_conflict")
+    );
+}
+
+#[test]
 fn correlate_hidden_layer_action_when_ocg_and_action_share_object() {
     let ocg = make_finding(
         "ocg_present",

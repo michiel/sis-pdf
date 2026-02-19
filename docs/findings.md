@@ -1581,6 +1581,11 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
+  - Metadata:
+    - `graph.evasion_kind=incremental_overlay`
+    - `graph.depth`
+    - `graph.conflict_count`
+    - `chain.stage=decode`, `chain.capability=graph_incremental_overlay`, `chain.trigger=xref`
 
 ## js_custom_decoder
 
@@ -4514,6 +4519,49 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: parser differential/evasion risk.
   - Meaning: file structure may be malformed or intentionally confusing.
   - Chain usage: used as evasion context that can hide payloads or actions.
+  - Metadata:
+    - `graph.evasion_kind=xref_conflict`
+    - `graph.depth`
+    - `graph.conflict_count`
+    - `xref.integrity.level`
+    - `chain.stage=decode`, `chain.capability=graph_xref_evasion`, `chain.trigger=xref`
+
+## object_reference_cycle
+
+- ID: `object_reference_cycle`
+- Label: Object reference cycle
+- Description: Circular object-reference chain detected in object graph traversal.
+- Tags: evasion, structure, graph
+- Details:
+  - Relevance: cycle-heavy graphs can hide exploit paths and stress parser traversal.
+  - Meaning: cycle classification and overlap with execute-capable objects are recorded.
+  - Chain usage: decode-stage structural evasion signal; prioritise when execute overlap is non-zero.
+  - Metadata:
+    - `cycle.length`
+    - `cycle.type`
+    - `graph.evasion_kind` (`reference_cycle` or `cycle_near_execute`)
+    - `graph.depth`
+    - `graph.conflict_count`
+    - `graph.execute_overlap_count`
+    - `chain.stage=decode`, `chain.capability=graph_cycle`, `chain.trigger=object_graph`
+
+## object_reference_depth_high
+
+- ID: `object_reference_depth_high`
+- Label: High object reference depth
+- Description: Object reference depth exceeds safe traversal threshold.
+- Tags: evasion, structure, graph
+- Details:
+  - Relevance: deep indirection can conceal exploit staging and increase parser cost.
+  - Meaning: maximum observed reference depth is above threshold and may indicate deliberate indirection.
+  - Chain usage: decode-stage structural evasion signal.
+  - Metadata:
+    - `reference.max_depth`
+    - `graph.evasion_kind=deep_indirection`
+    - `graph.depth`
+    - `graph.conflict_count`
+    - `graph.execute_surface_count`
+    - `chain.stage=decode`, `chain.capability=graph_indirection`, `chain.trigger=object_graph`
 
 ## trailer_root_conflict
 
@@ -4596,6 +4644,26 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Metadata:
     - `composite.link_reason` (`object` or `hash`)
     - `embedded.mismatch_axes`
+    - `exploit.preconditions`
+    - `exploit.blockers`
+    - `exploit.outcomes`
+
+## composite.graph_evasion_with_execute
+
+- ID: `composite.graph_evasion_with_execute`
+- Label: Graph evasion with execute surface composite
+- Severity: High
+- Confidence: Probable
+- Description: Structural graph-evasion indicators co-occur with executable surfaces.
+- Tags: composite, graph, evasion, execute
+- Details:
+  - Relevance: exploit delivery often pairs graph-level evasion with action/JS execution surfaces.
+  - Meaning: correlates structural graph findings (xref conflicts, cycles, shadowing, deep indirection) with execute-stage findings.
+  - Chain usage: prioritisation composite for evasive execute-capable documents.
+  - Metadata:
+    - `graph.evasion_kinds`
+    - `graph.evasion_count`
+    - `execute.surface_count`
     - `exploit.preconditions`
     - `exploit.blockers`
     - `exploit.outcomes`

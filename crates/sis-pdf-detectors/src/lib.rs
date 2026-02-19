@@ -410,6 +410,12 @@ impl Detector for XrefConflictDetector {
             if !assessment.deviation_kinds.is_empty() {
                 meta.insert("xref.deviation.kinds".into(), assessment.deviation_kinds.clone());
             }
+            meta.insert("graph.evasion_kind".into(), "xref_conflict".into());
+            meta.insert("graph.depth".into(), assessment.prev_chain_length.to_string());
+            meta.insert("graph.conflict_count".into(), assessment.deviation_count.to_string());
+            meta.insert("chain.stage".into(), "decode".into());
+            meta.insert("chain.capability".into(), "graph_xref_evasion".into());
+            meta.insert("chain.trigger".into(), "xref".into());
             meta.insert(
                 "query.next".into(),
                 "xref.sections; xref.trailers; xref.deviations; revisions".into(),
@@ -472,6 +478,15 @@ impl Detector for IncrementalUpdateDetector {
                     .collect::<Vec<_>>()
                     .join(","),
             );
+            meta.insert("graph.evasion_kind".into(), "incremental_overlay".into());
+            meta.insert("graph.depth".into(), ctx.graph.startxrefs.len().to_string());
+            meta.insert(
+                "graph.conflict_count".into(),
+                ctx.graph.startxrefs.len().saturating_sub(1).to_string(),
+            );
+            meta.insert("chain.stage".into(), "decode".into());
+            meta.insert("chain.capability".into(), "graph_incremental_overlay".into());
+            meta.insert("chain.trigger".into(), "xref".into());
             Ok(vec![Finding {
                 id: String::new(),
                 surface: self.surface(),
@@ -549,6 +564,15 @@ impl Detector for ObjectIdShadowingDetector {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("shadowing.total_count".into(), shadowing_count.to_string());
                 meta.insert("shadowing.this_object_count".into(), idxs.len().to_string());
+                meta.insert("graph.evasion_kind".into(), "object_shadowing".into());
+                meta.insert("graph.depth".into(), idxs.len().to_string());
+                meta.insert(
+                    "graph.conflict_count".into(),
+                    idxs.len().saturating_sub(1).to_string(),
+                );
+                meta.insert("chain.stage".into(), "decode".into());
+                meta.insert("chain.capability".into(), "graph_shadowing".into());
+                meta.insert("chain.trigger".into(), "object_id".into());
 
                 findings.push(Finding {
                     id: String::new(),
@@ -637,6 +661,15 @@ impl Detector for ShadowObjectDivergenceDetector {
                 meta.insert("shadow.kinds".into(), join_list_sorted(&kinds));
                 meta.insert("shadow.version_count".into(), idxs.len().to_string());
                 meta.insert("shadow.provenance".into(), provenance.join(", "));
+                meta.insert("graph.evasion_kind".into(), "shadow_payload_divergence".into());
+                meta.insert("graph.depth".into(), idxs.len().to_string());
+                meta.insert(
+                    "graph.conflict_count".into(),
+                    hashes.len().saturating_sub(1).to_string(),
+                );
+                meta.insert("chain.stage".into(), "decode".into());
+                meta.insert("chain.capability".into(), "graph_shadow_divergence".into());
+                meta.insert("chain.trigger".into(), "object_revision".into());
                 findings.push(Finding {
                     id: String::new(),
                     surface: self.surface(),
@@ -670,6 +703,15 @@ impl Detector for ShadowObjectDivergenceDetector {
                 meta.insert("parse.carved_count".into(), carved.to_string());
                 meta.insert("parse.official_count".into(), non_carved.to_string());
                 meta.insert("shadow.version_count".into(), idxs.len().to_string());
+                meta.insert("graph.evasion_kind".into(), "parser_disagreement".into());
+                meta.insert("graph.depth".into(), idxs.len().to_string());
+                meta.insert(
+                    "graph.conflict_count".into(),
+                    hashes.len().saturating_sub(1).to_string(),
+                );
+                meta.insert("chain.stage".into(), "decode".into());
+                meta.insert("chain.capability".into(), "graph_parser_disagreement".into());
+                meta.insert("chain.trigger".into(), "object_revision".into());
                 findings.push(Finding {
                     id: String::new(),
                     surface: self.surface(),
