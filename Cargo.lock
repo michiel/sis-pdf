@@ -1245,7 +1245,7 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
 name = "cve-update"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1942,7 +1942,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "font-analysis"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "allsorts",
  "serde",
@@ -2727,7 +2727,7 @@ dependencies = [
 
 [[package]]
 name = "image-analysis"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "hayro-jbig2",
@@ -2960,7 +2960,7 @@ dependencies = [
 
 [[package]]
 name = "js-analysis"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "boa_ast",
@@ -5317,7 +5317,7 @@ checksum = "b2aa850e253778c88a04c3d7323b043aeda9d3e30d5971937c1855769763678e"
 
 [[package]]
 name = "sis-pdf"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -5351,7 +5351,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-core"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bitflags 2.10.0",
@@ -5379,7 +5379,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-detectors"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5398,7 +5398,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-gui"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "console_error_panic_hook",
  "eframe",
@@ -5423,7 +5423,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-ml-graph"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -5438,7 +5438,7 @@ dependencies = [
 
 [[package]]
 name = "sis-pdf-pdf"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
