@@ -149,9 +149,16 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Description: 3D content or stream detected (U3D/PRC).
 - Tags: feature
 - Details:
-  - Relevance: expanded attack surface.
-  - Meaning: feature increases parsing or interaction complexity.
-  - Chain usage: used as supporting context for delivery or exploitation stages.
+  - Relevance: viewer-dependent 3D runtimes add execution-adjacent attack surface.
+  - Meaning: 3D object structures (`/3D`, `/U3D`, `/PRC`) are present.
+  - Chain usage: render-stage contextual signal; keep severity conservative unless corroborated by execute findings.
+  - Metadata:
+    - `viewer.feature=3d`
+    - `viewer.support_required=true`
+    - `viewer.support_matrix=viewer_dependent_3d_runtime`
+    - `renderer.profile=3d_viewer`
+    - `renderer.precondition=3d_runtime_enabled`
+    - `chain.stage=render`, `chain.capability=3d_surface`, `chain.trigger=viewer_feature`
 
 ## aa_event_present
 
@@ -3815,9 +3822,17 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Description: RichMedia annotations or dictionaries detected.
 - Tags: feature
 - Details:
-  - Relevance: expanded attack surface.
-  - Meaning: feature increases parsing or interaction complexity.
-  - Chain usage: used as supporting context for delivery or exploitation stages.
+  - Relevance: viewer-dependent rich media runtimes can expose interactive execution paths.
+  - Meaning: RichMedia annotations/dictionaries are present.
+  - Chain usage: render-stage contextual signal; severity remains conservative without execute corroboration.
+  - Metadata:
+    - `viewer.feature=richmedia`
+    - `viewer.support_required=true`
+    - `viewer.support_matrix=viewer_dependent_richmedia_runtime`
+    - `renderer.profile=richmedia_viewer`
+    - `renderer.precondition=richmedia_runtime_enabled`
+    - `richmedia.trigger_context` (`feature_present`, `action_linked`)
+    - `chain.stage=render`, `chain.capability=richmedia_surface`, `chain.trigger=viewer_feature`
 
 ## richmedia_3d_structure_anomaly
 
@@ -4095,9 +4110,18 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Description: Sound/Movie/Rendition objects detected.
 - Tags: feature
 - Details:
-  - Relevance: expanded attack surface.
-  - Meaning: feature increases parsing or interaction complexity.
-  - Chain usage: used as supporting context for delivery or exploitation stages.
+  - Relevance: media/rendition surfaces may fetch or activate external media depending on viewer behaviour.
+  - Meaning: `/Sound`, `/Movie`, or `/Rendition` structures are present.
+  - Chain usage: render-stage contextual signal; egress semantics are attached when external rendition targets are detected.
+  - Metadata:
+    - `viewer.feature=sound_movie_rendition`
+    - `viewer.support_required=true`
+    - `viewer.support_matrix=viewer_dependent_media_runtime`
+    - `renderer.profile=media_viewer`
+    - `renderer.precondition=media_runtime_enabled`
+    - `media.rendition_present`
+    - optional `media.external_target`, `egress.channel=media_rendition`, `egress.target_kind=remote`, `egress.user_interaction_required=true`
+    - `chain.stage=render`, `chain.capability=media_surface`, `chain.trigger=viewer_feature`
 
 ## stream_length_mismatch
 
@@ -4664,6 +4688,26 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `graph.evasion_kinds`
     - `graph.evasion_count`
     - `execute.surface_count`
+    - `exploit.preconditions`
+    - `exploit.blockers`
+    - `exploit.outcomes`
+
+## composite.richmedia_execute_path
+
+- ID: `composite.richmedia_execute_path`
+- Label: Rich media execute-path bridge
+- Severity: Medium to High
+- Confidence: Probable
+- Description: Rich media/3D surfaces co-locate with execute or egress findings.
+- Tags: composite, richmedia, 3d, action, chain
+- Details:
+  - Relevance: viewer-dependent media features can form exploit paths when linked to execute/egress surfaces.
+  - Meaning: emitted when richmedia findings share object lineage with action/JS execute findings.
+  - Chain usage: bridge from render-stage richmedia surfaces into execute/egress stages.
+  - Metadata:
+    - `edge.from`
+    - `edge.to`
+    - `edge.shared_objects`
     - `exploit.preconditions`
     - `exploit.blockers`
     - `exploit.outcomes`

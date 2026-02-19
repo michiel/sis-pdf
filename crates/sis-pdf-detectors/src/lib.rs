@@ -5421,19 +5421,39 @@ impl Detector for RichMediaDetector {
             if let Some(dict) = entry_dict(entry) {
                 if dict.get_first(b"/RichMedia").is_some() || dict.has_name(b"/Type", b"/RichMedia")
                 {
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("viewer.feature".into(), "richmedia".into());
+                    meta.insert("viewer.support_required".into(), "true".into());
+                    meta.insert(
+                        "viewer.support_matrix".into(),
+                        "viewer_dependent_richmedia_runtime".into(),
+                    );
+                    meta.insert("renderer.profile".into(), "richmedia_viewer".into());
+                    meta.insert("renderer.precondition".into(), "richmedia_runtime_enabled".into());
+                    meta.insert("chain.stage".into(), "render".into());
+                    meta.insert("chain.capability".into(), "richmedia_surface".into());
+                    meta.insert("chain.trigger".into(), "viewer_feature".into());
+                    meta.insert(
+                        "richmedia.trigger_context".into(),
+                        if dict.get_first(b"/A").is_some() || dict.get_first(b"/AA").is_some() {
+                            "action_linked".into()
+                        } else {
+                            "feature_present".into()
+                        },
+                    );
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
                         kind: "richmedia_present".into(),
-                        severity: Severity::Medium,
+                        severity: Severity::Low,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Some(Impact::Low),
                         title: "RichMedia content present".into(),
                         description: "RichMedia annotations or dictionaries detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
                         evidence: vec![span_to_evidence(entry.full_span, "RichMedia object")],
                         remediation: Some("Inspect 3D or media assets.".into()),
-                        meta: Default::default(),
+                        meta,
 
                         reader_impacts: Vec::new(),
                         action_type: None,
@@ -5475,6 +5495,17 @@ impl Detector for ThreeDDetector {
                     || dict.get_first(b"/PRC").is_some()
                 {
                     let mut meta = std::collections::HashMap::new();
+                    meta.insert("viewer.feature".into(), "3d".into());
+                    meta.insert("viewer.support_required".into(), "true".into());
+                    meta.insert(
+                        "viewer.support_matrix".into(),
+                        "viewer_dependent_3d_runtime".into(),
+                    );
+                    meta.insert("renderer.profile".into(), "3d_viewer".into());
+                    meta.insert("renderer.precondition".into(), "3d_runtime_enabled".into());
+                    meta.insert("chain.stage".into(), "render".into());
+                    meta.insert("chain.capability".into(), "3d_surface".into());
+                    meta.insert("chain.trigger".into(), "viewer_feature".into());
                     if let Some(bytes) = entry_payload_bytes(ctx.bytes, entry) {
                         meta.insert("size_bytes".into(), bytes.len().to_string());
                         if let Some(media_type) = detect_3d_format(bytes) {
@@ -5485,9 +5516,9 @@ impl Detector for ThreeDDetector {
                         id: String::new(),
                         surface: self.surface(),
                         kind: "3d_present".into(),
-                        severity: Severity::Medium,
+                        severity: Severity::Low,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Some(Impact::Low),
                         title: "3D content present".into(),
                         description: "3D content or stream detected (U3D/PRC).".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -5530,6 +5561,27 @@ impl Detector for SoundMovieDetector {
                     || dict.get_first(b"/Rendition").is_some()
                 {
                     let mut meta = std::collections::HashMap::new();
+                    meta.insert("viewer.feature".into(), "sound_movie_rendition".into());
+                    meta.insert("viewer.support_required".into(), "true".into());
+                    meta.insert(
+                        "viewer.support_matrix".into(),
+                        "viewer_dependent_media_runtime".into(),
+                    );
+                    meta.insert("renderer.profile".into(), "media_viewer".into());
+                    meta.insert("renderer.precondition".into(), "media_runtime_enabled".into());
+                    meta.insert("chain.stage".into(), "render".into());
+                    meta.insert("chain.capability".into(), "media_surface".into());
+                    meta.insert("chain.trigger".into(), "viewer_feature".into());
+                    meta.insert(
+                        "media.rendition_present".into(),
+                        dict.get_first(b"/Rendition").is_some().to_string(),
+                    );
+                    if let Some(target) = first_external_target(dict, ctx, 0) {
+                        meta.insert("media.external_target".into(), target);
+                        meta.insert("egress.channel".into(), "media_rendition".into());
+                        meta.insert("egress.target_kind".into(), "remote".into());
+                        meta.insert("egress.user_interaction_required".into(), "true".into());
+                    }
                     if let Some(bytes) = entry_payload_bytes(ctx.bytes, entry) {
                         meta.insert("size_bytes".into(), bytes.len().to_string());
                         if let Some(media_format) = detect_media_format(bytes) {
@@ -5540,9 +5592,9 @@ impl Detector for SoundMovieDetector {
                         id: String::new(),
                         surface: self.surface(),
                         kind: "sound_movie_present".into(),
-                        severity: Severity::Medium,
+                        severity: Severity::Low,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Some(Impact::Low),
                         title: "Sound or movie content present".into(),
                         description: "Sound/Movie/Rendition objects detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -6438,6 +6490,74 @@ fn detect_media_format(data: &[u8]) -> Option<&'static str> {
         return Some("mp4");
     }
     None
+}
+
+fn first_external_target(
+    dict: &PdfDict<'_>,
+    ctx: &sis_pdf_core::scan::ScanContext,
+    depth: usize,
+) -> Option<String> {
+    if depth >= 5 {
+        return None;
+    }
+    for key in [b"/URI".as_slice(), b"/F".as_slice()] {
+        if let Some((_, value)) = dict.get_first(key) {
+            if let Some(text) = external_target_from_obj(value, ctx, depth + 1) {
+                return Some(text);
+            }
+        }
+    }
+    for (_, value) in &dict.entries {
+        if let PdfAtom::Dict(inner) = &value.atom {
+            if let Some(target) = first_external_target(inner, ctx, depth + 1) {
+                return Some(target);
+            }
+        }
+    }
+    None
+}
+
+fn external_target_from_obj(
+    obj: &PdfObj<'_>,
+    ctx: &sis_pdf_core::scan::ScanContext,
+    depth: usize,
+) -> Option<String> {
+    if depth >= 5 {
+        return None;
+    }
+    match &obj.atom {
+        PdfAtom::Str(s) => {
+            let text = String::from_utf8_lossy(&string_bytes(s)).to_string();
+            if looks_external_target(text.as_bytes()) {
+                Some(text)
+            } else {
+                None
+            }
+        }
+        PdfAtom::Name(name) => {
+            let text = String::from_utf8_lossy(&name.decoded).to_string();
+            if looks_external_target(text.as_bytes()) {
+                Some(text)
+            } else {
+                None
+            }
+        }
+        PdfAtom::Ref { .. } => ctx.graph.resolve_ref(obj).and_then(|entry| {
+            let resolved = PdfObj { span: entry.body_span, atom: entry.atom };
+            external_target_from_obj(&resolved, ctx, depth + 1)
+        }),
+        PdfAtom::Dict(dict) => first_external_target(dict, ctx, depth + 1),
+        _ => None,
+    }
+}
+
+fn looks_external_target(bytes: &[u8]) -> bool {
+    let lower = bytes.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<u8>>();
+    lower.starts_with(b"http://")
+        || lower.starts_with(b"https://")
+        || lower.starts_with(b"ftp://")
+        || lower.starts_with(b"file://")
+        || lower.starts_with(br"\\")
 }
 
 fn provenance_label(provenance: ObjProvenance) -> String {

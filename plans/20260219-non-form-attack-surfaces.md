@@ -135,6 +135,25 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
     - cycle/deep-indirection metadata invariants,
     - incremental/xref graph metadata invariants,
     - graph-evasion correlation composite semantics.
+- Completed: WS7 rich media and 3D surface uplift (initial):
+  - Enforced conservative baseline semantics for feature-presence findings:
+    - `richmedia_present`, `3d_present`, and `sound_movie_present` now default to low-severity, viewer-dependent context with explicit preconditions.
+  - Added normalised viewer/runtime metadata for media surfaces:
+    - `viewer.feature`
+    - `viewer.support_required`
+    - `viewer.support_matrix`
+    - `renderer.profile`
+    - `renderer.precondition`
+    - render-stage chain context metadata (`chain.stage=render`, `chain.capability`, `chain.trigger=viewer_feature`)
+  - Added rendition external-target enrichment on `sound_movie_present`:
+    - `media.rendition_present`
+    - optional `media.external_target`
+    - egress metadata (`egress.channel=media_rendition`, `egress.target_kind=remote`, `egress.user_interaction_required=true`)
+  - Added correlation composite `composite.richmedia_execute_path` linking richmedia/3D findings with execute/egress findings when object lineage co-locates.
+  - Added regression coverage for:
+    - conservative richmedia metadata invariants,
+    - rendition external-target metadata,
+    - richmedia execute-path correlation semantics.
 
 ## Objective
 

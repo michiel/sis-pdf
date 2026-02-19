@@ -21,6 +21,7 @@ pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> 
     composites.extend(correlate_injection_edge_bridges(findings));
     composites.extend(correlate_embedded_relationship_action(findings));
     composites.extend(correlate_graph_evasion_with_execute(findings));
+    composites.extend(correlate_richmedia_execute_paths(findings));
     composites.extend(correlate_hidden_layer_action(findings));
     composites
 }
@@ -927,6 +928,89 @@ fn correlate_graph_evasion_with_execute(findings: &[Finding]) -> Vec<Finding> {
             ("exploit.outcomes", Some("evasion_assisted_execution; analysis_bypass".into())),
         ],
     })]
+}
+
+fn correlate_richmedia_execute_paths(findings: &[Finding]) -> Vec<Finding> {
+    let richmedia = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "richmedia_present"
+                    | "3d_present"
+                    | "sound_movie_present"
+                    | "swf_embedded"
+                    | "swf_actionscript_detected"
+                    | "richmedia_3d_structure_anomaly"
+                    | "richmedia_3d_decoder_risk"
+            )
+        })
+        .collect::<Vec<_>>();
+    if richmedia.is_empty() {
+        return Vec::new();
+    }
+    let execute = findings
+        .iter()
+        .filter(|finding| {
+            is_action_finding(finding)
+                || finding.kind == "js_present"
+                || matches!(get_meta(finding, "chain.stage"), Some("execute" | "egress"))
+        })
+        .collect::<Vec<_>>();
+    if execute.is_empty() {
+        return Vec::new();
+    }
+
+    let mut composites = Vec::new();
+    let mut emitted = HashSet::new();
+    for src in &richmedia {
+        for dst in &execute {
+            let shared = shared_objects(src, dst);
+            if shared.is_empty() {
+                continue;
+            }
+            let edge_key = format!("{}|{}|{}", src.kind, dst.kind, shared.join(","));
+            if !emitted.insert(edge_key) {
+                continue;
+            }
+            let mut preconditions = "viewer_supports_media_runtime".to_string();
+            if let Some(precondition) = get_meta(src, "renderer.precondition") {
+                preconditions.push(';');
+                preconditions.push_str(precondition);
+            }
+            let outcomes = if matches!(get_meta(dst, "chain.stage"), Some("egress")) {
+                "media_triggered_egress; external_fetch_or_submission"
+            } else {
+                "media_triggered_execution"
+            };
+            composites.push(build_composite(CompositeConfig {
+                kind: "composite.richmedia_execute_path",
+                title: "Rich media execute-path bridge",
+                description:
+                    "Rich media/3D surfaces co-locate with execute or egress findings, indicating a viewer-dependent exploit path.",
+                surface: AttackSurface::RichMedia3D,
+                severity: if outcomes.contains("egress") {
+                    Severity::High
+                } else {
+                    Severity::Medium
+                },
+                confidence: Confidence::Probable,
+                sources: &[src, dst],
+                extra_meta: vec![
+                    ("edge.from", Some(src.kind.clone())),
+                    ("edge.to", Some(dst.kind.clone())),
+                    ("edge.shared_objects", Some(shared.join(","))),
+                    ("exploit.preconditions", Some(preconditions)),
+                    (
+                        "exploit.blockers",
+                        Some("viewer_feature_disabled; media_runtime_sandboxing".into()),
+                    ),
+                    ("exploit.outcomes", Some(outcomes.into())),
+                ],
+            }));
+        }
+    }
+    composites
 }
 
 struct CompositeConfig<'a> {

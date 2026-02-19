@@ -561,6 +561,37 @@ fn correlate_graph_evasion_with_execute_surface() {
 }
 
 #[test]
+fn correlate_richmedia_execute_paths() {
+    let richmedia = make_finding(
+        "richmedia_present",
+        &["130 0 obj"],
+        &[("renderer.precondition", "richmedia_runtime_enabled"), ("chain.stage", "render")],
+        AttackSurface::RichMedia3D,
+    );
+    let execute = make_finding(
+        "launch_action_present",
+        &["130 0 obj"],
+        &[("chain.stage", "execute"), ("action.s", "/Launch")],
+        AttackSurface::Actions,
+    );
+    let composite =
+        correlation::correlate_findings(&[richmedia, execute], &CorrelationOptions::default())
+            .into_iter()
+            .find(|finding| finding.kind == "composite.richmedia_execute_path")
+            .expect("richmedia execute composite");
+    assert_eq!(composite.severity, Severity::Medium);
+    assert_eq!(composite.confidence, Confidence::Probable);
+    assert_eq!(
+        composite.meta.get("exploit.preconditions").map(String::as_str),
+        Some("viewer_supports_media_runtime;richmedia_runtime_enabled")
+    );
+    assert_eq!(
+        composite.meta.get("exploit.outcomes").map(String::as_str),
+        Some("media_triggered_execution")
+    );
+}
+
+#[test]
 fn correlate_hidden_layer_action_when_ocg_and_action_share_object() {
     let ocg = make_finding(
         "ocg_present",
