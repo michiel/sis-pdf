@@ -904,6 +904,20 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: `/V`, `/DV`, or `/AP` form fields include injection-like script tokens.
   - Chain usage: form-stage injection indicator; prioritise with external action or JS findings.
 
+## form_html_injection
+
+- ID: `form_html_injection`
+- Label: HTML injection in form field value
+- Description: Form field value contains HTML tags, event handlers, or context-breaking sequences that could enable XSS if rendered in web context.
+- Tags: forms, html, xss, injection, browser
+- Details:
+  - Relevance: form field values containing HTML injection patterns can execute scripts when the PDF is rendered in browser-based viewers (PDF.js) or when form data is exported to web contexts.
+  - Meaning: `/V` (value) or `/DV` (default value) form fields contain HTML tags, event handler attributes, context-breaking sequences, or protocol handlers.
+  - Chain usage: XSS injection indicator; prioritise when PDF is processed by web-based viewers or form data extraction pipelines.
+  - Patterns detected: HTML tags (`<script>`, `<img>`, `<iframe>`, `<svg>`, `<details>`), event handlers (`onclick=`, `onerror=`, `ontoggle=`), context-breaking (`">`, `</`), DOM access (`document.`, `.cookie`), protocol handlers (`javascript:`, `data:text/html`).
+  - Reader impacts: PDF.js and browser-based renderers may interpret HTML in form values, enabling XSS attacks.
+  - Remediation: review form field `/V` and `/DV` entries for HTML tag injection; apply context-appropriate output encoding when displaying form values in web interfaces.
+
 ## pdfjs_eval_path_risk
 
 - ID: `pdfjs_eval_path_risk`
