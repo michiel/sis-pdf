@@ -160,6 +160,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(content_phishing::ContentDeceptionDetector),
         Box::new(metadata_analysis::MetadataAnalysisDetector),
         Box::new(ObfuscatedNameEncodingDetector),
+        Box::new(PdfStringHexEncodedDetector),
         Box::new(strict::StrictParseDeviationDetector),
         Box::new(telemetry_bridge::TelemetryBridgeDetector),
         Box::new(ir_graph_static::IrGraphStaticDetector),
@@ -196,6 +197,7 @@ pub fn sandbox_summary(requested: bool) -> sis_pdf_core::report::SandboxSummary 
 
 struct XrefConflictDetector;
 struct ObfuscatedNameEncodingDetector;
+struct PdfStringHexEncodedDetector;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum XrefIntegrityLevel {
@@ -5271,6 +5273,171 @@ impl Detector for ObfuscatedNameEncodingDetector {
             positions: Vec::new(),
         }])
     }
+}
+
+impl Detector for PdfStringHexEncodedDetector {
+    fn id(&self) -> &'static str {
+        "pdf_string_hex_encoded"
+    }
+
+    fn surface(&self) -> AttackSurface {
+        AttackSurface::Metadata
+    }
+
+    fn needs(&self) -> Needs {
+        Needs::OBJECT_GRAPH
+    }
+
+    fn cost(&self) -> Cost {
+        Cost::Cheap
+    }
+
+    fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
+        let mut object_refs = BTreeSet::new();
+        let mut keys = BTreeSet::new();
+        let mut sample_previews = BTreeSet::new();
+
+        for entry in &ctx.graph.objects {
+            let mut per_object_hit = false;
+            collect_hex_string_signals_in_atom(
+                ctx,
+                &entry.atom,
+                0,
+                &mut keys,
+                &mut sample_previews,
+                &mut per_object_hit,
+            );
+            if per_object_hit {
+                object_refs.insert(format!("{} {} obj", entry.obj, entry.gen));
+            }
+        }
+
+        if object_refs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("obfuscation.hex_string_count".into(), object_refs.len().to_string());
+        meta.insert(
+            "obfuscation.hex_string_keys".into(),
+            keys.into_iter().collect::<Vec<_>>().join(","),
+        );
+        meta.insert(
+            "obfuscation.hex_string_samples".into(),
+            sample_previews.into_iter().take(5).collect::<Vec<_>>().join(" | "),
+        );
+        meta.insert("chain.stage".into(), "decode".into());
+        meta.insert("chain.capability".into(), "string_hex_obfuscation".into());
+
+        Ok(vec![Finding {
+            id: String::new(),
+            surface: AttackSurface::Metadata,
+            kind: "pdf_string_hex_encoded".into(),
+            severity: Severity::Low,
+            confidence: Confidence::Tentative,
+            impact: Some(Impact::Low),
+            title: "Hex-encoded PDF string in security context".into(),
+            description:
+                "Security-relevant string values use PDF hex-literal syntax, which may indicate obfuscation."
+                    .into(),
+            objects: object_refs.into_iter().collect(),
+            evidence: keyword_evidence(ctx.bytes, b"<", "Hex-literal string marker", 3),
+            remediation: Some(
+                "Review decoded string literals in action/form/annotation contexts and correlate with additional suspicious indicators."
+                    .into(),
+            ),
+            meta,
+            reader_impacts: Vec::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            yara: None,
+            position: None,
+            positions: Vec::new(),
+        }])
+    }
+}
+
+fn collect_hex_string_signals_in_atom(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    atom: &PdfAtom<'_>,
+    depth: usize,
+    keys: &mut BTreeSet<String>,
+    sample_previews: &mut BTreeSet<String>,
+    per_object_hit: &mut bool,
+) {
+    if depth >= 8 {
+        return;
+    }
+
+    match atom {
+        PdfAtom::Dict(dict) => {
+            for (name, value) in &dict.entries {
+                let key = String::from_utf8_lossy(&name.decoded).to_string();
+                if is_security_relevant_hex_key(&key) {
+                    match &value.atom {
+                        PdfAtom::Str(sis_pdf_pdf::object::PdfStr::Hex { decoded, .. }) => {
+                            *per_object_hit = true;
+                            keys.insert(key.clone());
+                            sample_previews.insert(preview_ascii(decoded, 80));
+                        }
+                        PdfAtom::Ref { .. } => {
+                            if let Some(resolved) = ctx.graph.resolve_ref(value) {
+                                if let PdfAtom::Str(sis_pdf_pdf::object::PdfStr::Hex {
+                                    decoded,
+                                    ..
+                                }) = &resolved.atom
+                                {
+                                    *per_object_hit = true;
+                                    keys.insert(key.clone());
+                                    sample_previews.insert(preview_ascii(decoded, 80));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                collect_hex_string_signals_in_atom(
+                    ctx,
+                    &value.atom,
+                    depth + 1,
+                    keys,
+                    sample_previews,
+                    per_object_hit,
+                );
+            }
+        }
+        PdfAtom::Array(values) => {
+            for value in values {
+                collect_hex_string_signals_in_atom(
+                    ctx,
+                    &value.atom,
+                    depth + 1,
+                    keys,
+                    sample_previews,
+                    per_object_hit,
+                );
+            }
+        }
+        PdfAtom::Stream(stream) => {
+            collect_hex_string_signals_in_atom(
+                ctx,
+                &PdfAtom::Dict(stream.dict.clone()),
+                depth + 1,
+                keys,
+                sample_previews,
+                per_object_hit,
+            );
+        }
+        _ => {}
+    }
+}
+
+fn is_security_relevant_hex_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "/js" | "/uri" | "/f" | "/v" | "/dv" | "/contents" | "/t"
+    )
 }
 
 fn object_has_obfuscated_security_name(

@@ -1025,6 +1025,23 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `chain.stage=decode`, `chain.capability=name_obfuscation`.
   - Remediation: inspect raw and decoded name tokens in flagged objects before classifying as benign.
 
+## pdf_string_hex_encoded
+
+- ID: `pdf_string_hex_encoded`
+- Label: Hex-encoded PDF string in security context
+- Description: Security-relevant string values use PDF hex-literal string syntax.
+- Tags: obfuscation, parser, metadata
+- Details:
+  - Relevance: hex-literal strings can conceal action/form payload text from naive literal-string scans.
+  - Meaning: security-relevant keys (for example `/JS`, `/URI`, `/F`, `/V`, `/DV`, `/Contents`, `/T`) carried `PdfStr::Hex` values.
+  - Chain usage: decode-stage context signal used to raise confidence for associated action/injection findings.
+  - Metadata:
+    - `obfuscation.hex_string_count`
+    - `obfuscation.hex_string_keys`
+    - `obfuscation.hex_string_samples`
+    - `chain.stage=decode`, `chain.capability=string_hex_obfuscation`
+  - Remediation: review decoded string values and correlate with action targets, form payloads, and execution-capable findings.
+
 ## cross_stream_payload_assembly
 
 - ID: `cross_stream_payload_assembly`

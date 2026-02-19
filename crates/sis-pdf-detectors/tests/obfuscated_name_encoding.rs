@@ -78,3 +78,45 @@ fn benign_names_do_not_trigger_obfuscated_name_encoding() {
 
     assert!(!report.findings.iter().any(|f| f.kind == "obfuscated_name_encoding"));
 }
+
+#[test]
+fn detects_hex_encoded_security_string_literals() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /JavaScript /JS <6170702e616c657274283129> >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+
+    let finding = report.findings.iter().find(|f| f.kind == "pdf_string_hex_encoded");
+    assert!(finding.is_some(), "Expected pdf_string_hex_encoded finding");
+    let finding = finding.expect("finding");
+    assert_eq!(finding.meta.get("obfuscation.hex_string_keys").map(|v| v.as_str()), Some("/JS"));
+    assert_eq!(finding.meta.get("chain.stage").map(|v| v.as_str()), Some("decode"));
+}
+
+#[test]
+fn benign_literal_string_values_do_not_trigger_hex_string_finding() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /JavaScript /JS (app.alert(1)) >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let report = sis_pdf_core::runner::run_scan_with_detectors(
+        &bytes,
+        default_scan_opts(),
+        &default_detectors(),
+    )
+    .expect("scan");
+
+    assert!(!report.findings.iter().any(|f| f.kind == "pdf_string_hex_encoded"));
+}

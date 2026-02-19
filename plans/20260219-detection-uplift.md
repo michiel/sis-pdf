@@ -154,6 +154,18 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - deep null-literal chain detection,
     - benign short-chain control.
   - Documented `null_ref_chain_termination` in `docs/findings.md`.
+- Completed: NO7 PDF hex-string obfuscation signal (initial):
+  - Added `pdf_string_hex_encoded` detector for security-relevant keys carrying `PdfStr::Hex` values.
+  - Detection traverses nested objects (with bounded recursion) and follows indirect references to capture hex-literal payload locations.
+  - Added metadata:
+    - `obfuscation.hex_string_count`
+    - `obfuscation.hex_string_keys`
+    - `obfuscation.hex_string_samples`
+    - chain context (`chain.stage=decode`, `chain.capability=string_hex_obfuscation`)
+  - Added integration tests for:
+    - JavaScript hex-literal string detection,
+    - benign literal-string control.
+  - Documented `pdf_string_hex_encoded` in `docs/findings.md`.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.
