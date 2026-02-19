@@ -401,6 +401,8 @@ impl Detector for ActionTriggerDetector {
                             } else {
                                 "user"
                             };
+                            let action_type = action_type_from_obj(ctx, action_obj)
+                                .unwrap_or_else(|| "field".into());
                             let mut meta = std::collections::HashMap::new();
                             meta.insert("action.trigger".into(), event_label.clone());
                             meta.insert("action.field_name".into(), field_name.clone());
@@ -411,6 +413,12 @@ impl Detector for ActionTriggerDetector {
                                 trigger_type,
                                 &summary,
                             );
+                            annotate_action_meta(
+                                &mut meta,
+                                &action_type,
+                                Some(field_name.as_str()),
+                                trigger_type,
+                            );
                             let evidence = EvidenceBuilder::new()
                                 .file_offset(dict.span.start, dict.span.len() as u32, "Field dict")
                                 .file_offset(k.span.start, k.span.len() as u32, "/AA key")
@@ -420,6 +428,60 @@ impl Detector for ActionTriggerDetector {
                                     "AA event",
                                 )
                                 .build();
+
+                            if action_type
+                                .trim_start_matches('/')
+                                .eq_ignore_ascii_case("javascript")
+                                && is_acroform_field_event(&event_name.decoded)
+                            {
+                                let mut field_meta = meta.clone();
+                                field_meta.insert("action.field_event".into(), event_label.clone());
+                                field_meta.insert(
+                                    "action.field_event_class".into(),
+                                    acroform_field_event_class(&event_name.decoded).into(),
+                                );
+                                field_meta.insert("chain.stage".into(), "execute".into());
+                                field_meta.insert(
+                                    "chain.capability".into(),
+                                    "acroform_field_action".into(),
+                                );
+                                field_meta
+                                    .insert("chain.trigger".into(), "acroform_field_aa".into());
+                                let severity = if acroform_field_event_class(&event_name.decoded)
+                                    == "calculate"
+                                {
+                                    Severity::High
+                                } else {
+                                    Severity::Medium
+                                };
+                                findings.push(Finding {
+                                    id: String::new(),
+                                    surface: self.surface(),
+                                    kind: "acroform_field_action".into(),
+                                    severity,
+                                    confidence: Confidence::Strong,
+                                    impact: None,
+                                    title: "AcroForm field JavaScript action".into(),
+                                    description: format!(
+                                        "Field /AA event {} carries a JavaScript action.",
+                                        event_label
+                                    ),
+                                    objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                    evidence: evidence.clone(),
+                                    remediation: Some(
+                                        "Inspect per-field /AA JavaScript handlers (keystroke/format/validate/calculate) for hidden logic and abuse paths."
+                                            .into(),
+                                    ),
+                                    meta: field_meta,
+                                    reader_impacts: Vec::new(),
+                                    action_type: None,
+                                    action_target: None,
+                                    action_initiation: None,
+                                    yara: None,
+                                    position: None,
+                                    positions: Vec::new(),
+                                });
+                            }
 
                             if trigger_type == "automatic" {
                                 findings.push(Finding {
@@ -524,6 +586,7 @@ impl Detector for ActionTriggerDetector {
         }
         apply_kind_cap(&mut findings, "action_automatic_trigger", ACTION_FINDING_CAP);
         apply_kind_cap(&mut findings, "action_chain_complex", ACTION_FINDING_CAP);
+        apply_kind_cap(&mut findings, "acroform_field_action", ACTION_FINDING_CAP);
         Ok(findings)
     }
 }
@@ -751,6 +814,20 @@ fn extract_annotation_trigger<'a>(dict: &'a PdfDict<'a>) -> (String, Option<PdfO
 
 fn is_automatic_event(name: &[u8]) -> bool {
     matches!(name, b"/O" | b"/C" | b"/PV" | b"/PI" | b"/V" | b"/PO")
+}
+
+fn is_acroform_field_event(name: &[u8]) -> bool {
+    matches!(name, b"/K" | b"/F" | b"/V" | b"/C")
+}
+
+fn acroform_field_event_class(name: &[u8]) -> &'static str {
+    match name {
+        b"/K" => "keystroke",
+        b"/F" => "format",
+        b"/V" => "validate",
+        b"/C" => "calculate",
+        _ => "other",
+    }
 }
 
 fn is_annotation(dict: &PdfDict<'_>) -> bool {

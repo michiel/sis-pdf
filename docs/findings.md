@@ -230,6 +230,22 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: viewer may execute actions without user intent.
   - Chain usage: treated as trigger stage in action chains.
 
+## acroform_field_action
+
+- ID: `acroform_field_action`
+- Label: AcroForm field JavaScript action
+- Description: Per-field `/AA` event (`/K`, `/F`, `/V`, `/C`) executes JavaScript in a widget field context.
+- Tags: action, forms, javascript
+- Details:
+  - Relevance: field-level handlers trigger during typing, formatting, validation, or calculation and are often overlooked compared with document-level actions.
+  - Meaning: interaction or calculation events on form widgets carry JavaScript action dictionaries.
+  - Chain usage: execute-stage signal for form-driven exploit or credential-capture paths.
+  - Metadata:
+    - `action.field_name`
+    - `action.field_event`
+    - `action.field_event_class` (`keystroke`, `format`, `validate`, `calculate`)
+    - `chain.stage=execute`, `chain.capability=acroform_field_action`, `chain.trigger=acroform_field_aa`
+
 ## annotation_action_chain
 
 - ID: `annotation_action_chain`

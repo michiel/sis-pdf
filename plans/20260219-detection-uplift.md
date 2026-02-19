@@ -98,6 +98,21 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
     - obfuscated/encoded targets requiring normalisation
   - Added integration tests for obfuscated UNC and data-URI targets plus benign relative-path control coverage.
   - Documented `action_remote_target_suspicious` in `docs/findings.md`.
+- Completed: NO3 AcroForm calculated/interaction field action detection (initial):
+  - Added dedicated `acroform_field_action` finding for per-field `/AA` JavaScript handlers on `/K`, `/F`, `/V`, `/C` events.
+  - Added chain metadata for field-level execution context:
+    - `chain.stage=execute`
+    - `chain.capability=acroform_field_action`
+    - `chain.trigger=acroform_field_aa`
+  - Added event-level metadata:
+    - `action.field_name`
+    - `action.field_event`
+    - `action.field_event_class`
+  - Added detector integration tests for:
+    - keystroke JavaScript handler detection,
+    - calculate-event severity uplift,
+    - benign non-JavaScript field-action control.
+  - Documented `acroform_field_action` in `docs/findings.md`.
 - Completed: WS3 PDF name obfuscation coverage (initial):
   - Added `obfuscated_name_encoding` detector using raw name token inspection for `#xx` hex-encoded security-relevant names.
   - Added integration tests for obfuscated `/JavaScript` name values and benign control coverage.
