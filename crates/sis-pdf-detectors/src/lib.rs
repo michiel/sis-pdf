@@ -2209,7 +2209,8 @@ impl Detector for PdfjsRenderingIndicatorDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let mut findings = Vec::new();
         let mut annotation_objects = Vec::new();
-        let mut form_objects = Vec::new();
+        let mut form_js_objects = Vec::new();
+        let mut form_html_objects = Vec::new();
         let mut eval_path_objects = Vec::new();
 
         for entry in &ctx.graph.objects {
@@ -2231,20 +2232,25 @@ impl Detector for PdfjsRenderingIndicatorDetector {
             }
 
             if is_form_dict(dict) {
-                let has_form_payload = dict
-                    .get_first(b"/V")
-                    .map(|(_, obj)| obj_contains_pdfjs_injection_tokens(obj, ctx, 0))
-                    .unwrap_or(false)
-                    || dict
-                        .get_first(b"/DV")
-                        .map(|(_, obj)| obj_contains_pdfjs_injection_tokens(obj, ctx, 0))
-                        .unwrap_or(false)
-                    || dict
-                        .get_first(b"/AP")
-                        .map(|(_, obj)| obj_contains_pdfjs_injection_tokens(obj, ctx, 0))
-                        .unwrap_or(false);
-                if has_form_payload {
-                    form_objects.push(format!("{} {} obj", entry.obj, entry.gen));
+                let v_type = dict.get_first(b"/V").and_then(|(_, obj)| obj_detect_injection_type(obj, ctx, 0));
+                let dv_type = dict.get_first(b"/DV").and_then(|(_, obj)| obj_detect_injection_type(obj, ctx, 0));
+                let ap_type = dict.get_first(b"/AP").and_then(|(_, obj)| obj_detect_injection_type(obj, ctx, 0));
+
+                let detected = v_type.or(dv_type).or(ap_type);
+                let obj_ref = format!("{} {} obj", entry.obj, entry.gen);
+
+                match detected {
+                    Some(InjectionType::JavaScript) => {
+                        form_js_objects.push(obj_ref);
+                    }
+                    Some(InjectionType::Html) => {
+                        form_html_objects.push(obj_ref);
+                    }
+                    Some(InjectionType::Both) => {
+                        form_js_objects.push(obj_ref.clone());
+                        form_html_objects.push(obj_ref);
+                    }
+                    None => {}
                 }
             }
 
@@ -2255,8 +2261,10 @@ impl Detector for PdfjsRenderingIndicatorDetector {
 
         annotation_objects.sort();
         annotation_objects.dedup();
-        form_objects.sort();
-        form_objects.dedup();
+        form_js_objects.sort();
+        form_js_objects.dedup();
+        form_html_objects.sort();
+        form_html_objects.dedup();
         eval_path_objects.sort();
         eval_path_objects.dedup();
 
@@ -2300,10 +2308,11 @@ impl Detector for PdfjsRenderingIndicatorDetector {
             });
         }
 
-        if !form_objects.is_empty() {
+        if !form_js_objects.is_empty() {
             let mut meta = std::collections::HashMap::new();
             meta.insert("pdfjs.affected_versions".into(), "<4.2.67".into());
-            meta.insert("pdfjs.form_object_count".into(), form_objects.len().to_string());
+            meta.insert("pdfjs.form_object_count".into(), form_js_objects.len().to_string());
+            meta.insert("injection.type".into(), "javascript".into());
             findings.push(Finding {
                 id: String::new(),
                 surface: AttackSurface::Forms,
@@ -2314,10 +2323,10 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 title: "PDF.js form injection indicator".into(),
                 description:
                     "Form value/appearance fields contain script-like payload tokens.".into(),
-                objects: form_objects,
+                objects: form_js_objects,
                 evidence: keyword_evidence(ctx.bytes, b"/AcroForm", "Form dictionary", 2),
                 remediation: Some(
-                    "Inspect form default/value and appearance entries for injected payload content."
+                    "Inspect form default/value and appearance entries for injected JavaScript payload content."
                         .into(),
                 ),
                 meta,
@@ -2328,6 +2337,45 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                     impact: Impact::Medium,
                     note: Some("Browser-rendered form values may expose DOM or script injection surfaces.".into()),
                 }],
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                position: None,
+                positions: Vec::new(),
+            });
+        }
+
+        if !form_html_objects.is_empty() {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("injection.type".into(), "html_xss".into());
+            meta.insert("form.html_object_count".into(), form_html_objects.len().to_string());
+            meta.insert("injection.patterns".into(), "html_tags,event_handlers,context_breaking".into());
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Forms,
+                kind: "form_html_injection".into(),
+                severity: Severity::Medium,
+                confidence: Confidence::Strong,
+                impact: Some(Impact::Medium),
+                title: "HTML injection in form field value".into(),
+                description:
+                    "Form field value contains HTML tags, event handlers, or context-breaking sequences that could enable XSS if rendered in web context.".into(),
+                objects: form_html_objects,
+                evidence: keyword_evidence(ctx.bytes, b"/V", "Form field value", 3),
+                remediation: Some(
+                    "Review form field /V (value) and /DV (default value) entries for HTML tag injection, event handler attributes, or tag-breaking sequences. Validate against web rendering contexts (PDF.js, form data export, HTML conversion).".into(),
+                ),
+                meta,
+                reader_impacts: vec![
+                    ReaderImpact {
+                        profile: ReaderProfile::Pdfium,
+                        surface: AttackSurface::Forms,
+                        severity: Severity::Medium,
+                        impact: Impact::Medium,
+                        note: Some("PDF.js and browser-based renderers may interpret HTML in form values, enabling XSS attacks.".into()),
+                    },
+                ],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -2449,6 +2497,48 @@ fn obj_contains_pdfjs_injection_tokens(
     }
 }
 
+fn obj_detect_injection_type(
+    obj: &PdfObj<'_>,
+    ctx: &sis_pdf_core::scan::ScanContext,
+    depth: usize,
+) -> Option<InjectionType> {
+    if depth >= 8 {
+        return None;
+    }
+    match &obj.atom {
+        PdfAtom::Str(s) => detect_injection_type(&string_bytes(s)),
+        PdfAtom::Name(name) => detect_injection_type(&name.decoded),
+        PdfAtom::Array(values) => {
+            values.iter().find_map(|value| obj_detect_injection_type(value, ctx, depth + 1))
+        }
+        PdfAtom::Dict(dict) => dict
+            .entries
+            .iter()
+            .find_map(|(_, value)| obj_detect_injection_type(value, ctx, depth + 1)),
+        PdfAtom::Stream(stream) => {
+            let start = stream.data_span.start as usize;
+            let end = stream.data_span.end as usize;
+            let stream_type = if start < end && end <= ctx.bytes.len() {
+                detect_injection_type(&ctx.bytes[start..end])
+            } else {
+                None
+            };
+            stream_type.or_else(|| {
+                stream
+                    .dict
+                    .entries
+                    .iter()
+                    .find_map(|(_, value)| obj_detect_injection_type(value, ctx, depth + 1))
+            })
+        }
+        PdfAtom::Ref { .. } => ctx.graph.resolve_ref(obj).and_then(|resolved| {
+            let resolved_obj = PdfObj { span: resolved.body_span, atom: resolved.atom };
+            obj_detect_injection_type(&resolved_obj, ctx, depth + 1)
+        }),
+        _ => None,
+    }
+}
+
 fn array_has_non_numeric(obj: &PdfObj<'_>) -> bool {
     match &obj.atom {
         PdfAtom::Array(values) => {
@@ -2509,6 +2599,63 @@ fn contains_pdfjs_injection_tokens(payload: &[u8]) -> bool {
     needles.iter().any(|needle| {
         !needle.is_empty() && lower.windows(needle.len()).any(|window| window == *needle)
     })
+}
+
+fn contains_html_injection_tokens(payload: &[u8]) -> bool {
+    let lower = payload.iter().map(|byte| byte.to_ascii_lowercase()).collect::<Vec<u8>>();
+
+    // HTML tag breaking and context escape sequences
+    let context_break: &[&[u8]] = &[b"\">", b"'>", b"</", b"-->"];
+
+    // HTML tags commonly used in XSS attacks
+    let tags: &[&[u8]] = &[
+        b"<script", b"<img", b"<iframe", b"<svg", b"<object",
+        b"<embed", b"<details", b"<video", b"<audio", b"<base",
+        b"<link", b"<meta", b"<form", b"<input", b"<button",
+    ];
+
+    // HTML event handlers
+    let events: &[&[u8]] = &[
+        b"onclick=", b"onerror=", b"onload=", b"ontoggle=",
+        b"onmouseover=", b"onfocus=", b"onanimation", b"onbegin=",
+        b"onblur=", b"onchange=", b"ondblclick=", b"ondrag=",
+        b"onsubmit=", b"onkeydown=", b"onkeyup=", b"onmousedown=",
+        b"onmouseenter=", b"onmouseleave=", b"onmousemove=",
+        b"onmouseout=", b"onmouseup=", b"onscroll=",
+    ];
+
+    // DOM and document object access patterns
+    let dom: &[&[u8]] = &[
+        b"document.", b"window.", b"location=", b"innerhtml=",
+        b".cookie", b".localstorage", b"eval(", b".src=",
+    ];
+
+    // Protocol handlers for XSS
+    let protocols: &[&[u8]] = &[b"javascript:", b"data:text/html", b"data:image/svg"];
+
+    [context_break, tags, events, dom, protocols]
+        .iter()
+        .flat_map(|group| *group)
+        .any(|needle| !needle.is_empty() && lower.windows(needle.len()).any(|w| w == *needle))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InjectionType {
+    JavaScript,
+    Html,
+    Both,
+}
+
+fn detect_injection_type(payload: &[u8]) -> Option<InjectionType> {
+    let has_js = contains_pdfjs_injection_tokens(payload);
+    let has_html = contains_html_injection_tokens(payload);
+
+    match (has_js, has_html) {
+        (true, true) => Some(InjectionType::Both),
+        (true, false) => Some(InjectionType::JavaScript),
+        (false, true) => Some(InjectionType::Html),
+        (false, false) => None,
+    }
 }
 
 struct SubmitFormDetector;
@@ -4737,5 +4884,111 @@ mod tests {
         let assessment = assess_xref_conflict(1_000, &[100, 200], &sections, &deviations, false);
         assert_eq!(assessment.severity, Severity::High);
         assert_eq!(assessment.integrity.as_str(), "broken");
+    }
+
+    #[test]
+    fn contains_html_injection_detects_script_tag() {
+        let payload = b"<script>alert(1)</script>";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_detects_img_tag() {
+        let payload = b"<img src=x onerror=alert(1)>";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_detects_event_handler() {
+        let payload = b"\">'></div><details/open/ontoggle=confirm(1)></details>";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_detects_context_breaking() {
+        let payload = b"\"><script>alert(1)</script>";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_detects_svg_tag() {
+        let payload = b"<svg onload=alert(1)>";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_detects_iframe_tag() {
+        let payload = b"<iframe src=javascript:alert(1)>";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_detects_javascript_protocol() {
+        let payload = b"javascript:alert(1)";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_detects_data_uri() {
+        let payload = b"data:text/html,<script>alert(1)</script>";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_detects_document_cookie() {
+        let payload = b"confirm(document.cookie)";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_detects_window_location() {
+        let payload = b"window.location=evil";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_case_insensitive() {
+        let payload = b"<SCRIPT>alert(1)</SCRIPT>";
+        assert!(super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_rejects_benign_text() {
+        let payload = b"Alice";
+        assert!(!super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn contains_html_injection_rejects_plain_numbers() {
+        let payload = b"12345";
+        assert!(!super::contains_html_injection_tokens(payload));
+    }
+
+    #[test]
+    fn detect_injection_type_identifies_javascript() {
+        let payload = b"app.alert('test')";
+        let detected = super::detect_injection_type(payload);
+        assert_eq!(detected, Some(super::InjectionType::JavaScript));
+    }
+
+    #[test]
+    fn detect_injection_type_identifies_html() {
+        let payload = b"<script>test</script>";
+        let detected = super::detect_injection_type(payload);
+        assert_eq!(detected, Some(super::InjectionType::Html));
+    }
+
+    #[test]
+    fn detect_injection_type_identifies_both() {
+        let payload = b"<script>eval(alert(1))</script>";
+        let detected = super::detect_injection_type(payload);
+        assert_eq!(detected, Some(super::InjectionType::Both));
+    }
+
+    #[test]
+    fn detect_injection_type_identifies_none_for_benign() {
+        let payload = b"normal text";
+        let detected = super::detect_injection_type(payload);
+        assert_eq!(detected, None);
     }
 }
