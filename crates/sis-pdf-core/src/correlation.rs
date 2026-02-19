@@ -92,9 +92,14 @@ fn correlate_action_chain_malicious(
         if !meets_chain_depth(chain, config.action_chain_depth_threshold) {
             continue;
         }
-        if automatic.iter().any(|a| shares_object(chain, a))
-            && js_candidates.iter().any(|js| shares_object(chain, js))
-        {
+        let related_automatic =
+            automatic.iter().filter(|a| shares_object(chain, a)).copied().collect::<Vec<_>>();
+        let related_js =
+            js_candidates.iter().filter(|js| shares_object(chain, js)).copied().collect::<Vec<_>>();
+        if !related_automatic.is_empty() && !related_js.is_empty() {
+            let mut sources = vec![chain];
+            sources.extend(related_automatic.iter().copied());
+            sources.extend(related_js.iter().copied());
             composites.push(build_composite(CompositeConfig {
                 kind: "action_chain_malicious",
                 title: "Malicious action chain",
@@ -103,10 +108,19 @@ fn correlate_action_chain_malicious(
                 surface: AttackSurface::Actions,
                 severity: Severity::High,
                 confidence: Confidence::Strong,
-                sources: &[chain],
+                sources: &sources,
                 extra_meta: vec![
                     ("chain.depth", get_meta(chain, "action.chain_depth").map(str::to_string)),
                     ("chain.trigger", get_meta(chain, "action.trigger").map(str::to_string)),
+                    ("js.source_classes", collect_distinct_meta_values(&related_js, "js.source")),
+                    (
+                        "js.container_paths",
+                        collect_distinct_meta_values(&related_js, "js.container_path"),
+                    ),
+                    (
+                        "js.object_ref_chains",
+                        collect_distinct_meta_values(&related_js, "js.object_ref_chain"),
+                    ),
                 ],
             }));
         }
@@ -858,6 +872,18 @@ fn maybe_push_edge_composite(
     if let Some(initiation) = action_initiation(target) {
         extra_meta.push(("edge.initiation.to", Some(initiation.to_string())));
     }
+    if let Some(source_class) = get_meta(source, "js.source") {
+        extra_meta.push(("edge.js.source.from", Some(source_class.to_string())));
+    }
+    if let Some(source_class) = get_meta(target, "js.source") {
+        extra_meta.push(("edge.js.source.to", Some(source_class.to_string())));
+    }
+    if let Some(container_path) = get_meta(source, "js.container_path") {
+        extra_meta.push(("edge.js.container_path.from", Some(container_path.to_string())));
+    }
+    if let Some(container_path) = get_meta(target, "js.container_path") {
+        extra_meta.push(("edge.js.container_path.to", Some(container_path.to_string())));
+    }
 
     composites.push(build_composite(CompositeConfig {
         kind: "composite.injection_edge_bridge",
@@ -970,6 +996,21 @@ fn unique_values(mut values: Vec<String>) -> Vec<String> {
 
 fn get_meta<'a>(finding: &'a Finding, key: &str) -> Option<&'a str> {
     finding.meta.get(key).map(String::as_str)
+}
+
+fn collect_distinct_meta_values(findings: &[&Finding], key: &str) -> Option<String> {
+    let mut values = findings
+        .iter()
+        .filter_map(|finding| get_meta(finding, key))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    values.sort();
+    values.dedup();
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.join(","))
+    }
 }
 
 fn action_initiation<'a>(finding: &'a Finding) -> Option<&'a str> {

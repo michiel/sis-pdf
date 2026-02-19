@@ -70,6 +70,17 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
     - catalog `/Names -> /JavaScript` name tree values
     - direct catalog JavaScript keys
   - Added mixed-container regression fixture covering open-action, name-tree, annotation, and multi-vector single-object JS surfaces with duplicate-finding guard assertions.
+- Completed: WS2 source-aware correlation enrichment (initial):
+  - `action_chain_malicious` now propagates JS lineage context from participating JS findings:
+    - `js.source_classes`
+    - `js.container_paths`
+    - `js.object_ref_chains`
+  - `composite.injection_edge_bridge` now carries optional JS provenance edge metadata when available:
+    - `edge.js.source.from`
+    - `edge.js.source.to`
+    - `edge.js.container_path.from`
+    - `edge.js.container_path.to`
+  - Added regression assertions for JS lineage propagation in correlation composites.
 
 ## Objective
 

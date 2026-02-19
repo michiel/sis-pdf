@@ -78,14 +78,28 @@ fn correlate_action_chain_malicious() {
     let js = make_finding(
         "embedded_script_present",
         &["10 0 obj"],
-        &[("embedded.filename", "payload.js")],
+        &[
+            ("embedded.filename", "payload.js"),
+            ("js.source", "open_action"),
+            ("js.container_path", "/Catalog/OpenAction/JS"),
+            ("js.object_ref_chain", "10 0 R"),
+        ],
         AttackSurface::EmbeddedFiles,
     );
 
     let config = CorrelationOptions::default();
     let composites =
         correlation::correlate_findings(&[chain.clone(), automatic.clone(), js.clone()], &config);
-    assert!(composites.iter().any(|f| f.kind == "action_chain_malicious"));
+    let composite = composites
+        .iter()
+        .find(|f| f.kind == "action_chain_malicious")
+        .expect("action_chain_malicious composite");
+    assert_eq!(composite.meta.get("js.source_classes").map(String::as_str), Some("open_action"));
+    assert_eq!(
+        composite.meta.get("js.container_paths").map(String::as_str),
+        Some("/Catalog/OpenAction/JS")
+    );
+    assert_eq!(composite.meta.get("js.object_ref_chains").map(String::as_str), Some("10 0 R"));
 }
 
 #[test]

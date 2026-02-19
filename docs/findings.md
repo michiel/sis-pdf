@@ -3541,6 +3541,8 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `edge.shared_objects`: shared object identifiers
     - `edge.stage.from`, `edge.stage.to`: optional stage hints when available
     - `edge.initiation.from`, `edge.initiation.to`: optional initiation hints (`automatic`, `user`, `hidden`)
+    - `edge.js.source.from`, `edge.js.source.to`: optional JS source classes propagated from linked findings
+    - `edge.js.container_path.from`, `edge.js.container_path.to`: optional JS container paths propagated from linked findings
     - `exploit.preconditions`: concise exploit prerequisites
     - `exploit.blockers`: likely controls that block exploitation
     - `exploit.outcomes`: plausible exploit outcomes for the edge
@@ -4526,6 +4528,10 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Relevance: automatic chains are a hallmark of malware.
   - Meaning: combined evidence of chain depth, trigger, and JS increases signal.
   - Chain usage: multi-stage activation without user interaction.
+  - Metadata:
+    - `js.source_classes`: source containers represented in correlated JS findings.
+    - `js.container_paths`: normalised container paths represented in correlated JS findings.
+    - `js.object_ref_chains`: object lineage paths from correlated JS findings.
 
 ## xfa_data_exfiltration_risk
 
