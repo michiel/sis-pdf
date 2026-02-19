@@ -3481,10 +3481,19 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 
 - ID: `composite.resource_external_with_trigger_surface`
 - Label: External resource with trigger surface composite
-- Severity: High
-- Confidence: Strong
-- Description: High-risk external resource references coincide with automatic trigger surfaces.
+- Severity: Medium to High (trigger-path dependent)
+- Confidence: Probable to Strong (trigger-path dependent)
+- Description: High-risk external resource references coincide with automatic or user-triggered action surfaces.
 - Tags: composite, network, actions
+- Details:
+  - Relevance: external-reference risk depends on whether execution is automatic or user-triggered.
+  - Meaning: correlates external reference indicators with trigger findings and classifies trigger-path initiation.
+  - Metadata:
+    - `composite.trigger_path` (`automatic_or_hidden` or `user_only`)
+    - `composite.trigger_automatic_count`
+    - `composite.trigger_user_count`
+    - `composite.trigger_hidden_count`
+    - `composite.trigger_unknown_count`
 
 ## composite.decode_amplification_chain
 
@@ -3527,6 +3536,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `edge.from`, `edge.to`: source and target finding kinds
     - `edge.shared_objects`: shared object identifiers
     - `edge.stage.from`, `edge.stage.to`: optional stage hints when available
+    - `edge.initiation.from`, `edge.initiation.to`: optional initiation hints (`automatic`, `user`, `hidden`)
     - `exploit.preconditions`: concise exploit prerequisites
     - `exploit.blockers`: likely controls that block exploitation
     - `exploit.outcomes`: plausible exploit outcomes for the edge

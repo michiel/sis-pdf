@@ -192,9 +192,46 @@ fn correlate_resource_external_with_trigger_surface() {
     );
     let composites =
         correlation::correlate_findings(&[external, trigger], &CorrelationOptions::default());
-    assert!(composites
+    let composite = composites
         .iter()
-        .any(|f| f.kind == "composite.resource_external_with_trigger_surface"));
+        .find(|f| f.kind == "composite.resource_external_with_trigger_surface")
+        .expect("resource external composite");
+    assert_eq!(composite.severity, Severity::High);
+    assert_eq!(composite.confidence, Confidence::Strong);
+    assert_eq!(
+        composite.meta.get("composite.trigger_path").map(String::as_str),
+        Some("automatic_or_hidden")
+    );
+    assert_eq!(
+        composite.meta.get("composite.trigger_automatic_count").map(String::as_str),
+        Some("1")
+    );
+}
+
+#[test]
+fn correlate_resource_external_with_user_only_trigger_surface() {
+    let external = make_finding(
+        "resource.external_reference_high_risk_scheme",
+        &["61 0 obj"],
+        &[("resource.high_risk_scheme_count", "1")],
+        AttackSurface::Actions,
+    );
+    let trigger = make_finding(
+        "aa_event_present",
+        &["61 0 obj"],
+        &[("action.trigger_type", "user"), ("action.trigger_event", "/K")],
+        AttackSurface::Actions,
+    );
+    let composites =
+        correlation::correlate_findings(&[external, trigger], &CorrelationOptions::default());
+    let composite = composites
+        .iter()
+        .find(|f| f.kind == "composite.resource_external_with_trigger_surface")
+        .expect("resource external composite");
+    assert_eq!(composite.severity, Severity::Medium);
+    assert_eq!(composite.confidence, Confidence::Probable);
+    assert_eq!(composite.meta.get("composite.trigger_path").map(String::as_str), Some("user_only"));
+    assert_eq!(composite.meta.get("composite.trigger_user_count").map(String::as_str), Some("1"));
 }
 
 #[test]
@@ -347,7 +384,11 @@ fn correlate_injection_edge_bridges_for_remote_action_egress() {
     let remote_action = make_finding(
         "action_remote_target_suspicious",
         &["95 0 obj"],
-        &[("chain.stage", "egress"), ("egress.channel", "remote_goto")],
+        &[
+            ("chain.stage", "egress"),
+            ("egress.channel", "remote_goto"),
+            ("action.initiation", "automatic"),
+        ],
         AttackSurface::Actions,
     );
     let composites = correlation::correlate_findings(
@@ -367,6 +408,7 @@ fn correlate_injection_edge_bridges_for_remote_action_egress() {
         bridge.meta.get("edge.to").map(String::as_str),
         Some("action_remote_target_suspicious")
     );
+    assert_eq!(bridge.meta.get("edge.initiation.to").map(String::as_str), Some("automatic"));
     assert_eq!(
         bridge.meta.get("exploit.outcomes").map(String::as_str),
         Some("data_exfiltration; remote_content_retrieval")

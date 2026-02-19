@@ -368,28 +368,56 @@ fn correlate_resource_external_with_trigger_surface(findings: &[Finding]) -> Vec
         .filter(|finding| {
             matches!(
                 finding.kind.as_str(),
-                "action_automatic_trigger" | "passive_render_pipeline_risk_composite"
+                "action_automatic_trigger"
+                    | "open_action_present"
+                    | "action_hidden_trigger"
+                    | "aa_present"
+                    | "aa_event_present"
+                    | "passive_render_pipeline_risk_composite"
             )
         })
         .collect::<Vec<_>>();
     if external.is_empty() || triggers.is_empty() {
         return composites;
     }
+    let automatic_trigger_count =
+        triggers.iter().filter(|finding| trigger_initiation(*finding) == "automatic").count();
+    let user_trigger_count =
+        triggers.iter().filter(|finding| trigger_initiation(*finding) == "user").count();
+    let hidden_trigger_count =
+        triggers.iter().filter(|finding| trigger_initiation(*finding) == "hidden").count();
+    let unknown_trigger_count = triggers
+        .len()
+        .saturating_sub(automatic_trigger_count + user_trigger_count + hidden_trigger_count);
+    let (severity, confidence, trigger_path) = if automatic_trigger_count > 0 {
+        (Severity::High, Confidence::Strong, "automatic_or_hidden")
+    } else {
+        (Severity::Medium, Confidence::Probable, "user_only")
+    };
     let mut sources = Vec::new();
     sources.extend(external.iter().copied());
     sources.extend(triggers.iter().copied());
+    let description = if automatic_trigger_count > 0 {
+        "High-risk external resource references co-occur with automatic trigger surfaces."
+    } else {
+        "High-risk external resource references co-occur with user-triggered action surfaces."
+    };
     composites.push(build_composite(CompositeConfig {
         kind: "composite.resource_external_with_trigger_surface",
         title: "External resource and trigger surface composite",
-        description:
-            "High-risk external resource references co-occur with automatic trigger surfaces.",
+        description,
         surface: AttackSurface::Actions,
-        severity: Severity::High,
-        confidence: Confidence::Strong,
+        severity,
+        confidence,
         sources: &sources,
         extra_meta: vec![
             ("composite.external_signal_count", Some(external.len().to_string())),
             ("composite.trigger_signal_count", Some(triggers.len().to_string())),
+            ("composite.trigger_path", Some(trigger_path.to_string())),
+            ("composite.trigger_automatic_count", Some(automatic_trigger_count.to_string())),
+            ("composite.trigger_user_count", Some(user_trigger_count.to_string())),
+            ("composite.trigger_hidden_count", Some(hidden_trigger_count.to_string())),
+            ("composite.trigger_unknown_count", Some(unknown_trigger_count.to_string())),
         ],
     }));
     composites
@@ -824,6 +852,12 @@ fn maybe_push_edge_composite(
     if let Some(stage) = get_meta(target, "chain.stage") {
         extra_meta.push(("edge.stage.to", Some(stage.to_string())));
     }
+    if let Some(initiation) = action_initiation(source) {
+        extra_meta.push(("edge.initiation.from", Some(initiation.to_string())));
+    }
+    if let Some(initiation) = action_initiation(target) {
+        extra_meta.push(("edge.initiation.to", Some(initiation.to_string())));
+    }
 
     composites.push(build_composite(CompositeConfig {
         kind: "composite.injection_edge_bridge",
@@ -936,6 +970,23 @@ fn unique_values(mut values: Vec<String>) -> Vec<String> {
 
 fn get_meta<'a>(finding: &'a Finding, key: &str) -> Option<&'a str> {
     finding.meta.get(key).map(String::as_str)
+}
+
+fn action_initiation<'a>(finding: &'a Finding) -> Option<&'a str> {
+    get_meta(finding, "action.initiation").or_else(|| get_meta(finding, "action.trigger_type"))
+}
+
+fn trigger_initiation(finding: &Finding) -> &str {
+    if let Some(initiation) = action_initiation(finding) {
+        return initiation;
+    }
+    match finding.kind.as_str() {
+        "action_automatic_trigger" | "open_action_present" => "automatic",
+        "action_hidden_trigger" => "hidden",
+        "aa_event_present" => "user",
+        "aa_present" => "unknown",
+        _ => "unknown",
+    }
 }
 
 fn parse_float(value: Option<&str>) -> Option<f64> {

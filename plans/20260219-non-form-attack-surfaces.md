@@ -39,6 +39,17 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
     - `chain.capability=action_trigger_chain`
     - context-derived `chain.trigger` (`open_action`, `additional_action`)
   - Added detector integration coverage for OpenAction and AA event metadata invariants.
+- Completed: WS1 initiation-aware correlation quality uplift (initial):
+  - `composite.resource_external_with_trigger_surface` now classifies trigger initiation path:
+    - `composite.trigger_path` (`automatic_or_hidden`, `user_only`)
+    - initiation counters (`composite.trigger_automatic_count`, `composite.trigger_user_count`, `composite.trigger_hidden_count`, `composite.trigger_unknown_count`)
+  - Severity/confidence guardrails are now initiation-aware:
+    - automatic/hidden trigger presence: `High` + `Strong`
+    - user-only trigger paths: `Medium` + `Probable`
+  - `composite.injection_edge_bridge` now includes optional edge initiation metadata:
+    - `edge.initiation.from`
+    - `edge.initiation.to`
+  - Added regression assertions for initiation-aware correlation metadata and severity/confidence behaviour.
 
 ## Objective
 
