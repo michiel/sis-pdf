@@ -359,24 +359,40 @@ pub fn build_event_graph(
                     kind: EventEdgeKind::ProducesOutcome,
                     provenance: EdgeProvenance::Finding { finding_id: finding.id.clone() },
                     metadata: Some(EdgeMetadata {
-                        event_key: finding.meta.get("action.event_key").cloned(),
+                        event_key: finding
+                            .meta
+                            .get("action.event_key")
+                            .cloned()
+                            .or_else(|| {
+                                finding.meta.get("action.trigger_event_normalised").cloned()
+                            })
+                            .or_else(|| finding.meta.get("action.trigger_event").cloned()),
                         branch_index: None,
-                        initiation: finding.action_initiation.clone(),
+                        initiation: finding_initiation(finding),
                     }),
                 });
             }
             if let Some(event_ids) = object_events.get(&(obj, gen)) {
                 for event_id in event_ids {
-                    let initiation = event_trigger_by_id
-                        .get(event_id)
-                        .map(|trigger| trigger.as_str().to_string());
+                    let initiation = finding_initiation(finding).or_else(|| {
+                        event_trigger_by_id
+                            .get(event_id)
+                            .map(|trigger| trigger.as_str().to_string())
+                    });
                     edges.push(EventEdge {
                         from: event_id.clone(),
                         to: id.clone(),
                         kind: EventEdgeKind::ProducesOutcome,
                         provenance: EdgeProvenance::Finding { finding_id: finding.id.clone() },
                         metadata: Some(EdgeMetadata {
-                            event_key: finding.meta.get("action.event_key").cloned(),
+                            event_key: finding
+                                .meta
+                                .get("action.event_key")
+                                .cloned()
+                                .or_else(|| {
+                                    finding.meta.get("action.trigger_event_normalised").cloned()
+                                })
+                                .or_else(|| finding.meta.get("action.trigger_event").cloned()),
                             branch_index: None,
                             initiation,
                         }),
@@ -399,7 +415,10 @@ pub fn build_event_graph(
         let base_ref = refs[0];
         let id = format!(
             "ev:{}:{}:{:?}:{}",
-            base_ref.0, base_ref.1, EventType::JsTimerDelayed, event_counter
+            base_ref.0,
+            base_ref.1,
+            EventType::JsTimerDelayed,
+            event_counter
         );
         event_counter += 1;
         nodes.push(EventNode {
@@ -430,7 +449,10 @@ pub fn build_event_graph(
         }
         let id = format!(
             "ev:{}:{}:{:?}:{}",
-            edge.src.0, edge.src.1, EventType::ContentStreamExec, event_counter
+            edge.src.0,
+            edge.src.1,
+            EventType::ContentStreamExec,
+            event_counter
         );
         event_counter += 1;
         nodes.push(EventNode {
@@ -684,7 +706,10 @@ fn infer_outcome_from_finding(
     if kind.starts_with("embedded_file") || kind.starts_with("embedded_payload") {
         return Some((OutcomeType::EmbeddedPayload, "Embedded payload".to_string()));
     }
-    if kind.starts_with("file_write") || kind.starts_with("filesystem") || kind.starts_with("dropper") {
+    if kind.starts_with("file_write")
+        || kind.starts_with("filesystem")
+        || kind.starts_with("dropper")
+    {
         return Some((OutcomeType::FilesystemWrite, "Filesystem write".to_string()));
     }
 
@@ -716,6 +741,14 @@ fn infer_outcome_from_finding(
         }
     }
     None
+}
+
+fn finding_initiation(finding: &Finding) -> Option<String> {
+    finding
+        .action_initiation
+        .clone()
+        .or_else(|| finding.meta.get("action.initiation").cloned())
+        .or_else(|| finding.meta.get("action.trigger_type").cloned())
 }
 
 fn confidence_to_score(confidence: crate::model::Confidence) -> u8 {
@@ -1508,9 +1541,7 @@ mod tests {
         // edge to obj:6:0 — so 2 total. Within each component, duplicates are deduplicated.
         let collapsed_to_active = edges
             .iter()
-            .filter(|e| {
-                e.kind == EventEdgeKind::CollapsedStructural && e.to == "obj:6:0"
-            })
+            .filter(|e| e.kind == EventEdgeKind::CollapsedStructural && e.to == "obj:6:0")
             .count();
         assert_eq!(collapsed_to_active, 2, "one CollapsedStructural per component to active obj");
 
@@ -1525,18 +1556,16 @@ mod tests {
         // Chain: event -> obj:1 -> obj:2 -> obj:3 -> obj:4 -> obj:5
         // obj:1 at depth 0, obj:2 at 1, obj:3 at 2, obj:4 at 3 (active boundary).
         // obj:5 at depth 4 should be collapsed.
-        let mut nodes = vec![
-            EventNode {
-                id: "ev:1:0:DocumentOpen:0".into(),
-                mitre_techniques: Vec::new(),
-                kind: EventNodeKind::Event {
-                    event_type: EventType::DocumentOpen,
-                    trigger: TriggerClass::Automatic,
-                    label: "Open".into(),
-                    source_obj: Some((1, 0)),
-                },
+        let mut nodes = vec![EventNode {
+            id: "ev:1:0:DocumentOpen:0".into(),
+            mitre_techniques: Vec::new(),
+            kind: EventNodeKind::Event {
+                event_type: EventType::DocumentOpen,
+                trigger: TriggerClass::Automatic,
+                label: "Open".into(),
+                source_obj: Some((1, 0)),
             },
-        ];
+        }];
         for i in 1..=5u32 {
             nodes.push(EventNode {
                 id: format!("obj:{i}:0"),

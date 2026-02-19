@@ -50,6 +50,14 @@ Related: `plans/20260219-detection-uplift.md` (form-focused phase)
     - `edge.initiation.from`
     - `edge.initiation.to`
   - Added regression assertions for initiation-aware correlation metadata and severity/confidence behaviour.
+- Completed: WS1 event-graph initiation propagation uplift (initial):
+  - Finding-provenance outcome edges in `event_graph` now fall back to trigger metadata when `action_initiation` is unset:
+    - `action.initiation`
+    - `action.trigger_type`
+  - Finding-provenance edge metadata now also falls back to trigger event metadata:
+    - `action.trigger_event_normalised`
+    - `action.trigger_event`
+  - Added regression coverage ensuring finding-produced outcome edges preserve user-trigger initiation semantics for `/AA` event findings.
 
 ## Objective
 

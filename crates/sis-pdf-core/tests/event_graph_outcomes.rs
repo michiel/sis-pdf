@@ -205,6 +205,39 @@ fn next_action_array_edges_include_branch_index_and_initiation_metadata() {
 }
 
 #[test]
+fn finding_outcome_edges_fallback_to_trigger_type_initiation() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /AA << /K 4 0 R >> >>\nendobj\n".to_string(),
+        "4 0 obj\n<< /Type /Action /S /URI /URI (https://example.test/key) >>\nendobj\n"
+            .to_string(),
+    ];
+    let bytes = build_pdf(&objects, 6);
+    let event_graph = event_graph_for_pdf(&bytes);
+
+    let mut finding_edge_initiations = Vec::new();
+    for edge in &event_graph.edges {
+        if edge.kind != EventEdgeKind::ProducesOutcome {
+            continue;
+        }
+        let EdgeProvenance::Finding { .. } = &edge.provenance else {
+            continue;
+        };
+        if let Some(metadata) = &edge.metadata {
+            if let Some(initiation) = &metadata.initiation {
+                finding_edge_initiations.push(initiation.clone());
+            }
+        }
+    }
+
+    assert!(
+        finding_edge_initiations.iter().any(|value| value == "user"),
+        "expected finding-provenance outcome initiation to fallback to action.trigger_type=user"
+    );
+}
+
+#[test]
 fn test_circular_next_terminates() {
     // Objects 3 and 4 form a /Next cycle: 3 -> 4 -> 3
     let objects = vec![
@@ -233,7 +266,10 @@ fn test_circular_next_terminates() {
         .count();
     // With cycle detection, we should have at most 2 NextAction events (3->4 and 4->3),
     // and the graph should not hang
-    assert!(next_action_count <= 2, "expected at most 2 NextAction events, got {next_action_count}");
+    assert!(
+        next_action_count <= 2,
+        "expected at most 2 NextAction events, got {next_action_count}"
+    );
 }
 
 #[test]
@@ -244,13 +280,14 @@ fn test_per_component_collapse() {
         "2 0 obj\n<< /Type /Pages /Count 0 /Kids [7 0 R] >>\nendobj\n".to_string(),
         "3 0 obj\n<< /Type /Action /S /URI /URI (https://test.example) >>\nendobj\n".to_string(),
         // Disconnected passive cluster 1
-        "7 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 8 0 R >> >> >>\nendobj\n".to_string(),
+        "7 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 8 0 R >> >> >>\nendobj\n"
+            .to_string(),
         "8 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n".to_string(),
     ];
     let bytes = build_pdf(&objects, 9);
     let event_graph = event_graph_for_pdf(&bytes);
 
-    let collapse_count = event_graph
+    let _collapse_count = event_graph
         .nodes
         .iter()
         .filter(|n| matches!(n.kind, EventNodeKind::Collapse { .. }))
@@ -306,10 +343,7 @@ fn test_content_stream_exec_event() {
     let event_graph = event_graph_for_pdf(&bytes);
 
     let has_content_stream_exec = event_graph.nodes.iter().any(|node| {
-        matches!(
-            &node.kind,
-            EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. }
-        )
+        matches!(&node.kind, EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. })
     });
     assert!(has_content_stream_exec, "should have ContentStreamExec event for page with /Contents");
 }
