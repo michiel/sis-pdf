@@ -405,6 +405,34 @@ Baseline tests:
 
 Record deltas (new findings, severity/confidence changes, runtime shifts) in this plan as workstreams complete.
 
+## Baseline validation snapshot (2026-02-19)
+
+Executed:
+1. `cargo test -p sis-pdf-detectors`
+2. `cargo test -p sis-pdf-core`
+3. `cargo test -p sis-pdf-core --test corpus_captured_regressions`
+4. `cargo run -p sis-pdf --bin sis -- scan crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf --deep --runtime-profile --runtime-profile-format json`
+
+Observed deltas:
+- Detector-suite failure:
+  - `crates/sis-pdf-detectors/tests/js_sandbox_integration.rs`
+  - `sandbox_emulation_breakpoint_tracks_loop_iteration_limit_bucket`
+  - assertion mismatch on expected loop-iteration bucket metadata (`loop_iteration_limit`).
+- Core-suite and targeted corpus regression failure:
+  - `crates/sis-pdf-core/tests/corpus_captured_regressions.rs`
+  - `corpus_captured_noisy_likely_noise_bucket_stays_stable`
+  - expected `content_stream_anomaly` finding absent.
+- Runtime profile command succeeded:
+  - `total_duration_ms=16`
+  - parse phase: `0 ms`
+  - detection phase: `4 ms` (`25.0%`)
+  - findings summary: `total=12` (`High=2`, `Medium=4`, `Low=4`, `Info=2`)
+  - correlation signal note: `composite.graph_evasion_with_execute` present in output.
+
+Immediate follow-up:
+- Triage and stabilise the two failing baseline tests before using these results as the phase completion gate.
+- Preserve the runtime profile output above as the current Stage-0.5 reference point for this workstream sequence.
+
 ## Risks and mitigations
 
 - Risk: finding volume growth and analyst noise.
