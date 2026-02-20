@@ -280,9 +280,6 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Background
     painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(30, 30, 35));
-    if app.graph_state.mode == GraphViewMode::StagedDag {
-        draw_staged_lanes(&painter, rect);
-    }
 
     // Show layout progress if still running
     if is_layout_running {
@@ -308,6 +305,10 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         let gy = (sy as f64 - rect.center().y as f64) / zoom + WORLD_CENTRE_Y - pan[1];
         (gx, gy)
     };
+
+    if app.graph_state.mode == GraphViewMode::StagedDag {
+        draw_staged_lanes(&painter, rect, &to_screen);
+    }
 
     let dim_non_chain = selected_chain.is_some() && app.graph_state.chain_filter;
 
@@ -920,17 +921,25 @@ fn annotate_reader_profiles(graph: &mut GraphData, findings: &[sis_pdf_core::mod
     }
 }
 
-fn draw_staged_lanes(painter: &egui::Painter, rect: egui::Rect) {
+fn draw_staged_lanes(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    to_screen: &dyn Fn(f64, f64) -> egui::Pos2,
+) {
     let labels = ["INPUT", "DECODE", "RENDER", "EXECUTE", "EGRESS"];
-    let lane_w = rect.width() / labels.len() as f32;
+    // Staged DAG layout is anchored to world coordinates in [0, 800]x[0, 600].
+    let lane_w = 800.0 / labels.len() as f64;
     for (idx, label) in labels.iter().enumerate() {
-        let x = rect.left() + lane_w * idx as f32;
+        let x = lane_w * idx as f64;
+        let line_top = to_screen(x, 0.0);
+        let line_bottom = to_screen(x, 600.0);
         painter.line_segment(
-            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+            [egui::pos2(line_top.x, rect.top()), egui::pos2(line_bottom.x, rect.bottom())],
             egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(180, 180, 180, 40)),
         );
+        let label_pos = to_screen(x + lane_w * 0.5, 0.0);
         painter.text(
-            egui::pos2(x + lane_w * 0.5, rect.top() + 6.0),
+            egui::pos2(label_pos.x, rect.top() + 6.0),
             egui::Align2::CENTER_TOP,
             *label,
             egui::FontId::proportional(11.0),
