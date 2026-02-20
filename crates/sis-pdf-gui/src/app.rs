@@ -1,6 +1,6 @@
 use crate::analysis::{AnalysisError, AnalysisResult, WorkerAnalysisResult};
 use crate::annotations::{sha256_hex, AnnotationStore};
-use crate::image_preview::ImagePreviewStatus;
+use crate::image_preview::{build_preview_for_object, ImagePreviewStatus, PreviewLimits};
 use crate::preview_cache::PreviewCache;
 use crate::telemetry::TelemetryLog;
 use crate::window_state::WindowMaxState;
@@ -862,6 +862,7 @@ impl SisApp {
         let result = self.result.as_ref()?;
         let idx = *result.object_data.index.get(&(obj, gen))?;
         let object = result.object_data.objects.get(idx)?;
+        let preview = build_preview_for_object(&result.bytes, obj, gen, PreviewLimits::default());
         Some(ImagePreviewDialogData {
             obj: object.obj,
             gen: object.gen,
@@ -872,11 +873,14 @@ impl SisApp {
             image_height: object.image_height,
             image_bits: object.image_bits,
             image_color_space: object.image_color_space.clone(),
-            image_preview: object.image_preview.clone(),
-            preview_source: object.preview_source.clone(),
-            image_preview_summary: object.preview_summary.clone(),
-            image_preview_status: object.image_preview_status.clone(),
-            preview_statuses: object.preview_statuses.clone(),
+            image_preview: preview.as_ref().and_then(|built| built.preview.clone()),
+            preview_source: preview.as_ref().and_then(|built| built.source_used.clone()),
+            image_preview_summary: preview.as_ref().map(|built| built.summary.clone()),
+            image_preview_status: preview.as_ref().map(|built| built.summary.clone()),
+            preview_statuses: preview
+                .as_ref()
+                .map(|built| built.statuses.clone())
+                .unwrap_or_default(),
         })
     }
 

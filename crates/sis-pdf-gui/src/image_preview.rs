@@ -1,6 +1,6 @@
 use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
 use sis_pdf_pdf::decode::decode_stream;
-use sis_pdf_pdf::graph::ObjectGraph;
+use sis_pdf_pdf::graph::{ObjectGraph, ParseOptions};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfStream};
 use std::time::Instant;
 
@@ -66,6 +66,31 @@ pub struct PreviewBuildResult {
     pub statuses: Vec<ImagePreviewStatus>,
     pub summary: String,
     pub source_used: Option<String>,
+}
+
+pub fn build_preview_for_object(
+    bytes: &[u8],
+    obj: u32,
+    gen: u16,
+    limits: PreviewLimits,
+) -> Option<PreviewBuildResult> {
+    let parse_opts = ParseOptions {
+        recover_xref: true,
+        deep: false,
+        strict: false,
+        max_objstm_bytes: limits.max_stream_decode_bytes,
+        max_objects: 250_000,
+        max_objstm_total_bytes: limits.max_stream_decode_bytes.saturating_mul(4),
+        carve_stream_objects: false,
+        max_carved_objects: 0,
+        max_carved_bytes: 0,
+    };
+    let graph = sis_pdf_pdf::graph::parse_pdf(bytes, parse_opts).ok()?;
+    let entry = graph.objects.iter().find(|entry| entry.obj == obj && entry.gen == gen)?;
+    let PdfAtom::Stream(stream) = &entry.atom else {
+        return None;
+    };
+    Some(build_preview_for_stream(bytes, stream, &graph, limits, None))
 }
 
 pub fn build_preview_for_stream(

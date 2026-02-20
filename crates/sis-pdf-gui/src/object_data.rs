@@ -18,7 +18,8 @@ pub struct ObjectExtractOptions {
 }
 
 impl ObjectExtractOptions {
-    pub const FULL: Self = Self { include_decoded_stream_bytes: true, include_image_preview: true };
+    pub const FULL: Self =
+        Self { include_decoded_stream_bytes: true, include_image_preview: false };
     pub const WORKER_COMPACT: Self =
         Self { include_decoded_stream_bytes: false, include_image_preview: false };
 }
