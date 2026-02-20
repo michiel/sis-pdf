@@ -1,5 +1,6 @@
 use crate::app::{HexSource, SisApp};
 use crate::hex_format;
+use sis_pdf_core::model::EvidenceSource;
 
 pub fn show(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_hex;
@@ -71,12 +72,24 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
             }
         });
     }
+    if let Some(jump) = app.hex_view.jump_to.as_ref() {
+        let source_label = match jump.source {
+            EvidenceSource::File => "File",
+            EvidenceSource::Decoded => "Decoded",
+        };
+        ui.label(format!(
+            "Jump target: 0x{:X} ({} bytes, source: {})",
+            jump.offset, jump.length, source_label
+        ));
+    }
 
     ui.separator();
 
     // Render hex view with virtual scrolling
     let total_lines = hex_format::line_count(data.len());
     let line_height = 16.0;
+    let jump_row = app.hex_view.jump_to.as_ref().map(|jump| (jump.offset as usize) / 16);
+    let mut consumed_jump = false;
 
     egui::ScrollArea::vertical().id_salt("hex_viewer_scroll").show_rows(
         ui,
@@ -103,11 +116,22 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
                 if has_highlight {
                     let text = egui::RichText::new(&line)
                         .background_color(egui::Color32::from_rgba_premultiplied(255, 200, 0, 40));
-                    ui.label(text);
+                    let response = ui.label(text);
+                    if !consumed_jump && jump_row == Some(row) {
+                        ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
+                        consumed_jump = true;
+                    }
                 } else {
-                    ui.label(&line);
+                    let response = ui.label(&line);
+                    if !consumed_jump && jump_row == Some(row) {
+                        ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
+                        consumed_jump = true;
+                    }
                 }
             }
         },
     );
+    if consumed_jump {
+        app.hex_view.jump_to = None;
+    }
 }

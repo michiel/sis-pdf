@@ -3,6 +3,7 @@ use crate::telemetry::TelemetryLog;
 use crate::window_state::WindowMaxState;
 use crate::workspace::{self, WorkspaceContext};
 use sis_pdf_core::event_graph::EventGraph;
+use sis_pdf_core::model::EvidenceSource;
 #[cfg(target_arch = "wasm32")]
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -197,6 +198,7 @@ pub enum ChainSortColumn {
 pub struct HexViewState {
     pub source: HexSource,
     pub highlights: Vec<HexHighlight>,
+    pub jump_to: Option<HexJumpTarget>,
 }
 
 /// Data source for the hex viewer.
@@ -216,6 +218,12 @@ pub struct HexHighlight {
     pub length: usize,
     pub color: egui::Color32,
     pub label: String,
+}
+
+pub struct HexJumpTarget {
+    pub offset: u64,
+    pub length: u32,
+    pub source: EvidenceSource,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -678,7 +686,13 @@ impl SisApp {
     }
 
     /// Open the hex viewer showing file bytes with an evidence highlight.
-    pub fn open_hex_at_evidence(&mut self, offset: u64, length: u32, label: String) {
+    pub fn open_hex_at_evidence(
+        &mut self,
+        offset: u64,
+        length: u32,
+        source: EvidenceSource,
+        label: String,
+    ) {
         self.hex_view = HexViewState {
             source: HexSource::File,
             highlights: vec![HexHighlight {
@@ -687,14 +701,18 @@ impl SisApp {
                 color: egui::Color32::from_rgba_premultiplied(255, 200, 0, 80),
                 label,
             }],
+            jump_to: Some(HexJumpTarget { offset, length, source }),
         };
         self.show_hex = true;
     }
 
     /// Open the hex viewer showing a stream's raw bytes.
     pub fn open_hex_for_stream(&mut self, obj: u32, gen: u16) {
-        self.hex_view =
-            HexViewState { source: HexSource::Stream { obj, gen }, highlights: Vec::new() };
+        self.hex_view = HexViewState {
+            source: HexSource::Stream { obj, gen },
+            highlights: Vec::new(),
+            jump_to: None,
+        };
         self.show_hex = true;
     }
 

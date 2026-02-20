@@ -1,9 +1,11 @@
+use sis_pdf_core::model::Severity;
 use sis_pdf_core::report::Report;
 use sis_pdf_core::runner::run_scan_with_detectors;
 use sis_pdf_core::scan::{
     CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat, ScanOptions,
 };
 use sis_pdf_pdf::graph::ParseOptions;
+use std::collections::HashMap;
 
 use crate::object_data::{self, ObjectData, ObjectExtractOptions};
 
@@ -18,6 +20,7 @@ const MAX_RECURSION_DEPTH: usize = 50;
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct AnalysisResult {
     pub report: Report,
+    pub object_severity_index: HashMap<(u32, u16), (Severity, usize)>,
     pub object_data: ObjectData,
     pub bytes: Vec<u8>,
     pub file_name: String,
@@ -69,6 +72,7 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
 
     let report = run_scan_with_detectors(bytes, options, &detectors)
         .map_err(|e| AnalysisError::ScanFailed(e.to_string()))?;
+    let object_severity_index = build_object_severity_index(&report);
 
     // Re-parse to extract owned object data for the Object Inspector.
     // The ObjectGraph borrows bytes and cannot be stored, so we extract
@@ -79,6 +83,7 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
 
     Ok(AnalysisResult {
         report,
+        object_severity_index,
         object_data,
         bytes: bytes.to_vec(),
         file_name: file_name.to_string(),
@@ -116,6 +121,7 @@ pub fn worker_result_into_analysis(worker: WorkerAnalysisResult, bytes: Vec<u8>)
     let mut object_data = worker.object_data;
     object_data.rebuild_index();
     AnalysisResult {
+        object_severity_index: build_object_severity_index(&worker.report),
         report: worker.report,
         object_data,
         bytes,
@@ -214,10 +220,46 @@ fn count_pages(object_data: &ObjectData) -> usize {
     object_data.objects.iter().filter(|o| o.obj_type == "page").count()
 }
 
+fn build_object_severity_index(report: &Report) -> HashMap<(u32, u16), (Severity, usize)> {
+    let mut index: HashMap<(u32, u16), (Severity, usize)> = HashMap::new();
+    for finding in &report.findings {
+        for object in &finding.objects {
+            if let Some((obj, gen)) = parse_object_ref(object) {
+                index
+                    .entry((obj, gen))
+                    .and_modify(|(severity, count)| {
+                        if *severity < finding.severity {
+                            *severity = finding.severity;
+                        }
+                        *count += 1;
+                    })
+                    .or_insert((finding.severity, 1));
+            }
+        }
+    }
+    index
+}
+
+fn parse_object_ref(value: &str) -> Option<(u32, u16)> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    for idx in 0..parts.len().saturating_sub(1) {
+        let obj = parts[idx].parse::<u32>().ok();
+        let gen = parts[idx + 1].parse::<u16>().ok();
+        if let (Some(obj), Some(gen)) = (obj, gen) {
+            return Some((obj, gen));
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::object_data::{extract_object_data_with_options, ObjectExtractOptions};
+    use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 
     #[test]
     fn rejects_oversized_file() {
@@ -375,5 +417,45 @@ mod tests {
         );
         bytes.extend_from_slice(trailer.as_bytes());
         bytes
+    }
+
+    #[test]
+    fn object_severity_index_tracks_max_severity_and_count() {
+        let mut low = Finding::template(
+            AttackSurface::Actions,
+            "low_finding",
+            Severity::Low,
+            Confidence::Strong,
+            "low",
+            "low",
+        );
+        low.objects = vec!["5 0 obj".into()];
+
+        let mut high = Finding::template(
+            AttackSurface::JavaScript,
+            "high_finding",
+            Severity::High,
+            Confidence::Strong,
+            "high",
+            "high",
+        );
+        high.objects = vec!["5 0 obj".into(), "9 0 obj".into()];
+
+        let report = Report::from_findings(
+            vec![low, high],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+        );
+        let index = build_object_severity_index(&report);
+        assert_eq!(index.get(&(5, 0)), Some(&(Severity::High, 2)));
+        assert_eq!(index.get(&(9, 0)), Some(&(Severity::High, 1)));
     }
 }

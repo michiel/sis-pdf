@@ -1,6 +1,7 @@
 use crate::app::SisApp;
 use crate::hex_format;
 use egui_extras::{Column, TableBuilder};
+use sis_pdf_core::model::Severity;
 
 pub fn show(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_objects;
@@ -179,16 +180,33 @@ fn show_object_list(ui: &mut egui::Ui, app: &mut SisApp, filtered: &[usize]) {
                 let is_selected = selected == Some((obj_num, gen_num));
 
                 row.col(|ui| {
-                    let label = format!("{} {}", obj_num, gen_num);
-                    if ui.selectable_label(is_selected, label).clicked() {
-                        app.navigate_to_object(obj_num, gen_num);
-                    }
+                    ui.horizontal(|ui| {
+                        if let Some((severity, finding_count)) =
+                            result.object_severity_index.get(&(obj_num, gen_num))
+                        {
+                            let colour = severity_dot_colour(*severity);
+                            ui.colored_label(colour, "●");
+                            ui.small(format!("({finding_count})"));
+                        }
+                        let label = format!("{} {}", obj_num, gen_num);
+                        if ui.selectable_label(is_selected, label).clicked() {
+                            app.navigate_to_object(obj_num, gen_num);
+                        }
+                    });
                 });
                 row.col(|ui| {
                     ui.label(obj_type);
                 });
             });
         });
+}
+
+fn severity_dot_colour(severity: Severity) -> egui::Color32 {
+    match severity {
+        Severity::Critical | Severity::High => egui::Color32::from_rgb(200, 40, 40),
+        Severity::Medium => egui::Color32::from_rgb(210, 125, 40),
+        Severity::Low | Severity::Info => egui::Color32::from_rgb(140, 140, 140),
+    }
 }
 
 fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(usize, String)]) {

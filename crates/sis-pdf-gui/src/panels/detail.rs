@@ -1,5 +1,6 @@
 use crate::app::SisApp;
 use sis_pdf_core::event_graph::{EventGraph, EventNodeKind};
+use sis_pdf_core::model::EvidenceSource;
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
@@ -64,7 +65,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             note: ev.note.clone(),
             offset: ev.offset,
             length: ev.length,
-            is_file_source: matches!(ev.source, sis_pdf_core::model::EvidenceSource::File),
+            source: ev.source.clone(),
         })
         .collect();
     let reader_impacts: Vec<ReaderImpactDisplay> = f
@@ -177,10 +178,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                         ui.group(|ui| {
                             ui.horizontal(|ui| {
                                 ui.label(&ev.info);
-                                if ev.is_file_source
-                                    && ev.length > 0
-                                    && ui.small_button("View hex").clicked()
-                                {
+                                if ev.length > 0 && ui.small_button("View hex").clicked() {
                                     let label = ev
                                         .note
                                         .as_deref()
@@ -188,7 +186,12 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                                         .chars()
                                         .take(40)
                                         .collect::<String>();
-                                    app.open_hex_at_evidence(ev.offset, ev.length, label);
+                                    app.open_hex_at_evidence(
+                                        ev.offset,
+                                        ev.length,
+                                        ev.source.clone(),
+                                        label,
+                                    );
                                 }
                             });
                             if let Some(ref n) = ev.note {
@@ -367,7 +370,7 @@ struct EvidenceDisplay {
     note: Option<String>,
     offset: u64,
     length: u32,
-    is_file_source: bool,
+    source: EvidenceSource,
 }
 
 struct ReaderImpactDisplay {
