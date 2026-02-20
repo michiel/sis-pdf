@@ -17,6 +17,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         if ui.selectable_label(app.show_metadata, "Metadata").clicked() {
             app.show_metadata = !app.show_metadata;
         }
+        if ui.selectable_label(app.show_revision, "Revisions").clicked() {
+            app.show_revision = !app.show_revision;
+        }
 
         if ui.selectable_label(app.show_objects, "Objects").clicked() {
             app.show_objects = !app.show_objects;

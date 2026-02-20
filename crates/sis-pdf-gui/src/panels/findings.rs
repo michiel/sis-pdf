@@ -1,6 +1,8 @@
+use crate::annotations::{Annotation, TriageState};
 use crate::app::{SisApp, SortColumn};
 use egui_extras::{Column, TableBuilder};
 use sis_pdf_core::model::{Confidence, Severity};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_findings;
@@ -172,6 +174,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         .striped(true)
         .resizable(true)
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+        .column(Column::initial(28.0).at_least(24.0)) // Annotation
         .column(Column::initial(70.0).at_least(50.0)) // Severity
         .column(Column::initial(80.0).at_least(50.0)) // Confidence
         .column(Column::initial(200.0).at_least(80.0)) // Kind
@@ -180,6 +183,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         .min_scrolled_height(0.0)
         .max_scroll_height(available.y - 40.0)
         .header(20.0, |mut header| {
+            header.col(|ui| {
+                ui.label("A");
+            });
             header.col(|ui| {
                 if ui
                     .selectable_label(app.sort.column == SortColumn::Severity, "Severity")
@@ -216,7 +222,20 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 let idx = sorted[row.index()];
                 let f = &findings[idx];
                 let selected = app.selected_finding == Some(idx);
+                let finding_id = f.id.clone();
+                let current_triage = app
+                    .annotations
+                    .get(&finding_id)
+                    .map(|annotation| annotation.triage_state.clone())
+                    .unwrap_or(TriageState::Pending);
 
+                row.col(|ui| {
+                    let dot = triage_dot(current_triage.clone());
+                    let response = ui.add(egui::Button::new(dot).small());
+                    if response.clicked() {
+                        app.annotation_edit_finding = Some(finding_id.clone());
+                    }
+                });
                 row.col(|ui| {
                     let label = egui::RichText::new(severity_label(&f.severity))
                         .color(severity_colour(&f.severity));
@@ -238,6 +257,10 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 });
             });
         });
+
+    if let Some(finding_id) = app.annotation_edit_finding.clone() {
+        show_annotation_editor(ui, app, &finding_id);
+    }
 }
 
 fn toggle_sort(sort: &mut crate::app::SortState, column: SortColumn) {
@@ -315,6 +338,65 @@ fn confidence_threshold_label(level: u8) -> &'static str {
         4 => "Weak+",
         _ => "Heuristic+",
     }
+}
+
+fn triage_dot(state: TriageState) -> egui::RichText {
+    match state {
+        TriageState::Confirmed => egui::RichText::new("●").color(egui::Color32::GREEN),
+        TriageState::FalsePositive => egui::RichText::new("●").color(egui::Color32::RED),
+        TriageState::Mitigated => {
+            egui::RichText::new("●").color(egui::Color32::from_rgb(80, 150, 230))
+        }
+        TriageState::Pending => egui::RichText::new("○").color(egui::Color32::YELLOW),
+    }
+}
+
+fn show_annotation_editor(ui: &mut egui::Ui, app: &mut SisApp, finding_id: &str) {
+    let mut annotation = app.annotations.get(finding_id).cloned().unwrap_or(Annotation {
+        finding_id: finding_id.to_string(),
+        note: String::new(),
+        triage_state: TriageState::Pending,
+        timestamp_unix: 0,
+    });
+    ui.separator();
+    ui.group(|ui| {
+        ui.strong(format!("Annotation: {}", finding_id));
+        egui::ComboBox::from_id_salt("triage_state")
+            .selected_text(format!("{:?}", annotation.triage_state))
+            .show_ui(ui, |ui| {
+                for state in [
+                    TriageState::Pending,
+                    TriageState::Confirmed,
+                    TriageState::FalsePositive,
+                    TriageState::Mitigated,
+                ] {
+                    let selected = annotation.triage_state == state;
+                    if ui.selectable_label(selected, format!("{:?}", state)).clicked() {
+                        annotation.triage_state = state;
+                    }
+                }
+            });
+        ui.add(egui::TextEdit::multiline(&mut annotation.note).desired_rows(3));
+        ui.horizontal(|ui| {
+            if ui.button("Save").clicked() {
+                annotation.timestamp_unix = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|duration| duration.as_secs())
+                    .unwrap_or(0);
+                app.annotations.upsert(annotation);
+                app.persist_annotations();
+                app.annotation_edit_finding = None;
+            }
+            if ui.button("Clear").clicked() {
+                app.annotations.remove(finding_id);
+                app.persist_annotations();
+                app.annotation_edit_finding = None;
+            }
+            if ui.button("Close").clicked() {
+                app.annotation_edit_finding = None;
+            }
+        });
+    });
 }
 
 fn surface_label(s: &sis_pdf_core::model::AttackSurface) -> &'static str {

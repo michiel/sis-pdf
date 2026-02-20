@@ -1,4 +1,5 @@
 use crate::analysis::{AnalysisError, AnalysisResult, WorkerAnalysisResult};
+use crate::annotations::{sha256_hex, AnnotationStore};
 use crate::telemetry::TelemetryLog;
 use crate::window_state::WindowMaxState;
 use crate::workspace::{self, WorkspaceContext};
@@ -28,6 +29,8 @@ pub struct SisApp {
     pub show_chains: bool,
     /// Whether to show the metadata floating window.
     pub show_metadata: bool,
+    /// Whether to show the revision timeline floating window.
+    pub show_revision: bool,
     /// Whether to show the Object Inspector floating window.
     pub show_objects: bool,
     /// Currently selected object in the Object Inspector.
@@ -84,6 +87,14 @@ pub struct SisApp {
     pub include_singleton_chains: bool,
     /// Cached event-graph state for finding detail path rendering.
     pub finding_detail_graph_cache: Option<FindingDetailGraphCache>,
+    /// Active native file path for sidecar annotation persistence.
+    pub active_file_path: Option<PathBuf>,
+    /// Pending file path for the next analysis transition.
+    pub pending_file_path: Option<PathBuf>,
+    /// Analyst annotations for the active document.
+    pub annotations: AnnotationStore,
+    /// Finding id currently being edited for annotations.
+    pub annotation_edit_finding: Option<String>,
 
     // --- Multi-tab state ---
     /// Inactive workspaces (all tabs except the active one).
@@ -247,6 +258,7 @@ impl SisApp {
             show_findings: true,
             show_chains: false,
             show_metadata: false,
+            show_revision: false,
             show_objects: false,
             selected_object: None,
             object_type_filter: None,
@@ -275,6 +287,10 @@ impl SisApp {
             selected_chain: None,
             include_singleton_chains: false,
             finding_detail_graph_cache: None,
+            active_file_path: None,
+            pending_file_path: None,
+            annotations: AnnotationStore::default(),
+            annotation_edit_finding: None,
             inactive_workspaces: Vec::new(),
             active_tab: 0,
             tab_count: 0,
@@ -299,6 +315,7 @@ impl SisApp {
     /// so the progress spinner has a chance to render.
     pub fn handle_file_drop(&mut self, name: String, bytes: &[u8]) {
         self.error = None;
+        self.pending_file_path = None;
         self.app_state =
             AppState::Analysing { file_name: name, bytes: bytes.to_vec(), shown_once: false };
     }
@@ -306,6 +323,7 @@ impl SisApp {
     /// Queue a file path for loading before analysis.
     pub fn handle_file_path_drop(&mut self, file_name: String, path: PathBuf) {
         self.error = None;
+        self.pending_file_path = Some(path.clone());
         self.app_state = AppState::LoadingPath { file_name, path, shown_once: false };
     }
 
@@ -339,6 +357,8 @@ impl SisApp {
 
         // Set up the new workspace as active
         self.active_tab_name = result.file_name.clone();
+        self.active_file_path = self.pending_file_path.take();
+        self.annotations = AnnotationStore::default();
         self.result = Some(result);
         self.selected_finding = None;
         self.selected_object = None;
@@ -356,12 +376,14 @@ impl SisApp {
         self.show_findings = true;
         self.show_chains = false;
         self.show_metadata = false;
+        self.show_revision = false;
         self.show_objects = false;
         self.show_graph = false;
         self.graph_state = crate::panels::graph::GraphViewerState::default();
         self.selected_chain = None;
         self.include_singleton_chains = false;
         self.finding_detail_graph_cache = None;
+        self.annotation_edit_finding = None;
         self.severity_filters = SeverityFilters::default();
         self.sort = SortState::default();
         self.findings_search.clear();
@@ -372,6 +394,7 @@ impl SisApp {
         self.chain_sort_column = ChainSortColumn::default();
         self.chain_sort_ascending = false;
         self.command_history_pos = None;
+        self.load_annotations_for_active_result();
 
         // Active tab is the last one
         self.active_tab = self.inactive_workspaces.len();
@@ -491,6 +514,7 @@ impl SisApp {
                 show_findings: self.show_findings,
                 show_chains: self.show_chains,
                 show_metadata: self.show_metadata,
+                show_revision: self.show_revision,
                 show_objects: self.show_objects,
                 show_hex: self.show_hex,
                 selected_object: self.selected_object.take(),
@@ -519,6 +543,9 @@ impl SisApp {
                 graph_state: std::mem::take(&mut self.graph_state),
                 selected_chain: self.selected_chain.take(),
                 include_singleton_chains: self.include_singleton_chains,
+                active_file_path: self.active_file_path.take(),
+                annotations: std::mem::take(&mut self.annotations),
+                annotation_edit_finding: self.annotation_edit_finding.take(),
             };
             self.inactive_workspaces.push(ws);
         }
@@ -535,6 +562,7 @@ impl SisApp {
         self.show_findings = ws.show_findings;
         self.show_chains = ws.show_chains;
         self.show_metadata = ws.show_metadata;
+        self.show_revision = ws.show_revision;
         self.show_objects = ws.show_objects;
         self.show_hex = ws.show_hex;
         self.selected_object = ws.selected_object;
@@ -563,6 +591,9 @@ impl SisApp {
         self.graph_state = ws.graph_state;
         self.selected_chain = ws.selected_chain;
         self.include_singleton_chains = ws.include_singleton_chains;
+        self.active_file_path = ws.active_file_path;
+        self.annotations = ws.annotations;
+        self.annotation_edit_finding = ws.annotation_edit_finding;
         self.finding_detail_graph_cache = None;
     }
 
@@ -714,6 +745,45 @@ impl SisApp {
             jump_to: None,
         };
         self.show_hex = true;
+    }
+
+    pub fn persist_annotations(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(path) = self.active_file_path.as_ref() {
+                if let Err(err) = self.annotations.save(path) {
+                    self.error = Some(AnalysisError::ParseFailed(format!(
+                        "Failed to save annotation sidecar: {}",
+                        err
+                    )));
+                }
+            }
+        }
+    }
+
+    fn load_annotations_for_active_result(&mut self) {
+        let Some(result) = self.result.as_ref() else {
+            self.annotations = AnnotationStore::default();
+            return;
+        };
+        let doc_sha = sha256_hex(&result.bytes);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(path) = self.active_file_path.as_ref() {
+                let mut store = AnnotationStore::load(path);
+                if !store.document_sha256.is_empty() && store.document_sha256 != doc_sha {
+                    self.error = Some(AnalysisError::ParseFailed(
+                        "Annotation sidecar rejected: document hash mismatch".to_string(),
+                    ));
+                    store = AnnotationStore::default();
+                }
+                store.document_sha256 = doc_sha;
+                self.annotations = store;
+                return;
+            }
+        }
+        self.annotations =
+            AnnotationStore { document_sha256: doc_sha, annotations: HashMap::new() };
     }
 
     pub fn request_file_upload(&mut self) {
@@ -1048,6 +1118,10 @@ impl eframe::App for SisApp {
                 self.show_metadata = open;
             }
 
+            if self.show_revision {
+                crate::panels::revision::show_window(ctx, self);
+            }
+
             if self.show_objects {
                 crate::panels::objects::show(ctx, self);
             }
@@ -1106,6 +1180,7 @@ impl eframe::App for SisApp {
                     #[cfg(not(target_arch = "wasm32"))]
                     match std::fs::read(&path) {
                         Ok(bytes) => {
+                            self.pending_file_path = Some(path.clone());
                             self.app_state =
                                 AppState::Analysing { file_name, bytes, shown_once: false };
                         }

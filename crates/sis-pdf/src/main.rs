@@ -231,6 +231,15 @@ enum Command {
         #[arg(long, help = "Augment findings queries with correlated chain output")]
         with_chain: bool,
     },
+    #[command(about = "Diff two scan outputs (JSONL)")]
+    Diff {
+        #[arg(value_name = "BASELINE_JSONL")]
+        baseline: PathBuf,
+        #[arg(value_name = "COMPARISON_JSONL")]
+        comparison: PathBuf,
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        format: String,
+    },
     #[command(about = "Scan PDFs for suspicious indicators and report findings")]
     Scan {
         #[arg(value_name = "PDF", required_unless_present = "path")]
@@ -1028,6 +1037,15 @@ fn main() -> Result<()> {
                 !no_font_signatures,
                 font_signature_dir.as_deref(),
             )
+        }
+        Command::Diff { baseline, comparison, format } => {
+            let format = commands::diff::DiffOutputFormat::parse(&format)?;
+            let has_new_high_or_critical =
+                commands::diff::run_diff(&baseline, &comparison, format)?;
+            if has_new_high_or_critical {
+                std::process::exit(1);
+            }
+            Ok(())
         }
         Command::Sanitize { pdf, out, report_json, safe_rebuild } => {
             run_sanitize(&pdf, &out, report_json.as_deref(), safe_rebuild)

@@ -8,5 +8,6 @@ pub mod hex_viewer;
 pub mod metadata;
 pub mod nav;
 pub mod objects;
+pub mod revision;
 pub mod summary;
 pub mod telemetry_debug;

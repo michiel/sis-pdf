@@ -2,6 +2,8 @@
 
 pub mod analysis;
 #[cfg(feature = "gui")]
+pub mod annotations;
+#[cfg(feature = "gui")]
 pub mod app;
 pub mod graph_data;
 pub mod graph_layout;

@@ -1,7 +1,9 @@
 use crate::analysis::AnalysisResult;
+use crate::annotations::AnnotationStore;
 use crate::app::{ChainSortColumn, HexViewState, SeverityFilters, SortState};
 use crate::panels::graph::GraphViewerState;
 use crate::query::QueryOutput;
+use std::path::PathBuf;
 
 /// Maximum number of open tabs: 5 on native, 3 on WASM.
 #[cfg(not(target_arch = "wasm32"))]
@@ -16,6 +18,7 @@ pub struct WorkspaceContext {
     pub show_findings: bool,
     pub show_chains: bool,
     pub show_metadata: bool,
+    pub show_revision: bool,
     pub show_objects: bool,
     pub show_hex: bool,
     pub selected_object: Option<(u32, u16)>,
@@ -44,4 +47,7 @@ pub struct WorkspaceContext {
     pub graph_state: GraphViewerState,
     pub selected_chain: Option<usize>,
     pub include_singleton_chains: bool,
+    pub active_file_path: Option<PathBuf>,
+    pub annotations: AnnotationStore,
+    pub annotation_edit_finding: Option<String>,
 }
