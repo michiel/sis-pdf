@@ -1,6 +1,6 @@
 use crate::app::SisApp;
 use crate::graph_data::{self, GraphData, GraphError};
-use crate::graph_layout::{apply_staged_dag_layout, LayoutState};
+use crate::graph_layout::{apply_staged_dag_layout_with_spread, LayoutState};
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
@@ -75,6 +75,8 @@ pub struct GraphViewerState {
     pub mitre_selected_technique: Option<String>,
     /// Graph node indices carrying selected MITRE technique.
     pub mitre_highlight_nodes: HashSet<usize>,
+    /// Whether staged DAG should vertically spread nodes inside a lane.
+    pub dag_lane_vertical_spread: bool,
     /// Whether the advanced controls sidebar is visible.
     pub show_controls_sidebar: bool,
     /// Request a fit-to-viewport transform on the next graph render.
@@ -118,6 +120,7 @@ impl Default for GraphViewerState {
             taint_source_nodes: HashSet::new(),
             mitre_selected_technique: None,
             mitre_highlight_nodes: HashSet::new(),
+            dag_lane_vertical_spread: false,
             show_controls_sidebar: false,
             fit_to_view_pending: false,
         }
@@ -765,6 +768,15 @@ fn show_controls_sidebar(ui: &mut egui::Ui, app: &mut SisApp) {
         ui.separator();
     }
 
+    if app.graph_state.mode == GraphViewMode::StagedDag {
+        ui.separator();
+        let mut spread = app.graph_state.dag_lane_vertical_spread;
+        if ui.toggle_value(&mut spread, "Lane vertical spread").changed() {
+            app.graph_state.dag_lane_vertical_spread = spread;
+            rebuild_graph(app);
+        }
+    }
+
     ui.label("Type:");
     let current_filter = if app.graph_state.type_filter.is_empty() {
         "All".to_string()
@@ -895,7 +907,10 @@ fn build_graph(app: &mut SisApp) {
             app.graph_state.graph = Some(graph);
             if app.graph_state.mode == GraphViewMode::StagedDag {
                 if let Some(graph_ref) = app.graph_state.graph.as_mut() {
-                    apply_staged_dag_layout(graph_ref);
+                    apply_staged_dag_layout_with_spread(
+                        graph_ref,
+                        app.graph_state.dag_lane_vertical_spread,
+                    );
                 }
                 app.graph_state.layout = None;
                 app.graph_state.dag_layout_dirty = false;

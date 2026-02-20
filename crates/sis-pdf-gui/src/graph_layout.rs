@@ -189,6 +189,11 @@ pub fn stage_column(node: &crate::graph_data::GraphNode) -> usize {
 
 /// Apply staged DAG layout positions directly.
 pub fn apply_staged_dag_layout(graph: &mut GraphData) {
+    apply_staged_dag_layout_with_spread(graph, true);
+}
+
+/// Apply staged DAG layout positions directly with optional per-lane vertical spread.
+pub fn apply_staged_dag_layout_with_spread(graph: &mut GraphData, lane_vertical_spread: bool) {
     let area_w = 800.0f64;
     let area_h = 600.0f64;
     let cols = 5.0f64;
@@ -220,7 +225,7 @@ pub fn apply_staged_dag_layout(graph: &mut GraphData) {
             ((level + 1) as f64 / (max_level + 1) as f64) * area_h
         };
         let (ordinal, count) = ordinal_by_node.get(&idx).copied().unwrap_or((0, 1));
-        let y = if count <= 1 {
+        let y = if count <= 1 || !lane_vertical_spread {
             base_y
         } else {
             let band_half = (area_h / (max_level as f64 + 2.0) * 0.4).clamp(8.0, 30.0);
@@ -588,5 +593,57 @@ mod tests {
             assert!(node.position[0].is_finite());
             assert!(node.position[1].is_finite());
         }
+    }
+
+    #[test]
+    fn staged_layout_lane_vertical_spread_can_be_disabled() {
+        let nodes = vec![
+            GraphNode {
+                object_ref: Some((1, 0)),
+                obj_type: "event".to_string(),
+                label: "Input A".to_string(),
+                roles: vec!["input".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+            GraphNode {
+                object_ref: Some((2, 0)),
+                obj_type: "event".to_string(),
+                label: "Input B".to_string(),
+                roles: vec!["input".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+        ];
+        let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1)]);
+        let mut graph = GraphData { nodes, edges: vec![], node_index: graph_index };
+        apply_staged_dag_layout_with_spread(&mut graph, false);
+        assert_eq!(graph.nodes[0].position[1], graph.nodes[1].position[1]);
+    }
+
+    #[test]
+    fn staged_layout_lane_vertical_spread_can_be_enabled() {
+        let nodes = vec![
+            GraphNode {
+                object_ref: Some((1, 0)),
+                obj_type: "event".to_string(),
+                label: "Input A".to_string(),
+                roles: vec!["input".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+            GraphNode {
+                object_ref: Some((2, 0)),
+                obj_type: "event".to_string(),
+                label: "Input B".to_string(),
+                roles: vec!["input".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+        ];
+        let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1)]);
+        let mut graph = GraphData { nodes, edges: vec![], node_index: graph_index };
+        apply_staged_dag_layout_with_spread(&mut graph, true);
+        assert_ne!(graph.nodes[0].position[1], graph.nodes[1].position[1]);
     }
 }
