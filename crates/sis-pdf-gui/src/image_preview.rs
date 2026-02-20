@@ -42,6 +42,7 @@ pub struct ImagePreviewStatus {
 #[derive(Debug, Clone, Copy)]
 pub struct PreviewLimits {
     pub max_stream_decode_bytes: usize,
+    pub max_source_bytes: usize,
     pub max_preview_pixels: u64,
     pub max_preview_rgba_bytes: u64,
     pub max_preview_decode_bytes: u64,
@@ -51,6 +52,7 @@ impl Default for PreviewLimits {
     fn default() -> Self {
         Self {
             max_stream_decode_bytes: 8 * 1024 * 1024,
+            max_source_bytes: 16 * 1024 * 1024,
             max_preview_pixels: 16_000_000,
             max_preview_rgba_bytes: 64 * 1024 * 1024,
             max_preview_decode_bytes: 64 * 1024 * 1024,
@@ -95,6 +97,27 @@ pub fn build_preview_for_stream(
         };
     }
     let raw_bytes = &bytes[start..end];
+    if raw_bytes.len() > limits.max_source_bytes {
+        statuses.push(ImagePreviewStatus {
+            stage: ImagePreviewStage::RawProbe,
+            outcome: ImagePreviewOutcome::SkippedBudget,
+            detail: format!(
+                "Raw stream exceeds preview source budget ({} > {})",
+                raw_bytes.len(),
+                limits.max_source_bytes
+            ),
+            source: Some("raw".to_string()),
+            input_bytes: Some(raw_bytes.len()),
+            output_bytes: None,
+            elapsed_ms: None,
+        });
+        return PreviewBuildResult {
+            preview: None,
+            summary: "Unavailable: raw stream exceeded preview source budget".to_string(),
+            statuses,
+            source_used: None,
+        };
+    }
     let raw_kind = classify_blob(raw_bytes);
     statuses.push(ImagePreviewStatus {
         stage: ImagePreviewStage::RawProbe,
@@ -588,6 +611,7 @@ mod tests {
     use sis_pdf_pdf::span::Span;
     use std::borrow::Cow;
     use std::collections::HashMap;
+    use std::time::Instant;
 
     fn empty_graph<'a>(bytes: &'a [u8]) -> ObjectGraph<'a> {
         ObjectGraph {
@@ -685,5 +709,51 @@ mod tests {
         assert_eq!(result.statuses.len(), 1);
         assert_eq!(result.statuses[0].stage, ImagePreviewStage::RawProbe);
         assert_eq!(result.statuses[0].outcome, ImagePreviewOutcome::InvalidMetadata);
+    }
+
+    #[test]
+    fn preview_pipeline_budget_mixed_filters() {
+        let encoded = b"414243>";
+        let stream = PdfStream {
+            dict: PdfDict {
+                span: span(),
+                entries: vec![(
+                    name(b"/Filter"),
+                    obj(PdfAtom::Array(vec![
+                        obj(PdfAtom::Name(name(b"/ASCIIHexDecode"))),
+                        obj(PdfAtom::Name(name(b"/DCTDecode"))),
+                    ])),
+                )],
+            },
+            data_span: Span { start: 0, end: encoded.len() as u64 },
+        };
+        let graph = empty_graph(encoded);
+        let start = Instant::now();
+        let result =
+            build_preview_for_stream(encoded, &stream, &graph, PreviewLimits::default(), None);
+        let elapsed = start.elapsed().as_millis() as u64;
+        assert!(elapsed < 200, "mixed-filter preview pipeline should be fast, got {elapsed} ms");
+        assert!(result.statuses.iter().any(|status| {
+            status.stage == ImagePreviewStage::PrefixDecode
+                && status.outcome == ImagePreviewOutcome::Ready
+        }));
+    }
+
+    #[test]
+    fn preview_pipeline_budget_large_source_bytes() {
+        let encoded = vec![0u8; 128];
+        let stream = PdfStream {
+            dict: PdfDict { span: span(), entries: Vec::new() },
+            data_span: Span { start: 0, end: encoded.len() as u64 },
+        };
+        let graph = empty_graph(&encoded);
+        let limits = PreviewLimits { max_source_bytes: 64, ..PreviewLimits::default() };
+        let result = build_preview_for_stream(&encoded, &stream, &graph, limits, None);
+        assert!(result.preview.is_none());
+        assert_eq!(result.summary, "Unavailable: raw stream exceeded preview source budget");
+        assert!(result.statuses.iter().any(|status| {
+            status.stage == ImagePreviewStage::RawProbe
+                && status.outcome == ImagePreviewOutcome::SkippedBudget
+        }));
     }
 }
