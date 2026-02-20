@@ -2,7 +2,38 @@ use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
 use sis_pdf_pdf::decode::decode_stream;
 use sis_pdf_pdf::graph::{ObjectGraph, ParseOptions};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfStream};
-use std::time::Instant;
+
+#[cfg(not(target_arch = "wasm32"))]
+type StageTimer = std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+type StageTimer = f64;
+
+fn stage_timer_start() -> StageTimer {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::Instant::now()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now()
+    }
+}
+
+fn stage_timer_elapsed_ms(start: StageTimer) -> u64 {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        start.elapsed().as_millis() as u64
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let elapsed = js_sys::Date::now() - start;
+        if elapsed.is_finite() && elapsed > 0.0 {
+            elapsed as u64
+        } else {
+            0
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ImagePreviewStage {
@@ -201,7 +232,7 @@ pub fn build_preview_for_stream(
             };
         }
     } else {
-        let decode_start = Instant::now();
+        let decode_start = stage_timer_start();
         match decode_stream(bytes, stream, limits.max_stream_decode_bytes) {
             Ok(decoded) => {
                 statuses.push(ImagePreviewStatus {
@@ -211,7 +242,7 @@ pub fn build_preview_for_stream(
                     source: Some("full-decode".to_string()),
                     input_bytes: Some(raw_bytes.len()),
                     output_bytes: Some(decoded.data.len()),
-                    elapsed_ms: Some(decode_start.elapsed().as_millis() as u64),
+                    elapsed_ms: Some(stage_timer_elapsed_ms(decode_start)),
                 });
                 let kind = classify_blob(&decoded.data);
                 let (preview, ready) = generate_image_preview(
@@ -240,13 +271,13 @@ pub fn build_preview_for_stream(
                     source: Some("full-decode".to_string()),
                     input_bytes: Some(raw_bytes.len()),
                     output_bytes: None,
-                    elapsed_ms: Some(decode_start.elapsed().as_millis() as u64),
+                    elapsed_ms: Some(stage_timer_elapsed_ms(decode_start)),
                 });
             }
         }
     }
 
-    let prefix_start = Instant::now();
+    let prefix_start = stage_timer_start();
     if let Some(prefix_decoded) =
         decode_stream_with_non_deferred_prefix(bytes, stream, limits.max_stream_decode_bytes)
     {
@@ -257,7 +288,7 @@ pub fn build_preview_for_stream(
             source: Some("prefix-decoded".to_string()),
             input_bytes: Some(raw_bytes.len()),
             output_bytes: Some(prefix_decoded.len()),
-            elapsed_ms: Some(prefix_start.elapsed().as_millis() as u64),
+            elapsed_ms: Some(stage_timer_elapsed_ms(prefix_start)),
         });
         let kind = classify_blob(&prefix_decoded);
         let (preview, ready) = generate_image_preview(
@@ -285,7 +316,7 @@ pub fn build_preview_for_stream(
             source: Some("prefix-decoded".to_string()),
             input_bytes: Some(raw_bytes.len()),
             output_bytes: None,
-            elapsed_ms: Some(prefix_start.elapsed().as_millis() as u64),
+            elapsed_ms: Some(stage_timer_elapsed_ms(prefix_start)),
         });
     }
 
@@ -479,7 +510,7 @@ fn generate_image_preview(
     {
         match blob_kind {
             BlobKind::Jpeg => {
-                let stage_start = Instant::now();
+                let stage_start = stage_timer_start();
                 let preview = decode_jpeg_preview(decoded, limits);
                 if preview.is_some() {
                     let out_bytes = preview.as_ref().map(|(_, _, rgba)| rgba.len());
@@ -490,7 +521,7 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: out_bytes,
-                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(stage_start)),
                     });
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::Thumbnail,
@@ -499,7 +530,7 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: out_bytes,
-                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(stage_start)),
                     });
                     (preview, true)
                 } else {
@@ -510,13 +541,13 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: None,
-                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(stage_start)),
                     });
                     (None, false)
                 }
             }
             BlobKind::Png | BlobKind::Gif | BlobKind::Bmp | BlobKind::Tiff | BlobKind::Webp => {
-                let stage_start = Instant::now();
+                let stage_start = stage_timer_start();
                 let preview = decode_image_preview(decoded, limits);
                 if preview.is_some() {
                     let out_bytes = preview.as_ref().map(|(_, _, rgba)| rgba.len());
@@ -527,7 +558,7 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: out_bytes,
-                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(stage_start)),
                     });
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::Thumbnail,
@@ -536,7 +567,7 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: out_bytes,
-                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(stage_start)),
                     });
                     (preview, true)
                 } else {
@@ -550,13 +581,13 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: None,
-                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(stage_start)),
                     });
                     (None, false)
                 }
             }
             _ => {
-                let container_start = Instant::now();
+                let container_start = stage_timer_start();
                 let generic = decode_image_preview(decoded, limits);
                 if generic.is_some() {
                     let out_bytes = generic.as_ref().map(|(_, _, rgba)| rgba.len());
@@ -567,7 +598,7 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: out_bytes,
-                        elapsed_ms: Some(container_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(container_start)),
                     });
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::Thumbnail,
@@ -576,7 +607,7 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: out_bytes,
-                        elapsed_ms: Some(container_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(container_start)),
                     });
                     return (generic, true);
                 }
@@ -587,9 +618,9 @@ fn generate_image_preview(
                     source: Some(source_label.to_string()),
                     input_bytes: Some(decoded.len()),
                     output_bytes: None,
-                    elapsed_ms: Some(container_start.elapsed().as_millis() as u64),
+                    elapsed_ms: Some(stage_timer_elapsed_ms(container_start)),
                 });
-                let reconstruct_start = Instant::now();
+                let reconstruct_start = stage_timer_start();
                 let reconstructed = reconstruct_image_preview(decoded, dict, graph);
                 if reconstructed.is_some() {
                     let out_bytes = reconstructed.as_ref().map(|(_, _, rgba)| rgba.len());
@@ -600,7 +631,7 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: out_bytes,
-                        elapsed_ms: Some(reconstruct_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(reconstruct_start)),
                     });
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::Thumbnail,
@@ -609,7 +640,7 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: out_bytes,
-                        elapsed_ms: Some(reconstruct_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(reconstruct_start)),
                     });
                     (reconstructed, true)
                 } else {
@@ -620,7 +651,7 @@ fn generate_image_preview(
                         source: Some(source_label.to_string()),
                         input_bytes: Some(decoded.len()),
                         output_bytes: None,
-                        elapsed_ms: Some(reconstruct_start.elapsed().as_millis() as u64),
+                        elapsed_ms: Some(stage_timer_elapsed_ms(reconstruct_start)),
                     });
                     (None, false)
                 }

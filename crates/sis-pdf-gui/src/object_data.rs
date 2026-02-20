@@ -15,13 +15,20 @@ const MAX_STREAM_DECODE: usize = 64 * 1024; // 64 KB
 pub struct ObjectExtractOptions {
     pub include_decoded_stream_bytes: bool,
     pub include_image_preview: bool,
+    pub include_preview_status_details: bool,
 }
 
 impl ObjectExtractOptions {
-    pub const FULL: Self =
-        Self { include_decoded_stream_bytes: true, include_image_preview: false };
-    pub const WORKER_COMPACT: Self =
-        Self { include_decoded_stream_bytes: false, include_image_preview: false };
+    pub const FULL: Self = Self {
+        include_decoded_stream_bytes: true,
+        include_image_preview: false,
+        include_preview_status_details: true,
+    };
+    pub const WORKER_COMPACT: Self = Self {
+        include_decoded_stream_bytes: false,
+        include_image_preview: false,
+        include_preview_status_details: false,
+    };
 }
 
 /// Owned summary of all objects extracted from a parsed PDF.
@@ -73,7 +80,7 @@ pub struct ObjectSummary {
     pub image_preview: Option<(u32, u32, Vec<u8>)>,
     #[serde(default)]
     pub image_preview_status: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub preview_statuses: Vec<ImagePreviewStatus>,
     #[serde(default)]
     pub preview_summary: Option<String>,
@@ -238,26 +245,32 @@ fn extract_one_object(
             stream_length = Some(raw_len);
             stream_data_span = Some((start, end));
 
-            // Try to decode stream and capture both raw bytes and text representation
-            let decode_budget = if obj_type == "image" {
-                PreviewLimits::default().max_stream_decode_bytes
+            // Extract image metadata from dictionary for image objects without requiring decode.
+            if obj_type == "image" {
+                image_width = dict_entry_as_u32(&dict_entries, "Width");
+                image_height = dict_entry_as_u32(&dict_entries, "Height");
+                image_bits = dict_entry_as_u32(&dict_entries, "BitsPerComponent");
+                image_color_space = dict_entry_as_name(&dict_entries, "ColorSpace");
+            }
+
+            // Compact worker extraction is metadata-only: skip decode to avoid large-PDF stalls.
+            let should_decode_stream = options.include_decoded_stream_bytes || obj_type != "image";
+            let decoded_stream = if should_decode_stream {
+                let decode_budget = if obj_type == "image" && options.include_image_preview {
+                    PreviewLimits::default().max_stream_decode_bytes
+                } else {
+                    MAX_STREAM_DECODE
+                };
+                decode_stream(bytes, s, decode_budget).ok()
             } else {
-                MAX_STREAM_DECODE
+                None
             };
-            let decoded_result = decode_stream(bytes, s, decode_budget);
-            if let Ok(decoded) = &decoded_result {
+
+            if let Some(decoded) = &decoded_stream {
                 // Classify the decoded stream content
                 let blob_kind = classify_blob(&decoded.data);
                 if blob_kind != BlobKind::Unknown {
                     stream_content_type = Some(blob_kind.as_str().to_string());
-                }
-
-                // Extract image metadata from dictionary for image objects
-                if obj_type == "image" {
-                    image_width = dict_entry_as_u32(&dict_entries, "Width");
-                    image_height = dict_entry_as_u32(&dict_entries, "Height");
-                    image_bits = dict_entry_as_u32(&dict_entries, "BitsPerComponent");
-                    image_color_space = dict_entry_as_name(&dict_entries, "ColorSpace");
                 }
 
                 if options.include_decoded_stream_bytes {
@@ -280,7 +293,7 @@ fn extract_one_object(
                         s,
                         graph,
                         PreviewLimits::default(),
-                        decoded_result.as_ref().ok().map(|decoded| decoded.data.as_slice()),
+                        decoded_stream.as_ref().map(|decoded| decoded.data.as_slice()),
                     );
                     image_preview = built.preview;
                     image_preview_status = Some(built.summary.clone());
@@ -288,19 +301,19 @@ fn extract_one_object(
                     preview_statuses = built.statuses;
                     preview_source = built.source_used;
                 } else {
-                    image_preview_status =
-                        Some("Preview disabled in compact extraction mode".to_string());
+                    image_preview_status = Some("Preview on demand".to_string());
                     preview_summary = image_preview_status.clone();
-                    preview_statuses.push(ImagePreviewStatus {
-                        stage: crate::image_preview::ImagePreviewStage::RawProbe,
-                        outcome: crate::image_preview::ImagePreviewOutcome::SkippedBudget,
-                        detail: "Preview generation disabled in compact extraction mode"
-                            .to_string(),
-                        source: None,
-                        input_bytes: None,
-                        output_bytes: None,
-                        elapsed_ms: None,
-                    });
+                    if options.include_preview_status_details {
+                        preview_statuses.push(ImagePreviewStatus {
+                            stage: crate::image_preview::ImagePreviewStage::RawProbe,
+                            outcome: crate::image_preview::ImagePreviewOutcome::SkippedBudget,
+                            detail: "Preview generation deferred to on-demand dialog".to_string(),
+                            source: None,
+                            input_bytes: None,
+                            output_bytes: None,
+                            elapsed_ms: None,
+                        });
+                    }
                 }
             }
         }

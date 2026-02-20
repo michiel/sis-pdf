@@ -136,6 +136,11 @@ pub struct SisApp {
     #[cfg(target_arch = "wasm32")]
     analysis_worker_onmessage:
         Option<wasm_bindgen::closure::Closure<dyn FnMut(web_sys::MessageEvent)>>,
+    #[cfg(target_arch = "wasm32")]
+    analysis_worker_onerror: Option<wasm_bindgen::closure::Closure<dyn FnMut(web_sys::Event)>>,
+    #[cfg(target_arch = "wasm32")]
+    analysis_worker_onmessageerror:
+        Option<wasm_bindgen::closure::Closure<dyn FnMut(web_sys::Event)>>,
 }
 
 #[derive(Default, Clone)]
@@ -279,6 +284,9 @@ fn now_ms() -> f64 {
     js_sys::Date::now()
 }
 
+#[cfg(target_arch = "wasm32")]
+const ANALYSIS_WORKER_TIMEOUT_MS: f64 = 90_000.0;
+
 impl SisApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         cc.egui_ctx.set_visuals(egui::Visuals::light());
@@ -342,6 +350,10 @@ impl SisApp {
             analysis_worker: None,
             #[cfg(target_arch = "wasm32")]
             analysis_worker_onmessage: None,
+            #[cfg(target_arch = "wasm32")]
+            analysis_worker_onerror: None,
+            #[cfg(target_arch = "wasm32")]
+            analysis_worker_onmessageerror: None,
         }
     }
 
@@ -368,6 +380,22 @@ impl SisApp {
 
         match crate::analysis::analyze(bytes, &name) {
             Ok(result) => {
+                self.open_analysis_result(name, file_size, result);
+            }
+            Err(err) => {
+                self.error = Some(err);
+            }
+        }
+    }
+
+    /// WASM fallback: run analysis on the UI thread when worker orchestration fails.
+    #[cfg(target_arch = "wasm32")]
+    fn process_analysis_inline_wasm(&mut self, name: String, bytes: &[u8]) {
+        let file_size = bytes.len();
+        match crate::analysis::analyze_for_worker(bytes, &name) {
+            Ok(worker_result) => {
+                let result =
+                    crate::analysis::worker_result_into_analysis(worker_result, bytes.to_vec());
                 self.open_analysis_result(name, file_size, result);
             }
             Err(err) => {
@@ -462,26 +490,21 @@ impl SisApp {
                     return;
                 }
 
-                let result_value =
-                    match js_sys::Reflect::get(&payload, &JsValue::from_str("result")) {
-                        Ok(value) => value,
-                        Err(_) => {
-                            *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
-                                "Worker response missing result payload".to_string(),
-                            ));
-                            return;
-                        }
-                    };
                 let decode_started_ms = now_ms();
-                let result_bytes = js_sys::JSON::stringify(&result_value)
+                let result_json = js_sys::Reflect::get(&payload, &JsValue::from_str("result_json"))
                     .ok()
-                    .and_then(|json| json.as_string())
-                    .map(|json| json.len())
-                    .unwrap_or(0);
-                match js_sys::JSON::stringify(&result_value)
-                    .ok()
-                    .and_then(|json| json.as_string())
-                    .and_then(|json| serde_json::from_str::<WorkerAnalysisResult>(&json).ok())
+                    .and_then(|value| value.as_string())
+                    .or_else(|| {
+                        // Backward compatibility for older workers returning `result`.
+                        js_sys::Reflect::get(&payload, &JsValue::from_str("result"))
+                            .ok()
+                            .and_then(|value| js_sys::JSON::stringify(&value).ok())
+                            .and_then(|json| json.as_string())
+                    });
+                let result_bytes = result_json.as_ref().map(|json| json.len()).unwrap_or(0);
+                match result_json
+                    .as_ref()
+                    .and_then(|json| serde_json::from_str::<WorkerAnalysisResult>(json).ok())
                 {
                     Some(parsed) => {
                         *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Ok {
@@ -493,16 +516,46 @@ impl SisApp {
                     }
                     None => {
                         *pending_result.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
-                            "Failed to decode worker result".to_string(),
+                            "Failed to decode worker result payload".to_string(),
                         ));
                     }
                 };
             },
         );
+        let pending_result_error = Rc::clone(&self.pending_worker_result);
+        let onerror = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::Event)>::new(
+            move |_event: web_sys::Event| {
+                let detail = "Worker runtime error".to_string();
+                *pending_result_error.borrow_mut() =
+                    Some(WorkerAnalysisOutcome::Err(format!("Analysis worker failed: {detail}")));
+            },
+        );
+        let pending_result_message_error = Rc::clone(&self.pending_worker_result);
+        let onmessageerror = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::Event)>::new(
+            move |_event: web_sys::Event| {
+                *pending_result_message_error.borrow_mut() = Some(WorkerAnalysisOutcome::Err(
+                    "Analysis worker message decode error".to_string(),
+                ));
+            },
+        );
         worker.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
+        worker.set_onerror(Some(onerror.as_ref().unchecked_ref()));
+        worker.set_onmessageerror(Some(onmessageerror.as_ref().unchecked_ref()));
         self.analysis_worker_onmessage = Some(onmessage);
+        self.analysis_worker_onerror = Some(onerror);
+        self.analysis_worker_onmessageerror = Some(onmessageerror);
         self.analysis_worker = Some(worker);
         Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn reset_analysis_worker(&mut self) {
+        if let Some(worker) = self.analysis_worker.take() {
+            worker.terminate();
+        }
+        self.analysis_worker_onmessage = None;
+        self.analysis_worker_onerror = None;
+        self.analysis_worker_onmessageerror = None;
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -1167,8 +1220,19 @@ impl eframe::App for SisApp {
                     }
                     WorkerAnalysisOutcome::Err(err) => {
                         self.app_state = AppState::Idle;
+                        #[cfg(target_arch = "wasm32")]
+                        self.reset_analysis_worker();
                         self.error = Some(AnalysisError::ParseFailed(err));
                     }
+                }
+            }
+            if let AppState::AnalysingWorker { started_ms, .. } = &self.app_state {
+                if now_ms() - *started_ms > ANALYSIS_WORKER_TIMEOUT_MS {
+                    self.app_state = AppState::Idle;
+                    self.reset_analysis_worker();
+                    self.error = Some(AnalysisError::ParseFailed(
+                        "Analysis worker timed out while processing PDF".to_string(),
+                    ));
                 }
             }
         }
@@ -1374,7 +1438,12 @@ impl eframe::App for SisApp {
                             };
                         }
                         Err(err) => {
-                            self.error = Some(err);
+                            self.reset_analysis_worker();
+                            self.error = Some(AnalysisError::ParseFailed(format!(
+                                "Worker dispatch failed ({}); running inline fallback",
+                                err
+                            )));
+                            self.process_analysis_inline_wasm(file_name, &bytes);
                         }
                     }
                 }

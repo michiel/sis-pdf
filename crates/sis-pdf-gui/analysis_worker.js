@@ -37,31 +37,24 @@ self.onmessage = async (event) => {
       return;
     }
     const module = await loadWasmModule();
-    if (typeof module.wasm_analyze_value === "function") {
-      const result = module.wasm_analyze_value(byteView, file_name);
-      const result_json_bytes = (() => {
-        try {
-          return JSON.stringify(result).length;
-        } catch (_) {
-          return 0;
-        }
-      })();
+    if (typeof module.wasm_analyze_json === "function") {
+      const result_json = module.wasm_analyze_json(byteView, file_name);
       self.postMessage({
         ok: true,
-        result,
+        result_json,
         meta: {
           worker_ms: Math.max(0, performance.now() - workerStart),
-          result_json_bytes,
+          result_json_bytes: result_json.length,
         },
       });
       return;
     }
-    if (typeof module.wasm_analyze_json === "function") {
-      const result_json = module.wasm_analyze_json(byteView, file_name);
-      const result = JSON.parse(result_json);
+    if (typeof module.wasm_analyze_value === "function") {
+      const result = module.wasm_analyze_value(byteView, file_name);
+      const result_json = JSON.stringify(result);
       self.postMessage({
         ok: true,
-        result,
+        result_json,
         meta: {
           worker_ms: Math.max(0, performance.now() - workerStart),
           result_json_bytes: result_json.length,

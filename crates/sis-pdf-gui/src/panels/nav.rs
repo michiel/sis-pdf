@@ -25,6 +25,10 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             app.show_objects = !app.show_objects;
         }
 
+        if ui.selectable_label(app.show_image_preview, "Preview").clicked() {
+            app.show_image_preview = !app.show_image_preview;
+        }
+
         if ui.selectable_label(app.show_hex, "Hex").clicked() {
             app.show_hex = !app.show_hex;
         }

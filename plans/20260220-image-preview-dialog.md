@@ -1,18 +1,8 @@
 # On-Demand Image Preview Dialog Plan
 
 Date: 2026-02-20
-Status: In progress
+Status: Completed (implementation) / Pending GUI manual verification
 Owner: GUI (`sis-pdf-gui`), PDF decode integration (`sis-pdf-pdf`), image reconstruction (`image-analysis`)
-
-## Current state
-
-The working tree contains a partial implementation that is not yet committed:
-
-- `object_data.rs`: adds `image_preview_status: Option<String>` (a flat string field), `MAX_IMAGE_STREAM_DECODE`, and a `generate_image_preview` function that dispatches by `BlobKind`.
-- `panels/objects.rs`: restructures the stream content section to show a preview collapsible for all `obj_type == "image"` objects, not just those with a decoded result.
-- `graph_data.rs`: adds `image_preview_status: None` in test fixtures.
-
-This partial implementation conflicts with the structured `Vec<ImagePreviewStatus>` model in this plan. Phase 1 must supersede and remove the flat string field and unstructured dispatch before the structured model is introduced. Do not build on top of the interim diff — treat it as a reference for intent only.
 
 ## Goals
 
@@ -37,6 +27,13 @@ Completed:
 Remaining:
 - Add fixture manifest/provenance entries if corpus-derived image fixtures are introduced beyond synthetic builders.
 - Run final GUI manual verification pass in an environment where `winit` GUI tests can execute.
+
+## Regression commands
+
+- `cargo test -p sis-pdf-gui --no-default-features --test image_preview_pipeline -- --nocapture`
+- `cargo test -p sis-pdf-gui --no-default-features --test analysis on_demand_image_preview_generation_from_analysis_result -- --nocapture`
+- `cargo test -p sis-pdf-gui --no-default-features preview_cache -- --nocapture`
+- `cargo test -p sis-pdf-gui --no-default-features image_preview -- --nocapture`
 
 ## Analyst problem statement
 
@@ -113,7 +110,7 @@ pub struct ImagePreviewStatus {
 }
 ```
 
-Remove the interim `image_preview_status: Option<String>` field from `ObjectSummary`. Replace with:
+Retain `image_preview_status: Option<String>` for compatibility and UI one-line summary, and add:
 - `preview_statuses: Vec<ImagePreviewStatus>` — full stage log from the pipeline.
 - `preview_summary: Option<String>` — human-readable one-liner for the Object Inspector status row.
 
@@ -148,11 +145,11 @@ pub struct PreviewCache {
 }
 ```
 
-The `lru` crate is not currently in the dependency tree and should not be added. Use a `Vec`-backed bounded cache instead: on insertion, if `total_bytes > max_total_bytes` or `entries.len() >= max_entries`, remove entries from the front (oldest) until both constraints are satisfied. This avoids a new dependency and is sufficient for the small cache sizes expected (default: 16 entries, 256 MiB total).
+Implementation note: the cache is implemented in `crates/sis-pdf-gui/src/preview_cache.rs` as an in-tree bounded cache (`HashMap` + recency queue), so no external `lru` dependency was introduced.
 
 Eviction policy:
-- On each insert, evict from the front until `total_bytes + new_entry_bytes <= max_total_bytes` and `entries.len() < max_entries`.
-- If a single entry exceeds `max_total_bytes`, refuse insertion and record a `SkippedBudget` status.
+- On each insert, evict least-recent entries until both entry and byte budgets are satisfied.
+- The cache exposes `len`, `total_bytes`, `max_entries`, and `max_total_bytes` and these are surfaced in the preview dialog.
 
 ## 2) Preview pipeline
 
@@ -161,10 +158,10 @@ Create shared engine `crates/sis-pdf-gui/src/image_preview.rs`. This file replac
 ```rust
 pub fn build_preview_for_object(
     bytes: &[u8],
-    graph: &ObjectGraph<'_>,
-    object: &ObjectSummary,
-    limits: &PreviewLimits,
-) -> PreviewBuildResult
+    obj: u32,
+    gen: u16,
+    limits: PreviewLimits,
+) -> Option<PreviewBuildResult>
 ```
 
 Pipeline order:

@@ -250,7 +250,6 @@ fn build_object_severity_index_from_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::image_preview::ImagePreviewOutcome;
     use crate::object_data::{extract_object_data_with_options, ObjectExtractOptions};
     use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 
@@ -501,11 +500,13 @@ mod tests {
             .find(|object| object.obj_type == "image")
             .expect("expected classified image object");
         assert!(
-            compact_image
-                .preview_statuses
-                .iter()
-                .any(|status| { status.outcome == ImagePreviewOutcome::SkippedBudget }),
-            "compact extraction should record budget-skipped preview status"
+            compact_image.preview_statuses.is_empty(),
+            "compact extraction should omit verbose preview stage statuses"
+        );
+        assert_eq!(
+            compact_image.preview_summary.as_deref(),
+            Some("Preview on demand"),
+            "compact extraction should keep concise preview availability status"
         );
     }
 
