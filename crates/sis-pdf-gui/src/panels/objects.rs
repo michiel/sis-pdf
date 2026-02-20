@@ -1,5 +1,6 @@
 use crate::app::SisApp;
 use crate::hex_format;
+use crate::object_data::ObjectValue;
 use egui_extras::{Column, TableBuilder};
 use sis_pdf_core::model::Severity;
 use sis_pdf_core::object_context::{
@@ -251,6 +252,7 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
             image_color_space: obj.image_color_space.clone(),
             image_preview: obj.image_preview.clone(),
             dict_entries: obj.dict_entries.clone(),
+            dict_entries_tree: obj.dict_entries_tree.clone(),
             references_from: obj.references_from.clone(),
             references_to: obj.references_to.clone(),
             security_context: get_object_context(&result.object_context_index, obj.obj, obj.gen),
@@ -280,7 +282,7 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
 
         show_object_meta(ui, app, &detail);
         show_security_context(ui, app, &detail.security_context);
-        show_dict_entries(ui, app, &detail.dict_entries);
+        show_dict_entries(ui, app, &detail.dict_entries, &detail.dict_entries_tree);
         show_stream_content(ui, &detail, show_hex);
         show_references(ui, app, &detail.references_from, &detail.references_to);
         show_related_findings(ui, app, related_findings);
@@ -305,6 +307,7 @@ struct ObjectDetail {
     image_color_space: Option<String>,
     image_preview: Option<(u32, u32, Vec<u8>)>,
     dict_entries: Vec<(String, String)>,
+    dict_entries_tree: Vec<(String, ObjectValue)>,
     references_from: Vec<(u32, u16)>,
     references_to: Vec<(u32, u16)>,
     security_context: ObjectSecurityContext,
@@ -372,7 +375,12 @@ fn show_object_meta(ui: &mut egui::Ui, app: &mut SisApp, detail: &ObjectDetail) 
     });
 }
 
-fn show_dict_entries(ui: &mut egui::Ui, app: &mut SisApp, entries: &[(String, String)]) {
+fn show_dict_entries(
+    ui: &mut egui::Ui,
+    app: &mut SisApp,
+    entries: &[(String, String)],
+    entries_tree: &[(String, ObjectValue)],
+) {
     if entries.is_empty() {
         return;
     }
@@ -381,23 +389,109 @@ fn show_dict_entries(ui: &mut egui::Ui, app: &mut SisApp, entries: &[(String, St
     egui::CollapsingHeader::new(format!("Dictionary ({} entries)", entries.len()))
         .default_open(true)
         .show(ui, |ui| {
-            egui::Grid::new("obj_dict_grid").num_columns(2).spacing([8.0, 2.0]).striped(true).show(
+            if entries_tree.is_empty() {
+                egui::Grid::new("obj_dict_grid")
+                    .num_columns(2)
+                    .spacing([8.0, 2.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for (key, val) in entries {
+                            ui.monospace(key);
+                            if let Some(ref_id) = parse_obj_ref(val) {
+                                if ui.link(val).clicked() {
+                                    app.navigate_to_object(ref_id.0, ref_id.1);
+                                }
+                            } else {
+                                ui.label(val);
+                            }
+                            ui.end_row();
+                        }
+                    });
+                return;
+            }
+            render_dict_entries_tree(ui, app, entries_tree, "obj_dict_root");
+        });
+}
+
+fn render_dict_entries_tree(
+    ui: &mut egui::Ui,
+    app: &mut SisApp,
+    entries: &[(String, ObjectValue)],
+    path: &str,
+) {
+    for (idx, (key, value)) in entries.iter().enumerate() {
+        ui.horizontal_wrapped(|ui| {
+            ui.monospace(key);
+            ui.label("=");
+            let child_path = format!("{path}.dict.{idx}");
+            render_object_value_tree(ui, app, value, &child_path);
+        });
+    }
+}
+
+fn render_object_value_tree(ui: &mut egui::Ui, app: &mut SisApp, value: &ObjectValue, path: &str) {
+    match value {
+        ObjectValue::Null => {
+            ui.label("null");
+        }
+        ObjectValue::Bool(value) => {
+            ui.label(value.to_string());
+        }
+        ObjectValue::Int(value) => {
+            ui.label(value.to_string());
+        }
+        ObjectValue::Real(value) => {
+            ui.label(value.to_string());
+        }
+        ObjectValue::Name(value) | ObjectValue::Str(value) | ObjectValue::Summary(value) => {
+            if let Some(ref_id) = parse_obj_ref(value) {
+                if ui.link(value).clicked() {
+                    app.navigate_to_object(ref_id.0, ref_id.1);
+                }
+            } else {
+                ui.label(value);
+            }
+        }
+        ObjectValue::Ref { obj, gen } => {
+            let label = format!("{obj} {gen} R");
+            if ui.link(&label).clicked() {
+                app.navigate_to_object(*obj, *gen);
+            }
+        }
+        ObjectValue::Array(items) => {
+            egui::CollapsingHeader::new(format!("[{} items]", items.len())).id_salt(path).show(
                 ui,
                 |ui| {
-                    for (key, val) in entries {
-                        ui.monospace(key);
-                        if let Some(ref_id) = parse_obj_ref(val) {
-                            if ui.link(val).clicked() {
-                                app.navigate_to_object(ref_id.0, ref_id.1);
-                            }
-                        } else {
-                            ui.label(val);
-                        }
-                        ui.end_row();
+                    for (idx, item) in items.iter().enumerate() {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.monospace(format!("[{idx}]"));
+                            ui.label("=");
+                            let child_path = format!("{path}.arr.{idx}");
+                            render_object_value_tree(ui, app, item, &child_path);
+                        });
                     }
                 },
             );
-        });
+        }
+        ObjectValue::Dict(entries) => {
+            egui::CollapsingHeader::new(format!("<< {} entries >>", entries.len()))
+                .id_salt(path)
+                .show(ui, |ui| {
+                    ui.indent(path, |ui| {
+                        render_dict_entries_tree(ui, app, entries, path);
+                    });
+                });
+        }
+        ObjectValue::Stream { dict } => {
+            egui::CollapsingHeader::new(format!("stream << {} entries >>", dict.len()))
+                .id_salt(path)
+                .show(ui, |ui| {
+                    ui.indent(path, |ui| {
+                        render_dict_entries_tree(ui, app, dict, path);
+                    });
+                });
+        }
+    }
 }
 
 fn show_security_context(ui: &mut egui::Ui, app: &mut SisApp, context: &ObjectSecurityContext) {

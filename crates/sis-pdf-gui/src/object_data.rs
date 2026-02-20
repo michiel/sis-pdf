@@ -57,6 +57,8 @@ pub struct ObjectSummary {
     pub obj_type: String,
     pub roles: Vec<String>,
     pub dict_entries: Vec<(String, String)>,
+    #[serde(default)]
+    pub dict_entries_tree: Vec<(String, ObjectValue)>,
     pub has_stream: bool,
     pub stream_text: Option<String>,
     pub stream_raw: Option<Vec<u8>>,
@@ -72,6 +74,21 @@ pub struct ObjectSummary {
     pub image_preview: Option<(u32, u32, Vec<u8>)>,
     pub references_from: Vec<(u32, u16)>,
     pub references_to: Vec<(u32, u16)>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum ObjectValue {
+    Null,
+    Bool(bool),
+    Int(i64),
+    Real(f64),
+    Name(String),
+    Str(String),
+    Ref { obj: u32, gen: u16 },
+    Array(Vec<ObjectValue>),
+    Dict(Vec<(String, ObjectValue)>),
+    Stream { dict: Vec<(String, ObjectValue)> },
+    Summary(String),
 }
 
 /// Owned copy of xref section metadata.
@@ -174,6 +191,7 @@ fn extract_one_object(
         .unwrap_or_else(|| ("other".to_string(), Vec::new()));
 
     let mut dict_entries = Vec::new();
+    let mut dict_entries_tree = Vec::new();
     let mut has_stream = false;
     let mut stream_text = None;
     let mut stream_raw = None;
@@ -191,12 +209,14 @@ fn extract_one_object(
 
     match &entry.atom {
         PdfAtom::Dict(d) => {
-            dict_entries = extract_dict_entries(d);
+            dict_entries_tree = extract_dict_entries_tree(d);
+            dict_entries = flatten_dict_entries(&dict_entries_tree);
             collect_refs_from_dict(d, &mut references_from);
         }
         PdfAtom::Stream(s) => {
             has_stream = true;
-            dict_entries = extract_dict_entries(&s.dict);
+            dict_entries_tree = extract_dict_entries_tree(&s.dict);
+            dict_entries = flatten_dict_entries(&dict_entries_tree);
             collect_refs_from_dict(&s.dict, &mut references_from);
             stream_filters = sis_pdf_pdf::decode::stream_filters(&s.dict);
 
@@ -253,8 +273,10 @@ fn extract_one_object(
         }
         PdfAtom::Array(arr) => {
             for (i, obj) in arr.iter().enumerate() {
-                let val = atom_to_display_string(&obj.atom);
+                let value = atom_to_object_value(&obj.atom, 0);
+                let val = object_value_summary(&value);
                 dict_entries.push((format!("[{}]", i), val));
+                dict_entries_tree.push((format!("[{}]", i), value));
                 collect_refs_from_obj(obj, &mut references_from);
             }
         }
@@ -273,6 +295,7 @@ fn extract_one_object(
         obj_type,
         roles,
         dict_entries,
+        dict_entries_tree,
         has_stream,
         stream_text,
         stream_raw,
@@ -316,24 +339,35 @@ pub fn decode_stream_for_object(
     Some(decoded.data)
 }
 
-fn extract_dict_entries(dict: &PdfDict<'_>) -> Vec<(String, String)> {
+const MAX_OBJECT_VALUE_DEPTH: usize = 12;
+const MAX_OBJECT_VALUE_ITEMS: usize = 128;
+
+fn extract_dict_entries_tree(dict: &PdfDict<'_>) -> Vec<(String, ObjectValue)> {
     dict.entries
         .iter()
         .map(|(name, obj)| {
             let key = String::from_utf8_lossy(&name.decoded).to_string();
-            let val = atom_to_display_string(&obj.atom);
+            let val = atom_to_object_value(&obj.atom, 0);
             (key, val)
         })
         .collect()
 }
 
-fn atom_to_display_string(atom: &PdfAtom<'_>) -> String {
+fn flatten_dict_entries(entries: &[(String, ObjectValue)]) -> Vec<(String, String)> {
+    entries.iter().map(|(key, value)| (key.clone(), object_value_summary(value))).collect()
+}
+
+fn atom_to_object_value(atom: &PdfAtom<'_>, depth: usize) -> ObjectValue {
+    if depth >= MAX_OBJECT_VALUE_DEPTH {
+        return ObjectValue::Summary("<max depth reached>".to_string());
+    }
+
     match atom {
-        PdfAtom::Null => "null".to_string(),
-        PdfAtom::Bool(b) => b.to_string(),
-        PdfAtom::Int(i) => i.to_string(),
-        PdfAtom::Real(r) => format!("{}", r),
-        PdfAtom::Name(n) => String::from_utf8_lossy(&n.decoded).to_string(),
+        PdfAtom::Null => ObjectValue::Null,
+        PdfAtom::Bool(b) => ObjectValue::Bool(*b),
+        PdfAtom::Int(i) => ObjectValue::Int(*i),
+        PdfAtom::Real(r) => ObjectValue::Real(*r),
+        PdfAtom::Name(n) => ObjectValue::Name(String::from_utf8_lossy(&n.decoded).to_string()),
         PdfAtom::Str(s) => {
             let decoded = match s {
                 PdfStr::Literal { decoded, .. } => decoded,
@@ -342,26 +376,93 @@ fn atom_to_display_string(atom: &PdfAtom<'_>) -> String {
             match std::str::from_utf8(decoded) {
                 Ok(text) => {
                     if text.len() > 200 {
-                        format!("({:.200}...)", text)
+                        ObjectValue::Str(format!("({:.200}...)", text))
                     } else {
-                        format!("({})", text)
+                        ObjectValue::Str(format!("({})", text))
                     }
                 }
-                Err(_) => format!("<{} bytes>", decoded.len()),
+                Err(_) => ObjectValue::Summary(format!("<{} bytes>", decoded.len())),
             }
         }
-        PdfAtom::Ref { obj, gen } => format!("{} {} R", obj, gen),
+        PdfAtom::Ref { obj, gen } => ObjectValue::Ref { obj: *obj, gen: *gen },
         PdfAtom::Array(arr) => {
-            if arr.len() <= 8 {
-                let items: Vec<String> =
-                    arr.iter().map(|o| atom_to_display_string(&o.atom)).collect();
-                format!("[{}]", items.join(", "))
+            let mut items = arr
+                .iter()
+                .take(MAX_OBJECT_VALUE_ITEMS)
+                .map(|o| atom_to_object_value(&o.atom, depth + 1))
+                .collect::<Vec<_>>();
+            let remaining = arr.len().saturating_sub(items.len());
+            if remaining > 0 {
+                items.push(ObjectValue::Summary(format!("<{} more items>", remaining)));
+            }
+            ObjectValue::Array(items)
+        }
+        PdfAtom::Dict(d) => {
+            let mut entries = d
+                .entries
+                .iter()
+                .take(MAX_OBJECT_VALUE_ITEMS)
+                .map(|(name, obj)| {
+                    (
+                        String::from_utf8_lossy(&name.decoded).to_string(),
+                        atom_to_object_value(&obj.atom, depth + 1),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let remaining = d.entries.len().saturating_sub(entries.len());
+            if remaining > 0 {
+                entries.push((
+                    "...".to_string(),
+                    ObjectValue::Summary(format!("<{} more entries>", remaining)),
+                ));
+            }
+            ObjectValue::Dict(entries)
+        }
+        PdfAtom::Stream(s) => {
+            let mut entries = s
+                .dict
+                .entries
+                .iter()
+                .take(MAX_OBJECT_VALUE_ITEMS)
+                .map(|(name, obj)| {
+                    (
+                        String::from_utf8_lossy(&name.decoded).to_string(),
+                        atom_to_object_value(&obj.atom, depth + 1),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let remaining = s.dict.entries.len().saturating_sub(entries.len());
+            if remaining > 0 {
+                entries.push((
+                    "...".to_string(),
+                    ObjectValue::Summary(format!("<{} more entries>", remaining)),
+                ));
+            }
+            ObjectValue::Stream { dict: entries }
+        }
+    }
+}
+
+fn object_value_summary(value: &ObjectValue) -> String {
+    match value {
+        ObjectValue::Null => "null".to_string(),
+        ObjectValue::Bool(value) => value.to_string(),
+        ObjectValue::Int(value) => value.to_string(),
+        ObjectValue::Real(value) => format!("{value}"),
+        ObjectValue::Name(value) => value.clone(),
+        ObjectValue::Str(value) => value.clone(),
+        ObjectValue::Ref { obj, gen } => format!("{obj} {gen} R"),
+        ObjectValue::Array(items) => {
+            if items.len() <= 8 {
+                let joined = items.iter().map(object_value_summary).collect::<Vec<_>>().join(", ");
+                format!("[{joined}]")
             } else {
-                format!("[{} items]", arr.len())
+                format!("[{} items]", items.len())
             }
         }
-        PdfAtom::Dict(d) => format!("<< {} entries >>", d.entries.len()),
-        PdfAtom::Stream(s) => format!("<< {} entries >> stream", s.dict.entries.len()),
+        ObjectValue::Dict(entries) => format!("<< {} entries >>", entries.len()),
+        ObjectValue::Stream { dict } => format!("<< {} entries >> stream", dict.len()),
+        ObjectValue::Summary(value) => value.clone(),
     }
 }
 
@@ -501,4 +602,71 @@ fn decode_jpeg_preview(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let (tw, th) = thumb.dimensions();
     let rgba = thumb.to_rgba8().into_raw();
     Some((tw, th, rgba))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sis_pdf_pdf::object::PdfName;
+    use sis_pdf_pdf::span::Span;
+    use std::borrow::Cow;
+
+    fn span() -> Span {
+        Span { start: 0, end: 0 }
+    }
+
+    fn name(decoded: &[u8]) -> PdfName<'static> {
+        PdfName { span: span(), raw: Cow::Owned(decoded.to_vec()), decoded: decoded.to_vec() }
+    }
+
+    fn obj(atom: PdfAtom<'static>) -> PdfObj<'static> {
+        PdfObj { span: span(), atom }
+    }
+
+    #[test]
+    fn extract_dict_entries_tree_keeps_nested_group_dictionary() {
+        let group = PdfDict {
+            span: span(),
+            entries: vec![
+                (name(b"/S"), obj(PdfAtom::Name(name(b"/Transparency")))),
+                (name(b"/CS"), obj(PdfAtom::Name(name(b"/DeviceRGB")))),
+                (name(b"/I"), obj(PdfAtom::Bool(true))),
+            ],
+        };
+        let outer = PdfDict {
+            span: span(),
+            entries: vec![
+                (name(b"/Type"), obj(PdfAtom::Name(name(b"/Page")))),
+                (name(b"/Group"), obj(PdfAtom::Dict(group))),
+            ],
+        };
+
+        let tree = extract_dict_entries_tree(&outer);
+        let mut group_entries_len = None;
+        for (key, value) in &tree {
+            if key == "/Group" {
+                if let ObjectValue::Dict(entries) = value {
+                    group_entries_len = Some(entries.len());
+                }
+            }
+        }
+
+        assert_eq!(group_entries_len, Some(3));
+    }
+
+    #[test]
+    fn flatten_dict_entries_uses_container_summary() {
+        let entries = vec![(
+            "/Group".to_string(),
+            ObjectValue::Dict(vec![(
+                "/S".to_string(),
+                ObjectValue::Name("/Transparency".to_string()),
+            )]),
+        )];
+
+        let flat = flatten_dict_entries(&entries);
+        assert_eq!(flat.len(), 1);
+        assert_eq!(flat[0].0, "/Group");
+        assert_eq!(flat[0].1, "<< 1 entries >>");
+    }
 }

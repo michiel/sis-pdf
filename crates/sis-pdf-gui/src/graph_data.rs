@@ -334,6 +334,7 @@ mod tests {
             obj_type: obj_type.to_string(),
             roles: Vec::new(),
             dict_entries: Vec::new(),
+            dict_entries_tree: Vec::new(),
             has_stream: false,
             stream_text: None,
             stream_raw: None,

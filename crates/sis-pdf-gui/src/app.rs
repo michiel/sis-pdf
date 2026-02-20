@@ -737,13 +737,46 @@ impl SisApp {
         self.show_hex = true;
     }
 
-    /// Open the hex viewer showing a stream's raw bytes.
+    /// Open the hex viewer at the stream's file span and highlight the range.
     pub fn open_hex_for_stream(&mut self, obj: u32, gen: u16) {
-        self.hex_view = HexViewState {
-            source: HexSource::Stream { obj, gen },
-            highlights: Vec::new(),
-            jump_to: None,
-        };
+        let stream_span = self
+            .result
+            .as_ref()
+            .and_then(|result| {
+                result
+                    .object_data
+                    .index
+                    .get(&(obj, gen))
+                    .copied()
+                    .map(|idx| (&result.object_data.objects[idx], result))
+            })
+            .and_then(|(summary, _result)| summary.stream_data_span)
+            .filter(|(start, end)| start < end);
+
+        if let Some((start, end)) = stream_span {
+            let length = end.saturating_sub(start).min(u32::MAX as usize) as u32;
+            self.hex_view = HexViewState {
+                source: HexSource::File,
+                highlights: vec![HexHighlight {
+                    start,
+                    length: length as usize,
+                    color: egui::Color32::from_rgba_premultiplied(255, 200, 0, 80),
+                    label: format!("Stream {} {} R", obj, gen),
+                }],
+                jump_to: Some(HexJumpTarget {
+                    offset: start as u64,
+                    length,
+                    source: EvidenceSource::File,
+                }),
+            };
+        } else {
+            // Fallback for objects without a valid stream span.
+            self.hex_view = HexViewState {
+                source: HexSource::Stream { obj, gen },
+                highlights: Vec::new(),
+                jump_to: None,
+            };
+        }
         self.show_hex = true;
     }
 
