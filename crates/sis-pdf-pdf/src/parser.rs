@@ -343,8 +343,9 @@ impl<'a> Parser<'a> {
                                         }
                                     }
                                 }
-                                let val = oct.iter().fold(0u8, |acc, d| acc * 8 + (d - b'0'));
-                                out.push(val);
+                                let val =
+                                    oct.iter().fold(0u32, |acc, d| acc * 8 + (*d - b'0') as u32);
+                                out.push(val as u8);
                             }
                             other => {
                                 self.record_deviation(
@@ -749,12 +750,43 @@ pub fn scan_indirect_objects<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::scan_indirect_objects;
+    use super::{parse_indirect_object_at, scan_indirect_objects};
 
     #[test]
     fn scan_respects_max_objects() {
         let data = b"1 0 obj<<>>endobj\n2 0 obj<<>>endobj\n3 0 obj<<>>endobj";
         let (objects, _) = scan_indirect_objects(data, false, 2);
         assert_eq!(objects.len(), 2);
+    }
+
+    /// Regression: octal escape \\663 (decimal 435) overflows u8 arithmetic.
+    /// This specific byte sequence was found by the parser fuzzer and triggered
+    /// an "attempt to multiply with overflow" panic via -Cdebug-assertions.
+    #[test]
+    fn parse_literal_string_octal_overflow_does_not_panic() {
+        let data: &[u8] = &[
+            54, 54, 56, 0, 48, 9, 111, 98, 106, 10, 40, 238, 48, 0, 106, 40, 96, 149, 92, 54, 54,
+            51, 0, 48, 9, 111, 98, 106, 10, 40, 238, 48, 0, 106, 40, 96, 149, 33, 33, 33, 33, 33,
+            33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33,
+            33, 33, 33, 33, 33, 33, 33, 33, 33, 149, 13, 14, 10, 96, 98, 111, 149, 13, 14, 13,
+        ];
+        // Must not panic regardless of result
+        let _ = parse_indirect_object_at(data, 0, false);
+    }
+
+    /// Octal escape values > 255 should wrap to low 8 bits (\\663 -> 0xb3).
+    #[test]
+    fn parse_literal_string_octal_overflow_wraps_correctly() {
+        use crate::object::{PdfAtom, PdfStr};
+        // 668 0 obj (\663) endobj  — octal 663 = 435, low 8 bits = 179 = 0xb3
+        let data = b"668 0 obj (\\663) endobj";
+        let (res, _) = parse_indirect_object_at(data, 0, false);
+        let (entry, _) = res.expect("should parse");
+        match entry.atom {
+            PdfAtom::Str(PdfStr::Literal { decoded, .. }) => {
+                assert_eq!(decoded, &[0xb3], "octal \\663 should decode to 0xb3");
+            }
+            other => panic!("expected Str(Literal), got {:?}", other),
+        }
     }
 }
