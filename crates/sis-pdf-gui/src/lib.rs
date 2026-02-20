@@ -12,6 +12,7 @@ pub mod image_preview;
 pub mod object_data;
 #[cfg(feature = "gui")]
 pub mod panels;
+pub mod preview_cache;
 pub mod query;
 #[cfg(feature = "gui")]
 pub mod shortcuts;

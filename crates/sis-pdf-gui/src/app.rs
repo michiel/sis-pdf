@@ -1,6 +1,7 @@
 use crate::analysis::{AnalysisError, AnalysisResult, WorkerAnalysisResult};
 use crate::annotations::{sha256_hex, AnnotationStore};
 use crate::image_preview::ImagePreviewStatus;
+use crate::preview_cache::PreviewCache;
 use crate::telemetry::TelemetryLog;
 use crate::window_state::WindowMaxState;
 use crate::workspace::{self, WorkspaceContext};
@@ -142,7 +143,7 @@ pub struct ImagePreviewDialogState {
     pub object_ref: Option<(u32, u16)>,
     pub data: Option<ImagePreviewDialogData>,
     pub from_cache: bool,
-    pub cache: HashMap<(u32, u16), ImagePreviewDialogData>,
+    pub cache: PreviewCache<(u32, u16), ImagePreviewDialogData>,
 }
 
 #[derive(Clone)]
@@ -822,7 +823,7 @@ impl SisApp {
     pub fn open_image_preview(&mut self, obj: u32, gen: u16) {
         self.show_image_preview = true;
         self.image_preview_state.object_ref = Some((obj, gen));
-        if let Some(cached) = self.image_preview_state.cache.get(&(obj, gen)).cloned() {
+        if let Some(cached) = self.image_preview_state.cache.get_cloned(&(obj, gen)) {
             self.image_preview_state.data = Some(cached);
             self.image_preview_state.from_cache = true;
             return;
@@ -830,7 +831,11 @@ impl SisApp {
         self.image_preview_state.data = self.build_image_preview_dialog_data(obj, gen);
         self.image_preview_state.from_cache = false;
         if let Some(data) = self.image_preview_state.data.clone() {
-            self.image_preview_state.cache.insert((obj, gen), data);
+            self.image_preview_state.cache.insert(
+                (obj, gen),
+                data.clone(),
+                image_preview_dialog_data_size(&data),
+            );
         }
     }
 
@@ -841,7 +846,11 @@ impl SisApp {
         self.image_preview_state.data = self.build_image_preview_dialog_data(obj, gen);
         self.image_preview_state.from_cache = false;
         if let Some(data) = self.image_preview_state.data.clone() {
-            self.image_preview_state.cache.insert((obj, gen), data);
+            self.image_preview_state.cache.insert(
+                (obj, gen),
+                data.clone(),
+                image_preview_dialog_data_size(&data),
+            );
         }
     }
 
@@ -1084,6 +1093,25 @@ impl SisApp {
         onchange.forget();
         input.click();
     }
+}
+
+fn image_preview_dialog_data_size(data: &ImagePreviewDialogData) -> usize {
+    let mut size = 0usize;
+    size = size.saturating_add(data.stream_filters.iter().map(|s| s.len()).sum::<usize>());
+    size = size.saturating_add(data.stream_content_type.as_ref().map(|s| s.len()).unwrap_or(0));
+    size = size.saturating_add(data.image_color_space.as_ref().map(|s| s.len()).unwrap_or(0));
+    size = size.saturating_add(data.preview_source.as_ref().map(|s| s.len()).unwrap_or(0));
+    size = size.saturating_add(data.image_preview_summary.as_ref().map(|s| s.len()).unwrap_or(0));
+    size = size.saturating_add(data.image_preview_status.as_ref().map(|s| s.len()).unwrap_or(0));
+    for status in &data.preview_statuses {
+        size = size
+            .saturating_add(status.detail.len())
+            .saturating_add(status.source.as_ref().map(|s| s.len()).unwrap_or(0));
+    }
+    if let Some((_, _, rgba)) = &data.image_preview {
+        size = size.saturating_add(rgba.len());
+    }
+    size.max(1)
 }
 
 impl eframe::App for SisApp {
