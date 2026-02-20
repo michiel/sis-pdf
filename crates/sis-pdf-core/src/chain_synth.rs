@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::chain::{ChainTemplate, ExploitChain};
-use crate::chain_render::render_path;
+use crate::chain_render::{compose_chain_narrative, render_path};
 use crate::chain_score::score_chain;
 use crate::model::{Confidence, Finding, Severity};
 use crate::taint::taint_from_findings;
@@ -327,7 +327,6 @@ fn populate_chain_enrichment(chain: &mut ExploitChain, findings_by_id: &HashMap<
     chain.chain_completeness =
         chain.confirmed_stages.len() as f64 / EXPECTED_CHAIN_STAGES.len() as f64;
     chain.reader_risk = collect_reader_risk(chain, findings_by_id);
-    chain.narrative = String::new();
     chain.active_mitigations = collect_unique_meta_values(
         chain,
         findings_by_id,
@@ -338,6 +337,7 @@ fn populate_chain_enrichment(chain: &mut ExploitChain, findings_by_id: &HashMap<
     chain.unmet_conditions =
         derive_unmet_conditions(chain, findings_by_id, &chain.required_conditions);
     chain.finding_criticality = compute_finding_criticality(chain, findings_by_id);
+    chain.narrative = compose_chain_narrative(chain);
 }
 
 fn is_confidence_probable_or_higher(confidence: Confidence) -> bool {
@@ -581,6 +581,7 @@ fn notes_from_findings(
                         | "chain.confidence"
                         | "chain.severity"
                         | "injection.sources"
+                        | "scatter.fragment_count"
                 )
             {
                 if k == "js.sandbox_exec"

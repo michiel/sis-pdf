@@ -110,6 +110,7 @@ fn propagates_edge_and_exploit_notes_into_chain_output() {
     assert_eq!(chain.notes.get("edge.confidence").map(String::as_str), Some("Strong"));
     assert_eq!(chain.notes.get("exploit.outcomes").map(String::as_str), Some("payload_staging"));
     assert_eq!(chain.notes.get("chain.severity").map(String::as_str), Some("Medium"));
+    assert!(chain.narrative.contains("Likely outcomes: payload_staging."));
 }
 
 #[test]
@@ -166,4 +167,18 @@ fn maps_mitigations_and_required_conditions() {
         vec!["egress_allowed".to_string(), "js_enabled".to_string()]
     );
     assert_eq!(chain.unmet_conditions, vec!["egress_allowed".to_string()]);
+    assert!(chain.narrative.contains("Active mitigations: sandbox_enabled, url_filtering."));
+    assert!(chain.narrative.contains("Unmet preconditions: egress_allowed."));
+}
+
+#[test]
+fn captures_scatter_fragment_context_in_narrative() {
+    let mut finding = base_finding("f1", "scattered_payload_assembly", "40 0 obj");
+    finding.meta.insert("scatter.fragment_count".into(), "5".into());
+    finding.meta.insert("chain.stage".into(), "decode".into());
+
+    let (chains, _) = synthesise_chains(&[finding], true);
+    let chain = chains.first().expect("single chain");
+    assert_eq!(chain.notes.get("scatter.fragment_count").map(String::as_str), Some("5"));
+    assert!(chain.narrative.contains("Payload scatter evidence: 5 fragments."));
 }
