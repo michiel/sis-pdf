@@ -1,4 +1,5 @@
 use sis_pdf_gui::analysis::{analyze, AnalysisError};
+use sis_pdf_gui::image_preview::{build_preview_for_object, ImagePreviewStage, PreviewLimits};
 use sis_pdf_gui::query::{execute_query, parse_query, Query, QueryOutput};
 
 #[test]
@@ -182,6 +183,64 @@ fn stream_raw_contains_decoded_bytes() {
             }
         }
     }
+}
+
+#[test]
+fn on_demand_image_preview_generation_from_analysis_result() {
+    let pdf = build_minimal_image_pdf();
+    let result = analyze(&pdf, "minimal-image.pdf").expect("analysis should succeed");
+    let image_obj = result
+        .object_data
+        .objects
+        .iter()
+        .find(|object| object.obj_type == "image")
+        .expect("expected image object in analysis result");
+
+    assert!(
+        image_obj.image_preview.is_none(),
+        "full extraction should not precompute inline preview pixels in on-demand mode"
+    );
+    assert!(
+        image_obj.preview_statuses.iter().any(|status| status.stage == ImagePreviewStage::RawProbe),
+        "object summary should still carry preview status metadata"
+    );
+
+    let preview = build_preview_for_object(
+        &result.bytes,
+        image_obj.obj,
+        image_obj.gen,
+        PreviewLimits::default(),
+    )
+    .expect("on-demand preview should build for image object");
+    assert!(
+        !preview.statuses.is_empty(),
+        "on-demand preview should emit stage statuses for diagnostics"
+    );
+}
+
+fn build_minimal_image_pdf() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut offsets: Vec<usize> = vec![0];
+    bytes.extend_from_slice(b"%PDF-1.4\n");
+
+    offsets.push(bytes.len());
+    bytes.extend_from_slice(b"1 0 obj\n<< /Type /Catalog >>\nendobj\n");
+
+    offsets.push(bytes.len());
+    bytes.extend_from_slice(
+        b"2 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 3 >>\nstream\nabc\nendstream\nendobj\n",
+    );
+
+    let xref_offset = bytes.len();
+    bytes.extend_from_slice(b"xref\n0 3\n");
+    bytes.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in offsets.iter().skip(1) {
+        let line = format!("{:010} 00000 n \n", offset);
+        bytes.extend_from_slice(line.as_bytes());
+    }
+    let trailer = format!("trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF");
+    bytes.extend_from_slice(trailer.as_bytes());
+    bytes
 }
 
 // --- M2: Query parser and executor tests ---

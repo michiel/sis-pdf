@@ -146,6 +146,24 @@ fn preview_pipeline_repeat_build_is_stable() {
     );
 }
 
+#[test]
+fn preview_pipeline_cache_steady_state_respects_byte_budget() {
+    let mut cache = PreviewCache::new(2, 4_000);
+    for idx in 0..5u32 {
+        let payload = format!("FFD8FFD9{:02X}>", idx);
+        let pdf = build_single_image_pdf(Some("[/ASCIIHexDecode /DCTDecode]"), payload.as_bytes());
+        let built = build_preview_for_object(&pdf, 2, 0, PreviewLimits::default())
+            .expect("preview build should succeed for cache test");
+        let size = preview_build_result_size(&built);
+        cache.insert((idx, 0u16), built, size);
+        assert!(
+            cache.total_bytes() <= cache.max_total_bytes(),
+            "cache should stay within configured byte budget after insertion {}",
+            idx
+        );
+    }
+}
+
 fn preview_build_result_size(result: &sis_pdf_gui::image_preview::PreviewBuildResult) -> usize {
     let mut size = result.summary.len();
     size = size.saturating_add(result.source_used.as_ref().map(|s| s.len()).unwrap_or(0));
