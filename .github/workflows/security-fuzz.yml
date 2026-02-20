@@ -38,12 +38,12 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
 
       - name: Install cargo-fuzz
-        run: cargo install cargo-fuzz --locked
+        run: cargo +nightly install cargo-fuzz --locked
 
       - name: Run parser fuzz smoke
         working-directory: fuzz
-        run: cargo fuzz run parser -- -max_total_time=20
+        run: cargo +nightly fuzz run parser -- -max_total_time=20
 
       - name: Run image metadata fuzz smoke
         working-directory: fuzz
-        run: cargo fuzz run image_metadata -- -max_total_time=20
+        run: cargo +nightly fuzz run image_metadata -- -max_total_time=20
