@@ -125,6 +125,27 @@ fn preview_pipeline_non_stream_object_returns_none() {
     assert!(result.is_none(), "non-stream object should not produce preview result");
 }
 
+#[test]
+fn preview_pipeline_repeat_build_is_stable() {
+    let payload = b"FFD8FFD9>";
+    let pdf = build_single_image_pdf(Some("[/ASCIIHexDecode /DCTDecode]"), payload);
+    let first = build_preview_for_object(&pdf, 2, 0, PreviewLimits::default())
+        .expect("first preview build should succeed");
+    let second = build_preview_for_object(&pdf, 2, 0, PreviewLimits::default())
+        .expect("second preview build should succeed");
+
+    assert_eq!(first.summary, second.summary);
+    assert_eq!(first.source_used, second.source_used);
+    let first_stages: Vec<_> =
+        first.statuses.iter().map(|status| (status.stage, status.outcome)).collect();
+    let second_stages: Vec<_> =
+        second.statuses.iter().map(|status| (status.stage, status.outcome)).collect();
+    assert_eq!(
+        first_stages, second_stages,
+        "preview pipeline should be deterministic across repeat builds"
+    );
+}
+
 fn preview_build_result_size(result: &sis_pdf_gui::image_preview::PreviewBuildResult) -> usize {
     let mut size = result.summary.len();
     size = size.saturating_add(result.source_used.as_ref().map(|s| s.len()).unwrap_or(0));
