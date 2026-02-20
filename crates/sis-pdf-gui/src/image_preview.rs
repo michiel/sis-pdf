@@ -2,6 +2,7 @@ use sis_pdf_pdf::blob_classify::{classify_blob, BlobKind};
 use sis_pdf_pdf::decode::decode_stream;
 use sis_pdf_pdf::graph::ObjectGraph;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfStream};
+use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ImagePreviewStage {
@@ -28,6 +29,14 @@ pub struct ImagePreviewStatus {
     pub stage: ImagePreviewStage,
     pub outcome: ImagePreviewOutcome,
     pub detail: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub input_bytes: Option<usize>,
+    #[serde(default)]
+    pub output_bytes: Option<usize>,
+    #[serde(default)]
+    pub elapsed_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -54,6 +63,7 @@ pub struct PreviewBuildResult {
     pub preview: Option<(u32, u32, Vec<u8>)>,
     pub statuses: Vec<ImagePreviewStatus>,
     pub summary: String,
+    pub source_used: Option<String>,
 }
 
 pub fn build_preview_for_stream(
@@ -72,11 +82,16 @@ pub fn build_preview_for_stream(
             stage: ImagePreviewStage::RawProbe,
             outcome: ImagePreviewOutcome::InvalidMetadata,
             detail: "Invalid stream span".to_string(),
+            source: Some("stream".to_string()),
+            input_bytes: None,
+            output_bytes: None,
+            elapsed_ms: None,
         });
         return PreviewBuildResult {
             preview: None,
             summary: "Preview unavailable (invalid stream span)".to_string(),
             statuses,
+            source_used: None,
         };
     }
     let raw_bytes = &bytes[start..end];
@@ -85,15 +100,27 @@ pub fn build_preview_for_stream(
         stage: ImagePreviewStage::RawProbe,
         outcome: ImagePreviewOutcome::Ready,
         detail: format!("Raw probe blob kind: {}", raw_kind.as_str()),
+        source: Some("raw".to_string()),
+        input_bytes: Some(raw_bytes.len()),
+        output_bytes: None,
+        elapsed_ms: None,
     });
 
-    let (raw_preview, raw_ready) =
-        generate_image_preview(raw_bytes, raw_kind, &stream.dict, graph, &mut statuses, limits);
+    let (raw_preview, raw_ready) = generate_image_preview(
+        raw_bytes,
+        raw_kind,
+        &stream.dict,
+        graph,
+        &mut statuses,
+        limits,
+        "raw",
+    );
     if raw_ready {
         return PreviewBuildResult {
             preview: raw_preview,
-            summary: "Preview ready (raw stream bytes)".to_string(),
+            summary: "Ready: decoded from raw stream bytes".to_string(),
             statuses,
+            source_used: Some("raw".to_string()),
         };
     }
 
@@ -102,24 +129,41 @@ pub fn build_preview_for_stream(
             stage: ImagePreviewStage::FullStreamDecode,
             outcome: ImagePreviewOutcome::Ready,
             detail: format!("Decoded stream reused ({} bytes)", decoded.len()),
+            source: Some("reused-decoded".to_string()),
+            input_bytes: Some(raw_bytes.len()),
+            output_bytes: Some(decoded.len()),
+            elapsed_ms: None,
         });
         let kind = classify_blob(decoded);
-        let (preview, ready) =
-            generate_image_preview(decoded, kind, &stream.dict, graph, &mut statuses, limits);
+        let (preview, ready) = generate_image_preview(
+            decoded,
+            kind,
+            &stream.dict,
+            graph,
+            &mut statuses,
+            limits,
+            "reused-decoded",
+        );
         if ready {
             return PreviewBuildResult {
                 preview,
-                summary: "Preview ready (decoded stream bytes)".to_string(),
+                summary: "Ready: decoded from stream bytes".to_string(),
                 statuses,
+                source_used: Some("reused-decoded".to_string()),
             };
         }
     } else {
+        let decode_start = Instant::now();
         match decode_stream(bytes, stream, limits.max_stream_decode_bytes) {
             Ok(decoded) => {
                 statuses.push(ImagePreviewStatus {
                     stage: ImagePreviewStage::FullStreamDecode,
                     outcome: ImagePreviewOutcome::Ready,
                     detail: format!("Decoded {} bytes", decoded.data.len()),
+                    source: Some("full-decode".to_string()),
+                    input_bytes: Some(raw_bytes.len()),
+                    output_bytes: Some(decoded.data.len()),
+                    elapsed_ms: Some(decode_start.elapsed().as_millis() as u64),
                 });
                 let kind = classify_blob(&decoded.data);
                 let (preview, ready) = generate_image_preview(
@@ -129,12 +173,14 @@ pub fn build_preview_for_stream(
                     graph,
                     &mut statuses,
                     limits,
+                    "full-decode",
                 );
                 if ready {
                     return PreviewBuildResult {
                         preview,
-                        summary: "Preview ready (decoded stream bytes)".to_string(),
+                        summary: "Ready: decoded from stream bytes".to_string(),
                         statuses,
+                        source_used: Some("full-decode".to_string()),
                     };
                 }
             }
@@ -143,11 +189,16 @@ pub fn build_preview_for_stream(
                     stage: ImagePreviewStage::FullStreamDecode,
                     outcome: ImagePreviewOutcome::DecodeFailed,
                     detail: format!("Stream decode failed: {err}"),
+                    source: Some("full-decode".to_string()),
+                    input_bytes: Some(raw_bytes.len()),
+                    output_bytes: None,
+                    elapsed_ms: Some(decode_start.elapsed().as_millis() as u64),
                 });
             }
         }
     }
 
+    let prefix_start = Instant::now();
     if let Some(prefix_decoded) =
         decode_stream_with_non_deferred_prefix(bytes, stream, limits.max_stream_decode_bytes)
     {
@@ -155,6 +206,10 @@ pub fn build_preview_for_stream(
             stage: ImagePreviewStage::PrefixDecode,
             outcome: ImagePreviewOutcome::Ready,
             detail: format!("Decoded non-deferred prefix ({} bytes)", prefix_decoded.len()),
+            source: Some("prefix-decoded".to_string()),
+            input_bytes: Some(raw_bytes.len()),
+            output_bytes: Some(prefix_decoded.len()),
+            elapsed_ms: Some(prefix_start.elapsed().as_millis() as u64),
         });
         let kind = classify_blob(&prefix_decoded);
         let (preview, ready) = generate_image_preview(
@@ -164,12 +219,14 @@ pub fn build_preview_for_stream(
             graph,
             &mut statuses,
             limits,
+            "prefix-decoded",
         );
         if ready {
             return PreviewBuildResult {
                 preview,
-                summary: "Preview ready (non-deferred filter prefix decode)".to_string(),
+                summary: "Ready: decoded using non-deferred filter prefix".to_string(),
                 statuses,
+                source_used: Some("prefix-decoded".to_string()),
             };
         }
     } else {
@@ -177,13 +234,18 @@ pub fn build_preview_for_stream(
             stage: ImagePreviewStage::PrefixDecode,
             outcome: ImagePreviewOutcome::Unsupported,
             detail: "No usable non-deferred filter prefix".to_string(),
+            source: Some("prefix-decoded".to_string()),
+            input_bytes: Some(raw_bytes.len()),
+            output_bytes: None,
+            elapsed_ms: Some(prefix_start.elapsed().as_millis() as u64),
         });
     }
 
     PreviewBuildResult {
         preview: None,
-        summary: "Preview unavailable (decode/reconstruction failed)".to_string(),
+        summary: "Unavailable: decode and reconstruction paths failed".to_string(),
         statuses,
+        source_used: None,
     }
 }
 
@@ -348,6 +410,7 @@ fn generate_image_preview(
     graph: &ObjectGraph<'_>,
     statuses: &mut Vec<ImagePreviewStatus>,
     limits: PreviewLimits,
+    source_label: &str,
 ) -> (Option<(u32, u32, Vec<u8>)>, bool) {
     #[cfg(not(feature = "gui"))]
     {
@@ -356,6 +419,10 @@ fn generate_image_preview(
             stage: ImagePreviewStage::ContainerDecode,
             outcome: ImagePreviewOutcome::Unsupported,
             detail: "GUI image decode support disabled".to_string(),
+            source: Some(source_label.to_string()),
+            input_bytes: Some(decoded.len()),
+            output_bytes: None,
+            elapsed_ms: None,
         });
         return (None, false);
     }
@@ -364,17 +431,27 @@ fn generate_image_preview(
     {
         match blob_kind {
             BlobKind::Jpeg => {
+                let stage_start = Instant::now();
                 let preview = decode_jpeg_preview(decoded, limits);
                 if preview.is_some() {
+                    let out_bytes = preview.as_ref().map(|(_, _, rgba)| rgba.len());
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::ContainerDecode,
                         outcome: ImagePreviewOutcome::Ready,
                         detail: "JPEG container decode succeeded".to_string(),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: out_bytes,
+                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
                     });
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::Thumbnail,
                         outcome: ImagePreviewOutcome::Ready,
                         detail: "Thumbnail generated".to_string(),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: out_bytes,
+                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
                     });
                     (preview, true)
                 } else {
@@ -382,22 +459,36 @@ fn generate_image_preview(
                         stage: ImagePreviewStage::ContainerDecode,
                         outcome: ImagePreviewOutcome::DecodeFailed,
                         detail: "JPEG container decode failed or exceeded limits".to_string(),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: None,
+                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
                     });
                     (None, false)
                 }
             }
             BlobKind::Png | BlobKind::Gif | BlobKind::Bmp | BlobKind::Tiff | BlobKind::Webp => {
+                let stage_start = Instant::now();
                 let preview = decode_image_preview(decoded, limits);
                 if preview.is_some() {
+                    let out_bytes = preview.as_ref().map(|(_, _, rgba)| rgba.len());
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::ContainerDecode,
                         outcome: ImagePreviewOutcome::Ready,
                         detail: format!("{} container decode succeeded", blob_kind.as_str()),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: out_bytes,
+                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
                     });
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::Thumbnail,
                         outcome: ImagePreviewOutcome::Ready,
                         detail: "Thumbnail generated".to_string(),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: out_bytes,
+                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
                     });
                     (preview, true)
                 } else {
@@ -408,22 +499,36 @@ fn generate_image_preview(
                             "{} container decode failed or exceeded limits",
                             blob_kind.as_str()
                         ),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: None,
+                        elapsed_ms: Some(stage_start.elapsed().as_millis() as u64),
                     });
                     (None, false)
                 }
             }
             _ => {
+                let container_start = Instant::now();
                 let generic = decode_image_preview(decoded, limits);
                 if generic.is_some() {
+                    let out_bytes = generic.as_ref().map(|(_, _, rgba)| rgba.len());
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::ContainerDecode,
                         outcome: ImagePreviewOutcome::Ready,
                         detail: "Generic container decode succeeded".to_string(),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: out_bytes,
+                        elapsed_ms: Some(container_start.elapsed().as_millis() as u64),
                     });
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::Thumbnail,
                         outcome: ImagePreviewOutcome::Ready,
                         detail: "Thumbnail generated".to_string(),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: out_bytes,
+                        elapsed_ms: Some(container_start.elapsed().as_millis() as u64),
                     });
                     return (generic, true);
                 }
@@ -431,18 +536,32 @@ fn generate_image_preview(
                     stage: ImagePreviewStage::ContainerDecode,
                     outcome: ImagePreviewOutcome::Unsupported,
                     detail: format!("Unsupported container kind {}", blob_kind.as_str()),
+                    source: Some(source_label.to_string()),
+                    input_bytes: Some(decoded.len()),
+                    output_bytes: None,
+                    elapsed_ms: Some(container_start.elapsed().as_millis() as u64),
                 });
+                let reconstruct_start = Instant::now();
                 let reconstructed = reconstruct_image_preview(decoded, dict, graph);
                 if reconstructed.is_some() {
+                    let out_bytes = reconstructed.as_ref().map(|(_, _, rgba)| rgba.len());
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::PixelReconstruct,
                         outcome: ImagePreviewOutcome::Ready,
                         detail: "Raw pixel reconstruction succeeded".to_string(),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: out_bytes,
+                        elapsed_ms: Some(reconstruct_start.elapsed().as_millis() as u64),
                     });
                     statuses.push(ImagePreviewStatus {
                         stage: ImagePreviewStage::Thumbnail,
                         outcome: ImagePreviewOutcome::Ready,
                         detail: "Thumbnail generated".to_string(),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: out_bytes,
+                        elapsed_ms: Some(reconstruct_start.elapsed().as_millis() as u64),
                     });
                     (reconstructed, true)
                 } else {
@@ -450,6 +569,10 @@ fn generate_image_preview(
                         stage: ImagePreviewStage::PixelReconstruct,
                         outcome: ImagePreviewOutcome::ReconstructFailed,
                         detail: "Raw pixel reconstruction failed".to_string(),
+                        source: Some(source_label.to_string()),
+                        input_bytes: Some(decoded.len()),
+                        output_bytes: None,
+                        elapsed_ms: Some(reconstruct_start.elapsed().as_millis() as u64),
                     });
                     (None, false)
                 }
@@ -518,6 +641,11 @@ mod tests {
         assert!(result.statuses.iter().any(|status| {
             status.stage == ImagePreviewStage::PrefixDecode
                 && status.outcome == ImagePreviewOutcome::Ready
+        }));
+        assert!(result.statuses.iter().any(|status| {
+            status.stage == ImagePreviewStage::RawProbe
+                && status.source.as_deref() == Some("raw")
+                && status.input_bytes == Some(encoded.len())
         }));
     }
 

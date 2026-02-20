@@ -350,6 +350,7 @@ mod tests {
             image_preview_status: None,
             preview_statuses: Vec::new(),
             preview_summary: None,
+            preview_source: None,
             references_from: refs,
             references_to: Vec::new(),
         }

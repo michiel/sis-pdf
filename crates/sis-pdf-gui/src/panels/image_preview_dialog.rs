@@ -91,6 +91,11 @@ fn render_dialog(ui: &mut egui::Ui, app: &mut SisApp) {
                     ui.label(stream_length.to_string());
                     ui.end_row();
                 }
+                if let Some(source) = data.preview_source.as_deref() {
+                    ui.label("Preview source:");
+                    ui.label(source);
+                    ui.end_row();
+                }
             },
         );
     });
@@ -104,13 +109,70 @@ fn render_dialog(ui: &mut egui::Ui, app: &mut SisApp) {
         } else {
             ui.label("Summary unavailable");
         }
-        for status in &data.preview_statuses {
-            ui.horizontal_wrapped(|ui| {
-                ui.monospace(format!("{:?}", status.stage));
-                ui.label("->");
-                ui.monospace(format!("{:?}", status.outcome));
-                ui.label(&status.detail);
+        ui.separator();
+        egui::Grid::new("image_preview_status_grid")
+            .num_columns(6)
+            .spacing([8.0, 2.0])
+            .striped(true)
+            .show(ui, |ui| {
+                ui.strong("Stage");
+                ui.strong("Outcome");
+                ui.strong("Source");
+                ui.strong("Input");
+                ui.strong("Output");
+                ui.strong("Time");
+                ui.end_row();
+                for status in &data.preview_statuses {
+                    ui.monospace(format!("{:?}", status.stage));
+                    render_outcome_badge(ui, status.outcome);
+                    ui.small(status.source.as_deref().unwrap_or("-"));
+                    ui.small(
+                        status
+                            .input_bytes
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| "-".to_string()),
+                    );
+                    ui.small(
+                        status
+                            .output_bytes
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| "-".to_string()),
+                    );
+                    ui.small(
+                        status
+                            .elapsed_ms
+                            .map(|value| format!("{value} ms"))
+                            .unwrap_or_else(|| "-".to_string()),
+                    );
+                    ui.end_row();
+                    if !status.detail.is_empty() {
+                        ui.add_space(8.0);
+                        ui.small(&status.detail);
+                        ui.end_row();
+                    }
+                }
             });
-        }
     });
+}
+
+fn render_outcome_badge(ui: &mut egui::Ui, outcome: crate::image_preview::ImagePreviewOutcome) {
+    let (label, colour) = match outcome {
+        crate::image_preview::ImagePreviewOutcome::Ready => ("Ready", egui::Color32::LIGHT_GREEN),
+        crate::image_preview::ImagePreviewOutcome::SkippedBudget => {
+            ("SkippedBudget", egui::Color32::YELLOW)
+        }
+        crate::image_preview::ImagePreviewOutcome::Unsupported => {
+            ("Unsupported", egui::Color32::LIGHT_YELLOW)
+        }
+        crate::image_preview::ImagePreviewOutcome::DecodeFailed => {
+            ("DecodeFailed", egui::Color32::LIGHT_RED)
+        }
+        crate::image_preview::ImagePreviewOutcome::ReconstructFailed => {
+            ("ReconstructFailed", egui::Color32::LIGHT_RED)
+        }
+        crate::image_preview::ImagePreviewOutcome::InvalidMetadata => {
+            ("InvalidMetadata", egui::Color32::LIGHT_RED)
+        }
+    };
+    ui.colored_label(colour, label);
 }

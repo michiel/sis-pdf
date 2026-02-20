@@ -76,6 +76,8 @@ pub struct ObjectSummary {
     pub preview_statuses: Vec<ImagePreviewStatus>,
     #[serde(default)]
     pub preview_summary: Option<String>,
+    #[serde(default)]
+    pub preview_source: Option<String>,
     pub references_from: Vec<(u32, u16)>,
     pub references_to: Vec<(u32, u16)>,
 }
@@ -212,6 +214,7 @@ fn extract_one_object(
     let mut image_preview_status: Option<String> = None;
     let mut preview_statuses: Vec<ImagePreviewStatus> = Vec::new();
     let mut preview_summary: Option<String> = None;
+    let mut preview_source: Option<String> = None;
     let mut references_from = Vec::new();
 
     match &entry.atom {
@@ -282,6 +285,7 @@ fn extract_one_object(
                     image_preview_status = Some(built.summary.clone());
                     preview_summary = Some(built.summary);
                     preview_statuses = built.statuses;
+                    preview_source = built.source_used;
                 } else {
                     image_preview_status =
                         Some("Preview disabled in compact extraction mode".to_string());
@@ -291,6 +295,10 @@ fn extract_one_object(
                         outcome: crate::image_preview::ImagePreviewOutcome::SkippedBudget,
                         detail: "Preview generation disabled in compact extraction mode"
                             .to_string(),
+                        source: None,
+                        input_bytes: None,
+                        output_bytes: None,
+                        elapsed_ms: None,
                     });
                 }
             }
@@ -335,6 +343,7 @@ fn extract_one_object(
         image_preview_status,
         preview_statuses,
         preview_summary,
+        preview_source,
         references_from,
         references_to: Vec::new(),
     }
