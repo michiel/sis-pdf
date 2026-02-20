@@ -64,7 +64,7 @@ Owner: Detection pipeline (`sis-pdf-detectors`, `sis-pdf-core`, docs)
 - Completed: CQ3/CQ4 chain context and composition (initial):
   - Added exploit context metadata on edge composites:
     - `exploit.preconditions`
-    - `exploit.blockers`
+    - `exploit.mitigations` (canonical; `exploit.blockers` accepted as deprecated alias on read)
     - `exploit.outcomes`
   - Added composed chain-quality metadata:
     - `chain.confidence` (edge + source/target confidence composition)
@@ -420,12 +420,12 @@ Proposal:
 Benefit:
 - Produces machine-readable exploit paths instead of analyst-only mental joins.
 
-## CQ3: Upgrade finding details with exploit preconditions and blockers
+## CQ3: Upgrade finding details with exploit preconditions and mitigations
 
 Proposal:
 - Add structured detail fields:
   - `exploit.preconditions` (viewer/version, feature enabled, user action)
-  - `exploit.blockers` (sanitisation, CSP, disabled JS)
+  - `exploit.mitigations` (sanitisation, CSP, disabled JS) — canonical key; `exploit.blockers` is a deprecated alias accepted on read for one release cycle
   - `exploit.outcomes` (xss, credential capture, exfil)
 - Include these in `explain` output and JSONL.
 
