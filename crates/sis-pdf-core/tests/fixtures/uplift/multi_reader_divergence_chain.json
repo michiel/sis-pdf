@@ -1,0 +1,22 @@
+{
+  "findings": [
+    {
+      "id": "fx-m1",
+      "kind": "js_present",
+      "surface": "JavaScript",
+      "severity": "High",
+      "confidence": "Strong",
+      "objects": ["31 0 obj"],
+      "positions": ["doc:r0/obj.31"],
+      "meta": {
+        "chain.stage": "execute",
+        "chain.capability": "action_trigger_chain"
+      },
+      "reader_impacts": [
+        { "profile": "Acrobat", "surface": "JavaScript", "severity": "High", "impact": "High" },
+        { "profile": "Pdfium", "surface": "JavaScript", "severity": "Medium", "impact": "Medium" },
+        { "profile": "Preview", "surface": "JavaScript", "severity": "Low", "impact": "Low" }
+      ]
+    }
+  ]
+}

@@ -235,6 +235,7 @@ fn canonical_objects(finding: &Finding) -> Vec<String> {
 mod tests {
     use super::*;
     use sis_pdf_core::model::{AttackSurface, FindingBuilder};
+    use std::fs;
     use std::time::{Duration, Instant};
 
     fn finding(
@@ -306,5 +307,28 @@ mod tests {
         assert_eq!(diff.changed_findings.len(), 10);
         assert!(diff.new_findings.is_empty());
         assert!(diff.removed_findings.is_empty());
+        if let Some(rss_bytes) = process_rss_bytes() {
+            const MAX_RSS_BYTES: u64 = 300 * 1024 * 1024;
+            assert!(
+                rss_bytes <= MAX_RSS_BYTES,
+                "diff exceeded RSS budget: {} bytes (limit {})",
+                rss_bytes,
+                MAX_RSS_BYTES
+            );
+        }
+    }
+
+    fn process_rss_bytes() -> Option<u64> {
+        #[cfg(target_os = "linux")]
+        {
+            let status = fs::read_to_string("/proc/self/status").ok()?;
+            let line = status.lines().find(|line| line.starts_with("VmRSS:"))?;
+            let kb = line.split_whitespace().nth(1).and_then(|value| value.parse::<u64>().ok())?;
+            Some(kb * 1024)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            None
+        }
     }
 }

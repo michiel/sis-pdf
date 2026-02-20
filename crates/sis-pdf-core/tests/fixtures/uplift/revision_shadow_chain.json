@@ -1,0 +1,32 @@
+{
+  "findings": [
+    {
+      "id": "fx-r1",
+      "kind": "revision_annotations_changed",
+      "surface": "FileStructure",
+      "severity": "Medium",
+      "confidence": "Probable",
+      "objects": ["21 0 obj"],
+      "positions": ["doc:r1/obj.21"],
+      "meta": {
+        "chain.stage": "render",
+        "revision.total": "2",
+        "revision.annotations_added_count": "24"
+      }
+    },
+    {
+      "id": "fx-r2",
+      "kind": "revision_anomaly_scoring",
+      "surface": "FileStructure",
+      "severity": "Low",
+      "confidence": "Tentative",
+      "objects": ["22 0 obj"],
+      "positions": ["doc:r1/obj.22"],
+      "meta": {
+        "chain.stage": "execute",
+        "revision.anomaly.max_score": "5",
+        "revision.anomaly.reasons": "many_objects_added,annotations_added"
+      }
+    }
+  ]
+}

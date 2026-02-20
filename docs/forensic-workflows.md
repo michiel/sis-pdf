@@ -52,3 +52,32 @@ sis scan suspicious.pdf --deep --json
 Inspect `filter_chain_unusual`, `filter_order_invalid`, and
 `stream_high_entropy` findings to identify obfuscation patterns and potential
 encrypted payloads.
+
+## 6) Cross-run Finding Diff
+
+```bash
+sis scan baseline.pdf --deep --jsonl-findings > baseline.jsonl
+sis scan comparison.pdf --deep --jsonl-findings > comparison.jsonl
+sis diff baseline.jsonl comparison.jsonl
+sis diff baseline.jsonl comparison.jsonl --format json
+```
+
+`sis diff` matches findings by a stable fingerprint (kind, canonical objects,
+selected context fields, and optional evidence offset), not by finding id.
+For `action_target`, the matcher normalises URI query strings and fragments
+before fingerprinting so volatile tokens do not break matching across runs.
+
+Exit codes:
+- `0`: no new High/Critical findings
+- `1`: one or more new High/Critical findings
+
+## 7) Report Schema Version Check
+
+When consuming `sis scan --json` output programmatically, check
+`report.chain_schema_version` before reading chain enrichment fields.
+
+- `chain_schema_version = 2`: chain metadata fields (for example
+  `confirmed_stages`, `reader_risk`, `narrative`, `finding_criticality`) are
+  available.
+- missing `chain_schema_version` (legacy v1 payloads) defaults to `0`, and
+  additive chain fields fall back to empty/default values.

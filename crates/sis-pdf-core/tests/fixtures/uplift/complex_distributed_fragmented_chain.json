@@ -1,0 +1,44 @@
+{
+  "findings": [
+    {
+      "id": "fx-c1",
+      "kind": "scattered_payload_assembly",
+      "surface": "Forms",
+      "severity": "Medium",
+      "confidence": "Strong",
+      "objects": ["11 0 obj", "12 0 obj"],
+      "positions": ["doc:r0/obj.11", "doc:r0/obj.12"],
+      "meta": {
+        "chain.stage": "decode",
+        "scatter.fragment_count": "4",
+        "exploit.outcomes": "payload_staging; render_path_injection"
+      }
+    },
+    {
+      "id": "fx-c2",
+      "kind": "form_html_injection",
+      "surface": "Forms",
+      "severity": "High",
+      "confidence": "Strong",
+      "objects": ["12 0 obj", "13 0 obj"],
+      "positions": ["doc:r0/obj.12", "doc:r0/obj.13"],
+      "meta": {
+        "chain.stage": "render",
+        "exploit.preconditions": "render_path_reachable"
+      }
+    },
+    {
+      "id": "fx-c3",
+      "kind": "annotation_action_chain",
+      "surface": "Actions",
+      "severity": "High",
+      "confidence": "Probable",
+      "objects": ["13 0 obj", "14 0 obj"],
+      "positions": ["doc:r0/obj.13", "doc:r0/obj.14"],
+      "meta": {
+        "chain.stage": "execute",
+        "action.target": "https://collector.example/path?sid=abcd"
+      }
+    }
+  ]
+}

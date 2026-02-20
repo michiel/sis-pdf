@@ -25,6 +25,7 @@ jobs:
         run: |
           cargo test -p sis-pdf-core --test report_schema_compat
           cargo test -p sis-pdf-core --test chain_grouping
+          cargo test -p sis-pdf-core --test uplift_synthetic_fixtures
           cargo test -p sis-pdf-core --test corpus_captured_regressions \
             corpus_captured_modern_openaction_staged_baseline_stays_stable \
             -- --nocapture
@@ -45,7 +46,9 @@ jobs:
           cargo test -p sis-pdf-gui taint_overlay_mapping_budget -- --nocapture
 
       - name: CLI diff budget gate
-        run: cargo test -p sis-pdf diff_large_input_budget -- --nocapture
+        run: |
+          cargo test -p sis-pdf diff_large_input_budget -- --nocapture
+          cargo test -p sis-pdf format_json_and_jsonl_keep_stable_top_level_keys -- --nocapture
 
       - name: Runtime profile SLO gate
         run: |

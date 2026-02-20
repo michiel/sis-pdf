@@ -85,6 +85,11 @@ sis report --deep suspicious.pdf -o report.md
 sis scan suspicious.pdf --json
 ```
 
+Automation note:
+- JSON scan output includes `chain_schema_version` at report top-level. Check it
+  before consuming additive chain fields to keep downstream tooling compatible
+  with legacy payloads.
+
 ### Query Interface
 
 ```bash
