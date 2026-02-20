@@ -19,6 +19,7 @@ use sis_pdf_core::correlation;
 use sis_pdf_core::model::{
     AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
 };
+use sis_pdf_core::object_context::{build_object_context_index, get_object_context};
 use sis_pdf_core::reader_context;
 use sis_pdf_core::revision_timeline::{build_revision_timeline, DEFAULT_MAX_REVISIONS};
 use sis_pdf_core::rich_media::{
@@ -263,6 +264,8 @@ pub enum Query {
 
     // Object queries
     ShowObject(u32, u16),
+    ShowObjectDetail { obj: u32, gen: u16, context_only: bool },
+    ShowObjectContext(u32, u16),
     ObjectsList,
     ObjectsWithType(String),
 
@@ -705,6 +708,58 @@ pub fn parse_query(input: &str) -> Result<Query> {
             }
 
             // Try to parse object queries
+            if let Some(rest) =
+                input.strip_prefix("obj.detail ").or(input.strip_prefix("object.detail "))
+            {
+                let mut parts = rest.split_whitespace();
+                let obj_token = parts.next().ok_or_else(|| anyhow!("Object number required"))?;
+                let obj = obj_token
+                    .parse::<u32>()
+                    .map_err(|_| anyhow!("Invalid object number: {}", obj_token))?;
+                let mut gen = 0u16;
+                let mut context_only = false;
+                if let Some(next) = parts.next() {
+                    if next.starts_with("--") {
+                        match next {
+                            "--context-only" => context_only = true,
+                            _ => return Err(anyhow!("Unknown obj.detail flag: {}", next)),
+                        }
+                    } else {
+                        gen = next
+                            .parse::<u16>()
+                            .map_err(|_| anyhow!("Invalid generation number: {}", next))?;
+                    }
+                }
+                for token in parts {
+                    match token {
+                        "--context-only" => context_only = true,
+                        _ => return Err(anyhow!("Unknown obj.detail flag: {}", token)),
+                    }
+                }
+                return Ok(Query::ShowObjectDetail { obj, gen, context_only });
+            }
+
+            if let Some(rest) =
+                input.strip_prefix("object.context ").or(input.strip_prefix("obj.context "))
+            {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if parts.len() == 1 {
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    return Ok(Query::ShowObjectContext(obj, 0));
+                } else if parts.len() == 2 {
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let gen = parts[1]
+                        .parse::<u16>()
+                        .map_err(|_| anyhow!("Invalid generation number: {}", parts[1]))?;
+                    return Ok(Query::ShowObjectContext(obj, gen));
+                }
+                return Err(anyhow!("Invalid object.context query format"));
+            }
+
             if let Some(rest) = input
                 .strip_prefix("object ")
                 .or(input.strip_prefix("obj "))
@@ -2209,6 +2264,14 @@ pub fn execute_query_with_context(
                 let obj_str = show_object(ctx, *obj, *gen)?;
                 Ok(QueryResult::Scalar(ScalarValue::String(obj_str)))
             }
+            Query::ShowObjectDetail { obj, gen, context_only } => {
+                let detail = show_object_detail_query(ctx, *obj, *gen, *context_only)?;
+                Ok(QueryResult::Structure(detail))
+            }
+            Query::ShowObjectContext(obj, gen) => {
+                let context = show_object_context_query(ctx, *obj, *gen)?;
+                Ok(QueryResult::Structure(context))
+            }
             Query::ObjectsList => {
                 let objects = list_objects(ctx, decode_mode, max_extract_bytes, predicate)?;
                 Ok(QueryResult::List(objects))
@@ -2841,6 +2904,12 @@ pub fn format_result(result: &QueryResult, compact: bool) -> String {
             if let Some(summary) = format_findings_with_chain_text(v, compact) {
                 return summary;
             }
+            if let Some(summary) = format_object_detail_text(v) {
+                return summary;
+            }
+            if let Some(summary) = format_object_context_text(v, compact) {
+                return summary;
+            }
             serde_json::to_string_pretty(v).unwrap_or_else(|_| "{}".to_string())
         }
         QueryResult::Error(err) => err.message.clone(),
@@ -2879,6 +2948,66 @@ fn format_findings_with_chain_text(value: &serde_json::Value, compact: bool) -> 
         out.push(format!("Potential chain: {stage_path} [{edge_reason}] (id={chain_id})"));
     }
     Some(out.join("\n"))
+}
+
+fn format_object_detail_text(value: &serde_json::Value) -> Option<String> {
+    if value.get("type").and_then(|entry| entry.as_str()) != Some("object_detail") {
+        return None;
+    }
+    let object = value.get("object")?;
+    let obj = object.get("obj").and_then(|entry| entry.as_u64()).unwrap_or(0);
+    let generation = object.get("gen").and_then(|entry| entry.as_u64()).unwrap_or(0);
+    let content = object.get("content").and_then(|entry| entry.as_str()).unwrap_or("");
+    let context = value.get("security_context")?;
+    let tainted = context.get("tainted").and_then(|entry| entry.as_bool()).unwrap_or(false);
+    let taint_source =
+        context.get("taint_source").and_then(|entry| entry.as_bool()).unwrap_or(false);
+    let chain_count = context.get("chains").and_then(|entry| entry.as_array()).map_or(0, Vec::len);
+    let finding_count = context.get("finding_count").and_then(|entry| entry.as_u64()).unwrap_or(0);
+    let severity = context.get("max_severity").and_then(|entry| entry.as_str()).unwrap_or("None");
+    let confidence =
+        context.get("max_confidence").and_then(|entry| entry.as_str()).unwrap_or("None");
+
+    let mut out = String::new();
+    if !content.is_empty() {
+        out.push_str(content);
+        out.push_str("\n\n");
+    } else {
+        out.push_str(&format!("Object {obj} {generation} detail\n\n"));
+    }
+    out.push_str("Object security context\n");
+    out.push_str(&format!("  Tainted: {}\n", if tainted { "yes" } else { "no" }));
+    out.push_str(&format!("  Taint source: {}\n", if taint_source { "yes" } else { "no" }));
+    out.push_str(&format!("  Finding count: {finding_count}\n"));
+    out.push_str(&format!("  Chain membership: {chain_count}\n"));
+    out.push_str(&format!("  Max severity: {severity}\n"));
+    out.push_str(&format!("  Max confidence: {confidence}\n"));
+    Some(out)
+}
+
+fn format_object_context_text(value: &serde_json::Value, compact: bool) -> Option<String> {
+    if value.get("type").and_then(|entry| entry.as_str()) != Some("object_context") {
+        return None;
+    }
+    let object = value.get("object")?;
+    let summary = value.get("summary")?;
+    let obj = object.get("obj").and_then(|entry| entry.as_u64()).unwrap_or(0);
+    let generation = object.get("gen").and_then(|entry| entry.as_u64()).unwrap_or(0);
+    let tainted = summary.get("tainted").and_then(|entry| entry.as_bool()).unwrap_or(false);
+    let chain_count = summary.get("chain_count").and_then(|entry| entry.as_u64()).unwrap_or(0);
+    let severity = summary.get("max_severity").and_then(|entry| entry.as_str()).unwrap_or("None");
+    if compact {
+        return Some(format!(
+            "{obj} {generation}: tainted={}, chains={chain_count}, severity={severity}",
+            if tainted { "yes" } else { "no" }
+        ));
+    }
+    let confidence =
+        summary.get("max_confidence").and_then(|entry| entry.as_str()).unwrap_or("None");
+    Some(format!(
+        "Object {obj} {generation}\n  Tainted: {}\n  Chains: {chain_count}\n  Max severity: {severity}\n  Max confidence: {confidence}",
+        if tainted { "yes" } else { "no" }
+    ))
 }
 
 /// Format query result as JSON
@@ -6630,6 +6759,79 @@ fn show_object(ctx: &ScanContext, obj: u32, gen: u16) -> Result<String> {
     }
 }
 
+fn show_object_detail_query(
+    ctx: &ScanContext,
+    obj: u32,
+    gen: u16,
+    context_only: bool,
+) -> Result<serde_json::Value> {
+    let object_content = if context_only { None } else { Some(show_object(ctx, obj, gen)?) };
+    let context = build_object_security_context(ctx, obj, gen)?;
+    Ok(json!({
+        "type": "object_detail",
+        "object_detail_schema_version": 1,
+        "object": {
+            "obj": obj,
+            "gen": gen,
+            "content": object_content,
+        },
+        "security_context": context,
+    }))
+}
+
+fn show_object_context_query(ctx: &ScanContext, obj: u32, gen: u16) -> Result<serde_json::Value> {
+    let context = build_object_security_context(ctx, obj, gen)?;
+    Ok(json!({
+        "type": "object_context",
+        "object": {
+            "obj": obj,
+            "gen": gen,
+        },
+        "summary": {
+            "tainted": context.tainted,
+            "taint_source": context.taint_source,
+            "chain_count": context.chains.len(),
+            "finding_count": context.finding_count,
+            "max_severity": context.max_severity.as_ref().map(|value| format!("{value:?}")),
+            "max_confidence": context.max_confidence.as_ref().map(|value| format!("{value:?}")),
+            "introduced_revision": context.introduced_revision,
+            "post_cert": context.post_cert,
+            "similar_count": context.similar_count,
+        },
+        "security_context": context,
+    }))
+}
+
+fn build_object_security_context(
+    ctx: &ScanContext,
+    obj: u32,
+    gen: u16,
+) -> Result<sis_pdf_core::object_context::ObjectSecurityContext> {
+    if ctx.graph.get_object(obj, gen).is_none() {
+        return Err(anyhow!("Object {} {} not found", obj, gen));
+    }
+
+    let findings = findings_with_cache(ctx)?;
+    let taint = sis_pdf_core::taint::taint_from_findings(&findings);
+    let (chains, chain_templates) =
+        sis_pdf_core::chain_synth::synthesise_chains(&findings, ctx.options.group_chains);
+    let report = sis_pdf_core::report::Report::from_findings(
+        findings,
+        chains,
+        chain_templates,
+        Vec::new(),
+        None,
+        None,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        None,
+        None,
+    );
+    let index = build_object_context_index(&report, &taint);
+    Ok(get_object_context(&index, obj, gen))
+}
+
 /// Format a PDF atom for display
 fn format_pdf_atom(atom: &sis_pdf_pdf::object::PdfAtom, indent: usize) -> String {
     use sis_pdf_pdf::object::PdfAtom;
@@ -9435,6 +9637,86 @@ mod tests {
         assert!(matches!(query, Query::ExportIrText));
         let query = parse_query("ir.json").expect("ir json query");
         assert!(matches!(query, Query::ExportIrJson));
+        let query = parse_query("obj.detail 5 0 --context-only").expect("object detail query");
+        assert!(matches!(query, Query::ShowObjectDetail { obj: 5, gen: 0, context_only: true }));
+        let query = parse_query("object.context 5 0").expect("object context query");
+        assert!(matches!(query, Query::ShowObjectContext(5, 0)));
+    }
+
+    #[test]
+    fn execute_query_supports_object_detail_security_context() {
+        with_fixture_context("action_chain_complex.pdf", |ctx| {
+            let query = parse_query("obj.detail 1 0 --context-only").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value.get("type").and_then(Value::as_str), Some("object_detail"));
+                    assert_eq!(
+                        value
+                            .get("object")
+                            .and_then(|entry| entry.get("obj"))
+                            .and_then(Value::as_u64),
+                        Some(1)
+                    );
+                    assert!(value.get("security_context").is_some());
+                }
+                other => panic!("unexpected query result: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn execute_query_supports_object_context_query() {
+        with_fixture_context("action_chain_complex.pdf", |ctx| {
+            let query = parse_query("object.context 1 0").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value.get("type").and_then(Value::as_str), Some("object_context"));
+                    assert!(value.get("summary").is_some());
+                    assert!(value.get("security_context").is_some());
+                }
+                other => panic!("unexpected query result: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn execute_query_obj_output_shape_is_unchanged() {
+        with_fixture_context("action_chain_complex.pdf", |ctx| {
+            let query = parse_query("obj 1 0").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::Scalar(ScalarValue::String(value)) => {
+                    assert!(value.starts_with("Object 1 0 obj"));
+                }
+                other => panic!("unexpected query result: {:?}", other),
+            }
+        });
     }
 
     #[test]

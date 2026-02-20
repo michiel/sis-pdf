@@ -3521,6 +3521,8 @@ fn print_repl_help() {
     println!("Object inspection queries:");
     println!("  object N           - Show object N (generation 0)");
     println!("  object N G         - Show object N generation G");
+    println!("  obj.detail N G     - Show object plus security context");
+    println!("  object.context N G - Show security context only");
     println!("  stream N G         - Extract stream object N G (requires --extract-to)");
     println!("  objects.list       - List all object IDs");
     println!("  objects.with TYPE  - Filter objects by type (e.g., Page, Font)");
