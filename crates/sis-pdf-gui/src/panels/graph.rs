@@ -75,6 +75,10 @@ pub struct GraphViewerState {
     pub mitre_selected_technique: Option<String>,
     /// Graph node indices carrying selected MITRE technique.
     pub mitre_highlight_nodes: HashSet<usize>,
+    /// Whether the advanced controls sidebar is visible.
+    pub show_controls_sidebar: bool,
+    /// Request a fit-to-viewport transform on the next graph render.
+    pub fit_to_view_pending: bool,
 }
 
 const WORLD_CENTRE_X: f64 = 400.0;
@@ -114,6 +118,8 @@ impl Default for GraphViewerState {
             taint_source_nodes: HashSet::new(),
             mitre_selected_technique: None,
             mitre_highlight_nodes: HashSet::new(),
+            show_controls_sidebar: false,
+            fit_to_view_pending: false,
         }
     }
 }
@@ -176,9 +182,6 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Show toolbar
     show_toolbar(ui, app);
-    if app.graph_state.mode != GraphViewMode::Structure {
-        show_mitre_panel(ui, app);
-    }
     ui.separator();
 
     // Run incremental layout if still active
@@ -187,7 +190,22 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         ctx.request_repaint();
     }
 
-    // Render graph canvas
+    ui.horizontal_top(|ui| {
+        if app.graph_state.show_controls_sidebar {
+            ui.vertical(|ui| {
+                ui.set_min_width(280.0);
+                ui.set_max_width(320.0);
+                show_controls_sidebar(ui, app);
+            });
+            ui.separator();
+        }
+        ui.vertical(|ui| {
+            render_graph_canvas(ui, app);
+        });
+    });
+}
+
+fn render_graph_canvas(ui: &mut egui::Ui, app: &mut SisApp) {
     let Some(ref graph) = app.graph_state.graph else {
         ui.vertical_centered(|ui| {
             ui.add_space(20.0);
@@ -261,6 +279,9 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
     let available = ui.available_size();
     let (response, painter) = ui.allocate_painter(available, egui::Sense::click_and_drag());
     let rect = response.rect;
+    if app.graph_state.fit_to_view_pending {
+        fit_graph_to_viewport(app, rect);
+    }
 
     // Handle pan via drag
     if response.dragged() {
@@ -607,190 +628,228 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
             .selectable_label(app.graph_state.mode == GraphViewMode::Structure, "Structure")
             .clicked()
         {
-            app.graph_state.mode = GraphViewMode::Structure;
-            rebuild_graph(app);
+            switch_graph_mode(app, GraphViewMode::Structure);
         }
         if ui.selectable_label(app.graph_state.mode == GraphViewMode::Event, "Event").clicked() {
-            app.graph_state.mode = GraphViewMode::Event;
-            rebuild_graph(app);
+            switch_graph_mode(app, GraphViewMode::Event);
         }
         if ui
             .selectable_label(app.graph_state.mode == GraphViewMode::StagedDag, "Staged DAG")
             .clicked()
         {
-            app.graph_state.mode = GraphViewMode::StagedDag;
-            app.graph_state.dag_layout_dirty = true;
-            rebuild_graph(app);
+            switch_graph_mode(app, GraphViewMode::StagedDag);
         }
-
         ui.separator();
-
-        if app.graph_state.mode != GraphViewMode::Structure {
-            ui.label("Node kind:");
-            egui::ComboBox::from_id_salt("graph_event_node_kind_filter")
-                .selected_text(
-                    app.graph_state
-                        .event_node_kind_filter
-                        .clone()
-                        .unwrap_or_else(|| "all".to_string()),
-                )
-                .show_ui(ui, |ui| {
-                    if ui
-                        .selectable_label(app.graph_state.event_node_kind_filter.is_none(), "all")
-                        .clicked()
-                    {
-                        app.graph_state.event_node_kind_filter = None;
-                    }
-                    for value in ["event", "outcome", "object", "collapse"] {
-                        let selected =
-                            app.graph_state.event_node_kind_filter.as_deref() == Some(value);
-                        if ui.selectable_label(selected, value).clicked() {
-                            app.graph_state.event_node_kind_filter = Some(value.to_string());
-                        }
-                    }
-                });
-
-            ui.label("Trigger:");
-            egui::ComboBox::from_id_salt("graph_event_trigger_filter")
-                .selected_text(
-                    app.graph_state
-                        .event_trigger_filter
-                        .clone()
-                        .unwrap_or_else(|| "all".to_string()),
-                )
-                .show_ui(ui, |ui| {
-                    if ui
-                        .selectable_label(app.graph_state.event_trigger_filter.is_none(), "all")
-                        .clicked()
-                    {
-                        app.graph_state.event_trigger_filter = None;
-                    }
-                    for value in ["automatic", "hidden", "user"] {
-                        let selected =
-                            app.graph_state.event_trigger_filter.as_deref() == Some(value);
-                        if ui.selectable_label(selected, value).clicked() {
-                            app.graph_state.event_trigger_filter = Some(value.to_string());
-                        }
-                    }
-                });
-
-            ui.label("Reader:");
-            egui::ComboBox::from_id_salt("graph_event_reader_filter")
-                .selected_text(
-                    app.graph_state
-                        .event_reader_profile_filter
-                        .clone()
-                        .unwrap_or_else(|| "all".to_string()),
-                )
-                .show_ui(ui, |ui| {
-                    if ui
-                        .selectable_label(
-                            app.graph_state.event_reader_profile_filter.is_none(),
-                            "all",
-                        )
-                        .clicked()
-                    {
-                        app.graph_state.event_reader_profile_filter = None;
-                    }
-                    for value in ["acrobat", "pdfium", "preview"] {
-                        let selected =
-                            app.graph_state.event_reader_profile_filter.as_deref() == Some(value);
-                        if ui.selectable_label(selected, value).clicked() {
-                            app.graph_state.event_reader_profile_filter = Some(value.to_string());
-                        }
-                    }
-                });
-            ui.label("Detail hops:");
-            let mut max_hops = app.graph_state.finding_detail_max_hops as i32;
-            if ui.add(egui::Slider::new(&mut max_hops, 1..=20).text("max")).changed() {
-                let new_hops = max_hops as usize;
-                if new_hops != app.graph_state.finding_detail_max_hops {
-                    app.graph_state.finding_detail_max_hops = new_hops;
-                    // Invalidate finding path cache when max_hops changes
-                    if let Some(cache) = app.finding_detail_graph_cache.as_mut() {
-                        cache.finding_paths.clear();
-                    }
-                }
-            }
-            ui.separator();
+        let label =
+            if app.graph_state.show_controls_sidebar { "Hide Controls" } else { "Show Controls" };
+        ui.toggle_value(&mut app.graph_state.show_controls_sidebar, label);
+        if ui.button("Fit").clicked() {
+            app.graph_state.fit_to_view_pending = true;
         }
+    });
+}
 
-        // Type filter combo
-        ui.label("Type:");
-        let current_filter = if app.graph_state.type_filter.is_empty() {
-            "All".to_string()
-        } else {
-            app.graph_state.type_filter.join(", ")
-        };
-        let type_filter_response = egui::ComboBox::from_id_salt("graph_type_filter")
-            .selected_text(&current_filter)
+fn fit_graph_to_viewport(app: &mut SisApp, rect: egui::Rect) {
+    app.graph_state.fit_to_view_pending = false;
+    let Some(graph) = app.graph_state.graph.as_ref() else {
+        return;
+    };
+    if graph.nodes.is_empty() {
+        return;
+    }
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for node in &graph.nodes {
+        min_x = min_x.min(node.position[0]);
+        max_x = max_x.max(node.position[0]);
+        min_y = min_y.min(node.position[1]);
+        max_y = max_y.max(node.position[1]);
+    }
+    if !min_x.is_finite() || !max_x.is_finite() || !min_y.is_finite() || !max_y.is_finite() {
+        return;
+    }
+
+    let width = (max_x - min_x).max(1.0);
+    let height = (max_y - min_y).max(1.0);
+    let margin = 40.0;
+    let fit_zoom_x = (rect.width() as f64 - margin) / width;
+    let fit_zoom_y = (rect.height() as f64 - margin) / height;
+    let fit_zoom = fit_zoom_x.min(fit_zoom_y).clamp(0.1, 10.0);
+    let cx = (min_x + max_x) * 0.5;
+    let cy = (min_y + max_y) * 0.5;
+    app.graph_state.zoom = fit_zoom;
+    app.graph_state.pan = [WORLD_CENTRE_X - cx, WORLD_CENTRE_Y - cy];
+}
+
+fn show_controls_sidebar(ui: &mut egui::Ui, app: &mut SisApp) {
+    ui.heading("Graph Controls");
+    ui.separator();
+
+    if app.graph_state.mode != GraphViewMode::Structure {
+        ui.label("Node kind:");
+        egui::ComboBox::from_id_salt("graph_event_node_kind_filter")
+            .selected_text(
+                app.graph_state.event_node_kind_filter.clone().unwrap_or_else(|| "all".to_string()),
+            )
             .show_ui(ui, |ui| {
-                if ui.selectable_label(app.graph_state.type_filter.is_empty(), "All").clicked() {
-                    app.graph_state.type_filter.clear();
-                    rebuild_graph(app);
+                if ui
+                    .selectable_label(app.graph_state.event_node_kind_filter.is_none(), "all")
+                    .clicked()
+                {
+                    app.graph_state.event_node_kind_filter = None;
                 }
-                for t in &["page", "action", "stream", "font", "catalog", "image", "other"] {
-                    let selected = app.graph_state.type_filter.iter().any(|f| f == t);
-                    if ui.selectable_label(selected, *t).clicked() {
-                        if selected {
-                            app.graph_state.type_filter.retain(|f| f != t);
-                        } else {
-                            app.graph_state.type_filter.push(t.to_string());
-                        }
-                        rebuild_graph(app);
+                for value in ["event", "outcome", "object", "collapse"] {
+                    let selected = app.graph_state.event_node_kind_filter.as_deref() == Some(value);
+                    if ui.selectable_label(selected, value).clicked() {
+                        app.graph_state.event_node_kind_filter = Some(value.to_string());
                     }
                 }
             });
-        if app.graph_state.mode == GraphViewMode::Event {
-            type_filter_response
-                .response
-                .on_hover_text("Type filter is only available in structure mode");
+
+        ui.label("Trigger:");
+        egui::ComboBox::from_id_salt("graph_event_trigger_filter")
+            .selected_text(
+                app.graph_state.event_trigger_filter.clone().unwrap_or_else(|| "all".to_string()),
+            )
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(app.graph_state.event_trigger_filter.is_none(), "all")
+                    .clicked()
+                {
+                    app.graph_state.event_trigger_filter = None;
+                }
+                for value in ["automatic", "hidden", "user"] {
+                    let selected = app.graph_state.event_trigger_filter.as_deref() == Some(value);
+                    if ui.selectable_label(selected, value).clicked() {
+                        app.graph_state.event_trigger_filter = Some(value.to_string());
+                    }
+                }
+            });
+
+        ui.label("Reader:");
+        egui::ComboBox::from_id_salt("graph_event_reader_filter")
+            .selected_text(
+                app.graph_state
+                    .event_reader_profile_filter
+                    .clone()
+                    .unwrap_or_else(|| "all".to_string()),
+            )
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(app.graph_state.event_reader_profile_filter.is_none(), "all")
+                    .clicked()
+                {
+                    app.graph_state.event_reader_profile_filter = None;
+                }
+                for value in ["acrobat", "pdfium", "preview"] {
+                    let selected =
+                        app.graph_state.event_reader_profile_filter.as_deref() == Some(value);
+                    if ui.selectable_label(selected, value).clicked() {
+                        app.graph_state.event_reader_profile_filter = Some(value.to_string());
+                    }
+                }
+            });
+
+        let mut max_hops = app.graph_state.finding_detail_max_hops as i32;
+        if ui.add(egui::Slider::new(&mut max_hops, 1..=20).text("Detail hops")).changed() {
+            let new_hops = max_hops as usize;
+            if new_hops != app.graph_state.finding_detail_max_hops {
+                app.graph_state.finding_detail_max_hops = new_hops;
+                if let Some(cache) = app.finding_detail_graph_cache.as_mut() {
+                    cache.finding_paths.clear();
+                }
+            }
         }
-
         ui.separator();
+    }
 
-        // Depth slider
-        ui.label("Depth:");
-        let mut depth = app.graph_state.depth_limit as i32;
-        if ui.add(egui::Slider::new(&mut depth, 0..=10).text("hops")).changed() {
-            app.graph_state.depth_limit = depth as usize;
-            rebuild_graph(app);
-        }
-
-        ui.separator();
-
-        ui.label("Min edge len:");
-        let mut min_edge_len = app.graph_state.min_edge_length;
-        if ui.add(egui::Slider::new(&mut min_edge_len, 0.0..=200.0).text("px")).changed() {
-            app.graph_state.min_edge_length = min_edge_len;
-            rebuild_graph(app);
-        }
-
-        ui.separator();
-
-        // Chain overlay controls
-        ui.toggle_value(&mut app.graph_state.chain_overlay, "Overlay chain");
-        ui.toggle_value(&mut app.graph_state.chain_filter, "Dim non-chain");
-        ui.toggle_value(&mut app.graph_state.show_critical_path, "Critical path");
-        let taint_enabled = app.result.as_ref().is_some_and(|result| {
-            sis_pdf_core::taint::taint_from_findings(&result.report.findings).flagged
+    ui.label("Type:");
+    let current_filter = if app.graph_state.type_filter.is_empty() {
+        "All".to_string()
+    } else {
+        app.graph_state.type_filter.join(", ")
+    };
+    let type_filter_response = egui::ComboBox::from_id_salt("graph_type_filter")
+        .selected_text(&current_filter)
+        .show_ui(ui, |ui| {
+            if ui.selectable_label(app.graph_state.type_filter.is_empty(), "All").clicked() {
+                app.graph_state.type_filter.clear();
+                rebuild_graph(app);
+            }
+            for t in &["page", "action", "stream", "font", "catalog", "image", "other"] {
+                let selected = app.graph_state.type_filter.iter().any(|f| f == t);
+                if ui.selectable_label(selected, *t).clicked() {
+                    if selected {
+                        app.graph_state.type_filter.retain(|f| f != t);
+                    } else {
+                        app.graph_state.type_filter.push(t.to_string());
+                    }
+                    rebuild_graph(app);
+                }
+            }
         });
-        ui.add_enabled_ui(taint_enabled, |ui| {
-            ui.toggle_value(&mut app.graph_state.show_taint_overlay, "Taint");
-        });
+    if app.graph_state.mode == GraphViewMode::Event {
+        type_filter_response
+            .response
+            .on_hover_text("Type filter is only available in structure mode");
+    }
 
-        // Labels toggle
-        ui.toggle_value(&mut app.graph_state.show_labels, "Labels");
+    let mut depth = app.graph_state.depth_limit as i32;
+    if ui.add(egui::Slider::new(&mut depth, 0..=10).text("Depth hops")).changed() {
+        app.graph_state.depth_limit = depth as usize;
+        rebuild_graph(app);
+    }
 
-        ui.separator();
+    let mut min_edge_len = app.graph_state.min_edge_length;
+    if ui.add(egui::Slider::new(&mut min_edge_len, 0.0..=200.0).text("Min edge len")).changed() {
+        app.graph_state.min_edge_length = min_edge_len;
+        rebuild_graph(app);
+    }
 
-        // Reset layout button
-        if ui.button("Reset").clicked() {
-            app.graph_state.pan = [0.0, 0.0];
-            app.graph_state.zoom = 1.0;
-            rebuild_graph(app);
-        }
+    ui.separator();
+    ui.toggle_value(&mut app.graph_state.chain_overlay, "Overlay chain");
+    ui.toggle_value(&mut app.graph_state.chain_filter, "Dim non-chain");
+    ui.toggle_value(&mut app.graph_state.show_critical_path, "Critical path");
+    let taint_enabled = app.result.as_ref().is_some_and(|result| {
+        sis_pdf_core::taint::taint_from_findings(&result.report.findings).flagged
     });
+    ui.add_enabled_ui(taint_enabled, |ui| {
+        ui.toggle_value(&mut app.graph_state.show_taint_overlay, "Taint");
+    });
+    ui.toggle_value(&mut app.graph_state.show_labels, "Labels");
+
+    if app.graph_state.mode != GraphViewMode::Structure {
+        ui.separator();
+        show_mitre_panel(ui, app);
+    }
+
+    ui.separator();
+    if ui.button("Reset view").clicked() {
+        app.graph_state.pan = [0.0, 0.0];
+        app.graph_state.zoom = 1.0;
+        rebuild_graph(app);
+    }
+}
+
+fn current_focus_object(app: &SisApp) -> Option<(u32, u16)> {
+    let graph = app.graph_state.graph.as_ref()?;
+    let selected = app.graph_state.selected_node?;
+    graph.nodes.get(selected)?.object_ref
+}
+
+fn switch_graph_mode(app: &mut SisApp, mode: GraphViewMode) {
+    if app.graph_state.mode == mode {
+        return;
+    }
+    let focus = current_focus_object(app);
+    app.graph_state.mode = mode;
+    app.graph_state.dag_layout_dirty = mode == GraphViewMode::StagedDag;
+    rebuild_graph(app);
+    if let Some((obj, gen)) = focus {
+        app.graph_state.pending_focus = Some((obj, gen));
+    }
 }
 
 /// Build the graph from the current analysis result.
