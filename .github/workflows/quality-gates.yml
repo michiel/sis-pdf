@@ -44,6 +44,10 @@ jobs:
           cargo test -p sis-pdf-gui graph_layout_staged_dag_budget -- --nocapture
           cargo test -p sis-pdf-gui critical_path_budget -- --nocapture
           cargo test -p sis-pdf-gui taint_overlay_mapping_budget -- --nocapture
+          cargo test -p sis-pdf-gui --no-default-features --test image_preview_pipeline -- --nocapture
+          cargo test -p sis-pdf-gui --no-default-features --test analysis \
+            on_demand_image_preview_generation_from_analysis_result \
+            -- --nocapture
 
       - name: CLI diff budget gate
         run: |
