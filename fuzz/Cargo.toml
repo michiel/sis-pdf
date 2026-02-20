@@ -8,16 +8,37 @@ libfuzzer-sys = "0.4"
 sis-pdf-pdf = { path = "../crates/sis-pdf-pdf" }
 sis-pdf-core = { path = "../crates/sis-pdf-core" }
 image-analysis = { path = "../crates/image-analysis", default-features = false, features = ["jpeg", "png", "tiff"] }
+# Static font analysis (woff, type1, variable fonts, colour fonts).
+# Default features include "dynamic" (skrifa/ttf-parser/allsorts) for
+# variable and colour font coverage; thread-based dynamic analysis is
+# disabled via FontAnalysisConfig::dynamic_enabled = false in the target.
+font-analysis = { path = "../crates/font-analysis" }
+# Static JavaScript signal extraction; no js-sandbox or js-ast features
+# to avoid Boa engine overhead and keep iterations fast.
+js-analysis = { path = "../crates/js-analysis" }
 
 [profile.release]
 debug = true
+overflow-checks = true
 
 [package.metadata]
 cargo-fuzz = true
 
 [[bin]]
-name = "decoder"
-path = "fuzz_targets/decoder.rs"
+name = "carved"
+path = "fuzz_targets/carved.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "content_ops"
+path = "fuzz_targets/content_ops.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "decode_meta"
+path = "fuzz_targets/decode_meta.rs"
 test = false
 doc = false
 
@@ -28,8 +49,32 @@ test = false
 doc = false
 
 [[bin]]
+name = "decoder"
+path = "fuzz_targets/decoder.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "font"
+path = "fuzz_targets/font.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "graph"
 path = "fuzz_targets/graph.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "image_metadata"
+path = "fuzz_targets/image_metadata.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "js_static"
+path = "fuzz_targets/js_static.rs"
 test = false
 doc = false
 
@@ -46,25 +91,31 @@ test = false
 doc = false
 
 [[bin]]
+name = "page_tree"
+path = "fuzz_targets/page_tree.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "parser"
 path = "fuzz_targets/parser.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "image_metadata"
-path = "fuzz_targets/image_metadata.rs"
+name = "strict_parser"
+path = "fuzz_targets/strict_parser.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "content_ops"
-path = "fuzz_targets/content_ops.rs"
+name = "swf_header"
+path = "fuzz_targets/swf_header.rs"
 test = false
 doc = false
 
 [[bin]]
-name = "page_tree"
-path = "fuzz_targets/page_tree.rs"
+name = "xfa"
+path = "fuzz_targets/xfa.rs"
 test = false
 doc = false
