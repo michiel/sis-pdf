@@ -189,11 +189,15 @@ pub fn stage_column(node: &crate::graph_data::GraphNode) -> usize {
 
 /// Apply staged DAG layout positions directly.
 pub fn apply_staged_dag_layout(graph: &mut GraphData) {
-    apply_staged_dag_layout_with_spread(graph, true);
+    apply_staged_dag_layout_with_spread(graph, true, false);
 }
 
-/// Apply staged DAG layout positions directly with optional per-lane vertical spread.
-pub fn apply_staged_dag_layout_with_spread(graph: &mut GraphData, lane_vertical_spread: bool) {
+/// Apply staged DAG layout positions directly with optional per-lane vertical and horizontal spread.
+pub fn apply_staged_dag_layout_with_spread(
+    graph: &mut GraphData,
+    lane_vertical_spread: bool,
+    lane_horizontal_spread: bool,
+) {
     let area_w = 800.0f64;
     let area_h = 600.0f64;
     let cols = 5.0f64;
@@ -225,6 +229,14 @@ pub fn apply_staged_dag_layout_with_spread(graph: &mut GraphData, lane_vertical_
             ((level + 1) as f64 / (max_level + 1) as f64) * area_h
         };
         let (ordinal, count) = ordinal_by_node.get(&idx).copied().unwrap_or((0, 1));
+        let x = if count <= 1 || !lane_horizontal_spread {
+            x
+        } else {
+            let band_half = (col_w * 0.28).clamp(12.0, 40.0);
+            let step = (band_half * 2.0) / (count as f64 + 1.0);
+            let start = x - band_half;
+            start + step * (ordinal as f64 + 1.0)
+        };
         let y = if count <= 1 || !lane_vertical_spread {
             base_y
         } else {
@@ -617,7 +629,7 @@ mod tests {
         ];
         let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1)]);
         let mut graph = GraphData { nodes, edges: vec![], node_index: graph_index };
-        apply_staged_dag_layout_with_spread(&mut graph, false);
+        apply_staged_dag_layout_with_spread(&mut graph, false, false);
         assert_eq!(graph.nodes[0].position[1], graph.nodes[1].position[1]);
     }
 
@@ -643,7 +655,59 @@ mod tests {
         ];
         let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1)]);
         let mut graph = GraphData { nodes, edges: vec![], node_index: graph_index };
-        apply_staged_dag_layout_with_spread(&mut graph, true);
+        apply_staged_dag_layout_with_spread(&mut graph, true, false);
         assert_ne!(graph.nodes[0].position[1], graph.nodes[1].position[1]);
+    }
+
+    #[test]
+    fn staged_layout_lane_horizontal_spread_can_be_disabled() {
+        let nodes = vec![
+            GraphNode {
+                object_ref: Some((1, 0)),
+                obj_type: "event".to_string(),
+                label: "Input A".to_string(),
+                roles: vec!["input".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+            GraphNode {
+                object_ref: Some((2, 0)),
+                obj_type: "event".to_string(),
+                label: "Input B".to_string(),
+                roles: vec!["input".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+        ];
+        let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1)]);
+        let mut graph = GraphData { nodes, edges: vec![], node_index: graph_index };
+        apply_staged_dag_layout_with_spread(&mut graph, true, false);
+        assert_eq!(graph.nodes[0].position[0], graph.nodes[1].position[0]);
+    }
+
+    #[test]
+    fn staged_layout_lane_horizontal_spread_can_be_enabled() {
+        let nodes = vec![
+            GraphNode {
+                object_ref: Some((1, 0)),
+                obj_type: "event".to_string(),
+                label: "Input A".to_string(),
+                roles: vec!["input".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+            GraphNode {
+                object_ref: Some((2, 0)),
+                obj_type: "event".to_string(),
+                label: "Input B".to_string(),
+                roles: vec!["input".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+        ];
+        let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1)]);
+        let mut graph = GraphData { nodes, edges: vec![], node_index: graph_index };
+        apply_staged_dag_layout_with_spread(&mut graph, true, true);
+        assert_ne!(graph.nodes[0].position[0], graph.nodes[1].position[0]);
     }
 }

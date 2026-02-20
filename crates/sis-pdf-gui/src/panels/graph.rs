@@ -77,6 +77,8 @@ pub struct GraphViewerState {
     pub mitre_highlight_nodes: HashSet<usize>,
     /// Whether staged DAG should vertically spread nodes inside a lane.
     pub dag_lane_vertical_spread: bool,
+    /// Whether staged DAG should horizontally spread nodes inside a lane-level cluster.
+    pub dag_lane_horizontal_spread: bool,
     /// Whether the advanced controls sidebar is visible.
     pub show_controls_sidebar: bool,
     /// Request a fit-to-viewport transform on the next graph render.
@@ -121,6 +123,7 @@ impl Default for GraphViewerState {
             mitre_selected_technique: None,
             mitre_highlight_nodes: HashSet::new(),
             dag_lane_vertical_spread: false,
+            dag_lane_horizontal_spread: false,
             show_controls_sidebar: false,
             fit_to_view_pending: false,
         }
@@ -277,6 +280,7 @@ fn render_graph_canvas(ui: &mut egui::Ui, app: &mut SisApp) {
     let show_labels = app.graph_state.show_labels;
     let is_layout_running = app.graph_state.layout.is_some();
     let node_radius = (6.0 * zoom).clamp(3.0, 20.0) as f32;
+    let mut placed_label_rects: Vec<egui::Rect> = Vec::new();
 
     // Allocate painter for custom drawing
     let available = ui.available_size();
@@ -515,13 +519,44 @@ fn render_graph_canvas(ui: &mut egui::Ui, app: &mut SisApp) {
 
         // Draw labels if enabled and zoomed in enough
         if show_labels && zoom > 0.5 {
-            painter.text(
-                p + egui::vec2(node_radius + 2.0, -6.0),
-                egui::Align2::LEFT_TOP,
-                label,
-                egui::FontId::proportional((10.0 * zoom).clamp(8.0, 14.0) as f32),
-                egui::Color32::from_rgb(200, 200, 200),
+            let font_id = egui::FontId::proportional((10.0 * zoom).clamp(8.0, 14.0) as f32);
+            let text_colour = egui::Color32::from_rgb(200, 200, 200);
+            let galley = painter.layout_no_wrap(label.clone(), font_id.clone(), text_colour);
+            let label_size = galley.size();
+            let left_x = -(label_size.x + node_radius + 2.0);
+            let centred_x = -label_size.x * 0.5;
+            let candidate_offsets = [
+                egui::vec2(node_radius + 2.0, -6.0),
+                egui::vec2(node_radius + 2.0, 6.0),
+                egui::vec2(left_x, -6.0),
+                egui::vec2(left_x, 6.0),
+                egui::vec2(centred_x, node_radius + 4.0),
+                egui::vec2(centred_x, -node_radius - label_size.y - 4.0),
+            ];
+
+            let mut best_pos = p + candidate_offsets[0];
+            let mut best_rect = egui::Rect::from_min_size(best_pos, label_size);
+            for offset in candidate_offsets {
+                let candidate_pos = p + offset;
+                let candidate_rect = egui::Rect::from_min_size(candidate_pos, label_size);
+                if placed_label_rects
+                    .iter()
+                    .any(|existing| existing.expand(3.0).intersects(candidate_rect))
+                {
+                    continue;
+                }
+                best_pos = candidate_pos;
+                best_rect = candidate_rect;
+                break;
+            }
+
+            painter.rect_filled(
+                best_rect.expand2(egui::vec2(2.0, 1.0)),
+                2.0,
+                egui::Color32::from_rgba_premultiplied(20, 20, 24, 180),
             );
+            painter.galley(best_pos, galley, text_colour);
+            placed_label_rects.push(best_rect);
         }
     }
 
@@ -775,6 +810,11 @@ fn show_controls_sidebar(ui: &mut egui::Ui, app: &mut SisApp) {
             app.graph_state.dag_lane_vertical_spread = spread;
             rebuild_graph(app);
         }
+        let mut h_spread = app.graph_state.dag_lane_horizontal_spread;
+        if ui.toggle_value(&mut h_spread, "Lane horizontal spread").changed() {
+            app.graph_state.dag_lane_horizontal_spread = h_spread;
+            rebuild_graph(app);
+        }
     }
 
     ui.label("Type:");
@@ -910,6 +950,7 @@ fn build_graph(app: &mut SisApp) {
                     apply_staged_dag_layout_with_spread(
                         graph_ref,
                         app.graph_state.dag_lane_vertical_spread,
+                        app.graph_state.dag_lane_horizontal_spread,
                     );
                 }
                 app.graph_state.layout = None;
