@@ -126,6 +126,13 @@ fn preview_pipeline_non_stream_object_returns_none() {
 }
 
 #[test]
+fn preview_pipeline_missing_object_returns_none() {
+    let pdf = build_catalog_only_pdf();
+    let result = build_preview_for_object(&pdf, 999, 0, PreviewLimits::default());
+    assert!(result.is_none(), "missing object id should not produce preview result");
+}
+
+#[test]
 fn preview_pipeline_repeat_build_is_stable() {
     let payload = b"FFD8FFD9>";
     let pdf = build_single_image_pdf(Some("[/ASCIIHexDecode /DCTDecode]"), payload);

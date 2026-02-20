@@ -1,7 +1,7 @@
 # On-Demand Image Preview Dialog Plan
 
 Date: 2026-02-20
-Status: Planned
+Status: In progress
 Owner: GUI (`sis-pdf-gui`), PDF decode integration (`sis-pdf-pdf`), image reconstruction (`image-analysis`)
 
 ## Current state
@@ -20,6 +20,23 @@ This partial implementation conflicts with the structured `Vec<ImagePreviewStatu
 2. Replace inline image rendering with a dedicated preview dialog opened via a `Preview` button.
 3. Prioritise safety and speed over full-fidelity rendering or colour accuracy.
 4. Surface clear preview metadata, decoding path, and failure status to support analyst decisions.
+
+## Implementation progress (2026-02-20)
+
+Completed:
+- Phase 1 engine and status model (`crates/sis-pdf-gui/src/image_preview.rs`) with staged outcomes and budget guards.
+- Phase 2 dialog workflow and Object Inspector `Preview` action; inline preview removed in favour of dialog rendering.
+- Phase 3 metadata/status enrichment in dialog (source, byte counts, timing, outcome badges).
+- Phase 4 hardening slices:
+  - source-byte budget fast-fail gates,
+  - bounded preview cache with entry/byte eviction and utilisation display,
+  - on-demand preview generation at dialog open (no eager preview during full object extraction),
+  - fixture-driven integration coverage in `crates/sis-pdf-gui/tests/image_preview_pipeline.rs`,
+  - on-demand analysis integration coverage in `crates/sis-pdf-gui/tests/analysis.rs`.
+
+Remaining:
+- Add fixture manifest/provenance entries if corpus-derived image fixtures are introduced beyond synthetic builders.
+- Run final GUI manual verification pass in an environment where `winit` GUI tests can execute.
 
 ## Analyst problem statement
 
