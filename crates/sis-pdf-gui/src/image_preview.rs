@@ -756,4 +756,32 @@ mod tests {
                 && status.outcome == ImagePreviewOutcome::SkippedBudget
         }));
     }
+
+    #[test]
+    fn preview_pipeline_budget_large_raw_pixels_fast_fail() {
+        let encoded = vec![0u8; 4 * 1024 * 1024];
+        let stream = PdfStream {
+            dict: PdfDict { span: span(), entries: Vec::new() },
+            data_span: Span { start: 0, end: encoded.len() as u64 },
+        };
+        let graph = empty_graph(&encoded);
+        let limits = PreviewLimits { max_source_bytes: 128 * 1024, ..PreviewLimits::default() };
+        let start = Instant::now();
+        let result = build_preview_for_stream(&encoded, &stream, &graph, limits, None);
+        let elapsed = start.elapsed().as_millis() as u64;
+        assert!(
+            elapsed < 50,
+            "oversized raw payload should fail fast via source-byte budget, got {elapsed} ms"
+        );
+        assert!(result.preview.is_none());
+        assert_eq!(result.summary, "Unavailable: raw stream exceeded preview source budget");
+        let gate_status = result
+            .statuses
+            .iter()
+            .find(|status| status.stage == ImagePreviewStage::RawProbe)
+            .expect("raw probe budget status");
+        assert_eq!(gate_status.outcome, ImagePreviewOutcome::SkippedBudget);
+        assert_eq!(gate_status.source.as_deref(), Some("raw"));
+        assert_eq!(gate_status.input_bytes, Some(encoded.len()));
+    }
 }
