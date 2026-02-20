@@ -82,6 +82,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 action: chain.action.clone(),
                 payload: chain.payload.clone(),
                 reasons: chain.reasons.clone(),
+                confirmed_stages: chain.confirmed_stages.clone(),
+                inferred_stages: chain.inferred_stages.clone(),
+                chain_completeness: chain.chain_completeness,
+                reader_risk: chain.reader_risk.clone(),
+                narrative: chain.narrative.clone(),
                 finding_links,
                 flow_nodes,
             }
@@ -174,6 +179,17 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 if chain.flow_nodes.len() >= 2 {
                     ui.add_space(4.0);
                     show_flow_diagram(ui, app, &chain.flow_nodes);
+                }
+                show_completeness_bar(
+                    ui,
+                    &chain.confirmed_stages,
+                    &chain.inferred_stages,
+                    chain.chain_completeness,
+                );
+                show_reader_risk_chips(ui, &chain.reader_risk);
+                if !chain.narrative.trim().is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(&chain.narrative);
                 }
 
                 if !chain.reasons.is_empty() {
@@ -271,6 +287,11 @@ struct ChainDisplay {
     action: Option<String>,
     payload: Option<String>,
     reasons: Vec<String>,
+    confirmed_stages: Vec<String>,
+    inferred_stages: Vec<String>,
+    chain_completeness: f64,
+    reader_risk: std::collections::HashMap<String, String>,
+    narrative: String,
     finding_links: Vec<(String, Option<usize>)>,
     flow_nodes: Vec<FlowNode>,
 }
@@ -279,4 +300,54 @@ struct FlowNode {
     stage: String,
     description: String,
     object_ref: Option<(u32, u16)>,
+}
+
+fn show_completeness_bar(
+    ui: &mut egui::Ui,
+    confirmed: &[String],
+    inferred: &[String],
+    completeness: f64,
+) {
+    ui.horizontal(|ui| {
+        for stage in ["INPUT", "DECODE", "RENDER", "EXECUTE", "EGRESS"] {
+            let lower = stage.to_lowercase();
+            let colour = if confirmed.iter().any(|value| value == &lower) {
+                egui::Color32::GREEN
+            } else if inferred.iter().any(|value| value == &lower) {
+                egui::Color32::YELLOW
+            } else {
+                egui::Color32::DARK_GRAY
+            };
+            ui.colored_label(colour, stage);
+            ui.add_space(4.0);
+        }
+        ui.label(format!("{:.0}% complete", completeness * 100.0));
+    });
+}
+
+fn show_reader_risk_chips(
+    ui: &mut egui::Ui,
+    reader_risk: &std::collections::HashMap<String, String>,
+) {
+    if reader_risk.is_empty() {
+        return;
+    }
+    ui.horizontal(|ui| {
+        for profile in ["acrobat", "pdfium", "preview"] {
+            if let Some(severity) = reader_risk.get(profile) {
+                ui.colored_label(severity_colour(severity), format!("{}: {}", profile, severity));
+                ui.add_space(4.0);
+            }
+        }
+    });
+}
+
+fn severity_colour(value: &str) -> egui::Color32 {
+    match value {
+        "Critical" => egui::Color32::from_rgb(180, 40, 40),
+        "High" => egui::Color32::from_rgb(210, 80, 40),
+        "Medium" => egui::Color32::from_rgb(210, 140, 50),
+        "Low" => egui::Color32::from_rgb(120, 120, 120),
+        _ => egui::Color32::from_rgb(100, 100, 100),
+    }
 }

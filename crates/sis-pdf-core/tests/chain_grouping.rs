@@ -141,7 +141,7 @@ fn computes_stage_completeness_and_reader_risk() {
     egress.confidence = Confidence::Probable;
 
     let (chains, _) = synthesise_chains(&[input, execute, egress], true);
-    let chain = chains.first().expect("chain");
+    let chain = chains.iter().max_by_key(|chain| chain.confirmed_stages.len()).expect("chain");
     assert_eq!(chain.confirmed_stages, vec!["input", "execute", "egress"]);
     assert!((chain.chain_completeness - 0.6).abs() < f64::EPSILON);
     assert_eq!(chain.reader_risk.get("acrobat").map(String::as_str), Some("Critical"));

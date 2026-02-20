@@ -138,6 +138,7 @@ fn show_object_list(ui: &mut egui::Ui, app: &mut SisApp, filtered: &[usize]) {
         return;
     };
     let object_data = &result.object_data;
+    let severity_index = result.object_severity_index.clone();
 
     // Apply search filter on top of type filter
     let search = app.object_search.trim().to_lowercase();
@@ -182,7 +183,7 @@ fn show_object_list(ui: &mut egui::Ui, app: &mut SisApp, filtered: &[usize]) {
                 row.col(|ui| {
                     ui.horizontal(|ui| {
                         if let Some((severity, finding_count)) =
-                            result.object_severity_index.get(&(obj_num, gen_num))
+                            severity_index.get(&(obj_num, gen_num))
                         {
                             let colour = severity_dot_colour(*severity);
                             ui.colored_label(colour, "●");

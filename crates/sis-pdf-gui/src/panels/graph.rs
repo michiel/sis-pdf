@@ -1,13 +1,16 @@
 use crate::app::SisApp;
 use crate::graph_data::{self, GraphData, GraphError};
-use crate::graph_layout::LayoutState;
+use crate::graph_layout::{apply_staged_dag_layout, LayoutState};
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GraphViewMode {
     #[default]
     Structure,
     Event,
+    StagedDag,
 }
 
 /// Persistent state for the graph viewer panel.
@@ -54,6 +57,24 @@ pub struct GraphViewerState {
     pub pending_focus: Option<(u32, u16)>,
     /// Maximum hop count for finding-detail event paths.
     pub finding_detail_max_hops: usize,
+    /// Whether staged DAG layout requires a rebuild/reposition pass.
+    pub dag_layout_dirty: bool,
+    /// Highlight only the highest-confidence exploit path.
+    pub show_critical_path: bool,
+    /// Critical path edges.
+    pub critical_path_edges: HashSet<(usize, usize)>,
+    /// Critical path nodes.
+    pub critical_path_nodes: HashSet<usize>,
+    /// Taint overlay toggle.
+    pub show_taint_overlay: bool,
+    /// Precomputed taint edges mapped to graph indices.
+    pub taint_edges: Vec<(usize, usize)>,
+    /// Taint source node indices.
+    pub taint_source_nodes: HashSet<usize>,
+    /// MITRE technique selected for highlight filtering.
+    pub mitre_selected_technique: Option<String>,
+    /// Graph node indices carrying selected MITRE technique.
+    pub mitre_highlight_nodes: HashSet<usize>,
 }
 
 const WORLD_CENTRE_X: f64 = 400.0;
@@ -84,6 +105,15 @@ impl Default for GraphViewerState {
             layout_start_time: 0.0,
             pending_focus: None,
             finding_detail_max_hops: 8,
+            dag_layout_dirty: false,
+            show_critical_path: false,
+            critical_path_edges: HashSet::new(),
+            critical_path_nodes: HashSet::new(),
+            show_taint_overlay: false,
+            taint_edges: Vec::new(),
+            taint_source_nodes: HashSet::new(),
+            mitre_selected_technique: None,
+            mitre_highlight_nodes: HashSet::new(),
         }
     }
 }
@@ -146,6 +176,9 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Show toolbar
     show_toolbar(ui, app);
+    if app.graph_state.mode != GraphViewMode::Structure {
+        show_mitre_panel(ui, app);
+    }
     ui.separator();
 
     // Run incremental layout if still active
@@ -207,6 +240,15 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
     let selected_chain = app.selected_chain;
     let chain_overlay = build_chain_overlay(app);
     let visible_nodes = build_visible_node_set(app, graph);
+    let critical_path_edges = app.graph_state.critical_path_edges.clone();
+    let critical_path_nodes = app.graph_state.critical_path_nodes.clone();
+    let taint_edges: HashSet<(usize, usize)> =
+        app.graph_state.taint_edges.iter().copied().collect::<HashSet<_>>();
+    let taint_source_nodes = app.graph_state.taint_source_nodes.clone();
+    let mitre_nodes = app.graph_state.mitre_highlight_nodes.clone();
+    let show_critical_path = app.graph_state.show_critical_path;
+    let show_taint_overlay = app.graph_state.show_taint_overlay;
+    let show_mitre_overlay = app.graph_state.mitre_selected_technique.is_some();
 
     let pan = app.graph_state.pan;
     let zoom = if app.graph_state.zoom == 0.0 { 1.0 } else { app.graph_state.zoom };
@@ -238,6 +280,9 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
 
     // Background
     painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(30, 30, 35));
+    if app.graph_state.mode == GraphViewMode::StagedDag {
+        draw_staged_lanes(&painter, rect);
+    }
 
     // Show layout progress if still running
     if is_layout_running {
@@ -311,6 +356,14 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
             colour = egui::Color32::from_rgb(190, 110, 255);
             width = 3.0;
         }
+        if show_critical_path && critical_path_edges.contains(&(from_idx, to_idx)) {
+            colour = egui::Color32::from_rgb(255, 140, 0);
+            width = 3.0;
+        }
+        if show_taint_overlay && taint_edges.contains(&(from_idx, to_idx)) {
+            colour = egui::Color32::from_rgb(200, 60, 60);
+            width = 2.5;
+        }
 
         if dim_non_chain {
             let from_in_chain = chain_overlay.node_set.contains(&from_idx);
@@ -319,10 +372,29 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
                 colour = egui::Color32::from_rgba_premultiplied(60, 60, 60, 40);
             }
         }
+        if show_critical_path && !critical_path_edges.contains(&(from_idx, to_idx)) {
+            colour = egui::Color32::from_rgba_premultiplied(colour.r(), colour.g(), colour.b(), 50);
+        }
+        if show_mitre_overlay && !(mitre_nodes.contains(&from_idx) && mitre_nodes.contains(&to_idx))
+        {
+            colour = egui::Color32::from_rgba_premultiplied(colour.r(), colour.g(), colour.b(), 50);
+        }
+        if show_taint_overlay
+            && !taint_edges.contains(&(from_idx, to_idx))
+            && !(taint_source_nodes.contains(&from_idx) || taint_source_nodes.contains(&to_idx))
+        {
+            colour = egui::Color32::from_rgba_premultiplied(colour.r(), colour.g(), colour.b(), 50);
+        }
 
         let stroke = egui::Stroke::new(width, colour);
-        painter.line_segment([p1, p2], stroke);
-        draw_edge_arrowhead(&painter, p1, p2, stroke, node_radius);
+        if app.graph_state.mode == GraphViewMode::StagedDag
+            && node_data[from_idx].0 > node_data[to_idx].0
+        {
+            draw_back_edge_curve(&painter, p1, p2, stroke);
+        } else {
+            painter.line_segment([p1, p2], stroke);
+            draw_edge_arrowhead(&painter, p1, p2, stroke, node_radius);
+        }
 
         if let Some(pointer) = pointer_pos {
             let dx = p2.x - p1.x;
@@ -373,6 +445,18 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
         if dim_non_chain && !chain_overlay.node_set.contains(&i) {
             colour = egui::Color32::from_rgba_premultiplied(80, 80, 80, 60);
         }
+        if show_critical_path && !critical_path_nodes.contains(&i) {
+            colour = egui::Color32::from_rgba_premultiplied(colour.r(), colour.g(), colour.b(), 50);
+        }
+        if show_mitre_overlay && !mitre_nodes.contains(&i) {
+            colour = egui::Color32::from_rgba_premultiplied(colour.r(), colour.g(), colour.b(), 50);
+        }
+        if show_taint_overlay
+            && !taint_source_nodes.contains(&i)
+            && !node_has_taint_edge(i, &taint_edges)
+        {
+            colour = egui::Color32::from_rgba_premultiplied(colour.r(), colour.g(), colour.b(), 50);
+        }
 
         if selected == Some(i) {
             // Draw selection ring
@@ -381,6 +465,16 @@ fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
                 node_radius + 3.0,
                 egui::Stroke::new(2.0, egui::Color32::WHITE),
             );
+        }
+        if show_mitre_overlay && mitre_nodes.contains(&i) {
+            painter.circle_stroke(
+                p,
+                node_radius + 2.0,
+                egui::Stroke::new(2.0, egui::Color32::from_rgb(180, 80, 220)),
+            );
+        }
+        if show_taint_overlay && taint_source_nodes.contains(&i) {
+            painter.circle_stroke(p, node_radius + 3.0, egui::Stroke::new(3.0, egui::Color32::RED));
         }
 
         painter.circle_filled(p, node_radius, colour);
@@ -519,10 +613,18 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
             app.graph_state.mode = GraphViewMode::Event;
             rebuild_graph(app);
         }
+        if ui
+            .selectable_label(app.graph_state.mode == GraphViewMode::StagedDag, "Staged DAG")
+            .clicked()
+        {
+            app.graph_state.mode = GraphViewMode::StagedDag;
+            app.graph_state.dag_layout_dirty = true;
+            rebuild_graph(app);
+        }
 
         ui.separator();
 
-        if app.graph_state.mode == GraphViewMode::Event {
+        if app.graph_state.mode != GraphViewMode::Structure {
             ui.label("Node kind:");
             egui::ComboBox::from_id_salt("graph_event_node_kind_filter")
                 .selected_text(
@@ -668,6 +770,13 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
         // Chain overlay controls
         ui.toggle_value(&mut app.graph_state.chain_overlay, "Overlay chain");
         ui.toggle_value(&mut app.graph_state.chain_filter, "Dim non-chain");
+        ui.toggle_value(&mut app.graph_state.show_critical_path, "Critical path");
+        let taint_enabled = app.result.as_ref().is_some_and(|result| {
+            sis_pdf_core::taint::taint_from_findings(&result.report.findings).flagged
+        });
+        ui.add_enabled_ui(taint_enabled, |ui| {
+            ui.toggle_value(&mut app.graph_state.show_taint_overlay, "Taint");
+        });
 
         // Labels toggle
         ui.toggle_value(&mut app.graph_state.show_labels, "Labels");
@@ -694,7 +803,9 @@ fn build_graph(app: &mut SisApp) {
         return;
     };
 
-    let graph_result = if app.graph_state.mode == GraphViewMode::Event {
+    let graph_result = if app.graph_state.mode == GraphViewMode::Event
+        || app.graph_state.mode == GraphViewMode::StagedDag
+    {
         build_event_graph_for_gui(result)
     } else if !app.graph_state.type_filter.is_empty() {
         let types: Vec<&str> = app.graph_state.type_filter.iter().map(|s| s.as_str()).collect();
@@ -720,14 +831,27 @@ fn build_graph(app: &mut SisApp) {
     };
 
     match graph_result {
-        Ok(mut graph) => {
-            let node_count = graph.nodes.len();
-            let layout =
-                LayoutState::new_with_min_edge_length(node_count, app.graph_state.min_edge_length);
-            layout.initialise_positions(&mut graph);
+        Ok(graph) => {
             app.graph_state.graph = Some(graph);
-            app.graph_state.layout = Some(layout);
-            app.graph_state.layout_start_time = app.elapsed_time;
+            if app.graph_state.mode == GraphViewMode::StagedDag {
+                if let Some(graph_ref) = app.graph_state.graph.as_mut() {
+                    apply_staged_dag_layout(graph_ref);
+                }
+                app.graph_state.layout = None;
+                app.graph_state.dag_layout_dirty = false;
+            } else {
+                let node_count = app.graph_state.graph.as_ref().map_or(0, |g| g.nodes.len());
+                let layout = LayoutState::new_with_min_edge_length(
+                    node_count,
+                    app.graph_state.min_edge_length,
+                );
+                if let Some(graph_ref) = app.graph_state.graph.as_mut() {
+                    layout.initialise_positions(graph_ref);
+                }
+                app.graph_state.layout = Some(layout);
+                app.graph_state.layout_start_time = app.elapsed_time;
+            }
+            recompute_graph_overlays(app);
         }
         Err(GraphError::TooManyNodes { count, limit }) => {
             app.graph_state.error = Some(format!(
@@ -796,6 +920,268 @@ fn annotate_reader_profiles(graph: &mut GraphData, findings: &[sis_pdf_core::mod
     }
 }
 
+fn draw_staged_lanes(painter: &egui::Painter, rect: egui::Rect) {
+    let labels = ["INPUT", "DECODE", "RENDER", "EXECUTE", "EGRESS"];
+    let lane_w = rect.width() / labels.len() as f32;
+    for (idx, label) in labels.iter().enumerate() {
+        let x = rect.left() + lane_w * idx as f32;
+        painter.line_segment(
+            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+            egui::Stroke::new(1.0, egui::Color32::from_rgba_premultiplied(180, 180, 180, 40)),
+        );
+        painter.text(
+            egui::pos2(x + lane_w * 0.5, rect.top() + 6.0),
+            egui::Align2::CENTER_TOP,
+            *label,
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_rgb(170, 170, 170),
+        );
+    }
+}
+
+fn draw_back_edge_curve(
+    painter: &egui::Painter,
+    from: egui::Pos2,
+    to: egui::Pos2,
+    stroke: egui::Stroke,
+) {
+    let control_y = from.y.min(to.y) - 42.0;
+    let control = egui::pos2((from.x + to.x) * 0.5, control_y);
+    let segments = 16;
+    let mut points = Vec::with_capacity(segments + 1);
+    for i in 0..=segments {
+        let t = i as f32 / segments as f32;
+        let inv = 1.0 - t;
+        let x = inv * inv * from.x + 2.0 * inv * t * control.x + t * t * to.x;
+        let y = inv * inv * from.y + 2.0 * inv * t * control.y + t * t * to.y;
+        points.push(egui::pos2(x, y));
+    }
+    painter.add(egui::Shape::line(points, stroke));
+}
+
+fn node_has_taint_edge(node_idx: usize, taint_edges: &HashSet<(usize, usize)>) -> bool {
+    taint_edges.iter().any(|(from, to)| *from == node_idx || *to == node_idx)
+}
+
+fn show_mitre_panel(ui: &mut egui::Ui, app: &mut SisApp) {
+    let Some(ref graph) = app.graph_state.graph else {
+        return;
+    };
+    let mut technique_counts: Vec<(String, usize)> = Vec::new();
+    let mut index: HashMap<String, HashSet<usize>> = HashMap::new();
+    for (idx, node) in graph.nodes.iter().enumerate() {
+        for role in &node.roles {
+            let Some(raw) = role.strip_prefix("MITRE:") else {
+                continue;
+            };
+            for technique in raw.split(',').map(str::trim).filter(|value| !value.is_empty()) {
+                index.entry(technique.to_string()).or_default().insert(idx);
+            }
+        }
+    }
+    for (technique, nodes) in &index {
+        technique_counts.push((technique.clone(), nodes.len()));
+    }
+    if technique_counts.is_empty() {
+        return;
+    }
+    technique_counts.sort_by(|a, b| a.0.cmp(&b.0));
+    ui.collapsing("MITRE techniques", |ui| {
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .selectable_label(app.graph_state.mitre_selected_technique.is_none(), "clear")
+                .clicked()
+            {
+                app.graph_state.mitre_selected_technique = None;
+                app.graph_state.mitre_highlight_nodes.clear();
+            }
+            for (technique, count) in &technique_counts {
+                let selected =
+                    app.graph_state.mitre_selected_technique.as_deref() == Some(technique);
+                if ui.selectable_label(selected, format!("{technique} ({count})")).clicked() {
+                    app.graph_state.mitre_selected_technique = Some(technique.clone());
+                    app.graph_state.mitre_highlight_nodes =
+                        index.get(technique).cloned().unwrap_or_default();
+                }
+            }
+        });
+    });
+}
+
+fn recompute_graph_overlays(app: &mut SisApp) {
+    let Some(ref graph) = app.graph_state.graph else {
+        app.graph_state.critical_path_edges.clear();
+        app.graph_state.critical_path_nodes.clear();
+        app.graph_state.taint_edges.clear();
+        app.graph_state.taint_source_nodes.clear();
+        app.graph_state.mitre_highlight_nodes.clear();
+        return;
+    };
+    let (critical_edges, critical_nodes) = compute_critical_path(graph);
+    app.graph_state.critical_path_edges = critical_edges;
+    app.graph_state.critical_path_nodes = critical_nodes;
+    let (taint_edges, taint_sources) = map_taint_overlay(app, graph);
+    app.graph_state.taint_edges = taint_edges;
+    app.graph_state.taint_source_nodes = taint_sources;
+    if let Some(selected) = app.graph_state.mitre_selected_technique.clone() {
+        app.graph_state.mitre_highlight_nodes = compute_mitre_nodes(graph, &selected);
+    } else {
+        app.graph_state.mitre_highlight_nodes.clear();
+    }
+}
+
+fn compute_mitre_nodes(graph: &GraphData, technique: &str) -> HashSet<usize> {
+    let mut nodes = HashSet::new();
+    for (idx, node) in graph.nodes.iter().enumerate() {
+        if node.roles.iter().any(|role| {
+            role.strip_prefix("MITRE:")
+                .map(|raw| raw.split(',').any(|item| item.trim() == technique))
+                .unwrap_or(false)
+        }) {
+            nodes.insert(idx);
+        }
+    }
+    nodes
+}
+
+fn map_taint_overlay(app: &SisApp, graph: &GraphData) -> (Vec<(usize, usize)>, HashSet<usize>) {
+    let Some(ref result) = app.result else {
+        return (Vec::new(), HashSet::new());
+    };
+    let taint = sis_pdf_core::taint::taint_from_findings(&result.report.findings);
+    if !taint.flagged {
+        return (Vec::new(), HashSet::new());
+    }
+    let mut source_nodes = HashSet::new();
+    for source in taint.taint_sources {
+        for (idx, node) in graph.nodes.iter().enumerate() {
+            if node.object_ref == Some(source) {
+                source_nodes.insert(idx);
+            }
+        }
+    }
+    let mut taint_edges = Vec::new();
+    for (from_obj, to_obj) in taint.taint_propagation {
+        let from_indices: Vec<usize> = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, node)| (node.object_ref == Some(from_obj)).then_some(idx))
+            .collect();
+        let to_indices: Vec<usize> = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, node)| (node.object_ref == Some(to_obj)).then_some(idx))
+            .collect();
+        for from_idx in &from_indices {
+            for to_idx in &to_indices {
+                if graph
+                    .edges
+                    .iter()
+                    .any(|edge| edge.from_idx == *from_idx && edge.to_idx == *to_idx)
+                {
+                    taint_edges.push((*from_idx, *to_idx));
+                }
+            }
+        }
+    }
+    taint_edges.sort_unstable();
+    taint_edges.dedup();
+    (taint_edges, source_nodes)
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct QueueEntry {
+    cost: f64,
+    node: usize,
+}
+
+impl Eq for QueueEntry {}
+
+impl Ord for QueueEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.cost.partial_cmp(&self.cost).unwrap_or(Ordering::Equal)
+    }
+}
+
+impl PartialOrd for QueueEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn compute_critical_path(graph: &GraphData) -> (HashSet<(usize, usize)>, HashSet<usize>) {
+    let trigger_nodes: Vec<usize> = graph
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, node)| {
+            if node.obj_type.eq_ignore_ascii_case("event")
+                && node.roles.iter().any(|role| role.eq_ignore_ascii_case("automatic"))
+            {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .collect();
+    let outcome_nodes: HashSet<usize> = graph
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, node)| node.obj_type.eq_ignore_ascii_case("outcome").then_some(idx))
+        .collect();
+    if trigger_nodes.is_empty() || outcome_nodes.is_empty() {
+        return (HashSet::new(), HashSet::new());
+    }
+
+    let mut distances = vec![f64::INFINITY; graph.nodes.len()];
+    let mut previous: HashMap<usize, usize> = HashMap::new();
+    let mut heap = BinaryHeap::new();
+    for trigger in trigger_nodes {
+        distances[trigger] = 0.0;
+        heap.push(QueueEntry { cost: 0.0, node: trigger });
+    }
+
+    while let Some(QueueEntry { cost, node }) = heap.pop() {
+        if cost > distances[node] {
+            continue;
+        }
+        for edge in graph.edges.iter().filter(|edge| edge.from_idx == node) {
+            let confidence = graph.nodes[edge.to_idx].confidence.unwrap_or(0.5).clamp(0.01, 1.0);
+            let weight = -f64::ln(confidence as f64);
+            let next_cost = cost + weight;
+            if next_cost < distances[edge.to_idx] {
+                distances[edge.to_idx] = next_cost;
+                previous.insert(edge.to_idx, node);
+                heap.push(QueueEntry { cost: next_cost, node: edge.to_idx });
+            }
+        }
+    }
+
+    let mut best_outcome = None;
+    let mut best_cost = f64::INFINITY;
+    for outcome in outcome_nodes {
+        if distances[outcome].is_finite() && distances[outcome] < best_cost {
+            best_cost = distances[outcome];
+            best_outcome = Some(outcome);
+        }
+    }
+    let Some(mut cursor) = best_outcome else {
+        return (HashSet::new(), HashSet::new());
+    };
+    let mut nodes = HashSet::new();
+    let mut edges = HashSet::new();
+    nodes.insert(cursor);
+    while let Some(parent) = previous.get(&cursor).copied() {
+        edges.insert((parent, cursor));
+        nodes.insert(parent);
+        cursor = parent;
+    }
+    (edges, nodes)
+}
+
 /// Rebuild the graph (e.g., after filter changes).
 fn rebuild_graph(app: &mut SisApp) {
     app.graph_state.built = false;
@@ -828,7 +1214,7 @@ fn run_layout_step(app: &mut SisApp) {
 fn build_visible_node_set(app: &SisApp, graph: &GraphData) -> std::collections::HashSet<usize> {
     let mut visible = std::collections::HashSet::new();
     for (idx, node) in graph.nodes.iter().enumerate() {
-        if app.graph_state.mode != GraphViewMode::Event {
+        if app.graph_state.mode == GraphViewMode::Structure {
             visible.insert(idx);
             continue;
         }
@@ -1031,8 +1417,12 @@ fn apply_pending_focus(app: &mut SisApp) {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_chain_path_edges, find_directed_path_edges};
-    use crate::graph_data::GraphEdge;
+    use super::{
+        build_chain_path_edges, compute_critical_path, compute_mitre_nodes,
+        find_directed_path_edges,
+    };
+    use crate::graph_data::{GraphData, GraphEdge, GraphNode};
+    use std::collections::HashMap;
 
     #[test]
     fn chain_path_overlay_keeps_directed_edges_only() {
@@ -1067,6 +1457,89 @@ mod tests {
         assert!(overlay_edges.contains(&(10, 20)));
         assert!(overlay_edges.contains(&(20, 30)));
         assert!(!overlay_edges.contains(&(30, 20)));
+    }
+
+    #[test]
+    fn critical_path_prefers_higher_confidence_outcome_path() {
+        let nodes = vec![
+            GraphNode {
+                object_ref: None,
+                obj_type: "event".into(),
+                label: "Trigger".into(),
+                roles: vec!["automatic".into()],
+                confidence: Some(1.0),
+                position: [0.0, 0.0],
+            },
+            GraphNode {
+                object_ref: None,
+                obj_type: "outcome".into(),
+                label: "OutcomeLow".into(),
+                roles: Vec::new(),
+                confidence: Some(0.2),
+                position: [0.0, 0.0],
+            },
+            GraphNode {
+                object_ref: None,
+                obj_type: "outcome".into(),
+                label: "OutcomeHigh".into(),
+                roles: Vec::new(),
+                confidence: Some(0.9),
+                position: [0.0, 0.0],
+            },
+        ];
+        let edges = vec![
+            GraphEdge {
+                from_idx: 0,
+                to_idx: 1,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
+            GraphEdge {
+                from_idx: 0,
+                to_idx: 2,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
+        ];
+        let graph = GraphData { nodes, edges, node_index: HashMap::new() };
+        let (edges, nodes) = compute_critical_path(&graph);
+        assert!(edges.contains(&(0, 2)));
+        assert!(nodes.contains(&0));
+        assert!(nodes.contains(&2));
+        assert!(!edges.contains(&(0, 1)));
+    }
+
+    #[test]
+    fn mitre_nodes_match_selected_technique() {
+        let graph = GraphData {
+            nodes: vec![
+                GraphNode {
+                    object_ref: None,
+                    obj_type: "event".into(),
+                    label: "n0".into(),
+                    roles: vec!["MITRE:T1059.007".into()],
+                    confidence: None,
+                    position: [0.0, 0.0],
+                },
+                GraphNode {
+                    object_ref: None,
+                    obj_type: "event".into(),
+                    label: "n1".into(),
+                    roles: vec!["MITRE:T1204.002,T1059.007".into()],
+                    confidence: None,
+                    position: [0.0, 0.0],
+                },
+            ],
+            edges: Vec::new(),
+            node_index: HashMap::new(),
+        };
+        let nodes = compute_mitre_nodes(&graph, "T1059.007");
+        assert!(nodes.contains(&0));
+        assert!(nodes.contains(&1));
     }
 
     #[test]

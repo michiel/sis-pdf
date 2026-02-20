@@ -1,4 +1,5 @@
 use crate::graph_data::GraphData;
+use std::collections::HashMap;
 
 /// Incremental Fruchterman-Reingold force-directed layout.
 pub struct LayoutState {
@@ -153,6 +154,63 @@ impl LayoutState {
         self.iterations_done += 1;
         let progress = self.iterations_done as f64 / self.max_iterations as f64;
         self.temperature = self.initial_temperature * (1.0 - progress);
+    }
+}
+
+/// Assign nodes to stage columns for staged DAG rendering.
+pub fn stage_column(node: &crate::graph_data::GraphNode) -> usize {
+    for role in &node.roles {
+        match role.as_str() {
+            "input" => return 0,
+            "decode" => return 1,
+            "render" => return 2,
+            "execute" => return 3,
+            "egress" => return 4,
+            _ => {}
+        }
+    }
+    let label_lower = node.label.to_lowercase();
+    if label_lower.contains("network") || label_lower.contains("egress") {
+        return 4;
+    }
+    if label_lower.contains("execute") || label_lower.contains("code") {
+        return 3;
+    }
+    if node.obj_type.eq_ignore_ascii_case("event")
+        && node.roles.iter().any(|role| matches!(role.as_str(), "automatic" | "hidden"))
+    {
+        return 0;
+    }
+    if node.obj_type.eq_ignore_ascii_case("outcome") {
+        return 4;
+    }
+    2
+}
+
+/// Apply staged DAG layout positions directly.
+pub fn apply_staged_dag_layout(graph: &mut GraphData) {
+    let area_w = 800.0f64;
+    let area_h = 600.0f64;
+    let cols = 5.0f64;
+    let col_w = area_w / cols;
+    let mut by_column: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (idx, node) in graph.nodes.iter().enumerate() {
+        by_column.entry(stage_column(node)).or_default().push(idx);
+    }
+    for column in 0..5 {
+        let Some(indices) = by_column.get(&column) else {
+            continue;
+        };
+        let count = indices.len();
+        for (row, idx) in indices.iter().enumerate() {
+            let x = (column as f64 + 0.5) * col_w;
+            let y = if count <= 1 {
+                area_h / 2.0
+            } else {
+                ((row + 1) as f64 / (count + 1) as f64) * area_h
+            };
+            graph.nodes[*idx].position = [x, y];
+        }
     }
 }
 
@@ -327,5 +385,17 @@ mod tests {
     fn minimum_edge_length_overrides_small_ideal_length() {
         let layout = LayoutState::new_with_min_edge_length(2_000, 120.0);
         assert!(layout.k >= 120.0);
+    }
+
+    #[test]
+    fn staged_layout_places_automatic_events_left_and_outcomes_right() {
+        let mut graph = simple_graph();
+        graph.nodes[0].obj_type = "event".into();
+        graph.nodes[0].roles = vec!["automatic".into()];
+        graph.nodes[2].obj_type = "outcome".into();
+        graph.nodes[2].label = "Network egress".into();
+        apply_staged_dag_layout(&mut graph);
+        assert!(graph.nodes[0].position[0] < graph.nodes[1].position[0]);
+        assert!(graph.nodes[2].position[0] > graph.nodes[1].position[0]);
     }
 }
