@@ -1,5 +1,5 @@
 use crate::graph_data::GraphData;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 /// Incremental Fruchterman-Reingold force-directed layout.
 pub struct LayoutState {
@@ -193,25 +193,109 @@ pub fn apply_staged_dag_layout(graph: &mut GraphData) {
     let area_h = 600.0f64;
     let cols = 5.0f64;
     let col_w = area_w / cols;
-    let mut by_column: HashMap<usize, Vec<usize>> = HashMap::new();
-    for (idx, node) in graph.nodes.iter().enumerate() {
-        by_column.entry(stage_column(node)).or_default().push(idx);
+    let sequence_levels = staged_sequence_levels(graph);
+    let max_level = sequence_levels.iter().copied().max().unwrap_or(0);
+    let columns = graph.nodes.iter().map(stage_column).collect::<Vec<_>>();
+    let mut by_column_level: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    for idx in 0..graph.nodes.len() {
+        let column = columns[idx];
+        let level = sequence_levels[idx];
+        by_column_level.entry((column, level)).or_default().push(idx);
     }
-    for column in 0..5 {
-        let Some(indices) = by_column.get(&column) else {
-            continue;
-        };
+    let mut ordinal_by_node: HashMap<usize, (usize, usize)> = HashMap::new();
+    for indices in by_column_level.values_mut() {
+        indices.sort_unstable();
         let count = indices.len();
-        for (row, idx) in indices.iter().enumerate() {
-            let x = (column as f64 + 0.5) * col_w;
-            let y = if count <= 1 {
-                area_h / 2.0
-            } else {
-                ((row + 1) as f64 / (count + 1) as f64) * area_h
-            };
-            graph.nodes[*idx].position = [x, y];
+        for (ordinal, idx) in indices.iter().enumerate() {
+            ordinal_by_node.insert(*idx, (ordinal, count));
         }
     }
+    for idx in 0..graph.nodes.len() {
+        let column = columns[idx];
+        let level = sequence_levels[idx];
+        let x = (column as f64 + 0.5) * col_w;
+        let base_y = if max_level == 0 {
+            area_h / 2.0
+        } else {
+            ((level + 1) as f64 / (max_level + 1) as f64) * area_h
+        };
+        let (ordinal, count) = ordinal_by_node.get(&idx).copied().unwrap_or((0, 1));
+        let y = if count <= 1 {
+            base_y
+        } else {
+            let band_half = (area_h / (max_level as f64 + 2.0) * 0.4).clamp(8.0, 30.0);
+            let step = (band_half * 2.0) / (count as f64 + 1.0);
+            let start = base_y - band_half;
+            start + step * (ordinal as f64 + 1.0)
+        };
+        graph.nodes[idx].position = [x, y];
+    }
+}
+
+fn staged_sequence_levels(graph: &GraphData) -> Vec<usize> {
+    let node_count = graph.nodes.len();
+    if node_count == 0 {
+        return Vec::new();
+    }
+
+    let mut indegree = vec![0usize; node_count];
+    let mut outgoing = vec![Vec::new(); node_count];
+    for edge in &graph.edges {
+        if edge.from_idx >= node_count || edge.to_idx >= node_count {
+            continue;
+        }
+        indegree[edge.to_idx] += 1;
+        outgoing[edge.from_idx].push(edge.to_idx);
+    }
+
+    let mut queue = VecDeque::new();
+    for (idx, degree) in indegree.iter().enumerate() {
+        if *degree == 0 {
+            queue.push_back(idx);
+        }
+    }
+
+    let mut levels = vec![0usize; node_count];
+    let mut processed = vec![false; node_count];
+    let mut processed_count = 0usize;
+
+    while let Some(node) = queue.pop_front() {
+        if processed[node] {
+            continue;
+        }
+        processed[node] = true;
+        processed_count += 1;
+        let next_level = levels[node].saturating_add(1);
+        for to_idx in &outgoing[node] {
+            if levels[*to_idx] < next_level {
+                levels[*to_idx] = next_level;
+            }
+            if indegree[*to_idx] > 0 {
+                indegree[*to_idx] -= 1;
+            }
+            if indegree[*to_idx] == 0 {
+                queue.push_back(*to_idx);
+            }
+        }
+    }
+
+    if processed_count < node_count {
+        for node in 0..node_count {
+            if processed[node] {
+                continue;
+            }
+            let mut best = levels[node];
+            for edge in graph.edges.iter().filter(|edge| edge.to_idx == node) {
+                if edge.from_idx >= node_count {
+                    continue;
+                }
+                best = best.max(levels[edge.from_idx].saturating_add(1));
+            }
+            levels[node] = best;
+        }
+    }
+
+    levels
 }
 
 #[cfg(test)]
@@ -398,6 +482,60 @@ mod tests {
         apply_staged_dag_layout(&mut graph);
         assert!(graph.nodes[0].position[0] < graph.nodes[1].position[0]);
         assert!(graph.nodes[2].position[0] > graph.nodes[1].position[0]);
+    }
+
+    #[test]
+    fn staged_layout_orders_vertical_position_by_sequence_across_lanes() {
+        let nodes = vec![
+            GraphNode {
+                object_ref: Some((1, 0)),
+                obj_type: "event".to_string(),
+                label: "Execute".to_string(),
+                roles: vec!["execute".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+            GraphNode {
+                object_ref: Some((2, 0)),
+                obj_type: "event".to_string(),
+                label: "Input".to_string(),
+                roles: vec!["input".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+            GraphNode {
+                object_ref: Some((3, 0)),
+                obj_type: "event".to_string(),
+                label: "Render".to_string(),
+                roles: vec!["render".to_string()],
+                confidence: None,
+                position: [0.0, 0.0],
+            },
+        ];
+        let edges = vec![
+            GraphEdge {
+                from_idx: 1,
+                to_idx: 2,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
+            GraphEdge {
+                from_idx: 2,
+                to_idx: 0,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            },
+        ];
+        let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1), ((3, 0), 2)]);
+        let mut graph = GraphData { nodes, edges, node_index: graph_index };
+        apply_staged_dag_layout(&mut graph);
+        // Input -> Render -> Execute should move downward, even though each stage is a different lane.
+        assert!(graph.nodes[1].position[1] < graph.nodes[2].position[1]);
+        assert!(graph.nodes[2].position[1] < graph.nodes[0].position[1]);
     }
 
     #[test]
