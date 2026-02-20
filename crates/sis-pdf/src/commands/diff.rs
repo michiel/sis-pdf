@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use sis_pdf_core::model::{Confidence, Finding, Severity};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -127,30 +127,18 @@ fn load_findings_from_jsonl(path: &Path) -> Result<Vec<Finding>> {
 fn diff_findings(baseline: &[Finding], comparison: &[Finding]) -> DiffResult {
     let baseline_map = findings_by_fingerprint(baseline);
     let comparison_map = findings_by_fingerprint(comparison);
-    let baseline_keys: HashSet<String> = baseline_map.keys().cloned().collect();
-    let comparison_keys: HashSet<String> = comparison_map.keys().cloned().collect();
 
     let mut new_findings = Vec::new();
     let mut removed_findings = Vec::new();
     let mut changed_findings = Vec::new();
 
-    for key in comparison_keys.difference(&baseline_keys) {
-        if let Some(finding) = comparison_map.get(key) {
-            new_findings.push(finding.clone());
-        }
-    }
-    for key in baseline_keys.difference(&comparison_keys) {
-        if let Some(finding) = baseline_map.get(key) {
-            removed_findings.push(finding.clone());
-        }
-    }
-    for key in baseline_keys.intersection(&comparison_keys) {
-        let Some(before) = baseline_map.get(key) else {
+    for (key, comparison_idx) in &comparison_map {
+        let Some(baseline_idx) = baseline_map.get(key) else {
+            new_findings.push(comparison[*comparison_idx].clone());
             continue;
         };
-        let Some(after) = comparison_map.get(key) else {
-            continue;
-        };
+        let before = &baseline[*baseline_idx];
+        let after = &comparison[*comparison_idx];
         if before.severity != after.severity || before.confidence != after.confidence {
             changed_findings.push(ChangedFinding {
                 kind: after.kind.clone(),
@@ -166,36 +154,40 @@ fn diff_findings(baseline: &[Finding], comparison: &[Finding]) -> DiffResult {
             });
         }
     }
+    for (key, baseline_idx) in &baseline_map {
+        if !comparison_map.contains_key(key) {
+            removed_findings.push(baseline[*baseline_idx].clone());
+        }
+    }
 
     sort_findings(&mut new_findings);
     sort_findings(&mut removed_findings);
-    changed_findings.sort_by(|left, right| left.kind.cmp(&right.kind));
+    changed_findings.sort_by(|left, right| {
+        left.kind.cmp(&right.kind).then_with(|| left.objects.cmp(&right.objects))
+    });
 
     DiffResult { new_findings, removed_findings, changed_findings }
 }
 
 fn sort_findings(findings: &mut [Finding]) {
-    findings.sort_by(|left, right| {
-        left.kind
-            .cmp(&right.kind)
-            .then_with(|| canonical_objects(left).cmp(&canonical_objects(right)))
-    });
+    findings.sort_by_cached_key(|finding| (finding.kind.clone(), canonical_objects(finding)));
 }
 
-fn findings_by_fingerprint(findings: &[Finding]) -> BTreeMap<String, Finding> {
-    let mut map: BTreeMap<String, Finding> = BTreeMap::new();
-    for finding in findings {
+fn findings_by_fingerprint(findings: &[Finding]) -> HashMap<String, usize> {
+    let mut map: HashMap<String, usize> = HashMap::with_capacity(findings.len());
+    for (idx, finding) in findings.iter().enumerate() {
         let fingerprint = finding_fingerprint(finding);
-        match map.get(&fingerprint) {
-            Some(existing) => {
+        match map.get(&fingerprint).copied() {
+            Some(existing_idx) => {
+                let existing = &findings[existing_idx];
                 if finding.confidence < existing.confidence
                     || (finding.confidence == existing.confidence && finding.kind < existing.kind)
                 {
-                    map.insert(fingerprint, finding.clone());
+                    map.insert(fingerprint, idx);
                 }
             }
             None => {
-                map.insert(fingerprint, finding.clone());
+                map.insert(fingerprint, idx);
             }
         }
     }
@@ -211,7 +203,12 @@ fn finding_fingerprint(finding: &Finding) -> String {
             "action_target" => finding.action_target.as_ref(),
             _ => None,
         }) {
-            stable_meta.push(format!("{key}={value}"));
+            let normalised = if key == "action_target" {
+                normalise_action_target(value)
+            } else {
+                value.to_string()
+            };
+            stable_meta.push(format!("{key}={normalised}"));
         }
     }
     stable_meta.sort();
@@ -219,7 +216,15 @@ fn finding_fingerprint(finding: &Finding) -> String {
     format!("{}::{}::{}::{}", finding.kind, objects, stable_meta.join(";"), anchor)
 }
 
+fn normalise_action_target(raw: &str) -> String {
+    let without_fragment = raw.split('#').next().unwrap_or(raw);
+    without_fragment.split('?').next().unwrap_or(without_fragment).to_string()
+}
+
 fn canonical_objects(finding: &Finding) -> Vec<String> {
+    if finding.objects.len() <= 1 {
+        return finding.objects.clone();
+    }
     let mut objects = finding.objects.clone();
     objects.sort();
     objects.dedup();
@@ -230,6 +235,7 @@ fn canonical_objects(finding: &Finding) -> Vec<String> {
 mod tests {
     use super::*;
     use sis_pdf_core::model::{AttackSurface, FindingBuilder};
+    use std::time::{Duration, Instant};
 
     fn finding(
         kind: &str,
@@ -259,5 +265,46 @@ mod tests {
         assert_eq!(result.new_findings[0].kind, "c");
         assert_eq!(result.removed_findings[0].kind, "b");
         assert_eq!(result.changed_findings[0].kind, "a");
+    }
+
+    #[test]
+    fn fingerprint_normalises_action_target_query_and_fragment() {
+        let mut baseline = finding(
+            "action_remote_target_suspicious",
+            &["10 0 obj"],
+            Severity::Medium,
+            Confidence::Strong,
+        );
+        baseline.action_target =
+            Some("https://example.test/collect?sid=abc123&ts=1#fragment".to_string());
+        let mut comparison = finding(
+            "action_remote_target_suspicious",
+            &["10 0 obj"],
+            Severity::Medium,
+            Confidence::Strong,
+        );
+        comparison.action_target = Some("https://example.test/collect?sid=def456".to_string());
+
+        assert_eq!(finding_fingerprint(&baseline), finding_fingerprint(&comparison));
+    }
+
+    #[test]
+    fn diff_large_input_budget() {
+        let mut baseline = Vec::with_capacity(100_000);
+        let mut comparison = Vec::with_capacity(100_000);
+        for idx in 0..100_000u32 {
+            let object = format!("{} 0 obj", idx + 1);
+            baseline.push(finding("bulk_kind", &[&object], Severity::Low, Confidence::Strong));
+
+            let severity = if idx % 10_000 == 0 { Severity::High } else { Severity::Low };
+            comparison.push(finding("bulk_kind", &[&object], severity, Confidence::Strong));
+        }
+        let start = Instant::now();
+        let diff = diff_findings(&baseline, &comparison);
+        let elapsed = start.elapsed();
+        assert!(elapsed <= Duration::from_secs(2), "diff exceeded 2.0s budget: {:?}", elapsed);
+        assert_eq!(diff.changed_findings.len(), 10);
+        assert!(diff.new_findings.is_empty());
+        assert!(diff.removed_findings.is_empty());
     }
 }

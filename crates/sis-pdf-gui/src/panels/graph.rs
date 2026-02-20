@@ -1052,35 +1052,40 @@ fn map_taint_overlay(app: &SisApp, graph: &GraphData) -> (Vec<(usize, usize)>, H
     if !taint.flagged {
         return (Vec::new(), HashSet::new());
     }
+    map_taint_overlay_from_taint(&taint, graph)
+}
+
+fn map_taint_overlay_from_taint(
+    taint: &sis_pdf_core::taint::Taint,
+    graph: &GraphData,
+) -> (Vec<(usize, usize)>, HashSet<usize>) {
+    let mut nodes_by_ref: HashMap<(u32, u16), Vec<usize>> = HashMap::new();
+    for (idx, node) in graph.nodes.iter().enumerate() {
+        if let Some(obj_ref) = node.object_ref {
+            nodes_by_ref.entry(obj_ref).or_default().push(idx);
+        }
+    }
     let mut source_nodes = HashSet::new();
-    for source in taint.taint_sources {
-        for (idx, node) in graph.nodes.iter().enumerate() {
-            if node.object_ref == Some(source) {
-                source_nodes.insert(idx);
+    for source in &taint.taint_sources {
+        if let Some(indices) = nodes_by_ref.get(source) {
+            for idx in indices {
+                source_nodes.insert(*idx);
             }
         }
     }
+    let edge_set: HashSet<(usize, usize)> =
+        graph.edges.iter().map(|edge| (edge.from_idx, edge.to_idx)).collect();
     let mut taint_edges = Vec::new();
-    for (from_obj, to_obj) in taint.taint_propagation {
-        let from_indices: Vec<usize> = graph
-            .nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, node)| (node.object_ref == Some(from_obj)).then_some(idx))
-            .collect();
-        let to_indices: Vec<usize> = graph
-            .nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, node)| (node.object_ref == Some(to_obj)).then_some(idx))
-            .collect();
-        for from_idx in &from_indices {
-            for to_idx in &to_indices {
-                if graph
-                    .edges
-                    .iter()
-                    .any(|edge| edge.from_idx == *from_idx && edge.to_idx == *to_idx)
-                {
+    for (from_obj, to_obj) in &taint.taint_propagation {
+        let Some(from_indices) = nodes_by_ref.get(from_obj) else {
+            continue;
+        };
+        let Some(to_indices) = nodes_by_ref.get(to_obj) else {
+            continue;
+        };
+        for from_idx in from_indices {
+            for to_idx in to_indices {
+                if edge_set.contains(&(*from_idx, *to_idx)) {
                     taint_edges.push((*from_idx, *to_idx));
                 }
             }
@@ -1419,10 +1424,12 @@ fn apply_pending_focus(app: &mut SisApp) {
 mod tests {
     use super::{
         build_chain_path_edges, compute_critical_path, compute_mitre_nodes,
-        find_directed_path_edges,
+        find_directed_path_edges, map_taint_overlay_from_taint,
     };
     use crate::graph_data::{GraphData, GraphEdge, GraphNode};
+    use sis_pdf_core::taint::Taint;
     use std::collections::HashMap;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn chain_path_overlay_keeps_directed_edges_only() {
@@ -1586,5 +1593,104 @@ mod tests {
     fn default_finding_detail_max_hops_is_eight() {
         let state = super::GraphViewerState::default();
         assert_eq!(state.finding_detail_max_hops, 8);
+    }
+
+    #[test]
+    fn critical_path_budget() {
+        let node_count = 2_000usize;
+        let edge_count = 5_000usize;
+        let mut nodes = Vec::with_capacity(node_count);
+        for idx in 0..node_count {
+            let obj_type = if idx % 40 == 0 { "outcome" } else { "event" };
+            let mut roles = Vec::new();
+            if idx % 30 == 0 {
+                roles.push("automatic".to_string());
+            }
+            nodes.push(GraphNode {
+                object_ref: Some(((idx + 1) as u32, 0)),
+                obj_type: obj_type.to_string(),
+                label: format!("n{idx}"),
+                roles,
+                confidence: Some(0.8),
+                position: [0.0, 0.0],
+            });
+        }
+        let mut edges = Vec::with_capacity(edge_count);
+        for idx in 0..edge_count {
+            let from_idx = idx % node_count;
+            let mut to_idx = (idx * 17 + 23) % node_count;
+            if to_idx == from_idx {
+                to_idx = (to_idx + 1) % node_count;
+            }
+            edges.push(GraphEdge {
+                from_idx,
+                to_idx,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            });
+        }
+        let graph = GraphData { nodes, edges, node_index: HashMap::new() };
+        let start = Instant::now();
+        let (_edges, _nodes) = compute_critical_path(&graph);
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed <= Duration::from_millis(15),
+            "critical path exceeded budget: {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn taint_overlay_mapping_budget() {
+        let node_count = 2_000usize;
+        let edge_count = 5_000usize;
+        let mut nodes = Vec::with_capacity(node_count);
+        for idx in 0..node_count {
+            nodes.push(GraphNode {
+                object_ref: Some(((idx + 1) as u32, 0)),
+                obj_type: "object".to_string(),
+                label: format!("obj{idx}"),
+                roles: Vec::new(),
+                confidence: None,
+                position: [0.0, 0.0],
+            });
+        }
+        let mut edges = Vec::with_capacity(edge_count);
+        let mut taint_propagation = Vec::with_capacity(edge_count);
+        for idx in 0..edge_count {
+            let from_idx = idx % node_count;
+            let mut to_idx = (idx * 29 + 7) % node_count;
+            if to_idx == from_idx {
+                to_idx = (to_idx + 1) % node_count;
+            }
+            edges.push(GraphEdge {
+                from_idx,
+                to_idx,
+                suspicious: true,
+                edge_kind: Some("taint".into()),
+                provenance: None,
+                metadata: None,
+            });
+            taint_propagation.push((((from_idx + 1) as u32, 0), ((to_idx + 1) as u32, 0)));
+        }
+        let graph = GraphData { nodes, edges, node_index: HashMap::new() };
+        let taint = Taint {
+            flagged: true,
+            reasons: vec!["benchmark".into()],
+            taint_sources: (1..=200).map(|obj| (obj, 0)).collect(),
+            taint_propagation,
+        };
+        let start = Instant::now();
+        let (mapped_edges, source_nodes) = map_taint_overlay_from_taint(&taint, &graph);
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed <= Duration::from_millis(10),
+            "taint mapping exceeded budget: {:?}",
+            elapsed
+        );
+        assert!(!mapped_edges.is_empty());
+        assert!(!source_nodes.is_empty());
     }
 }

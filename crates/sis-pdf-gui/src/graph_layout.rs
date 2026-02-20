@@ -219,6 +219,7 @@ mod tests {
     use super::*;
     use crate::graph_data::{GraphData, GraphEdge, GraphNode};
     use std::collections::HashMap;
+    use std::time::{Duration, Instant};
 
     fn simple_graph() -> GraphData {
         let nodes = vec![
@@ -397,5 +398,57 @@ mod tests {
         apply_staged_dag_layout(&mut graph);
         assert!(graph.nodes[0].position[0] < graph.nodes[1].position[0]);
         assert!(graph.nodes[2].position[0] > graph.nodes[1].position[0]);
+    }
+
+    #[test]
+    fn graph_layout_staged_dag_budget() {
+        let node_count = 2_000usize;
+        let edge_count = 5_000usize;
+        let stages = ["input", "decode", "render", "execute", "egress"];
+        let mut nodes = Vec::with_capacity(node_count);
+        let mut node_index = HashMap::with_capacity(node_count);
+        for idx in 0..node_count {
+            let obj = (idx as u32) + 1;
+            let stage = stages[idx % stages.len()].to_string();
+            nodes.push(GraphNode {
+                object_ref: Some((obj, 0)),
+                obj_type: "event".to_string(),
+                label: format!("n{idx}"),
+                roles: vec![stage],
+                confidence: Some(0.8),
+                position: [0.0, 0.0],
+            });
+            node_index.insert((obj, 0), idx);
+        }
+        let mut edges = Vec::with_capacity(edge_count);
+        for idx in 0..edge_count {
+            let from_idx = idx % node_count;
+            let mut to_idx = (idx * 37 + 13) % node_count;
+            if to_idx == from_idx {
+                to_idx = (to_idx + 1) % node_count;
+            }
+            edges.push(GraphEdge {
+                from_idx,
+                to_idx,
+                suspicious: false,
+                edge_kind: None,
+                provenance: None,
+                metadata: None,
+            });
+        }
+        let mut graph = GraphData { nodes, edges, node_index };
+
+        let start = Instant::now();
+        apply_staged_dag_layout(&mut graph);
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed <= Duration::from_millis(25),
+            "staged DAG layout exceeded budget: {:?}",
+            elapsed
+        );
+        for node in &graph.nodes {
+            assert!(node.position[0].is_finite());
+            assert!(node.position[1].is_finite());
+        }
     }
 }
