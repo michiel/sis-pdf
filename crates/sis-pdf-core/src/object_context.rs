@@ -200,10 +200,6 @@ pub fn build_object_context_index(report: &Report, taint: &Taint) -> ObjectConte
     }
 
     let reason_map = build_taint_reason_map(&report.findings);
-    let taint_propagation_unavailable = taint.flagged
-        && taint.taint_propagation.is_empty()
-        && !taint.reasons.is_empty()
-        && taint.taint_sources.is_empty();
 
     let taint_reasons = taint
         .reasons
@@ -221,7 +217,8 @@ pub fn build_object_context_index(report: &Report, taint: &Taint) -> ObjectConte
         context.taint_outgoing.dedup();
         if context.tainted || context.taint_source {
             context.taint_reasons = taint_reasons.clone();
-            context.taint_propagation_unavailable = taint_propagation_unavailable;
+            // V3 taint model is authoritative; fallback derivation is removed.
+            context.taint_propagation_unavailable = false;
         }
     }
 

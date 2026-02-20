@@ -1,7 +1,7 @@
 # Object Detail Context Uplift Plan: Taint and Chain Membership in GUI + CLI
 
 Date: 2026-02-20
-Status: Ready for implementation
+Status: Completed
 Owner: GUI (`sis-pdf-gui`), CLI (`sis-pdf`), shared logic (`sis-pdf-core`)
 
 ## Goals
@@ -48,12 +48,9 @@ Out of scope (this plan):
 
 ## Sequencing dependency
 
-This plan depends on `plans/20260220-uplift.md` **V3** (Taint source and propagation extension), which adds `taint_sources: Vec<(u32, u16)>` and `taint_propagation: Vec<((u32, u16), (u32, u16))>` to `Taint`. The context index consumes these fields directly. If V3 has not yet landed at implementation time, a fallback derivation path applies:
+This plan depends on `plans/20260220-uplift.md` **V3** (Taint source and propagation extension), which adds `taint_sources: Vec<(u32, u16)>` and `taint_propagation: Vec<((u32, u16), (u32, u16))>` to `Taint`. The context index consumes these fields directly.
 
-- Derive `taint_sources` inline by iterating `report.findings` and extracting objects from taint-triggering finding kinds (using the same kind list as `taint::taint_from_findings`).
-- Leave `taint_propagation` empty; mark `taint_source` objects as `tainted` and flag a `taint_propagation_unavailable=true` note on their context.
-
-The fallback preserves correctness for source objects and degrades gracefully for propagation edges. Remove the fallback path once V3 is confirmed landed.
+Implementation note (2026-02-20): V3 is landed and authoritative. Legacy fallback derivation has been removed from runtime behaviour; `taint_propagation_unavailable` is retained as a compatibility field and remains `false`.
 
 ---
 
@@ -212,7 +209,7 @@ The `object_context(report, obj, gen)` free function from the original design is
 **Taint pass:**
 - If `taint.taint_sources` is non-empty (V3 landed): mark `taint_source=true` and `tainted=true` for each source object.
 - Populate `taint_incoming`/`taint_outgoing` from `taint.taint_propagation` edges; mark both endpoints `tainted=true`.
-- If `taint.taint_sources` is empty: derive taint sources by checking `finding.kind` against the kind list in `taint_from_findings`; set `taint_propagation_unavailable=true`.
+- V3 taint data is consumed directly; no fallback taint-source derivation path is used.
 - For `taint_reasons`: match each `Taint::reason` string back to the finding that produced it (same kind-matching logic). Emit `TaintReasonEntry { reason, finding_id: Some(f.id) }`. For reasons not traceable to a single finding, emit `finding_id: None`.
 
 **Chain membership pass:**
@@ -286,7 +283,7 @@ Revision: Rev 2 (post-cert)   |  Similar objects: 12
 - Each `TaintReasonEntry` rendered as: "reason — [finding_id link]" when `finding_id` is present.
 - Incoming taint edges: clickable object-ref links via `navigate_to_object`.
 - Outgoing taint edges: same.
-- When `taint_propagation_unavailable=true`: show a notice "Taint propagation edges require V3 taint model; showing source objects only."
+- `taint_propagation_unavailable` remains present for compatibility and is expected to stay `false` under V3.
 
 *Collapsible: Chain membership*
 - One row per `ObjectChainMembership`: role badge, chain path, score, chain-id link.
@@ -392,7 +389,7 @@ Add `Query::ShowObjectDetail` and `Query::ShowObjectContext` variants alongside 
 Test cases:
 1. Object with direct taint source (`taint_source=true`, `tainted=true`) and chain role `Payload` via `finding_roles`.
 2. Object tainted only via propagation edge — not in `taint_sources`, appears in `taint_propagation`; `tainted=true`, `taint_source=false`.
-3. Object tainted by finding kind when V3 taint model absent (fallback path) — `tainted=true`, `taint_propagation_unavailable=true`.
+3. Compatibility guard: context output retains `taint_propagation_unavailable`, and V3 paths keep it `false`.
 4. Object in multiple chains with different roles; chain list sorted stably by descending score then `chain_index`.
 5. Object appearing in `finding.objects` (role `Participant`) vs. appearing only in `chain.nodes` (role `PathNode`) — both covered, roles distinct.
 6. Object absent from findings/chains returns default context with all fields zeroed/false, deterministically.
@@ -419,7 +416,7 @@ Test cases:
 - Chain row click sets `show_chains=true` and `selected_chain` to correct index.
 - Evidence jump button sets `hex_view.jump_to` correctly.
 - Graph focus button sets `show_taint_overlay=true` and `show_graph=true`.
-- `taint_propagation_unavailable` notice is shown when flag is set.
+- `taint_propagation_unavailable` remains `false` for V3 scans.
 
 ### CLI tests
 
@@ -512,7 +509,7 @@ Exit criteria:
 1. Create or reuse shared fixture families; register in manifest; add object-context assertions.
 2. Update `docs/query-interface.md`, `docs/forensic-workflows.md`, `docs/analysis.md`.
 3. Run full targeted test matrix.
-4. Remove V3 fallback path if taint model V3 is confirmed landed.
+4. Confirm V3-only taint context derivation remains in place.
 
 Exit criteria:
 - Coverage includes complex/distributed/fragmented, revision-shadow, and multi-reader patterns.
@@ -534,8 +531,8 @@ Exit criteria:
 4. **Risk:** WASM index build unavailable (built inside worker, not serialisable across boundary).
    - **Mitigation:** Index is built in the main thread after `WorkerAnalysisResult` arrives, as part of `AnalysisResult` post-processing alongside other indices. Documented explicitly in the WASM note under section 2.
 
-5. **Risk:** V3 taint model absent at implementation time.
-   - **Mitigation:** Explicit fallback derivation path with `taint_propagation_unavailable` flag. Fallback is documented and testable (test case 3). Remove once V3 confirmed landed.
+5. **Risk:** V3 taint model fields regress or are bypassed in future changes.
+   - **Mitigation:** Keep integration coverage around taint sources/propagation and assert compatibility field behaviour stays deterministic.
 
 6. **Risk:** `similar_count` computation expensive on large corpora.
    - **Mitigation:** Kind-set fingerprint counted in a single pass over the index during `build_object_context_index`. O(F log F) total. No per-query computation.
@@ -560,12 +557,12 @@ Exit criteria:
 ## Implementation readiness checklist
 
 - [x] Output-shape decision resolved: `obj` frozen, `obj.detail` and `object.context` are new additive verbs.
-- [ ] Land `parse_obj_ref` utility and update callers.
-- [ ] Land `finding_roles` on `ExploitChain`.
-- [ ] Land shared context module with all tests.
-- [ ] Integrate GUI inspector with cross-panel navigation and evidence jump.
-- [ ] Implement CLI verbs and machine-readable schema tests.
-- [ ] Add fixture families + manifest entries + provenance docs.
-- [ ] Derive `object_severity_index` from `object_context_index`; remove separate derivation.
-- [ ] Update docs and run targeted test commands.
-- [ ] Confirm V3 taint model status; remove fallback if landed.
+- [x] Land `parse_obj_ref` utility and update callers.
+- [x] Land `finding_roles` on `ExploitChain`.
+- [x] Land shared context module with all tests.
+- [x] Integrate GUI inspector with cross-panel navigation and evidence jump.
+- [x] Implement CLI verbs and machine-readable schema tests.
+- [x] Add fixture families + manifest entries + provenance docs.
+- [x] Derive `object_severity_index` from `object_context_index`; remove separate derivation.
+- [x] Update docs and run targeted test commands.
+- [x] Confirm V3 taint model status; remove fallback if landed.

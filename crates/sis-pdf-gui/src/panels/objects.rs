@@ -429,9 +429,6 @@ fn show_security_context(ui: &mut egui::Ui, app: &mut SisApp, context: &ObjectSe
         });
 
         if context.tainted {
-            if context.taint_propagation_unavailable {
-                ui.small("Taint propagation edges unavailable; showing source-only context.");
-            }
             if !context.taint_reasons.is_empty() {
                 ui.separator();
                 ui.label("Taint reasons:");
