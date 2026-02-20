@@ -2,6 +2,9 @@ use crate::app::SisApp;
 use crate::hex_format;
 use egui_extras::{Column, TableBuilder};
 use sis_pdf_core::model::Severity;
+use sis_pdf_core::object_context::{
+    get_object_context, ObjectChainRole, ObjectSecurityContext, TaintReasonEntry,
+};
 
 pub fn show(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_objects;
@@ -250,6 +253,7 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
             dict_entries: obj.dict_entries.clone(),
             references_from: obj.references_from.clone(),
             references_to: obj.references_to.clone(),
+            security_context: get_object_context(&result.object_context_index, obj.obj, obj.gen),
         }
     };
 
@@ -275,6 +279,7 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
         ui.separator();
 
         show_object_meta(ui, app, &detail);
+        show_security_context(ui, app, &detail.security_context);
         show_dict_entries(ui, app, &detail.dict_entries);
         show_stream_content(ui, &detail, show_hex);
         show_references(ui, app, &detail.references_from, &detail.references_to);
@@ -302,6 +307,7 @@ struct ObjectDetail {
     dict_entries: Vec<(String, String)>,
     references_from: Vec<(u32, u16)>,
     references_to: Vec<(u32, u16)>,
+    security_context: ObjectSecurityContext,
 }
 
 fn show_object_meta(ui: &mut egui::Ui, app: &mut SisApp, detail: &ObjectDetail) {
@@ -392,6 +398,129 @@ fn show_dict_entries(ui: &mut egui::Ui, app: &mut SisApp, entries: &[(String, St
                 },
             );
         });
+}
+
+fn show_security_context(ui: &mut egui::Ui, app: &mut SisApp, context: &ObjectSecurityContext) {
+    ui.separator();
+    egui::CollapsingHeader::new("Security context").default_open(true).show(ui, |ui| {
+        let taint_label = if context.taint_source {
+            "source"
+        } else if context.tainted {
+            "propagated"
+        } else {
+            "not tainted"
+        };
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!("Taint: {taint_label}"));
+            ui.separator();
+            ui.label(format!("Chains: {}", context.chains.len()));
+            ui.separator();
+            let severity = context
+                .max_severity
+                .map(|value| format!("{value:?}"))
+                .unwrap_or_else(|| "None".to_string());
+            ui.label(format!("Severity: {severity}"));
+            ui.separator();
+            let confidence = context
+                .max_confidence
+                .map(|value| format!("{value:?}"))
+                .unwrap_or_else(|| "None".to_string());
+            ui.label(format!("Confidence: {confidence}"));
+        });
+
+        if context.tainted {
+            if context.taint_propagation_unavailable {
+                ui.small("Taint propagation edges unavailable; showing source-only context.");
+            }
+            if !context.taint_reasons.is_empty() {
+                ui.separator();
+                ui.label("Taint reasons:");
+                for reason in &context.taint_reasons {
+                    show_taint_reason(ui, app, reason);
+                }
+            }
+            if !context.taint_incoming.is_empty() {
+                ui.separator();
+                ui.label("Incoming taint:");
+                ui.horizontal_wrapped(|ui| {
+                    for (obj, generation) in &context.taint_incoming {
+                        let label = format!("{obj} {generation} R");
+                        if ui.link(label).clicked() {
+                            app.navigate_to_object(*obj, *generation);
+                        }
+                    }
+                });
+            }
+            if !context.taint_outgoing.is_empty() {
+                ui.separator();
+                ui.label("Outgoing taint:");
+                ui.horizontal_wrapped(|ui| {
+                    for (obj, generation) in &context.taint_outgoing {
+                        let label = format!("{obj} {generation} R");
+                        if ui.link(label).clicked() {
+                            app.navigate_to_object(*obj, *generation);
+                        }
+                    }
+                });
+            }
+        } else {
+            ui.small("Not tainted.");
+        }
+
+        if context.chains.is_empty() {
+            ui.separator();
+            ui.small("No chain membership.");
+            return;
+        }
+
+        ui.separator();
+        ui.label("Chain membership:");
+        for membership in &context.chains {
+            ui.horizontal_wrapped(|ui| {
+                let role = format_chain_role(membership.role);
+                let label = format!(
+                    "Chain #{} [{}] score {:.2}",
+                    membership.chain_index + 1,
+                    role,
+                    membership.score
+                );
+                if ui.link(label).clicked() {
+                    app.selected_chain = Some(membership.chain_index);
+                    app.show_chains = true;
+                }
+                ui.small(format!("id={}", membership.chain_id));
+            });
+            ui.small(&membership.path);
+        }
+    });
+}
+
+fn show_taint_reason(ui: &mut egui::Ui, app: &mut SisApp, reason: &TaintReasonEntry) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(&reason.reason);
+        if let Some(finding_id) = &reason.finding_id {
+            let label = format!("({finding_id})");
+            if ui.link(label).clicked() {
+                if let Some(result) = &app.result {
+                    if let Some(idx) =
+                        result.report.findings.iter().position(|finding| finding.id == *finding_id)
+                    {
+                        app.selected_finding = Some(idx);
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn format_chain_role(role: ObjectChainRole) -> &'static str {
+    match role {
+        ObjectChainRole::Trigger => "Trigger",
+        ObjectChainRole::Action => "Action",
+        ObjectChainRole::Payload => "Payload",
+        ObjectChainRole::Participant => "Participant",
+        ObjectChainRole::PathNode => "PathNode",
+    }
 }
 
 fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool) {

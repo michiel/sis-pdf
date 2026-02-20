@@ -1,4 +1,5 @@
 use sis_pdf_core::model::Severity;
+use sis_pdf_core::object_context::{build_object_context_index, ObjectContextIndex};
 use sis_pdf_core::report::Report;
 use sis_pdf_core::runner::run_scan_with_detectors;
 use sis_pdf_core::scan::{
@@ -20,6 +21,7 @@ const MAX_RECURSION_DEPTH: usize = 50;
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct AnalysisResult {
     pub report: Report,
+    pub object_context_index: ObjectContextIndex,
     pub object_severity_index: HashMap<(u32, u16), (Severity, usize)>,
     pub object_data: ObjectData,
     pub bytes: Vec<u8>,
@@ -72,7 +74,9 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
 
     let report = run_scan_with_detectors(bytes, options, &detectors)
         .map_err(|e| AnalysisError::ScanFailed(e.to_string()))?;
-    let object_severity_index = build_object_severity_index(&report);
+    let taint = sis_pdf_core::taint::taint_from_findings(&report.findings);
+    let object_context_index = build_object_context_index(&report, &taint);
+    let object_severity_index = build_object_severity_index_from_context(&object_context_index);
 
     // Re-parse to extract owned object data for the Object Inspector.
     // The ObjectGraph borrows bytes and cannot be stored, so we extract
@@ -83,6 +87,7 @@ pub fn analyze(bytes: &[u8], file_name: &str) -> Result<AnalysisResult, Analysis
 
     Ok(AnalysisResult {
         report,
+        object_context_index,
         object_severity_index,
         object_data,
         bytes: bytes.to_vec(),
@@ -120,8 +125,11 @@ pub fn analyze_for_worker(
 pub fn worker_result_into_analysis(worker: WorkerAnalysisResult, bytes: Vec<u8>) -> AnalysisResult {
     let mut object_data = worker.object_data;
     object_data.rebuild_index();
+    let taint = sis_pdf_core::taint::taint_from_findings(&worker.report.findings);
+    let object_context_index = build_object_context_index(&worker.report, &taint);
     AnalysisResult {
-        object_severity_index: build_object_severity_index(&worker.report),
+        object_severity_index: build_object_severity_index_from_context(&object_context_index),
+        object_context_index,
         report: worker.report,
         object_data,
         bytes,
@@ -220,39 +228,23 @@ fn count_pages(object_data: &ObjectData) -> usize {
     object_data.objects.iter().filter(|o| o.obj_type == "page").count()
 }
 
+#[cfg(test)]
 fn build_object_severity_index(report: &Report) -> HashMap<(u32, u16), (Severity, usize)> {
+    let taint = sis_pdf_core::taint::taint_from_findings(&report.findings);
+    let object_context_index = build_object_context_index(report, &taint);
+    build_object_severity_index_from_context(&object_context_index)
+}
+
+fn build_object_severity_index_from_context(
+    object_context_index: &ObjectContextIndex,
+) -> HashMap<(u32, u16), (Severity, usize)> {
     let mut index: HashMap<(u32, u16), (Severity, usize)> = HashMap::new();
-    for finding in &report.findings {
-        for object in &finding.objects {
-            if let Some((obj, gen)) = parse_object_ref(object) {
-                index
-                    .entry((obj, gen))
-                    .and_modify(|(severity, count)| {
-                        if *severity < finding.severity {
-                            *severity = finding.severity;
-                        }
-                        *count += 1;
-                    })
-                    .or_insert((finding.severity, 1));
-            }
+    for ((obj, gen), context) in object_context_index.iter() {
+        if let Some(severity) = context.max_severity {
+            index.insert((*obj, *gen), (severity, context.finding_count));
         }
     }
     index
-}
-
-fn parse_object_ref(value: &str) -> Option<(u32, u16)> {
-    let parts: Vec<&str> = value.split_whitespace().collect();
-    if parts.len() < 2 {
-        return None;
-    }
-    for idx in 0..parts.len().saturating_sub(1) {
-        let obj = parts[idx].parse::<u32>().ok();
-        let gen = parts[idx + 1].parse::<u16>().ok();
-        if let (Some(obj), Some(gen)) = (obj, gen) {
-            return Some((obj, gen));
-        }
-    }
-    None
 }
 
 #[cfg(test)]

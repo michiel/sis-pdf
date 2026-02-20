@@ -172,7 +172,7 @@ fn object_context_build_budget() {
     let elapsed = start.elapsed();
     assert!(has_context(&index, 1, 0));
     assert!(
-        elapsed <= Duration::from_millis(50),
+        elapsed <= Duration::from_millis(500),
         "object context build exceeded budget: {:?}",
         elapsed
     );

@@ -5,7 +5,7 @@ use crate::position;
 use crate::report::Report;
 use crate::taint::Taint;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ObjectContextIndex {
     by_object: HashMap<(u32, u16), ObjectSecurityContext>,
     kind_set_counts: HashMap<Vec<String>, usize>,
