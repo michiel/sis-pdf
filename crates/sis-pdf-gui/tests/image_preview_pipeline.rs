@@ -101,6 +101,30 @@ fn preview_pipeline_cache_hit_p95_latency_budget() {
     assert!(p95_us < 30_000, "cache-hit p95 should meet budget (<30ms), got {} us", p95_us);
 }
 
+#[test]
+fn preview_pipeline_deferred_only_filter_records_unsupported_prefix() {
+    let payload = b"not-a-jpeg";
+    let pdf = build_single_image_pdf(Some("/DCTDecode"), payload);
+    let result = build_preview_for_object(&pdf, 2, 0, PreviewLimits::default())
+        .expect("preview should run for image object");
+
+    assert!(result.statuses.iter().any(|status| {
+        status.stage == ImagePreviewStage::FullStreamDecode
+            && status.outcome == ImagePreviewOutcome::DecodeFailed
+    }));
+    assert!(result.statuses.iter().any(|status| {
+        status.stage == ImagePreviewStage::PrefixDecode
+            && status.outcome == ImagePreviewOutcome::Unsupported
+    }));
+}
+
+#[test]
+fn preview_pipeline_non_stream_object_returns_none() {
+    let pdf = build_catalog_only_pdf();
+    let result = build_preview_for_object(&pdf, 1, 0, PreviewLimits::default());
+    assert!(result.is_none(), "non-stream object should not produce preview result");
+}
+
 fn preview_build_result_size(result: &sis_pdf_gui::image_preview::PreviewBuildResult) -> usize {
     let mut size = result.summary.len();
     size = size.saturating_add(result.source_used.as_ref().map(|s| s.len()).unwrap_or(0));
@@ -141,6 +165,26 @@ fn build_single_image_pdf(filter_expr: Option<&str>, stream_payload: &[u8]) -> V
         bytes.extend_from_slice(line.as_bytes());
     }
     let trailer = format!("trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF");
+    bytes.extend_from_slice(trailer.as_bytes());
+    bytes
+}
+
+fn build_catalog_only_pdf() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut offsets: Vec<usize> = vec![0];
+    bytes.extend_from_slice(b"%PDF-1.4\n");
+
+    offsets.push(bytes.len());
+    bytes.extend_from_slice(b"1 0 obj\n<< /Type /Catalog >>\nendobj\n");
+
+    let xref_offset = bytes.len();
+    bytes.extend_from_slice(b"xref\n0 2\n");
+    bytes.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in offsets.iter().skip(1) {
+        let line = format!("{:010} 00000 n \n", offset);
+        bytes.extend_from_slice(line.as_bytes());
+    }
+    let trailer = format!("trailer\n<< /Size 2 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF");
     bytes.extend_from_slice(trailer.as_bytes());
     bytes
 }
