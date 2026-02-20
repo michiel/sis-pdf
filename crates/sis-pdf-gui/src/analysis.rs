@@ -250,6 +250,7 @@ fn build_object_severity_index_from_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::image_preview::ImagePreviewOutcome;
     use crate::object_data::{extract_object_data_with_options, ObjectExtractOptions};
     use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 
@@ -449,5 +450,88 @@ mod tests {
         let index = build_object_severity_index(&report);
         assert_eq!(index.get(&(5, 0)), Some(&(Severity::High, 2)));
         assert_eq!(index.get(&(9, 0)), Some(&(Severity::High, 1)));
+    }
+
+    #[test]
+    fn image_object_preview_statuses_are_populated_for_full_and_compact_modes() {
+        let pdf = build_minimal_image_pdf();
+        let parse_opts = ParseOptions {
+            recover_xref: true,
+            deep: false,
+            strict: false,
+            max_objstm_bytes: MAX_DECODE_BYTES,
+            max_objects: MAX_OBJECTS,
+            max_objstm_total_bytes: MAX_TOTAL_DECODED_BYTES,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
+        };
+        let graph = sis_pdf_pdf::graph::parse_pdf(&pdf, parse_opts).expect("parse image PDF");
+        let classifications = graph.classify_objects();
+
+        let full = extract_object_data_with_options(
+            &pdf,
+            &graph,
+            &classifications,
+            ObjectExtractOptions::FULL,
+        );
+        let full_image = full
+            .objects
+            .iter()
+            .find(|object| object.obj_type == "image")
+            .expect("expected classified image object");
+        assert!(
+            !full_image.preview_statuses.is_empty(),
+            "full extraction should record preview pipeline status events"
+        );
+        assert!(
+            full_image.preview_summary.is_some(),
+            "full extraction should include preview summary"
+        );
+
+        let compact = extract_object_data_with_options(
+            &pdf,
+            &graph,
+            &classifications,
+            ObjectExtractOptions::WORKER_COMPACT,
+        );
+        let compact_image = compact
+            .objects
+            .iter()
+            .find(|object| object.obj_type == "image")
+            .expect("expected classified image object");
+        assert!(
+            compact_image
+                .preview_statuses
+                .iter()
+                .any(|status| { status.outcome == ImagePreviewOutcome::SkippedBudget }),
+            "compact extraction should record budget-skipped preview status"
+        );
+    }
+
+    fn build_minimal_image_pdf() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let mut offsets: Vec<usize> = vec![0];
+        bytes.extend_from_slice(b"%PDF-1.4\n");
+
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(b"1 0 obj\n<< /Type /Catalog >>\nendobj\n");
+
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(
+            b"2 0 obj\n<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 3 >>\nstream\nabc\nendstream\nendobj\n",
+        );
+
+        let xref_offset = bytes.len();
+        bytes.extend_from_slice(b"xref\n0 3\n");
+        bytes.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            let line = format!("{:010} 00000 n \n", offset);
+            bytes.extend_from_slice(line.as_bytes());
+        }
+        let trailer =
+            format!("trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF");
+        bytes.extend_from_slice(trailer.as_bytes());
+        bytes
     }
 }
