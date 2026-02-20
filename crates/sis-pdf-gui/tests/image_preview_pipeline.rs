@@ -65,6 +65,42 @@ fn preview_pipeline_cache_reopen_uses_cached_result() {
     assert_eq!(reopened.statuses.len(), first.statuses.len());
 }
 
+#[test]
+fn preview_pipeline_first_decode_latency_budget() {
+    let payload = b"FFD8FFD9>";
+    let pdf = build_single_image_pdf(Some("[/ASCIIHexDecode /DCTDecode]"), payload);
+    let start = Instant::now();
+    let result = build_preview_for_object(&pdf, 2, 0, PreviewLimits::default())
+        .expect("preview should run for image object");
+    let elapsed = start.elapsed().as_millis() as u64;
+
+    assert!(elapsed < 150, "first preview decode should meet budget (<150ms), got {elapsed} ms");
+    assert!(!result.statuses.is_empty(), "first decode should emit stage statuses for diagnostics");
+}
+
+#[test]
+fn preview_pipeline_cache_hit_p95_latency_budget() {
+    let payload = b"FFD8FFD9>";
+    let pdf = build_single_image_pdf(Some("[/ASCIIHexDecode /DCTDecode]"), payload);
+    let built = build_preview_for_object(&pdf, 2, 0, PreviewLimits::default())
+        .expect("initial preview build should succeed");
+    let mut cache = PreviewCache::new(4, 1024 * 1024);
+    cache.insert((2u32, 0u16), built.clone(), preview_build_result_size(&built));
+
+    let mut samples_us = Vec::with_capacity(200);
+    for _ in 0..200 {
+        let start = Instant::now();
+        let hit = cache.get_cloned(&(2u32, 0u16));
+        let elapsed_us = start.elapsed().as_micros() as u64;
+        assert!(hit.is_some(), "cache hit should return a preview result");
+        samples_us.push(elapsed_us);
+    }
+    samples_us.sort_unstable();
+    let idx_95 = ((samples_us.len() as f64) * 0.95).floor() as usize;
+    let p95_us = samples_us[idx_95.min(samples_us.len() - 1)];
+    assert!(p95_us < 30_000, "cache-hit p95 should meet budget (<30ms), got {} us", p95_us);
+}
+
 fn preview_build_result_size(result: &sis_pdf_gui::image_preview::PreviewBuildResult) -> usize {
     let mut size = result.summary.len();
     size = size.saturating_add(result.source_used.as_ref().map(|s| s.len()).unwrap_or(0));
