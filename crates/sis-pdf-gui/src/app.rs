@@ -1,5 +1,6 @@
 use crate::analysis::{AnalysisError, AnalysisResult, WorkerAnalysisResult};
 use crate::annotations::{sha256_hex, AnnotationStore};
+use crate::image_preview::ImagePreviewStatus;
 use crate::telemetry::TelemetryLog;
 use crate::window_state::WindowMaxState;
 use crate::workspace::{self, WorkspaceContext};
@@ -33,8 +34,12 @@ pub struct SisApp {
     pub show_revision: bool,
     /// Whether to show the Object Inspector floating window.
     pub show_objects: bool,
+    /// Whether to show the image preview floating window.
+    pub show_image_preview: bool,
     /// Currently selected object in the Object Inspector.
     pub selected_object: Option<(u32, u16)>,
+    /// Image preview dialog state.
+    pub image_preview_state: ImagePreviewDialogState,
     /// Type filter for the Object Inspector list.
     pub object_type_filter: Option<String>,
     /// Object Inspector back/forward navigation stack.
@@ -130,6 +135,31 @@ pub struct SisApp {
     #[cfg(target_arch = "wasm32")]
     analysis_worker_onmessage:
         Option<wasm_bindgen::closure::Closure<dyn FnMut(web_sys::MessageEvent)>>,
+}
+
+#[derive(Default, Clone)]
+pub struct ImagePreviewDialogState {
+    pub object_ref: Option<(u32, u16)>,
+    pub data: Option<ImagePreviewDialogData>,
+    pub from_cache: bool,
+    pub cache: HashMap<(u32, u16), ImagePreviewDialogData>,
+}
+
+#[derive(Clone)]
+pub struct ImagePreviewDialogData {
+    pub obj: u32,
+    pub gen: u16,
+    pub stream_filters: Vec<String>,
+    pub stream_length: Option<usize>,
+    pub stream_content_type: Option<String>,
+    pub image_width: Option<u32>,
+    pub image_height: Option<u32>,
+    pub image_bits: Option<u32>,
+    pub image_color_space: Option<String>,
+    pub image_preview: Option<(u32, u32, Vec<u8>)>,
+    pub image_preview_summary: Option<String>,
+    pub image_preview_status: Option<String>,
+    pub preview_statuses: Vec<ImagePreviewStatus>,
 }
 
 pub struct FindingDetailGraphCache {
@@ -260,7 +290,9 @@ impl SisApp {
             show_metadata: false,
             show_revision: false,
             show_objects: false,
+            show_image_preview: false,
             selected_object: None,
+            image_preview_state: ImagePreviewDialogState::default(),
             object_type_filter: None,
             object_nav_stack: Vec::new(),
             object_nav_pos: 0,
@@ -378,6 +410,8 @@ impl SisApp {
         self.show_metadata = false;
         self.show_revision = false;
         self.show_objects = false;
+        self.show_image_preview = false;
+        self.image_preview_state = ImagePreviewDialogState::default();
         self.show_graph = false;
         self.graph_state = crate::panels::graph::GraphViewerState::default();
         self.selected_chain = None;
@@ -516,8 +550,10 @@ impl SisApp {
                 show_metadata: self.show_metadata,
                 show_revision: self.show_revision,
                 show_objects: self.show_objects,
+                show_image_preview: self.show_image_preview,
                 show_hex: self.show_hex,
                 selected_object: self.selected_object.take(),
+                image_preview_state: std::mem::take(&mut self.image_preview_state),
                 object_type_filter: self.object_type_filter.take(),
                 object_nav_stack: std::mem::take(&mut self.object_nav_stack),
                 object_nav_pos: self.object_nav_pos,
@@ -564,8 +600,10 @@ impl SisApp {
         self.show_metadata = ws.show_metadata;
         self.show_revision = ws.show_revision;
         self.show_objects = ws.show_objects;
+        self.show_image_preview = ws.show_image_preview;
         self.show_hex = ws.show_hex;
         self.selected_object = ws.selected_object;
+        self.image_preview_state = ws.image_preview_state;
         self.object_type_filter = ws.object_type_filter;
         self.object_nav_stack = ws.object_nav_stack;
         self.object_nav_pos = ws.object_nav_pos;
@@ -778,6 +816,57 @@ impl SisApp {
             };
         }
         self.show_hex = true;
+    }
+
+    pub fn open_image_preview(&mut self, obj: u32, gen: u16) {
+        self.show_image_preview = true;
+        self.image_preview_state.object_ref = Some((obj, gen));
+        if let Some(cached) = self.image_preview_state.cache.get(&(obj, gen)).cloned() {
+            self.image_preview_state.data = Some(cached);
+            self.image_preview_state.from_cache = true;
+            return;
+        }
+        self.image_preview_state.data = self.build_image_preview_dialog_data(obj, gen);
+        self.image_preview_state.from_cache = false;
+        if let Some(data) = self.image_preview_state.data.clone() {
+            self.image_preview_state.cache.insert((obj, gen), data);
+        }
+    }
+
+    pub fn retry_image_preview(&mut self) {
+        let Some((obj, gen)) = self.image_preview_state.object_ref else {
+            return;
+        };
+        self.image_preview_state.data = self.build_image_preview_dialog_data(obj, gen);
+        self.image_preview_state.from_cache = false;
+        if let Some(data) = self.image_preview_state.data.clone() {
+            self.image_preview_state.cache.insert((obj, gen), data);
+        }
+    }
+
+    fn build_image_preview_dialog_data(
+        &self,
+        obj: u32,
+        gen: u16,
+    ) -> Option<ImagePreviewDialogData> {
+        let result = self.result.as_ref()?;
+        let idx = *result.object_data.index.get(&(obj, gen))?;
+        let object = result.object_data.objects.get(idx)?;
+        Some(ImagePreviewDialogData {
+            obj: object.obj,
+            gen: object.gen,
+            stream_filters: object.stream_filters.clone(),
+            stream_length: object.stream_length,
+            stream_content_type: object.stream_content_type.clone(),
+            image_width: object.image_width,
+            image_height: object.image_height,
+            image_bits: object.image_bits,
+            image_color_space: object.image_color_space.clone(),
+            image_preview: object.image_preview.clone(),
+            image_preview_summary: object.preview_summary.clone(),
+            image_preview_status: object.image_preview_status.clone(),
+            preview_statuses: object.preview_statuses.clone(),
+        })
     }
 
     pub fn persist_annotations(&mut self) {
@@ -1157,6 +1246,10 @@ impl eframe::App for SisApp {
 
             if self.show_objects {
                 crate::panels::objects::show(ctx, self);
+            }
+
+            if self.show_image_preview {
+                crate::panels::image_preview_dialog::show(ctx, self);
             }
 
             if self.show_hex {

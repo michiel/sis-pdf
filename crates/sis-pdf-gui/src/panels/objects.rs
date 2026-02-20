@@ -250,8 +250,8 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
             image_height: obj.image_height,
             image_bits: obj.image_bits,
             image_color_space: obj.image_color_space.clone(),
-            image_preview: obj.image_preview.clone(),
             image_preview_status: obj.image_preview_status.clone(),
+            preview_summary: obj.preview_summary.clone(),
             dict_entries: obj.dict_entries.clone(),
             dict_entries_tree: obj.dict_entries_tree.clone(),
             references_from: obj.references_from.clone(),
@@ -306,8 +306,8 @@ struct ObjectDetail {
     image_height: Option<u32>,
     image_bits: Option<u32>,
     image_color_space: Option<String>,
-    image_preview: Option<(u32, u32, Vec<u8>)>,
     image_preview_status: Option<String>,
+    preview_summary: Option<String>,
     dict_entries: Vec<(String, String)>,
     dict_entries_tree: Vec<(String, ObjectValue)>,
     references_from: Vec<(u32, u16)>,
@@ -363,6 +363,9 @@ fn show_object_meta(ui: &mut egui::Ui, app: &mut SisApp, detail: &ObjectDetail) 
                             "Unable to decode stream for selected object".to_string(),
                         ));
                     }
+                }
+                if detail.obj_type == "image" && ui.small_button("Preview").clicked() {
+                    app.open_image_preview(detail.obj, detail.gen);
                 }
             });
             ui.end_row();
@@ -666,22 +669,18 @@ fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool)
         }
     }
 
-    // Image preview status and preview thumbnail
+    // Image preview status (rendering happens in the dedicated preview dialog)
     if detail.obj_type == "image" {
         ui.separator();
-        ui.collapsing("Image preview", |ui| {
-            ui.label(
-                detail.image_preview_status.as_deref().unwrap_or("Preview status unavailable"),
-            );
-            if let Some((tw, th, ref pixels)) = detail.image_preview {
-                let tex_id = format!("img_preview_{}_{}", detail.obj, detail.gen);
-                let texture = ui.ctx().load_texture(
-                    &tex_id,
-                    egui::ColorImage::from_rgba_unmultiplied([tw as usize, th as usize], pixels),
-                    egui::TextureOptions::LINEAR,
+        ui.collapsing("Image preview status", |ui| {
+            if let Some(summary) = detail.preview_summary.as_deref() {
+                ui.label(summary);
+            } else {
+                ui.label(
+                    detail.image_preview_status.as_deref().unwrap_or("Preview status unavailable"),
                 );
-                ui.image(&texture);
             }
+            ui.small("Use the Preview button above to open the dedicated preview dialog.");
         });
     }
 

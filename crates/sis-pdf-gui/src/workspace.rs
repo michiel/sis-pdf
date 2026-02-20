@@ -1,6 +1,8 @@
 use crate::analysis::AnalysisResult;
 use crate::annotations::AnnotationStore;
-use crate::app::{ChainSortColumn, HexViewState, SeverityFilters, SortState};
+use crate::app::{
+    ChainSortColumn, HexViewState, ImagePreviewDialogState, SeverityFilters, SortState,
+};
 use crate::panels::graph::GraphViewerState;
 use crate::query::QueryOutput;
 use std::path::PathBuf;
@@ -20,8 +22,10 @@ pub struct WorkspaceContext {
     pub show_metadata: bool,
     pub show_revision: bool,
     pub show_objects: bool,
+    pub show_image_preview: bool,
     pub show_hex: bool,
     pub selected_object: Option<(u32, u16)>,
+    pub image_preview_state: ImagePreviewDialogState,
     pub object_type_filter: Option<String>,
     pub object_nav_stack: Vec<(u32, u16)>,
     pub object_nav_pos: usize,

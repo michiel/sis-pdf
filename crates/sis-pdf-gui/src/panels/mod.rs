@@ -5,6 +5,7 @@ pub mod drop_zone;
 pub mod findings;
 pub mod graph;
 pub mod hex_viewer;
+pub mod image_preview_dialog;
 pub mod metadata;
 pub mod nav;
 pub mod objects;
