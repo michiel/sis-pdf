@@ -34,6 +34,18 @@ where
         self.values.len()
     }
 
+    pub fn total_bytes(&self) -> usize {
+        self.total_bytes
+    }
+
+    pub fn max_entries(&self) -> usize {
+        self.max_entries
+    }
+
+    pub fn max_total_bytes(&self) -> usize {
+        self.max_total_bytes
+    }
+
     pub fn get_cloned(&mut self, key: &K) -> Option<V>
     where
         V: Clone,
@@ -121,5 +133,16 @@ mod tests {
         assert!(cache.get_cloned(&1).is_none());
         assert!(cache.get_cloned(&2).is_none());
         assert_eq!(cache.get_cloned(&3).as_deref(), Some("large"));
+    }
+
+    #[test]
+    fn preview_cache_tracks_total_bytes_after_eviction() {
+        let mut cache = PreviewCache::new(2, 20);
+        cache.insert(1u32, "a".to_string(), 8);
+        cache.insert(2u32, "b".to_string(), 8);
+        assert_eq!(cache.total_bytes(), 16);
+        cache.insert(3u32, "c".to_string(), 8);
+        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.total_bytes(), 16);
     }
 }

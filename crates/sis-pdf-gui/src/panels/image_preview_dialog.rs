@@ -32,6 +32,16 @@ fn render_dialog(ui: &mut egui::Ui, app: &mut SisApp) {
             retry = true;
         }
     });
+    ui.horizontal_wrapped(|ui| {
+        let cache = &app.image_preview_state.cache;
+        ui.small(format!(
+            "Cache: {}/{} entries, {}/{}",
+            cache.len(),
+            cache.max_entries(),
+            format_byte_size(cache.total_bytes()),
+            format_byte_size(cache.max_total_bytes()),
+        ));
+    });
     if retry {
         app.retry_image_preview();
     }
@@ -175,4 +185,14 @@ fn render_outcome_badge(ui: &mut egui::Ui, outcome: crate::image_preview::ImageP
         }
     };
     ui.colored_label(colour, label);
+}
+
+fn format_byte_size(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
 }
