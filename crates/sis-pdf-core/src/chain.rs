@@ -20,6 +20,24 @@ pub struct ExploitChain {
     pub nodes: Vec<String>,
     #[serde(default)]
     pub edges: Vec<String>,
+    #[serde(default)]
+    pub confirmed_stages: Vec<String>,
+    #[serde(default)]
+    pub inferred_stages: Vec<String>,
+    #[serde(default)]
+    pub chain_completeness: f64,
+    #[serde(default)]
+    pub reader_risk: HashMap<String, String>,
+    #[serde(default)]
+    pub narrative: String,
+    #[serde(default)]
+    pub finding_criticality: HashMap<String, f64>,
+    #[serde(default)]
+    pub active_mitigations: Vec<String>,
+    #[serde(default)]
+    pub required_conditions: Vec<String>,
+    #[serde(default)]
+    pub unmet_conditions: Vec<String>,
     pub notes: HashMap<String, String>,
 }
 

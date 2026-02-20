@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use sis_pdf_core::chain_synth::synthesise_chains;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{
+    AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
+};
 
 fn base_finding(id: &str, kind: &str, object_ref: &str) -> Finding {
     Finding {
@@ -108,4 +110,60 @@ fn propagates_edge_and_exploit_notes_into_chain_output() {
     assert_eq!(chain.notes.get("edge.confidence").map(String::as_str), Some("Strong"));
     assert_eq!(chain.notes.get("exploit.outcomes").map(String::as_str), Some("payload_staging"));
     assert_eq!(chain.notes.get("chain.severity").map(String::as_str), Some("Medium"));
+}
+
+#[test]
+fn computes_stage_completeness_and_reader_risk() {
+    let mut input = base_finding("f1", "form_html_injection", "20 0 obj");
+    input.meta.insert("chain.stage".into(), "input".into());
+    input.confidence = Confidence::Probable;
+    input.reader_impacts.push(ReaderImpact {
+        profile: ReaderProfile::Acrobat,
+        surface: AttackSurface::Forms,
+        severity: Severity::Medium,
+        impact: Impact::Medium,
+        note: None,
+    });
+
+    let mut execute = base_finding("f2", "js_present", "20 0 obj");
+    execute.meta.insert("chain.stage".into(), "execute".into());
+    execute.confidence = Confidence::Strong;
+    execute.reader_impacts.push(ReaderImpact {
+        profile: ReaderProfile::Acrobat,
+        surface: AttackSurface::JavaScript,
+        severity: Severity::Critical,
+        impact: Impact::Critical,
+        note: None,
+    });
+
+    let mut egress = base_finding("f3", "submitform_present", "20 0 obj");
+    egress.meta.insert("chain.stage".into(), "egress".into());
+    egress.confidence = Confidence::Probable;
+
+    let (chains, _) = synthesise_chains(&[input, execute, egress], true);
+    let chain = chains.first().expect("chain");
+    assert_eq!(chain.confirmed_stages, vec!["input", "execute", "egress"]);
+    assert!((chain.chain_completeness - 0.6).abs() < f64::EPSILON);
+    assert_eq!(chain.reader_risk.get("acrobat").map(String::as_str), Some("Critical"));
+}
+
+#[test]
+fn maps_mitigations_and_required_conditions() {
+    let mut finding = base_finding("f1", "composite.injection_edge_bridge", "33 0 obj");
+    finding.meta.insert("exploit.blockers".into(), "sandbox_enabled".into());
+    finding.meta.insert("exploit.mitigations".into(), "url_filtering".into());
+    finding.meta.insert("exploit.preconditions".into(), "egress_allowed, js_enabled".into());
+    finding.meta.insert("exploit.conditions_met".into(), "js_enabled".into());
+
+    let (chains, _) = synthesise_chains(&[finding], true);
+    let chain = chains.first().expect("single chain");
+    assert_eq!(
+        chain.active_mitigations,
+        vec!["sandbox_enabled".to_string(), "url_filtering".to_string()]
+    );
+    assert_eq!(
+        chain.required_conditions,
+        vec!["egress_allowed".to_string(), "js_enabled".to_string()]
+    );
+    assert_eq!(chain.unmet_conditions, vec!["egress_allowed".to_string()]);
 }

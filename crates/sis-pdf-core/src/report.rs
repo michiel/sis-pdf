@@ -42,6 +42,8 @@ pub struct SandboxSummary {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Report {
+    #[serde(default)]
+    pub chain_schema_version: u32,
     pub summary: Summary,
     pub findings: Vec<Finding>,
     pub grouped: BTreeMap<String, BTreeMap<String, Vec<String>>>,
@@ -189,6 +191,7 @@ impl Report {
         let summary = summary_from_findings(&findings);
         let ml_summary = ml_summary_override.or_else(|| ml_summary_from_findings(&findings));
         Self {
+            chain_schema_version: 2,
             summary,
             findings,
             grouped,
@@ -1928,6 +1931,15 @@ mod narrative_tests {
             path: String::new(),
             nodes: Vec::new(),
             edges: Vec::new(),
+            confirmed_stages: Vec::new(),
+            inferred_stages: Vec::new(),
+            chain_completeness: 0.0,
+            reader_risk: HashMap::new(),
+            narrative: String::new(),
+            finding_criticality: HashMap::new(),
+            active_mitigations: Vec::new(),
+            required_conditions: Vec::new(),
+            unmet_conditions: Vec::new(),
             notes,
         };
         let narrative = chain_execution_narrative(&chain, &[] as &[Finding]);
@@ -1954,6 +1966,15 @@ mod narrative_tests {
             path: String::new(),
             nodes: Vec::new(),
             edges: Vec::new(),
+            confirmed_stages: Vec::new(),
+            inferred_stages: Vec::new(),
+            chain_completeness: 0.0,
+            reader_risk: HashMap::new(),
+            narrative: String::new(),
+            finding_criticality: HashMap::new(),
+            active_mitigations: Vec::new(),
+            required_conditions: Vec::new(),
+            unmet_conditions: Vec::new(),
             notes: HashMap::new(),
         };
         let narrative = chain_execution_narrative(&chain, &[] as &[Finding]);
@@ -3862,6 +3883,7 @@ mod tests {
         Report, Severity, Summary,
     };
     use crate::model::Confidence;
+    use serde_json::json;
     use std::collections::BTreeMap;
 
     #[test]
@@ -3965,6 +3987,40 @@ mod tests {
             .find(|finding| finding.kind == "uri_content_analysis")
             .expect("uri_content_analysis should be present");
         assert_eq!(suspicious_uri.meta.get("uri.domain"), Some(&"evil.example".to_string()));
+    }
+
+    #[test]
+    fn report_from_findings_sets_chain_schema_version_v2() {
+        let report = Report::from_findings(
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+        );
+        assert_eq!(report.chain_schema_version, 2);
+    }
+
+    #[test]
+    fn report_chain_schema_version_defaults_for_v1_payloads() {
+        let raw = json!({
+            "summary": { "total": 0, "high": 0, "medium": 0, "low": 0, "info": 0 },
+            "findings": [],
+            "grouped": {},
+            "chains": [],
+            "chain_templates": [],
+            "yara_rules": [],
+            "input_path": null,
+            "intent_summary": null
+        });
+        let report: Report = serde_json::from_value(raw).expect("deserialise report");
+        assert_eq!(report.chain_schema_version, 0);
     }
 
     #[test]

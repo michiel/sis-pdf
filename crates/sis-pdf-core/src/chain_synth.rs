@@ -3,8 +3,10 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use crate::chain::{ChainTemplate, ExploitChain};
 use crate::chain_render::render_path;
 use crate::chain_score::score_chain;
-use crate::model::Finding;
+use crate::model::{Confidence, Finding, Severity};
 use crate::taint::taint_from_findings;
+
+const EXPECTED_CHAIN_STAGES: [&str; 5] = ["input", "decode", "render", "execute", "egress"];
 
 pub fn synthesise_chains(
     findings: &[Finding],
@@ -32,7 +34,13 @@ pub fn synthesise_chains(
         .count();
     let taint = taint_from_findings(findings);
     let mut chains = Vec::new();
-    chains.extend(build_object_chains(findings, structural_count, &taint, &finding_positions));
+    chains.extend(build_object_chains(
+        findings,
+        structural_count,
+        &taint,
+        &finding_positions,
+        &findings_by_id,
+    ));
     for f in findings {
         let single = [f];
         let roles = assign_chain_roles(&single);
@@ -56,9 +64,18 @@ pub fn synthesise_chains(
             path: String::new(),
             nodes: Vec::new(),
             edges: Vec::new(),
+            confirmed_stages: Vec::new(),
+            inferred_stages: Vec::new(),
+            chain_completeness: 0.0,
+            reader_risk: HashMap::new(),
+            narrative: String::new(),
+            finding_criticality: HashMap::new(),
+            active_mitigations: Vec::new(),
+            required_conditions: Vec::new(),
+            unmet_conditions: Vec::new(),
             notes,
         };
-        finalize_chain(&mut chain, &finding_positions);
+        finalize_chain(&mut chain, &finding_positions, &findings_by_id);
         chains.push(chain);
     }
 
@@ -94,6 +111,7 @@ fn build_object_chains(
     structural_count: usize,
     taint: &crate::taint::Taint,
     finding_positions: &HashMap<String, Vec<String>>,
+    findings_by_id: &HashMap<String, &Finding>,
 ) -> Vec<ExploitChain> {
     let mut by_object: HashMap<String, Vec<&Finding>> = HashMap::new();
     for f in findings {
@@ -139,9 +157,18 @@ fn build_object_chains(
             path: String::new(),
             nodes: Vec::new(),
             edges: Vec::new(),
+            confirmed_stages: Vec::new(),
+            inferred_stages: Vec::new(),
+            chain_completeness: 0.0,
+            reader_risk: HashMap::new(),
+            narrative: String::new(),
+            finding_criticality: HashMap::new(),
+            active_mitigations: Vec::new(),
+            required_conditions: Vec::new(),
+            unmet_conditions: Vec::new(),
             notes,
         };
-        finalize_chain(&mut chain, finding_positions);
+        finalize_chain(&mut chain, finding_positions, findings_by_id);
         if !chain_is_noise(&chain, &group) {
             chains.push(chain);
         }
@@ -280,13 +307,249 @@ fn template_id(key: &str) -> String {
     format!("template-{}", hasher.finalize().to_hex())
 }
 
-fn finalize_chain(chain: &mut ExploitChain, finding_positions: &HashMap<String, Vec<String>>) {
+fn finalize_chain(
+    chain: &mut ExploitChain,
+    finding_positions: &HashMap<String, Vec<String>>,
+    findings_by_id: &HashMap<String, &Finding>,
+) {
     chain.path = render_path(chain);
     chain.nodes = chain_nodes(chain, finding_positions);
     let (score, reasons) = score_chain(chain);
     chain.score = score;
     chain.reasons = reasons;
+    populate_chain_enrichment(chain, findings_by_id);
     chain.id = chain_id(chain);
+}
+
+fn populate_chain_enrichment(chain: &mut ExploitChain, findings_by_id: &HashMap<String, &Finding>) {
+    chain.confirmed_stages = collect_chain_stages(chain, findings_by_id, true);
+    chain.inferred_stages = collect_chain_stages(chain, findings_by_id, false);
+    chain.chain_completeness =
+        chain.confirmed_stages.len() as f64 / EXPECTED_CHAIN_STAGES.len() as f64;
+    chain.reader_risk = collect_reader_risk(chain, findings_by_id);
+    chain.narrative = String::new();
+    chain.active_mitigations = collect_unique_meta_values(
+        chain,
+        findings_by_id,
+        &["exploit.blockers", "exploit.mitigations"],
+    );
+    chain.required_conditions =
+        collect_unique_meta_values(chain, findings_by_id, &["exploit.preconditions"]);
+    chain.unmet_conditions =
+        derive_unmet_conditions(chain, findings_by_id, &chain.required_conditions);
+    chain.finding_criticality = compute_finding_criticality(chain, findings_by_id);
+}
+
+fn is_confidence_probable_or_higher(confidence: Confidence) -> bool {
+    matches!(confidence, Confidence::Certain | Confidence::Strong | Confidence::Probable)
+}
+
+fn collect_chain_stages(
+    chain: &mut ExploitChain,
+    findings_by_id: &HashMap<String, &Finding>,
+    confirmed: bool,
+) -> Vec<String> {
+    let mut stages = Vec::new();
+    let mut unknown_stages = Vec::new();
+    for finding_id in &chain.findings {
+        let Some(finding) = findings_by_id.get(finding_id) else {
+            continue;
+        };
+        let Some(stage) = finding.meta.get("chain.stage") else {
+            continue;
+        };
+        let stage_matches = EXPECTED_CHAIN_STAGES.contains(&stage.as_str());
+        let confidence_matches = if confirmed {
+            is_confidence_probable_or_higher(finding.confidence)
+        } else {
+            !is_confidence_probable_or_higher(finding.confidence)
+        };
+        if !confidence_matches {
+            continue;
+        }
+        if stage_matches {
+            if !stages.contains(stage) {
+                stages.push(stage.clone());
+            }
+        } else if !unknown_stages.contains(stage) {
+            unknown_stages.push(stage.clone());
+        }
+    }
+    if !unknown_stages.is_empty() {
+        unknown_stages.sort();
+        chain.notes.insert("chain.unknown_stages".into(), unknown_stages.join(","));
+    } else {
+        chain.notes.remove("chain.unknown_stages");
+    }
+    if confirmed {
+        stages.sort_by_key(|value| {
+            EXPECTED_CHAIN_STAGES
+                .iter()
+                .position(|expected| expected == value)
+                .unwrap_or(usize::MAX)
+        });
+    } else {
+        stages.sort();
+    }
+    stages
+}
+
+fn collect_reader_risk(
+    chain: &ExploitChain,
+    findings_by_id: &HashMap<String, &Finding>,
+) -> HashMap<String, String> {
+    let mut max_by_profile: HashMap<String, Severity> = HashMap::new();
+    for finding_id in &chain.findings {
+        let Some(finding) = findings_by_id.get(finding_id) else {
+            continue;
+        };
+        for impact in &finding.reader_impacts {
+            let key = impact.profile.name().to_string();
+            match max_by_profile.get(&key) {
+                Some(existing) if *existing >= impact.severity => {}
+                _ => {
+                    max_by_profile.insert(key, impact.severity);
+                }
+            }
+        }
+    }
+    max_by_profile.into_iter().map(|(k, v)| (k, format!("{v:?}"))).collect()
+}
+
+fn split_meta_values(raw: &str) -> impl Iterator<Item = String> + '_ {
+    raw.split([',', ';']).map(str::trim).filter(|token| !token.is_empty()).map(str::to_string)
+}
+
+fn collect_unique_meta_values(
+    chain: &ExploitChain,
+    findings_by_id: &HashMap<String, &Finding>,
+    keys: &[&str],
+) -> Vec<String> {
+    let mut set = BTreeSet::new();
+    for finding_id in &chain.findings {
+        let Some(finding) = findings_by_id.get(finding_id) else {
+            continue;
+        };
+        for key in keys {
+            if let Some(value) = finding.meta.get(*key) {
+                for parsed in split_meta_values(value) {
+                    set.insert(parsed);
+                }
+            }
+        }
+    }
+    set.into_iter().collect()
+}
+
+fn derive_unmet_conditions(
+    chain: &ExploitChain,
+    findings_by_id: &HashMap<String, &Finding>,
+    required_conditions: &[String],
+) -> Vec<String> {
+    let mut satisfied = BTreeSet::new();
+    for finding_id in &chain.findings {
+        let Some(finding) = findings_by_id.get(finding_id) else {
+            continue;
+        };
+        for key in ["exploit.conditions_met", "exploit.condition_met", "exploit.preconditions_met"]
+        {
+            if let Some(value) = finding.meta.get(key) {
+                for parsed in split_meta_values(value) {
+                    satisfied.insert(parsed);
+                }
+            }
+        }
+    }
+    let mut unmet = Vec::new();
+    for condition in required_conditions {
+        if !satisfied.contains(condition) {
+            unmet.push(condition.clone());
+        }
+    }
+    unmet.sort();
+    unmet.dedup();
+    unmet
+}
+
+fn structural_count_for_findings(findings: &[&Finding]) -> usize {
+    findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.kind.as_str(),
+                "xref_conflict"
+                    | "incremental_update_chain"
+                    | "object_id_shadowing"
+                    | "objstm_density_high"
+            )
+        })
+        .count()
+}
+
+fn compute_finding_criticality(
+    chain: &ExploitChain,
+    findings_by_id: &HashMap<String, &Finding>,
+) -> HashMap<String, f64> {
+    if chain.findings.len() > 30 || chain.findings.len() <= 1 {
+        return HashMap::new();
+    }
+    let baseline_score = chain.score;
+    let mut criticality = HashMap::new();
+    for finding_id in &chain.findings {
+        let mut remaining: Vec<&Finding> = Vec::new();
+        for candidate_id in &chain.findings {
+            if candidate_id == finding_id {
+                continue;
+            }
+            if let Some(finding) = findings_by_id.get(candidate_id) {
+                remaining.push(*finding);
+            }
+        }
+        if remaining.is_empty() {
+            criticality.insert(finding_id.clone(), baseline_score.clamp(0.0, 1.0));
+            continue;
+        }
+
+        let roles = assign_chain_roles(&remaining);
+        let trigger = roles.trigger_key.clone();
+        let action = roles.action_key.clone();
+        let payload = roles.payload_key.clone();
+        let structural_count = structural_count_for_findings(&remaining);
+        let taint = taint_from_findings(
+            &remaining.iter().map(|finding| (*finding).clone()).collect::<Vec<_>>(),
+        );
+        let mut notes = notes_from_findings(&remaining, structural_count, &taint);
+        apply_role_labels(&mut notes, &roles);
+        apply_chain_labels(&mut notes, trigger.as_deref(), action.as_deref(), payload.as_deref());
+        let candidate = ExploitChain {
+            id: String::new(),
+            group_id: None,
+            group_count: 1,
+            group_members: Vec::new(),
+            trigger,
+            action,
+            payload,
+            findings: remaining.iter().map(|finding| finding.id.clone()).collect(),
+            score: 0.0,
+            reasons: Vec::new(),
+            path: String::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            confirmed_stages: Vec::new(),
+            inferred_stages: Vec::new(),
+            chain_completeness: 0.0,
+            reader_risk: HashMap::new(),
+            narrative: String::new(),
+            finding_criticality: HashMap::new(),
+            active_mitigations: Vec::new(),
+            required_conditions: Vec::new(),
+            unmet_conditions: Vec::new(),
+            notes,
+        };
+        let score_without = score_chain(&candidate).0;
+        criticality.insert(finding_id.clone(), (baseline_score - score_without).clamp(0.0, 1.0));
+    }
+    criticality
 }
 
 fn notes_from_findings(
@@ -686,6 +949,7 @@ fn group_chains_by_signature(
         let (score, reasons) = score_chain(&representative);
         representative.score = score;
         representative.reasons = reasons;
+        populate_chain_enrichment(&mut representative, findings_by_id);
         out.push(representative);
     }
     out
