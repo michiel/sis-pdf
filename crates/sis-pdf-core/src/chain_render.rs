@@ -168,6 +168,7 @@ mod tests {
             active_mitigations: Vec::new(),
             required_conditions: Vec::new(),
             unmet_conditions: Vec::new(),
+            finding_roles: HashMap::new(),
             notes: HashMap::new(),
         }
     }

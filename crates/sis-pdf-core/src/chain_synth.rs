@@ -4,6 +4,7 @@ use crate::chain::{ChainTemplate, ExploitChain};
 use crate::chain_render::{compose_chain_narrative, render_path};
 use crate::chain_score::score_chain;
 use crate::model::{Confidence, Finding, Severity};
+use crate::position;
 use crate::taint::taint_from_findings;
 
 const EXPECTED_CHAIN_STAGES: [&str; 5] = ["input", "decode", "render", "execute", "egress"];
@@ -73,8 +74,10 @@ pub fn synthesise_chains(
             active_mitigations: Vec::new(),
             required_conditions: Vec::new(),
             unmet_conditions: Vec::new(),
+            finding_roles: HashMap::new(),
             notes,
         };
+        apply_finding_roles(&mut chain, &roles);
         finalize_chain(&mut chain, &finding_positions, &findings_by_id);
         chains.push(chain);
     }
@@ -166,8 +169,10 @@ fn build_object_chains(
             active_mitigations: Vec::new(),
             required_conditions: Vec::new(),
             unmet_conditions: Vec::new(),
+            finding_roles: HashMap::new(),
             notes,
         };
+        apply_finding_roles(&mut chain, &roles);
         finalize_chain(&mut chain, finding_positions, findings_by_id);
         if !chain_is_noise(&chain, &group) {
             chains.push(chain);
@@ -544,6 +549,7 @@ fn compute_finding_criticality(
             active_mitigations: Vec::new(),
             required_conditions: Vec::new(),
             unmet_conditions: Vec::new(),
+            finding_roles: HashMap::new(),
             notes,
         };
         let score_without = score_chain(&candidate).0;
@@ -650,6 +656,18 @@ fn apply_role_labels(notes: &mut HashMap<String, String>, roles: &ChainRoles<'_>
         if let Some(preview) = f.meta.get("payload.preview") {
             set_note_if_missing(notes, "payload.preview", preview.clone());
         }
+    }
+}
+
+fn apply_finding_roles(chain: &mut ExploitChain, roles: &ChainRoles<'_>) {
+    if let Some(finding) = roles.trigger_finding {
+        chain.finding_roles.insert(finding.id.clone(), "trigger".into());
+    }
+    if let Some(finding) = roles.action_finding {
+        chain.finding_roles.entry(finding.id.clone()).or_insert_with(|| "action".into());
+    }
+    if let Some(finding) = roles.payload_finding {
+        chain.finding_roles.entry(finding.id.clone()).or_insert_with(|| "payload".into());
     }
 }
 
@@ -938,6 +956,12 @@ fn group_chains_by_signature(
             for (k, v) in &chain.notes {
                 representative.notes.entry(k.clone()).or_insert_with(|| v.clone());
             }
+            for (finding_id, role) in &chain.finding_roles {
+                representative
+                    .finding_roles
+                    .entry(finding_id.clone())
+                    .or_insert_with(|| role.clone());
+            }
         }
         representative.findings = findings_set.into_iter().collect();
         representative.nodes = nodes_set.into_iter().collect();
@@ -973,25 +997,9 @@ fn group_id_from_signature(signature: &ChainSignature) -> String {
 fn extract_object_refs_from_finding(finding: &Finding) -> Vec<String> {
     let mut out = Vec::new();
     for obj in &finding.objects {
-        if let Some(obj_ref) = parse_object_ref(obj) {
-            out.push(obj_ref);
+        if let Some((object_id, generation)) = position::parse_obj_ref(obj) {
+            out.push(format!("{object_id} {generation}"));
         }
     }
     out
-}
-
-fn parse_object_ref(value: &str) -> Option<String> {
-    let parts: Vec<&str> = value.split_whitespace().collect();
-    if parts.len() < 3 {
-        return None;
-    }
-    for window in parts.windows(3) {
-        if window[2] == "obj"
-            && window[0].chars().all(|c| c.is_ascii_digit())
-            && window[1].chars().all(|c| c.is_ascii_digit())
-        {
-            return Some(format!("{} {}", window[0], window[1]));
-        }
-    }
-    None
 }

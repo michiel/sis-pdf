@@ -191,7 +191,7 @@ impl Report {
         let summary = summary_from_findings(&findings);
         let ml_summary = ml_summary_override.or_else(|| ml_summary_from_findings(&findings));
         Self {
-            chain_schema_version: 2,
+            chain_schema_version: 3,
             summary,
             findings,
             grouped,
@@ -1940,6 +1940,7 @@ mod narrative_tests {
             active_mitigations: Vec::new(),
             required_conditions: Vec::new(),
             unmet_conditions: Vec::new(),
+            finding_roles: HashMap::new(),
             notes,
         };
         let narrative = chain_execution_narrative(&chain, &[] as &[Finding]);
@@ -1975,6 +1976,7 @@ mod narrative_tests {
             active_mitigations: Vec::new(),
             required_conditions: Vec::new(),
             unmet_conditions: Vec::new(),
+            finding_roles: HashMap::new(),
             notes: HashMap::new(),
         };
         let narrative = chain_execution_narrative(&chain, &[] as &[Finding]);
@@ -3990,7 +3992,7 @@ mod tests {
     }
 
     #[test]
-    fn report_from_findings_sets_chain_schema_version_v2() {
+    fn report_from_findings_sets_chain_schema_version_v3() {
         let report = Report::from_findings(
             Vec::new(),
             Vec::new(),
@@ -4004,7 +4006,7 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(report.chain_schema_version, 2);
+        assert_eq!(report.chain_schema_version, 3);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use crate::model::Finding;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Taint {
     pub flagged: bool,
     pub reasons: Vec<String>,

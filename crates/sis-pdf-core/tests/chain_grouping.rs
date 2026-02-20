@@ -182,3 +182,28 @@ fn captures_scatter_fragment_context_in_narrative() {
     assert_eq!(chain.notes.get("scatter.fragment_count").map(String::as_str), Some("5"));
     assert!(chain.narrative.contains("Payload scatter evidence: 5 fragments."));
 }
+
+#[test]
+fn populates_finding_roles_for_named_chain_roles() {
+    let trigger = base_finding("f1", "open_action_present", "50 0 obj");
+    let action = base_finding("f2", "js_present", "50 0 obj");
+    let payload = base_finding("f3", "embedded_file_present", "50 0 obj");
+
+    let (chains, _) = synthesise_chains(&[trigger, action, payload], true);
+    let chain = chains
+        .iter()
+        .find(|chain| chain.findings.len() >= 2 && chain.finding_roles.contains_key("f1"))
+        .expect("multi-finding chain with trigger role");
+    assert_eq!(chain.finding_roles.get("f1").map(String::as_str), Some("trigger"));
+    assert!(chain.finding_roles.values().any(|role| role == "trigger"));
+    assert!(chain.finding_roles.values().any(|role| role == "payload"));
+}
+
+#[test]
+fn leaves_non_role_findings_out_of_finding_roles() {
+    let mut non_role = base_finding("f1", "xref_conflict", "60 0 obj");
+    non_role.meta.insert("chain.stage".into(), "decode".into());
+    let (chains, _) = synthesise_chains(&[non_role], true);
+    let chain = chains.first().expect("single chain");
+    assert!(!chain.finding_roles.contains_key("f1"));
+}

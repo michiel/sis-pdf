@@ -38,6 +38,8 @@ pub struct ExploitChain {
     pub required_conditions: Vec<String>,
     #[serde(default)]
     pub unmet_conditions: Vec<String>,
+    #[serde(default)]
+    pub finding_roles: HashMap<String, String>,
     pub notes: HashMap<String, String>,
 }
 
