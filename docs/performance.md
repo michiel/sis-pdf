@@ -95,6 +95,22 @@ To prove the Stage 0.5 targets remain accurate for the other CVE fixtures refere
 
 These runs demonstrate that filter, XFA, and rich-media workloads stay within the documented SLOs, and the JSON blobs can be regenerated at any time with the same commands used here for future regressions.
 
+## Uplift budget gates (2026-02-20)
+
+The uplift plan now carries explicit performance gates for graph layout/overlay and diff processing. Run the following commands as regression checks:
+
+```bash
+cargo test -p sis-pdf-gui graph_layout_staged_dag_budget -- --nocapture
+cargo test -p sis-pdf-gui critical_path_budget -- --nocapture
+cargo test -p sis-pdf-gui taint_overlay_mapping_budget -- --nocapture
+cargo test -p sis-pdf diff_large_input_budget -- --nocapture
+```
+
+Current baseline notes:
+
+- `diff_large_input_budget`: passes in `~1.49s` for `100k` findings per side (gate: `<=2.0s`).
+- Runtime profile command for `launch_cve_2010_1240.pdf` remains the canonical parse/detection SLO check (`parse <=10ms`, `detection <=50ms`).
+
 ## WASM GUI benchmark guard
 
 The repository now includes a browser-executed performance guard for the WASM GUI analysis worker. It measures:

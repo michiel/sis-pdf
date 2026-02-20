@@ -8886,6 +8886,32 @@ mod tests {
     }
 
     #[test]
+    fn format_json_and_jsonl_keep_stable_top_level_keys() {
+        let result = QueryResult::Scalar(ScalarValue::Number(7));
+        let json_output = format_json("js.count", "sample.pdf", &result).unwrap();
+        let jsonl_output = format_jsonl("js.count", "sample.pdf", &result).unwrap();
+
+        let json_value: serde_json::Value = serde_json::from_str(&json_output).unwrap();
+        let jsonl_value: serde_json::Value = serde_json::from_str(&jsonl_output).unwrap();
+        let mut json_keys = json_value
+            .as_object()
+            .expect("json payload object")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut jsonl_keys = jsonl_value
+            .as_object()
+            .expect("jsonl payload object")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        json_keys.sort();
+        jsonl_keys.sort();
+        assert_eq!(json_keys, vec!["file".to_string(), "query".to_string(), "result".to_string()]);
+        assert_eq!(jsonl_keys, vec!["file".to_string(), "query".to_string(), "result".to_string()]);
+    }
+
+    #[test]
     fn findings_summary_added_to_json_output() {
         let findings = json!([
             {"kind": "suspicious", "severity": "High", "surface": "Action"},

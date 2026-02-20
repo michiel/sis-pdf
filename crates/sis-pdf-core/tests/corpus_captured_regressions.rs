@@ -1,5 +1,6 @@
 use sha2::{Digest, Sha256};
 use sis_pdf_core::scan::{CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanOptions};
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
@@ -51,6 +52,10 @@ fn meta_as_u32(finding: &sis_pdf_core::model::Finding, key: &str) -> u32 {
         .unwrap_or_else(|| panic!("missing metadata key: {key}"))
         .parse::<u32>()
         .unwrap_or_else(|_| panic!("metadata key {key} should be numeric"))
+}
+
+fn stage_set(report: &sis_pdf_core::report::Report) -> HashSet<String> {
+    report.findings.iter().filter_map(|finding| finding.meta.get("chain.stage").cloned()).collect()
 }
 
 fn assert_no_image_font_structural_followup_findings(
@@ -204,6 +209,30 @@ fn corpus_captured_modern_openaction_staged_baseline_stays_stable() {
     assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
     assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
 
+    let stages = stage_set(&report);
+    assert!(stages.contains("decode"), "expected decode stage");
+    assert!(stages.contains("render"), "expected render stage");
+    assert!(stages.contains("execute"), "expected execute stage");
+    assert!(
+        report.chains.iter().any(|chain| chain.nodes.len() >= 4),
+        "expected at least one distributed chain with >=4 nodes"
+    );
+    assert!(
+        report.chains.iter().any(|chain| chain.notes.contains_key("exploit.outcomes")
+            && chain.narrative.contains("Likely outcomes:")),
+        "expected outcome-linked chain narrative for staged exploit chain fixture"
+    );
+
+    let has_reader_divergence = report.findings.iter().any(|finding| {
+        let severities =
+            finding.reader_impacts.iter().map(|impact| impact.severity).collect::<HashSet<_>>();
+        severities.len() > 1
+    });
+    assert!(
+        has_reader_divergence,
+        "expected reader-impact severity divergence in modern openaction fixture"
+    );
+
     assert_no_image_font_structural_followup_findings(&report, "modern-openaction-staged");
 }
 
@@ -236,6 +265,22 @@ fn corpus_captured_modern_renderer_revision_baseline_stays_stable() {
     assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
     assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
 
+    let stages = stage_set(&report);
+    assert!(stages.contains("decode"), "expected decode stage");
+    assert!(stages.contains("render"), "expected render stage");
+    assert!(stages.contains("execute"), "expected execute stage");
+    assert!(
+        report.chains.iter().filter(|chain| !chain.narrative.trim().is_empty()).count() > 0,
+        "expected non-empty chain narratives for revision fixture"
+    );
+    assert!(
+        report.findings.iter().any(|finding| {
+            finding.kind == "revision_annotations_changed"
+                && finding.meta.get("revision.total").map(String::as_str) == Some("2")
+        }),
+        "expected explicit revision count metadata for revision-shadow fixture"
+    );
+
     assert_no_image_font_structural_followup_findings(&report, "modern-renderer-revision");
 }
 
@@ -262,6 +307,16 @@ fn corpus_captured_modern_gated_supply_chain_baseline_stays_stable() {
     let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
     assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
     assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
+
+    let has_reader_risk_divergence = report.findings.iter().any(|finding| {
+        let unique =
+            finding.reader_impacts.iter().map(|impact| impact.severity).collect::<HashSet<_>>();
+        unique.len() > 1
+    });
+    assert!(
+        has_reader_risk_divergence,
+        "expected finding-level reader-risk divergence for multi-reader fixture"
+    );
 }
 
 #[test]

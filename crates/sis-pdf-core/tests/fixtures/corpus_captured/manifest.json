@@ -37,7 +37,12 @@
         "renderer_behavior_exploitation_chain high/strong",
         "supply_chain_staged_payload high/probable",
         "js_runtime_file_probe high/strong with exportDataObject call",
-        "pdfjs_eval_path_risk info/strong"
+        "pdfjs_eval_path_risk info/strong",
+        "fixture_family:complex_distributed_fragmented_chain",
+        "drift_guard stage_coverage decode/render/execute",
+        "drift_guard distributed_chain_nodes>=4",
+        "drift_guard exploit_outcomes_present_in_chain_narrative",
+        "fixture_family:multi_reader_divergence"
       ]
     },
     {
@@ -49,7 +54,11 @@
         "renderer_behavior_exploitation_chain high/strong",
         "revision_annotations_changed medium/probable",
         "revision_anomaly_scoring low/tentative",
-        "revision metadata thresholds annotations>=20 max_score>=5"
+        "revision metadata thresholds annotations>=20 max_score>=5",
+        "fixture_family:revision_shadow",
+        "drift_guard revision_total_metadata=2",
+        "drift_guard stage_coverage decode/render/execute",
+        "drift_guard non_empty_chain_narratives"
       ]
     },
     {
@@ -60,7 +69,9 @@
         "supply_chain_update_vector medium/heuristic",
         "js_runtime_dormant_or_gated_execution low/tentative",
         "pdfjs_eval_path_risk info/strong",
-        "dormant runtime metadata profile_calls_ratio=0.00"
+        "dormant runtime metadata profile_calls_ratio=0.00",
+        "fixture_family:multi_reader_divergence",
+        "drift_guard chain_reader_risk_divergence"
       ]
     },
     {

@@ -1,0 +1,63 @@
+name: quality-gates
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  uplift-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxi-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+
+      - name: Core schema and chain gates
+        run: |
+          cargo test -p sis-pdf-core --test report_schema_compat
+          cargo test -p sis-pdf-core --test chain_grouping
+          cargo test -p sis-pdf-core --test corpus_captured_regressions \
+            corpus_captured_modern_openaction_staged_baseline_stays_stable \
+            -- --nocapture
+          cargo test -p sis-pdf-core --test corpus_captured_regressions \
+            corpus_captured_modern_renderer_revision_baseline_stays_stable \
+            -- --nocapture
+          cargo test -p sis-pdf-core --test corpus_captured_regressions \
+            corpus_captured_modern_gated_supply_chain_baseline_stays_stable \
+            -- --nocapture
+          cargo test -p sis-pdf-core --test corpus_captured_regressions \
+            corpus_captured_manifest_integrity_stays_stable \
+            -- --nocapture
+
+      - name: GUI budget gates
+        run: |
+          cargo test -p sis-pdf-gui graph_layout_staged_dag_budget -- --nocapture
+          cargo test -p sis-pdf-gui critical_path_budget -- --nocapture
+          cargo test -p sis-pdf-gui taint_overlay_mapping_budget -- --nocapture
+
+      - name: CLI diff budget gate
+        run: cargo test -p sis-pdf diff_large_input_budget -- --nocapture
+
+      - name: Runtime profile SLO gate
+        run: |
+          cargo run -p sis-pdf --bin sis -- scan \
+            crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf \
+            --deep \
+            --runtime-profile \
+            --runtime-profile-format json \
+            2> runtime-profile.json
+          parse_ms=$(jq '[.phases[] | select(.name=="parse")][0].duration_ms // 0' runtime-profile.json)
+          detect_ms=$(jq '[.phases[] | select(.name=="detection")][0].duration_ms // 0' runtime-profile.json)
+          echo "parse_ms=${parse_ms}"
+          echo "detection_ms=${detect_ms}"
+          test "${parse_ms}" -le 10
+          test "${detect_ms}" -le 50
