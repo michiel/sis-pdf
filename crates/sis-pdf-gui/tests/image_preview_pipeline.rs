@@ -133,6 +133,20 @@ fn preview_pipeline_missing_object_returns_none() {
 }
 
 #[test]
+fn preview_pipeline_missing_generation_returns_none() {
+    let pdf = build_single_image_pdf(None, b"abc");
+    let result = build_preview_for_object(&pdf, 2, 9, PreviewLimits::default());
+    assert!(result.is_none(), "missing generation should not produce preview result");
+}
+
+#[test]
+fn preview_pipeline_invalid_pdf_bytes_returns_none() {
+    let invalid = b"not-a-pdf";
+    let result = build_preview_for_object(invalid, 2, 0, PreviewLimits::default());
+    assert!(result.is_none(), "invalid PDF bytes should fail closed without preview");
+}
+
+#[test]
 fn preview_pipeline_repeat_build_is_stable() {
     let payload = b"FFD8FFD9>";
     let pdf = build_single_image_pdf(Some("[/ASCIIHexDecode /DCTDecode]"), payload);
