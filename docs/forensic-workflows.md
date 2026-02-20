@@ -81,3 +81,22 @@ When consuming `sis scan --json` output programmatically, check
   available.
 - missing `chain_schema_version` (legacy v1 payloads) defaults to `0`, and
   additive chain fields fall back to empty/default values.
+
+## 8) Object-level Taint and Chain Triage
+
+Use object detail/context queries to confirm whether a suspicious object is
+tainted and how it participates in exploit chains.
+
+```bash
+sis query suspicious.pdf "obj.detail 76 0"
+sis query suspicious.pdf "obj.detail 76 0 --context-only"
+sis query suspicious.pdf "object.context 76 0" --format json
+```
+
+Focus points:
+- `security_context.tainted` and `security_context.taint_source` for taint
+  origin and propagation review.
+- `security_context.chains[].role` (`Trigger`, `Action`, `Payload`,
+  `Participant`, `PathNode`) for exploit-path positioning.
+- `security_context.top_evidence_offset`/`top_evidence_length` for fast
+  evidence jumping in GUI or hex workflows.

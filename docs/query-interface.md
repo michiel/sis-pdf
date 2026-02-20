@@ -55,6 +55,26 @@ sis query sample.pdf xref.deviations
 sis query sample.pdf revisions
 ```
 
+## Object Context Queries
+
+Use object context queries when you want taint, chain membership, and provenance
+without manually pivoting through findings and chains.
+
+```bash
+sis query sample.pdf "obj.detail 9 0"
+sis query sample.pdf "obj.detail 9 0 --context-only"
+sis query sample.pdf "object.context 9 0"
+sis query sample.pdf "object.context 9 0" --format json
+```
+
+- `obj.detail <obj> <gen>` returns raw object detail plus security context.
+- `obj.detail ... --context-only` keeps the `obj.detail` shape but omits raw
+  object content for safer console review.
+- `object.context <obj> <gen>` returns only the security-context payload.
+
+`obj.detail` JSON responses include `object_detail_schema_version` so query
+tooling can guard against future additive schema changes.
+
 ## Xref and revision queries
 
 Use the xref namespace when you need to trace structural findings (`xref_conflict`, trailer anomalies, startxref out-of-bounds) back to concrete parser state:

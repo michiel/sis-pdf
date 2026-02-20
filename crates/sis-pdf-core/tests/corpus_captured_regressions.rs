@@ -1,5 +1,9 @@
 use sha2::{Digest, Sha256};
+use sis_pdf_core::object_context::{
+    build_object_context_index, get_object_context, ObjectChainRole,
+};
 use sis_pdf_core::scan::{CorrelationOptions, FontAnalysisOptions, ProfileFormat, ScanOptions};
+use sis_pdf_core::taint::taint_from_findings;
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
@@ -91,6 +95,16 @@ fn assert_no_image_font_structural_followup_findings(
             "{fixture_label} unexpectedly emitted follow-up finding kind: {kind}"
         );
     }
+}
+
+fn object_context_for(
+    report: &sis_pdf_core::report::Report,
+    obj: u32,
+    gen: u16,
+) -> sis_pdf_core::object_context::ObjectSecurityContext {
+    let taint = taint_from_findings(&report.findings);
+    let index = build_object_context_index(report, &taint);
+    get_object_context(&index, obj, gen)
 }
 
 fn corpus_captured_dir() -> PathBuf {
@@ -238,6 +252,28 @@ fn corpus_captured_modern_openaction_staged_baseline_stays_stable() {
         has_reader_divergence,
         "expected reader-impact severity divergence in modern openaction fixture"
     );
+    let object_context = object_context_for(&report, 9, 0);
+    assert!(object_context.tainted, "expected object 9 0 to be tainted");
+    assert!(object_context.taint_source, "expected object 9 0 to be a taint source");
+    assert!(
+        object_context.finding_count >= 3,
+        "expected object 9 0 to aggregate at least three findings"
+    );
+    assert!(
+        object_context.chains.iter().any(|membership| membership.role == ObjectChainRole::Action),
+        "expected object 9 0 to carry action chain role membership"
+    );
+    assert!(
+        object_context
+            .taint_reasons
+            .iter()
+            .any(|reason| reason.reason.contains("JavaScript present")),
+        "expected object 9 0 taint reasons to include JavaScript provenance"
+    );
+    assert!(
+        object_context.top_evidence_offset.is_some(),
+        "expected object 9 0 to retain evidence jump metadata"
+    );
 
     assert_no_image_font_structural_followup_findings(&report, "modern-openaction-staged");
 }
@@ -286,6 +322,31 @@ fn corpus_captured_modern_renderer_revision_baseline_stays_stable() {
         }),
         "expected explicit revision count metadata for revision-shadow fixture"
     );
+    let object_context = object_context_for(&report, 14, 0);
+    assert!(
+        object_context.finding_count >= 2,
+        "expected revision-shadow object 14 0 to aggregate multiple findings"
+    );
+    assert!(
+        object_context.chains.len() >= 3,
+        "expected revision-shadow object 14 0 to remain connected across multiple chain memberships"
+    );
+    assert!(
+        object_context
+            .chains
+            .iter()
+            .any(|membership| membership.role == ObjectChainRole::Participant),
+        "expected revision-shadow object 14 0 to be represented as a chain participant"
+    );
+    assert_eq!(
+        object_context.max_severity,
+        Some(sis_pdf_core::model::Severity::High),
+        "expected revision-shadow object 14 0 to preserve high-severity exploit context"
+    );
+    assert!(
+        object_context.top_evidence_offset.is_some(),
+        "expected revision-shadow object 14 0 to preserve evidence jump metadata"
+    );
 
     assert_no_image_font_structural_followup_findings(&report, "modern-renderer-revision");
 }
@@ -322,6 +383,26 @@ fn corpus_captured_modern_gated_supply_chain_baseline_stays_stable() {
     assert!(
         has_reader_risk_divergence,
         "expected finding-level reader-risk divergence for multi-reader fixture"
+    );
+    let object_context = object_context_for(&report, 76, 0);
+    assert!(object_context.tainted, "expected object 76 0 to be tainted");
+    assert!(object_context.taint_source, "expected object 76 0 to be a taint source");
+    assert_eq!(
+        object_context.max_confidence,
+        Some(sis_pdf_core::model::Confidence::Heuristic),
+        "expected object 76 0 confidence to retain supply-chain uncertainty signal"
+    );
+    assert!(
+        object_context.chains.iter().any(|membership| membership.role == ObjectChainRole::Action),
+        "expected object 76 0 to preserve action-role chain context"
+    );
+    assert!(
+        object_context.chains.iter().any(|membership| membership.role == ObjectChainRole::Payload),
+        "expected object 76 0 to preserve payload-role chain context"
+    );
+    assert!(
+        object_context.taint_reasons.len() >= 2,
+        "expected object 76 0 taint reasons to preserve multi-signal provenance"
     );
 }
 

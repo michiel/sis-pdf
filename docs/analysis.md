@@ -166,6 +166,14 @@ Focus: textual cues and overlay links.
 - The `sis report` output now includes a **Chain analysis** section that aggregates correlated signatures instead of listing every raw path. Each entry highlights the trigger/action/payload trio, aggregated instance count, score, node preview, and top correlation reasons; JSON/JSONL/SARIF still carry the full chain data for downstream tooling.
 - JSON-based `findings` exports now add a `summary` object with severity/surface counts so dashboards ingest a digest without scanning every finding.
 
+### Object-level Security Context
+- `sis query "<file>" "obj.detail N G"` exposes object content and a
+  `security_context` block derived from findings, taint, and chain synthesis.
+- `sis query "<file>" "object.context N G"` returns only the security context
+  for automation and forensic pivots.
+- `security_context` includes taint status, chain roles, top evidence jump
+  offsets, confidence/severity histograms, and similar-object clustering.
+
 ### Structural Summary
 - `structural_summary` includes xref counts, ObjStm ratios, header/EOF offsets,
   and polyglot risk.
