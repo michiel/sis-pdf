@@ -251,6 +251,7 @@ fn show_object_detail(ui: &mut egui::Ui, app: &mut SisApp, related_findings: &[(
             image_bits: obj.image_bits,
             image_color_space: obj.image_color_space.clone(),
             image_preview: obj.image_preview.clone(),
+            image_preview_status: obj.image_preview_status.clone(),
             dict_entries: obj.dict_entries.clone(),
             dict_entries_tree: obj.dict_entries_tree.clone(),
             references_from: obj.references_from.clone(),
@@ -306,6 +307,7 @@ struct ObjectDetail {
     image_bits: Option<u32>,
     image_color_space: Option<String>,
     image_preview: Option<(u32, u32, Vec<u8>)>,
+    image_preview_status: Option<String>,
     dict_entries: Vec<(String, String)>,
     dict_entries_tree: Vec<(String, ObjectValue)>,
     references_from: Vec<(u32, u16)>,
@@ -615,69 +617,75 @@ fn format_chain_role(role: ObjectChainRole) -> &'static str {
 }
 
 fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool) {
-    if !detail.has_stream {
-        return;
-    }
-
-    // Stream metadata section
-    let has_metadata = detail.stream_content_type.is_some()
-        || detail.image_width.is_some()
-        || detail.stream_raw.is_some();
-    if has_metadata {
-        ui.separator();
-        ui.collapsing("Stream metadata", |ui| {
-            egui::Grid::new("stream_meta_grid").num_columns(2).spacing([8.0, 2.0]).show(ui, |ui| {
-                if let Some(ref ct) = detail.stream_content_type {
-                    ui.label("Content type:");
-                    ui.label(ct);
-                    ui.end_row();
-                }
-                if let (Some(w), Some(h)) = (detail.image_width, detail.image_height) {
-                    ui.label("Dimensions:");
-                    ui.label(format!("{} x {}", w, h));
-                    ui.end_row();
-                }
-                if let Some(ref cs) = detail.image_color_space {
-                    ui.label("Colour space:");
-                    ui.label(cs);
-                    ui.end_row();
-                }
-                if let Some(bits) = detail.image_bits {
-                    ui.label("Bits/component:");
-                    ui.label(format!("{}", bits));
-                    ui.end_row();
-                }
-                if let Some(ref raw) = detail.stream_raw {
-                    ui.label("Decoded size:");
-                    ui.label(format_byte_size(raw.len()));
-                    ui.end_row();
-                    if let Some(raw_len) = detail.stream_length {
-                        if raw_len != raw.len() {
-                            ui.label("Raw size:");
-                            ui.label(format_byte_size(raw_len));
+    if detail.has_stream {
+        // Stream metadata section
+        let has_metadata = detail.stream_content_type.is_some()
+            || detail.image_width.is_some()
+            || detail.stream_raw.is_some();
+        if has_metadata {
+            ui.separator();
+            ui.collapsing("Stream metadata", |ui| {
+                egui::Grid::new("stream_meta_grid").num_columns(2).spacing([8.0, 2.0]).show(
+                    ui,
+                    |ui| {
+                        if let Some(ref ct) = detail.stream_content_type {
+                            ui.label("Content type:");
+                            ui.label(ct);
                             ui.end_row();
                         }
-                    }
-                }
+                        if let (Some(w), Some(h)) = (detail.image_width, detail.image_height) {
+                            ui.label("Dimensions:");
+                            ui.label(format!("{} x {}", w, h));
+                            ui.end_row();
+                        }
+                        if let Some(ref cs) = detail.image_color_space {
+                            ui.label("Colour space:");
+                            ui.label(cs);
+                            ui.end_row();
+                        }
+                        if let Some(bits) = detail.image_bits {
+                            ui.label("Bits/component:");
+                            ui.label(format!("{}", bits));
+                            ui.end_row();
+                        }
+                        if let Some(ref raw) = detail.stream_raw {
+                            ui.label("Decoded size:");
+                            ui.label(format_byte_size(raw.len()));
+                            ui.end_row();
+                            if let Some(raw_len) = detail.stream_length {
+                                if raw_len != raw.len() {
+                                    ui.label("Raw size:");
+                                    ui.label(format_byte_size(raw_len));
+                                    ui.end_row();
+                                }
+                            }
+                        }
+                    },
+                );
             });
-        });
+        }
     }
 
-    // JPEG image preview
-    if let Some((tw, th, ref pixels)) = detail.image_preview {
+    // Image preview status and preview thumbnail
+    if detail.obj_type == "image" {
         ui.separator();
         ui.collapsing("Image preview", |ui| {
-            let tex_id = format!("img_preview_{}_{}", detail.obj, detail.gen);
-            let texture = ui.ctx().load_texture(
-                &tex_id,
-                egui::ColorImage::from_rgba_unmultiplied([tw as usize, th as usize], pixels),
-                egui::TextureOptions::LINEAR,
+            ui.label(
+                detail.image_preview_status.as_deref().unwrap_or("Preview status unavailable"),
             );
-            ui.image(&texture);
+            if let Some((tw, th, ref pixels)) = detail.image_preview {
+                let tex_id = format!("img_preview_{}_{}", detail.obj, detail.gen);
+                let texture = ui.ctx().load_texture(
+                    &tex_id,
+                    egui::ColorImage::from_rgba_unmultiplied([tw as usize, th as usize], pixels),
+                    egui::TextureOptions::LINEAR,
+                );
+                ui.image(&texture);
+            }
         });
     }
 
-    if show_hex {
+    if detail.has_stream && show_hex {
         // Show hex view of stream raw bytes
         if let Some(ref raw) = detail.stream_raw {
             ui.separator();
@@ -696,19 +704,21 @@ fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool)
             ui.separator();
             ui.label("Stream could not be decoded");
         }
-    } else if let Some(ref text) = detail.stream_text {
-        ui.separator();
-        ui.collapsing("Stream content", |ui| {
-            egui::ScrollArea::vertical().max_height(300.0).id_salt("stream_text_scroll").show(
-                ui,
-                |ui| {
-                    ui.monospace(text);
-                },
-            );
-        });
-    } else if detail.stream_raw.is_some() {
-        ui.separator();
-        ui.label("Stream contains binary data (toggle Hex to view)");
+    } else if detail.has_stream {
+        if let Some(ref text) = detail.stream_text {
+            ui.separator();
+            ui.collapsing("Stream content", |ui| {
+                egui::ScrollArea::vertical().max_height(300.0).id_salt("stream_text_scroll").show(
+                    ui,
+                    |ui| {
+                        ui.monospace(text);
+                    },
+                );
+            });
+        } else if detail.stream_raw.is_some() {
+            ui.separator();
+            ui.label("Stream contains binary data (toggle Hex to view)");
+        }
     }
 }
 

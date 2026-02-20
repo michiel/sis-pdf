@@ -6,12 +6,10 @@ use sis_pdf_pdf::decode::decode_stream;
 use sis_pdf_pdf::graph::{Deviation, ObjectGraph, ParseOptions, XrefSectionSummary};
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr};
 
+use crate::image_preview::{build_preview_for_stream, ImagePreviewStatus, PreviewLimits};
+
 /// Maximum bytes to attempt decoding per stream for display purposes.
 const MAX_STREAM_DECODE: usize = 64 * 1024; // 64 KB
-/// Hard limits for GUI image previews from hostile documents.
-const MAX_PREVIEW_PIXELS: u64 = 16_000_000;
-const MAX_PREVIEW_RGBA_BYTES: u64 = 64 * 1024 * 1024;
-const MAX_PREVIEW_DECODE_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ObjectExtractOptions {
@@ -72,6 +70,12 @@ pub struct ObjectSummary {
     pub image_color_space: Option<String>,
     /// JPEG image preview: (width, height, RGBA pixels).
     pub image_preview: Option<(u32, u32, Vec<u8>)>,
+    #[serde(default)]
+    pub image_preview_status: Option<String>,
+    #[serde(default)]
+    pub preview_statuses: Vec<ImagePreviewStatus>,
+    #[serde(default)]
+    pub preview_summary: Option<String>,
     pub references_from: Vec<(u32, u16)>,
     pub references_to: Vec<(u32, u16)>,
 }
@@ -205,6 +209,9 @@ fn extract_one_object(
     let mut image_color_space = None;
     #[allow(unused_mut)]
     let mut image_preview: Option<(u32, u32, Vec<u8>)> = None;
+    let mut image_preview_status: Option<String> = None;
+    let mut preview_statuses: Vec<ImagePreviewStatus> = Vec::new();
+    let mut preview_summary: Option<String> = None;
     let mut references_from = Vec::new();
 
     match &entry.atom {
@@ -228,7 +235,13 @@ fn extract_one_object(
             stream_data_span = Some((start, end));
 
             // Try to decode stream and capture both raw bytes and text representation
-            if let Ok(decoded) = decode_stream(bytes, s, MAX_STREAM_DECODE) {
+            let decode_budget = if obj_type == "image" {
+                PreviewLimits::default().max_stream_decode_bytes
+            } else {
+                MAX_STREAM_DECODE
+            };
+            let decoded_result = decode_stream(bytes, s, decode_budget);
+            if let Ok(decoded) = &decoded_result {
                 // Classify the decoded stream content
                 let blob_kind = classify_blob(&decoded.data);
                 if blob_kind != BlobKind::Unknown {
@@ -243,21 +256,6 @@ fn extract_one_object(
                     image_color_space = dict_entry_as_name(&dict_entries, "ColorSpace");
                 }
 
-                // Generate JPEG preview thumbnail
-                #[cfg(feature = "gui")]
-                if options.include_image_preview && blob_kind == BlobKind::Jpeg {
-                    image_preview = decode_jpeg_preview(&decoded.data);
-                }
-
-                // Fallback: reconstruct raw pixel preview for non-JPEG image streams
-                #[cfg(feature = "gui")]
-                if options.include_image_preview && image_preview.is_none() && obj_type == "image" {
-                    if let PdfAtom::Stream(stream) = &entry.atom {
-                        image_preview =
-                            reconstruct_image_preview(&decoded.data, &stream.dict, graph);
-                    }
-                }
-
                 if options.include_decoded_stream_bytes {
                     stream_raw = Some(decoded.data.clone());
                 }
@@ -268,6 +266,32 @@ fn extract_one_object(
                         text
                     };
                     stream_text = Some(truncated.to_string());
+                }
+            }
+
+            if obj_type == "image" {
+                if options.include_image_preview {
+                    let built = build_preview_for_stream(
+                        bytes,
+                        s,
+                        graph,
+                        PreviewLimits::default(),
+                        decoded_result.as_ref().ok().map(|decoded| decoded.data.as_slice()),
+                    );
+                    image_preview = built.preview;
+                    image_preview_status = Some(built.summary.clone());
+                    preview_summary = Some(built.summary);
+                    preview_statuses = built.statuses;
+                } else {
+                    image_preview_status =
+                        Some("Preview disabled in compact extraction mode".to_string());
+                    preview_summary = image_preview_status.clone();
+                    preview_statuses.push(ImagePreviewStatus {
+                        stage: crate::image_preview::ImagePreviewStage::RawProbe,
+                        outcome: crate::image_preview::ImagePreviewOutcome::SkippedBudget,
+                        detail: "Preview generation disabled in compact extraction mode"
+                            .to_string(),
+                    });
                 }
             }
         }
@@ -308,6 +332,9 @@ fn extract_one_object(
         image_bits,
         image_color_space,
         image_preview,
+        image_preview_status,
+        preview_statuses,
+        preview_summary,
         references_from,
         references_to: Vec::new(),
     }
@@ -515,93 +542,6 @@ fn dict_entry_as_u32(entries: &[(String, String)], key: &str) -> Option<u32> {
 /// Look up a dictionary entry value as a name string (for ColorSpace).
 fn dict_entry_as_name(entries: &[(String, String)], key: &str) -> Option<String> {
     entries.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
-}
-
-/// Reconstruct raw pixel data into a preview thumbnail (max 256px on longest side).
-///
-/// This handles FlateDecode + DeviceGray/RGB/CMYK/Indexed images where the
-/// decoded bytes are raw pixel samples (not a self-contained image format).
-#[cfg(feature = "gui")]
-fn reconstruct_image_preview(
-    decoded: &[u8],
-    dict: &PdfDict<'_>,
-    graph: &ObjectGraph<'_>,
-) -> Option<(u32, u32, Vec<u8>)> {
-    use image::GenericImageView;
-
-    let pixel_buf = image_analysis::pixel_buffer::reconstruct_pixels(decoded, dict, graph).ok()?;
-    let (w, h) = (pixel_buf.width, pixel_buf.height);
-    if w == 0 || h == 0 {
-        return None;
-    }
-    let max_dim = w.max(h);
-    if max_dim <= 256 {
-        return Some((w, h, pixel_buf.rgba));
-    }
-    let img = image::RgbaImage::from_raw(w, h, pixel_buf.rgba)?;
-    let dynamic = image::DynamicImage::ImageRgba8(img);
-    let thumb = dynamic.thumbnail(256, 256);
-    let (tw, th) = thumb.dimensions();
-    Some((tw, th, thumb.to_rgba8().into_raw()))
-}
-
-/// Decode JPEG bytes into a low-resolution RGBA preview thumbnail (max 256px on longest side).
-#[cfg(feature = "gui")]
-fn decode_jpeg_preview(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
-    use image::GenericImageView;
-    use image::ImageDecoder;
-    use std::io::Cursor;
-
-    let decoder = image::codecs::jpeg::JpegDecoder::new(Cursor::new(data)).ok()?;
-    let (w, h) = decoder.dimensions();
-    if w == 0 || h == 0 {
-        return None;
-    }
-    let pixel_count = (w as u64).checked_mul(h as u64)?;
-    if pixel_count > MAX_PREVIEW_PIXELS {
-        return None;
-    }
-    let decode_bytes = decoder.total_bytes();
-    if decode_bytes > MAX_PREVIEW_DECODE_BYTES {
-        return None;
-    }
-    let color = decoder.color_type();
-    let mut decoded = vec![0u8; usize::try_from(decode_bytes).ok()?];
-    let decoder = image::codecs::jpeg::JpegDecoder::new(Cursor::new(data)).ok()?;
-    decoder.read_image(&mut decoded).ok()?;
-
-    let rgba = match color {
-        image::ColorType::L8 => {
-            let mut rgba = Vec::with_capacity(usize::try_from(pixel_count.checked_mul(4)?).ok()?);
-            for &v in &decoded {
-                rgba.extend_from_slice(&[v, v, v, 255]);
-            }
-            rgba
-        }
-        image::ColorType::Rgb8 => {
-            let mut rgba = Vec::with_capacity(usize::try_from(pixel_count.checked_mul(4)?).ok()?);
-            for chunk in decoded.chunks_exact(3) {
-                rgba.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
-            }
-            rgba
-        }
-        _ => return None,
-    };
-
-    if (rgba.len() as u64) > MAX_PREVIEW_RGBA_BYTES {
-        return None;
-    }
-
-    let img = image::RgbaImage::from_raw(w, h, rgba)?;
-    let max_dim = w.max(h);
-    let thumb = if max_dim > 256 {
-        image::DynamicImage::ImageRgba8(img).thumbnail(256, 256)
-    } else {
-        image::DynamicImage::ImageRgba8(img)
-    };
-    let (tw, th) = thumb.dimensions();
-    let rgba = thumb.to_rgba8().into_raw();
-    Some((tw, th, rgba))
 }
 
 #[cfg(test)]

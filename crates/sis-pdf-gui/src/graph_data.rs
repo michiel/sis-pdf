@@ -347,6 +347,9 @@ mod tests {
             image_bits: None,
             image_color_space: None,
             image_preview: None,
+            image_preview_status: None,
+            preview_statuses: Vec::new(),
+            preview_summary: None,
             references_from: refs,
             references_to: Vec::new(),
         }

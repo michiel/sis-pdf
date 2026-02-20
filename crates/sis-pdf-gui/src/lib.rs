@@ -8,6 +8,7 @@ pub mod app;
 pub mod graph_data;
 pub mod graph_layout;
 pub mod hex_format;
+pub mod image_preview;
 pub mod object_data;
 #[cfg(feature = "gui")]
 pub mod panels;
