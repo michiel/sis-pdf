@@ -342,8 +342,16 @@ fn test_content_stream_exec_event() {
     let bytes = build_pdf(&objects, 5);
     let event_graph = event_graph_for_pdf(&bytes);
 
-    let has_content_stream_exec = event_graph.nodes.iter().any(|node| {
-        matches!(&node.kind, EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. })
+    let content_stream_exec = event_graph.nodes.iter().find_map(|node| match &node.kind {
+        EventNodeKind::Event { event_type: EventType::ContentStreamExec, label, .. } => {
+            Some(label.as_str())
+        }
+        _ => None,
     });
-    assert!(has_content_stream_exec, "should have ContentStreamExec event for page with /Contents");
+    let label =
+        content_stream_exec.expect("should have ContentStreamExec event for page with /Contents");
+    assert!(
+        label.contains("page 3 0") && label.contains("stream 4 0"),
+        "content stream event label should include page and stream refs, got: {label}"
+    );
 }

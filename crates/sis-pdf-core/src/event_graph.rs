@@ -461,7 +461,10 @@ pub fn build_event_graph(
             kind: EventNodeKind::Event {
                 event_type: EventType::ContentStreamExec,
                 trigger: TriggerClass::Automatic,
-                label: "Content stream execution".to_string(),
+                label: format!(
+                    "Content stream (page {} {} -> stream {} {})",
+                    edge.src.0, edge.src.1, edge.dst.0, edge.dst.1
+                ),
                 source_obj: Some(edge.src),
             },
         });

@@ -5,7 +5,7 @@ fn findings_hint(chain: &ExploitChain) -> String {
     format!("unknown (findings: {})", chain.findings.len())
 }
 
-pub fn chain_trigger_label(chain: &ExploitChain) -> String {
+fn trigger_base_label(chain: &ExploitChain) -> Option<String> {
     chain
         .notes
         .get("trigger.label")
@@ -13,19 +13,54 @@ pub fn chain_trigger_label(chain: &ExploitChain) -> String {
         .or(chain.trigger.as_deref())
         .map(str::to_string)
         .or_else(|| chain.notes.get("correlation.object").map(|obj| format!("Object {}", obj)))
-        .unwrap_or_else(|| findings_hint(chain))
 }
 
-pub fn chain_action_label(chain: &ExploitChain) -> String {
-    let hint = findings_hint(chain);
-    let mut action = chain
+fn action_base_label(chain: &ExploitChain) -> Option<String> {
+    chain
         .notes
         .get("action.label")
         .or_else(|| chain.notes.get("action.type"))
         .map(String::as_str)
         .or(chain.action.as_deref())
         .map(str::to_string)
-        .unwrap_or_else(|| hint.clone());
+}
+
+fn payload_base_label(chain: &ExploitChain) -> Option<String> {
+    chain
+        .notes
+        .get("payload.label")
+        .or_else(|| chain.notes.get("payload.type"))
+        .map(String::as_str)
+        .or(chain.payload.as_deref())
+        .map(str::to_string)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainStageSummary {
+    pub trigger: Option<String>,
+    pub action: Option<String>,
+    pub payload: Option<String>,
+    pub all_unresolved: bool,
+}
+
+pub fn chain_stage_summary(chain: &ExploitChain) -> ChainStageSummary {
+    let trigger =
+        if trigger_base_label(chain).is_some() { Some(chain_trigger_label(chain)) } else { None };
+    let action =
+        if action_base_label(chain).is_some() { Some(chain_action_label(chain)) } else { None };
+    let payload =
+        if payload_base_label(chain).is_some() { Some(chain_payload_label(chain)) } else { None };
+    let all_unresolved = trigger.is_none() && action.is_none() && payload.is_none();
+    ChainStageSummary { trigger, action, payload, all_unresolved }
+}
+
+pub fn chain_trigger_label(chain: &ExploitChain) -> String {
+    trigger_base_label(chain).unwrap_or_else(|| findings_hint(chain))
+}
+
+pub fn chain_action_label(chain: &ExploitChain) -> String {
+    let hint = findings_hint(chain);
+    let mut action = action_base_label(chain).unwrap_or_else(|| hint.clone());
     if let Some(target) = chain.notes.get("action.target") {
         if !target.is_empty() {
             action = format!("{} [target: {}]", action, target);
@@ -36,14 +71,7 @@ pub fn chain_action_label(chain: &ExploitChain) -> String {
 
 pub fn chain_payload_label(chain: &ExploitChain) -> String {
     let hint = findings_hint(chain);
-    let mut payload = chain
-        .notes
-        .get("payload.label")
-        .or_else(|| chain.notes.get("payload.type"))
-        .map(String::as_str)
-        .or(chain.payload.as_deref())
-        .map(str::to_string)
-        .unwrap_or_else(|| hint.clone());
+    let mut payload = payload_base_label(chain).unwrap_or_else(|| hint.clone());
     if let Some(ref_chain) = chain.notes.get("payload.ref_chain") {
         payload = format!("{} [ref: {}]", payload, ref_chain);
     }
@@ -140,7 +168,7 @@ pub fn compose_chain_narrative(chain: &ExploitChain) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::compose_chain_narrative;
+    use super::{chain_stage_summary, compose_chain_narrative};
     use crate::chain::ExploitChain;
     use std::collections::HashMap;
 
@@ -205,5 +233,30 @@ mod tests {
         assert!(!narrative.contains("Payload scatter evidence:"));
         assert!(!narrative.contains("Active mitigations:"));
         assert!(!narrative.contains("Unmet preconditions:"));
+    }
+
+    #[test]
+    fn chain_stage_summary_marks_all_unresolved() {
+        let mut chain = base_chain();
+        chain.trigger = None;
+        chain.action = None;
+        chain.payload = None;
+        chain.notes.clear();
+
+        let summary = chain_stage_summary(&chain);
+        assert!(summary.all_unresolved);
+        assert!(summary.trigger.is_none());
+        assert!(summary.action.is_none());
+        assert!(summary.payload.is_none());
+    }
+
+    #[test]
+    fn chain_stage_summary_exposes_resolved_stages() {
+        let chain = base_chain();
+        let summary = chain_stage_summary(&chain);
+        assert!(!summary.all_unresolved);
+        assert_eq!(summary.trigger.as_deref(), Some("open_action_present"));
+        assert_eq!(summary.action.as_deref(), Some("js_present"));
+        assert_eq!(summary.payload.as_deref(), Some("javascript"));
     }
 }

@@ -565,6 +565,12 @@ fn render_graph_canvas(ui: &mut egui::Ui, app: &mut SisApp) {
     // Show tooltip for hovered node
     if let Some(hi) = hovered {
         let (_, _, ref obj_type, ref label, ref roles, _) = node_data[hi];
+        let target_obj = app
+            .graph_state
+            .graph
+            .as_ref()
+            .and_then(|graph| graph.nodes.get(hi))
+            .and_then(content_stream_target);
         egui::Tooltip::always_open(
             ui.ctx().clone(),
             ui.layer_id(),
@@ -591,6 +597,10 @@ fn render_graph_canvas(ui: &mut egui::Ui, app: &mut SisApp) {
                     "Roles: {}",
                     other_roles.iter().map(|r| r.as_str()).collect::<Vec<_>>().join(", ")
                 ));
+            }
+            if let Some((target_obj, target_gen)) = target_obj {
+                ui.label(format!("Executes: obj {} {}", target_obj, target_gen));
+                ui.small("Double-click to navigate to stream");
             }
         });
     }
@@ -640,7 +650,7 @@ fn render_graph_canvas(ui: &mut egui::Ui, app: &mut SisApp) {
         if let Some(hi) = hovered {
             if let Some(ref graph) = app.graph_state.graph {
                 let node = &graph.nodes[hi];
-                if let Some((obj, gen)) = node.object_ref {
+                if let Some((obj, gen)) = resolve_double_click_target(node) {
                     app.navigate_to_object(obj, gen);
                     app.show_objects = true;
                 }
@@ -657,6 +667,18 @@ fn render_graph_canvas(ui: &mut egui::Ui, app: &mut SisApp) {
         egui::FontId::proportional(11.0),
         egui::Color32::from_rgb(150, 150, 150),
     );
+}
+
+fn content_stream_target(node: &crate::graph_data::GraphNode) -> Option<(u32, u16)> {
+    if node.is_content_stream_exec {
+        node.target_obj
+    } else {
+        None
+    }
+}
+
+fn resolve_double_click_target(node: &crate::graph_data::GraphNode) -> Option<(u32, u16)> {
+    content_stream_target(node).or(node.object_ref)
 }
 
 fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
@@ -1548,7 +1570,7 @@ fn apply_pending_focus(app: &mut SisApp) {
 mod tests {
     use super::{
         build_chain_path_edges, compute_critical_path, compute_mitre_nodes,
-        find_directed_path_edges, map_taint_overlay_from_taint,
+        find_directed_path_edges, map_taint_overlay_from_taint, resolve_double_click_target,
     };
     use crate::graph_data::{GraphData, GraphEdge, GraphNode};
     use sis_pdf_core::taint::Taint;
@@ -1600,6 +1622,7 @@ mod tests {
                 roles: vec!["automatic".into()],
                 confidence: Some(1.0),
                 position: [0.0, 0.0],
+                ..Default::default()
             },
             GraphNode {
                 object_ref: None,
@@ -1608,6 +1631,7 @@ mod tests {
                 roles: Vec::new(),
                 confidence: Some(0.2),
                 position: [0.0, 0.0],
+                ..Default::default()
             },
             GraphNode {
                 object_ref: None,
@@ -1616,6 +1640,7 @@ mod tests {
                 roles: Vec::new(),
                 confidence: Some(0.9),
                 position: [0.0, 0.0],
+                ..Default::default()
             },
         ];
         let edges = vec![
@@ -1655,6 +1680,7 @@ mod tests {
                     roles: vec!["MITRE:T1059.007".into()],
                     confidence: None,
                     position: [0.0, 0.0],
+                    ..Default::default()
                 },
                 GraphNode {
                     object_ref: None,
@@ -1663,6 +1689,7 @@ mod tests {
                     roles: vec!["MITRE:T1204.002,T1059.007".into()],
                     confidence: None,
                     position: [0.0, 0.0],
+                    ..Default::default()
                 },
             ],
             edges: Vec::new(),
@@ -1737,6 +1764,7 @@ mod tests {
                 roles,
                 confidence: Some(0.8),
                 position: [0.0, 0.0],
+                ..Default::default()
             });
         }
         let mut edges = Vec::with_capacity(edge_count);
@@ -1779,6 +1807,7 @@ mod tests {
                 roles: Vec::new(),
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             });
         }
         let mut edges = Vec::with_capacity(edge_count);
@@ -1816,5 +1845,27 @@ mod tests {
         );
         assert!(!mapped_edges.is_empty());
         assert!(!source_nodes.is_empty());
+    }
+
+    #[test]
+    fn graph_double_click_prefers_target_only_for_content_stream_exec() {
+        let node = GraphNode {
+            object_ref: Some((3, 0)),
+            target_obj: Some((7, 0)),
+            is_content_stream_exec: true,
+            ..Default::default()
+        };
+        assert_eq!(resolve_double_click_target(&node), Some((7, 0)));
+    }
+
+    #[test]
+    fn graph_double_click_uses_source_for_non_content_stream_exec() {
+        let node = GraphNode {
+            object_ref: Some((3, 0)),
+            target_obj: Some((7, 0)),
+            is_content_stream_exec: false,
+            ..Default::default()
+        };
+        assert_eq!(resolve_double_click_target(&node), Some((3, 0)));
     }
 }

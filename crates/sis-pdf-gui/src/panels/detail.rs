@@ -1,4 +1,5 @@
 use crate::app::SisApp;
+use crate::panels::chain_display::{render_chain_summary, summary_from_chain};
 use sis_pdf_core::event_graph::{EventGraph, EventNodeKind};
 use sis_pdf_core::model::EvidenceSource;
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
@@ -97,13 +98,13 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     // Chain membership: find chains containing this finding's ID
     let finding_id = id.clone();
     let finding_objects = object_refs.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>();
-    let chain_membership: Vec<(usize, String)> = result
+    let chain_membership = result
         .report
         .chains
         .iter()
         .enumerate()
         .filter(|(_, chain)| chain.findings.contains(&finding_id))
-        .map(|(i, chain)| (i, chain.path.clone()))
+        .map(|(i, chain)| summary_from_chain(i, chain.score, None, chain, 120))
         .collect();
     let event_graph_paths = event_graph_paths_for_finding(app, &finding_id, &finding_objects);
 
@@ -237,11 +238,10 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                     ui.strong(format!("Chain Membership ({})", chain_membership.len()));
                 })
                 .body(|ui| {
-                    for (chain_idx, path) in &chain_membership {
-                        let label = format!("Chain #{}: {}", chain_idx + 1, path);
-                        if ui.link(&label).clicked() {
+                    for entry in &chain_membership {
+                        if render_chain_summary(ui, entry, 80) {
                             app.show_chains = true;
-                            app.selected_chain = Some(*chain_idx);
+                            app.selected_chain = Some(entry.chain_index);
                         }
                     }
                 });

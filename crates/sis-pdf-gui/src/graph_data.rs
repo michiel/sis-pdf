@@ -17,7 +17,7 @@ pub struct GraphData {
 }
 
 /// A node in the object reference graph.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GraphNode {
     pub object_ref: Option<(u32, u16)>,
     pub obj_type: String,
@@ -25,6 +25,8 @@ pub struct GraphNode {
     pub roles: Vec<String>,
     pub confidence: Option<f32>,
     pub position: [f64; 2],
+    pub target_obj: Option<(u32, u16)>,
+    pub is_content_stream_exec: bool,
 }
 
 /// An edge in the object reference graph.
@@ -81,46 +83,51 @@ pub fn from_event_graph(data: &EventGraph) -> Result<GraphData, GraphError> {
     let mut id_to_idx = HashMap::new();
 
     for node in &data.nodes {
-        let (object_ref, obj_type, label, mut roles, confidence) = match &node.kind {
-            EventNodeKind::Object { obj, gen, obj_type } => (
-                Some((*obj, *gen)),
-                obj_type.clone().unwrap_or_else(|| "object".to_string()),
-                format!("{} {}", obj, gen),
-                Vec::new(),
-                None,
-            ),
-            EventNodeKind::Event { event_type, trigger, label, source_obj } => (
-                *source_obj,
-                "event".to_string(),
-                label.clone(),
-                vec![format!("{:?}", event_type), trigger.as_str().to_string()],
-                None,
-            ),
-            EventNodeKind::Outcome {
-                outcome_type,
-                label,
-                target,
-                source_obj,
-                confidence_score,
-                ..
-            } => (
-                *source_obj,
-                "outcome".to_string(),
-                target
-                    .clone()
-                    .map(|value| format!("{label} ({value})"))
-                    .unwrap_or_else(|| label.clone()),
-                vec![format!("{:?}", outcome_type)],
-                confidence_score.map(|value| value as f32 / 100.0),
-            ),
-            EventNodeKind::Collapse { label, member_count, .. } => (
-                None,
-                "collapse".to_string(),
-                format!("{label} ({member_count})"),
-                vec!["collapsed".to_string()],
-                None,
-            ),
-        };
+        let (object_ref, obj_type, label, mut roles, confidence, is_content_stream_exec) =
+            match &node.kind {
+                EventNodeKind::Object { obj, gen, obj_type } => (
+                    Some((*obj, *gen)),
+                    obj_type.clone().unwrap_or_else(|| "object".to_string()),
+                    format!("{} {}", obj, gen),
+                    Vec::new(),
+                    None,
+                    false,
+                ),
+                EventNodeKind::Event { event_type, trigger, label, source_obj } => (
+                    *source_obj,
+                    "event".to_string(),
+                    label.clone(),
+                    vec![format!("{:?}", event_type), trigger.as_str().to_string()],
+                    None,
+                    matches!(event_type, sis_pdf_core::event_graph::EventType::ContentStreamExec),
+                ),
+                EventNodeKind::Outcome {
+                    outcome_type,
+                    label,
+                    target,
+                    source_obj,
+                    confidence_score,
+                    ..
+                } => (
+                    *source_obj,
+                    "outcome".to_string(),
+                    target
+                        .clone()
+                        .map(|value| format!("{label} ({value})"))
+                        .unwrap_or_else(|| label.clone()),
+                    vec![format!("{:?}", outcome_type)],
+                    confidence_score.map(|value| value as f32 / 100.0),
+                    false,
+                ),
+                EventNodeKind::Collapse { label, member_count, .. } => (
+                    None,
+                    "collapse".to_string(),
+                    format!("{label} ({member_count})"),
+                    vec!["collapsed".to_string()],
+                    None,
+                    false,
+                ),
+            };
         if !node.mitre_techniques.is_empty() {
             roles.push(format!("MITRE: {}", node.mitre_techniques.join(",")));
         }
@@ -137,7 +144,25 @@ pub fn from_event_graph(data: &EventGraph) -> Result<GraphData, GraphError> {
             roles,
             confidence,
             position: [0.0, 0.0],
+            is_content_stream_exec,
+            ..Default::default()
         });
+    }
+
+    for edge in &data.edges {
+        if edge.kind != EventEdgeKind::Executes {
+            continue;
+        }
+        let Some(&from_idx) = id_to_idx.get(&edge.from) else {
+            continue;
+        };
+        let Some(&to_idx) = id_to_idx.get(&edge.to) else {
+            continue;
+        };
+        if nodes[from_idx].obj_type != "event" || !nodes[from_idx].is_content_stream_exec {
+            continue;
+        }
+        nodes[from_idx].target_obj = nodes[to_idx].object_ref;
     }
 
     let mut edges = Vec::new();
@@ -267,6 +292,7 @@ fn build_graph(
             roles: obj.roles.clone(),
             confidence: None,
             position: [0.0, 0.0],
+            ..Default::default()
         });
     }
 
@@ -326,6 +352,10 @@ fn is_suspicious_edge(
 mod tests {
     use super::*;
     use crate::object_data::{ObjectData, ObjectSummary};
+    use sis_pdf_core::event_graph::{
+        EdgeProvenance, EventEdge, EventEdgeKind, EventGraph, EventNode, EventNodeKind, EventType,
+        TriggerClass,
+    };
 
     fn make_object(obj: u32, gen: u16, obj_type: &str, refs: Vec<(u32, u16)>) -> ObjectSummary {
         ObjectSummary {
@@ -374,6 +404,18 @@ mod tests {
         }
 
         ObjectData { objects, index, xref_sections: Vec::new(), deviations: Vec::new() }
+    }
+
+    fn make_event_graph(nodes: Vec<EventNode>, edges: Vec<EventEdge>) -> EventGraph {
+        EventGraph {
+            schema_version: "1.0.0",
+            nodes,
+            edges,
+            node_index: HashMap::new(),
+            forward_index: HashMap::new(),
+            reverse_index: HashMap::new(),
+            truncation: None,
+        }
     }
 
     #[test]
@@ -447,5 +489,127 @@ mod tests {
         let graph = from_object_data(&data).expect("should build");
         assert_eq!(graph.nodes.len(), 0);
         assert_eq!(graph.edges.len(), 0);
+    }
+
+    #[test]
+    fn from_event_graph_sets_target_obj_only_for_content_stream_exec() {
+        let graph = make_event_graph(
+            vec![
+                EventNode {
+                    id: "obj:3:0".to_string(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Object {
+                        obj: 3,
+                        gen: 0,
+                        obj_type: Some("page".to_string()),
+                    },
+                },
+                EventNode {
+                    id: "ev:3:0:ContentStreamExec:0".to_string(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Event {
+                        event_type: EventType::ContentStreamExec,
+                        trigger: TriggerClass::Automatic,
+                        label: "Content stream execution".to_string(),
+                        source_obj: Some((3, 0)),
+                    },
+                },
+                EventNode {
+                    id: "obj:7:0".to_string(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Object {
+                        obj: 7,
+                        gen: 0,
+                        obj_type: Some("stream".to_string()),
+                    },
+                },
+            ],
+            vec![
+                EventEdge {
+                    from: "obj:3:0".to_string(),
+                    to: "ev:3:0:ContentStreamExec:0".to_string(),
+                    kind: EventEdgeKind::Triggers,
+                    provenance: EdgeProvenance::Heuristic,
+                    metadata: None,
+                },
+                EventEdge {
+                    from: "ev:3:0:ContentStreamExec:0".to_string(),
+                    to: "obj:7:0".to_string(),
+                    kind: EventEdgeKind::Executes,
+                    provenance: EdgeProvenance::Heuristic,
+                    metadata: None,
+                },
+            ],
+        );
+        let gui_graph = from_event_graph(&graph).expect("graph should parse");
+        let event_node = gui_graph
+            .nodes
+            .iter()
+            .find(|node| node.label == "Content stream execution")
+            .expect("event node should exist");
+        assert!(event_node.is_content_stream_exec);
+        assert_eq!(event_node.object_ref, Some((3, 0)));
+        assert_eq!(event_node.target_obj, Some((7, 0)));
+    }
+
+    #[test]
+    fn from_event_graph_non_content_stream_exec_keeps_target_obj_none() {
+        let graph = make_event_graph(
+            vec![
+                EventNode {
+                    id: "obj:1:0".to_string(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Object {
+                        obj: 1,
+                        gen: 0,
+                        obj_type: Some("catalog".to_string()),
+                    },
+                },
+                EventNode {
+                    id: "ev:1:0:DocumentOpen:0".to_string(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Event {
+                        event_type: EventType::DocumentOpen,
+                        trigger: TriggerClass::Automatic,
+                        label: "Document open".to_string(),
+                        source_obj: Some((1, 0)),
+                    },
+                },
+                EventNode {
+                    id: "obj:8:0".to_string(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Object {
+                        obj: 8,
+                        gen: 0,
+                        obj_type: Some("action".to_string()),
+                    },
+                },
+            ],
+            vec![
+                EventEdge {
+                    from: "obj:1:0".to_string(),
+                    to: "ev:1:0:DocumentOpen:0".to_string(),
+                    kind: EventEdgeKind::Triggers,
+                    provenance: EdgeProvenance::Heuristic,
+                    metadata: None,
+                },
+                EventEdge {
+                    from: "ev:1:0:DocumentOpen:0".to_string(),
+                    to: "obj:8:0".to_string(),
+                    kind: EventEdgeKind::Executes,
+                    provenance: EdgeProvenance::Heuristic,
+                    metadata: None,
+                },
+            ],
+        );
+        let gui_graph = from_event_graph(&graph).expect("graph should parse");
+        let event_node = gui_graph
+            .nodes
+            .iter()
+            .find(|node| node.label == "Document open")
+            .expect("event node should exist");
+        assert!(!event_node.is_content_stream_exec);
+        assert_eq!(event_node.target_obj, None);
+        assert_eq!(event_node.object_ref, Some((1, 0)));
     }
 }

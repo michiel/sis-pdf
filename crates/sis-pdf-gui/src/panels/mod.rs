@@ -1,3 +1,4 @@
+pub mod chain_display;
 pub mod chains;
 pub mod command_bar;
 pub mod detail;

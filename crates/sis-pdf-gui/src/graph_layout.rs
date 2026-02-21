@@ -331,6 +331,7 @@ mod tests {
                 roles: vec![],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
             GraphNode {
                 object_ref: Some((2, 0)),
@@ -339,6 +340,7 @@ mod tests {
                 roles: vec![],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
             GraphNode {
                 object_ref: Some((3, 0)),
@@ -347,6 +349,7 @@ mod tests {
                 roles: vec![],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
         ];
         let edges = vec![
@@ -436,6 +439,7 @@ mod tests {
             roles: vec![],
             confidence: None,
             position: [0.0, 0.0],
+            ..Default::default()
         }];
         let mut node_index = HashMap::new();
         node_index.insert((1, 0), 0);
@@ -471,6 +475,7 @@ mod tests {
             roles: vec![],
             confidence: None,
             position: [5_000.0, -200.0],
+            ..Default::default()
         }];
         let mut node_index = HashMap::new();
         node_index.insert((42, 0), 0);
@@ -511,6 +516,7 @@ mod tests {
                 roles: vec!["execute".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
             GraphNode {
                 object_ref: Some((2, 0)),
@@ -519,6 +525,7 @@ mod tests {
                 roles: vec!["input".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
             GraphNode {
                 object_ref: Some((3, 0)),
@@ -527,6 +534,7 @@ mod tests {
                 roles: vec!["render".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
         ];
         let edges = vec![
@@ -572,6 +580,7 @@ mod tests {
                 roles: vec![stage],
                 confidence: Some(0.8),
                 position: [0.0, 0.0],
+                ..Default::default()
             });
             node_index.insert((obj, 0), idx);
         }
@@ -617,6 +626,7 @@ mod tests {
                 roles: vec!["input".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
             GraphNode {
                 object_ref: Some((2, 0)),
@@ -625,6 +635,7 @@ mod tests {
                 roles: vec!["input".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
         ];
         let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1)]);
@@ -643,6 +654,7 @@ mod tests {
                 roles: vec!["input".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
             GraphNode {
                 object_ref: Some((2, 0)),
@@ -651,6 +663,7 @@ mod tests {
                 roles: vec!["input".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
         ];
         let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1)]);
@@ -669,6 +682,7 @@ mod tests {
                 roles: vec!["input".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
             GraphNode {
                 object_ref: Some((2, 0)),
@@ -677,6 +691,7 @@ mod tests {
                 roles: vec!["input".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
         ];
         let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1)]);
@@ -695,6 +710,7 @@ mod tests {
                 roles: vec!["input".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
             GraphNode {
                 object_ref: Some((2, 0)),
@@ -703,6 +719,7 @@ mod tests {
                 roles: vec!["input".to_string()],
                 confidence: None,
                 position: [0.0, 0.0],
+                ..Default::default()
             },
         ];
         let graph_index = HashMap::from([((1, 0), 0), ((2, 0), 1)]);

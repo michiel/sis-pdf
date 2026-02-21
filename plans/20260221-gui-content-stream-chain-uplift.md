@@ -8,508 +8,232 @@ Owner: GUI (`sis-pdf-gui`), core models (`sis-pdf-core`)
 
 Two related usability gaps identified while inspecting `20250820_120506_js_annot.pdf` in the GUI:
 
-### Gap 1: "Content stream execution" node is unidentifiable
+### Gap 1: `ContentStreamExec` node lacks execution context
 
-The `ContentStreamExec` event node in the graph viewer shows "Content stream execution" as its
-label with no indication of which page triggers it or which stream object it executes. The
-tooltip shows only "Type: event, Roles: ContentStreamExec, automatic". Double-clicking the node
-navigates to the page object (`source_obj`) rather than the stream that will actually be
-executed. An analyst cannot determine from the graph which stream object is involved without
-manually tracing graph edges.
+The event graph shows `ContentStreamExec` nodes as `Content stream execution`, without explicit
+page or stream identifiers. Tooltip and navigation do not make the executed stream obvious.
 
-**Root cause (event_graph.rs:464):**
-```rust
-label: "Content stream execution".to_string(),
-```
-The stream destination (`edge.dst`) is known at node construction time but is not included in
-the label or stored anywhere accessible to the GUI rendering layer. The `GraphNode.object_ref`
-points to the source page object; the stream is only reachable by following the outgoing
-`Executes` edge — an implicit relationship not surfaced in any tooltip or inspector field.
+### Gap 2: Chain membership display is dense and inconsistent
 
-### Gap 2: Chain membership display is dense and uninformative
+Object Inspector and Finding Detail currently expose raw/internal chain strings (`chain.path`,
+hash IDs, repeated `unknown (findings: N)` tokens) instead of concise analyst-oriented summaries.
 
-When viewing an object in the Object Inspector, the chain membership section shows:
+---
 
-```
-Chain #8 [Participant] score 0.80    id=chain-ccf83f0c6f5c27325bf2...
-Trigger:Document OpenAction present -> Action:JavaScript action [target: OpenAction ->
-action [js_container] (8 0)] -> Payload:JavaScript present [intent=user_interaction]
-[ref: -] [len: 34] layers=0
-```
+## Assumptions confirmed
 
-Two problems:
-1. The `id=chain-<sha256 hash>` on the same line is pure noise — the chain index already
-   provides a unique identifier for navigation.
-2. The raw `chain.path` string uses internal rendering notation: `[ref: -]`, `[len: 34]`,
-   `layers=0`, `(findings: 1)` — none of these are meaningful to an analyst at a glance.
-   When chains have no resolved labels, they show `"unknown (findings: 1)"` three times.
+1. Keep current navigation behaviour for all non-`ContentStreamExec` nodes.
+2. Chain membership presentation should be consistent across Object Inspector and Finding Detail.
+3. Validation must be strict and automated; manual checks are supplemental only.
 
-The same issue appears in the Finding Detail panel, where chain membership entries display
-"Chain #N: Trigger:X -> Action:Y -> Payload:Z" as a single long clickable label.
+---
+
+## Review findings incorporated (opportunities and recommendations)
+
+1. Avoid navigation regressions:
+   - Populate and use stream target only for `ContentStreamExec`, not all `Executes` events.
+2. Reduce `GraphNode` churn and future breakage:
+   - Add `Default` for `GraphNode`.
+   - Use `..Default::default()` struct update syntax in literals, especially tests.
+3. Enforce automated coverage for presentation logic:
+   - Extract deterministic formatting/selection logic into testable helper functions.
+   - Add GUI crate unit/integration tests for selection, fallback, and truncation.
+4. Remove fragile `starts_with("unknown")` checks:
+   - Add structured stage-summary API in core (`chain_render`) to expose unresolved/resolved states.
+5. Prevent `egui` leakage into non-GUI builds:
+   - Place shared UI helpers under `crates/sis-pdf-gui/src/panels/chain_display.rs`.
+   - Register via `crates/sis-pdf-gui/src/panels/mod.rs` only (feature-gated surface).
+6. Keep panel output consistent:
+   - Use one shared render helper path for both Object Inspector and Finding Detail.
+7. Clarify narrative rendering semantics:
+   - Use explicit wording: “truncated narrative summary”, not “first sentence” unless sentence split is implemented.
+8. Control core label impact:
+   - If changing core event label text, add/update tests to lock intended format and avoid accidental drift.
 
 ---
 
 ## Scope
 
 In scope:
-- ContentStreamExec node label enrichment (label text includes page and stream refs)
-- `GraphNode.target_obj` field for navigation to stream on double-click
-- Tooltip enrichment for ContentStreamExec nodes showing stream target
-- Chain membership display in Object Inspector: remove hash ID, show structured
-  trigger/action/payload or narrative in readable form
-- Chain membership display in Finding Detail: same structural improvement
+- `ContentStreamExec` node label enrichment with page/stream refs.
+- `GraphNode.target_obj` support scoped to `ContentStreamExec`.
+- Tooltip enrichment showing execution target.
+- Chain membership display cleanup in Object Inspector and Finding Detail.
+- Shared chain display logic for consistent rendering across both panels.
+- Structured chain stage-summary support to avoid string-prefix heuristics.
+- Automated test coverage for all behaviour above.
 
 Out of scope:
-- New detection logic
-- Changes to chain scoring or synthesis
-- Changes to chain panel (Chains window) — that panel's display is already structured and
-  reasonable; improvements to it belong in a separate targeted plan
-- Enriching stream content summary in the tooltip (stream filters, length) — that requires
-  cross-referencing ObjectData during tooltip render; deferred
+- New detection logic.
+- Changes to chain scoring/synthesis.
+- Changes to Chains panel (`panels/chains.rs`) beyond link navigation.
+- Deep stream metadata enrichment in graph tooltip.
 
 ---
 
-## Stage 1: ContentStreamExec node contextual enrichment
+## Stage 1: `ContentStreamExec` contextual enrichment (no cross-event regression)
 
-**Goal:** The ContentStreamExec node label and tooltip clearly identify the page and stream
-objects involved. Double-clicking the node navigates to the stream object.
+Goal: `ContentStreamExec` nodes show clear page/stream context, with stream navigation on
+double-click only for this event type.
 
-**Success criteria:**
-- Node label reads "Content stream (page N M → stream P Q)" in the graph
-- Hovering shows "Executes: obj P Q" in the tooltip
-- Double-clicking navigates to the stream object in Object Inspector (not the page)
-- All existing graph tests pass
-
-### S1.1 Enrich ContentStreamExec label
+### S1.1 Label enrichment in core event graph
 
 **File:** `crates/sis-pdf-core/src/event_graph.rs`
 
-Change the hardcoded label at line ~464 from:
-```rust
-label: "Content stream execution".to_string(),
-```
-to:
+Update `ContentStreamExec` node label to include both refs:
+
 ```rust
 label: format!(
-    "Content stream (page {} {} → stream {} {})",
+    "Content stream (page {} {} -> stream {} {})",
     edge.src.0, edge.src.1, edge.dst.0, edge.dst.1
 ),
 ```
 
-Both `edge.src` (page) and `edge.dst` (stream) are already in scope at this point. No
-additional data lookups required.
-
-### S1.2 Add target_obj to GraphNode
+### S1.2 Extend `GraphNode` with safe defaults and targeted navigation metadata
 
 **File:** `crates/sis-pdf-gui/src/graph_data.rs`
 
-Add a field to `GraphNode`:
-```rust
-pub struct GraphNode {
-    pub object_ref: Option<(u32, u16)>,
-    pub obj_type: String,
-    pub label: String,
-    pub roles: Vec<String>,
-    pub confidence: Option<f32>,
-    pub position: [f64; 2],
-    /// For event nodes that execute a specific target object, the target's object ref.
-    /// Populated via a post-pass over EventEdgeKind::Executes edges in from_event_graph.
-    pub target_obj: Option<(u32, u16)>,
-}
-```
+Add:
+- `#[derive(Default)]` on `GraphNode`
+- `pub target_obj: Option<(u32, u16)>`
+- `pub is_content_stream_exec: bool`
 
-Initialise `target_obj: None` in all `GraphNode` construction sites (the `nodes.push(...)` calls
-in `from_event_graph` and `build_graph`).
+Populate `is_content_stream_exec` while mapping event nodes in `from_event_graph`.
+Populate `target_obj` in a post-pass only when:
+- edge kind is `EventEdgeKind::Executes`
+- `from` node is an event node
+- `from` node has `is_content_stream_exec == true`
 
-Add a post-pass in `from_event_graph` after the node-building loop (before adding edges to the
-output):
+Use `..Default::default()` in all `GraphNode` literals to minimise compile churn.
 
-```rust
-// Post-pass: for event nodes, populate target_obj from their Executes edges.
-for edge in &data.edges {
-    if edge.kind != EventEdgeKind::Executes {
-        continue;
-    }
-    let Some(&from_idx) = id_to_idx.get(&edge.from) else { continue };
-    let Some(&to_idx) = id_to_idx.get(&edge.to) else { continue };
-    if nodes[from_idx].obj_type == "event" {
-        nodes[from_idx].target_obj = nodes[to_idx].object_ref;
-    }
-}
-```
-
-This is O(|edges|) and runs once after graph construction.
-
-### S1.3 Update graph tooltip and double-click navigation
+### S1.3 Tooltip and double-click behaviour in graph panel
 
 **File:** `crates/sis-pdf-gui/src/panels/graph.rs`
 
-**Tooltip (around line 575):** Before the `egui::Tooltip::always_open` call, pre-extract the
-`target_obj` from the graph node so it can be captured in the tooltip closure:
+- Tooltip: show `Executes: obj N M` only when `node.is_content_stream_exec` and `target_obj` exists.
+- Double-click: navigate to `target_obj` only for `ContentStreamExec`; otherwise keep existing
+  `object_ref` navigation.
 
-```rust
-let target_obj = app.graph_state.graph.as_ref()
-    .and_then(|g| g.nodes.get(hi))
-    .and_then(|n| n.target_obj);
-```
+### S1 automated tests
 
-Inside the tooltip `.show(|ui| { ... })` closure, after the roles section, add:
-```rust
-if let Some((tobj, tgen)) = target_obj {
-    ui.label(format!("Executes: obj {} {}", tobj, tgen));
-    ui.small("Double-click to navigate to stream");
-}
-```
-
-**Double-click handler (around line 643):** Replace:
-```rust
-if let Some((obj, gen)) = node.object_ref {
-    app.navigate_to_object(obj, gen);
-    app.show_objects = true;
-}
-```
-with:
-```rust
-let nav_ref = node.target_obj.or(node.object_ref);
-if let Some((obj, gen)) = nav_ref {
-    app.navigate_to_object(obj, gen);
-    app.show_objects = true;
-}
-```
-
-This means double-clicking a ContentStreamExec node navigates to the stream, while all other
-nodes retain their existing navigation behaviour.
-
-### S1 Tests
-
-**New unit test in `crates/sis-pdf-core/tests/`** (extend `graph_export` or add a targeted
-module):
-
-```rust
-#[test]
-fn content_stream_exec_label_includes_page_and_stream_refs() {
-    // Build a minimal TypedGraph with a PageContents edge from page 3 0 to stream 7 0.
-    // Call build_event_graph.
-    // Assert that the resulting EventGraph contains a ContentStreamExec event node
-    // whose kind label contains "3 0" and "7 0".
-}
-```
-
-**Non-render test in `crates/sis-pdf-gui/` tests:**
-
-```rust
-#[test]
-fn from_event_graph_populates_target_obj_for_executes_edges() {
-    // Build a minimal EventGraph with:
-    //   - Object node: "obj:3:0"
-    //   - Event node: "ev:3:0:ContentStreamExec:0" (Event kind)
-    //   - Object node: "obj:7:0"
-    //   - Edge: obj:3:0 → ev:... (Triggers)
-    //   - Edge: ev:... → obj:7:0 (Executes)
-    // Call from_event_graph.
-    // Find the event GraphNode.
-    // Assert target_obj == Some((7, 0)).
-    // Assert object_ref == Some((3, 0)).  // source page unchanged
-}
-```
+1. `crates/sis-pdf-core/tests/...`:
+   - `content_stream_exec_label_includes_page_and_stream_refs`
+2. `crates/sis-pdf-gui/tests/...`:
+   - `from_event_graph_sets_target_obj_only_for_content_stream_exec`
+   - `from_event_graph_non_content_stream_exec_keeps_target_obj_none`
+   - `graph_double_click_prefers_target_only_for_content_stream_exec` (logic-level test via extracted helper)
 
 ---
 
-## Stage 2: Chain membership display cleanup in Object Inspector
+## Stage 2: Shared chain display model and helpers (feature-safe)
 
-**Goal:** The chain membership section in the Object Inspector is readable and actionable.
-Hash IDs are removed. Each chain entry shows a readable summary (narrative or structured
-stages) with proper visual grouping.
+Goal: one shared, testable display path with no `egui` leakage into non-GUI builds.
 
-**Success criteria:**
-- No chain hash IDs displayed
-- Each chain entry is visually grouped (e.g., via `ui.group`)
-- Chains with a non-empty narrative show the narrative
-- Chains with all-unknown stages show "Unresolved chain — see findings" rather than
-  "unknown (findings: 1)" repeated three times
-- Chains with resolved stages show `Trigger: ...` / `Action: ...` / `Payload: ...`
-  on separate lines with truncation at ~80 characters
+### S2.1 Add structured stage summary API in core
+
+**File:** `crates/sis-pdf-core/src/chain_render.rs`
+
+Add a structured helper to eliminate prefix matching:
+
+```rust
+pub struct ChainStageSummary {
+    pub trigger: Option<String>,
+    pub action: Option<String>,
+    pub payload: Option<String>,
+    pub all_unresolved: bool,
+}
+
+pub fn chain_stage_summary(chain: &ExploitChain) -> ChainStageSummary { ... }
+```
+
+Rules:
+- unresolved stages become `None`
+- `all_unresolved` is authoritative
+- existing `chain_*_label` functions remain for compatibility
+
+### S2.2 Add GUI shared display module under panels
+
+**New file:** `crates/sis-pdf-gui/src/panels/chain_display.rs`
+
+Expose:
+- `pub struct ChainSummaryDisplay`
+- `pub fn truncate_str(s: &str, max: usize) -> &str`
+- `pub fn summary_from_chain(...) -> ChainSummaryDisplay`
+- `pub fn render_chain_summary(ui: &mut egui::Ui, summary: &ChainSummaryDisplay, ...)`
+
+Register only in `crates/sis-pdf-gui/src/panels/mod.rs` to keep `egui` in GUI-gated modules.
+Do not register this module in top-level `crates/sis-pdf-gui/src/lib.rs`.
+
+### S2 automated tests
+
+1. `crates/sis-pdf-core`:
+   - `chain_stage_summary_marks_all_unresolved`
+   - `chain_stage_summary_exposes_resolved_stages`
+2. `crates/sis-pdf-gui`:
+   - `truncate_str_handles_ascii_and_unicode_boundaries`
+   - `summary_from_chain_uses_unresolved_fallback_when_all_unresolved`
+   - `summary_from_chain_prefers_narrative_then_stages`
+
+---
+
+## Stage 3: Object Inspector chain membership cleanup (consistent output path)
 
 **File:** `crates/sis-pdf-gui/src/panels/objects.rs`
 
-### S2.1 Pre-collect chain display data
+Replace ad-hoc chain rendering with shared `chain_display` helpers:
+- remove hash ID (`chain_id`) display
+- render grouped entries (`ui.group`)
+- use consistent header format:
+  - `Chain #N [Role] score X.XX`
+- show:
+  - fallback message when `all_unresolved`
+  - otherwise truncated narrative summary when present
+  - otherwise structured Trigger/Action/Payload lines
 
-In `show_security_context`, replace the current chain membership loop with a two-step
-approach: first collect display data (reading from `app.result`), then render (writing to `app`
-for click handlers).
+All formatting decisions must call shared helpers, not local duplicates.
 
-Add a local struct and collection:
+### S3 automated tests
 
-```rust
-struct ChainEntry {
-    chain_index: usize,
-    role: ObjectChainRole,
-    score: f64,
-    narrative: String,
-    trigger: String,
-    action: String,
-    payload: String,
-    all_unknown: bool,
-}
-```
-
-Before the render loop, build the entries:
-
-```rust
-let chain_entries: Vec<ChainEntry> = context.chains.iter().map(|m| {
-    let (narrative, trigger, action, payload, all_unknown) =
-        if let Some(chain) = app.result.as_ref()
-            .and_then(|r| r.report.chains.get(m.chain_index))
-        {
-            let t = sis_pdf_core::chain_render::chain_trigger_label(chain);
-            let a = sis_pdf_core::chain_render::chain_action_label(chain);
-            let p = sis_pdf_core::chain_render::chain_payload_label(chain);
-            let all_unknown = [&t, &a, &p].iter().all(|s| s.starts_with("unknown"));
-            (chain.narrative.clone(), t, a, p, all_unknown)
-        } else {
-            (String::new(), String::new(), String::new(), String::new(), true)
-        };
-    ChainEntry {
-        chain_index: m.chain_index,
-        role: m.role,
-        score: m.score,
-        narrative,
-        trigger,
-        action,
-        payload,
-        all_unknown,
-    }
-}).collect();
-```
-
-### S2.2 Render improved chain entries
-
-Replace the current render block with:
-
-```rust
-for entry in &chain_entries {
-    ui.group(|ui| {
-        let role = format_chain_role(entry.role);
-        let header = format!(
-            "Chain #{} [{}] score {:.2}",
-            entry.chain_index + 1,
-            role,
-            entry.score
-        );
-        if ui.link(header).clicked() {
-            app.selected_chain = Some(entry.chain_index);
-            app.show_chains = true;
-        }
-
-        if entry.all_unknown {
-            ui.small("Unresolved chain — see linked findings for details");
-        } else if !entry.narrative.trim().is_empty() {
-            // Show first sentence of narrative (truncated at ~100 chars)
-            let summary = truncate_str(&entry.narrative, 100);
-            ui.small(summary);
-        } else {
-            show_chain_stage_labels(ui, &entry.trigger, &entry.action, &entry.payload);
-        }
-    });
-}
-```
-
-Add helpers:
-
-```rust
-fn truncate_str(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        s
-    } else {
-        &s[..s.floor_char_boundary(max)]  // use std::str::floor_char_boundary (stable 1.74+)
-    }
-}
-
-fn show_chain_stage_labels(ui: &mut egui::Ui, trigger: &str, action: &str, payload: &str) {
-    let stages = [("Trigger", trigger), ("Action", action), ("Payload", payload)];
-    for (stage, text) in stages {
-        if !text.is_empty() && !text.starts_with("unknown") {
-            ui.horizontal(|ui| {
-                ui.monospace(format!("{stage}:"));
-                ui.small(truncate_str(text, 80));
-            });
-        }
-    }
-}
-```
-
-**Note on `floor_char_boundary`:** this was stabilised in Rust 1.74. If the toolchain is
-earlier, use `s.char_indices().take_while(|(i, _)| *i < max).last().map_or(s, |(i, _)| &s[..i])`
-as a fallback. Check Cargo.toml's `rust-version` to confirm.
-
-### S2 Tests
-
-No new integration tests for the render logic itself (GUI rendering tests are handled via
-manual verification). Add a compile-time assertion by ensuring the `chain_entries` builder
-compiles and that the helper functions have unit tests:
-
-```rust
-#[test]
-fn truncate_str_handles_ascii_and_unicode() {
-    assert_eq!(truncate_str("hello world", 5), "hello");
-    // Unicode: do not panic or produce invalid UTF-8
-    let long_unicode = "héllo";
-    let result = truncate_str(long_unicode, 3);
-    assert!(std::str::from_utf8(result.as_bytes()).is_ok());
-}
-```
-
-Manual verification checklist:
-- Load `20250820_120506_js_annot.pdf`
-- Open Object Inspector, select object 3 0 (page)
-- Confirm: no hash IDs visible; Chain #8 shows a readable trigger/action/payload summary
-- Confirm: Chain #1 (all-unknown) shows "Unresolved chain — see linked findings for details"
-- Confirm: clicking a chain link opens the Chains panel on that chain
+- `object_inspector_chain_entries_use_shared_summary_model`
+- `object_inspector_chain_link_selects_expected_chain_index`
 
 ---
 
-## Stage 3: Chain membership display cleanup in Finding Detail
-
-**Goal:** The chain membership section in Finding Detail shows each chain as a structured entry
-(header link + brief summary) rather than a single long label containing the full path string.
+## Stage 4: Finding Detail chain membership cleanup (same rendering contract)
 
 **File:** `crates/sis-pdf-gui/src/panels/detail.rs`
 
-### S3.1 Enrich chain_membership pre-extraction
+Replace `(usize, String)` chain membership extraction with shared `ChainSummaryDisplay`.
 
-Add a local struct:
+Render using the same helper path as Stage 3 so behaviour stays consistent.
 
-```rust
-struct ChainMemberDisplay {
-    chain_index: usize,
-    score: f64,
-    narrative: String,
-    trigger: String,
-    action: String,
-    payload: String,
-    all_unknown: bool,
-}
-```
+### S4 automated tests
 
-Replace the current chain_membership collection:
-```rust
-let chain_membership: Vec<(usize, String)> = result
-    .report
-    .chains
-    .iter()
-    .enumerate()
-    .filter(|(_, chain)| chain.findings.contains(&finding_id))
-    .map(|(i, chain)| (i, chain.path.clone()))
-    .collect();
-```
-with:
-```rust
-let chain_membership: Vec<ChainMemberDisplay> = result
-    .report
-    .chains
-    .iter()
-    .enumerate()
-    .filter(|(_, chain)| chain.findings.contains(&finding_id))
-    .map(|(i, chain)| {
-        let t = sis_pdf_core::chain_render::chain_trigger_label(chain);
-        let a = sis_pdf_core::chain_render::chain_action_label(chain);
-        let p = sis_pdf_core::chain_render::chain_payload_label(chain);
-        let all_unknown = [&t, &a, &p].iter().all(|s| s.starts_with("unknown"));
-        ChainMemberDisplay {
-            chain_index: i,
-            score: chain.score,
-            narrative: chain.narrative.clone(),
-            trigger: t,
-            action: a,
-            payload: p,
-            all_unknown,
-        }
-    })
-    .collect();
-```
-
-### S3.2 Update chain membership render block
-
-In the chain membership collapsing section (around line 240), replace:
-```rust
-for (chain_idx, path) in &chain_membership {
-    let label = format!("Chain #{}: {}", chain_idx + 1, path);
-    if ui.link(&label).clicked() {
-        app.show_chains = true;
-        app.selected_chain = Some(*chain_idx);
-    }
-}
-```
-with:
-```rust
-for entry in &chain_membership {
-    ui.group(|ui| {
-        let header = format!("Chain #{} [score {:.2}]", entry.chain_index + 1, entry.score);
-        if ui.link(header).clicked() {
-            app.show_chains = true;
-            app.selected_chain = Some(entry.chain_index);
-        }
-        if entry.all_unknown {
-            ui.small("Unresolved chain — see findings for details");
-        } else if !entry.narrative.trim().is_empty() {
-            ui.small(truncate_str(&entry.narrative, 120));
-        } else {
-            show_chain_stage_labels(ui, &entry.trigger, &entry.action, &entry.payload);
-        }
-    });
-}
-```
-
-Where `truncate_str` and `show_chain_stage_labels` are the helpers defined in Stage 2. These
-can be extracted to a shared module `crates/sis-pdf-gui/src/chain_display.rs` to avoid
-duplication between `objects.rs` and `detail.rs`.
-
-### S3 Tests
-
-Manual verification checklist:
-- Load `20250820_120506_js_annot.pdf`
-- Click a finding in the findings list (e.g., a js_present finding)
-- Open Finding Detail panel
-- Confirm: Chain Membership section shows "Chain #8 [score 0.80]" with readable trigger/action/
-  payload on separate lines, not a single long concatenated string
-- Confirm: "unknown" chains show fallback message rather than internal notation
-
----
-
-## Shared module: chain_display.rs
-
-To avoid code duplication between Stage 2 and Stage 3, extract the helpers into a shared
-module:
-
-**New file:** `crates/sis-pdf-gui/src/chain_display.rs`
-
-Contents:
-- `pub fn truncate_str(s: &str, max: usize) -> &str`
-- `pub fn show_chain_stage_labels(ui: &mut egui::Ui, trigger: &str, action: &str, payload: &str)`
-- `pub struct ChainSummaryDisplay` (if useful for sharing state between the two call sites)
-
-Register in `crates/sis-pdf-gui/src/lib.rs` or `mod.rs`.
+- `finding_detail_chain_entries_use_shared_summary_model`
+- `finding_detail_chain_link_selects_expected_chain_index`
+- `finding_detail_and_object_inspector_chain_headers_match_for_same_input`
 
 ---
 
 ## Implementation sequence
 
-1. **Stage 1.1** — label change in `event_graph.rs`. Trivial, no model impact.
-2. **Stage 1.2** — add `target_obj` to `GraphNode` and populate in `from_event_graph`.
-3. **Stage 1.3** — update tooltip and double-click in `panels/graph.rs`.
-4. **Run tests:** `cargo test -p sis-pdf-core` (for label) and `cargo test -p sis-pdf-gui`.
-5. **Stage 2** — chain display in `objects.rs` (extract helpers to `chain_display.rs`).
-6. **Stage 3** — chain display in `detail.rs` (reuse helpers from `chain_display.rs`).
-7. **Run full suite:** `cargo test -p sis-pdf-core -p sis-pdf-gui -p sis-pdf`.
-8. **Manual verification** against `20250820_120506_js_annot.pdf` using both checklists above.
+1. Baseline test/profile run (see Baseline section).
+2. Stage 1 core+GUI graph changes and tests.
+3. Stage 2 core structured summary API and GUI shared module.
+4. Stage 3 Object Inspector migration and tests.
+5. Stage 4 Finding Detail migration and tests.
+6. Full workspace test run.
+7. Manual verification on fixture PDF as final confidence check.
 
 ---
 
 ## Baseline
 
 Run before starting:
-```
+
+```bash
 cargo test -p sis-pdf-core --test graph_export
+cargo test -p sis-pdf-core --test event_graph_outcomes
 cargo test -p sis-pdf-gui
 cargo test -p sis-pdf
 cargo run -p sis-pdf --bin sis -- scan \
@@ -517,24 +241,43 @@ cargo run -p sis-pdf --bin sis -- scan \
   --deep --runtime-profile --runtime-profile-format json
 ```
 
-Record any failures or timing deltas. Runtime profile SLOs (parse <10ms, detection <50ms) must
-not regress.
+Record failures and timing deltas. Runtime profile SLOs (parse <10ms, detection <50ms) must not regress.
+
+---
+
+## Manual verification checklist (supplemental)
+
+Fixture: `20250820_120506_js_annot.pdf`
+
+1. Event graph:
+   - `ContentStreamExec` node label includes page and stream refs.
+   - Tooltip shows execution target object.
+   - Double-click on `ContentStreamExec` opens stream object.
+   - Double-click on other event nodes retains existing source-object behaviour.
+2. Object Inspector chain membership:
+   - no hash IDs shown
+   - grouped entries
+   - unresolved fallback appears when expected
+   - resolved entries show concise narrative or stage lines
+3. Finding Detail chain membership:
+   - same structure and wording as Object Inspector for equivalent chain input
+   - chain link navigation opens Chains panel at selected chain
 
 ---
 
 ## Definition of done
 
-- [ ] ContentStreamExec node label includes source page and destination stream object refs
-- [ ] Hovering over a ContentStreamExec node in the graph tooltip shows "Executes: obj N M"
-- [ ] Double-clicking a ContentStreamExec node navigates to the stream object in Object Inspector
-- [ ] `from_event_graph` populates `target_obj` for event nodes via Executes edges
-- [ ] `GraphNode.target_obj` field exists and is `None` for non-event nodes
-- [ ] Object Inspector chain membership: no chain hash IDs displayed
-- [ ] Object Inspector chain membership: all-unknown chains show fallback text
-- [ ] Object Inspector chain membership: resolved chains show structured stages or narrative
-- [ ] Finding Detail chain membership: same improvements as Object Inspector
-- [ ] Shared helpers in `chain_display.rs` with unit tests for `truncate_str`
-- [ ] Unit test: ContentStreamExec label format verified
-- [ ] Unit test: `target_obj` populated correctly from Executes edges
-- [ ] `cargo test` passes with no regressions
-- [ ] Manual verification against `20250820_120506_js_annot.pdf` complete
+- [ ] Assumptions documented and implemented exactly.
+- [ ] `ContentStreamExec` label includes source page and destination stream refs.
+- [ ] Graph tooltip shows target object for `ContentStreamExec`.
+- [ ] Double-click navigation changes only for `ContentStreamExec`; other event behaviour unchanged.
+- [ ] `GraphNode` has `Default`; literals use struct update syntax to avoid broad churn.
+- [ ] `target_obj` population is scoped to `ContentStreamExec`.
+- [ ] Core has structured chain stage summary API (no `starts_with("unknown")` logic in GUI).
+- [ ] Shared chain display module exists at `crates/sis-pdf-gui/src/panels/chain_display.rs`.
+- [ ] No `egui` imports leak into non-GUI build paths.
+- [ ] Object Inspector and Finding Detail use the same chain-summary rendering contract.
+- [ ] Chain hash IDs removed from Object Inspector and Finding Detail.
+- [ ] Automated tests added for graph behaviour, summary derivation, truncation safety, and panel consistency.
+- [ ] `cargo test -p sis-pdf-core -p sis-pdf-gui -p sis-pdf` passes.
+- [ ] Manual verification checklist completed.

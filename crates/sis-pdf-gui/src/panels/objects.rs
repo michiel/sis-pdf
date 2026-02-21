@@ -1,6 +1,7 @@
 use crate::app::SisApp;
 use crate::hex_format;
 use crate::object_data::ObjectValue;
+use crate::panels::chain_display::{render_chain_summary, summary_from_chain, unresolved_summary};
 use egui_extras::{Column, TableBuilder};
 use sis_pdf_core::model::Severity;
 use sis_pdf_core::object_context::{
@@ -571,22 +572,34 @@ fn show_security_context(ui: &mut egui::Ui, app: &mut SisApp, context: &ObjectSe
 
         ui.separator();
         ui.label("Chain membership:");
-        for membership in &context.chains {
-            ui.horizontal_wrapped(|ui| {
-                let role = format_chain_role(membership.role);
-                let label = format!(
-                    "Chain #{} [{}] score {:.2}",
-                    membership.chain_index + 1,
-                    role,
-                    membership.score
-                );
-                if ui.link(label).clicked() {
-                    app.selected_chain = Some(membership.chain_index);
-                    app.show_chains = true;
-                }
-                ui.small(format!("id={}", membership.chain_id));
-            });
-            ui.small(&membership.path);
+        let chain_entries = if let Some(result) = app.result.as_ref() {
+            context
+                .chains
+                .iter()
+                .map(|membership| {
+                    let role = Some(format_chain_role(membership.role).to_string());
+                    if let Some(chain) = result.report.chains.get(membership.chain_index) {
+                        summary_from_chain(
+                            membership.chain_index,
+                            membership.score,
+                            role,
+                            chain,
+                            100,
+                        )
+                    } else {
+                        unresolved_summary(membership.chain_index, membership.score, role)
+                    }
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+
+        for entry in &chain_entries {
+            if render_chain_summary(ui, entry, 80) {
+                app.selected_chain = Some(entry.chain_index);
+                app.show_chains = true;
+            }
         }
     });
 }
