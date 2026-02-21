@@ -27,6 +27,9 @@ use sis_pdf_core::rich_media::{
 };
 use sis_pdf_core::runner::assign_stable_ids;
 use sis_pdf_core::scan::{CorrelationOptions, ScanContext};
+use sis_pdf_core::structure_overlay::{
+    build_structure_overlay_with_findings, StructureOverlay, StructureOverlayBuildOptions,
+};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_detectors::polyglot::analyze_polyglot_signatures;
 use sis_pdf_detectors::xfa_forms::{collect_xfa_forms, XfaFormRecord};
@@ -2516,9 +2519,11 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let overlay = build_structure_overlay(
+                let findings = findings_with_cache(ctx)?;
+                let overlay = build_structure_overlay_with_findings(
                     ctx,
-                    StructureOverlayOptions { include_telemetry: false, include_signature: false },
+                    StructureOverlayBuildOptions::default(),
+                    Some(&findings),
                 );
                 let dot_output = export_structure_dot(&org_graph, &typed_graph, 8, Some(&overlay));
                 Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
@@ -2532,9 +2537,11 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let overlay = build_structure_overlay(
+                let findings = findings_with_cache(ctx)?;
+                let overlay = build_structure_overlay_with_findings(
                     ctx,
-                    StructureOverlayOptions { include_telemetry: false, include_signature: false },
+                    StructureOverlayBuildOptions::default(),
+                    Some(&findings),
                 );
                 let json_output =
                     export_structure_json(&org_graph, &typed_graph, 8, Some(&overlay));
@@ -2549,9 +2556,15 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let overlay = build_structure_overlay(
+                let findings = findings_with_cache(ctx)?;
+                let overlay = build_structure_overlay_with_findings(
                     ctx,
-                    StructureOverlayOptions { include_telemetry: true, include_signature: true },
+                    StructureOverlayBuildOptions {
+                        include_telemetry: true,
+                        include_signature: true,
+                        ..StructureOverlayBuildOptions::default()
+                    },
+                    Some(&findings),
                 );
                 let dot_output = export_structure_dot(&org_graph, &typed_graph, 8, Some(&overlay));
                 Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
@@ -2565,9 +2578,15 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let overlay = build_structure_overlay(
+                let findings = findings_with_cache(ctx)?;
+                let overlay = build_structure_overlay_with_findings(
                     ctx,
-                    StructureOverlayOptions { include_telemetry: true, include_signature: true },
+                    StructureOverlayBuildOptions {
+                        include_telemetry: true,
+                        include_signature: true,
+                        ..StructureOverlayBuildOptions::default()
+                    },
+                    Some(&findings),
                 );
                 let json_output =
                     export_structure_json(&org_graph, &typed_graph, 8, Some(&overlay));
@@ -7497,510 +7516,6 @@ fn trailer_ref_value(trailer: &sis_pdf_pdf::object::PdfDict<'_>, key: &[u8]) -> 
     })
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct StructureOverlayNode {
-    id: String,
-    kind: String,
-    attrs: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct StructureOverlayEdge {
-    from: String,
-    to: String,
-    edge_type: String,
-    suspicious: bool,
-    attrs: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct StructureOverlay {
-    nodes: Vec<StructureOverlayNode>,
-    edges: Vec<StructureOverlayEdge>,
-    stats: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct StructureOverlayOptions {
-    include_telemetry: bool,
-    include_signature: bool,
-}
-
-const DETACHED_OBJECTS_CAP: usize = 100;
-
-fn build_structure_overlay(
-    ctx: &ScanContext,
-    options: StructureOverlayOptions,
-) -> StructureOverlay {
-    let mut nodes = Vec::new();
-    let mut edges = Vec::new();
-
-    nodes.push(StructureOverlayNode {
-        id: "file.root".to_string(),
-        kind: "file_root".to_string(),
-        attrs: json!({"kind":"file_root"}),
-    });
-
-    let mut section_by_offset: HashMap<u64, Vec<usize>> = HashMap::new();
-    for (idx, section) in ctx.graph.xref_sections.iter().enumerate() {
-        section_by_offset.entry(section.offset).or_default().push(idx);
-    }
-    let mut startxref_by_offset: HashMap<u64, usize> = HashMap::new();
-    for (idx, offset) in ctx.graph.startxrefs.iter().enumerate() {
-        startxref_by_offset.entry(*offset).or_insert(idx);
-    }
-
-    let mut startxref_section_match = vec![false; ctx.graph.startxrefs.len()];
-
-    for (idx, offset) in ctx.graph.startxrefs.iter().enumerate() {
-        let startxref_id = format!("startxref.{idx}");
-        nodes.push(StructureOverlayNode {
-            id: startxref_id.clone(),
-            kind: "startxref".to_string(),
-            attrs: json!({
-                "kind":"startxref",
-                "idx": idx,
-                "offset": offset,
-                "section_match": false
-            }),
-        });
-        edges.push(StructureOverlayEdge {
-            from: "file.root".to_string(),
-            to: startxref_id.clone(),
-            edge_type: "file_root_to_startxref".to_string(),
-            suspicious: false,
-            attrs: json!({}),
-        });
-        if let Some(matches) = section_by_offset.get(offset) {
-            startxref_section_match[idx] = !matches.is_empty();
-            for section_idx in matches {
-                edges.push(StructureOverlayEdge {
-                    from: startxref_id.clone(),
-                    to: format!("xref.section.{section_idx}"),
-                    edge_type: "startxref_to_section".to_string(),
-                    suspicious: false,
-                    attrs: json!({}),
-                });
-            }
-        }
-    }
-
-    for (idx, section) in ctx.graph.xref_sections.iter().enumerate() {
-        nodes.push(StructureOverlayNode {
-            id: format!("xref.section.{idx}"),
-            kind: "xref_section".to_string(),
-            attrs: json!({
-                "kind":"xref_section",
-                "idx": idx,
-                "offset": section.offset,
-                "section_kind": section.kind,
-                "has_trailer": section.has_trailer,
-                "prev": section.prev,
-                "trailer_size": section.trailer_size,
-                "trailer_root": section.trailer_root,
-            }),
-        });
-        if section.has_trailer && idx < ctx.graph.trailers.len() {
-            edges.push(StructureOverlayEdge {
-                from: format!("xref.section.{idx}"),
-                to: format!("trailer.{idx}"),
-                edge_type: "section_to_trailer".to_string(),
-                suspicious: false,
-                attrs: json!({}),
-            });
-        }
-        if let Some(prev) = section.prev {
-            if let Some(prev_sections) = section_by_offset.get(&prev) {
-                for prev_idx in prev_sections {
-                    edges.push(StructureOverlayEdge {
-                        from: format!("xref.section.{idx}"),
-                        to: format!("xref.section.{prev_idx}"),
-                        edge_type: "section_prev".to_string(),
-                        suspicious: false,
-                        attrs: json!({}),
-                    });
-                }
-            }
-        }
-    }
-
-    for (idx, trailer) in ctx.graph.trailers.iter().enumerate() {
-        let mut unresolved = Vec::new();
-        let mut prev_unresolved = false;
-        let has_root = trailer.get_first(b"/Root").is_some();
-        let has_info = trailer.get_first(b"/Info").is_some();
-        let has_encrypt = trailer.get_first(b"/Encrypt").is_some();
-        let size = trailer_int_value(trailer, b"/Size");
-
-        resolve_trailer_ref_edge(
-            ctx,
-            trailer,
-            b"/Root",
-            "trailer_root",
-            idx,
-            &mut edges,
-            &mut unresolved,
-        );
-        resolve_trailer_ref_edge(
-            ctx,
-            trailer,
-            b"/Info",
-            "trailer_info",
-            idx,
-            &mut edges,
-            &mut unresolved,
-        );
-        resolve_trailer_ref_edge(
-            ctx,
-            trailer,
-            b"/Encrypt",
-            "trailer_encrypt",
-            idx,
-            &mut edges,
-            &mut unresolved,
-        );
-
-        if let Some(prev) = trailer_int_value(trailer, b"/Prev") {
-            if let Some(startxref_idx) = startxref_by_offset.get(&prev) {
-                edges.push(StructureOverlayEdge {
-                    from: format!("trailer.{idx}"),
-                    to: format!("startxref.{startxref_idx}"),
-                    edge_type: "trailer_prev".to_string(),
-                    suspicious: false,
-                    attrs: json!({}),
-                });
-            } else {
-                prev_unresolved = true;
-            }
-        }
-
-        nodes.push(StructureOverlayNode {
-            id: format!("trailer.{idx}"),
-            kind: "trailer".to_string(),
-            attrs: json!({
-                "kind": "trailer",
-                "idx": idx,
-                "has_root": has_root,
-                "has_info": has_info,
-                "has_encrypt": has_encrypt,
-                "size": size,
-                "unresolved": unresolved,
-                "prev_unresolved": prev_unresolved,
-            }),
-        });
-    }
-
-    for node in &mut nodes {
-        if node.kind == "startxref" {
-            if let Some(idx) = node
-                .attrs
-                .get("idx")
-                .and_then(serde_json::Value::as_u64)
-                .map(|value| value as usize)
-            {
-                if idx < startxref_section_match.len() {
-                    if let Some(map) = node.attrs.as_object_mut() {
-                        map.insert(
-                            "section_match".to_string(),
-                            json!(startxref_section_match[idx]),
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    let mut node_ids = nodes.iter().map(|node| node.id.clone()).collect::<HashSet<_>>();
-    let mut edge_ids = edges
-        .iter()
-        .map(|edge| (edge.from.clone(), edge.to.clone(), edge.edge_type.clone()))
-        .collect::<HashSet<_>>();
-
-    for entry in &ctx.graph.objects {
-        match entry.provenance {
-            sis_pdf_pdf::graph::ObjProvenance::ObjStm { obj, gen } => {
-                let node_id = format!("objstm.{obj}.{gen}");
-                push_overlay_node_if_missing(
-                    &mut nodes,
-                    &mut node_ids,
-                    node_id.clone(),
-                    "objstm",
-                    json!({"kind":"objstm", "container_obj": obj, "container_gen": gen}),
-                );
-                push_overlay_edge_unique(
-                    &mut edges,
-                    &mut edge_ids,
-                    node_id,
-                    format!("{} {}", entry.obj, entry.gen),
-                    "objstm_contains",
-                    false,
-                    json!({}),
-                );
-            }
-            sis_pdf_pdf::graph::ObjProvenance::CarvedStream { obj, gen } => {
-                let node_id = format!("carved.{obj}.{gen}");
-                push_overlay_node_if_missing(
-                    &mut nodes,
-                    &mut node_ids,
-                    node_id.clone(),
-                    "carved_stream",
-                    json!({"kind":"carved_stream", "carrier_obj": obj, "carrier_gen": gen}),
-                );
-                push_overlay_edge_unique(
-                    &mut edges,
-                    &mut edge_ids,
-                    node_id,
-                    format!("{} {}", entry.obj, entry.gen),
-                    "carved_from_stream",
-                    false,
-                    json!({}),
-                );
-            }
-            sis_pdf_pdf::graph::ObjProvenance::Indirect => {}
-        }
-    }
-
-    const REVISION_OBJECT_EDGE_CAP: usize = 50;
-    let timeline = build_revision_timeline(ctx, DEFAULT_MAX_REVISIONS);
-    for record in &timeline.revisions {
-        let node_id = format!("revision.{}", record.revision);
-        let mut changed = Vec::new();
-        changed.extend(record.objects_added_refs.iter().cloned());
-        changed.extend(record.objects_modified_refs.iter().cloned());
-        changed.sort();
-        changed.dedup();
-
-        let post_cert = !record.covered_by_signature;
-        let emit_count = changed.len().min(REVISION_OBJECT_EDGE_CAP);
-        push_overlay_node_if_missing(
-            &mut nodes,
-            &mut node_ids,
-            node_id.clone(),
-            "revision",
-            json!({
-                "kind":"revision",
-                "n": record.revision,
-                "startxref_offset": record.startxref,
-                "post_cert": post_cert,
-                "covered_by_signature": record.covered_by_signature,
-                "changed_object_count": changed.len(),
-                "changed_object_edge_count": emit_count,
-                "truncated": changed.len() > REVISION_OBJECT_EDGE_CAP,
-            }),
-        );
-
-        if let Some(startxref_idx) = startxref_by_offset.get(&record.startxref) {
-            push_overlay_edge_unique(
-                &mut edges,
-                &mut edge_ids,
-                node_id.clone(),
-                format!("startxref.{startxref_idx}"),
-                "revision_to_startxref",
-                false,
-                json!({}),
-            );
-        }
-
-        for item in changed.into_iter().take(REVISION_OBJECT_EDGE_CAP) {
-            if let Some(target) = parse_object_ref_id(&item) {
-                push_overlay_edge_unique(
-                    &mut edges,
-                    &mut edge_ids,
-                    node_id.clone(),
-                    target,
-                    "revision_changed_object",
-                    post_cert,
-                    json!({}),
-                );
-            }
-        }
-    }
-
-    let mut telemetry_node_count = 0usize;
-    if options.include_telemetry {
-        for (idx, event) in ctx.graph.telemetry_events.iter().enumerate() {
-            let telemetry_id = format!("telemetry.{idx}");
-            push_overlay_node_if_missing(
-                &mut nodes,
-                &mut node_ids,
-                telemetry_id.clone(),
-                "telemetry",
-                json!({
-                    "kind": "telemetry",
-                    "idx": idx,
-                    "domain": event.domain,
-                    "event_kind": event.kind,
-                    "level": format!("{:?}", event.level),
-                    "object_ref": event.object_ref,
-                }),
-            );
-            telemetry_node_count += 1;
-            if let Some(object_ref) = &event.object_ref {
-                if let Some(target) = parse_object_ref_id(object_ref) {
-                    push_overlay_edge_unique(
-                        &mut edges,
-                        &mut edge_ids,
-                        telemetry_id.clone(),
-                        target,
-                        "telemetry_ref",
-                        false,
-                        json!({}),
-                    );
-                }
-            }
-        }
-    }
-
-    let mut signature_node_count = 0usize;
-    if options.include_signature {
-        for (idx, boundary) in timeline.signature_boundaries.iter().enumerate() {
-            let signature_id = format!("signature.{idx}");
-            push_overlay_node_if_missing(
-                &mut nodes,
-                &mut node_ids,
-                signature_id.clone(),
-                "signature",
-                json!({
-                    "kind": "signature",
-                    "idx": idx,
-                    "boundary": boundary,
-                }),
-            );
-            signature_node_count += 1;
-            for record in &timeline.revisions {
-                if *boundary >= record.startxref {
-                    push_overlay_edge_unique(
-                        &mut edges,
-                        &mut edge_ids,
-                        signature_id.clone(),
-                        format!("revision.{}", record.revision),
-                        "signature_covers_revision",
-                        false,
-                        json!({}),
-                    );
-                }
-            }
-        }
-    }
-
-    let adjacency = sis_pdf_core::graph_walk::build_adjacency(&ctx.graph.objects);
-    let mut root_seeds = Vec::new();
-    for trailer in &ctx.graph.trailers {
-        if let Some((_, root_obj)) = trailer.get_first(b"/Root") {
-            if let PdfAtom::Ref { obj, gen } = root_obj.atom {
-                root_seeds.push(sis_pdf_core::graph_walk::ObjRef { obj, gen });
-            }
-        }
-    }
-    let max_depth = ctx.graph.objects.len().saturating_add(8);
-    let reachable = sis_pdf_core::graph_walk::reachable_from(&adjacency, &root_seeds, max_depth);
-    let mut detached = ctx
-        .graph
-        .objects
-        .iter()
-        .map(|entry| sis_pdf_core::graph_walk::ObjRef { obj: entry.obj, gen: entry.gen })
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .filter(|obj_ref| !reachable.contains(obj_ref))
-        .map(|obj_ref| format!("{} {}", obj_ref.obj, obj_ref.gen))
-        .collect::<Vec<_>>();
-    detached.sort();
-    let detached_total = detached.len();
-    let detached_truncated = detached_total > DETACHED_OBJECTS_CAP;
-    if detached_truncated {
-        detached.truncate(DETACHED_OBJECTS_CAP);
-    }
-
-    StructureOverlay {
-        stats: json!({
-            "node_count": nodes.len(),
-            "edge_count": edges.len(),
-            "trailer_count": ctx.graph.trailers.len(),
-            "startxref_count": ctx.graph.startxrefs.len(),
-            "xref_section_count": ctx.graph.xref_sections.len(),
-            "revision_count": timeline.revisions.len(),
-            "telemetry_node_count": telemetry_node_count,
-            "signature_node_count": signature_node_count,
-            "include_telemetry": options.include_telemetry,
-            "include_signature": options.include_signature,
-            "detached_total": detached_total,
-            "detached_truncated": detached_truncated,
-            "detached_objects": detached,
-        }),
-        nodes,
-        edges,
-    }
-}
-
-fn push_overlay_node_if_missing(
-    nodes: &mut Vec<StructureOverlayNode>,
-    node_ids: &mut HashSet<String>,
-    id: String,
-    kind: &str,
-    attrs: serde_json::Value,
-) {
-    if node_ids.insert(id.clone()) {
-        nodes.push(StructureOverlayNode { id, kind: kind.to_string(), attrs });
-    }
-}
-
-fn push_overlay_edge_unique(
-    edges: &mut Vec<StructureOverlayEdge>,
-    edge_ids: &mut HashSet<(String, String, String)>,
-    from: String,
-    to: String,
-    edge_type: &str,
-    suspicious: bool,
-    attrs: serde_json::Value,
-) {
-    let key = (from.clone(), to.clone(), edge_type.to_string());
-    if edge_ids.insert(key) {
-        edges.push(StructureOverlayEdge {
-            from,
-            to,
-            edge_type: edge_type.to_string(),
-            suspicious,
-            attrs,
-        });
-    }
-}
-
-fn parse_object_ref_id(value: &str) -> Option<String> {
-    let mut parts = value.split_whitespace();
-    let obj = parts.next()?.parse::<u32>().ok()?;
-    let gen = parts.next()?.parse::<u16>().ok()?;
-    Some(format!("{obj} {gen}"))
-}
-
-fn resolve_trailer_ref_edge(
-    ctx: &ScanContext,
-    trailer: &sis_pdf_pdf::object::PdfDict<'_>,
-    key: &[u8],
-    edge_type: &str,
-    trailer_idx: usize,
-    edges: &mut Vec<StructureOverlayEdge>,
-    unresolved: &mut Vec<String>,
-) {
-    if let Some((_, value)) = trailer.get_first(key) {
-        match value.atom {
-            PdfAtom::Ref { obj, gen } => {
-                if ctx.graph.get_object(obj, gen).is_some() {
-                    edges.push(StructureOverlayEdge {
-                        from: format!("trailer.{trailer_idx}"),
-                        to: format!("{obj} {gen}"),
-                        edge_type: edge_type.to_string(),
-                        suspicious: false,
-                        attrs: json!({}),
-                    });
-                } else {
-                    unresolved.push(String::from_utf8_lossy(key).to_string());
-                }
-            }
-            _ => unresolved.push(String::from_utf8_lossy(key).to_string()),
-        }
-    }
-}
-
 fn export_structure_json(
     org_graph: &sis_pdf_core::org::OrgGraph,
     typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
@@ -8074,10 +7589,10 @@ fn structure_overlay_dot_block(overlay: &StructureOverlay) -> String {
     out.push_str("    style=dashed;\n");
     out.push_str("    color=gray;\n");
     for node in &overlay.nodes {
-        let kind = node.attrs.get("kind").and_then(serde_json::Value::as_str).unwrap_or("node");
+        let (shape, colour) = overlay_node_style(node.kind.as_str());
         out.push_str(&format!(
-            "    \"{}\" [label=\"{}\\n{}\", shape=box, style=\"rounded,dashed\"];\n",
-            node.id, node.id, kind
+            "    \"{}\" [label=\"{}\\n{}\", shape={}, style=\"rounded,dashed\", color=\"{}\"];\n",
+            node.id, node.id, node.kind, shape, colour
         ));
     }
     for edge in &overlay.edges {
@@ -8088,6 +7603,20 @@ fn structure_overlay_dot_block(overlay: &StructureOverlay) -> String {
     }
     out.push_str("  }\n");
     out
+}
+
+fn overlay_node_style(kind: &str) -> (&'static str, &'static str) {
+    match kind {
+        "file_root" => ("diamond", "gray30"),
+        "startxref" => ("ellipse", "steelblue4"),
+        "xref_section" => ("box", "deepskyblue4"),
+        "trailer" => ("component", "darkgreen"),
+        "revision" => ("hexagon", "darkgoldenrod4"),
+        "objstm" | "carved_stream" => ("folder", "darkorange3"),
+        "telemetry" => ("note", "firebrick3"),
+        "signature" => ("octagon", "purple4"),
+        _ => ("box", "gray40"),
+    }
 }
 
 fn structure_path_helpers(
@@ -9436,6 +8965,32 @@ mod tests {
         bytes
     }
 
+    fn build_pdf_with_unresolved_info_trailer() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"%PDF-1.4\n");
+
+        let objects = [
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+            "2 0 obj\n<< /Type /Pages /Count 0 /Kids [] >>\nendobj\n",
+        ];
+
+        let mut offsets = Vec::new();
+        for object in objects {
+            offsets.push(bytes.len());
+            bytes.extend_from_slice(object.as_bytes());
+        }
+
+        let xref_offset = bytes.len();
+        bytes.extend_from_slice(b"xref\n0 3\n0000000000 65535 f \n");
+        for offset in offsets {
+            bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        bytes.extend_from_slice(b"trailer\n<< /Size 3 /Root 1 0 R /Info 9 0 R >>\nstartxref\n");
+        bytes.extend_from_slice(format!("{xref_offset}\n").as_bytes());
+        bytes.extend_from_slice(b"%%EOF\n");
+        bytes
+    }
+
     fn build_pdf_with_oob_startxref() -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(b"%PDF-1.4\n");
@@ -10567,6 +10122,43 @@ mod tests {
     }
 
     #[test]
+    fn graph_structure_overlay_marks_high_risk_trailer_targets_as_suspicious() {
+        let bytes = build_pdf_with_info_trailer();
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+        let finding = Finding {
+            surface: AttackSurface::FileStructure,
+            kind: "test.high_risk".into(),
+            severity: Severity::High,
+            confidence: Confidence::Certain,
+            objects: vec!["5 0".into()],
+            ..Finding::default()
+        };
+        ctx.populate_findings_cache(vec![finding], &ctx.options);
+
+        let overlay = execute_query_with_context(
+            &Query::ExportStructureOverlayJson,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("overlay query");
+        let overlay_value = match overlay {
+            QueryResult::Structure(value) => value,
+            other => panic!("unexpected overlay result: {:?}", other),
+        };
+        let edges = overlay_value["overlay"]["edges"].as_array().expect("overlay edges");
+        assert!(edges.iter().any(|edge| {
+            edge.get("from") == Some(&json!("trailer.0"))
+                && edge.get("to") == Some(&json!("5 0"))
+                && edge.get("edge_type") == Some(&json!("trailer_info"))
+                && edge.get("suspicious") == Some(&json!(true))
+        }));
+    }
+
+    #[test]
     fn graph_structure_overlay_dot_contains_overlay_cluster() {
         let bytes = build_pdf_with_info_trailer();
         let options = ScanOptions::default();
@@ -10594,6 +10186,19 @@ mod tests {
     #[test]
     fn graph_structure_overlay_json_includes_objstm_provenance_edges() {
         with_fixture_context("objstm_js.pdf", |ctx| {
+            let baseline = execute_query_with_context(
+                &Query::ExportStructureJson,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("baseline structure query");
+            let baseline_value = match baseline {
+                QueryResult::Structure(value) => value,
+                other => panic!("unexpected baseline result: {:?}", other),
+            };
             let result = execute_query_with_context(
                 &Query::ExportStructureOverlayJson,
                 ctx,
@@ -10618,9 +10223,14 @@ mod tests {
                     node.get("id")
                         .and_then(Value::as_str)
                         .map(|id| id.starts_with("objstm."))
-                        .unwrap_or(false)
+                    .unwrap_or(false)
                 }),
                 "expected at least one objstm pseudo node"
+            );
+            assert_eq!(
+                value["typed_edges"],
+                baseline_value["typed_edges"],
+                "overlay export must preserve typed edge summaries (additive behaviour)"
             );
         });
     }
@@ -10741,6 +10351,75 @@ mod tests {
         let detached =
             value["overlay"]["stats"]["detached_objects"].as_array().expect("detached objects");
         assert_eq!(detached.len(), 100);
+    }
+
+    #[test]
+    fn graph_structure_overlay_unresolved_trailer_ref_is_fail_closed() {
+        let bytes = build_pdf_with_unresolved_info_trailer();
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+
+        let result = execute_query_with_context(
+            &Query::ExportStructureOverlayJson,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("overlay query");
+        let value = match result {
+            QueryResult::Structure(value) => value,
+            other => panic!("unexpected overlay result: {:?}", other),
+        };
+        let edges = value["overlay"]["edges"].as_array().expect("overlay edges");
+        assert!(
+            !edges.iter().any(|edge| edge.get("edge_type") == Some(&json!("trailer_info"))),
+            "unresolved /Info reference must not emit a phantom edge"
+        );
+        let nodes = value["overlay"]["nodes"].as_array().expect("overlay nodes");
+        let trailer = nodes
+            .iter()
+            .find(|node| node.get("id") == Some(&json!("trailer.0")))
+            .expect("trailer node");
+        let unresolved = trailer["attrs"]["unresolved"].as_array().expect("unresolved list");
+        assert!(unresolved.iter().any(|entry| entry == "/Info"));
+    }
+
+    #[test]
+    fn graph_structure_overlay_startxref_miss_is_marked_without_section_edge() {
+        let bytes = build_pdf_with_oob_startxref();
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+
+        let result = execute_query_with_context(
+            &Query::ExportStructureOverlayJson,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("overlay query");
+        let value = match result {
+            QueryResult::Structure(value) => value,
+            other => panic!("unexpected overlay result: {:?}", other),
+        };
+        let nodes = value["overlay"]["nodes"].as_array().expect("overlay nodes");
+        let startxref = nodes
+            .iter()
+            .find(|node| node.get("id") == Some(&json!("startxref.0")))
+            .expect("startxref node");
+        assert_eq!(startxref["attrs"]["section_match"], json!(false));
+
+        let edges = value["overlay"]["edges"].as_array().expect("overlay edges");
+        assert!(
+            !edges.iter().any(|edge| {
+                edge.get("from") == Some(&json!("startxref.0"))
+                    && edge.get("edge_type") == Some(&json!("startxref_to_section"))
+            }),
+            "startxref miss must not emit section edge"
+        );
     }
 
     #[test]

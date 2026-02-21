@@ -60,6 +60,7 @@ pub mod scan;
 pub mod security_log;
 pub mod stream_analysis;
 pub mod stream_analyzer;
+pub mod structure_overlay;
 pub mod supply_chain;
 pub mod taint;
 pub mod temporal;

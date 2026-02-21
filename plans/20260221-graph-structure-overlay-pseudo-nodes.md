@@ -67,9 +67,35 @@ Committed implementation checkpoints:
 2. `2adeda0` `Add telemetry and signature overlay query variants`
 
 Still outstanding:
-1. Extract overlay builder into `crates/sis-pdf-core/src/structure_overlay.rs` (currently in `query.rs`).
-2. Add Info finding `structural_complexity_summary` in scan output path.
-3. Add performance budget gate listed below.
+1. No open implementation tasks in this plan stage.
+2. Optional follow-on hardening can continue in a new plan if additional overlay node typing
+   or schema normalisation is required beyond the current Definition-of-Done scope.
+
+Recent progress (this stage):
+1. Extracted overlay builder and data model into `crates/sis-pdf-core/src/structure_overlay.rs`.
+2. Added typed xref section kind conversion (`parse_xref_kind`) in the new core module.
+3. Updated `sis query` overlay paths to consume the core builder via
+   `StructureOverlayBuildOptions`, using `Default` + struct update syntax for telemetry variants.
+4. Added core unit coverage for xref kind parsing and re-validated key overlay query regressions.
+5. Added `structural_complexity_summary` Info finding emission in scan output, sourced from
+   overlay-derived structural stats.
+6. Added and validated Stage 2 performance gate test
+   `structure_overlay_p2_build_budget` (≤100 ms) on
+   `tests/fixtures/corpus_captured/modern-renderer-revision-8d42d425.pdf`.
+7. Wired suspicious trailer overlay edge marking to findings:
+   High/Critical finding object targets now set `suspicious: true` on
+   `trailer_root`, `trailer_info`, and `trailer_encrypt` edges.
+8. Ran full regression sweep successfully:
+   `cargo test -p sis-pdf-core -p sis-pdf`.
+9. Migrated overlay node attrs to a typed `OverlayNodeAttrs` enum in
+   `crates/sis-pdf-core/src/structure_overlay.rs` (removed untyped JSON attrs for nodes).
+10. Added fail-closed regression coverage for unresolved trailer refs and exact-offset
+    startxref misses in overlay query tests.
+11. Added explicit additive regression for ObjStm overlay behaviour by asserting typed-edge
+    summaries are preserved between baseline structure export and overlay export.
+12. Added per-node-kind DOT shapes/colours for overlay cluster rendering.
+13. Re-ran full regression sweep successfully after the typed attrs and overlay hardening work:
+    `cargo test -p sis-pdf-core -p sis-pdf`.
 
 ## Non-goals
 
@@ -792,23 +818,23 @@ Stage 3 gate:
 
 ## Definition of done
 
-- [ ] `structure_overlay.rs` module exists with typed `OverlayNodeAttrs` enum, no untyped attrs
-- [ ] `parse_xref_kind()` is the single conversion point for xref section kind strings
-- [ ] `file.root` pseudo-node is defined, included in inventory, and emitted in all overlays
-- [ ] Trailer key resolution is fail-closed: missing targets annotate the node, emit no phantom edge
-- [ ] `startxref → xref.section` match is exact-offset-only, with `section_match: false` on misses
+- [x] `structure_overlay.rs` module exists with typed `OverlayNodeAttrs` enum, no untyped attrs
+- [x] `parse_xref_kind()` is the single conversion point for xref section kind strings
+- [x] `file.root` pseudo-node is defined, included in inventory, and emitted in all overlays
+- [x] Trailer key resolution is fail-closed: missing targets annotate the node, emit no phantom edge
+- [x] `startxref → xref.section` match is exact-offset-only, with `section_match: false` on misses
 - [x] `// structure overlay:` DOT comment renamed to `// structure stats:` to remove naming collision
 - [x] Overlay delivered under `overlay:` key in JSON; absent (not null) when not requested
-- [ ] DOT overlay uses subgraph cluster with defined shapes/colours per node kind
+- [x] DOT overlay uses subgraph cluster with defined shapes/colours per node kind
 - [x] Edge direction follows parse order throughout; documented in `docs/query-overlay.md`
 - [x] `ExportStructureOverlayDot` and `ExportStructureOverlayJson` query variants registered
-- [ ] `suspicious: true` set on post-cert revision edges and edges to high/critical finding objects
-- [ ] `structural_complexity_summary` Info finding emitted during scans
+- [x] `suspicious: true` set on post-cert revision edges and edges to high/critical finding objects
+- [x] `structural_complexity_summary` Info finding emitted during scans
 - [x] Revision changed-object edges capped at 50 via named constant; `truncated` field accurate
 - [x] Detached objects enumerated in stats, capped at 100 via named constant
-- [ ] ObjStm overlay nodes are additive over existing `ObjStmReference` typed edges (both coexist)
+- [x] ObjStm overlay nodes are additive over existing `ObjStmReference` typed edges (both coexist)
 - [x] Committed baseline `graph.structure.json` snapshot for CVE fixture; byte-equality test passes
-- [ ] All Stage 1 tests listed above pass
-- [ ] All Stage 2 tests listed above pass; P2 build budget ≤ 100 ms
+- [x] All Stage 1 tests listed above pass
+- [x] All Stage 2 tests listed above pass; P2 build budget ≤ 100 ms
 - [x] `docs/query-overlay.md` covers all query names, node kinds, edge types, direction semantics
-- [ ] `cargo test -p sis-pdf-core -p sis-pdf` passes with no regressions
+- [x] `cargo test -p sis-pdf-core -p sis-pdf` passes with no regressions

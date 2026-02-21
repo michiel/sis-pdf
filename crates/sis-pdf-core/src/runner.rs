@@ -422,6 +422,7 @@ pub fn run_scan_with_detectors(
     escalate_declared_filter_invalid_with_context(&mut findings);
     recalibrate_findings_with_context(&mut findings);
     maybe_record_secondary_parser_prevalence_baseline(&mut findings);
+    findings.push(crate::structure_overlay::structural_complexity_summary_finding(&ctx));
 
     let font_findings = findings.iter().filter(|f| f.kind.starts_with("font.")).count();
     let js_findings = findings
