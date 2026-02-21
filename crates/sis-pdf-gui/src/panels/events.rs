@@ -1,12 +1,14 @@
 use crate::app::SisApp;
 use crate::event_view::{
     collect_unmapped_finding_event_signals, extract_event_view_models, EventViewModel,
+    UnmappedFindingEventSignal,
 };
+use sis_pdf_core::model::Finding;
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_events;
     let mut ws = app.window_max.remove("Events").unwrap_or_default();
-    let win = crate::window_state::dialog_window(ctx, "Events", [820.0, 520.0], &mut ws);
+    let win = crate::window_state::dialog_window(ctx, "Events", [900.0, 560.0], &mut ws);
     win.show(ctx, |ui| {
         crate::window_state::dialog_title_bar(ui, "Events", &mut open, &mut ws);
         show(ui, app);
@@ -35,7 +37,7 @@ fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         app.selected_event = None;
         ui.label("No event graph nodes detected.");
         if !unmapped.is_empty() {
-            show_unmapped_signals(ui, &unmapped);
+            show_unmapped_signals(ui, app, &unmapped);
         }
         return;
     }
@@ -55,7 +57,7 @@ fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     ui.separator();
 
     let available = ui.available_size();
-    let list_width = (available.x * 0.44).max(300.0).min(420.0);
+    let list_width = (available.x * 0.38).max(280.0).min(380.0);
 
     ui.horizontal(|ui| {
         ui.set_min_height(available.y);
@@ -65,14 +67,14 @@ fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             show_event_list(ui, app, &events);
             if !unmapped.is_empty() {
                 ui.separator();
-                show_unmapped_signals(ui, &unmapped);
+                show_unmapped_signals(ui, app, &unmapped);
             }
         });
 
         ui.separator();
 
         ui.vertical(|ui| {
-            show_event_details(ui, app, &events);
+            show_event_details(ui, app, &events, &findings);
         });
     });
 }
@@ -85,18 +87,25 @@ fn show_event_list(ui: &mut egui::Ui, app: &mut SisApp, events: &[EventViewModel
                 .source_object
                 .map(|(obj, generation)| format!("{obj} {generation}"))
                 .unwrap_or_else(|| "-".to_string());
-            let label = format!(
-                "{} [{}] {} ({source})",
-                event.event_type, event.trigger_class, event.node_id
-            );
-            if ui.selectable_label(selected, label).clicked() {
+            // Use the label when it is informative; fall back to event_type + source.
+            let display_label = if event.label.is_empty() {
+                format!("{} [{}] ({})", event.event_type, event.trigger_class, source)
+            } else {
+                format!("{} [{}]", event.label, event.trigger_class)
+            };
+            if ui.selectable_label(selected, display_label).clicked() {
                 app.selected_event = Some(event.node_id.clone());
             }
         }
     });
 }
 
-fn show_event_details(ui: &mut egui::Ui, app: &mut SisApp, events: &[EventViewModel]) {
+fn show_event_details(
+    ui: &mut egui::Ui,
+    app: &mut SisApp,
+    events: &[EventViewModel],
+    findings: &[Finding],
+) {
     let Some(node_id) = app.selected_event.as_ref() else {
         ui.label("Select an event node to inspect details.");
         return;
@@ -106,51 +115,202 @@ fn show_event_details(ui: &mut egui::Ui, app: &mut SisApp, events: &[EventViewMo
         return;
     };
 
-    ui.heading(&selected.event_type);
-    ui.label(format!("Node ID: {}", selected.node_id));
-    ui.label(format!("Trigger class: {}", selected.trigger_class));
-    match selected.source_object {
-        Some((obj, generation)) => {
-            ui.label(format!("Source object: {obj} {generation}"));
+    egui::ScrollArea::vertical().id_salt("events_detail").show(ui, |ui| {
+        // Heading: type and label.
+        ui.heading(&selected.event_type);
+        if !selected.label.is_empty() && selected.label != selected.event_type {
+            ui.label(
+                egui::RichText::new(&selected.label)
+                    .color(ui.visuals().weak_text_color())
+                    .italics(),
+            );
         }
-        None => {
-            ui.label("Source object: -");
+
+        // Per-type description.
+        let description = event_type_description(&selected.event_type);
+        if !description.is_empty() {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(description).weak());
+            ui.add_space(4.0);
         }
-    }
 
-    if let Some(event_key) = selected.event_key.as_deref() {
-        ui.label(format!("Event key: {event_key}"));
-    }
-    if let Some(initiation) = selected.initiation.as_deref() {
-        ui.label(format!("Initiation: {initiation}"));
-    }
-    if let Some(branch_index) = selected.branch_index {
-        ui.label(format!("Branch index: {branch_index}"));
-    }
+        ui.separator();
 
-    ui.separator();
-    ui.label(format!("Executes: {}", render_list(&selected.execute_targets)));
-    ui.label(format!("Outcomes: {}", render_list(&selected.outcome_targets)));
-    ui.label(format!("Linked findings: {}", render_list(&selected.linked_finding_ids)));
-}
+        // Core identity fields.
+        ui.label(
+            egui::RichText::new(format!("Node ID: {}", selected.node_id))
+                .color(ui.visuals().weak_text_color()),
+        );
+        ui.label(format!("Trigger class: {}", selected.trigger_class));
+        if let Some(event_key) = selected.event_key.as_deref() {
+            ui.label(format!("Event key: {event_key}"));
+        }
+        if let Some(initiation) = selected.initiation.as_deref() {
+            ui.label(format!("Initiation: {initiation}"));
+        }
+        if let Some(branch_index) = selected.branch_index {
+            ui.label(format!("Branch index: {branch_index}"));
+        }
 
-fn show_unmapped_signals(
-    ui: &mut egui::Ui,
-    unmapped: &[crate::event_view::UnmappedFindingEventSignal],
-) {
-    ui.strong(format!("Unmapped finding event signals ({})", unmapped.len()));
-    egui::ScrollArea::vertical().id_salt("events_unmapped").max_height(120.0).show(ui, |ui| {
-        for row in unmapped {
-            ui.label(format!("{} | {} | {}", row.finding_id, row.kind, row.title));
+        ui.add_space(6.0);
+
+        // Source object — clickable link to Object Inspector.
+        ui.horizontal(|ui| {
+            ui.strong("Source object:");
+            match selected.source_object {
+                Some((obj, gen)) => {
+                    if ui.link(format!("{obj} {gen}")).on_hover_text("Open in Object Inspector").clicked() {
+                        app.navigate_to_object(obj, gen);
+                        app.show_objects = true;
+                    }
+                }
+                None => {
+                    ui.weak("-");
+                }
+            }
+        });
+
+        // Execute targets — each resolved object ref is a clickable link.
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("Executes:");
+            if selected.execute_targets.is_empty() {
+                ui.weak("-");
+            } else {
+                for (node_id, obj_ref) in selected
+                    .execute_targets
+                    .iter()
+                    .zip(selected.execute_target_objects.iter())
+                {
+                    match obj_ref {
+                        Some((obj, gen)) => {
+                            if ui
+                                .link(format!("{obj} {gen}"))
+                                .on_hover_text(format!("Object Inspector: {node_id}"))
+                                .clicked()
+                            {
+                                app.navigate_to_object(*obj, *gen);
+                                app.show_objects = true;
+                            }
+                        }
+                        None => {
+                            ui.weak(node_id);
+                        }
+                    }
+                }
+            }
+        });
+
+        // Outcome nodes (node IDs only for now; not navigable objects).
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("Outcomes:");
+            if selected.outcome_targets.is_empty() {
+                ui.weak("-");
+            } else {
+                for t in &selected.outcome_targets {
+                    ui.weak(t);
+                }
+            }
+        });
+
+        ui.add_space(6.0);
+
+        // Linked findings — clickable links to the Finding Detail panel.
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("Linked findings:");
+            if selected.linked_finding_ids.is_empty() {
+                ui.weak("-");
+            } else {
+                for finding_id in &selected.linked_finding_ids {
+                    if let Some(idx) = findings.iter().position(|f| f.id == *finding_id) {
+                        let short_id = finding_id.get(..12).unwrap_or(finding_id);
+                        if ui
+                            .link(short_id)
+                            .on_hover_text(format!("{finding_id} — open in Finding Detail"))
+                            .clicked()
+                        {
+                            app.selected_finding = Some(idx);
+                        }
+                    } else {
+                        // Finding not in current report (should be rare).
+                        ui.weak(finding_id.get(..12).unwrap_or(finding_id));
+                    }
+                }
+            }
+        });
+
+        // MITRE techniques.
+        if !selected.mitre_techniques.is_empty() {
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("MITRE:");
+                for technique in &selected.mitre_techniques {
+                    ui.label(
+                        egui::RichText::new(technique)
+                            .monospace()
+                            .background_color(ui.visuals().extreme_bg_color),
+                    );
+                }
+            });
         }
     });
 }
 
-fn render_list(values: &[String]) -> String {
-    if values.is_empty() {
-        "-".to_string()
-    } else {
-        values.join(", ")
+fn show_unmapped_signals(
+    ui: &mut egui::Ui,
+    app: &mut SisApp,
+    unmapped: &[UnmappedFindingEventSignal],
+) {
+    ui.strong(format!("Unmapped finding event signals ({})", unmapped.len()));
+    egui::ScrollArea::vertical().id_salt("events_unmapped").max_height(140.0).show(ui, |ui| {
+        for row in unmapped {
+            let label = format!("{} — {}", row.kind, row.title);
+            if ui
+                .link(label)
+                .on_hover_text(format!("{} — open in Finding Detail", row.finding_id))
+                .clicked()
+            {
+                app.selected_finding = Some(row.finding_idx);
+            }
+        }
+    });
+}
+
+/// Returns a brief static description for the given event type (Debug-format string).
+fn event_type_description(event_type: &str) -> &'static str {
+    match event_type {
+        "ContentStreamExec" => {
+            "A page content stream is being executed by the reader. The source object is the \
+             originating page; the execute target is the stream object containing PDF drawing \
+             operators. Content streams are the primary rendering mechanism and are also used to \
+             carry obfuscated payloads, shellcode, and embedded JavaScript."
+        }
+        "DocumentOpen" => "Triggered when the document is first opened by the reader.",
+        "DocumentWillClose" => "Triggered just before the document is closed.",
+        "DocumentWillSave" => "Triggered just before the document is saved.",
+        "DocumentDidSave" => "Triggered after the document has been saved.",
+        "DocumentWillPrint" => "Triggered just before the document is printed.",
+        "DocumentDidPrint" => "Triggered after the document has been printed.",
+        "PageOpen" => "Triggered when a page is displayed to the user.",
+        "PageClose" => "Triggered when the user navigates away from a page.",
+        "PageVisible" => "Triggered when a page becomes visible in the viewport.",
+        "PageInvisible" => "Triggered when a page leaves the viewport.",
+        "FieldKeystroke" => "Triggered on each keystroke in a form field.",
+        "FieldFormat" => "Triggered when a form field value is formatted for display.",
+        "FieldValidate" => "Triggered when a form field value is validated.",
+        "FieldCalculate" => "Triggered to recalculate a dependent form field value.",
+        "FieldMouseDown" | "FieldMouseUp" | "FieldMouseEnter" | "FieldMouseExit"
+        | "FieldOnFocus" | "FieldOnBlur" | "FieldActivation" => {
+            "Triggered by user interaction with a form field."
+        }
+        "AnnotationActivation" => {
+            "Triggered when the user activates an annotation (e.g. clicks a link or button)."
+        }
+        "NextAction" => "A chained action following a prior action in an action sequence.",
+        "JsTimerDelayed" => {
+            "A JavaScript timer-based delayed execution. Used by malware to defer payload \
+             execution until after initial scan analysis windows."
+        }
+        _ => "",
     }
 }
 
@@ -160,9 +320,15 @@ mod tests {
     use crate::event_view::EventViewModel;
 
     #[test]
-    fn render_list_handles_empty_and_non_empty() {
-        assert_eq!(render_list(&[]), "-");
-        assert_eq!(render_list(&["a".to_string(), "b".to_string()]), "a, b");
+    fn event_type_description_returns_non_empty_for_known_types() {
+        assert!(!event_type_description("ContentStreamExec").is_empty());
+        assert!(!event_type_description("DocumentOpen").is_empty());
+        assert!(!event_type_description("JsTimerDelayed").is_empty());
+    }
+
+    #[test]
+    fn event_type_description_returns_empty_for_unknown_type() {
+        assert_eq!(event_type_description("UnknownType"), "");
     }
 
     #[test]
@@ -172,12 +338,7 @@ mod tests {
             event_type: "DocumentOpen".to_string(),
             trigger_class: "automatic".to_string(),
             source_object: Some((1, 0)),
-            execute_targets: Vec::new(),
-            outcome_targets: Vec::new(),
-            linked_finding_ids: Vec::new(),
-            event_key: None,
-            initiation: None,
-            branch_index: None,
+            ..EventViewModel::default()
         };
         assert_eq!(event.node_id, "ev:1");
     }
