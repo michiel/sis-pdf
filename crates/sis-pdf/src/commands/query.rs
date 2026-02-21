@@ -10495,6 +10495,32 @@ mod tests {
     }
 
     #[test]
+    fn baseline_structure_json_unchanged_without_overlay() {
+        with_fixture_context("actions/launch_cve_2010_1240.pdf", |ctx| {
+            let result = execute_query_with_context(
+                &Query::ExportStructureJson,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("structure query");
+            let value = match result {
+                QueryResult::Structure(value) => value,
+                other => panic!("unexpected structure result: {:?}", other),
+            };
+            let rendered = format!(
+                "{}\n",
+                serde_json::to_string_pretty(&value).expect("render structure json")
+            );
+            let expected =
+                include_str!("query/snapshots/graph_structure_launch_cve_2010_1240.json");
+            assert_eq!(rendered, expected);
+        });
+    }
+
+    #[test]
     fn graph_structure_overlay_json_exposes_trailer_links() {
         let bytes = build_pdf_with_info_trailer();
         let options = ScanOptions::default();

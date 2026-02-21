@@ -57,6 +57,10 @@ Completed in repository:
      - `graph.structure.overlay.telemetry.dot`
      - `graph.structure.overlay.telemetry.json`
    - Added `telemetry.*` and `signature.*` pseudo nodes only for telemetry overlay variants.
+4. Baseline + documentation hardening:
+   - Added committed baseline snapshot file for `graph.structure.json` (CVE fixture).
+   - Added byte-equality regression test `baseline_structure_json_unchanged_without_overlay`.
+   - Added `docs/query-overlay.md` and linked structure overlay usage from `docs/query-interface.md`.
 
 Committed implementation checkpoints:
 1. `30ade8e` `Add structure overlay graph queries and pseudo nodes`
@@ -65,8 +69,7 @@ Committed implementation checkpoints:
 Still outstanding:
 1. Extract overlay builder into `crates/sis-pdf-core/src/structure_overlay.rs` (currently in `query.rs`).
 2. Add Info finding `structural_complexity_summary` in scan output path.
-3. Add docs page (`docs/query-overlay.md`) with schema + semantics.
-4. Add baseline snapshot test and performance budget gate listed below.
+3. Add performance budget gate listed below.
 
 ## Non-goals
 
@@ -794,18 +797,18 @@ Stage 3 gate:
 - [ ] `file.root` pseudo-node is defined, included in inventory, and emitted in all overlays
 - [ ] Trailer key resolution is fail-closed: missing targets annotate the node, emit no phantom edge
 - [ ] `startxref → xref.section` match is exact-offset-only, with `section_match: false` on misses
-- [ ] `// structure overlay:` DOT comment renamed to `// structure stats:` to remove naming collision
-- [ ] Overlay delivered under `overlay:` key in JSON; absent (not null) when not requested
+- [x] `// structure overlay:` DOT comment renamed to `// structure stats:` to remove naming collision
+- [x] Overlay delivered under `overlay:` key in JSON; absent (not null) when not requested
 - [ ] DOT overlay uses subgraph cluster with defined shapes/colours per node kind
-- [ ] Edge direction follows parse order throughout; documented in `docs/query-overlay.md`
-- [ ] `ExportStructureOverlayDot` and `ExportStructureOverlayJson` query variants registered
+- [x] Edge direction follows parse order throughout; documented in `docs/query-overlay.md`
+- [x] `ExportStructureOverlayDot` and `ExportStructureOverlayJson` query variants registered
 - [ ] `suspicious: true` set on post-cert revision edges and edges to high/critical finding objects
 - [ ] `structural_complexity_summary` Info finding emitted during scans
-- [ ] Revision changed-object edges capped at 50 via named constant; `truncated` field accurate
-- [ ] Detached objects enumerated in stats, capped at 100 via named constant
+- [x] Revision changed-object edges capped at 50 via named constant; `truncated` field accurate
+- [x] Detached objects enumerated in stats, capped at 100 via named constant
 - [ ] ObjStm overlay nodes are additive over existing `ObjStmReference` typed edges (both coexist)
-- [ ] Committed baseline `graph.structure.json` snapshot for CVE fixture; byte-equality test passes
+- [x] Committed baseline `graph.structure.json` snapshot for CVE fixture; byte-equality test passes
 - [ ] All Stage 1 tests listed above pass
 - [ ] All Stage 2 tests listed above pass; P2 build budget ≤ 100 ms
-- [ ] `docs/query-overlay.md` covers all query names, node kinds, edge types, direction semantics
+- [x] `docs/query-overlay.md` covers all query names, node kinds, edge types, direction semantics
 - [ ] `cargo test -p sis-pdf-core -p sis-pdf` passes with no regressions

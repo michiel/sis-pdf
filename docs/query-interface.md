@@ -95,6 +95,24 @@ sis query sample.pdf revisions
 - `xref.deviations` exposes xref parser deviations (for example trailer-search issues).
 - `revisions` provides revision-oriented records derived from startxref/trailer state.
 
+## Structure overlay queries
+
+Use structure overlay queries when you need trailer/xref/startxref/revision provenance in the
+same graph output without changing baseline `graph.structure` behaviour:
+
+```bash
+sis query sample.pdf graph.structure.overlay.json
+sis query sample.pdf graph.structure.overlay.dot
+sis query sample.pdf graph.structure.overlay.telemetry.json
+```
+
+- `graph.structure.overlay*` includes pseudo nodes/edges for trailer, xref/startxref,
+  revisions, ObjStm provenance, carved-stream provenance, and detached-object stats.
+- `graph.structure.overlay.telemetry*` additionally includes parser telemetry and signature
+  pseudo nodes.
+
+See `docs/query-overlay.md` for full node/edge schema and stats fields.
+
 ## Canonical diff
 
 ```bash

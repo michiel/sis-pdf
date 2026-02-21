@@ -1,0 +1,108 @@
+{
+  "action_paths": {
+    "automatic_chains": 1,
+    "external_chains": 0,
+    "js_chains": 0,
+    "max_chain_length": 1,
+    "multi_step_chains": 0,
+    "total_chains": 1
+  },
+  "org": {
+    "edges": [
+      {
+        "from": "1 0",
+        "suspicious": true,
+        "to": "3 0",
+        "type": "open_action"
+      },
+      {
+        "from": "1 0",
+        "suspicious": false,
+        "to": "2 0",
+        "type": "pages_kids"
+      },
+      {
+        "from": "2 0",
+        "suspicious": false,
+        "to": "4 0",
+        "type": "pages_kids"
+      },
+      {
+        "from": "4 0",
+        "suspicious": false,
+        "to": "2 0",
+        "type": "page_parent"
+      }
+    ],
+    "enhanced": true,
+    "nodes": [
+      {
+        "gen": 0,
+        "id": "1 0",
+        "obj": 1,
+        "roles": [],
+        "type": "Catalog"
+      },
+      {
+        "gen": 0,
+        "id": "2 0",
+        "obj": 2,
+        "roles": [],
+        "type": "Pages"
+      },
+      {
+        "gen": 0,
+        "id": "3 0",
+        "obj": 3,
+        "roles": [
+          "LaunchTarget"
+        ],
+        "type": "Action"
+      },
+      {
+        "gen": 0,
+        "id": "4 0",
+        "obj": 4,
+        "roles": [],
+        "type": "Page"
+      }
+    ]
+  },
+  "path_helpers": {
+    "max_depth": 8,
+    "next_action_branches": [],
+    "paths_to_outcome": [],
+    "reachable_from_trigger": [
+      {
+        "chain_count": 1,
+        "reachable_nodes": 3,
+        "trigger": "open_action"
+      }
+    ]
+  },
+  "type": "structure_graph",
+  "typed_edges": {
+    "by_type": [
+      {
+        "count": 1,
+        "edge_type": "open_action",
+        "executable": 1,
+        "suspicious": 1
+      },
+      {
+        "count": 1,
+        "edge_type": "page_parent",
+        "executable": 0,
+        "suspicious": 0
+      },
+      {
+        "count": 2,
+        "edge_type": "pages_kids",
+        "executable": 0,
+        "suspicious": 0
+      }
+    ],
+    "suspicious_edges": 1,
+    "total_edges": 4
+  }
+}
