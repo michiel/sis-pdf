@@ -1,7 +1,7 @@
 use crate::analysis::AnalysisResult;
-use crate::annotations::AnnotationStore;
 use crate::app::{
-    ChainSortColumn, HexViewState, ImagePreviewDialogState, SeverityFilters, SortState,
+    ChainSortColumn, EventGraphCache, HexViewState, ImagePreviewDialogState, SeverityFilters,
+    SortState,
 };
 use crate::panels::graph::GraphViewerState;
 use crate::query::QueryOutput;
@@ -26,7 +26,7 @@ pub struct WorkspaceContext {
     pub show_image_preview: bool,
     pub show_hex: bool,
     pub selected_object: Option<(u32, u16)>,
-    pub selected_event: Option<usize>,
+    pub selected_event: Option<String>,
     pub image_preview_state: ImagePreviewDialogState,
     pub object_type_filter: Option<String>,
     pub object_nav_stack: Vec<(u32, u16)>,
@@ -54,6 +54,5 @@ pub struct WorkspaceContext {
     pub selected_chain: Option<usize>,
     pub include_singleton_chains: bool,
     pub active_file_path: Option<PathBuf>,
-    pub annotations: AnnotationStore,
-    pub annotation_edit_finding: Option<String>,
+    pub event_graph_cache: Option<EventGraphCache>,
 }

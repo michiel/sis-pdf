@@ -1,10 +1,12 @@
 use crate::app::SisApp;
-use sis_pdf_core::model::{Confidence, Finding, Severity};
+use crate::event_view::{
+    collect_unmapped_finding_event_signals, extract_event_view_models, EventViewModel,
+};
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_events;
     let mut ws = app.window_max.remove("Events").unwrap_or_default();
-    let win = crate::window_state::dialog_window(ctx, "Events", [780.0, 500.0], &mut ws);
+    let win = crate::window_state::dialog_window(ctx, "Events", [820.0, 520.0], &mut ws);
     win.show(ctx, |ui| {
         crate::window_state::dialog_title_bar(ui, "Events", &mut open, &mut ws);
         show(ui, app);
@@ -14,28 +16,46 @@ pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
 }
 
 fn show(ui: &mut egui::Ui, app: &mut SisApp) {
-    let events = {
-        let Some(result) = app.result.as_ref() else {
+    let findings =
+        app.result.as_ref().map(|result| result.report.findings.clone()).unwrap_or_default();
+    if findings.is_empty() && app.result.is_none() {
+        return;
+    }
+    let event_graph = match app.cached_event_graph() {
+        Ok(graph) => graph,
+        Err(err) => {
+            ui.colored_label(egui::Color32::RED, format!("Unable to build event graph: {err}"));
             return;
-        };
-        collect_events(&result.report.findings)
+        }
     };
+    let events = extract_event_view_models(event_graph);
+    let unmapped = collect_unmapped_finding_event_signals(&findings, &events);
 
     if events.is_empty() {
         app.selected_event = None;
-        ui.label("No event signals detected.");
+        ui.label("No event graph nodes detected.");
+        if !unmapped.is_empty() {
+            show_unmapped_signals(ui, &unmapped);
+        }
         return;
     }
 
-    if app.selected_event.map(|idx| idx >= events.len()).unwrap_or(true) {
-        app.selected_event = Some(0);
+    if app
+        .selected_event
+        .as_ref()
+        .map(|node_id| events.iter().any(|event| &event.node_id == node_id))
+        .unwrap_or(false)
+    {
+        // current selection still valid
+    } else {
+        app.selected_event = Some(events[0].node_id.clone());
     }
 
-    ui.label(format!("{} event signal(s)", events.len()));
+    ui.label(format!("{} event node(s)", events.len()));
     ui.separator();
 
     let available = ui.available_size();
-    let list_width = (available.x * 0.42).max(260.0).min(380.0);
+    let list_width = (available.x * 0.44).max(300.0).min(420.0);
 
     ui.horizontal(|ui| {
         ui.set_min_height(available.y);
@@ -43,6 +63,10 @@ fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         ui.vertical(|ui| {
             ui.set_width(list_width);
             show_event_list(ui, app, &events);
+            if !unmapped.is_empty() {
+                ui.separator();
+                show_unmapped_signals(ui, &unmapped);
+            }
         });
 
         ui.separator();
@@ -53,229 +77,108 @@ fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     });
 }
 
-fn show_event_list(ui: &mut egui::Ui, app: &mut SisApp, events: &[EventEntry]) {
+fn show_event_list(ui: &mut egui::Ui, app: &mut SisApp, events: &[EventViewModel]) {
     egui::ScrollArea::vertical().id_salt("events_list").show(ui, |ui| {
-        for (idx, event) in events.iter().enumerate() {
-            let selected = app.selected_event == Some(idx);
+        for event in events {
+            let selected = app.selected_event.as_deref() == Some(event.node_id.as_str());
+            let source = event
+                .source_object
+                .map(|(obj, generation)| format!("{obj} {generation}"))
+                .unwrap_or_else(|| "-".to_string());
             let label = format!(
-                "{} [{}] {} ({})",
-                event.event_label,
-                event.initiation,
-                event.kind,
-                severity_label(event.severity)
+                "{} [{}] {} ({source})",
+                event.event_type, event.trigger_class, event.node_id
             );
             if ui.selectable_label(selected, label).clicked() {
-                app.selected_event = Some(idx);
+                app.selected_event = Some(event.node_id.clone());
             }
         }
     });
 }
 
-fn show_event_details(ui: &mut egui::Ui, app: &mut SisApp, events: &[EventEntry]) {
-    let Some(selected) = app.selected_event.and_then(|idx| events.get(idx)) else {
-        ui.label("Select an event to inspect details.");
+fn show_event_details(ui: &mut egui::Ui, app: &mut SisApp, events: &[EventViewModel]) {
+    let Some(node_id) = app.selected_event.as_ref() else {
+        ui.label("Select an event node to inspect details.");
+        return;
+    };
+    let Some(selected) = events.iter().find(|event| &event.node_id == node_id) else {
+        ui.label("Select an event node to inspect details.");
         return;
     };
 
-    ui.heading(&selected.event_label);
-    ui.label(format!("Finding ID: {}", selected.finding_id));
-    ui.label(format!("Kind: {}", selected.kind));
-    ui.label(format!("Severity: {}", severity_label(selected.severity)));
-    ui.label(format!("Confidence: {}", confidence_label(selected.confidence)));
-    ui.label(format!("Initiation: {}", selected.initiation));
-    if let Some(value) = selected.trigger_event_normalised.as_deref() {
-        ui.label(format!("Trigger event (normalised): {value}"));
+    ui.heading(&selected.event_type);
+    ui.label(format!("Node ID: {}", selected.node_id));
+    ui.label(format!("Trigger class: {}", selected.trigger_class));
+    match selected.source_object {
+        Some((obj, generation)) => {
+            ui.label(format!("Source object: {obj} {generation}"));
+        }
+        None => {
+            ui.label("Source object: -");
+        }
     }
-    if let Some(value) = selected.trigger_event.as_deref() {
-        ui.label(format!("Trigger event (raw): {value}"));
+
+    if let Some(event_key) = selected.event_key.as_deref() {
+        ui.label(format!("Event key: {event_key}"));
     }
-    if let Some(value) = selected.trigger_context.as_deref() {
-        ui.label(format!("Trigger context: {value}"));
+    if let Some(initiation) = selected.initiation.as_deref() {
+        ui.label(format!("Initiation: {initiation}"));
     }
-    if let Some(value) = selected.trigger_surface.as_deref() {
-        ui.label(format!("Trigger surface: {value}"));
-    }
-    if let Some(value) = selected.action_type.as_deref() {
-        ui.label(format!("Action type: {value}"));
-    }
-    if let Some(value) = selected.action_target.as_deref() {
-        ui.label(format!("Action target: {value}"));
-    }
-    if !selected.objects.is_empty() {
-        ui.label(format!("Objects: {}", selected.objects.join(", ")));
+    if let Some(branch_index) = selected.branch_index {
+        ui.label(format!("Branch index: {branch_index}"));
     }
 
     ui.separator();
-    ui.label("Description");
-    ui.label(&selected.description);
+    ui.label(format!("Executes: {}", render_list(&selected.execute_targets)));
+    ui.label(format!("Outcomes: {}", render_list(&selected.outcome_targets)));
+    ui.label(format!("Linked findings: {}", render_list(&selected.linked_finding_ids)));
+}
 
-    ui.separator();
-    ui.label("Metadata");
-    egui::ScrollArea::vertical().id_salt("events_metadata").show(ui, |ui| {
-        for (key, value) in &selected.metadata {
-            ui.horizontal_wrapped(|ui| {
-                ui.monospace(format!("{key}:"));
-                ui.label(value);
-            });
+fn show_unmapped_signals(
+    ui: &mut egui::Ui,
+    unmapped: &[crate::event_view::UnmappedFindingEventSignal],
+) {
+    ui.strong(format!("Unmapped finding event signals ({})", unmapped.len()));
+    egui::ScrollArea::vertical().id_salt("events_unmapped").max_height(120.0).show(ui, |ui| {
+        for row in unmapped {
+            ui.label(format!("{} | {} | {}", row.finding_id, row.kind, row.title));
         }
     });
 }
 
-#[derive(Clone)]
-struct EventEntry {
-    finding_id: String,
-    kind: String,
-    severity: Severity,
-    confidence: Confidence,
-    initiation: String,
-    event_label: String,
-    trigger_event: Option<String>,
-    trigger_event_normalised: Option<String>,
-    trigger_context: Option<String>,
-    trigger_surface: Option<String>,
-    action_type: Option<String>,
-    action_target: Option<String>,
-    objects: Vec<String>,
-    description: String,
-    metadata: Vec<(String, String)>,
-}
-
-fn collect_events(findings: &[Finding]) -> Vec<EventEntry> {
-    let mut events = Vec::new();
-    for finding in findings {
-        if !finding_has_event_signal(finding) {
-            continue;
-        }
-        let trigger_event_normalised = finding.meta.get("action.trigger_event_normalised").cloned();
-        let trigger_event = finding.meta.get("action.trigger_event").cloned();
-        let event_key = finding.meta.get("action.event_key").cloned();
-        let action_type_meta = finding.meta.get("action.s").cloned();
-        let action_type = finding.action_type.clone().or(action_type_meta);
-        let action_target = finding
-            .action_target
-            .clone()
-            .or_else(|| finding.meta.get("action.target").cloned())
-            .or_else(|| finding.meta.get("uri").cloned());
-        let trigger_context = finding
-            .meta
-            .get("action.trigger_context")
-            .cloned()
-            .or_else(|| finding.meta.get("annot.trigger_context").cloned());
-        let trigger_surface = finding.meta.get("action.trigger_surface").cloned();
-        let initiation = finding
-            .meta
-            .get("action.initiation")
-            .cloned()
-            .or_else(|| finding.meta.get("action.trigger_type").cloned())
-            .or_else(|| finding.action_initiation.clone())
-            .unwrap_or_else(|| "unknown".to_string());
-        let event_label = trigger_event_normalised
-            .clone()
-            .or(trigger_event.clone())
-            .or(event_key)
-            .or(action_type.clone())
-            .unwrap_or_else(|| finding.kind.clone());
-        let mut metadata =
-            finding.meta.iter().map(|(k, v)| (k.clone(), v.clone())).collect::<Vec<_>>();
-        metadata.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
-
-        events.push(EventEntry {
-            finding_id: finding.id.clone(),
-            kind: finding.kind.clone(),
-            severity: finding.severity,
-            confidence: finding.confidence,
-            initiation,
-            event_label,
-            trigger_event,
-            trigger_event_normalised,
-            trigger_context,
-            trigger_surface,
-            action_type,
-            action_target,
-            objects: finding.objects.clone(),
-            description: finding.description.clone(),
-            metadata,
-        });
+fn render_list(values: &[String]) -> String {
+    if values.is_empty() {
+        "-".to_string()
+    } else {
+        values.join(", ")
     }
-    events
-}
-
-fn finding_has_event_signal(finding: &Finding) -> bool {
-    finding.meta.contains_key("action.trigger_event_normalised")
-        || finding.meta.contains_key("action.trigger_event")
-        || finding.meta.contains_key("action.event_key")
-        || finding.meta.contains_key("action.trigger_type")
-        || finding.meta.contains_key("action.trigger_context")
-        || finding.meta.contains_key("action.trigger_surface")
-        || finding.meta.contains_key("action.initiation")
-        || finding.meta.contains_key("annot.trigger_context")
-        || finding.action_initiation.is_some()
-        || finding.action_type.is_some()
-        || finding.action_target.is_some()
-}
-
-fn severity_label(severity: Severity) -> &'static str {
-    match severity {
-        Severity::Info => "info",
-        Severity::Low => "low",
-        Severity::Medium => "medium",
-        Severity::High => "high",
-        Severity::Critical => "critical",
-    }
-}
-
-fn confidence_label(confidence: Confidence) -> &'static str {
-    confidence.as_str()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sis_pdf_core::model::{AttackSurface, Finding};
-    use std::collections::HashMap;
+    use crate::event_view::EventViewModel;
 
     #[test]
-    fn collect_events_extracts_trigger_metadata() {
-        let mut meta = HashMap::new();
-        meta.insert("action.trigger_event_normalised".to_string(), "/open".to_string());
-        meta.insert("action.trigger_event".to_string(), "OpenAction".to_string());
-        meta.insert("action.trigger_type".to_string(), "automatic".to_string());
-        meta.insert("action.trigger_context".to_string(), "document".to_string());
-        meta.insert("action.initiation".to_string(), "automatic".to_string());
-        let finding = Finding {
-            id: "f-1".to_string(),
-            surface: AttackSurface::Actions,
-            kind: "action_automatic_trigger".to_string(),
-            severity: Severity::High,
-            confidence: Confidence::Strong,
-            title: "Automatic trigger".to_string(),
-            description: "Triggered on open".to_string(),
-            objects: vec!["1 0 R".to_string()],
-            meta,
-            ..Finding::default()
-        };
-
-        let events = collect_events(&[finding]);
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_label, "/open");
-        assert_eq!(events[0].initiation, "automatic");
-        assert_eq!(events[0].trigger_context.as_deref(), Some("document"));
+    fn render_list_handles_empty_and_non_empty() {
+        assert_eq!(render_list(&[]), "-");
+        assert_eq!(render_list(&["a".to_string(), "b".to_string()]), "a, b");
     }
 
     #[test]
-    fn collect_events_ignores_findings_without_event_signals() {
-        let finding = Finding {
-            id: "f-2".to_string(),
-            surface: AttackSurface::Metadata,
-            kind: "metadata_mismatch".to_string(),
-            severity: Severity::Low,
-            confidence: Confidence::Probable,
-            title: "Metadata".to_string(),
-            description: "No action signals".to_string(),
-            ..Finding::default()
+    fn node_id_selection_matches_row() {
+        let event = EventViewModel {
+            node_id: "ev:1".to_string(),
+            event_type: "DocumentOpen".to_string(),
+            trigger_class: "automatic".to_string(),
+            source_object: Some((1, 0)),
+            execute_targets: Vec::new(),
+            outcome_targets: Vec::new(),
+            linked_finding_ids: Vec::new(),
+            event_key: None,
+            initiation: None,
+            branch_index: None,
         };
-
-        let events = collect_events(&[finding]);
-        assert!(events.is_empty());
+        assert_eq!(event.node_id, "ev:1");
     }
 }

@@ -90,7 +90,7 @@ As of 2026-01-08, sis-pdf includes enhanced payload reconstruction capabilities 
   - `array too large: 1234 elements (max 1000)` - Array size limit exceeded
   - `array payload reconstruction failed: ...` - Array reconstruction error
 
-### Action & Reader Telemetry Fields
+### Action Telemetry Fields
 
 **impact**
 - Values: `critical`, `high`, `medium`, `low`, `none`.
@@ -109,22 +109,6 @@ As of 2026-01-08, sis-pdf includes enhanced payload reconstruction capabilities 
 **action_initiation**
 - Values: `automatic`, `user`, `hidden`, `deep`.
 - Meaning: Describes whether the action fires automatically on open, requires user interaction, or is hidden.
-
-**reader_impacts**
-- Values: An array of reader-scored entries with keys `profile`, `surface`, `severity`, `impact`, and optional `note`.
-- Meaning: Details how severity and impact shift for each supported reader (`acrobat`, `pdfium`, `preview`).
-- Example: `[{ "profile": "preview", "surface": "Actions", "severity": "low", "impact": "low", "note": "Severity capped for preview limits" }]`.
-- Notes:
-  - `surface` is repeated for clarity even though the finding already declares it.
-  - `note` appears whenever the reader-specific score diverges from the base severity.
-
-**reader.impact.<profile>**
-- Values: `info`, `low`, `medium`, `high`, `critical`.
-- Meaning: Mirrors each reader's severity bucket and is populated for the same profiles above.
-
-**reader.impact.summary**
-- Values: A comma-separated string of `<profile>:<severity>/<impact>` pairs (e.g., `acrobat:critical/critical,pdfium:low/low`).
-- Meaning: Quick reference for analyst workflows that only need a textual summary of reader divergence.
 
 ### Evasion Techniques Detected
 
@@ -998,7 +982,7 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `renderer.profile=pdfjs`
     - `renderer.precondition=pdfjs_font_parse_path_reachable`
     - `chain.stage=render`, `chain.capability=font_renderer_injection`, `chain.trigger=pdfjs`
-    - `reader_impacts`: includes browser-oriented impact notes.
+    - reader-specific impact arrays are no longer emitted.
 
 ## pdfjs_annotation_injection
 

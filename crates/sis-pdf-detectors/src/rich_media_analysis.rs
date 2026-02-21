@@ -160,8 +160,6 @@ impl Detector for RichMediaContentDetector {
                         .into(),
                 ),
                 meta: meta.clone(),
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -192,8 +190,6 @@ impl Detector for RichMediaContentDetector {
                     evidence: action_evidence,
                     remediation: Some("Review the ActionScript tags for malicious logic.".into()),
                     meta: action_meta,
-
-                    reader_impacts: Vec::new(),
                     action_type: None,
                     action_target: None,
                     action_initiation: None,
@@ -455,7 +451,6 @@ fn analyse_3d_stream(
                 .into(),
         ),
         meta: meta.clone(),
-        reader_impacts: Vec::new(),
         action_type: None,
         action_target: None,
         action_initiation: None,
@@ -491,7 +486,6 @@ fn analyse_3d_stream(
                     .into(),
             ),
             meta: risk_meta,
-            reader_impacts: Vec::new(),
             action_type: None,
             action_target: None,
             action_initiation: None,

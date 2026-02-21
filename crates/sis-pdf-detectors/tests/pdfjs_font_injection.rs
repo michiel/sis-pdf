@@ -78,7 +78,10 @@ fn detects_pdfjs_fontmatrix_injection_signal() {
         Some("pdfjs_font_parse_path_reachable")
     );
     assert_eq!(finding.meta.get("font.subtype").map(String::as_str), Some("/Type1"));
-    assert!(!finding.reader_impacts.is_empty());
+    assert!(
+        !finding.meta.contains_key("reader.impact.summary"),
+        "reader impact enrichment metadata should not be emitted"
+    );
 }
 
 #[test]

@@ -118,8 +118,6 @@ impl Detector for EncryptionObfuscationDetector {
                         .build(),
                     remediation: Some("Inspect stream content for hidden payloads.".into()),
                     meta: meta.clone(),
-
-                    reader_impacts: Vec::new(),
                     action_type: None,
                     action_target: None,
                     action_initiation: None,

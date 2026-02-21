@@ -76,7 +76,6 @@ impl Detector for XrefTrailerSearchDetector {
                         .into(),
                 ),
                 meta,
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,

@@ -118,7 +118,6 @@ impl Detector for ObjStmSummaryDetector {
                             evidence: vec![span_to_evidence(st.dict.span, "ObjStm dictionary")],
                             remediation: Some("Reconcile header table with declared count.".into()),
                             meta: mismatch_meta,
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,

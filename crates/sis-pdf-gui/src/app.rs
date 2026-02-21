@@ -1,5 +1,6 @@
-use crate::analysis::{AnalysisError, AnalysisResult, WorkerAnalysisResult};
-use crate::annotations::{sha256_hex, AnnotationStore};
+#[cfg(target_arch = "wasm32")]
+use crate::analysis::WorkerAnalysisResult;
+use crate::analysis::{AnalysisError, AnalysisResult};
 use crate::image_preview::{build_preview_for_object, ImagePreviewStatus, PreviewLimits};
 use crate::preview_cache::PreviewCache;
 use crate::telemetry::TelemetryLog;
@@ -41,8 +42,8 @@ pub struct SisApp {
     pub show_image_preview: bool,
     /// Currently selected object in the Object Inspector.
     pub selected_object: Option<(u32, u16)>,
-    /// Index of the currently selected event in the Events dialog.
-    pub selected_event: Option<usize>,
+    /// Node ID of the currently selected event in the Events dialog.
+    pub selected_event: Option<String>,
     /// Image preview dialog state.
     pub image_preview_state: ImagePreviewDialogState,
     /// Type filter for the Object Inspector list.
@@ -97,14 +98,12 @@ pub struct SisApp {
     pub include_singleton_chains: bool,
     /// Cached event-graph state for finding detail path rendering.
     pub finding_detail_graph_cache: Option<FindingDetailGraphCache>,
-    /// Active native file path for sidecar annotation persistence.
+    /// Cached event graph for the active document.
+    pub event_graph_cache: Option<EventGraphCache>,
+    /// Active native file path.
     pub active_file_path: Option<PathBuf>,
     /// Pending file path for the next analysis transition.
     pub pending_file_path: Option<PathBuf>,
-    /// Analyst annotations for the active document.
-    pub annotations: AnnotationStore,
-    /// Finding id currently being edited for annotations.
-    pub annotation_edit_finding: Option<String>,
 
     // --- Multi-tab state ---
     /// Inactive workspaces (all tabs except the active one).
@@ -179,6 +178,13 @@ pub struct FindingDetailGraphCache {
     pub findings_hash: u64,
     pub event_graph: EventGraph,
     pub finding_paths: HashMap<String, Vec<String>>,
+}
+
+pub struct EventGraphCache {
+    pub file_name: String,
+    pub file_size: usize,
+    pub findings_hash: u64,
+    pub event_graph: EventGraph,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -335,10 +341,9 @@ impl SisApp {
             selected_chain: None,
             include_singleton_chains: false,
             finding_detail_graph_cache: None,
+            event_graph_cache: None,
             active_file_path: None,
             pending_file_path: None,
-            annotations: AnnotationStore::default(),
-            annotation_edit_finding: None,
             inactive_workspaces: Vec::new(),
             active_tab: 0,
             tab_count: 0,
@@ -426,7 +431,6 @@ impl SisApp {
         // Set up the new workspace as active
         self.active_tab_name = result.file_name.clone();
         self.active_file_path = self.pending_file_path.take();
-        self.annotations = AnnotationStore::default();
         self.result = Some(result);
         self.selected_finding = None;
         self.selected_object = None;
@@ -454,7 +458,7 @@ impl SisApp {
         self.selected_chain = None;
         self.include_singleton_chains = false;
         self.finding_detail_graph_cache = None;
-        self.annotation_edit_finding = None;
+        self.event_graph_cache = None;
         self.selected_event = None;
         self.severity_filters = SeverityFilters::default();
         self.sort = SortState::default();
@@ -466,11 +470,40 @@ impl SisApp {
         self.chain_sort_column = ChainSortColumn::default();
         self.chain_sort_ascending = false;
         self.command_history_pos = None;
-        self.load_annotations_for_active_result();
 
         // Active tab is the last one
         self.active_tab = self.inactive_workspaces.len();
         self.tab_count = self.inactive_workspaces.len() + 1;
+    }
+
+    pub fn cached_event_graph(&mut self) -> Result<&EventGraph, AnalysisError> {
+        let Some(result) = self.result.as_ref() else {
+            return Err(AnalysisError::ParseFailed("No active analysis result".to_string()));
+        };
+        let findings_hash = findings_hash(&result.report.findings);
+        let cache_matches = self
+            .event_graph_cache
+            .as_ref()
+            .map(|cache| {
+                cache.file_name == result.file_name
+                    && cache.file_size == result.file_size
+                    && cache.findings_hash == findings_hash
+            })
+            .unwrap_or(false);
+        if !cache_matches {
+            let event_graph = crate::event_view::build_event_graph_for_result(result)
+                .map_err(AnalysisError::ParseFailed)?;
+            self.event_graph_cache = Some(EventGraphCache {
+                file_name: result.file_name.clone(),
+                file_size: result.file_size,
+                findings_hash,
+                event_graph,
+            });
+        }
+        self.event_graph_cache
+            .as_ref()
+            .map(|cache| &cache.event_graph)
+            .ok_or_else(|| AnalysisError::ParseFailed("Event graph cache unavailable".to_string()))
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -645,8 +678,7 @@ impl SisApp {
                 selected_chain: self.selected_chain.take(),
                 include_singleton_chains: self.include_singleton_chains,
                 active_file_path: self.active_file_path.take(),
-                annotations: std::mem::take(&mut self.annotations),
-                annotation_edit_finding: self.annotation_edit_finding.take(),
+                event_graph_cache: self.event_graph_cache.take(),
             };
             self.inactive_workspaces.push(ws);
         }
@@ -697,8 +729,7 @@ impl SisApp {
         self.selected_chain = ws.selected_chain;
         self.include_singleton_chains = ws.include_singleton_chains;
         self.active_file_path = ws.active_file_path;
-        self.annotations = ws.annotations;
-        self.annotation_edit_finding = ws.annotation_edit_finding;
+        self.event_graph_cache = ws.event_graph_cache;
         self.finding_detail_graph_cache = None;
     }
 
@@ -949,45 +980,6 @@ impl SisApp {
         })
     }
 
-    pub fn persist_annotations(&mut self) {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if let Some(path) = self.active_file_path.as_ref() {
-                if let Err(err) = self.annotations.save(path) {
-                    self.error = Some(AnalysisError::ParseFailed(format!(
-                        "Failed to save annotation sidecar: {}",
-                        err
-                    )));
-                }
-            }
-        }
-    }
-
-    fn load_annotations_for_active_result(&mut self) {
-        let Some(result) = self.result.as_ref() else {
-            self.annotations = AnnotationStore::default();
-            return;
-        };
-        let doc_sha = sha256_hex(&result.bytes);
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if let Some(path) = self.active_file_path.as_ref() {
-                let mut store = AnnotationStore::load(path);
-                if !store.document_sha256.is_empty() && store.document_sha256 != doc_sha {
-                    self.error = Some(AnalysisError::ParseFailed(
-                        "Annotation sidecar rejected: document hash mismatch".to_string(),
-                    ));
-                    store = AnnotationStore::default();
-                }
-                store.document_sha256 = doc_sha;
-                self.annotations = store;
-                return;
-            }
-        }
-        self.annotations =
-            AnnotationStore { document_sha256: doc_sha, annotations: HashMap::new() };
-    }
-
     pub fn request_file_upload(&mut self) {
         #[cfg(target_arch = "wasm32")]
         self.request_file_upload_wasm();
@@ -1162,6 +1154,17 @@ impl SisApp {
         onchange.forget();
         input.click();
     }
+}
+
+fn findings_hash(findings: &[sis_pdf_core::model::Finding]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for finding in findings {
+        finding.id.hash(&mut hasher);
+        finding.kind.hash(&mut hasher);
+        finding.objects.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 fn image_preview_dialog_data_size(data: &ImagePreviewDialogData) -> usize {

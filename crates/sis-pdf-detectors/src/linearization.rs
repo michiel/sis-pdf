@@ -54,8 +54,6 @@ impl Detector for LinearizationDetector {
                 evidence,
                 remediation: Some("Validate linearization with a strict parser.".into()),
                 meta: Default::default(),
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,

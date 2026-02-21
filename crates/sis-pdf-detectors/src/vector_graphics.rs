@@ -112,7 +112,6 @@ impl Detector for VectorGraphicsDetector {
                                 position: None,
                                 positions: vec![format!("page:{}", page.number)],
                                 yara: None,
-                                reader_impacts: Vec::new(),
                                 action_type: None,
                                 action_target: None,
                                 action_initiation: None,

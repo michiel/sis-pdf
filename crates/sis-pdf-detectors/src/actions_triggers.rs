@@ -83,8 +83,6 @@ impl Detector for ActionTriggerDetector {
                     evidence,
                     remediation: Some("Review the action target and payload.".into()),
                     meta: meta.clone(),
-
-                    reader_impacts: Vec::new(),
                     action_type: None,
                     action_target: None,
                     action_initiation: None,
@@ -113,7 +111,6 @@ impl Detector for ActionTriggerDetector {
                                 .into(),
                         ),
                         meta: complex_meta,
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -190,8 +187,6 @@ impl Detector for ActionTriggerDetector {
                                 evidence: evidence.clone(),
                                 remediation: Some("Review the action target and payload.".into()),
                                 meta: meta.clone(),
-
-                                reader_impacts: Vec::new(),
                                 action_type: None,
                                 action_target: None,
                                 action_initiation: None,
@@ -226,7 +221,6 @@ impl Detector for ActionTriggerDetector {
                                         .into(),
                                 ),
                                 meta: complex_meta,
-                                reader_impacts: Vec::new(),
                                 action_type: None,
                                 action_target: None,
                                 action_initiation: None,
@@ -288,8 +282,6 @@ impl Detector for ActionTriggerDetector {
                             "Inspect hidden annotations for action execution.".into(),
                         ),
                         meta: meta.clone(),
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -349,8 +341,6 @@ impl Detector for ActionTriggerDetector {
                                 "Inspect hidden fields for unexpected actions.".into(),
                             ),
                             meta: hidden_with_meta,
-
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,
@@ -381,8 +371,6 @@ impl Detector for ActionTriggerDetector {
                                     .into(),
                             ),
                             meta: complex_meta,
-
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,
@@ -484,7 +472,6 @@ impl Detector for ActionTriggerDetector {
                                             .into(),
                                     ),
                                     meta: field_meta,
-                                    reader_impacts: Vec::new(),
                                     action_type: None,
                                     action_target: None,
                                     action_initiation: None,
@@ -513,8 +500,6 @@ impl Detector for ActionTriggerDetector {
                                             .into(),
                                     ),
                                     meta: meta.clone(),
-
-                                    reader_impacts: Vec::new(),
                                     action_type: None,
                                     action_target: None,
                                     action_initiation: None,
@@ -544,8 +529,6 @@ impl Detector for ActionTriggerDetector {
                                         "Inspect hidden fields for unexpected actions.".into(),
                                     ),
                                     meta: hidden_with_meta,
-
-                                    reader_impacts: Vec::new(),
                                     action_type: None,
                                     action_target: None,
                                     action_initiation: None,
@@ -580,8 +563,6 @@ impl Detector for ActionTriggerDetector {
                                             .into(),
                                     ),
                                     meta: complex_meta,
-
-                                    reader_impacts: Vec::new(),
                                     action_type: None,
                                     action_target: None,
                                     action_initiation: None,

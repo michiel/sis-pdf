@@ -3,7 +3,6 @@ use crate::panels::chain_display::{render_chain_summary, summary_from_chain};
 use sis_pdf_core::chain::ExploitChain;
 use sis_pdf_core::event_graph::{EventGraph, EventNodeKind};
 use sis_pdf_core::model::EvidenceSource;
-use sis_pdf_pdf::{parse_pdf, ParseOptions};
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.selected_finding.is_some();
@@ -68,16 +67,6 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             offset: ev.offset,
             length: ev.length,
             source: ev.source.clone(),
-        })
-        .collect();
-    let reader_impacts: Vec<ReaderImpactDisplay> = f
-        .reader_impacts
-        .iter()
-        .map(|ri| ReaderImpactDisplay {
-            profile: format!("{:?}", ri.profile),
-            severity: format!("{:?}", ri.severity),
-            impact: format!("{:?}", ri.impact),
-            note: ri.note.clone().unwrap_or_default(),
         })
         .collect();
     let meta: Vec<(String, String)> = f.meta.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -302,39 +291,6 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             });
         }
 
-        // Reader impacts (collapsible, default collapsed)
-        if !reader_impacts.is_empty() {
-            let ri_id = ui.make_persistent_id("detail_reader_impacts");
-            egui::collapsing_header::CollapsingState::load_with_default_open(
-                ui.ctx(),
-                ri_id,
-                false,
-            )
-            .show_header(ui, |ui| {
-                ui.strong(format!("Reader Impacts ({})", reader_impacts.len()));
-            })
-            .body(|ui| {
-                egui::Grid::new("reader_impacts_grid")
-                    .num_columns(4)
-                    .spacing([8.0, 4.0])
-                    .striped(true)
-                    .show(ui, |ui| {
-                        ui.strong("Reader");
-                        ui.strong("Severity");
-                        ui.strong("Impact");
-                        ui.strong("Notes");
-                        ui.end_row();
-                        for ri in &reader_impacts {
-                            ui.label(&ri.profile);
-                            ui.label(&ri.severity);
-                            ui.label(&ri.impact);
-                            ui.label(&ri.note);
-                            ui.end_row();
-                        }
-                    });
-            });
-        }
-
         // Metadata (collapsible, default collapsed)
         if !meta.is_empty() {
             let meta_id = ui.make_persistent_id("detail_metadata");
@@ -379,13 +335,6 @@ struct EvidenceDisplay {
     source: EvidenceSource,
 }
 
-struct ReaderImpactDisplay {
-    profile: String,
-    severity: String,
-    impact: String,
-    note: String,
-}
-
 struct YaraDisplay {
     rule_name: String,
     tags: Vec<String>,
@@ -401,21 +350,23 @@ fn event_graph_paths_for_finding(
     finding_id: &str,
     finding_objects: &[String],
 ) -> Vec<String> {
-    let Some(result) = app.result.as_ref() else {
+    let Some((file_name, file_size, findings_hash)) = app.result.as_ref().map(|result| {
+        (result.file_name.clone(), result.file_size, compute_findings_hash(&result.report.findings))
+    }) else {
         return Vec::new();
     };
-    let findings_hash = compute_findings_hash(&result.report.findings);
     if app
         .finding_detail_graph_cache
         .as_ref()
         .map(|cache| {
-            cache.file_name != result.file_name
-                || cache.file_size != result.file_size
+            cache.file_name != file_name
+                || cache.file_size != file_size
                 || cache.findings_hash != findings_hash
         })
         .unwrap_or(true)
     {
-        app.finding_detail_graph_cache = build_finding_detail_graph_cache(result);
+        app.finding_detail_graph_cache =
+            build_finding_detail_graph_cache(app, file_name, file_size, findings_hash);
     }
     let Some(cache) = app.finding_detail_graph_cache.as_mut() else {
         return Vec::new();
@@ -515,33 +466,18 @@ mod tests {
 }
 
 fn build_finding_detail_graph_cache(
-    result: &crate::analysis::AnalysisResult,
+    app: &mut SisApp,
+    file_name: String,
+    file_size: usize,
+    findings_hash: u64,
 ) -> Option<crate::app::FindingDetailGraphCache> {
-    let parse_options = ParseOptions {
-        recover_xref: true,
-        deep: false,
-        strict: false,
-        max_objstm_bytes: 64 * 1024 * 1024,
-        max_objects: 250_000,
-        max_objstm_total_bytes: 256 * 1024 * 1024,
-        carve_stream_objects: false,
-        max_carved_objects: 0,
-        max_carved_bytes: 0,
-    };
-    let Ok(graph) = parse_pdf(&result.bytes, parse_options) else {
+    let Ok(event_graph) = app.cached_event_graph().cloned() else {
         return None;
     };
-    let classifications = graph.classify_objects();
-    let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&graph, &classifications);
-    let event_graph = sis_pdf_core::event_graph::build_event_graph(
-        &typed_graph,
-        &result.report.findings,
-        sis_pdf_core::event_graph::EventGraphOptions::default(),
-    );
     Some(crate::app::FindingDetailGraphCache {
-        file_name: result.file_name.clone(),
-        file_size: result.file_size,
-        findings_hash: compute_findings_hash(&result.report.findings),
+        file_name,
+        file_size,
+        findings_hash,
         event_graph,
         finding_paths: std::collections::HashMap::new(),
     })

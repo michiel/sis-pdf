@@ -12,9 +12,7 @@ use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::embedded_index::{build_embedded_artefact_index, EmbeddedArtefactRef};
 use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii, EvidenceBuilder};
-use sis_pdf_core::model::{
-    AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
-};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
 use sis_pdf_core::timeout::TimeoutChecker;
@@ -504,8 +502,6 @@ impl Detector for IncrementalUpdateDetector {
                 evidence,
                 remediation: Some("Review changes between revisions for hidden content.".into()),
                 meta,
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -689,7 +685,6 @@ impl Detector for ShadowObjectDivergenceDetector {
                         "Compare shadowed object revisions for concealed payloads.".into(),
                     ),
                     meta,
-                    reader_impacts: Vec::new(),
                     action_type: None,
                     action_target: None,
                     action_initiation: None,
@@ -731,7 +726,6 @@ impl Detector for ShadowObjectDivergenceDetector {
                         "Investigate carved objects for hidden or conflicting revisions.".into(),
                     ),
                     meta,
-                    reader_impacts: Vec::new(),
                     action_type: None,
                     action_target: None,
                     action_initiation: None,
@@ -801,8 +795,6 @@ impl Detector for ObjStmDensityDetector {
                     evidence,
                     remediation: Some("Inspect object streams in deep scan.".into()),
                     meta: Default::default(),
-
-                    reader_impacts: Vec::new(),
                     action_type: None,
                     action_target: None,
                     action_initiation: None,
@@ -928,8 +920,6 @@ impl Detector for AAPresentDetector {
                         evidence,
                         remediation: Some("Review event actions for unsafe behavior.".into()),
                         meta,
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -2139,8 +2129,6 @@ impl Detector for LaunchActionDetector {
                 evidence: evidence.clone(),
                 remediation: Some("Review the action target.".into()),
                 meta: base_meta,
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -2167,8 +2155,6 @@ impl Detector for LaunchActionDetector {
                     evidence: evidence.clone(),
                     remediation: Some("Review the launch target for unsafe execution.".into()),
                     meta: extra_meta,
-
-                    reader_impacts: Vec::new(),
                     action_type: None,
                     action_target: None,
                     action_initiation: None,
@@ -2196,8 +2182,6 @@ impl Detector for LaunchActionDetector {
                     evidence,
                     remediation: Some("Extract and inspect the embedded target.".into()),
                     meta: extra_meta,
-
-                    reader_impacts: Vec::new(),
                     action_type: None,
                     action_target: None,
                     action_initiation: None,
@@ -2271,13 +2255,6 @@ impl Detector for PdfjsFontInjectionDetector {
                             .into(),
                     ),
                     meta,
-                    reader_impacts: vec![ReaderImpact {
-                        profile: ReaderProfile::Pdfium,
-                        surface: AttackSurface::Metadata,
-                        severity: Severity::Medium,
-                        impact: Impact::Medium,
-                        note: Some("Pattern is associated with browser-side PDF.js rendering paths (<4.2.67).".into()),
-                    }],
                     action_type: None,
                     action_target: None,
                     action_initiation: None,
@@ -2590,7 +2567,6 @@ impl Detector for FontJsExploitationBridgeDetector {
                         .into(),
                 ),
                 meta,
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -2821,13 +2797,6 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                         .into(),
                 ),
                 meta,
-                reader_impacts: vec![ReaderImpact {
-                    profile: ReaderProfile::Pdfium,
-                    surface: AttackSurface::Actions,
-                    severity: Severity::Medium,
-                    impact: Impact::Medium,
-                    note: Some("Annotation rendering paths can expose browser-side injection behaviour.".into()),
-                }],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -2874,13 +2843,6 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                         .into(),
                 ),
                 meta,
-                reader_impacts: vec![ReaderImpact {
-                    profile: ReaderProfile::Pdfium,
-                    surface: AttackSurface::Forms,
-                    severity: Severity::Medium,
-                    impact: Impact::Medium,
-                    note: Some("Browser-rendered form values may expose DOM or script injection surfaces.".into()),
-                }],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -2927,15 +2889,6 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                     "Review form field /V (value) and /DV (default value) entries for HTML tag injection, event handler attributes, or tag-breaking sequences. Validate against web rendering contexts (PDF.js, form data export, HTML conversion).".into(),
                 ),
                 meta,
-                reader_impacts: vec![
-                    ReaderImpact {
-                        profile: ReaderProfile::Pdfium,
-                        surface: AttackSurface::Forms,
-                        severity: Severity::Medium,
-                        impact: Impact::Medium,
-                        note: Some("PDF.js and browser-based renderers may interpret HTML in form values, enabling XSS attacks.".into()),
-                    },
-                ],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -2978,13 +2931,6 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                         .into(),
                 ),
                 meta,
-                reader_impacts: vec![ReaderImpact {
-                    profile: ReaderProfile::Pdfium,
-                    surface: AttackSurface::Metadata,
-                    severity: Severity::Low,
-                    impact: Impact::Low,
-                    note: Some("Indicator is informational and highlights potentially sensitive rendering paths.".into()),
-                }],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -4035,16 +3981,6 @@ impl Detector for ScatteredPayloadAssemblyDetector {
                         .into(),
                 ),
                 meta,
-                reader_impacts: vec![ReaderImpact {
-                    profile: ReaderProfile::Pdfium,
-                    surface: AttackSurface::Forms,
-                    severity: Severity::Medium,
-                    impact: Impact::Medium,
-                    note: Some(
-                        "Distributed fragments can reconstruct executable payloads at render time or export-time."
-                            .into(),
-                    ),
-                }],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -4182,7 +4118,6 @@ impl Detector for CrossStreamPayloadAssemblyDetector {
                             .into(),
                     ),
                     meta,
-                    reader_impacts: Vec::new(),
                     action_type: None,
                     action_target: None,
                     action_initiation: None,
@@ -4360,7 +4295,6 @@ impl Detector for ActionRemoteTargetSuspiciousDetector {
                         .into(),
                 ),
                 meta,
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -4969,8 +4903,6 @@ impl Detector for EmbeddedFileDetector {
                         evidence: evidence.clone(),
                         remediation: Some("Extract and scan the embedded file.".into()),
                         meta: meta.clone(),
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -5000,8 +4932,6 @@ impl Detector for EmbeddedFileDetector {
                                 evidence: evidence.clone(),
                                 remediation: Some("Extract and scan the executable.".into()),
                                 meta: meta.clone(),
-
-                                reader_impacts: Vec::new(),
                                 action_type: None,
                                 action_target: None,
                                 action_initiation: None,
@@ -5036,8 +4966,6 @@ impl Detector for EmbeddedFileDetector {
                                 evidence: evidence.clone(),
                                 remediation: Some("Review the script content.".into()),
                                 meta: meta.clone(),
-
-                                reader_impacts: Vec::new(),
                                 action_type: None,
                                 action_target: None,
                                 action_initiation: None,
@@ -5063,8 +4991,6 @@ impl Detector for EmbeddedFileDetector {
                                 "Extract and attempt to inspect archive contents.".into(),
                             ),
                             meta: meta.clone(),
-
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,
@@ -5099,7 +5025,6 @@ impl Detector for EmbeddedFileDetector {
                                     .into(),
                             ),
                             meta: meta.clone(),
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,
@@ -5124,8 +5049,6 @@ impl Detector for EmbeddedFileDetector {
                                 "Treat the file as suspicious and inspect carefully.".into(),
                             ),
                             meta: meta.clone(),
-
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,
@@ -5222,7 +5145,6 @@ impl Detector for FormFieldOversizedValueDetector {
                             .into(),
                     ),
                     meta,
-                    reader_impacts: Vec::new(),
                     action_type: None,
                     action_target: None,
                     action_initiation: None,
@@ -5338,7 +5260,6 @@ impl Detector for NullRefChainTerminationDetector {
                                 .into(),
                         ),
                         meta,
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -5523,8 +5444,6 @@ impl Detector for RichMediaDetector {
                         evidence: vec![span_to_evidence(entry.full_span, "RichMedia object")],
                         remediation: Some("Inspect 3D or media assets.".into()),
                         meta,
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -5718,8 +5637,6 @@ impl Detector for FileSpecDetector {
                         evidence: vec![span_to_evidence(entry.full_span, "Filespec/AF object")],
                         remediation: Some("Inspect file specification targets.".into()),
                         meta: Default::default(),
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -5780,8 +5697,6 @@ impl Detector for CryptoDetector {
                 evidence: encrypt_evidence,
                 remediation: Some("Decrypt with trusted tooling to inspect all objects.".into()),
                 meta: encrypt_meta,
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -5827,8 +5742,6 @@ impl Detector for CryptoDetector {
                 evidence: sig_evidence,
                 remediation: Some("Validate signature chain and inspect signed content.".into()),
                 meta: sig_meta,
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -5864,8 +5777,6 @@ impl Detector for CryptoDetector {
                 evidence: dss_evidence,
                 remediation: Some("Inspect DSS for embedded validation material.".into()),
                 meta: Default::default(),
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -5911,8 +5822,6 @@ impl Detector for XfaDetector {
                         evidence: vec![span_to_evidence(dict.span, "XFA dict")],
                         remediation: Some("Inspect XFA form data and scripts.".into()),
                         meta: Default::default(),
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -5960,8 +5869,6 @@ impl Detector for AcroFormDetector {
                         evidence: vec![span_to_evidence(dict.span, "AcroForm dict")],
                         remediation: Some("Inspect form fields and calculation scripts.".into()),
                         meta: Default::default(),
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -6011,8 +5918,6 @@ impl Detector for OCGDetector {
                         evidence: vec![span_to_evidence(entry.full_span, "OCG object")],
                         remediation: Some("Inspect optional content group settings.".into()),
                         meta: Default::default(),
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -6061,8 +5966,6 @@ impl Detector for DecoderRiskDetector {
                         evidence: vec![span_to_evidence(st.dict.span, "Stream dict")],
                         remediation: Some("Treat JBIG2/JPX decoding as high risk.".into()),
                         meta: Default::default(),
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -6183,8 +6086,6 @@ impl Detector for HugeImageDetector {
                                     "Inspect image payload for resource abuse.".into(),
                                 ),
                                 meta: Default::default(),
-
-                                reader_impacts: Vec::new(),
                                 action_type: None,
                                 action_target: None,
                                 action_initiation: None,
@@ -6261,7 +6162,6 @@ impl Detector for ObfuscatedNameEncodingDetector {
                     .into(),
             ),
             meta,
-            reader_impacts: Vec::new(),
             action_type: None,
             action_target: None,
             action_initiation: None,
@@ -6344,7 +6244,6 @@ impl Detector for PdfStringHexEncodedDetector {
                     .into(),
             ),
             meta,
-            reader_impacts: Vec::new(),
             action_type: None,
             action_target: None,
             action_initiation: None,

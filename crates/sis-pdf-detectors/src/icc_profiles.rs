@@ -71,8 +71,6 @@ impl Detector for ICCProfileDetector {
                                     .into(),
                             ),
                             meta: meta.clone(),
-
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,
@@ -132,7 +130,6 @@ impl Detector for ICCProfileDetector {
                             evidence,
                             remediation: Some(remediation),
                             meta,
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,

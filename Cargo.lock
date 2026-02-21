@@ -5511,7 +5511,6 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
- "sha2",
  "sis-pdf-core",
  "sis-pdf-detectors",
  "sis-pdf-pdf",

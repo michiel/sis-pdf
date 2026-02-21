@@ -2398,8 +2398,6 @@ mod tests {
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -2420,8 +2418,6 @@ mod tests {
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -2454,8 +2450,6 @@ mod tests {
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -2476,8 +2470,6 @@ mod tests {
                 evidence: vec![],
                 remediation: None,
                 meta: HashMap::new(),
-
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,

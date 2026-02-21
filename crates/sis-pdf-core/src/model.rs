@@ -72,35 +72,6 @@ impl Impact {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub enum ReaderProfile {
-    Acrobat,
-    Pdfium,
-    Preview,
-}
-
-impl ReaderProfile {
-    pub const ALL: [ReaderProfile; 3] =
-        [ReaderProfile::Acrobat, ReaderProfile::Pdfium, ReaderProfile::Preview];
-
-    pub fn name(&self) -> &'static str {
-        match self {
-            ReaderProfile::Acrobat => "acrobat",
-            ReaderProfile::Pdfium => "pdfium",
-            ReaderProfile::Preview => "preview",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReaderImpact {
-    pub profile: ReaderProfile,
-    pub surface: AttackSurface,
-    pub severity: Severity,
-    pub impact: Impact,
-    pub note: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EvidenceSource {
     File,
@@ -136,8 +107,6 @@ pub struct Finding {
     pub positions: Vec<String>,
     #[serde(default)]
     pub meta: HashMap<String, String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub reader_impacts: Vec<ReaderImpact>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -173,7 +142,6 @@ impl Default for Finding {
             position: None,
             positions: Vec::new(),
             meta: HashMap::new(),
-            reader_impacts: Vec::new(),
             action_type: None,
             action_target: None,
             action_initiation: None,
@@ -264,11 +232,6 @@ impl FindingBuilder {
         self
     }
 
-    pub fn reader_impact(mut self, impact: ReaderImpact) -> Self {
-        self.finding.reader_impacts.push(impact);
-        self
-    }
-
     pub fn action_type(mut self, action_type: impl Into<String>) -> Self {
         self.finding.action_type = Some(action_type.into());
         self
@@ -314,15 +277,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn builder_populates_metadata_and_reader_impact() -> serde_json::Result<()> {
-        let reader_impact = ReaderImpact {
-            profile: ReaderProfile::Acrobat,
-            surface: AttackSurface::Actions,
-            severity: Severity::High,
-            impact: Impact::High,
-            note: Some("Test note".into()),
-        };
-
+    fn builder_populates_metadata() -> serde_json::Result<()> {
         let finding = FindingBuilder::template(
             AttackSurface::Actions,
             "test_kind",
@@ -337,16 +292,12 @@ mod tests {
         .action_type("Launch")
         .action_target("cmd.exe")
         .action_initiation("automatic")
-        .reader_impact(reader_impact.clone())
         .evidence(EvidenceBuilder::new().file_offset(0, 4, "test").build())
         .build();
 
         let serialized = serde_json::to_value(&finding)?;
         assert_eq!(serialized["impact"], json!("High"));
         assert_eq!(serialized["action_type"], json!("Launch"));
-        assert_eq!(serialized["reader_impacts"][0]["surface"], json!("Actions"));
-        assert_eq!(serialized["reader_impacts"][0]["profile"], json!("Acrobat"));
-        assert_eq!(serialized["reader_impacts"][0]["note"], json!(reader_impact.note));
         assert_eq!(serialized["meta"]["meta.cve"], json!("CVE-2025-27363"));
         Ok(())
     }

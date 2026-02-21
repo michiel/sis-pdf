@@ -1,8 +1,6 @@
 use anyhow::Result;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{
-    AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
-};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict};
 use sis_pdf_pdf::typed_graph::EdgeType;
@@ -303,28 +301,6 @@ impl Detector for PassiveRenderPipelineDetector {
                 "Block external fetch in untrusted documents and inspect target paths, especially UNC/SMB references.".into(),
             ),
             meta: base_meta.clone(),
-            reader_impacts: vec![
-                ReaderImpact {
-                    profile: ReaderProfile::Preview,
-                    surface: AttackSurface::Actions,
-                    severity: if preview_prone_context { Severity::Medium } else { Severity::Low },
-                    impact: if preview_prone_context { Impact::Medium } else { Impact::Low },
-                    note: Some(
-                        "Preview/index rendering may trigger outbound fetch for linked resources."
-                            .into(),
-                    ),
-                },
-                ReaderImpact {
-                    profile: ReaderProfile::Acrobat,
-                    surface: AttackSurface::Actions,
-                    severity: Severity::Low,
-                    impact: Impact::Low,
-                    note: Some(
-                        "Open-time resource resolution can expand attack surface for external targets."
-                            .into(),
-                    ),
-                },
-            ],
             action_type: None,
             action_target: None,
             action_initiation: None,
@@ -361,28 +337,6 @@ impl Detector for PassiveRenderPipelineDetector {
                     "Treat UNC/SMB targets as high-risk and isolate document rendering from credential-bearing network contexts.".into(),
                 ),
                 meta,
-                reader_impacts: vec![
-                    ReaderImpact {
-                        profile: ReaderProfile::Preview,
-                        surface: AttackSurface::Actions,
-                        severity: Severity::High,
-                        impact: Impact::High,
-                        note: Some(
-                            "Preview-style rendering can trigger network resolution of UNC/SMB targets."
-                                .into(),
-                        ),
-                    },
-                    ReaderImpact {
-                        profile: ReaderProfile::Acrobat,
-                        surface: AttackSurface::Actions,
-                        severity: Severity::Medium,
-                        impact: Impact::Medium,
-                        note: Some(
-                            "External target resolution may expose credentials depending on host policy."
-                                .into(),
-                        ),
-                    },
-                ],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -418,7 +372,6 @@ impl Detector for PassiveRenderPipelineDetector {
                         .into(),
                 ),
                 meta,
-                reader_impacts: vec![],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -453,7 +406,6 @@ impl Detector for PassiveRenderPipelineDetector {
                     "Normalise and inspect external targets before trust decisions.".into(),
                 ),
                 meta,
-                reader_impacts: vec![],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -492,7 +444,6 @@ impl Detector for PassiveRenderPipelineDetector {
                         .into(),
                 ),
                 meta,
-                reader_impacts: vec![],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -525,7 +476,6 @@ impl Detector for PassiveRenderPipelineDetector {
                     "Trace resource inheritance and nested forms to verify expected font linkage.".into(),
                 ),
                 meta: HashMap::new(),
-                reader_impacts: vec![],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -558,7 +508,6 @@ impl Detector for PassiveRenderPipelineDetector {
                     "Trace resource inheritance and nested forms to verify expected image linkage.".into(),
                 ),
                 meta: HashMap::new(),
-                reader_impacts: vec![],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,
@@ -595,28 +544,6 @@ impl Detector for PassiveRenderPipelineDetector {
                     "Apply strict render isolation, block outbound fetch from document renderers, and treat this document as high-risk.".into(),
                 ),
                 meta,
-                reader_impacts: vec![
-                    ReaderImpact {
-                        profile: ReaderProfile::Preview,
-                        surface: AttackSurface::Actions,
-                        severity: Severity::High,
-                        impact: Impact::High,
-                        note: Some(
-                            "Preview and indexing surfaces are likely to trigger passive execution pathways."
-                                .into(),
-                        ),
-                    },
-                    ReaderImpact {
-                        profile: ReaderProfile::Pdfium,
-                        surface: AttackSurface::Actions,
-                        severity: Severity::Medium,
-                        impact: Impact::Medium,
-                        note: Some(
-                            "Renderer behaviour may vary; treat differential fetch behaviour as suspicious."
-                                .into(),
-                        ),
-                    },
-                ],
                 action_type: None,
                 action_target: None,
                 action_initiation: None,

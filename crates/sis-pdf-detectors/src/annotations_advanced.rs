@@ -68,8 +68,6 @@ impl Detector for AnnotationAttackDetector {
                             evidence: vec![span_to_evidence(dict.span, "Annotation dict")],
                             remediation: Some("Inspect hidden annotations for actions.".into()),
                             meta: meta.clone(),
-
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,

@@ -1,7 +1,5 @@
 use sis_pdf_core::chain_synth::synthesise_chains;
-use sis_pdf_core::model::{
-    AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
-};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use std::collections::{HashMap, HashSet};
 
 #[derive(serde::Deserialize)]
@@ -21,16 +19,6 @@ struct FixtureFinding {
     positions: Vec<String>,
     #[serde(default)]
     meta: HashMap<String, String>,
-    #[serde(default)]
-    reader_impacts: Vec<FixtureReaderImpact>,
-}
-
-#[derive(serde::Deserialize)]
-struct FixtureReaderImpact {
-    profile: String,
-    surface: String,
-    severity: String,
-    impact: String,
 }
 
 fn load_fixture(path: &str) -> Vec<Finding> {
@@ -53,23 +41,12 @@ fn load_fixture(path: &str) -> Vec<Finding> {
             position: None,
             positions: fixture.positions,
             meta: fixture.meta,
-            reader_impacts: fixture.reader_impacts.into_iter().map(to_reader_impact).collect(),
             action_type: None,
             action_target: None,
             action_initiation: None,
             yara: None,
         })
         .collect()
-}
-
-fn to_reader_impact(value: FixtureReaderImpact) -> ReaderImpact {
-    ReaderImpact {
-        profile: parse_profile(&value.profile),
-        surface: parse_surface(&value.surface),
-        severity: parse_severity(&value.severity),
-        impact: parse_impact(&value.impact),
-        note: None,
-    }
 }
 
 fn parse_surface(value: &str) -> AttackSurface {
@@ -88,15 +65,6 @@ fn parse_surface(value: &str) -> AttackSurface {
         "Metadata" => AttackSurface::Metadata,
         "ContentPhishing" => AttackSurface::ContentPhishing,
         _ => AttackSurface::FileStructure,
-    }
-}
-
-fn parse_profile(value: &str) -> ReaderProfile {
-    match value {
-        "Acrobat" => ReaderProfile::Acrobat,
-        "Pdfium" => ReaderProfile::Pdfium,
-        "Preview" => ReaderProfile::Preview,
-        _ => ReaderProfile::Acrobat,
     }
 }
 
@@ -120,17 +88,6 @@ fn parse_confidence(value: &str) -> Confidence {
         "Weak" => Confidence::Weak,
         "Heuristic" => Confidence::Heuristic,
         _ => Confidence::Heuristic,
-    }
-}
-
-fn parse_impact(value: &str) -> Impact {
-    match value {
-        "Critical" => Impact::Critical,
-        "High" => Impact::High,
-        "Medium" => Impact::Medium,
-        "Low" => Impact::Low,
-        "None" => Impact::None,
-        _ => Impact::None,
     }
 }
 
@@ -175,17 +132,9 @@ fn synthetic_revision_shadow_fixture_preserves_revision_context() {
 }
 
 #[test]
-fn synthetic_multi_reader_divergence_fixture_aggregates_reader_risk() {
+fn synthetic_multi_reader_divergence_fixture_has_no_reader_risk() {
     let findings = load_fixture("tests/fixtures/uplift/multi_reader_divergence_chain.json");
     let (chains, _) = synthesise_chains(&findings, true);
 
-    let expected = HashMap::from([
-        ("acrobat".to_string(), "High".to_string()),
-        ("pdfium".to_string(), "Medium".to_string()),
-        ("preview".to_string(), "Low".to_string()),
-    ]);
-    assert!(
-        chains.iter().any(|chain| chain.reader_risk == expected),
-        "expected aggregated reader-risk divergence in chain output"
-    );
+    assert!(chains.iter().all(|chain| chain.reader_risk.is_empty()));
 }

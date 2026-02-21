@@ -189,8 +189,6 @@ mod tests {
             position: None,
             positions: Vec::new(),
             meta: HashMap::new(),
-
-            reader_impacts: Vec::new(),
             action_type: None,
             action_target: None,
             action_initiation: None,

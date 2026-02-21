@@ -158,8 +158,6 @@ fn fallback_pages_root<'a>(
         evidence: vec![span_to_evidence(entry.body_span, "Fallback /Pages root")],
         remediation: Some("Inspect catalog /Root and /Pages references for consistency.".into()),
         meta: Default::default(),
-
-            reader_impacts: Vec::new(),
             action_type: None,
             action_target: None,
             action_initiation: None,        yara: None,
@@ -243,7 +241,6 @@ fn detect_cycles(
                 evidence: vec![span_to_evidence(dict.span, "Pages node")],
                 remediation: Some("Inspect /Kids references for cycles.".into()),
                 meta,
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,

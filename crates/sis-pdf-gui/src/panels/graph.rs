@@ -1,7 +1,6 @@
 use crate::app::SisApp;
 use crate::graph_data::{self, GraphData, GraphError};
 use crate::graph_layout::{apply_staged_dag_layout_with_spread, LayoutState};
-use sis_pdf_pdf::{parse_pdf, ParseOptions};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
@@ -39,8 +38,6 @@ pub struct GraphViewerState {
     pub event_node_kind_filter: Option<String>,
     /// Event-mode trigger-class filter (`automatic`, `hidden`, `user`).
     pub event_trigger_filter: Option<String>,
-    /// Event-mode reader profile filter (`acrobat`, `pdfium`, `preview`).
-    pub event_reader_profile_filter: Option<String>,
     /// BFS depth limit from selected node. 0 = no limit (show all).
     pub depth_limit: usize,
     /// Minimum ideal edge length used by the layout engine (0 = auto).
@@ -104,7 +101,6 @@ impl Default for GraphViewerState {
             chain_overlay: false,
             event_node_kind_filter: None,
             event_trigger_filter: None,
-            event_reader_profile_filter: None,
             depth_limit: 0,
             min_edge_length: 0.0,
             show_labels: true,
@@ -788,30 +784,6 @@ fn show_controls_sidebar(ui: &mut egui::Ui, app: &mut SisApp) {
                 }
             });
 
-        ui.label("Reader:");
-        egui::ComboBox::from_id_salt("graph_event_reader_filter")
-            .selected_text(
-                app.graph_state
-                    .event_reader_profile_filter
-                    .clone()
-                    .unwrap_or_else(|| "all".to_string()),
-            )
-            .show_ui(ui, |ui| {
-                if ui
-                    .selectable_label(app.graph_state.event_reader_profile_filter.is_none(), "all")
-                    .clicked()
-                {
-                    app.graph_state.event_reader_profile_filter = None;
-                }
-                for value in ["acrobat", "pdfium", "preview"] {
-                    let selected =
-                        app.graph_state.event_reader_profile_filter.as_deref() == Some(value);
-                    if ui.selectable_label(selected, value).clicked() {
-                        app.graph_state.event_reader_profile_filter = Some(value.to_string());
-                    }
-                }
-            });
-
         let mut max_hops = app.graph_state.finding_detail_max_hops as i32;
         if ui.add(egui::Slider::new(&mut max_hops, 1..=20).text("Detail hops")).changed() {
             let new_hops = max_hops as usize;
@@ -940,7 +912,7 @@ fn build_graph(app: &mut SisApp) {
     let graph_result = if app.graph_state.mode == GraphViewMode::Event
         || app.graph_state.mode == GraphViewMode::StagedDag
     {
-        build_event_graph_for_gui(result)
+        build_event_graph_for_gui(app)
     } else if !app.graph_state.type_filter.is_empty() {
         let types: Vec<&str> = app.graph_state.type_filter.iter().map(|s| s.as_str()).collect();
         graph_data::from_object_data_filtered(&result.object_data, &types)
@@ -1003,59 +975,10 @@ fn build_graph(app: &mut SisApp) {
     }
 }
 
-fn build_event_graph_for_gui(
-    result: &crate::analysis::AnalysisResult,
-) -> Result<GraphData, GraphError> {
-    let parse_options = ParseOptions {
-        recover_xref: true,
-        deep: false,
-        strict: false,
-        max_objstm_bytes: 64 * 1024 * 1024,
-        max_objects: 250_000,
-        max_objstm_total_bytes: 256 * 1024 * 1024,
-        carve_stream_objects: false,
-        max_carved_objects: 0,
-        max_carved_bytes: 0,
-    };
-    let graph = parse_pdf(&result.bytes, parse_options)
-        .map_err(|err| GraphError::ParseFailed(err.to_string()))?;
-    let classifications = graph.classify_objects();
-    let typed_graph = sis_pdf_pdf::typed_graph::TypedGraph::build(&graph, &classifications);
-    let event_graph = sis_pdf_core::event_graph::build_event_graph(
-        &typed_graph,
-        &result.report.findings,
-        sis_pdf_core::event_graph::EventGraphOptions::default(),
-    );
-    let mut graph = graph_data::from_event_graph(&event_graph)?;
-    annotate_reader_profiles(&mut graph, &result.report.findings);
-    Ok(graph)
-}
-
-fn annotate_reader_profiles(graph: &mut GraphData, findings: &[sis_pdf_core::model::Finding]) {
-    for finding in findings {
-        if finding.reader_impacts.is_empty() {
-            continue;
-        }
-        let profiles = finding
-            .reader_impacts
-            .iter()
-            .map(|impact| format!("reader:{}", impact.profile.name()))
-            .collect::<Vec<_>>();
-        for object_ref in &finding.objects {
-            let Some((obj, gen)) = crate::util::parse_obj_ref(object_ref) else {
-                continue;
-            };
-            for node in &mut graph.nodes {
-                if node.object_ref == Some((obj, gen)) {
-                    for profile in &profiles {
-                        if !node.roles.iter().any(|existing| existing == profile) {
-                            node.roles.push(profile.clone());
-                        }
-                    }
-                }
-            }
-        }
-    }
+fn build_event_graph_for_gui(app: &mut SisApp) -> Result<GraphData, GraphError> {
+    let event_graph =
+        app.cached_event_graph().map_err(|err| GraphError::ParseFailed(err.to_string()))?;
+    graph_data::from_event_graph(event_graph)
 }
 
 fn draw_staged_lanes(
@@ -1381,13 +1304,6 @@ fn build_visible_node_set(app: &SisApp, graph: &GraphData) -> std::collections::
                 if node.obj_type.eq_ignore_ascii_case("event") {
                     continue;
                 }
-            }
-        }
-
-        if let Some(reader_filter) = app.graph_state.event_reader_profile_filter.as_deref() {
-            let token = format!("reader:{reader_filter}");
-            if !node.roles.iter().any(|role| role.eq_ignore_ascii_case(&token)) {
-                continue;
             }
         }
 

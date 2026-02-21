@@ -296,8 +296,6 @@ mod tests {
             evidence: vec![],
             remediation: None,
             meta: Default::default(),
-
-            reader_impacts: Vec::new(),
             action_type: None,
             action_target: None,
             action_initiation: None,
@@ -319,8 +317,6 @@ mod tests {
             evidence: vec![],
             remediation: None,
             meta: Default::default(),
-
-            reader_impacts: Vec::new(),
             action_type: None,
             action_target: None,
             action_initiation: None,

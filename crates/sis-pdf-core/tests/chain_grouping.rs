@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
 use sis_pdf_core::chain_synth::synthesise_chains;
-use sis_pdf_core::model::{
-    AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
-};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 
 fn base_finding(id: &str, kind: &str, object_ref: &str) -> Finding {
     Finding {
@@ -21,7 +19,6 @@ fn base_finding(id: &str, kind: &str, object_ref: &str) -> Finding {
         position: None,
         positions: Vec::new(),
         meta: HashMap::new(),
-        reader_impacts: Vec::new(),
         action_type: None,
         action_target: None,
         action_initiation: None,
@@ -114,28 +111,14 @@ fn propagates_edge_and_exploit_notes_into_chain_output() {
 }
 
 #[test]
-fn computes_stage_completeness_and_reader_risk() {
+fn computes_stage_completeness_without_reader_risk() {
     let mut input = base_finding("f1", "form_html_injection", "20 0 obj");
     input.meta.insert("chain.stage".into(), "input".into());
     input.confidence = Confidence::Probable;
-    input.reader_impacts.push(ReaderImpact {
-        profile: ReaderProfile::Acrobat,
-        surface: AttackSurface::Forms,
-        severity: Severity::Medium,
-        impact: Impact::Medium,
-        note: None,
-    });
 
     let mut execute = base_finding("f2", "js_present", "20 0 obj");
     execute.meta.insert("chain.stage".into(), "execute".into());
     execute.confidence = Confidence::Strong;
-    execute.reader_impacts.push(ReaderImpact {
-        profile: ReaderProfile::Acrobat,
-        surface: AttackSurface::JavaScript,
-        severity: Severity::Critical,
-        impact: Impact::Critical,
-        note: None,
-    });
 
     let mut egress = base_finding("f3", "submitform_present", "20 0 obj");
     egress.meta.insert("chain.stage".into(), "egress".into());
@@ -145,7 +128,7 @@ fn computes_stage_completeness_and_reader_risk() {
     let chain = chains.iter().max_by_key(|chain| chain.confirmed_stages.len()).expect("chain");
     assert_eq!(chain.confirmed_stages, vec!["input", "execute", "egress"]);
     assert!((chain.chain_completeness - 0.6).abs() < f64::EPSILON);
-    assert_eq!(chain.reader_risk.get("acrobat").map(String::as_str), Some("Critical"));
+    assert!(chain.reader_risk.is_empty());
 }
 
 #[test]

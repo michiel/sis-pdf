@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use crate::chain::{ChainTemplate, ExploitChain};
 use crate::chain_render::{compose_chain_narrative, render_path};
 use crate::chain_score::score_chain;
-use crate::model::{Confidence, Finding, Severity};
+use crate::model::{Confidence, Finding};
 use crate::position;
 use crate::taint::taint_from_findings;
 
@@ -331,7 +331,7 @@ fn populate_chain_enrichment(chain: &mut ExploitChain, findings_by_id: &HashMap<
     chain.inferred_stages = collect_chain_stages(chain, findings_by_id, false);
     chain.chain_completeness =
         chain.confirmed_stages.len() as f64 / EXPECTED_CHAIN_STAGES.len() as f64;
-    chain.reader_risk = collect_reader_risk(chain, findings_by_id);
+    chain.reader_risk = HashMap::new();
     chain.active_mitigations = collect_unique_meta_values(
         chain,
         findings_by_id,
@@ -397,28 +397,6 @@ fn collect_chain_stages(
         stages.sort();
     }
     stages
-}
-
-fn collect_reader_risk(
-    chain: &ExploitChain,
-    findings_by_id: &HashMap<String, &Finding>,
-) -> HashMap<String, String> {
-    let mut max_by_profile: HashMap<String, Severity> = HashMap::new();
-    for finding_id in &chain.findings {
-        let Some(finding) = findings_by_id.get(finding_id) else {
-            continue;
-        };
-        for impact in &finding.reader_impacts {
-            let key = impact.profile.name().to_string();
-            match max_by_profile.get(&key) {
-                Some(existing) if *existing >= impact.severity => {}
-                _ => {
-                    max_by_profile.insert(key, impact.severity);
-                }
-            }
-        }
-    }
-    max_by_profile.into_iter().map(|(k, v)| (k, format!("{v:?}"))).collect()
 }
 
 fn split_meta_values(raw: &str) -> impl Iterator<Item = String> + '_ {

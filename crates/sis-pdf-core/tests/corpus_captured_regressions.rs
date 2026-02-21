@@ -243,15 +243,6 @@ fn corpus_captured_modern_openaction_staged_baseline_stays_stable() {
         "expected outcome-linked chain narrative for staged exploit chain fixture"
     );
 
-    let has_reader_divergence = report.findings.iter().any(|finding| {
-        let severities =
-            finding.reader_impacts.iter().map(|impact| impact.severity).collect::<HashSet<_>>();
-        severities.len() > 1
-    });
-    assert!(
-        has_reader_divergence,
-        "expected reader-impact severity divergence in modern openaction fixture"
-    );
     let object_context = object_context_for(&report, 9, 0);
     assert!(object_context.tainted, "expected object 9 0 to be tainted");
     assert!(object_context.taint_source, "expected object 9 0 to be a taint source");
@@ -375,15 +366,6 @@ fn corpus_captured_modern_gated_supply_chain_baseline_stays_stable() {
     assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
     assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
 
-    let has_reader_risk_divergence = report.findings.iter().any(|finding| {
-        let unique =
-            finding.reader_impacts.iter().map(|impact| impact.severity).collect::<HashSet<_>>();
-        unique.len() > 1
-    });
-    assert!(
-        has_reader_risk_divergence,
-        "expected finding-level reader-risk divergence for multi-reader fixture"
-    );
     let object_context = object_context_for(&report, 76, 0);
     assert!(object_context.tainted, "expected object 76 0 to be tainted");
     assert!(object_context.taint_source, "expected object 76 0 to be a taint source");

@@ -92,7 +92,6 @@ impl Detector for ObjStmTortureDetector {
                 )],
                 remediation: Some("Review ObjStm chains for tampering or obfuscation.".into()),
                 meta,
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,

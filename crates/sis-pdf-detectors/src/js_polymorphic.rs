@@ -75,8 +75,6 @@ impl Detector for JsPolymorphicDetector {
                             "Deobfuscate JavaScript and inspect dynamic behavior.".into(),
                         ),
                         meta: meta.clone(),
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -146,8 +144,6 @@ impl Detector for JsPolymorphicDetector {
                                     .into(),
                             ),
                             meta: meta.clone(),
-
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,
@@ -208,8 +204,6 @@ impl Detector for JsPolymorphicDetector {
                                     .into(),
                             ),
                             meta: meta.clone(),
-
-                            reader_impacts: Vec::new(),
                             action_type: None,
                             action_target: None,
                             action_initiation: None,
@@ -238,8 +232,6 @@ impl Detector for JsPolymorphicDetector {
                         evidence: evidence.clone(),
                         remediation: Some("Inspect the deobfuscated payload.".into()),
                         meta: meta2,
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,
@@ -267,8 +259,6 @@ impl Detector for JsPolymorphicDetector {
                         evidence,
                         remediation: Some("Review decoded layers for hidden behavior.".into()),
                         meta: meta3,
-
-                        reader_impacts: Vec::new(),
                         action_type: None,
                         action_target: None,
                         action_initiation: None,

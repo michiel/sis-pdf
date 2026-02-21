@@ -8,7 +8,6 @@ use crate::chain::{ChainTemplate, ExploitChain};
 use crate::chain_render::{chain_action_label, chain_payload_label, chain_trigger_label};
 use crate::intent::IntentSummary;
 use crate::model::{AttackSurface, Confidence, Finding, Severity};
-use crate::reader_context;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Summary {
@@ -162,7 +161,7 @@ fn chain_note<'a>(chain: &'a ExploitChain, key: &str) -> Option<&'a str> {
 impl Report {
     #[allow(clippy::too_many_arguments)]
     pub fn from_findings(
-        mut findings: Vec<Finding>,
+        findings: Vec<Finding>,
         chains: Vec<ExploitChain>,
         chain_templates: Vec<ChainTemplate>,
         yara_rules: Vec<crate::yara::YaraRule>,
@@ -174,10 +173,6 @@ impl Report {
         structural_summary: Option<StructuralSummary>,
         ml_summary_override: Option<MlSummary>,
     ) -> Self {
-        for finding in &mut findings {
-            reader_context::annotate_reader_context(finding);
-        }
-
         let mut grouped: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
         for f in &findings {
             let surface = attack_surface_name(f.surface);
@@ -803,7 +798,6 @@ fn aggregate_annotation_action_chains(findings: &[Finding]) -> Option<Finding> {
             "Inspect sampled annotation objects and correlate with action and URI findings.".into(),
         ),
         meta,
-        reader_impacts: Vec::new(),
         action_type: None,
         action_target: None,
         action_initiation: None,
@@ -932,7 +926,6 @@ fn aggregate_noisy_kind(kind: &str, findings: &[Finding]) -> Option<Finding> {
                 .into(),
         ),
         meta,
-        reader_impacts: Vec::new(),
         action_type: None,
         action_target: None,
         action_initiation: None,

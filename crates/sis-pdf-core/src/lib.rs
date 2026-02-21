@@ -47,7 +47,6 @@ pub mod position;
 pub mod predictor;
 pub mod profiler;
 pub mod quantum;
-pub mod reader_context;
 pub mod redteam;
 pub mod report;
 pub mod response;

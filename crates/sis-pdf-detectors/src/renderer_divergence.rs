@@ -1,8 +1,6 @@
 use anyhow::Result;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{
-    AttackSurface, Confidence, Finding, Impact, ReaderImpact, ReaderProfile, Severity,
-};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::object::PdfAtom;
 use sis_pdf_pdf::typed_graph::EdgeType;
@@ -185,29 +183,6 @@ impl Detector for RendererDivergenceDetector {
                     .into(),
             ),
             meta,
-            reader_impacts: vec![
-                ReaderImpact {
-                    profile: ReaderProfile::Acrobat,
-                    surface: AttackSurface::Actions,
-                    severity: Severity::High,
-                    impact: Impact::High,
-                    note: Some("Highest execution surface coverage in known divergence catalogue paths.".into()),
-                },
-                ReaderImpact {
-                    profile: ReaderProfile::Pdfium,
-                    surface: AttackSurface::Actions,
-                    severity: Severity::Medium,
-                    impact: Impact::Medium,
-                    note: Some("Partial behavioural coverage; replay recommended for path confirmation.".into()),
-                },
-                ReaderImpact {
-                    profile: ReaderProfile::Preview,
-                    surface: AttackSurface::Actions,
-                    severity: Severity::Low,
-                    impact: Impact::Low,
-                    note: Some("Behavioural support is narrower but still relevant for passive and action-linked paths.".into()),
-                },
-            ],
             action_type: None,
             action_target: None,
             action_initiation: None,
@@ -267,7 +242,6 @@ impl Detector for RendererDivergenceDetector {
                         .into(),
                 ),
                 meta: chain_meta,
-                reader_impacts: Vec::new(),
                 action_type: None,
                 action_target: None,
                 action_initiation: None,

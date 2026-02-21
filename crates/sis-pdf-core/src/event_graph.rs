@@ -1658,7 +1658,6 @@ mod tests {
             objects: Vec::new(),
             evidence: Vec::new(),
             meta: HashMap::new(),
-            reader_impacts: Vec::new(),
             remediation: None,
             position: None,
             positions: Vec::new(),

@@ -20,7 +20,6 @@ use sis_pdf_core::model::{
     AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
 };
 use sis_pdf_core::object_context::{build_object_context_index, get_object_context};
-use sis_pdf_core::reader_context;
 use sis_pdf_core::revision_timeline::{build_revision_timeline, DEFAULT_MAX_REVISIONS};
 use sis_pdf_core::rich_media::{
     analyze_swf, detect_3d_format, detect_media_format, SWF_DECODE_TIMEOUT_MS,
@@ -2968,10 +2967,6 @@ fn run_detectors(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>>
     findings.extend(composites);
     sis_pdf_core::finding_caps::apply_default_global_kind_cap(&mut findings);
     assign_stable_ids(&mut findings);
-
-    for finding in &mut findings {
-        reader_context::annotate_reader_context(finding);
-    }
 
     Ok(findings)
 }
@@ -10223,13 +10218,12 @@ mod tests {
                     node.get("id")
                         .and_then(Value::as_str)
                         .map(|id| id.starts_with("objstm."))
-                    .unwrap_or(false)
+                        .unwrap_or(false)
                 }),
                 "expected at least one objstm pseudo node"
             );
             assert_eq!(
-                value["typed_edges"],
-                baseline_value["typed_edges"],
+                value["typed_edges"], baseline_value["typed_edges"],
                 "overlay export must preserve typed edge summaries (additive behaviour)"
             );
         });

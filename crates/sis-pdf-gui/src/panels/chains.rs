@@ -87,23 +87,6 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 chain_completeness: chain.chain_completeness,
                 reader_risk: chain.reader_risk.clone(),
                 narrative: chain.narrative.clone(),
-                all_false_positive: chain.findings.iter().all(|fid| {
-                    app.annotations
-                        .get(fid)
-                        .map(|annotation| {
-                            annotation.triage_state
-                                == crate::annotations::TriageState::FalsePositive
-                        })
-                        .unwrap_or(false)
-                }),
-                all_mitigated: chain.findings.iter().all(|fid| {
-                    app.annotations
-                        .get(fid)
-                        .map(|annotation| {
-                            annotation.triage_state == crate::annotations::TriageState::Mitigated
-                        })
-                        .unwrap_or(false)
-                }),
                 finding_links,
                 flow_nodes,
             }
@@ -169,13 +152,6 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                     ui.separator();
                     ui.label(format!("Score: {:.2}", chain.score));
                     ui.separator();
-                    if chain.all_false_positive {
-                        ui.colored_label(egui::Color32::RED, "[FP]");
-                        ui.separator();
-                    } else if chain.all_mitigated {
-                        ui.colored_label(egui::Color32::from_rgb(80, 150, 230), "[OK]");
-                        ui.separator();
-                    }
                     ui.label(&chain.path);
                 });
 
@@ -316,8 +292,6 @@ struct ChainDisplay {
     chain_completeness: f64,
     reader_risk: std::collections::HashMap<String, String>,
     narrative: String,
-    all_false_positive: bool,
-    all_mitigated: bool,
     finding_links: Vec<(String, Option<usize>)>,
     flow_nodes: Vec<FlowNode>,
 }

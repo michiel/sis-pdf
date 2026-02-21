@@ -75,8 +75,6 @@ fn analyze_info_dict(
             evidence: vec![span_to_evidence(info_dict.span, "Info dictionary")],
             remediation: Some("Inspect unusual metadata keys for steganography.".into()),
             meta: meta.clone(),
-
-            reader_impacts: Vec::new(),
             action_type: None,
             action_target: None,
             action_initiation: None,
@@ -149,7 +147,6 @@ fn analyze_info_dict(
             evidence: vec![span_to_evidence(info_dict.span, "Info dictionary")],
             remediation: Some("Inspect metadata for malware signatures or steganography.".into()),
             meta,
-            reader_impacts: Vec::new(),
             action_type: None,
             action_target: None,
             action_initiation: None,

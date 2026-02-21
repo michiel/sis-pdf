@@ -7,7 +7,7 @@ use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge};
 
-use crate::{entry_dict, js_payload_candidates_from_entry};
+use crate::{entry_dict, js_payload_candidates_from_entry, JsPayloadSource};
 
 pub struct SupplyChainDetector;
 
@@ -83,9 +83,11 @@ impl Detector for SupplyChainDetector {
                 .filter(|edge| is_action_trigger_edge(edge))
                 .map(|edge| edge.edge_type.as_str().to_string())
                 .collect::<BTreeSet<_>>();
-            let has_action_trigger = !trigger_edges.is_empty();
+            let has_trigger_edges = !trigger_edges.is_empty();
 
             for candidate in candidates {
+                let has_action_trigger =
+                    has_trigger_edges || source_implies_action_trigger(candidate.source);
                 let info = candidate.payload;
                 let mut evidence = candidate.evidence;
                 if evidence.is_empty() {
@@ -506,12 +508,20 @@ fn stage_sources(
     out.into_iter().collect::<Vec<_>>().join(",")
 }
 
+fn source_implies_action_trigger(source: JsPayloadSource) -> bool {
+    matches!(
+        source,
+        JsPayloadSource::OpenAction | JsPayloadSource::AaEvent | JsPayloadSource::AnnotationAction
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         collect_execution_bridge_sources, extract_js_fetch_targets, is_action_trigger_edge,
-        merge_stage_fetch_targets, stage_sources,
+        merge_stage_fetch_targets, source_implies_action_trigger, stage_sources,
     };
+    use crate::JsPayloadSource;
     use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge};
 
     #[test]
@@ -547,5 +557,14 @@ mod tests {
     fn action_trigger_edge_accepts_next_action_variant() {
         let edge = TypedEdge::new((1, 0), (2, 0), EdgeType::NextAction);
         assert!(is_action_trigger_edge(&edge));
+    }
+
+    #[test]
+    fn trigger_capable_sources_are_detected() {
+        assert!(source_implies_action_trigger(JsPayloadSource::OpenAction));
+        assert!(source_implies_action_trigger(JsPayloadSource::AaEvent));
+        assert!(source_implies_action_trigger(JsPayloadSource::AnnotationAction));
+        assert!(!source_implies_action_trigger(JsPayloadSource::Action));
+        assert!(!source_implies_action_trigger(JsPayloadSource::CatalogJs));
     }
 }
