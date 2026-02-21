@@ -288,6 +288,8 @@ pub enum Query {
     ExportStructureJsonDepth(usize),
     ExportStructureOverlayDot,
     ExportStructureOverlayJson,
+    ExportStructureOverlayTelemetryDot,
+    ExportStructureOverlayTelemetryJson,
     ExportEventDot,
     ExportEventJson,
     ExportEventDotHops(usize),
@@ -653,6 +655,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "graph.structure.overlay" => Ok(Query::ExportStructureOverlayDot),
         "graph.structure.overlay.dot" => Ok(Query::ExportStructureOverlayDot),
         "graph.structure.overlay.json" => Ok(Query::ExportStructureOverlayJson),
+        "graph.structure.overlay.telemetry" => Ok(Query::ExportStructureOverlayTelemetryDot),
+        "graph.structure.overlay.telemetry.dot" => Ok(Query::ExportStructureOverlayTelemetryDot),
+        "graph.structure.overlay.telemetry.json" => Ok(Query::ExportStructureOverlayTelemetryJson),
         "graph.event" => Ok(Query::ExportEventDot),
         "graph.event.dot" => Ok(Query::ExportEventDot),
         "graph.event.json" => Ok(Query::ExportEventJson),
@@ -1363,6 +1368,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportStructureDot => Query::ExportStructureJson,
             Query::ExportStructureDotDepth(depth) => Query::ExportStructureJsonDepth(depth),
             Query::ExportStructureOverlayDot => Query::ExportStructureOverlayJson,
+            Query::ExportStructureOverlayTelemetryDot => Query::ExportStructureOverlayTelemetryJson,
             Query::ExportEventDot => Query::ExportEventJson,
             Query::ExportEventDotHops(hops) => Query::ExportEventJsonHops(hops),
             Query::ExportIrText => Query::ExportIrJson,
@@ -1378,6 +1384,8 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportStructureOverlayJson | Query::ExportStructureOverlayDot => {
                 Query::ExportStructureOverlayDot
             }
+            Query::ExportStructureOverlayTelemetryJson
+            | Query::ExportStructureOverlayTelemetryDot => Query::ExportStructureOverlayTelemetryDot,
             Query::ExportEventJson | Query::ExportEventDot => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) | Query::ExportEventDotHops(hops) => {
                 Query::ExportEventDotHops(hops)
@@ -1397,6 +1405,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportStructureJson => Query::ExportStructureDot,
             Query::ExportStructureJsonDepth(depth) => Query::ExportStructureDotDepth(depth),
             Query::ExportStructureOverlayJson => Query::ExportStructureOverlayDot,
+            Query::ExportStructureOverlayTelemetryJson => Query::ExportStructureOverlayTelemetryDot,
             Query::ExportEventJson => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) => Query::ExportEventDotHops(hops),
             Query::ExportIrJson => Query::ExportIrText,
@@ -2507,7 +2516,10 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let overlay = build_structure_overlay(ctx);
+                let overlay = build_structure_overlay(
+                    ctx,
+                    StructureOverlayOptions { include_telemetry: false, include_signature: false },
+                );
                 let dot_output = export_structure_dot(&org_graph, &typed_graph, 8, Some(&overlay));
                 Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
             }
@@ -2520,7 +2532,43 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let overlay = build_structure_overlay(ctx);
+                let overlay = build_structure_overlay(
+                    ctx,
+                    StructureOverlayOptions { include_telemetry: false, include_signature: false },
+                );
+                let json_output =
+                    export_structure_json(&org_graph, &typed_graph, 8, Some(&overlay));
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportStructureOverlayTelemetryDot => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let overlay = build_structure_overlay(
+                    ctx,
+                    StructureOverlayOptions { include_telemetry: true, include_signature: true },
+                );
+                let dot_output = export_structure_dot(&org_graph, &typed_graph, 8, Some(&overlay));
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportStructureOverlayTelemetryJson => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let overlay = build_structure_overlay(
+                    ctx,
+                    StructureOverlayOptions { include_telemetry: true, include_signature: true },
+                );
                 let json_output =
                     export_structure_json(&org_graph, &typed_graph, 8, Some(&overlay));
                 Ok(QueryResult::Structure(json_output))
@@ -4557,6 +4605,8 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::ExportStructureJson
         | Query::ExportStructureOverlayDot
         | Query::ExportStructureOverlayJson
+        | Query::ExportStructureOverlayTelemetryDot
+        | Query::ExportStructureOverlayTelemetryJson
         | Query::ExportEventDot
         | Query::ExportEventJson
         | Query::ExportEventDotHops(_)
@@ -7470,7 +7520,16 @@ struct StructureOverlay {
     stats: serde_json::Value,
 }
 
-fn build_structure_overlay(ctx: &ScanContext) -> StructureOverlay {
+#[derive(Debug, Clone, Copy)]
+struct StructureOverlayOptions {
+    include_telemetry: bool,
+    include_signature: bool,
+}
+
+fn build_structure_overlay(
+    ctx: &ScanContext,
+    options: StructureOverlayOptions,
+) -> StructureOverlay {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
 
@@ -7755,6 +7814,73 @@ fn build_structure_overlay(ctx: &ScanContext) -> StructureOverlay {
         }
     }
 
+    let mut telemetry_node_count = 0usize;
+    if options.include_telemetry {
+        for (idx, event) in ctx.graph.telemetry_events.iter().enumerate() {
+            let telemetry_id = format!("telemetry.{idx}");
+            push_overlay_node_if_missing(
+                &mut nodes,
+                &mut node_ids,
+                telemetry_id.clone(),
+                "telemetry",
+                json!({
+                    "kind": "telemetry",
+                    "idx": idx,
+                    "domain": event.domain,
+                    "event_kind": event.kind,
+                    "level": format!("{:?}", event.level),
+                    "object_ref": event.object_ref,
+                }),
+            );
+            telemetry_node_count += 1;
+            if let Some(object_ref) = &event.object_ref {
+                if let Some(target) = parse_object_ref_id(object_ref) {
+                    push_overlay_edge_unique(
+                        &mut edges,
+                        &mut edge_ids,
+                        telemetry_id.clone(),
+                        target,
+                        "telemetry_ref",
+                        false,
+                        json!({}),
+                    );
+                }
+            }
+        }
+    }
+
+    let mut signature_node_count = 0usize;
+    if options.include_signature {
+        for (idx, boundary) in timeline.signature_boundaries.iter().enumerate() {
+            let signature_id = format!("signature.{idx}");
+            push_overlay_node_if_missing(
+                &mut nodes,
+                &mut node_ids,
+                signature_id.clone(),
+                "signature",
+                json!({
+                    "kind": "signature",
+                    "idx": idx,
+                    "boundary": boundary,
+                }),
+            );
+            signature_node_count += 1;
+            for record in &timeline.revisions {
+                if *boundary >= record.startxref {
+                    push_overlay_edge_unique(
+                        &mut edges,
+                        &mut edge_ids,
+                        signature_id.clone(),
+                        format!("revision.{}", record.revision),
+                        "signature_covers_revision",
+                        false,
+                        json!({}),
+                    );
+                }
+            }
+        }
+    }
+
     StructureOverlay {
         stats: json!({
             "node_count": nodes.len(),
@@ -7763,6 +7889,10 @@ fn build_structure_overlay(ctx: &ScanContext) -> StructureOverlay {
             "startxref_count": ctx.graph.startxrefs.len(),
             "xref_section_count": ctx.graph.xref_sections.len(),
             "revision_count": timeline.revisions.len(),
+            "telemetry_node_count": telemetry_node_count,
+            "signature_node_count": signature_node_count,
+            "include_telemetry": options.include_telemetry,
+            "include_signature": options.include_signature,
         }),
         nodes,
         edges,
@@ -7888,7 +8018,7 @@ fn export_structure_dot(
         .map(|items| items.len())
         .unwrap_or(0);
     let summary_comment = format!(
-        "  // structure overlay: {} typed edge types, multi-step chains={}, max_chain_length={}, trigger_helpers={}\n",
+        "  // structure stats: {} typed edge types, multi-step chains={}, max_chain_length={}, trigger_helpers={}\n",
         edge_type_count, multi_step, max_len, helper_count
     );
     let overlay_block = summary_comment
@@ -9273,6 +9403,14 @@ mod tests {
         bytes
     }
 
+    fn build_pdf_with_oob_startxref() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"%PDF-1.4\n");
+        bytes.extend_from_slice(b"1 0 obj\n<< /Type /Catalog >>\nendobj\n");
+        bytes.extend_from_slice(b"trailer\n<< /Size 2 /Root 1 0 R >>\nstartxref\n999999\n%%EOF\n");
+        bytes
+    }
+
     #[test]
     fn advanced_query_json_outputs_are_structured() {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
@@ -9554,6 +9692,10 @@ mod tests {
         let query =
             apply_output_format(Query::ExportStructureOverlayDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportStructureOverlayJson));
+        let query =
+            apply_output_format(Query::ExportStructureOverlayTelemetryDot, OutputFormat::Json)
+                .unwrap();
+        assert!(matches!(query, Query::ExportStructureOverlayTelemetryJson));
 
         let query = apply_output_format(Query::ExportEventDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportEventJson));
@@ -9572,6 +9714,10 @@ mod tests {
         let query =
             apply_output_format(Query::ExportStructureOverlayJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportStructureOverlayDot));
+        let query =
+            apply_output_format(Query::ExportStructureOverlayTelemetryJson, OutputFormat::Dot)
+                .unwrap();
+        assert!(matches!(query, Query::ExportStructureOverlayTelemetryDot));
 
         let query = apply_output_format(Query::ExportEventJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportEventDot));
@@ -10127,6 +10273,12 @@ mod tests {
         let query =
             parse_query("graph.structure.overlay.json").expect("structure overlay json query");
         assert!(matches!(query, Query::ExportStructureOverlayJson));
+        let query = parse_query("graph.structure.overlay.telemetry")
+            .expect("structure overlay telemetry query");
+        assert!(matches!(query, Query::ExportStructureOverlayTelemetryDot));
+        let query = parse_query("graph.structure.overlay.telemetry.json")
+            .expect("structure overlay telemetry json query");
+        assert!(matches!(query, Query::ExportStructureOverlayTelemetryJson));
         let query = parse_query("graph.structure.depth 3").expect("structure depth query");
         assert!(matches!(query, Query::ExportStructureDotDepth(3)));
         let query = parse_query("graph.event").expect("event query");
@@ -10379,6 +10531,68 @@ mod tests {
                         .unwrap_or(false)
                 }),
                 "expected at least one objstm pseudo node"
+            );
+        });
+    }
+
+    #[test]
+    fn graph_structure_overlay_telemetry_json_includes_telemetry_nodes() {
+        let bytes = build_pdf_with_oob_startxref();
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+
+        let result = execute_query_with_context(
+            &Query::ExportStructureOverlayTelemetryJson,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("overlay telemetry query");
+        let value = match result {
+            QueryResult::Structure(value) => value,
+            other => panic!("unexpected overlay result: {:?}", other),
+        };
+        assert_eq!(value["overlay"]["stats"]["include_telemetry"], json!(true));
+        let nodes = value["overlay"]["nodes"].as_array().expect("overlay nodes");
+        assert!(
+            nodes.iter().any(|node| {
+                node.get("id")
+                    .and_then(Value::as_str)
+                    .map(|id| id.starts_with("telemetry."))
+                    .unwrap_or(false)
+            }),
+            "expected at least one telemetry pseudo node"
+        );
+    }
+
+    #[test]
+    fn graph_structure_overlay_telemetry_json_includes_signature_nodes_when_available() {
+        with_fixture_context("signature.pdf", |ctx| {
+            let result = execute_query_with_context(
+                &Query::ExportStructureOverlayTelemetryJson,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("overlay telemetry query");
+            let value = match result {
+                QueryResult::Structure(value) => value,
+                other => panic!("unexpected overlay result: {:?}", other),
+            };
+            assert_eq!(value["overlay"]["stats"]["include_signature"], json!(true));
+            let nodes = value["overlay"]["nodes"].as_array().expect("overlay nodes");
+            assert!(
+                nodes.iter().any(|node| {
+                    node.get("id")
+                        .and_then(Value::as_str)
+                        .map(|id| id.starts_with("signature."))
+                        .unwrap_or(false)
+                }),
+                "expected at least one signature pseudo node"
             );
         });
     }
