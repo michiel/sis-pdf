@@ -85,53 +85,51 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
 
     ui.separator();
 
-    // Render hex view with virtual scrolling
+    // Render hex view with virtual scrolling.
     let total_lines = hex_format::line_count(data.len());
     let line_height = 16.0;
-    let jump_row = app.hex_view.jump_to.as_ref().map(|jump| (jump.offset as usize) / 16);
-    let mut consumed_jump = false;
 
-    egui::ScrollArea::vertical().id_salt("hex_viewer_scroll").show_rows(
-        ui,
-        line_height,
-        total_lines,
-        |ui, row_range| {
-            ui.style_mut().override_font_id = Some(egui::FontId::monospace(12.0));
-
-            for row in row_range {
-                let byte_offset = row * 16;
-                let end = (byte_offset + 16).min(data.len());
-                if byte_offset >= data.len() {
-                    break;
-                }
-                let chunk = &data[byte_offset..end];
-
-                // Check if any highlight overlaps this line
-                let has_highlight = app.hex_view.highlights.iter().any(|hl| {
-                    let hl_end = hl.start + hl.length;
-                    byte_offset < hl_end && end > hl.start
-                });
-
-                let line = hex_format::format_hex_line(byte_offset, chunk);
-                if has_highlight {
-                    let text = egui::RichText::new(&line)
-                        .background_color(egui::Color32::from_rgba_premultiplied(255, 200, 0, 40));
-                    let response = ui.label(text);
-                    if !consumed_jump && jump_row == Some(row) {
-                        ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
-                        consumed_jump = true;
-                    }
-                } else {
-                    let response = ui.label(&line);
-                    if !consumed_jump && jump_row == Some(row) {
-                        ui.scroll_to_rect(response.rect, Some(egui::Align::Center));
-                        consumed_jump = true;
-                    }
-                }
-            }
-        },
-    );
-    if consumed_jump {
+    // `show_rows` only invokes the closure for currently visible rows, so
+    // `scroll_to_rect` inside the closure cannot reach an off-screen target.
+    // Instead, compute the target pixel offset and apply it directly on the
+    // ScrollArea before rendering, then immediately consume the jump so
+    // subsequent frames leave the user free to scroll.
+    let mut scroll = egui::ScrollArea::vertical().id_salt("hex_viewer_scroll");
+    if let Some(ref jump) = app.hex_view.jump_to {
+        let jump_row = (jump.offset as usize) / 16;
+        // Show a few rows of context above the target.
+        let context_rows: f32 = 3.0;
+        let target_y = (jump_row as f32 - context_rows).max(0.0) * line_height;
+        scroll = scroll.scroll_offset(egui::vec2(0.0, target_y));
         app.hex_view.jump_to = None;
     }
+
+    scroll.show_rows(ui, line_height, total_lines, |ui, row_range| {
+        ui.style_mut().override_font_id = Some(egui::FontId::monospace(12.0));
+
+        for row in row_range {
+            let byte_offset = row * 16;
+            let end = (byte_offset + 16).min(data.len());
+            if byte_offset >= data.len() {
+                break;
+            }
+            let chunk = &data[byte_offset..end];
+
+            // Check if any highlight overlaps this line.
+            let has_highlight = app.hex_view.highlights.iter().any(|hl| {
+                let hl_end = hl.start + hl.length;
+                byte_offset < hl_end && end > hl.start
+            });
+
+            let line = hex_format::format_hex_line(byte_offset, chunk);
+            if has_highlight {
+                ui.label(
+                    egui::RichText::new(&line)
+                        .background_color(egui::Color32::from_rgba_premultiplied(255, 200, 0, 40)),
+                );
+            } else {
+                ui.label(&line);
+            }
+        }
+    });
 }
