@@ -737,7 +737,7 @@ fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool)
 }
 
 #[cfg(test)]
-mod tests {
+mod chain_tests {
     use super::collect_object_chain_entries;
     use sis_pdf_core::chain::ExploitChain;
     use sis_pdf_core::object_context::{

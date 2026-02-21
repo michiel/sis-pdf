@@ -1,5 +1,5 @@
 use crate::app::SisApp;
-use crate::panels::chain_display::{chain_header, render_chain_summary, summary_from_chain};
+use crate::panels::chain_display::{render_chain_summary, summary_from_chain};
 use sis_pdf_core::chain::ExploitChain;
 use sis_pdf_core::event_graph::{EventGraph, EventNodeKind};
 use sis_pdf_core::model::EvidenceSource;
@@ -449,7 +449,8 @@ fn event_graph_paths_for_finding(
 
 #[cfg(test)]
 mod tests {
-    use super::{chain_header, collect_finding_chain_entries};
+    use super::collect_finding_chain_entries;
+    use crate::panels::chain_display::chain_header;
     use sis_pdf_core::chain::ExploitChain;
     use std::collections::HashMap;
 

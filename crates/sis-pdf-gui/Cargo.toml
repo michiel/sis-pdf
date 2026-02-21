@@ -11,7 +11,7 @@ tracing = { workspace = true }
 sha2 = { workspace = true }
 
 # UI dependencies (optional for testing without winit)
-eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts"], optional = true }
+eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"], optional = true }
 egui = { version = "0.33", optional = true }
 egui_extras = { version = "0.33", optional = true }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"], optional = true }
