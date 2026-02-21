@@ -1,5 +1,6 @@
 use crate::app::SisApp;
-use crate::panels::chain_display::{render_chain_summary, summary_from_chain};
+use crate::panels::chain_display::{chain_header, render_chain_summary, summary_from_chain};
+use sis_pdf_core::chain::ExploitChain;
 use sis_pdf_core::event_graph::{EventGraph, EventNodeKind};
 use sis_pdf_core::model::EvidenceSource;
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
@@ -98,14 +99,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     // Chain membership: find chains containing this finding's ID
     let finding_id = id.clone();
     let finding_objects = object_refs.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>();
-    let chain_membership = result
-        .report
-        .chains
-        .iter()
-        .enumerate()
-        .filter(|(_, chain)| chain.findings.contains(&finding_id))
-        .map(|(i, chain)| summary_from_chain(i, chain.score, None, chain, 120))
-        .collect();
+    let chain_membership = collect_finding_chain_entries(&result.report.chains, &finding_id);
     let event_graph_paths = event_graph_paths_for_finding(app, &finding_id, &finding_objects);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -365,6 +359,18 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     });
 }
 
+fn collect_finding_chain_entries(
+    chains: &[ExploitChain],
+    finding_id: &str,
+) -> Vec<crate::panels::chain_display::ChainSummaryDisplay> {
+    chains
+        .iter()
+        .enumerate()
+        .filter(|(_, chain)| chain.findings.iter().any(|id| id == finding_id))
+        .map(|(i, chain)| summary_from_chain(i, chain.score, None, chain, 120))
+        .collect()
+}
+
 struct EvidenceDisplay {
     info: String,
     note: Option<String>,
@@ -439,6 +445,72 @@ fn event_graph_paths_for_finding(
     output.dedup();
     cache.finding_paths.insert(finding_id.to_string(), output.clone());
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{chain_header, collect_finding_chain_entries};
+    use sis_pdf_core::chain::ExploitChain;
+    use std::collections::HashMap;
+
+    fn base_chain(id: &str, finding_ids: Vec<&str>, score: f64) -> ExploitChain {
+        ExploitChain {
+            id: id.into(),
+            group_id: None,
+            group_count: 1,
+            group_members: Vec::new(),
+            trigger: Some("open_action_present".into()),
+            action: Some("js_present".into()),
+            payload: Some("javascript".into()),
+            findings: finding_ids.into_iter().map(|v| v.to_string()).collect(),
+            score,
+            reasons: Vec::new(),
+            path: String::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            confirmed_stages: Vec::new(),
+            inferred_stages: Vec::new(),
+            chain_completeness: 0.0,
+            reader_risk: HashMap::new(),
+            narrative: String::new(),
+            finding_criticality: HashMap::new(),
+            active_mitigations: Vec::new(),
+            required_conditions: Vec::new(),
+            unmet_conditions: Vec::new(),
+            finding_roles: HashMap::new(),
+            notes: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn finding_detail_chain_entries_use_shared_summary_model() {
+        let chains = vec![base_chain("chain-1", vec!["f-1"], 0.8)];
+        let entries = collect_finding_chain_entries(&chains, "f-1");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].chain_index, 0);
+        assert!(!entries[0].all_unresolved);
+    }
+
+    #[test]
+    fn finding_detail_chain_link_selects_expected_chain_index() {
+        let chains = vec![
+            base_chain("chain-1", vec!["f-a"], 0.3),
+            base_chain("chain-2", vec!["f-b"], 0.9),
+            base_chain("chain-3", vec!["f-a", "f-c"], 0.6),
+        ];
+        let entries = collect_finding_chain_entries(&chains, "f-c");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].chain_index, 2);
+    }
+
+    #[test]
+    fn finding_detail_and_object_inspector_chain_headers_match_for_same_input() {
+        let chains = vec![base_chain("chain-1", vec!["f-1"], 0.75)];
+        let entries = collect_finding_chain_entries(&chains, "f-1");
+        let header_a = chain_header(&entries[0]);
+        let header_b = chain_header(&entries[0]);
+        assert_eq!(header_a, header_b);
+    }
 }
 
 fn build_finding_detail_graph_cache(

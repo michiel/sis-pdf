@@ -3,6 +3,7 @@ use crate::hex_format;
 use crate::object_data::ObjectValue;
 use crate::panels::chain_display::{render_chain_summary, summary_from_chain, unresolved_summary};
 use egui_extras::{Column, TableBuilder};
+use sis_pdf_core::chain::ExploitChain;
 use sis_pdf_core::model::Severity;
 use sis_pdf_core::object_context::{
     get_object_context, ObjectChainRole, ObjectSecurityContext, TaintReasonEntry,
@@ -573,24 +574,7 @@ fn show_security_context(ui: &mut egui::Ui, app: &mut SisApp, context: &ObjectSe
         ui.separator();
         ui.label("Chain membership:");
         let chain_entries = if let Some(result) = app.result.as_ref() {
-            context
-                .chains
-                .iter()
-                .map(|membership| {
-                    let role = Some(format_chain_role(membership.role).to_string());
-                    if let Some(chain) = result.report.chains.get(membership.chain_index) {
-                        summary_from_chain(
-                            membership.chain_index,
-                            membership.score,
-                            role,
-                            chain,
-                            100,
-                        )
-                    } else {
-                        unresolved_summary(membership.chain_index, membership.score, role)
-                    }
-                })
-                .collect::<Vec<_>>()
+            collect_object_chain_entries(context, &result.report.chains)
         } else {
             Vec::new()
         };
@@ -630,6 +614,24 @@ fn format_chain_role(role: ObjectChainRole) -> &'static str {
         ObjectChainRole::Participant => "Participant",
         ObjectChainRole::PathNode => "PathNode",
     }
+}
+
+fn collect_object_chain_entries(
+    context: &ObjectSecurityContext,
+    chains: &[ExploitChain],
+) -> Vec<crate::panels::chain_display::ChainSummaryDisplay> {
+    context
+        .chains
+        .iter()
+        .map(|membership| {
+            let role = Some(format_chain_role(membership.role).to_string());
+            if let Some(chain) = chains.get(membership.chain_index) {
+                summary_from_chain(membership.chain_index, membership.score, role, chain, 100)
+            } else {
+                unresolved_summary(membership.chain_index, membership.score, role)
+            }
+        })
+        .collect()
 }
 
 fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool) {
@@ -731,6 +733,82 @@ fn show_stream_content(ui: &mut egui::Ui, detail: &ObjectDetail, show_hex: bool)
             ui.separator();
             ui.label("Stream contains binary data (toggle Hex to view)");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_object_chain_entries;
+    use sis_pdf_core::chain::ExploitChain;
+    use sis_pdf_core::object_context::{
+        ObjectChainMembership, ObjectChainRole, ObjectSecurityContext,
+    };
+    use std::collections::HashMap;
+
+    fn base_chain() -> ExploitChain {
+        ExploitChain {
+            id: "chain-1".into(),
+            group_id: None,
+            group_count: 1,
+            group_members: Vec::new(),
+            trigger: Some("open_action_present".into()),
+            action: Some("js_present".into()),
+            payload: Some("javascript".into()),
+            findings: vec!["f1".into()],
+            score: 0.8,
+            reasons: Vec::new(),
+            path: String::new(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            confirmed_stages: Vec::new(),
+            inferred_stages: Vec::new(),
+            chain_completeness: 0.0,
+            reader_risk: HashMap::new(),
+            narrative: String::new(),
+            finding_criticality: HashMap::new(),
+            active_mitigations: Vec::new(),
+            required_conditions: Vec::new(),
+            unmet_conditions: Vec::new(),
+            finding_roles: HashMap::new(),
+            notes: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn object_inspector_chain_entries_use_shared_summary_model() {
+        let context = ObjectSecurityContext {
+            chains: vec![ObjectChainMembership {
+                chain_index: 0,
+                chain_id: "chain-1".to_string(),
+                path: "Trigger:X -> Action:Y -> Payload:Z".to_string(),
+                score: 0.8,
+                role: ObjectChainRole::Participant,
+            }],
+            ..ObjectSecurityContext::default()
+        };
+        let entries = collect_object_chain_entries(&context, &[base_chain()]);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].chain_index, 0);
+        assert_eq!(entries[0].role_label.as_deref(), Some("Participant"));
+        assert!(!entries[0].all_unresolved);
+    }
+
+    #[test]
+    fn object_inspector_chain_link_selects_expected_chain_index() {
+        let context = ObjectSecurityContext {
+            chains: vec![ObjectChainMembership {
+                chain_index: 3,
+                chain_id: "chain-3".to_string(),
+                path: String::new(),
+                score: 0.5,
+                role: ObjectChainRole::Payload,
+            }],
+            ..ObjectSecurityContext::default()
+        };
+        let entries = collect_object_chain_entries(&context, &[]);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].chain_index, 3);
+        assert!(entries[0].all_unresolved);
     }
 }
 
