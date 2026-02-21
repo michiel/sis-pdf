@@ -139,7 +139,7 @@ fn handle_arrow_shortcuts(ctx: &egui::Context, app: &mut SisApp) -> bool {
     false
 }
 
-/// Close panels in priority order: command bar -> graph -> hex -> objects -> metadata.
+/// Close panels in priority order: command bar -> graph -> hex -> objects -> events -> metadata.
 /// Returns true if something was closed.
 pub fn handle_escape(app: &mut SisApp) -> bool {
     if app.show_command_bar {
@@ -156,6 +156,10 @@ pub fn handle_escape(app: &mut SisApp) -> bool {
     }
     if app.show_objects {
         app.show_objects = false;
+        return true;
+    }
+    if app.show_events {
+        app.show_events = false;
         return true;
     }
     if app.show_metadata {

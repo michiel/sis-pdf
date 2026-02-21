@@ -3,6 +3,7 @@ pub mod chains;
 pub mod command_bar;
 pub mod detail;
 pub mod drop_zone;
+pub mod events;
 pub mod findings;
 pub mod graph;
 pub mod hex_viewer;

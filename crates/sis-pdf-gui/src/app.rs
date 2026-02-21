@@ -35,10 +35,14 @@ pub struct SisApp {
     pub show_revision: bool,
     /// Whether to show the Object Inspector floating window.
     pub show_objects: bool,
+    /// Whether to show the events floating window.
+    pub show_events: bool,
     /// Whether to show the image preview floating window.
     pub show_image_preview: bool,
     /// Currently selected object in the Object Inspector.
     pub selected_object: Option<(u32, u16)>,
+    /// Index of the currently selected event in the Events dialog.
+    pub selected_event: Option<usize>,
     /// Image preview dialog state.
     pub image_preview_state: ImagePreviewDialogState,
     /// Type filter for the Object Inspector list.
@@ -300,8 +304,10 @@ impl SisApp {
             show_metadata: false,
             show_revision: false,
             show_objects: false,
+            show_events: false,
             show_image_preview: false,
             selected_object: None,
+            selected_event: None,
             image_preview_state: ImagePreviewDialogState::default(),
             object_type_filter: None,
             object_nav_stack: Vec::new(),
@@ -440,6 +446,7 @@ impl SisApp {
         self.show_metadata = false;
         self.show_revision = false;
         self.show_objects = false;
+        self.show_events = false;
         self.show_image_preview = false;
         self.image_preview_state = ImagePreviewDialogState::default();
         self.show_graph = false;
@@ -448,6 +455,7 @@ impl SisApp {
         self.include_singleton_chains = false;
         self.finding_detail_graph_cache = None;
         self.annotation_edit_finding = None;
+        self.selected_event = None;
         self.severity_filters = SeverityFilters::default();
         self.sort = SortState::default();
         self.findings_search.clear();
@@ -605,9 +613,11 @@ impl SisApp {
                 show_metadata: self.show_metadata,
                 show_revision: self.show_revision,
                 show_objects: self.show_objects,
+                show_events: self.show_events,
                 show_image_preview: self.show_image_preview,
                 show_hex: self.show_hex,
                 selected_object: self.selected_object.take(),
+                selected_event: self.selected_event.take(),
                 image_preview_state: std::mem::take(&mut self.image_preview_state),
                 object_type_filter: self.object_type_filter.take(),
                 object_nav_stack: std::mem::take(&mut self.object_nav_stack),
@@ -655,9 +665,11 @@ impl SisApp {
         self.show_metadata = ws.show_metadata;
         self.show_revision = ws.show_revision;
         self.show_objects = ws.show_objects;
+        self.show_events = ws.show_events;
         self.show_image_preview = ws.show_image_preview;
         self.show_hex = ws.show_hex;
         self.selected_object = ws.selected_object;
+        self.selected_event = ws.selected_event;
         self.image_preview_state = ws.image_preview_state;
         self.object_type_filter = ws.object_type_filter;
         self.object_nav_stack = ws.object_nav_stack;
@@ -1344,6 +1356,10 @@ impl eframe::App for SisApp {
 
             if self.show_objects {
                 crate::panels::objects::show(ctx, self);
+            }
+
+            if self.show_events {
+                crate::panels::events::show_window(ctx, self);
             }
 
             if self.show_image_preview {
