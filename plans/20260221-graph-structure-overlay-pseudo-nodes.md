@@ -1,7 +1,7 @@
 # Structure Overlay Plan: Trailer and Forensic Pseudo Nodes
 
 Date: 2026-02-21
-Status: Ready for implementation
+Status: In progress
 Owner: core (`sis-pdf-core`, `sis-pdf-pdf`), CLI (`sis-pdf`)
 
 ## Problem statement
@@ -39,6 +39,34 @@ graph nodes or edges. This creates a forensic visibility gap:
    for trailer/xref/revision provenance.
 2. Preserve current graph semantics and output by default.
 3. Improve forensic traceability without inflating false-positive risk or runtime unpredictability.
+
+## Progress snapshot (2026-02-21)
+
+Completed in repository:
+1. Stage 1 query surface and overlay export path:
+   - Added `graph.structure.overlay` (`dot`/`json`) query variants.
+   - Preserved baseline `graph.structure*` behaviour when overlay is not requested.
+   - Added pseudo nodes for `file.root`, `startxref.*`, `xref.section.*`, `trailer.*`.
+2. Stage 2 core provenance overlays:
+   - Added `revision.*`, `objstm.*`, and `carved.*` pseudo nodes.
+   - Added revision changed-object edge cap (`50`) with `truncated` metadata.
+   - Added detached object stats (`detached_total`, capped `detached_objects`, `detached_truncated`).
+3. Stage 3 gated extended overlays:
+   - Added explicit telemetry/signature overlay variants:
+     - `graph.structure.overlay.telemetry`
+     - `graph.structure.overlay.telemetry.dot`
+     - `graph.structure.overlay.telemetry.json`
+   - Added `telemetry.*` and `signature.*` pseudo nodes only for telemetry overlay variants.
+
+Committed implementation checkpoints:
+1. `30ade8e` `Add structure overlay graph queries and pseudo nodes`
+2. `2adeda0` `Add telemetry and signature overlay query variants`
+
+Still outstanding:
+1. Extract overlay builder into `crates/sis-pdf-core/src/structure_overlay.rs` (currently in `query.rs`).
+2. Add Info finding `structural_complexity_summary` in scan output path.
+3. Add docs page (`docs/query-overlay.md`) with schema + semantics.
+4. Add baseline snapshot test and performance budget gate listed below.
 
 ## Non-goals
 

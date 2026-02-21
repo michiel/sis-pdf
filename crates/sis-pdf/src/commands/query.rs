@@ -7526,6 +7526,8 @@ struct StructureOverlayOptions {
     include_signature: bool,
 }
 
+const DETACHED_OBJECTS_CAP: usize = 100;
+
 fn build_structure_overlay(
     ctx: &ScanContext,
     options: StructureOverlayOptions,
@@ -7881,6 +7883,34 @@ fn build_structure_overlay(
         }
     }
 
+    let adjacency = sis_pdf_core::graph_walk::build_adjacency(&ctx.graph.objects);
+    let mut root_seeds = Vec::new();
+    for trailer in &ctx.graph.trailers {
+        if let Some((_, root_obj)) = trailer.get_first(b"/Root") {
+            if let PdfAtom::Ref { obj, gen } = root_obj.atom {
+                root_seeds.push(sis_pdf_core::graph_walk::ObjRef { obj, gen });
+            }
+        }
+    }
+    let max_depth = ctx.graph.objects.len().saturating_add(8);
+    let reachable = sis_pdf_core::graph_walk::reachable_from(&adjacency, &root_seeds, max_depth);
+    let mut detached = ctx
+        .graph
+        .objects
+        .iter()
+        .map(|entry| sis_pdf_core::graph_walk::ObjRef { obj: entry.obj, gen: entry.gen })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .filter(|obj_ref| !reachable.contains(obj_ref))
+        .map(|obj_ref| format!("{} {}", obj_ref.obj, obj_ref.gen))
+        .collect::<Vec<_>>();
+    detached.sort();
+    let detached_total = detached.len();
+    let detached_truncated = detached_total > DETACHED_OBJECTS_CAP;
+    if detached_truncated {
+        detached.truncate(DETACHED_OBJECTS_CAP);
+    }
+
     StructureOverlay {
         stats: json!({
             "node_count": nodes.len(),
@@ -7893,6 +7923,9 @@ fn build_structure_overlay(
             "signature_node_count": signature_node_count,
             "include_telemetry": options.include_telemetry,
             "include_signature": options.include_signature,
+            "detached_total": detached_total,
+            "detached_truncated": detached_truncated,
+            "detached_objects": detached,
         }),
         nodes,
         edges,
@@ -9411,6 +9444,37 @@ mod tests {
         bytes
     }
 
+    fn build_pdf_with_many_detached(detached_count: usize) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"%PDF-1.4\n");
+
+        let mut objects = Vec::new();
+        objects.push("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string());
+        objects.push("2 0 obj\n<< /Type /Pages /Count 0 /Kids [] >>\nendobj\n".to_string());
+        for obj in 3..(3 + detached_count as u32) {
+            objects.push(format!("{obj} 0 obj\n<< /Producer (detached-{obj}) >>\nendobj\n"));
+        }
+
+        let mut offsets = Vec::new();
+        for object in &objects {
+            offsets.push(bytes.len());
+            bytes.extend_from_slice(object.as_bytes());
+        }
+
+        let size = objects.len() + 1;
+        let xref_offset = bytes.len();
+        bytes.extend_from_slice(format!("xref\n0 {size}\n").as_bytes());
+        bytes.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets {
+            bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        bytes.extend_from_slice(
+            format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n")
+                .as_bytes(),
+        );
+        bytes
+    }
+
     #[test]
     fn advanced_query_json_outputs_are_structured() {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
@@ -10595,6 +10659,62 @@ mod tests {
                 "expected at least one signature pseudo node"
             );
         });
+    }
+
+    #[test]
+    fn graph_structure_overlay_reports_detached_object_for_info_dict() {
+        let bytes = build_pdf_with_info_trailer();
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+
+        let result = execute_query_with_context(
+            &Query::ExportStructureOverlayJson,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("overlay query");
+        let value = match result {
+            QueryResult::Structure(value) => value,
+            other => panic!("unexpected overlay result: {:?}", other),
+        };
+        assert_eq!(value["overlay"]["stats"]["detached_truncated"], json!(false));
+        let detached =
+            value["overlay"]["stats"]["detached_objects"].as_array().expect("detached objects");
+        assert!(
+            detached.iter().any(|entry| entry == "5 0"),
+            "expected /Info object to be reported as detached"
+        );
+    }
+
+    #[test]
+    fn graph_structure_overlay_caps_detached_object_list() {
+        let bytes = build_pdf_with_many_detached(110);
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+
+        let result = execute_query_with_context(
+            &Query::ExportStructureOverlayJson,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("overlay query");
+        let value = match result {
+            QueryResult::Structure(value) => value,
+            other => panic!("unexpected overlay result: {:?}", other),
+        };
+        assert_eq!(value["overlay"]["stats"]["detached_truncated"], json!(true));
+        let detached_total =
+            value["overlay"]["stats"]["detached_total"].as_u64().expect("detached total");
+        assert!(detached_total >= 110);
+        let detached =
+            value["overlay"]["stats"]["detached_objects"].as_array().expect("detached objects");
+        assert_eq!(detached.len(), 100);
     }
 
     #[test]
