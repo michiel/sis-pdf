@@ -286,6 +286,8 @@ pub enum Query {
     ExportStructureJson,
     ExportStructureDotDepth(usize),
     ExportStructureJsonDepth(usize),
+    ExportStructureOverlayDot,
+    ExportStructureOverlayJson,
     ExportEventDot,
     ExportEventJson,
     ExportEventDotHops(usize),
@@ -648,6 +650,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "graph.structure" => Ok(Query::ExportStructureDot),
         "graph.structure.dot" => Ok(Query::ExportStructureDot),
         "graph.structure.json" => Ok(Query::ExportStructureJson),
+        "graph.structure.overlay" => Ok(Query::ExportStructureOverlayDot),
+        "graph.structure.overlay.dot" => Ok(Query::ExportStructureOverlayDot),
+        "graph.structure.overlay.json" => Ok(Query::ExportStructureOverlayJson),
         "graph.event" => Ok(Query::ExportEventDot),
         "graph.event.dot" => Ok(Query::ExportEventDot),
         "graph.event.json" => Ok(Query::ExportEventJson),
@@ -1357,6 +1362,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportOrgDot => Query::ExportOrgJson,
             Query::ExportStructureDot => Query::ExportStructureJson,
             Query::ExportStructureDotDepth(depth) => Query::ExportStructureJsonDepth(depth),
+            Query::ExportStructureOverlayDot => Query::ExportStructureOverlayJson,
             Query::ExportEventDot => Query::ExportEventJson,
             Query::ExportEventDotHops(hops) => Query::ExportEventJsonHops(hops),
             Query::ExportIrText => Query::ExportIrJson,
@@ -1368,6 +1374,9 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportStructureJson | Query::ExportStructureDot => Query::ExportStructureDot,
             Query::ExportStructureJsonDepth(depth) | Query::ExportStructureDotDepth(depth) => {
                 Query::ExportStructureDotDepth(depth)
+            }
+            Query::ExportStructureOverlayJson | Query::ExportStructureOverlayDot => {
+                Query::ExportStructureOverlayDot
             }
             Query::ExportEventJson | Query::ExportEventDot => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) | Query::ExportEventDotHops(hops) => {
@@ -1387,6 +1396,7 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportOrgJson => Query::ExportOrgDot,
             Query::ExportStructureJson => Query::ExportStructureDot,
             Query::ExportStructureJsonDepth(depth) => Query::ExportStructureDotDepth(depth),
+            Query::ExportStructureOverlayJson => Query::ExportStructureOverlayDot,
             Query::ExportEventJson => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) => Query::ExportEventDotHops(hops),
             Query::ExportIrJson => Query::ExportIrText,
@@ -2449,7 +2459,7 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let dot_output = export_structure_dot(&org_graph, &typed_graph, 8);
+                let dot_output = export_structure_dot(&org_graph, &typed_graph, 8, None);
                 Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
             }
             Query::ExportStructureJson => {
@@ -2461,7 +2471,7 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let json_output = export_structure_json(&org_graph, &typed_graph, 8);
+                let json_output = export_structure_json(&org_graph, &typed_graph, 8, None);
                 Ok(QueryResult::Structure(json_output))
             }
             Query::ExportStructureDotDepth(depth) => {
@@ -2473,7 +2483,7 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let dot_output = export_structure_dot(&org_graph, &typed_graph, *depth);
+                let dot_output = export_structure_dot(&org_graph, &typed_graph, *depth, None);
                 Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
             }
             Query::ExportStructureJsonDepth(depth) => {
@@ -2485,7 +2495,34 @@ pub fn execute_query_with_context(
                     classifications,
                     &typed_graph,
                 );
-                let json_output = export_structure_json(&org_graph, &typed_graph, *depth);
+                let json_output = export_structure_json(&org_graph, &typed_graph, *depth, None);
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportStructureOverlayDot => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let overlay = build_structure_overlay(ctx);
+                let dot_output = export_structure_dot(&org_graph, &typed_graph, 8, Some(&overlay));
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportStructureOverlayJson => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let overlay = build_structure_overlay(ctx);
+                let json_output =
+                    export_structure_json(&org_graph, &typed_graph, 8, Some(&overlay));
                 Ok(QueryResult::Structure(json_output))
             }
             Query::ExportEventDot => {
@@ -4518,6 +4555,8 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::ChainsJsAll
         | Query::ExportStructureDot
         | Query::ExportStructureJson
+        | Query::ExportStructureOverlayDot
+        | Query::ExportStructureOverlayJson
         | Query::ExportEventDot
         | Query::ExportEventJson
         | Query::ExportEventDotHops(_)
@@ -7408,28 +7447,429 @@ fn trailer_ref_value(trailer: &sis_pdf_pdf::object::PdfDict<'_>, key: &[u8]) -> 
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct StructureOverlayNode {
+    id: String,
+    kind: String,
+    attrs: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StructureOverlayEdge {
+    from: String,
+    to: String,
+    edge_type: String,
+    suspicious: bool,
+    attrs: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StructureOverlay {
+    nodes: Vec<StructureOverlayNode>,
+    edges: Vec<StructureOverlayEdge>,
+    stats: serde_json::Value,
+}
+
+fn build_structure_overlay(ctx: &ScanContext) -> StructureOverlay {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+
+    nodes.push(StructureOverlayNode {
+        id: "file.root".to_string(),
+        kind: "file_root".to_string(),
+        attrs: json!({"kind":"file_root"}),
+    });
+
+    let mut section_by_offset: HashMap<u64, Vec<usize>> = HashMap::new();
+    for (idx, section) in ctx.graph.xref_sections.iter().enumerate() {
+        section_by_offset.entry(section.offset).or_default().push(idx);
+    }
+    let mut startxref_by_offset: HashMap<u64, usize> = HashMap::new();
+    for (idx, offset) in ctx.graph.startxrefs.iter().enumerate() {
+        startxref_by_offset.entry(*offset).or_insert(idx);
+    }
+
+    let mut startxref_section_match = vec![false; ctx.graph.startxrefs.len()];
+
+    for (idx, offset) in ctx.graph.startxrefs.iter().enumerate() {
+        let startxref_id = format!("startxref.{idx}");
+        nodes.push(StructureOverlayNode {
+            id: startxref_id.clone(),
+            kind: "startxref".to_string(),
+            attrs: json!({
+                "kind":"startxref",
+                "idx": idx,
+                "offset": offset,
+                "section_match": false
+            }),
+        });
+        edges.push(StructureOverlayEdge {
+            from: "file.root".to_string(),
+            to: startxref_id.clone(),
+            edge_type: "file_root_to_startxref".to_string(),
+            suspicious: false,
+            attrs: json!({}),
+        });
+        if let Some(matches) = section_by_offset.get(offset) {
+            startxref_section_match[idx] = !matches.is_empty();
+            for section_idx in matches {
+                edges.push(StructureOverlayEdge {
+                    from: startxref_id.clone(),
+                    to: format!("xref.section.{section_idx}"),
+                    edge_type: "startxref_to_section".to_string(),
+                    suspicious: false,
+                    attrs: json!({}),
+                });
+            }
+        }
+    }
+
+    for (idx, section) in ctx.graph.xref_sections.iter().enumerate() {
+        nodes.push(StructureOverlayNode {
+            id: format!("xref.section.{idx}"),
+            kind: "xref_section".to_string(),
+            attrs: json!({
+                "kind":"xref_section",
+                "idx": idx,
+                "offset": section.offset,
+                "section_kind": section.kind,
+                "has_trailer": section.has_trailer,
+                "prev": section.prev,
+                "trailer_size": section.trailer_size,
+                "trailer_root": section.trailer_root,
+            }),
+        });
+        if section.has_trailer && idx < ctx.graph.trailers.len() {
+            edges.push(StructureOverlayEdge {
+                from: format!("xref.section.{idx}"),
+                to: format!("trailer.{idx}"),
+                edge_type: "section_to_trailer".to_string(),
+                suspicious: false,
+                attrs: json!({}),
+            });
+        }
+        if let Some(prev) = section.prev {
+            if let Some(prev_sections) = section_by_offset.get(&prev) {
+                for prev_idx in prev_sections {
+                    edges.push(StructureOverlayEdge {
+                        from: format!("xref.section.{idx}"),
+                        to: format!("xref.section.{prev_idx}"),
+                        edge_type: "section_prev".to_string(),
+                        suspicious: false,
+                        attrs: json!({}),
+                    });
+                }
+            }
+        }
+    }
+
+    for (idx, trailer) in ctx.graph.trailers.iter().enumerate() {
+        let mut unresolved = Vec::new();
+        let mut prev_unresolved = false;
+        let has_root = trailer.get_first(b"/Root").is_some();
+        let has_info = trailer.get_first(b"/Info").is_some();
+        let has_encrypt = trailer.get_first(b"/Encrypt").is_some();
+        let size = trailer_int_value(trailer, b"/Size");
+
+        resolve_trailer_ref_edge(
+            ctx,
+            trailer,
+            b"/Root",
+            "trailer_root",
+            idx,
+            &mut edges,
+            &mut unresolved,
+        );
+        resolve_trailer_ref_edge(
+            ctx,
+            trailer,
+            b"/Info",
+            "trailer_info",
+            idx,
+            &mut edges,
+            &mut unresolved,
+        );
+        resolve_trailer_ref_edge(
+            ctx,
+            trailer,
+            b"/Encrypt",
+            "trailer_encrypt",
+            idx,
+            &mut edges,
+            &mut unresolved,
+        );
+
+        if let Some(prev) = trailer_int_value(trailer, b"/Prev") {
+            if let Some(startxref_idx) = startxref_by_offset.get(&prev) {
+                edges.push(StructureOverlayEdge {
+                    from: format!("trailer.{idx}"),
+                    to: format!("startxref.{startxref_idx}"),
+                    edge_type: "trailer_prev".to_string(),
+                    suspicious: false,
+                    attrs: json!({}),
+                });
+            } else {
+                prev_unresolved = true;
+            }
+        }
+
+        nodes.push(StructureOverlayNode {
+            id: format!("trailer.{idx}"),
+            kind: "trailer".to_string(),
+            attrs: json!({
+                "kind": "trailer",
+                "idx": idx,
+                "has_root": has_root,
+                "has_info": has_info,
+                "has_encrypt": has_encrypt,
+                "size": size,
+                "unresolved": unresolved,
+                "prev_unresolved": prev_unresolved,
+            }),
+        });
+    }
+
+    for node in &mut nodes {
+        if node.kind == "startxref" {
+            if let Some(idx) = node
+                .attrs
+                .get("idx")
+                .and_then(serde_json::Value::as_u64)
+                .map(|value| value as usize)
+            {
+                if idx < startxref_section_match.len() {
+                    if let Some(map) = node.attrs.as_object_mut() {
+                        map.insert(
+                            "section_match".to_string(),
+                            json!(startxref_section_match[idx]),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let mut node_ids = nodes.iter().map(|node| node.id.clone()).collect::<HashSet<_>>();
+    let mut edge_ids = edges
+        .iter()
+        .map(|edge| (edge.from.clone(), edge.to.clone(), edge.edge_type.clone()))
+        .collect::<HashSet<_>>();
+
+    for entry in &ctx.graph.objects {
+        match entry.provenance {
+            sis_pdf_pdf::graph::ObjProvenance::ObjStm { obj, gen } => {
+                let node_id = format!("objstm.{obj}.{gen}");
+                push_overlay_node_if_missing(
+                    &mut nodes,
+                    &mut node_ids,
+                    node_id.clone(),
+                    "objstm",
+                    json!({"kind":"objstm", "container_obj": obj, "container_gen": gen}),
+                );
+                push_overlay_edge_unique(
+                    &mut edges,
+                    &mut edge_ids,
+                    node_id,
+                    format!("{} {}", entry.obj, entry.gen),
+                    "objstm_contains",
+                    false,
+                    json!({}),
+                );
+            }
+            sis_pdf_pdf::graph::ObjProvenance::CarvedStream { obj, gen } => {
+                let node_id = format!("carved.{obj}.{gen}");
+                push_overlay_node_if_missing(
+                    &mut nodes,
+                    &mut node_ids,
+                    node_id.clone(),
+                    "carved_stream",
+                    json!({"kind":"carved_stream", "carrier_obj": obj, "carrier_gen": gen}),
+                );
+                push_overlay_edge_unique(
+                    &mut edges,
+                    &mut edge_ids,
+                    node_id,
+                    format!("{} {}", entry.obj, entry.gen),
+                    "carved_from_stream",
+                    false,
+                    json!({}),
+                );
+            }
+            sis_pdf_pdf::graph::ObjProvenance::Indirect => {}
+        }
+    }
+
+    const REVISION_OBJECT_EDGE_CAP: usize = 50;
+    let timeline = build_revision_timeline(ctx, DEFAULT_MAX_REVISIONS);
+    for record in &timeline.revisions {
+        let node_id = format!("revision.{}", record.revision);
+        let mut changed = Vec::new();
+        changed.extend(record.objects_added_refs.iter().cloned());
+        changed.extend(record.objects_modified_refs.iter().cloned());
+        changed.sort();
+        changed.dedup();
+
+        let post_cert = !record.covered_by_signature;
+        let emit_count = changed.len().min(REVISION_OBJECT_EDGE_CAP);
+        push_overlay_node_if_missing(
+            &mut nodes,
+            &mut node_ids,
+            node_id.clone(),
+            "revision",
+            json!({
+                "kind":"revision",
+                "n": record.revision,
+                "startxref_offset": record.startxref,
+                "post_cert": post_cert,
+                "covered_by_signature": record.covered_by_signature,
+                "changed_object_count": changed.len(),
+                "changed_object_edge_count": emit_count,
+                "truncated": changed.len() > REVISION_OBJECT_EDGE_CAP,
+            }),
+        );
+
+        if let Some(startxref_idx) = startxref_by_offset.get(&record.startxref) {
+            push_overlay_edge_unique(
+                &mut edges,
+                &mut edge_ids,
+                node_id.clone(),
+                format!("startxref.{startxref_idx}"),
+                "revision_to_startxref",
+                false,
+                json!({}),
+            );
+        }
+
+        for item in changed.into_iter().take(REVISION_OBJECT_EDGE_CAP) {
+            if let Some(target) = parse_object_ref_id(&item) {
+                push_overlay_edge_unique(
+                    &mut edges,
+                    &mut edge_ids,
+                    node_id.clone(),
+                    target,
+                    "revision_changed_object",
+                    post_cert,
+                    json!({}),
+                );
+            }
+        }
+    }
+
+    StructureOverlay {
+        stats: json!({
+            "node_count": nodes.len(),
+            "edge_count": edges.len(),
+            "trailer_count": ctx.graph.trailers.len(),
+            "startxref_count": ctx.graph.startxrefs.len(),
+            "xref_section_count": ctx.graph.xref_sections.len(),
+            "revision_count": timeline.revisions.len(),
+        }),
+        nodes,
+        edges,
+    }
+}
+
+fn push_overlay_node_if_missing(
+    nodes: &mut Vec<StructureOverlayNode>,
+    node_ids: &mut HashSet<String>,
+    id: String,
+    kind: &str,
+    attrs: serde_json::Value,
+) {
+    if node_ids.insert(id.clone()) {
+        nodes.push(StructureOverlayNode { id, kind: kind.to_string(), attrs });
+    }
+}
+
+fn push_overlay_edge_unique(
+    edges: &mut Vec<StructureOverlayEdge>,
+    edge_ids: &mut HashSet<(String, String, String)>,
+    from: String,
+    to: String,
+    edge_type: &str,
+    suspicious: bool,
+    attrs: serde_json::Value,
+) {
+    let key = (from.clone(), to.clone(), edge_type.to_string());
+    if edge_ids.insert(key) {
+        edges.push(StructureOverlayEdge {
+            from,
+            to,
+            edge_type: edge_type.to_string(),
+            suspicious,
+            attrs,
+        });
+    }
+}
+
+fn parse_object_ref_id(value: &str) -> Option<String> {
+    let mut parts = value.split_whitespace();
+    let obj = parts.next()?.parse::<u32>().ok()?;
+    let gen = parts.next()?.parse::<u16>().ok()?;
+    Some(format!("{obj} {gen}"))
+}
+
+fn resolve_trailer_ref_edge(
+    ctx: &ScanContext,
+    trailer: &sis_pdf_pdf::object::PdfDict<'_>,
+    key: &[u8],
+    edge_type: &str,
+    trailer_idx: usize,
+    edges: &mut Vec<StructureOverlayEdge>,
+    unresolved: &mut Vec<String>,
+) {
+    if let Some((_, value)) = trailer.get_first(key) {
+        match value.atom {
+            PdfAtom::Ref { obj, gen } => {
+                if ctx.graph.get_object(obj, gen).is_some() {
+                    edges.push(StructureOverlayEdge {
+                        from: format!("trailer.{trailer_idx}"),
+                        to: format!("{obj} {gen}"),
+                        edge_type: edge_type.to_string(),
+                        suspicious: false,
+                        attrs: json!({}),
+                    });
+                } else {
+                    unresolved.push(String::from_utf8_lossy(key).to_string());
+                }
+            }
+            _ => unresolved.push(String::from_utf8_lossy(key).to_string()),
+        }
+    }
+}
+
 fn export_structure_json(
     org_graph: &sis_pdf_core::org::OrgGraph,
     typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
     helper_max_depth: usize,
+    overlay: Option<&StructureOverlay>,
 ) -> serde_json::Value {
     let org = sis_pdf_core::org_export::export_org_json(org_graph);
     let typed_edge_stats = typed_edge_type_stats(typed_graph);
     let path_summary = action_path_summary(typed_graph);
     let helpers = structure_path_helpers(typed_graph, helper_max_depth);
-    json!({
+    let mut output = json!({
         "type": "structure_graph",
         "org": org,
         "typed_edges": typed_edge_stats,
         "action_paths": path_summary,
         "path_helpers": helpers,
-    })
+    });
+    if let Some(overlay_data) = overlay {
+        if let Ok(value) = serde_json::to_value(overlay_data) {
+            if let Some(map) = output.as_object_mut() {
+                map.insert("overlay".to_string(), value);
+            }
+        }
+    }
+    output
 }
 
 fn export_structure_dot(
     org_graph: &sis_pdf_core::org::OrgGraph,
     typed_graph: &sis_pdf_pdf::typed_graph::TypedGraph<'_>,
     helper_max_depth: usize,
+    overlay: Option<&StructureOverlay>,
 ) -> String {
     let mut dot = sis_pdf_core::org_export::export_org_dot(org_graph);
     let typed_edge_stats = typed_edge_type_stats(typed_graph);
@@ -7447,16 +7887,44 @@ fn export_structure_dot(
         .and_then(|v| v.as_array())
         .map(|items| items.len())
         .unwrap_or(0);
-    let overlay = format!(
+    let summary_comment = format!(
         "  // structure overlay: {} typed edge types, multi-step chains={}, max_chain_length={}, trigger_helpers={}\n",
         edge_type_count, multi_step, max_len, helper_count
     );
+    let overlay_block = summary_comment
+        + &match overlay {
+            Some(overlay_data) => structure_overlay_dot_block(overlay_data),
+            None => String::new(),
+        };
     if let Some(index) = dot.rfind('}') {
-        dot.insert_str(index, &overlay);
+        dot.insert_str(index, &overlay_block);
     } else {
-        dot.push_str(&overlay);
+        dot.push_str(&overlay_block);
     }
     dot
+}
+
+fn structure_overlay_dot_block(overlay: &StructureOverlay) -> String {
+    let mut out = String::new();
+    out.push_str("  subgraph cluster_structure_overlay {\n");
+    out.push_str("    label=\"forensic_overlay\";\n");
+    out.push_str("    style=dashed;\n");
+    out.push_str("    color=gray;\n");
+    for node in &overlay.nodes {
+        let kind = node.attrs.get("kind").and_then(serde_json::Value::as_str).unwrap_or("node");
+        out.push_str(&format!(
+            "    \"{}\" [label=\"{}\\n{}\", shape=box, style=\"rounded,dashed\"];\n",
+            node.id, node.id, kind
+        ));
+    }
+    for edge in &overlay.edges {
+        out.push_str(&format!(
+            "    \"{}\" -> \"{}\" [label=\"{}\", style=dashed, color=gray40];\n",
+            edge.from, edge.to, edge.edge_type
+        ));
+    }
+    out.push_str("  }\n");
+    out
 }
 
 fn structure_path_helpers(
@@ -8776,6 +9244,35 @@ mod tests {
         bytes
     }
 
+    fn build_pdf_with_info_trailer() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"%PDF-1.4\n");
+
+        let objects = [
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+            "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R /MediaBox [0 0 300 200] >>\nendobj\n",
+            "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
+            "5 0 obj\n<< /Author (analyst) /Title (overlay-test) >>\nendobj\n",
+        ];
+
+        let mut offsets = Vec::new();
+        for object in objects {
+            offsets.push(bytes.len());
+            bytes.extend_from_slice(object.as_bytes());
+        }
+
+        let xref_offset = bytes.len();
+        bytes.extend_from_slice(b"xref\n0 6\n0000000000 65535 f \n");
+        for offset in offsets {
+            bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        bytes.extend_from_slice(b"trailer\n<< /Size 6 /Root 1 0 R /Info 5 0 R >>\nstartxref\n");
+        bytes.extend_from_slice(format!("{xref_offset}\n").as_bytes());
+        bytes.extend_from_slice(b"%%EOF\n");
+        bytes
+    }
+
     #[test]
     fn advanced_query_json_outputs_are_structured() {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
@@ -9054,6 +9551,9 @@ mod tests {
 
         let query = apply_output_format(Query::ExportStructureDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportStructureJson));
+        let query =
+            apply_output_format(Query::ExportStructureOverlayDot, OutputFormat::Json).unwrap();
+        assert!(matches!(query, Query::ExportStructureOverlayJson));
 
         let query = apply_output_format(Query::ExportEventDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportEventJson));
@@ -9069,6 +9569,9 @@ mod tests {
 
         let query = apply_output_format(Query::ExportStructureJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportStructureDot));
+        let query =
+            apply_output_format(Query::ExportStructureOverlayJson, OutputFormat::Dot).unwrap();
+        assert!(matches!(query, Query::ExportStructureOverlayDot));
 
         let query = apply_output_format(Query::ExportEventJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportEventDot));
@@ -9619,6 +10122,11 @@ mod tests {
         assert!(matches!(query, Query::ExportStructureDot));
         let query = parse_query("graph.structure.json").expect("structure json query");
         assert!(matches!(query, Query::ExportStructureJson));
+        let query = parse_query("graph.structure.overlay").expect("structure overlay query");
+        assert!(matches!(query, Query::ExportStructureOverlayDot));
+        let query =
+            parse_query("graph.structure.overlay.json").expect("structure overlay json query");
+        assert!(matches!(query, Query::ExportStructureOverlayJson));
         let query = parse_query("graph.structure.depth 3").expect("structure depth query");
         assert!(matches!(query, Query::ExportStructureDotDepth(3)));
         let query = parse_query("graph.event").expect("event query");
@@ -9767,6 +10275,111 @@ mod tests {
                 }
                 other => panic!("Unexpected result type: {:?}", other),
             }
+        });
+    }
+
+    #[test]
+    fn graph_structure_overlay_json_exposes_trailer_links() {
+        let bytes = build_pdf_with_info_trailer();
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+
+        let baseline = execute_query_with_context(
+            &Query::ExportStructureJson,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("baseline query");
+        let baseline_value = match baseline {
+            QueryResult::Structure(value) => value,
+            other => panic!("unexpected baseline result: {:?}", other),
+        };
+        assert!(baseline_value.get("overlay").is_none());
+
+        let overlay = execute_query_with_context(
+            &Query::ExportStructureOverlayJson,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("overlay query");
+        let overlay_value = match overlay {
+            QueryResult::Structure(value) => value,
+            other => panic!("unexpected overlay result: {:?}", other),
+        };
+        assert!(overlay_value.get("overlay").is_some());
+        let edges = overlay_value["overlay"]["edges"].as_array().expect("overlay edges");
+        assert!(edges.iter().any(|edge| {
+            edge.get("from") == Some(&json!("trailer.0"))
+                && edge.get("to") == Some(&json!("5 0"))
+                && edge.get("edge_type") == Some(&json!("trailer_info"))
+        }));
+        let nodes = overlay_value["overlay"]["nodes"].as_array().expect("overlay nodes");
+        assert!(nodes.iter().any(|node| node.get("id") == Some(&json!("file.root"))));
+        assert!(nodes.iter().any(|node| node.get("id") == Some(&json!("revision.0"))));
+    }
+
+    #[test]
+    fn graph_structure_overlay_dot_contains_overlay_cluster() {
+        let bytes = build_pdf_with_info_trailer();
+        let options = ScanOptions::default();
+        let ctx = build_scan_context(&bytes, &options).expect("build context");
+
+        let result = execute_query_with_context(
+            &Query::ExportStructureOverlayDot,
+            &ctx,
+            None,
+            1024 * 1024,
+            DecodeMode::Decode,
+            None,
+        )
+        .expect("overlay dot query");
+        match result {
+            QueryResult::Scalar(ScalarValue::String(dot)) => {
+                assert!(dot.contains("cluster_structure_overlay"));
+                assert!(dot.contains("trailer_info"));
+                assert!(dot.contains("\"trailer.0\" -> \"5 0\""));
+            }
+            other => panic!("Unexpected result type: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn graph_structure_overlay_json_includes_objstm_provenance_edges() {
+        with_fixture_context("objstm_js.pdf", |ctx| {
+            let result = execute_query_with_context(
+                &Query::ExportStructureOverlayJson,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("overlay query");
+            let value = match result {
+                QueryResult::Structure(value) => value,
+                other => panic!("unexpected overlay result: {:?}", other),
+            };
+            let edges = value["overlay"]["edges"].as_array().expect("overlay edges");
+            assert!(
+                edges.iter().any(|edge| edge.get("edge_type") == Some(&json!("objstm_contains"))),
+                "expected at least one objstm provenance edge"
+            );
+            let nodes = value["overlay"]["nodes"].as_array().expect("overlay nodes");
+            assert!(
+                nodes.iter().any(|node| {
+                    node.get("id")
+                        .and_then(Value::as_str)
+                        .map(|id| id.starts_with("objstm."))
+                        .unwrap_or(false)
+                }),
+                "expected at least one objstm pseudo node"
+            );
         });
     }
 
