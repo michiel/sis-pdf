@@ -85,6 +85,9 @@ sis query sample.pdf events
 sis query sample.pdf events.full --format json
 sis query sample.pdf events.count
 sis query sample.pdf events.page
+sis query sample.pdf events --full --format json
+sis query sample.pdf events --count
+sis query sample.pdf events --level page
 ```
 
 `events.full` includes additive `stream_exec` payloads for `ContentStreamExec`
@@ -99,6 +102,14 @@ records. The stream payload exposes bounded operator summaries:
 - `truncated`
 
 `stream_exec` is omitted for non-content-stream events.
+
+Event alias flags:
+
+- `--full` maps `events` to `events.full`.
+- `--count` maps `events` to `events.count`.
+- `--level [document|page|field]` maps `events` to `events.document`, `events.page`, or
+  `events.field`.
+- `--full` and `--count` are mutually exclusive.
 
 ## Stream overlay graph queries
 
@@ -258,6 +269,12 @@ sis query sample.pdf xfa.scripts --extract-to /tmp/xfa-scripts
 sis query sample.pdf swf --extract-to /tmp/swf --decode
 sis query sample.pdf swf.extract --extract-to /tmp/swf
 sis query sample.pdf stream 1487 0 --extract-to /tmp/streams --decode
+```
+
+For batch query mode, use `--jobs N` to cap worker concurrency:
+
+```bash
+sis query --path /corpus "findings" --format jsonl --jobs 8
 ```
 
 When `stream` is used without `--extract-to`, it returns a short preview string instead of writing a file.

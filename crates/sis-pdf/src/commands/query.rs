@@ -8749,6 +8749,7 @@ pub fn run_query_batch(
     max_batch_files: usize,
     max_batch_bytes: u64,
     max_walk_depth: usize,
+    jobs: Option<usize>,
 ) -> Result<()> {
     use sis_pdf_core::model::Severity as SecuritySeverity;
     use sis_pdf_core::security_log::{SecurityDomain, SecurityEvent};
@@ -8790,6 +8791,7 @@ pub fn run_query_batch(
     };
 
     let mut total_bytes = 0u64;
+    let mut max_file_size_bytes = 0u64;
     let mut file_count = 0usize;
     let mut paths = Vec::new();
 
@@ -8824,6 +8826,7 @@ pub fn run_query_batch(
         }
 
         if let Ok(meta) = entry.metadata() {
+            max_file_size_bytes = max_file_size_bytes.max(meta.len());
             total_bytes = total_bytes.saturating_add(meta.len());
             if total_bytes > max_batch_bytes {
                 SecurityEvent {
@@ -8871,6 +8874,8 @@ pub fn run_query_batch(
     struct BatchResult {
         path: String,
         result: QueryResult,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        runtime_caps: Option<serde_json::Value>,
     }
 
     let process_path = |path_buf: &PathBuf| -> Result<Option<BatchResult>> {
@@ -8919,15 +8924,33 @@ pub fn run_query_batch(
             QueryResult::Error(_) => false,
         };
 
+        let runtime_caps = if output_format == OutputFormat::Jsonl {
+            extract_runtime_caps(&ctx).ok()
+        } else {
+            None
+        };
+
         if is_empty {
             Ok(None)
         } else {
-            Ok(Some(BatchResult { path: path_str, result }))
+            Ok(Some(BatchResult { path: path_str, result, runtime_caps }))
         }
     };
 
     let results: Vec<(usize, Option<BatchResult>)> = if use_parallel {
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(thread_count).build();
+        const DEFAULT_MAX_JOBS: usize = 8;
+        const DEEP_LARGE_FILE_THRESHOLD_BYTES: u64 = 16 * 1024 * 1024;
+        const DEEP_LARGE_FILE_JOB_CAP: usize = 4;
+        let default_jobs = thread_count.min(DEFAULT_MAX_JOBS).max(1);
+        let mut target_jobs = jobs.unwrap_or(default_jobs);
+        if jobs.is_none()
+            && scan_options.deep
+            && max_file_size_bytes > DEEP_LARGE_FILE_THRESHOLD_BYTES
+        {
+            target_jobs = target_jobs.min(DEEP_LARGE_FILE_JOB_CAP).max(1);
+        }
+        target_jobs = target_jobs.min(thread_count).max(1);
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(target_jobs).build();
         match pool {
             Ok(pool) => pool.install(|| {
                 indexed_paths
@@ -11092,6 +11115,7 @@ mod tests {
             10,
             10 * 1024 * 1024,
             3,
+            None,
         )
         .expect("batch query");
     }
@@ -11295,6 +11319,7 @@ mod tests {
             10,
             10 * 1024 * 1024,
             3,
+            None,
         )
         .expect("batch query xfa");
 
@@ -11313,6 +11338,7 @@ mod tests {
             10,
             10 * 1024 * 1024,
             3,
+            None,
         )
         .expect("batch query swf");
     }
@@ -11352,6 +11378,7 @@ mod tests {
             10,
             10 * 1024 * 1024,
             3,
+            None,
         )
         .expect("batch query filters");
     }
@@ -11432,6 +11459,7 @@ mod tests {
                 10,
                 10 * 1024 * 1024,
                 3,
+                None,
             )
             .unwrap_or_else(|err| panic!("batch query {} failed: {err}", query_str));
         }
@@ -11491,6 +11519,7 @@ mod tests {
             5,
             5 * 1024 * 1024,
             3,
+            None,
         )
         .expect("batch composite query");
 
@@ -11509,6 +11538,7 @@ mod tests {
             5,
             5 * 1024 * 1024,
             3,
+            None,
         )
         .expect("batch composite count query");
     }
@@ -11548,6 +11578,7 @@ mod tests {
             5,
             5 * 1024 * 1024,
             3,
+            None,
         )
         .expect("batch correlations query");
 
@@ -11566,6 +11597,7 @@ mod tests {
             5,
             5 * 1024 * 1024,
             3,
+            None,
         )
         .expect("batch correlations count query");
     }
@@ -11809,6 +11841,7 @@ mod tests {
             5,
             10 * 1024 * 1024,
             3,
+            None,
         )
         .expect("batch features jsonl");
     }

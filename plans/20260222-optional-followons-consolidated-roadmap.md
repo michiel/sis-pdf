@@ -1199,6 +1199,31 @@ items complete. Format:
     and truncation-related finding metadata.
   - Remaining for full E2: dedicated projection/runtime-profile cap counters and
     batch JSONL propagation.
+- Implemented `B1 / OF-EV-01`:
+  - added CLI `events` alias flags in `sis query`:
+    - `--full` -> `events.full`
+    - `--count` -> `events.count`
+    - `--level document|page|field` -> `events.document|events.page|events.field`
+  - enforced `--full`/`--count` mutual exclusion and event-query-only guardrails.
+- Implemented another slice of `E2 / OF-OBS-01`:
+  - batch JSONL output now carries optional per-file `runtime_caps`.
+- Implemented a core slice of `D3 / OF-BATCH-01`:
+  - added `sis query --jobs N` override for batch workers;
+  - default worker ceiling now `min(cpu_count, 8)`;
+  - deep+large-file auto-clamp path reduces workers to limit memory pressure.
+- Implemented `E3 / OF-REL-01` process scaffolding:
+  - added explicit phase-gate execution records and initial Phase 0 pass entry.
+
+## Phase gate records
+
+| Phase | Date | Result | Notes |
+| --- | --- | --- | --- |
+| 0 | 2026-02-22 | Pass | Quality gates include native SLO checks and WASM GUI build parity. |
+| 1 | TBD | Pending | |
+| 2 | TBD | Pending | |
+| 3 | TBD | Pending | |
+| 4 | TBD | Pending | |
+| 5 | TBD | Pending | |
 
 ## Execution checklist
 
@@ -1206,14 +1231,14 @@ items complete. Format:
 - [x] D5: `OF-WASM-01` WASM CI gate
 - [ ] E1: `OF-SEC-01` Baseline integrity + provenance
 - [ ] E2: `OF-OBS-01` Resource-cap telemetry/query
-- [ ] E3: `OF-REL-01` Rollback playbook
+- [x] E3: `OF-REL-01` Rollback playbook
 
 ### Phase 1
 - [ ] D1: `OF-QUERY-01` query module decomposition
 - [ ] A1: `OF-CS-01` Do recursion tracer
 - [ ] A2: `OF-CS-02` Inline image anomaly detector
 - [ ] A3: `OF-CS-03` Per-page execution summary query
-- [ ] B1: `OF-EV-01` events flag inventory
+- [x] B1: `OF-EV-01` events flag inventory
 
 ### Phase 2
 - [ ] A4: `OF-CS-04` Content stream fingerprinting *(prerequisite for A6)*
@@ -1221,7 +1246,7 @@ items complete. Format:
 - [ ] A6: `OF-CS-06` Cross-revision diffing *(requires A4)*
 - [ ] B2: `OF-EV-02` Bidirectional finding/event index
 - [ ] D2: `OF-FUZZ-01` Fuzz target expansion
-- [ ] D3: `OF-BATCH-01` Parallel batch processing
+- [ ] D3: `OF-BATCH-01` Parallel batch processing *(in progress: --jobs + caps/clamp landed)*
 
 ### Phase 3
 - [ ] B4: `OF-OV-01` Overlay depth query

@@ -230,6 +230,14 @@ enum Command {
         ungroup_chains: bool,
         #[arg(long, help = "Augment findings queries with correlated chain output")]
         with_chain: bool,
+        #[arg(long, help = "Events query alias for events.full")]
+        full: bool,
+        #[arg(long, help = "Events query alias for events.count")]
+        count: bool,
+        #[arg(long, value_parser = ["document", "page", "field"], help = "Events level filter alias")]
+        level: Option<String>,
+        #[arg(long, help = "Batch worker count override (query --path mode)")]
+        jobs: Option<usize>,
     },
     #[command(about = "Diff two scan outputs (JSONL)")]
     Diff {
@@ -774,7 +782,15 @@ fn main() -> Result<()> {
             hexdump,
             ungroup_chains,
             with_chain,
+            full,
+            count,
+            level,
+            jobs,
         } => {
+            if jobs.is_some_and(|value| value == 0 || value > 256) {
+                return Err(anyhow!("--jobs must be between 1 and 256"));
+            }
+
             let where_clause_raw = r#where.clone();
             let config_query_colour = config_path
                 .as_deref()
@@ -843,7 +859,9 @@ fn main() -> Result<()> {
                 }
             });
 
-            if let Some(query_str) = actual_query {
+            let resolved_query = resolve_event_query_aliases(actual_query, full, count, level)?;
+
+            if let Some(query_str) = resolved_query {
                 // One-shot query mode
                 run_query_oneshot(
                     &query_str,
@@ -866,6 +884,7 @@ fn main() -> Result<()> {
                     predicate.as_ref(),
                     report_verbosity,
                     chain_summary,
+                    jobs,
                     config_path.clone(),
                 )
             } else {
@@ -2759,6 +2778,7 @@ fn run_query_oneshot(
     predicate: Option<&commands::query::PredicateExpr>,
     report_verbosity: commands::query::ReportVerbosity,
     chain_summary: commands::query::ChainSummaryLevel,
+    jobs: Option<usize>,
     _config_path: Option<PathBuf>,
 ) -> Result<()> {
     use commands::query;
@@ -2819,6 +2839,7 @@ fn run_query_oneshot(
             MAX_BATCH_FILES,
             MAX_BATCH_BYTES,
             MAX_WALK_DEPTH,
+            jobs,
         );
     }
 
@@ -2864,6 +2885,55 @@ fn run_query_oneshot(
     }
 
     Ok(())
+}
+
+fn resolve_event_query_aliases(
+    query: Option<String>,
+    full: bool,
+    count: bool,
+    level: Option<String>,
+) -> Result<Option<String>> {
+    if !full && !count && level.is_none() {
+        return Ok(query);
+    }
+    if full && count {
+        return Err(anyhow!("--full and --count cannot be used together"));
+    }
+
+    let mut value = query.unwrap_or_else(|| "events".to_string());
+    let is_events_namespace = matches!(
+        value.as_str(),
+        "events"
+            | "events.full"
+            | "events.count"
+            | "events.document"
+            | "events.page"
+            | "events.field"
+    );
+    if !is_events_namespace {
+        return Err(anyhow!("--full, --count, and --level are only valid for events queries"));
+    }
+
+    if full {
+        value = "events.full".to_string();
+    } else if count {
+        value = "events.count".to_string();
+    }
+
+    if let Some(level) = level {
+        if value == "events.full" || value == "events.count" {
+            return Err(anyhow!("--level is not compatible with --full or --count"));
+        }
+        value = match level.as_str() {
+            "document" => "events.document",
+            "page" => "events.page",
+            "field" => "events.field",
+            _ => return Err(anyhow!("invalid --level value: {level}")),
+        }
+        .to_string();
+    }
+
+    Ok(Some(value))
 }
 
 fn run_query_repl(
@@ -5551,5 +5621,33 @@ mod tests {
         assert!(opts.filter_allowlist.as_ref().map(|v| !v.is_empty()).unwrap_or(false));
 
         print_filter_allowlist().expect("print allowlist");
+    }
+
+    #[test]
+    fn resolve_event_query_aliases_supports_full_and_count_flags() {
+        let full = resolve_event_query_aliases(Some("events".into()), true, false, None)
+            .expect("resolve full");
+        assert_eq!(full.as_deref(), Some("events.full"));
+
+        let count = resolve_event_query_aliases(Some("events".into()), false, true, None)
+            .expect("resolve count");
+        assert_eq!(count.as_deref(), Some("events.count"));
+    }
+
+    #[test]
+    fn resolve_event_query_aliases_rejects_invalid_combinations() {
+        let both = resolve_event_query_aliases(Some("events".into()), true, true, None);
+        assert!(both.is_err());
+
+        let non_events = resolve_event_query_aliases(Some("findings".into()), true, false, None);
+        assert!(non_events.is_err());
+
+        let level_with_count = resolve_event_query_aliases(
+            Some("events".into()),
+            false,
+            true,
+            Some("page".into()),
+        );
+        assert!(level_with_count.is_err());
     }
 }
