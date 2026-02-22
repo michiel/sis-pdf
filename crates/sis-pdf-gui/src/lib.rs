@@ -68,7 +68,23 @@ pub fn wasm_analyze_json(
 /// Native entry point: run eframe in a desktop window.
 #[cfg(all(not(target_arch = "wasm32"), feature = "gui"))]
 pub fn start_native() -> eframe::Result {
-    let options = eframe::NativeOptions::default();
+    #[cfg(target_os = "macos")]
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("sis - PDF security analyser")
+        .with_inner_size([1240.0, 820.0])
+        .with_min_inner_size([960.0, 620.0]);
+    #[cfg(target_os = "windows")]
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("sis - PDF security analyser")
+        .with_inner_size([1280.0, 860.0])
+        .with_min_inner_size([980.0, 640.0]);
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let viewport = egui::ViewportBuilder::default()
+        .with_title("sis - PDF security analyser")
+        .with_inner_size([1200.0, 800.0])
+        .with_min_inner_size([920.0, 600.0]);
+
+    let options = eframe::NativeOptions { viewport, ..eframe::NativeOptions::default() };
     eframe::run_native(
         "sis - PDF security analyser",
         options,

@@ -1297,6 +1297,10 @@ items complete. Format:
   - quality-gates cross-platform job now builds `sis-pdf-gui` directly;
   - release-cli macOS/Windows job now builds `sis-pdf-gui` directly
     (removing invalid `--features gui` use on `sis-pdf`).
+- Implemented additional `C4 / OF-NAT-04` native options slice:
+  - `sis-pdf-gui` now applies platform-specific native viewport defaults
+    (macOS/Windows/Linux size + minimum size settings);
+  - verified native and wasm builds remain green after the change.
 - Implemented `C3 / OF-NAT-03` Linux packaging metadata slice:
   - added `packaging/linux/sis.desktop` and `packaging/linux/icons/sis.svg`;
   - added local installer helper `scripts/install_linux_desktop_entry.sh`;

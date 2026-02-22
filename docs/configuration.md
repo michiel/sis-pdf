@@ -114,6 +114,10 @@ Behavioural parity expectations:
 - File-open, clipboard, and drag-drop behaviour should be treated as equivalent across Linux/macOS/Windows for analyst workflows.
 - Path rendering and path-based errors should be normalised through Rust `Path` handling, not string concatenation assumptions.
 - Native GUI analysis executes on a background worker thread so the UI remains responsive during deep scans.
+- Native window defaults are platform-specific:
+  - macOS: `1240x820` (min `960x620`)
+  - Windows: `1280x860` (min `980x640`)
+  - Linux/other native: `1200x800` (min `920x600`)
 
 ### Example
 
