@@ -244,3 +244,21 @@ sis query sample.pdf findings \
 
 When both flags are provided, `sis` validates that the SHA-256 digest in the
 checksum file matches the baseline file before continuing.
+
+## 9) Native GUI Smoke Check
+
+Use the local harness to reproduce the CI screenshot gate:
+
+```bash
+scripts/gui_smoke.sh tmp/gui-smoke
+```
+
+The script launches the native GUI under `xvfb`, captures a root-window
+screenshot, and asserts:
+
+- screenshot file exists and is non-empty;
+- screenshot is non-monochrome (`identify -format "%k"` > 1).
+
+On CI, `.github/workflows/quality-gates.yml` runs this harness with up to two
+retries for infrastructure/display initialisation failures. Assertion failures
+(empty/monochrome captures) fail immediately.

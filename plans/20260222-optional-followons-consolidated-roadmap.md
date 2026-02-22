@@ -1277,6 +1277,12 @@ items complete. Format:
 - Implemented additional `C4 / OF-NAT-04` release CI slice:
   - `.github/workflows/release-cli.yml` now builds GUI-capable sis binaries on
     macOS/Windows via `--features "ml-graph,gui"` alongside CLI builds.
+- Completed `C2 / OF-NAT-02` screenshot smoke:
+  - added native GUI entry point binary at `crates/sis-pdf-gui/src/main.rs`;
+  - added reproducible local harness `scripts/gui_smoke.sh` (xvfb + screenshot
+    capture + non-empty/non-monochrome assertions);
+  - wired quality-gates CI smoke step with retry semantics and failure artefact
+    upload (`tmp/gui-smoke`).
 
 ## Phase gate records
 
@@ -1321,7 +1327,7 @@ items complete. Format:
 
 ### Phase 4
 - [ ] C1: `OF-NAT-01` Analysis threading
-- [ ] C2: `OF-NAT-02` Screenshot CI
+- [x] C2: `OF-NAT-02` Screenshot CI
 - [ ] C3: `OF-NAT-03` Packaging
 - [ ] C4: `OF-NAT-04` macOS/Windows GUI targets *(in progress: quality-gates + release-cli GUI builds landed)*
 

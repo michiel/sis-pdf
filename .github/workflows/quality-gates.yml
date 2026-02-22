@@ -21,7 +21,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libx11-dev libxi-dev libxrandr-dev libxinerama-dev libxcursor-dev \
-            libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+            libxkbcommon-dev libwayland-dev libgl1-mesa-dev \
+            xvfb x11-apps imagemagick mesa-utils
 
       - name: Core schema and chain gates
         run: |
@@ -76,6 +77,35 @@ jobs:
 
       - name: WASM GUI build gate
         run: cargo build -p sis-pdf-gui --target wasm32-unknown-unknown
+
+      - name: Native GUI screenshot smoke gate
+        run: |
+          mkdir -p tmp/gui-smoke
+          attempt=1
+          while [ "${attempt}" -le 3 ]; do
+            echo "GUI smoke attempt ${attempt}/3"
+            if SIS_GUI_SMOKE_SKIP_BUILD=1 ./scripts/gui_smoke.sh tmp/gui-smoke; then
+              exit 0
+            fi
+            rc=$?
+            # Exit code 10 indicates screenshot assertions failed; do not retry.
+            if [ "${rc}" -eq 10 ]; then
+              exit "${rc}"
+            fi
+            if [ "${attempt}" -eq 3 ]; then
+              exit "${rc}"
+            fi
+            attempt=$((attempt + 1))
+            sleep 2
+          done
+
+      - name: Upload GUI smoke artefacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-smoke-artifacts
+          path: tmp/gui-smoke
+          if-no-files-found: ignore
 
   gui-native-cross-build:
     runs-on: ${{ matrix.os }}
