@@ -40,3 +40,41 @@ pub fn findings_to_csv_rows(findings: &[Finding]) -> Vec<String> {
     }
     rows
 }
+
+pub fn events_to_csv_rows(events: &[serde_json::Value]) -> Vec<String> {
+    let mut rows = Vec::with_capacity(events.len() + 1);
+    rows.push(
+        "node_id,event_type,level,trigger,source_object,linked_finding_count,linked_finding_ids"
+            .to_string(),
+    );
+    for event in events {
+        let node_id = event.get("node_id").and_then(|v| v.as_str()).unwrap_or_default();
+        let event_type = event.get("event_type").and_then(|v| v.as_str()).unwrap_or_default();
+        let level = event.get("level").and_then(|v| v.as_str()).unwrap_or_default();
+        let trigger = event.get("trigger").and_then(|v| v.as_str()).unwrap_or_default();
+        let source_object = event.get("source_object").and_then(|v| v.as_str()).unwrap_or_default();
+        let linked_ids = event
+            .get("linked_finding_ids")
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items.iter().filter_map(|entry| entry.as_str()).collect::<Vec<_>>().join("|")
+            })
+            .unwrap_or_default();
+        let linked_count = event
+            .get("linked_finding_ids")
+            .and_then(|v| v.as_array())
+            .map(|items| items.len())
+            .unwrap_or(0);
+        let fields = [
+            csv_escape(node_id),
+            csv_escape(event_type),
+            csv_escape(level),
+            csv_escape(trigger),
+            csv_escape(source_object),
+            linked_count.to_string(),
+            csv_escape(&linked_ids),
+        ];
+        rows.push(fields.join(","));
+    }
+    rows
+}

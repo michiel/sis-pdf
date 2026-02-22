@@ -1252,6 +1252,13 @@ items complete. Format:
   - added baseline builder utility:
     - `scripts/build_fingerprint_baseline.py`
   - documented profile provenance and integrity workflow in `docs/analysis.md`.
+- Implemented additional `B7 / OF-CSV-01` slice:
+  - added events companion CSV query:
+    - `events.full.csv`
+  - documented companion-table schema in `docs/findings-csv-schema.md`.
+- Implemented additional `D3 / OF-BATCH-01` slice:
+  - batch query now emits structured error rows instead of silently dropping
+    file read/parse failures.
 
 ## Phase gate records
 
@@ -1285,13 +1292,13 @@ items complete. Format:
 - [ ] A6: `OF-CS-06` Cross-revision diffing *(requires A4)*
 - [ ] B2: `OF-EV-02` Bidirectional finding/event index *(in progress: bidirectional maps now in events.full; GUI jump affordances remain)*
 - [ ] D2: `OF-FUZZ-01` Fuzz target expansion *(in progress: three new targets landed)*
-- [ ] D3: `OF-BATCH-01` Parallel batch processing *(in progress: --jobs + caps/clamp landed)*
+- [ ] D3: `OF-BATCH-01` Parallel batch processing *(in progress: --jobs + caps/clamp + error rows landed)*
 
 ### Phase 3
 - [x] B4: `OF-OV-01` Overlay depth query
 - [ ] B5: `OF-OV-02` Event-graph anchors
 - [ ] B6: `OF-OV-03` GUI overlay integration
-- [ ] B7: `OF-CSV-01` Findings CSV export *(in progress: query + schema docs landed; remaining event companion tables/batch error rows)*
+- [ ] B7: `OF-CSV-01` Findings CSV export *(in progress: findings + events companion CSV and schema docs landed; remaining batch CSV error-row normalisation)*
 - [ ] D4: `OF-DIAG-01` Structured diagnostics *(in progress: per-detector CI budget gate landed)*
 
 ### Phase 4

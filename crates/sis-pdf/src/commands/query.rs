@@ -40,7 +40,7 @@ use syntect::util::as_24_bit_terminal_escaped;
 
 mod csv;
 mod readable;
-use self::csv::findings_to_csv_rows;
+use self::csv::{events_to_csv_rows, findings_to_csv_rows};
 pub use readable::format_readable_result;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,6 +264,7 @@ pub enum Query {
     // Event trigger queries
     Events,
     EventsFull,
+    EventsFullCsv,
     EventsCount,
     EventsDocument,
     EventsPage,
@@ -649,6 +650,7 @@ pub fn parse_query(input: &str) -> Result<Query> {
         // Events
         "events" => Ok(Query::Events),
         "events.full" => Ok(Query::EventsFull),
+        "events.full.csv" => Ok(Query::EventsFullCsv),
         "events.count" => Ok(Query::EventsCount),
         "events.document" => Ok(Query::EventsDocument),
         "events.page" => Ok(Query::EventsPage),
@@ -1464,9 +1466,10 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportFeatures | Query::ExportFeaturesJson => Query::ExportFeatures,
             Query::Findings => Query::FindingsCsv,
             Query::FindingsComposite => Query::FindingsCompositeCsv,
+            Query::EventsFull => Query::EventsFullCsv,
             _ => {
                 return Err(anyhow!(
-                    "--format csv is only supported for features, findings, and findings.composite queries"
+                    "--format csv is only supported for features, findings, findings.composite, and events.full queries"
                 ))
             }
         },
@@ -1718,6 +1721,7 @@ pub fn execute_query_with_context(
                     | Query::MediaAudioCount
                     | Query::Events
                     | Query::EventsFull
+                    | Query::EventsFullCsv
                     | Query::EventsCount
                     | Query::EventsDocument
                     | Query::EventsPage
@@ -2515,6 +2519,15 @@ pub fn execute_query_with_context(
             Query::EventsFull => {
                 let events = extract_event_triggers_full(ctx, None, predicate)?;
                 Ok(QueryResult::Structure(events))
+            }
+            Query::EventsFullCsv => {
+                let events = extract_event_triggers_full(ctx, None, predicate)?;
+                let rows = events
+                    .get("events")
+                    .and_then(|value| value.as_array())
+                    .map(|entries| events_to_csv_rows(entries))
+                    .unwrap_or_else(|| events_to_csv_rows(&[]));
+                Ok(QueryResult::List(rows))
             }
             Query::EventsCount => {
                 let events_json = extract_event_triggers(ctx, None, predicate)?;
@@ -4844,6 +4857,7 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::ImagesMalformedCount
         | Query::Events
         | Query::EventsFull
+        | Query::EventsFullCsv
         | Query::EventsCount
         | Query::EventsDocument
         | Query::EventsPage
@@ -9035,6 +9049,18 @@ pub fn run_query_batch(
         runtime_caps: Option<serde_json::Value>,
     }
 
+    let make_batch_error = |path: &PathBuf, error_code: &'static str, message: String| {
+        Some(BatchResult {
+            path: path.display().to_string(),
+            result: query_error_with_context(
+                error_code,
+                message,
+                Some(json!({ "path": path.display().to_string() })),
+            ),
+            runtime_caps: None,
+        })
+    };
+
     let process_path = |path_buf: &PathBuf| -> Result<Option<BatchResult>> {
         let path_str = path_buf.display().to_string();
         let bytes = match read_pdf_bytes(path_buf) {
@@ -9047,7 +9073,7 @@ pub fn run_query_batch(
                     SecuritySeverity::Medium,
                     &detail,
                 );
-                return Ok(None);
+                return Ok(make_batch_error(path_buf, "FILE_READ_ERROR", detail));
             }
         };
 
@@ -9057,7 +9083,7 @@ pub fn run_query_batch(
             Err(err) => {
                 let detail = err.to_string();
                 log_batch_file_issue(path_buf, "batch_invalid_pdf", SecuritySeverity::Low, &detail);
-                return Ok(None);
+                return Ok(make_batch_error(path_buf, "INVALID_PDF", detail));
             }
         };
 
@@ -9751,6 +9777,8 @@ mod tests {
         assert!(matches!(query, Query::FindingsCsv));
         let query = apply_output_format(Query::FindingsComposite, OutputFormat::Csv).unwrap();
         assert!(matches!(query, Query::FindingsCompositeCsv));
+        let query = apply_output_format(Query::EventsFull, OutputFormat::Csv).unwrap();
+        assert!(matches!(query, Query::EventsFullCsv));
         let error = apply_output_format(Query::Urls, OutputFormat::Csv);
         assert!(error.is_err());
     }
@@ -10341,6 +10369,8 @@ mod tests {
         assert!(matches!(query, Query::ExportEventStreamJson));
         let query = parse_query("events.full").expect("events full query");
         assert!(matches!(query, Query::EventsFull));
+        let query = parse_query("events.full.csv").expect("events full csv query");
+        assert!(matches!(query, Query::EventsFullCsv));
         let query = parse_query("findings.csv").expect("findings csv query");
         assert!(matches!(query, Query::FindingsCsv));
         let query = parse_query("findings.composite.csv").expect("findings composite csv query");
@@ -10567,6 +10597,32 @@ mod tests {
                         "id,kind,severity,impact,confidence,surface,title,description,objects,evidence_count,remediation,meta_json"
                     );
                     assert!(rows.len() > 1, "expected at least one finding row");
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn events_full_csv_query_returns_header() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("events.full.csv").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("query");
+            match result {
+                QueryResult::List(rows) => {
+                    assert!(!rows.is_empty(), "csv output must include header");
+                    assert_eq!(
+                        rows[0],
+                        "node_id,event_type,level,trigger,source_object,linked_finding_count,linked_finding_ids"
+                    );
                 }
                 other => panic!("Unexpected result type: {:?}", other),
             }

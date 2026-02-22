@@ -9,6 +9,7 @@ sis query sample.pdf findings.csv
 sis query sample.pdf findings.composite.csv
 sis query sample.pdf findings --format csv
 sis query sample.pdf findings.composite --format csv
+sis query sample.pdf events.full.csv
 ```
 
 ## Schema version
@@ -41,3 +42,16 @@ sis query sample.pdf findings.composite --format csv
 
 - New columns, when added, should be appended to preserve existing ingestion.
 - Existing column names and order should remain stable for `schema_version=1`.
+
+## Events companion table
+
+`events.full.csv` emits an event companion table that can be joined with findings
+using event node ids and finding ids:
+
+1. `node_id`
+2. `event_type`
+3. `level`
+4. `trigger`
+5. `source_object`
+6. `linked_finding_count`
+7. `linked_finding_ids`

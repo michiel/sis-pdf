@@ -294,6 +294,7 @@ Findings CSV exports are available directly from query aliases:
 ```bash
 sis query sample.pdf findings.csv
 sis query sample.pdf findings.composite.csv
+sis query sample.pdf events.full.csv
 sis query sample.pdf findings --format csv
 ```
 
