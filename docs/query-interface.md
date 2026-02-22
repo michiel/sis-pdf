@@ -39,6 +39,7 @@ sis query sample.pdf xfa.submit
 sis query sample.pdf filters.unusual
 sis query sample.pdf streams.high-entropy
 sis query sample.pdf streams.entropy
+sis query sample.pdf runtime.caps --format json
 sis query sample.pdf xfa.scripts.count
 sis query sample.pdf swf.count
 sis query sample.pdf swf.actionscript
@@ -127,6 +128,25 @@ Overlay edge types:
 
 The JSON export keeps the underlying `event_graph` payload and adds an
 `overlay` object with `nodes`, `edges`, `stats`, and `truncation`.
+
+## Runtime cap telemetry query
+
+Use `runtime.caps` to get a machine-parseable summary of bounded-analysis safety
+guards that were hit while processing the document:
+
+```bash
+sis query sample.pdf runtime.caps
+sis query sample.pdf runtime.caps --format json
+```
+
+`runtime.caps` returns three sections:
+
+- `caps.event_graph`: whether event graph truncation was applied and dropped
+  node/edge counts.
+- `caps.stream_exec_projection`: count of `ContentStreamExec` projections that
+  were truncated.
+- `caps.finding_meta`: truncation-related metadata flags and JS runtime
+  truncation counters extracted from findings metadata.
 
 ## Xref and revision queries
 

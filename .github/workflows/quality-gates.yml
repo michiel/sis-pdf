@@ -13,6 +13,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Install GUI build dependencies
         run: |
@@ -68,3 +70,6 @@ jobs:
           echo "detection_ms=${detect_ms}"
           test "${parse_ms}" -le 10
           test "${detect_ms}" -le 50
+
+      - name: WASM GUI build gate
+        run: cargo build -p sis-pdf-gui --target wasm32-unknown-unknown

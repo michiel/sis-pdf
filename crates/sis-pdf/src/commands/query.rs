@@ -6,7 +6,7 @@ use globset::Glob;
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::{self, json};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -312,6 +312,7 @@ pub enum Query {
     // Stream queries
     Stream(StreamQuery),
     StreamsEntropy,
+    RuntimeCaps,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -607,6 +608,8 @@ pub fn parse_query(input: &str) -> Result<Query> {
             Ok(Query::FindingsByKindCount("stream_high_entropy".into()))
         }
         "streams.entropy" => Ok(Query::StreamsEntropy),
+        "runtime.caps" => Ok(Query::RuntimeCaps),
+        "runtime.caps.json" => Ok(Query::RuntimeCaps),
         "encryption" => Ok(Query::Encryption),
         "encryption.weak" => Ok(Query::EncryptionWeak),
         "encryption.weak.count" => Ok(Query::EncryptionWeakCount),
@@ -2157,6 +2160,10 @@ pub fn execute_query_with_context(
                     }
                 }
                 Ok(QueryResult::List(rows))
+            }
+            Query::RuntimeCaps => {
+                let caps = extract_runtime_caps(ctx)?;
+                Ok(QueryResult::Structure(caps))
             }
             Query::ImagesJbig2 => {
                 if predicate.is_some() {
@@ -4905,6 +4912,68 @@ fn extract_event_triggers_full(
     Ok(json!({
         "events": events,
         "finding_event_index": finding_event_index,
+    }))
+}
+
+fn extract_runtime_caps(ctx: &ScanContext) -> Result<serde_json::Value> {
+    use sis_pdf_core::event_graph::{build_event_graph, EventGraphOptions};
+    use sis_pdf_core::event_projection::{
+        build_stream_exec_summaries, extract_event_records_with_projection, ProjectionOptions,
+    };
+
+    let findings = findings_with_cache(ctx)?;
+    let typed_graph = ctx.build_typed_graph();
+    let event_graph = build_event_graph(&typed_graph, &findings, EventGraphOptions::default());
+    let stream_summaries = build_stream_exec_summaries(ctx.bytes, &ctx.graph, &event_graph);
+    let records = extract_event_records_with_projection(
+        &event_graph,
+        &ProjectionOptions { include_stream_exec_summary: true },
+        Some(&stream_summaries),
+    );
+
+    let truncated_stream_event_count = records
+        .iter()
+        .filter(|record| record.stream_exec.as_ref().is_some_and(|stream| stream.truncated))
+        .count();
+
+    let mut truncation_flags = BTreeSet::<String>::new();
+    let mut js_runtime_truncation_counters = BTreeMap::<String, u64>::new();
+    for finding in &findings {
+        for (key, value) in &finding.meta {
+            if !key.contains("truncat") {
+                continue;
+            }
+            if value.eq_ignore_ascii_case("true") {
+                truncation_flags.insert(key.clone());
+            }
+            if key.starts_with("js.runtime.truncation.") {
+                if let Ok(parsed) = value.parse::<u64>() {
+                    js_runtime_truncation_counters.insert(key.clone(), parsed);
+                }
+            }
+        }
+    }
+
+    Ok(json!({
+        "type": "runtime_caps",
+        "schema_version": 1,
+        "caps": {
+            "event_graph": {
+                "applied": event_graph.truncation.is_some(),
+                "node_cap": event_graph.truncation.as_ref().map(|value| value.node_cap).unwrap_or(0),
+                "edge_cap": event_graph.truncation.as_ref().map(|value| value.edge_cap).unwrap_or(0),
+                "dropped_nodes": event_graph.truncation.as_ref().map(|value| value.dropped_nodes).unwrap_or(0),
+                "dropped_edges": event_graph.truncation.as_ref().map(|value| value.dropped_edges).unwrap_or(0),
+            },
+            "stream_exec_projection": {
+                "truncated_event_count": truncated_stream_event_count,
+            },
+            "finding_meta": {
+                "truncation_flag_count": truncation_flags.len(),
+                "truncation_flags": truncation_flags,
+                "js_runtime_truncation_counters": js_runtime_truncation_counters,
+            },
+        }
     }))
 }
 
@@ -10062,6 +10131,10 @@ mod tests {
         assert!(matches!(query, Query::ExportEventStreamJson));
         let query = parse_query("events.full").expect("events full query");
         assert!(matches!(query, Query::EventsFull));
+        let query = parse_query("runtime.caps").expect("runtime caps query");
+        assert!(matches!(query, Query::RuntimeCaps));
+        let query = parse_query("runtime.caps.json").expect("runtime caps alias query");
+        assert!(matches!(query, Query::RuntimeCaps));
         let query = parse_query("graph.action").expect("action alias query");
         assert!(matches!(query, Query::ExportEventDot));
         let query = parse_query("graph.event.hops 2").expect("event hops query");
@@ -10132,6 +10205,32 @@ mod tests {
                     assert!(value.get("security_context").is_some());
                 }
                 other => panic!("unexpected query result: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn execute_query_runtime_caps_returns_expected_sections() {
+        with_fixture_context("action_chain_complex.pdf", |ctx| {
+            let query = parse_query("runtime.caps").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
+            match result {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value.get("type").and_then(Value::as_str), Some("runtime_caps"));
+                    assert_eq!(value.get("schema_version").and_then(Value::as_u64), Some(1));
+                    assert!(value["caps"].get("event_graph").is_some());
+                    assert!(value["caps"].get("stream_exec_projection").is_some());
+                    assert!(value["caps"].get("finding_meta").is_some());
+                }
+                other => panic!("unexpected query result: {other:?}"),
             }
         });
     }

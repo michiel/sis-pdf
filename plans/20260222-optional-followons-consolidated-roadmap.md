@@ -80,6 +80,15 @@ Each backlog item below includes the origin plan and section.
 22. `OF-WASM-01` WASM build parity CI gate.
     Rationale: GUI items B3 and B6 touch `sis-pdf-gui` which compiles to both native and WASM;
     no WASM CI gate currently protects GUI regression.
+23. `OF-SEC-01` Fingerprint baseline integrity and provenance hardening.
+    Rationale: `OF-CS-04` introduces external baseline-profile ingestion; untrusted or stale baseline
+    files can skew triage and should carry provenance and integrity metadata.
+24. `OF-OBS-01` Resource-cap telemetry and query surface.
+    Rationale: A1/A2/A6 introduce caps and truncation paths; operators need first-class visibility
+    into cap-hit frequency across large corpus runs.
+25. `OF-REL-01` Phase-gate rollback playbook.
+    Rationale: Multiple optional items alter query/event/output surfaces; pre-release still needs
+    deterministic rollback criteria when regressions exceed safety or SLO limits.
 
 ## Discovered optionals already delivered (tracked for provenance only)
 
@@ -137,6 +146,18 @@ This section records identified gaps, risks, and the items added or amended to a
     whether `--count` and level-filter flags are also exposed creates a partial API surface.
     Addressed: B1 now requires explicit flag inventory and rejects partial flag exposure.
 
+12. **No explicit rollback gate per phase** — phases list implementation order but not the
+    criteria for halting or reverting a phase. Addressed: `OF-REL-01` added with explicit
+    rollback trigger thresholds and response path.
+
+13. **Baseline-profile trust model unspecified** — A4 baseline loader accepts local JSON but
+    lacks integrity/provenance validation guidance. Addressed: `OF-SEC-01` adds signed-manifest
+    and provenance metadata requirements.
+
+14. **Cap-hit observability is local-only metadata** — truncation fields exist on individual
+    outputs but no aggregate query exists for batch triage. Addressed: `OF-OBS-01` adds
+    runtime-profile counters and query exposure.
+
 ### Risks
 
 1. **`query.rs` size explosion** — the file is already 457 KB; each new query variant
@@ -169,6 +190,14 @@ This section records identified gaps, risks, and the items added or amended to a
    and notarisation. Without it, Gatekeeper will block the binary. C4 now explicitly
    calls this out as a known requirement for distribution readiness.
 
+9. **Fingerprint baseline poisoning risk** — external centroid files can be tampered with or
+   built from unrepresentative corpora, degrading anomaly scoring quality. `OF-SEC-01` adds
+   integrity and provenance controls to reduce this risk.
+
+10. **Parallel batch memory-pressure risk** — D3 parallelism can amplify peak RSS under deep
+    decode workloads if concurrency is uncapped by resource class. D3 now includes bounded
+    jobs policy and memory-aware defaults.
+
 ## Assumptions
 
 1. Current default behaviour remains stable unless behind explicit flags.
@@ -179,8 +208,17 @@ This section records identified gaps, risks, and the items added or amended to a
 6. `blake3` is already present in the workspace `Cargo.toml` and requires no new dependency.
 7. CI already provides Linux/macOS/Windows runners; new work extends existing workflows
    rather than creating new CI infrastructure from scratch.
+8. Pre-release compatibility rules allow additive or breaking query ergonomics where needed;
+   external tooling adaptation is expected during this phase.
 
 ## Priority and sequencing
+
+### Phase 0 (governance and guardrails)
+
+1. `OF-WASM-01` WASM build parity CI gate.
+2. `OF-SEC-01` Fingerprint baseline integrity and provenance.
+3. `OF-OBS-01` Resource-cap telemetry/query.
+4. `OF-REL-01` Phase-gate rollback playbook.
 
 ### Phase 1 (high value, low coupling)
 
@@ -189,7 +227,6 @@ This section records identified gaps, risks, and the items added or amended to a
 3. `OF-CS-02` Inline image anomaly detector.
 4. `OF-CS-03` Per-page execution summary query.
 5. `OF-EV-01` `--full` / `--count` flag inventory for events query.
-6. `OF-WASM-01` WASM build parity CI gate.
 
 ### Phase 2 (analytics depth and correlation)
 
@@ -935,11 +972,14 @@ Improve batch throughput towards the AGENTS.md target of 500,000+ PDFs using
 parallel per-file analysis.
 
 Implementation:
-1. Add `rayon` as a dev/feature-gated dependency (it is Rust-native and safe).
+1. Add `rayon` as a normal workspace dependency for CLI batch execution paths.
 2. Refactor batch loop in `crates/sis-pdf/src/commands/` to use `rayon::par_iter()`.
 3. Maintain per-file error isolation (one file's failure must not block others).
 4. Maintain deterministic output ordering (sort results by input path after parallel collection).
-5. Add `--jobs N` flag to control parallelism; default to logical CPU count.
+5. Add `--jobs N` flag to control parallelism; default to `min(logical_cpu_count, 8)`.
+6. Apply memory-aware guard:
+   - when `--deep` is enabled and file size exceeds configured threshold, clamp worker count
+     to a lower ceiling (for example 4) unless explicitly overridden by user flag.
 
 Tests:
 1. Throughput benchmark test: process 1000 identical fixture files; record time per file.
@@ -956,6 +996,91 @@ Acceptance:
 2. Error isolation guaranteed.
 3. Output order is deterministic.
 4. Docs updated in same commit.
+
+## Workstream E: Governance, trust, and rollout control
+
+### E1. `OF-SEC-01` Fingerprint baseline integrity and provenance hardening
+
+Goal:
+Ensure external fingerprint baselines are trustworthy, reproducible, and auditable.
+
+Implementation:
+1. Define baseline metadata schema in `docs/analysis.md` (or dedicated schema doc):
+   - `schema_version`,
+   - `baseline_id`,
+   - `created_at`,
+   - `source_corpus_digest`,
+   - `builder_version`.
+2. Add optional detached checksum/signature file support:
+   - `--baseline-profile baseline.json --baseline-profile-sha256 baseline.json.sha256`.
+3. Baseline loader validates digest when checksum file is provided; mismatch returns
+   `QueryResult::Error` with `QUERY_SYNTAX_ERROR`.
+4. Emit baseline provenance fields in `streams.fingerprint.json` output when loaded.
+
+Tests:
+1. Valid baseline + checksum loads successfully.
+2. Checksum mismatch fails closed with deterministic error.
+3. Output contains provenance fields when baseline is active.
+
+Documentation:
+- Document baseline format and integrity workflow in `docs/analysis.md`.
+
+Acceptance:
+1. Baseline integrity can be verified in automated pipelines.
+2. Analysts can trace fingerprint scores back to baseline provenance.
+
+### E2. `OF-OBS-01` Resource-cap telemetry and query surface
+
+Goal:
+Expose cap-hit behaviour as first-class operational telemetry.
+
+Implementation:
+1. Add cap-hit counters in projection/runtime profile paths for:
+   - recursion depth cap hits,
+   - edge cap hits,
+   - revision diff truncations,
+   - inline-image parse truncations (when present).
+2. Add query variant `runtime.caps` / `runtime.caps.json` summarising cap counters.
+3. Include cap counters in batch JSONL per-file records.
+
+Tests:
+1. Synthetic cap-trigger fixtures increment expected counters.
+2. `runtime.caps.json` schema test for deterministic keys and numeric values.
+3. Batch-mode test ensures counters present for successful and errored files.
+
+Documentation:
+- Add `runtime.caps` query documentation in `docs/query-interface.md`.
+
+Acceptance:
+1. Operators can quantify safety-guard activation rates without manual log parsing.
+2. Cap telemetry is deterministic and machine-parseable.
+
+### E3. `OF-REL-01` Phase-gate rollback playbook
+
+Goal:
+Define objective stop/rollback conditions per phase to reduce regression blast radius.
+
+Implementation:
+1. Add phase gate table in this roadmap with hard thresholds:
+   - crash/panic count increase,
+   - benign corpus false-positive increase,
+   - CVE fixture runtime regression percentage,
+   - schema contract breakage.
+2. Define rollback actions:
+   - revert item commit set,
+   - disable via query/feature flag where possible,
+   - record cause and mitigation in `Baseline deltas`.
+3. Require gate sign-off entry before moving from one phase to the next.
+
+Tests:
+1. N/A (process/governance item); validated via checklist completion.
+
+Documentation:
+- Keep the phase gate table in this plan current as phases complete.
+
+Acceptance:
+1. Every phase transition has an explicit pass/fail record.
+2. Rollback path is documented before optional features ship.
 
 ### D4. `OF-DIAG-01` Structured per-detector diagnostic output
 
@@ -1022,6 +1147,9 @@ For each workstream item:
    - update `crates/sis-pdf-core/tests/fixtures/README.md`.
 6. WASM build check (`cargo build -p sis-pdf-gui --target wasm32-unknown-unknown`)
    required for any item touching `sis-pdf-gui`.
+7. For any new baseline-profile file used in tests/docs:
+   - include provenance metadata fields,
+   - include deterministic digest artefact for integrity checks.
 
 ## Delivery governance
 
@@ -1032,6 +1160,17 @@ For each workstream item:
    in this document's baseline deltas section before merging the promotion.
 5. `OF-QUERY-01` (D1) must be complete before implementing any Phase 2+ query additions.
 6. `OF-CS-04` (A4) must be marked complete before beginning `OF-CS-06` (A6).
+
+## Phase gate table
+
+| Phase | Gate metric | Threshold to pass | Rollback trigger |
+| --- | --- | --- | --- |
+| 0 | CI build parity (native + WASM) | 100% pass on quality gates | Any reproducible build break in default targets |
+| 1 | CVE fixture runtime delta | <= 10% regression vs baseline | > 10% regression on two consecutive runs |
+| 2 | Benign corpus FP delta (A2/A5) | <= 1.0% absolute increase | > 1.0% increase or uncategorised high-severity spike |
+| 3 | Query/output schema stability | Additive-only changes verified | Missing fields, renamed keys, or parse breakage |
+| 4 | Native smoke stability | 100% smoke pass across enabled targets | Any crash/hang in open/analyse/view/copy workflow |
+| 5 | Overlay/event UX regression | No critical navigation regressions | Broken finding->event or event->finding navigation |
 
 ## Baseline deltas
 
@@ -1048,7 +1187,26 @@ items complete. Format:
 
 *(No entries yet; populate as items are implemented.)*
 
+## Progress log
+
+### 2026-02-22 (current pass)
+- Implemented `D5 / OF-WASM-01`:
+  - `.github/workflows/quality-gates.yml` now installs `wasm32-unknown-unknown`
+    and runs `cargo build -p sis-pdf-gui --target wasm32-unknown-unknown`.
+- Implemented a first slice of `E2 / OF-OBS-01`:
+  - added `runtime.caps` / `runtime.caps.json` query surface in CLI;
+  - added initial counters for event-graph truncation, stream projection truncation,
+    and truncation-related finding metadata.
+  - Remaining for full E2: dedicated projection/runtime-profile cap counters and
+    batch JSONL propagation.
+
 ## Execution checklist
+
+### Phase 0
+- [x] D5: `OF-WASM-01` WASM CI gate
+- [ ] E1: `OF-SEC-01` Baseline integrity + provenance
+- [ ] E2: `OF-OBS-01` Resource-cap telemetry/query
+- [ ] E3: `OF-REL-01` Rollback playbook
 
 ### Phase 1
 - [ ] D1: `OF-QUERY-01` query module decomposition
@@ -1056,7 +1214,6 @@ items complete. Format:
 - [ ] A2: `OF-CS-02` Inline image anomaly detector
 - [ ] A3: `OF-CS-03` Per-page execution summary query
 - [ ] B1: `OF-EV-01` events flag inventory
-- [ ] D5: `OF-WASM-01` WASM CI gate
 
 ### Phase 2
 - [ ] A4: `OF-CS-04` Content stream fingerprinting *(prerequisite for A6)*
@@ -1086,3 +1243,4 @@ items complete. Format:
 - [ ] All source-linked optional items reviewed and either implemented or explicitly rejected with rationale
 - [ ] Baseline deltas recorded for all detector changes
 - [ ] Confidence promotions backed by corpus calibration results
+- [ ] Phase gate pass/fail entries recorded for each completed phase
