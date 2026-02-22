@@ -1322,6 +1322,12 @@ items complete. Format:
     `font_exploits` to summarise suspicious Type 3 charproc operator profiles;
   - documented the new finding in `docs/findings.md`;
   - added detector profile calibration guard coverage in unit tests.
+- Implemented `A3 / OF-CS-03` query surface slice:
+  - added `pages.execution` / `pages.execution.json` query aliases;
+  - emits per-page execution summaries from projected `ContentStreamExec`
+    records, including operator-family/resource/anomaly summaries;
+  - supports predicate filtering via `meta.page`, `meta.total_ops`,
+    `meta.anomaly_count`, and `meta.resource_count`.
 
 ## Phase gate records
 
@@ -1346,7 +1352,7 @@ items complete. Format:
 - [ ] D1: `OF-QUERY-01` query module decomposition *(in progress: CSV helpers extracted to submodule)*
 - [ ] A1: `OF-CS-01` Do recursion tracer
 - [ ] A2: `OF-CS-02` Inline image anomaly detector
-- [ ] A3: `OF-CS-03` Per-page execution summary query
+- [ ] A3: `OF-CS-03` Per-page execution summary query *(in progress: query surface + predicate metadata landed)*
 - [x] B1: `OF-EV-01` events flag inventory
 
 ### Phase 2

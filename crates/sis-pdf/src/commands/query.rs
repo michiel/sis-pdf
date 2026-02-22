@@ -188,6 +188,7 @@ pub enum Query {
     Version,
     Encrypted,
     Filesize,
+    PagesExecution,
 
     // Structure queries
     Trailer,
@@ -504,6 +505,7 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "version" => Ok(Query::Version),
         "encrypted" => Ok(Query::Encrypted),
         "filesize" => Ok(Query::Filesize),
+        "pages.execution" | "pages.execution.json" => Ok(Query::PagesExecution),
 
         // Structure
         "trailer" => Ok(Query::Trailer),
@@ -1791,6 +1793,9 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::Scalar(ScalarValue::Boolean(encrypted)))
             }
             Query::Filesize => Ok(QueryResult::Scalar(ScalarValue::Number(ctx.bytes.len() as i64))),
+            Query::PagesExecution => {
+                Ok(QueryResult::Structure(extract_pages_execution(ctx, predicate)?))
+            }
             Query::FindingsCount => {
                 let findings = findings_with_cache(ctx)?;
                 let filtered = filter_findings(findings, predicate);
@@ -4914,9 +4919,10 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::XrefDeviationsCount
         | Query::Revisions
         | Query::RevisionsDetail
-        | Query::RevisionsCount => Ok(()),
+        | Query::RevisionsCount
+        | Query::PagesExecution => Ok(()),
         _ => Err(anyhow!(
-            "Predicate filtering is only supported for js, embedded, urls, images, events, graph.event, graph.event.stream, findings, correlations, objects, xref, and revisions queries"
+            "Predicate filtering is only supported for js, embedded, urls, images, events, graph.event, graph.event.stream, findings, correlations, objects, xref, revisions, and pages.execution queries"
         )),
     }
 }
@@ -4985,6 +4991,130 @@ fn extract_event_triggers(
         events.push(event);
     }
     Ok(json!(events))
+}
+
+fn extract_pages_execution(
+    ctx: &ScanContext,
+    predicate: Option<&PredicateExpr>,
+) -> Result<serde_json::Value> {
+    use sis_pdf_core::event_graph::{build_event_graph, EventGraphOptions};
+    use sis_pdf_core::event_projection::{
+        build_stream_exec_summaries, extract_event_records_with_projection, ProjectionOptions,
+    };
+
+    #[derive(Default)]
+    struct PageExecSummary {
+        content_stream_count: usize,
+        total_ops: usize,
+        op_family_counts: BTreeMap<String, usize>,
+        resource_names: BTreeSet<String>,
+        anomaly_flags: BTreeSet<String>,
+        linked_finding_ids: BTreeSet<String>,
+    }
+
+    let typed_graph = ctx.build_typed_graph();
+    let event_graph = build_event_graph(&typed_graph, &[], EventGraphOptions::default());
+    let stream_summaries = build_stream_exec_summaries(ctx.bytes, &ctx.graph, &event_graph);
+    let records = extract_event_records_with_projection(
+        &event_graph,
+        &ProjectionOptions { include_stream_exec_summary: true },
+        Some(&stream_summaries),
+    );
+
+    let mut by_page = BTreeMap::<(u32, u16), PageExecSummary>::new();
+    for record in records {
+        if record.event_type != "ContentStreamExec" {
+            continue;
+        }
+        let Some(page_ref) = record.source_object else {
+            continue;
+        };
+        let summary = by_page.entry(page_ref).or_default();
+        summary.content_stream_count = summary.content_stream_count.saturating_add(1);
+
+        for finding_id in record.linked_finding_ids {
+            summary.linked_finding_ids.insert(finding_id);
+        }
+
+        if let Some(stream_exec) = record.stream_exec {
+            summary.total_ops = summary.total_ops.saturating_add(stream_exec.total_ops);
+            for (family, count) in stream_exec.op_family_counts {
+                *summary.op_family_counts.entry(family).or_insert(0) += count;
+            }
+            for resource in stream_exec.resource_refs {
+                summary.resource_names.insert(resource.name);
+            }
+            if stream_exec.graphics_state_underflow {
+                summary.anomaly_flags.insert("graphics_state_underflow".to_string());
+            }
+            if stream_exec.unknown_op_count > 0 {
+                summary.anomaly_flags.insert("unknown_ops".to_string());
+            }
+            if stream_exec.truncated {
+                summary.anomaly_flags.insert("projection_truncated".to_string());
+            }
+        }
+    }
+
+    let mut pages = Vec::<serde_json::Value>::new();
+    for ((obj, gen), summary) in by_page {
+        let page_ref = format!("{obj}:{gen}");
+        let anomaly_count = summary.anomaly_flags.len();
+        let resource_count = summary.resource_names.len();
+        let mut meta = HashMap::new();
+        meta.insert("page".to_string(), page_ref.clone());
+        meta.insert("total_ops".to_string(), summary.total_ops.to_string());
+        meta.insert("anomaly_count".to_string(), anomaly_count.to_string());
+        meta.insert("resource_count".to_string(), resource_count.to_string());
+        let pred_ctx = PredicateContext {
+            length: summary.total_ops,
+            filter: Some("page_execution".to_string()),
+            type_name: "PageExecution".to_string(),
+            subtype: Some(page_ref.clone()),
+            entropy: 0.0,
+            width: 0,
+            height: 0,
+            pixels: 0,
+            risky: anomaly_count > 0,
+            severity: None,
+            confidence: None,
+            surface: Some("StreamsAndFilters".to_string()),
+            kind: Some("page_execution".to_string()),
+            object_count: summary.content_stream_count,
+            evidence_count: summary.linked_finding_ids.len(),
+            name: Some(page_ref.clone()),
+            magic: None,
+            hash: None,
+            impact: None,
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            meta,
+        };
+        if let Some(pred) = predicate {
+            if !pred.evaluate(&pred_ctx) {
+                continue;
+            }
+        }
+
+        pages.push(json!({
+            "page_ref": page_ref,
+            "content_stream_count": summary.content_stream_count,
+            "total_ops": summary.total_ops,
+            "op_family_counts": summary.op_family_counts,
+            "resource_names": summary.resource_names.into_iter().collect::<Vec<_>>(),
+            "resource_count": resource_count,
+            "anomaly_flags": summary.anomaly_flags.into_iter().collect::<Vec<_>>(),
+            "anomaly_count": anomaly_count,
+            "linked_finding_ids": summary.linked_finding_ids.into_iter().collect::<Vec<_>>(),
+        }));
+    }
+
+    Ok(json!({
+        "type": "pages_execution",
+        "count": pages.len(),
+        "pages": pages,
+    }))
 }
 
 fn extract_event_triggers_full(
@@ -10566,6 +10696,69 @@ mod tests {
                     assert!(value["caps"].get("finding_meta").is_some());
                 }
                 other => panic!("unexpected query result: {other:?}"),
+            }
+        });
+    }
+
+    #[test]
+    fn parse_query_supports_pages_execution_aliases() {
+        let query = parse_query("pages.execution").expect("pages.execution query");
+        assert!(matches!(query, Query::PagesExecution));
+        let query = parse_query("pages.execution.json").expect("pages.execution.json query");
+        assert!(matches!(query, Query::PagesExecution));
+    }
+
+    #[test]
+    fn execute_query_pages_execution_returns_expected_shape() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("pages.execution").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("query result");
+            match result {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value.get("type").and_then(Value::as_str), Some("pages_execution"));
+                    assert!(value["count"].as_u64().unwrap_or(0) >= 1);
+                    let pages = value["pages"].as_array().expect("pages array");
+                    assert!(!pages.is_empty());
+                    let first = &pages[0];
+                    assert!(first.get("page_ref").is_some());
+                    assert!(first.get("content_stream_count").is_some());
+                    assert!(first.get("total_ops").is_some());
+                }
+                other => panic!("expected structure result, got {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn execute_query_pages_execution_supports_predicate_via_meta_fields() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("pages.execution").expect("query");
+            let predicate = parse_predicate("meta.page == '3:0'").expect("predicate");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("query result");
+            match result {
+                QueryResult::Structure(value) => {
+                    let pages = value["pages"].as_array().expect("pages array");
+                    for page in pages {
+                        assert_eq!(page["page_ref"], json!("3:0"));
+                    }
+                }
+                other => panic!("expected structure result, got {:?}", other),
             }
         });
     }

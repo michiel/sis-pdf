@@ -330,6 +330,25 @@ sis query sample.pdf images --format json --colour
 
 `findings` queries now add a top-level `summary` object in JSON/YAML/JSONL outputs when the result is an array of findings. The summary includes `findings_by_severity` and `findings_by_surface` counts so dashboards can chart the digest without parsing every entry.
 
+## Page Execution Summary
+
+Use `pages.execution` to summarise content-stream execution surface per page:
+
+```bash
+sis query sample.pdf pages.execution --format json
+sis query sample.pdf pages.execution --where "meta.total_ops > 0"
+```
+
+Each page row includes:
+
+- `page_ref`
+- `content_stream_count`
+- `total_ops`
+- `op_family_counts`
+- `resource_names` / `resource_count`
+- `anomaly_flags` / `anomaly_count`
+- `linked_finding_ids`
+
 ## Finding Shortcuts
 
 The following query shortcuts return `findings.kind` for common analysis paths.
