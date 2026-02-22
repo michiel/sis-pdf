@@ -66,10 +66,29 @@ jobs:
             2> runtime-profile.json
           parse_ms=$(jq '[.phases[] | select(.name=="parse")][0].duration_ms // 0' runtime-profile.json)
           detect_ms=$(jq '[.phases[] | select(.name=="detection")][0].duration_ms // 0' runtime-profile.json)
+          slow_detector_count=$(jq '[.detectors[] | select((.duration_ms // 0) > 20)] | length' runtime-profile.json)
           echo "parse_ms=${parse_ms}"
           echo "detection_ms=${detect_ms}"
+          echo "slow_detector_count=${slow_detector_count}"
           test "${parse_ms}" -le 10
           test "${detect_ms}" -le 50
+          test "${slow_detector_count}" -eq 0
 
       - name: WASM GUI build gate
         run: cargo build -p sis-pdf-gui --target wasm32-unknown-unknown
+
+  gui-native-cross-build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build native GUI target
+        run: cargo build -p sis-pdf --features gui

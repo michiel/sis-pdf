@@ -284,6 +284,8 @@ sis query sample.pdf findings.composite.csv
 sis query sample.pdf findings --format csv
 ```
 
+See `docs/findings-csv-schema.md` for the column contract.
+
 For batch query mode, use `--jobs N` to cap worker concurrency:
 
 ```bash

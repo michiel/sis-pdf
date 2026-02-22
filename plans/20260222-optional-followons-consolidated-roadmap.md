@@ -1223,6 +1223,14 @@ items complete. Format:
     - `findings.composite.csv`
     - `findings --format csv`
     - `findings.composite --format csv`
+- Implemented `D4 / OF-DIAG-01` CI gate slice:
+  - quality gates now fail when any runtime-profile detector exceeds 20 ms
+    on the CVE fixture.
+- Implemented `C4 / OF-NAT-04` CI slice:
+  - quality gates now include macOS and Windows native GUI build jobs
+    (`cargo build -p sis-pdf --features gui`).
+- Extended `B7 / OF-CSV-01` docs:
+  - added `docs/findings-csv-schema.md` with versioned column contract.
 
 ## Phase gate records
 
@@ -1262,14 +1270,14 @@ items complete. Format:
 - [x] B4: `OF-OV-01` Overlay depth query
 - [ ] B5: `OF-OV-02` Event-graph anchors
 - [ ] B6: `OF-OV-03` GUI overlay integration
-- [ ] B7: `OF-CSV-01` Findings CSV export *(in progress: findings and findings.composite CSV landed)*
-- [ ] D4: `OF-DIAG-01` Structured diagnostics
+- [ ] B7: `OF-CSV-01` Findings CSV export *(in progress: query + schema docs landed; remaining event companion tables/batch error rows)*
+- [ ] D4: `OF-DIAG-01` Structured diagnostics *(in progress: per-detector CI budget gate landed)*
 
 ### Phase 4
 - [ ] C1: `OF-NAT-01` Analysis threading
 - [ ] C2: `OF-NAT-02` Screenshot CI
 - [ ] C3: `OF-NAT-03` Packaging
-- [ ] C4: `OF-NAT-04` macOS/Windows GUI targets
+- [ ] C4: `OF-NAT-04` macOS/Windows GUI targets *(in progress: cross-platform GUI build CI landed)*
 
 ### Phase 5
 - [ ] B3: `OF-EV-03` Event annotations in overlay views
