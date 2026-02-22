@@ -168,6 +168,12 @@ cargo build -p sis-pdf-gui
 On macOS and Windows, unsigned binaries may show platform trust prompts
 (Gatekeeper/SmartScreen) until signing is enabled in the release process.
 
+Linux desktop metadata (entry + icon) can be installed with:
+
+```bash
+scripts/install_linux_desktop_entry.sh
+```
+
 ## Configuration
 
 Default config path:

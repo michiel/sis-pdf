@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="sis icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1f2a44"/>
+      <stop offset="100%" stop-color="#0f1728"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="28" fill="url(#bg)"/>
+  <path d="M72 58h82l30 30v110H72z" fill="#f3f6ff"/>
+  <path d="M154 58v30h30z" fill="#c8d3f0"/>
+  <path d="M98 116h60v10H98zm0 24h60v10H98zm0 24h44v10H98z" fill="#2a3d68"/>
+  <circle cx="180" cy="186" r="30" fill="#d04a2c"/>
+  <path d="M180 168a18 18 0 1 0 0 36 18 18 0 0 0 0-36zm0 8a10 10 0 1 1 0 20 10 10 0 0 1 0-20z" fill="#fff"/>
+</svg>

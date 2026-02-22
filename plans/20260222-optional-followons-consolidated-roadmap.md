@@ -1287,6 +1287,10 @@ items complete. Format:
   - quality-gates cross-platform job now builds `sis-pdf-gui` directly;
   - release-cli macOS/Windows job now builds `sis-pdf-gui` directly
     (removing invalid `--features gui` use on `sis-pdf`).
+- Implemented `C3 / OF-NAT-03` Linux packaging metadata slice:
+  - added `packaging/linux/sis.desktop` and `packaging/linux/icons/sis.svg`;
+  - added local installer helper `scripts/install_linux_desktop_entry.sh`;
+  - added CI validation gate via `desktop-file-validate`.
 - Completed `C2 / OF-NAT-02` screenshot smoke:
   - added native GUI entry point binary at `crates/sis-pdf-gui/src/main.rs`;
   - added reproducible local harness `scripts/gui_smoke.sh` (xvfb + screenshot
@@ -1344,7 +1348,7 @@ items complete. Format:
 ### Phase 4
 - [x] C1: `OF-NAT-01` Analysis threading
 - [x] C2: `OF-NAT-02` Screenshot CI
-- [ ] C3: `OF-NAT-03` Packaging
+- [ ] C3: `OF-NAT-03` Packaging *(in progress: desktop metadata + validation gate landed)*
 - [ ] C4: `OF-NAT-04` macOS/Windows GUI targets *(in progress: quality-gates + release-cli GUI builds landed)*
 
 ### Phase 5

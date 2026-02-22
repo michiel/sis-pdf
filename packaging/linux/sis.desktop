@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=sis PDF Analyser
+GenericName=PDF Security Analyser
+Comment=Analyse PDF files for malicious content and exploit indicators
+Exec=sis-pdf-gui
+Icon=sis
+Terminal=false
+Categories=Security;System;
+Keywords=pdf;security;forensics;malware;
+StartupNotify=true
