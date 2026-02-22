@@ -3746,6 +3746,15 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Description: Type 3 glyph programs show deep/unbalanced graphics state nesting.
 - Tags: font, type3, recursion
 
+## type3_charproc_suspicious_ops
+
+- ID: `type3_charproc_suspicious_ops`
+- Label: Type 3 charproc suspicious operator profile
+- Severity: Medium
+- Confidence: Tentative
+- Description: Type 3 glyph programs exhibit suspicious operator profiles across resource abuse, graphics-state imbalance, or abnormal operator volume.
+- Tags: font, type3, execution-surface
+
 ## font.cmap_range_overlap
 
 - ID: `font.cmap_range_overlap`

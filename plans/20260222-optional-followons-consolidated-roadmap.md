@@ -1317,6 +1317,11 @@ items complete. Format:
   - new file/path dispatch drops stale in-flight channels to keep latest-request
     semantics deterministic;
   - confirmed `sis-pdf-gui` builds on both native and `wasm32-unknown-unknown`.
+- Implemented `A5 / OF-CS-05` detector surface slice:
+  - added additive finding `type3_charproc_suspicious_ops` in
+    `font_exploits` to summarise suspicious Type 3 charproc operator profiles;
+  - documented the new finding in `docs/findings.md`;
+  - added detector profile calibration guard coverage in unit tests.
 
 ## Phase gate records
 
@@ -1346,7 +1351,7 @@ items complete. Format:
 
 ### Phase 2
 - [ ] A4: `OF-CS-04` Content stream fingerprinting *(prerequisite for A6)*
-- [ ] A5: `OF-CS-05` Type3 charproc detector
+- [ ] A5: `OF-CS-05` Type3 charproc detector *(in progress: additive suspicious-ops finding landed)*
 - [ ] A6: `OF-CS-06` Cross-revision diffing *(requires A4)*
 - [x] B2: `OF-EV-02` Bidirectional finding/event index
 - [x] D2: `OF-FUZZ-01` Fuzz target expansion
