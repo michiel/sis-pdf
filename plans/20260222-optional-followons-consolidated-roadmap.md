@@ -1259,6 +1259,9 @@ items complete. Format:
 - Implemented additional `D3 / OF-BATCH-01` slice:
   - batch query now emits structured error rows instead of silently dropping
     file read/parse failures.
+- Implemented additional `C4 / OF-NAT-04` release CI slice:
+  - `.github/workflows/release-cli.yml` now builds GUI-capable sis binaries on
+    macOS/Windows via `--features "ml-graph,gui"` alongside CLI builds.
 
 ## Phase gate records
 
@@ -1305,7 +1308,7 @@ items complete. Format:
 - [ ] C1: `OF-NAT-01` Analysis threading
 - [ ] C2: `OF-NAT-02` Screenshot CI
 - [ ] C3: `OF-NAT-03` Packaging
-- [ ] C4: `OF-NAT-04` macOS/Windows GUI targets *(in progress: cross-platform GUI build CI landed)*
+- [ ] C4: `OF-NAT-04` macOS/Windows GUI targets *(in progress: quality-gates + release-cli GUI builds landed)*
 
 ### Phase 5
 - [ ] B3: `OF-EV-03` Event annotations in overlay views

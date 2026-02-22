@@ -37,6 +37,10 @@ jobs:
       - name: Build CLI
         run: cargo build --release -p sis-pdf --bin sis --target ${{ matrix.target }} --features ml-graph
 
+      - name: Build GUI-capable binary (macOS/Windows)
+        if: runner.os != 'Linux'
+        run: cargo build --release -p sis-pdf --bin sis --target ${{ matrix.target }} --features "ml-graph,gui"
+
       - name: Package (linux/macos)
         if: runner.os != 'Windows'
         shell: bash
