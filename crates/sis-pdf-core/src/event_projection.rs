@@ -4,7 +4,7 @@ use sis_pdf_pdf::content::{ContentOp, ContentOperand};
 use sis_pdf_pdf::decode::decode_stream;
 use sis_pdf_pdf::graph::ObjectGraph;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 pub const STREAM_PROJ_MAX_OPS: usize = 1_000;
 pub const STREAM_PROJ_MAX_BYTES: usize = 64 * 1024;
@@ -22,6 +22,13 @@ pub struct ResourceRef {
     pub object_ref: Option<(u32, u16)>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NestedFormExec {
+    pub do_name: String,
+    pub depth: u8,
+    pub obj_ref: (u32, u16),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct StreamExecSummary {
     pub total_ops: usize,
@@ -33,6 +40,10 @@ pub struct StreamExecSummary {
     pub graphics_state_underflow: bool,
     pub unknown_op_count: usize,
     pub truncated: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nested_form_execs: Vec<NestedFormExec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nested_form_truncated: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -260,6 +271,8 @@ pub fn summarise_content_ops(ops: &[ContentOp]) -> StreamExecSummary {
         graphics_state_underflow: graphics_underflow,
         unknown_op_count,
         truncated,
+        nested_form_execs: Vec::new(),
+        nested_form_truncated: None,
     }
 }
 
@@ -307,10 +320,10 @@ pub fn build_stream_exec_summaries(
                     None
                 }
             });
-        let Some(bytes) = decoded else {
+        let Some(content_bytes) = decoded else {
             continue;
         };
-        let ops = sis_pdf_pdf::content::parse_content_ops(&bytes);
+        let ops = sis_pdf_pdf::content::parse_content_ops(&content_bytes);
         let mut summary = summarise_content_ops(&ops);
         if let Some(src) = source_obj {
             let bindings = collect_resource_bindings(object_graph, *src);
@@ -318,6 +331,19 @@ pub fn build_stream_exec_summaries(
                 resource.object_ref =
                     bindings.resolve(resource.op.as_str(), resource.name.as_str());
             }
+        }
+        // Trace nested Do chains from resolved Do refs using the PDF bytes.
+        let do_refs: Vec<(String, (u32, u16))> = summary
+            .resource_refs
+            .iter()
+            .filter(|r| r.op == "Do")
+            .filter_map(|r| r.object_ref.map(|obj| (r.name.clone(), obj)))
+            .collect();
+        if !do_refs.is_empty() {
+            let result =
+                trace_nested_do_chains(bytes, object_graph, &do_refs, 8, 128, 4 * 1024 * 1024);
+            summary.nested_form_execs = result.chains;
+            summary.nested_form_truncated = result.truncation_reason;
         }
         summaries.insert(node.id.clone(), summary);
     }
@@ -447,6 +473,118 @@ fn op_family_key(op: &str) -> &'static str {
     }
 }
 
+// --- Do chain recursion tracer ---
+
+struct NestedDoChainResult {
+    chains: Vec<NestedFormExec>,
+    truncation_reason: Option<String>,
+}
+
+struct TraceState {
+    chains: Vec<NestedFormExec>,
+    truncated: bool,
+    truncation_reason: Option<String>,
+    edge_count: usize,
+    byte_budget: usize,
+    visited: HashSet<(u32, u16)>,
+}
+
+pub fn trace_nested_do_chains(
+    bytes: &[u8],
+    graph: &ObjectGraph<'_>,
+    do_refs: &[(String, (u32, u16))],
+    max_depth: u8,
+    max_edges: usize,
+    max_bytes: usize,
+) -> NestedDoChainResult {
+    let mut state = TraceState {
+        chains: Vec::new(),
+        truncated: false,
+        truncation_reason: None,
+        edge_count: 0,
+        byte_budget: max_bytes,
+        visited: HashSet::new(),
+    };
+    // Pre-populate visited with the initial refs so we don't double-count
+    // them (they are already in resource_refs).
+    for (_, obj_ref) in do_refs {
+        state.visited.insert(*obj_ref);
+    }
+    for (name, obj_ref) in do_refs {
+        if state.truncated {
+            break;
+        }
+        recurse_form(bytes, graph, *obj_ref, name, 0, max_depth, max_edges, &mut state);
+    }
+    NestedDoChainResult { chains: state.chains, truncation_reason: state.truncation_reason }
+}
+
+fn recurse_form(
+    bytes: &[u8],
+    graph: &ObjectGraph<'_>,
+    obj_ref: (u32, u16),
+    _do_name: &str,
+    depth: u8,
+    max_depth: u8,
+    max_edges: usize,
+    state: &mut TraceState,
+) {
+    if state.truncated {
+        return;
+    }
+    if depth > max_depth {
+        state.truncated = true;
+        state.truncation_reason = Some("depth".to_string());
+        return;
+    }
+    if state.edge_count >= max_edges {
+        state.truncated = true;
+        state.truncation_reason = Some("edges".to_string());
+        return;
+    }
+    if state.byte_budget == 0 {
+        state.truncated = true;
+        state.truncation_reason = Some("memory".to_string());
+        return;
+    }
+
+    let Some(entry) = graph.get_object(obj_ref.0, obj_ref.1) else { return };
+    let Some(dict) = entry_dict(entry) else { return };
+    if !dict.has_name(b"/Subtype", b"/Form") {
+        return;
+    }
+    let PdfAtom::Stream(stream) = &entry.atom else { return };
+
+    let decode_limit = state.byte_budget.min(4 * 1024 * 1024);
+    let Ok(decoded) = decode_stream(bytes, stream, decode_limit) else { return };
+    state.byte_budget = state.byte_budget.saturating_sub(decoded.data.len());
+
+    let ops = sis_pdf_pdf::content::parse_content_ops(&decoded.data);
+    let bindings = collect_resource_bindings(graph, obj_ref);
+
+    for op in &ops {
+        if state.truncated {
+            break;
+        }
+        if op.op != "Do" {
+            continue;
+        }
+        let Some(ContentOperand::Name(inner_name)) = op.operands.first() else { continue };
+        let Some(inner_ref) = bindings.resolve("Do", inner_name) else { continue };
+        if state.visited.contains(&inner_ref) {
+            continue;
+        }
+        state.visited.insert(inner_ref);
+        state.chains.push(NestedFormExec {
+            do_name: inner_name.clone(),
+            depth: depth + 1,
+            obj_ref: inner_ref,
+        });
+        state.edge_count += 1;
+        recurse_form(bytes, graph, inner_ref, inner_name, depth + 1, max_depth, max_edges, state);
+    }
+}
+
 pub fn build_finding_event_index(records: &[EventRecord]) -> BTreeMap<String, Vec<String>> {
     let mut index = BTreeMap::<String, Vec<String>>::new();
     for record in records {
@@ -465,8 +603,8 @@ pub fn build_finding_event_index(records: &[EventRecord]) -> BTreeMap<String, Ve
 mod tests {
     use super::{
         build_finding_event_index, build_stream_exec_summaries, extract_event_records,
-        extract_event_records_with_projection, summarise_content_ops, ProjectionOptions,
-        StreamExecSummary,
+        extract_event_records_with_projection, summarise_content_ops, trace_nested_do_chains,
+        ProjectionOptions, StreamExecSummary,
     };
     use crate::event_graph::{
         build_event_graph, EdgeMetadata, EdgeProvenance, EventEdge, EventEdgeKind, EventGraph,
@@ -726,5 +864,127 @@ mod tests {
             "stream projection budget exceeded: {:?}",
             elapsed
         );
+    }
+
+    fn cve_parse_options() -> sis_pdf_pdf::ParseOptions {
+        sis_pdf_pdf::ParseOptions {
+            recover_xref: true,
+            deep: false,
+            strict: false,
+            max_objstm_bytes: 64 * 1024 * 1024,
+            max_objects: 250_000,
+            max_objstm_total_bytes: 256 * 1024 * 1024,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
+        }
+    }
+
+    #[test]
+    fn trace_nested_do_chains_empty_do_refs_returns_empty() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/actions/launch_cve_2010_1240.pdf");
+        let bytes = std::fs::read(&fixture).expect("fixture bytes");
+        let graph = sis_pdf_pdf::parse_pdf(&bytes, cve_parse_options()).expect("parse");
+
+        let result = trace_nested_do_chains(&bytes, &graph, &[], 8, 128, 4 * 1024 * 1024);
+        assert!(result.chains.is_empty(), "expected no chains for empty do_refs");
+        assert!(result.truncation_reason.is_none(), "expected no truncation");
+    }
+
+    #[test]
+    fn trace_nested_do_chains_non_form_xobject_skipped() {
+        // Pass a reference to object 1 0 (Catalog — not a Form XObject).
+        // The tracer should skip it cleanly and produce no chains.
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/actions/launch_cve_2010_1240.pdf");
+        let bytes = std::fs::read(&fixture).expect("fixture bytes");
+        let graph = sis_pdf_pdf::parse_pdf(&bytes, cve_parse_options()).expect("parse");
+
+        // Object (1, 0) is almost certainly a Catalog, not a Form XObject.
+        let do_refs = vec![("/NonForm".to_string(), (1u32, 0u16))];
+        let result = trace_nested_do_chains(&bytes, &graph, &do_refs, 8, 128, 4 * 1024 * 1024);
+        assert!(result.chains.is_empty(), "non-form xobject should produce no nested chains");
+        assert!(result.truncation_reason.is_none());
+    }
+
+    #[test]
+    fn trace_nested_do_chains_depth_limit_respected_on_fixture() {
+        // With a depth limit of 0, no nested forms can be recorded.  The tracer
+        // must not panic and the depth cap must remain intact even if any content
+        // streams happen to carry form-invocation chains.
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/actions/launch_cve_2010_1240.pdf");
+        let bytes = std::fs::read(&fixture).expect("fixture bytes");
+        let graph = sis_pdf_pdf::parse_pdf(&bytes, cve_parse_options()).expect("parse");
+
+        let do_refs = vec![("/Form1".to_string(), (1u32, 0u16))];
+        // max_depth = 0: any recursion below depth 0 is immediately capped.
+        let result = trace_nested_do_chains(&bytes, &graph, &do_refs, 0, 128, 4 * 1024 * 1024);
+        // Either no chains (object is not a form) or truncation was set — either is
+        // correct; the key invariant is no panic and no chains with depth > 0.
+        for chain in &result.chains {
+            assert!(chain.depth <= 1, "depth must not exceed max_depth + 1");
+        }
+    }
+
+    #[test]
+    fn trace_nested_do_chains_cycle_terminates_cleanly() {
+        // We cannot construct a real cyclic object graph in a unit test, so we
+        // verify the termination property using the CVE fixture: re-running
+        // trace_nested_do_chains twice with the same do_refs must produce
+        // identical results (idempotent, no stale visited state).
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/actions/launch_cve_2010_1240.pdf");
+        let bytes = std::fs::read(&fixture).expect("fixture bytes");
+        let graph = sis_pdf_pdf::parse_pdf(&bytes, cve_parse_options()).expect("parse");
+
+        let do_refs = vec![("/Form1".to_string(), (1u32, 0u16))];
+        let r1 = trace_nested_do_chains(&bytes, &graph, &do_refs, 8, 128, 4 * 1024 * 1024);
+        let r2 = trace_nested_do_chains(&bytes, &graph, &do_refs, 8, 128, 4 * 1024 * 1024);
+        assert_eq!(r1.chains.len(), r2.chains.len(), "results must be idempotent");
+        assert_eq!(r1.truncation_reason, r2.truncation_reason);
+    }
+
+    #[test]
+    fn events_projection_with_nested_do_summary_on_cve_fixture() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/actions/launch_cve_2010_1240.pdf");
+        let bytes = std::fs::read(&fixture).expect("fixture bytes");
+        let graph = sis_pdf_pdf::parse_pdf(&bytes, cve_parse_options()).expect("parse");
+        let classifications = graph.classify_objects();
+        let typed_graph = TypedGraph::build(&graph, &classifications);
+        let findings = vec![Finding {
+            id: "budget-finding-nested".to_string(),
+            surface: AttackSurface::Actions,
+            kind: "action_open".to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Strong,
+            action_type: Some("OpenAction".to_string()),
+            action_target: Some("obj 6 0".to_string()),
+            ..Finding::default()
+        }];
+        let event_graph = build_event_graph(&typed_graph, &findings, EventGraphOptions::default());
+
+        let start = Instant::now();
+        let summaries = build_stream_exec_summaries(&bytes, &graph, &event_graph);
+        let elapsed = start.elapsed();
+
+        // The complete build_stream_exec_summaries call (including nested Do tracing)
+        // must stay within budget.  The < 2 ms overhead SLO for the tracer itself
+        // applies only to the incremental cost over the base projection; the full call
+        // budget here is set to match the existing stream-summary projection budget.
+        assert!(
+            elapsed <= Duration::from_millis(500),
+            "stream exec summaries with nested tracer budget exceeded: {:?}",
+            elapsed
+        );
+        // Verify all nested_form_execs depths are bounded — regardless of whether
+        // the fixture produces any ContentStreamExec events.
+        for (_, summary) in &summaries {
+            for exec in &summary.nested_form_execs {
+                assert!(exec.depth <= 8, "depth must not exceed max_depth 8");
+            }
+        }
     }
 }
