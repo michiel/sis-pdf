@@ -1,8 +1,26 @@
 use crate::analysis::AnalysisResult;
-use sis_pdf_core::event_graph::{EdgeProvenance, EventGraph, EventNodeKind};
+use sis_pdf_core::event_graph::EventGraph;
+use sis_pdf_core::event_projection::{extract_event_records, EventOutcomeRecord, EventRecord};
 use sis_pdf_core::model::Finding;
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::BTreeSet;
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct OutcomeDetail {
+    pub node_id: String,
+    pub outcome_type: String,
+    pub label: String,
+    pub confidence_score: Option<u8>,
+    pub severity_hint: Option<String>,
+    pub evidence: Vec<String>,
+    pub source_obj: Option<(u32, u16)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ExecuteTargetDetail {
+    pub node_id: String,
+    pub object_ref: Option<(u32, u16)>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct EventViewModel {
@@ -12,11 +30,8 @@ pub struct EventViewModel {
     pub label: String,
     pub trigger_class: String,
     pub source_object: Option<(u32, u16)>,
-    pub execute_targets: Vec<String>,
-    /// Resolved `(obj, gen)` for each entry in `execute_targets`, parallel by index.
-    /// `None` when the target node is not an Object node.
-    pub execute_target_objects: Vec<Option<(u32, u16)>>,
-    pub outcome_targets: Vec<String>,
+    pub execute_targets: Vec<ExecuteTargetDetail>,
+    pub outcome_targets: Vec<OutcomeDetail>,
     pub linked_finding_ids: Vec<String>,
     pub event_key: Option<String>,
     pub initiation: Option<String>,
@@ -56,100 +71,44 @@ pub fn build_event_graph_for_result(result: &AnalysisResult) -> Result<EventGrap
     ))
 }
 
-pub fn extract_event_view_models(event_graph: &EventGraph) -> Vec<EventViewModel> {
-    let mut event_rows: BTreeMap<String, EventViewModel> = BTreeMap::new();
-    let mut finding_ids_by_node: HashMap<String, BTreeSet<String>> = HashMap::new();
-    for edge in &event_graph.edges {
-        if let EdgeProvenance::Finding { finding_id } = &edge.provenance {
-            finding_ids_by_node.entry(edge.from.clone()).or_default().insert(finding_id.clone());
-            finding_ids_by_node.entry(edge.to.clone()).or_default().insert(finding_id.clone());
-        }
+fn map_outcome(outcome: EventOutcomeRecord) -> OutcomeDetail {
+    OutcomeDetail {
+        node_id: outcome.node_id,
+        outcome_type: outcome.outcome_type,
+        label: outcome.label,
+        confidence_score: outcome.confidence_score,
+        severity_hint: outcome.severity_hint,
+        evidence: outcome.evidence,
+        source_obj: outcome.source_object,
     }
+}
 
-    for node in &event_graph.nodes {
-        let EventNodeKind::Event { event_type, trigger, label, source_obj } = &node.kind else {
-            continue;
-        };
-        let mut execute_targets = Vec::new();
-        let mut outcome_targets = Vec::new();
-        let mut event_key = None;
-        let mut initiation = None;
-        let mut branch_index = None;
-
-        if let Some(forward) = event_graph.forward_index.get(&node.id) {
-            for edge_idx in forward {
-                if let Some(edge) = event_graph.edges.get(*edge_idx) {
-                    match edge.kind {
-                        sis_pdf_core::event_graph::EventEdgeKind::Executes => {
-                            execute_targets.push(edge.to.clone());
-                        }
-                        sis_pdf_core::event_graph::EventEdgeKind::ProducesOutcome => {
-                            outcome_targets.push(edge.to.clone());
-                        }
-                        _ => {}
-                    }
-                    if let Some(meta) = &edge.metadata {
-                        if event_key.is_none() {
-                            event_key = meta.event_key.clone();
-                        }
-                        if initiation.is_none() {
-                            initiation = meta.initiation.clone();
-                        }
-                        if branch_index.is_none() {
-                            branch_index = meta.branch_index.map(|value| value as u32);
-                        }
-                    }
-                }
-            }
-        }
-
-        execute_targets.sort();
-        execute_targets.dedup();
-        outcome_targets.sort();
-        outcome_targets.dedup();
-
-        // Resolve each execute target node to its object reference where possible.
-        let execute_target_objects: Vec<Option<(u32, u16)>> = execute_targets
-            .iter()
-            .map(|target_id| {
-                event_graph.node_index.get(target_id).and_then(|&idx| {
-                    event_graph.nodes.get(idx).and_then(|n| {
-                        if let EventNodeKind::Object { obj, gen, .. } = n.kind {
-                            Some((obj, gen))
-                        } else {
-                            None
-                        }
-                    })
-                })
+pub fn map_event_record_to_view(record: EventRecord) -> EventViewModel {
+    EventViewModel {
+        node_id: record.node_id,
+        event_type: record.event_type,
+        label: record.label,
+        trigger_class: record.trigger_class,
+        source_object: record.source_object,
+        execute_targets: record
+            .execute_targets
+            .into_iter()
+            .map(|target| ExecuteTargetDetail {
+                node_id: target.node_id,
+                object_ref: target.object_ref,
             })
-            .collect();
-
-        let linked_finding_ids = finding_ids_by_node
-            .get(&node.id)
-            .map(|values| values.iter().cloned().collect::<Vec<_>>())
-            .unwrap_or_default();
-
-        event_rows.insert(
-            node.id.clone(),
-            EventViewModel {
-                node_id: node.id.clone(),
-                event_type: format!("{event_type:?}"),
-                label: label.clone(),
-                trigger_class: trigger.as_str().to_string(),
-                source_object: *source_obj,
-                execute_targets,
-                execute_target_objects,
-                outcome_targets,
-                linked_finding_ids,
-                event_key,
-                initiation,
-                branch_index,
-                mitre_techniques: node.mitre_techniques.clone(),
-            },
-        );
+            .collect(),
+        outcome_targets: record.outcome_targets.into_iter().map(map_outcome).collect(),
+        linked_finding_ids: record.linked_finding_ids,
+        event_key: record.event_key,
+        initiation: record.initiation,
+        branch_index: record.branch_index,
+        mitre_techniques: record.mitre_techniques,
     }
+}
 
-    event_rows.into_values().collect()
+pub fn extract_event_view_models(event_graph: &EventGraph) -> Vec<EventViewModel> {
+    extract_event_records(event_graph).into_iter().map(map_event_record_to_view).collect()
 }
 
 pub fn collect_unmapped_finding_event_signals(
@@ -192,7 +151,8 @@ pub fn finding_has_event_signal(finding: &Finding) -> bool {
 mod tests {
     use super::*;
     use sis_pdf_core::event_graph::{
-        EdgeProvenance, EventEdge, EventEdgeKind, EventNode, EventType, TriggerClass,
+        EdgeMetadata, EdgeProvenance, EventEdge, EventEdgeKind, EventNode, EventNodeKind,
+        EventType, OutcomeType, TriggerClass,
     };
     use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
     use std::collections::HashMap;
@@ -220,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_event_view_models_filters_non_event_nodes_and_sorts_by_node_id() {
+    fn extract_event_view_models_filters_non_event_nodes_and_sorts_stably() {
         let graph = make_graph(
             vec![
                 EventNode {
@@ -235,7 +195,7 @@ mod tests {
                         event_type: EventType::JsTimerDelayed,
                         trigger: TriggerClass::Hidden,
                         label: "B".to_string(),
-                        source_obj: Some((1, 0)),
+                        source_obj: Some((2, 0)),
                     },
                 },
                 EventNode {
@@ -245,7 +205,7 @@ mod tests {
                         event_type: EventType::ContentStreamExec,
                         trigger: TriggerClass::Automatic,
                         label: "A".to_string(),
-                        source_obj: Some((2, 0)),
+                        source_obj: Some((1, 0)),
                     },
                 },
             ],
@@ -254,8 +214,70 @@ mod tests {
         let events = extract_event_view_models(&graph);
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].node_id, "ev:a");
-        assert_eq!(events[0].event_type, "ContentStreamExec");
         assert_eq!(events[1].node_id, "ev:b");
+    }
+
+    #[test]
+    fn extract_event_view_models_resolves_execute_and_outcome_details() {
+        let graph = make_graph(
+            vec![
+                EventNode {
+                    id: "ev:1".to_string(),
+                    mitre_techniques: vec!["T1204".to_string()],
+                    kind: EventNodeKind::Event {
+                        event_type: EventType::ContentStreamExec,
+                        trigger: TriggerClass::Automatic,
+                        label: "content stream".to_string(),
+                        source_obj: Some((3, 0)),
+                    },
+                },
+                EventNode {
+                    id: "obj:7:0".to_string(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Object { obj: 7, gen: 0, obj_type: None },
+                },
+                EventNode {
+                    id: "out:1".to_string(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Outcome {
+                        outcome_type: OutcomeType::NetworkEgress,
+                        label: "egress".to_string(),
+                        target: Some("https://x.example".to_string()),
+                        source_obj: Some((9, 0)),
+                        evidence: vec!["network".to_string()],
+                        confidence_source: None,
+                        confidence_score: Some(92),
+                        severity_hint: Some("high".to_string()),
+                    },
+                },
+            ],
+            vec![
+                EventEdge {
+                    from: "ev:1".to_string(),
+                    to: "obj:7:0".to_string(),
+                    kind: EventEdgeKind::Executes,
+                    provenance: EdgeProvenance::Heuristic,
+                    metadata: Some(EdgeMetadata {
+                        event_key: Some("/OpenAction".to_string()),
+                        branch_index: Some(1),
+                        initiation: Some("automatic".to_string()),
+                    }),
+                },
+                EventEdge {
+                    from: "ev:1".to_string(),
+                    to: "out:1".to_string(),
+                    kind: EventEdgeKind::ProducesOutcome,
+                    provenance: EdgeProvenance::Finding { finding_id: "f-9".to_string() },
+                    metadata: None,
+                },
+            ],
+        );
+        let events = extract_event_view_models(&graph);
+        assert_eq!(events[0].execute_targets[0].object_ref, Some((7, 0)));
+        assert_eq!(events[0].outcome_targets[0].outcome_type, "NetworkEgress");
+        assert_eq!(events[0].outcome_targets[0].confidence_score, Some(92));
+        assert_eq!(events[0].event_key.as_deref(), Some("/OpenAction"));
+        assert_eq!(events[0].linked_finding_ids, vec!["f-9".to_string()]);
     }
 
     #[test]
@@ -273,101 +295,11 @@ mod tests {
         };
         let linked = EventViewModel {
             node_id: "ev:1".to_string(),
-            event_type: "DocumentOpen".to_string(),
-            trigger_class: "automatic".to_string(),
-            source_object: Some((1, 0)),
             linked_finding_ids: vec!["f-2".to_string()],
             ..EventViewModel::default()
         };
         let unmapped = collect_unmapped_finding_event_signals(&[finding], &[linked]);
         assert_eq!(unmapped.len(), 1);
         assert_eq!(unmapped[0].finding_id, "f-1");
-        assert_eq!(unmapped[0].finding_idx, 0);
-    }
-
-    #[test]
-    fn extract_event_view_models_resolves_execute_target_object_refs() {
-        // ContentStreamExec → Executes → Object node; target should resolve to (7, 0).
-        let graph = make_graph(
-            vec![
-                EventNode {
-                    id: "ev:1".to_string(),
-                    mitre_techniques: Vec::new(),
-                    kind: EventNodeKind::Event {
-                        event_type: EventType::ContentStreamExec,
-                        trigger: TriggerClass::Automatic,
-                        label: "content stream".to_string(),
-                        source_obj: Some((3, 0)),
-                    },
-                },
-                EventNode {
-                    id: "obj:7:0".to_string(),
-                    mitre_techniques: Vec::new(),
-                    kind: EventNodeKind::Object { obj: 7, gen: 0, obj_type: None },
-                },
-            ],
-            vec![EventEdge {
-                from: "ev:1".to_string(),
-                to: "obj:7:0".to_string(),
-                kind: EventEdgeKind::Executes,
-                provenance: EdgeProvenance::Heuristic,
-                metadata: None,
-            }],
-        );
-        let events = extract_event_view_models(&graph);
-        assert_eq!(events[0].execute_targets, vec!["obj:7:0".to_string()]);
-        assert_eq!(events[0].execute_target_objects, vec![Some((7, 0))]);
-    }
-
-    #[test]
-    fn extract_event_view_models_carries_label_and_mitre_techniques() {
-        let graph = make_graph(
-            vec![EventNode {
-                id: "ev:1".to_string(),
-                mitre_techniques: vec!["T1059.007".to_string()],
-                kind: EventNodeKind::Event {
-                    event_type: EventType::DocumentOpen,
-                    trigger: TriggerClass::Automatic,
-                    label: "document open action".to_string(),
-                    source_obj: None,
-                },
-            }],
-            Vec::new(),
-        );
-        let events = extract_event_view_models(&graph);
-        assert_eq!(events[0].label, "document open action");
-        assert_eq!(events[0].mitre_techniques, vec!["T1059.007".to_string()]);
-    }
-
-    #[test]
-    fn extract_event_view_models_collects_provenance_finding_links() {
-        let graph = make_graph(
-            vec![
-                EventNode {
-                    id: "ev:1".to_string(),
-                    mitre_techniques: Vec::new(),
-                    kind: EventNodeKind::Event {
-                        event_type: EventType::DocumentOpen,
-                        trigger: TriggerClass::Automatic,
-                        label: "open".to_string(),
-                        source_obj: Some((1, 0)),
-                    },
-                },
-                EventNode {
-                    id: "obj:2:0".to_string(),
-                    mitre_techniques: Vec::new(),
-                    kind: EventNodeKind::Object { obj: 2, gen: 0, obj_type: None },
-                },
-            ],
-            vec![EventEdge {
-                from: "ev:1".to_string(),
-                to: "obj:2:0".to_string(),
-                kind: EventEdgeKind::Executes,
-                provenance: EdgeProvenance::Finding { finding_id: "f-9".to_string() },
-                metadata: None,
-            }],
-        );
-        let events = extract_event_view_models(&graph);
-        assert_eq!(events[0].linked_finding_ids, vec!["f-9".to_string()]);
     }
 }

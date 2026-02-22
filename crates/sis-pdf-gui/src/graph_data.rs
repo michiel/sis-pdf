@@ -20,6 +20,7 @@ pub struct GraphData {
 #[derive(Debug, Clone, Default)]
 pub struct GraphNode {
     pub object_ref: Option<(u32, u16)>,
+    pub event_node_id: Option<String>,
     pub obj_type: String,
     pub label: String,
     pub roles: Vec<String>,
@@ -139,6 +140,7 @@ pub fn from_event_graph(data: &EventGraph) -> Result<GraphData, GraphError> {
         }
         nodes.push(GraphNode {
             object_ref,
+            event_node_id: Some(node.id.clone()),
             obj_type,
             label,
             roles,

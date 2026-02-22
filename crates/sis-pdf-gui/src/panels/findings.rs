@@ -221,6 +221,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                         .color(severity_colour(&f.severity));
                     if ui.selectable_label(selected, label).clicked() {
                         app.selected_finding = Some(idx);
+                        app.finding_origin_event = None;
                     }
                 });
                 row.col(|ui| {

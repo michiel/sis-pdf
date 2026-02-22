@@ -599,6 +599,7 @@ fn show_taint_reason(ui: &mut egui::Ui, app: &mut SisApp, reason: &TaintReasonEn
                         result.report.findings.iter().position(|finding| finding.id == *finding_id)
                     {
                         app.selected_finding = Some(idx);
+                        app.finding_origin_event = None;
                     }
                 }
             }
@@ -875,6 +876,7 @@ fn show_related_findings(
         for (finding_idx, title) in related_findings {
             if ui.link(title).clicked() {
                 app.selected_finding = Some(*finding_idx);
+                app.finding_origin_event = None;
             }
         }
     });

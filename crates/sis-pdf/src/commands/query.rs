@@ -4670,211 +4670,78 @@ fn extract_event_triggers(
     filter_level: Option<&str>,
     predicate: Option<&PredicateExpr>,
 ) -> Result<serde_json::Value> {
-    let mut events = Vec::new();
+    use sis_pdf_core::event_graph::{build_event_graph, EventGraphOptions};
+    use sis_pdf_core::event_projection::extract_event_records;
 
-    // 1. Document-level events (from Catalog and document actions)
-    if let Some((dict, obj, gen)) = find_latest_catalog(ctx) {
-        // OpenAction (automatic execution on document open)
-        if let Some((_, action_obj)) = dict.get_first(b"/OpenAction") {
-            if filter_level.is_none() || filter_level == Some("document") {
-                let action_details = extract_action_details(&ctx.graph, ctx.bytes, action_obj);
-                events.push(json!({
-                    "level": "document",
-                    "event_type": "OpenAction",
-                    "location": format!("obj {}:{} (Catalog)", obj, gen),
-                    "trigger_config": "Triggered on document open",
-                    "action_details": action_details
-                }));
-            }
-        }
-
-        // Additional actions (AA dictionary)
-        if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
-            if filter_level.is_none() || filter_level == Some("document") {
-                extract_aa_events(
-                    &ctx.graph,
-                    ctx.bytes,
-                    aa_obj,
-                    "document",
-                    &format!("obj {}:{} (Catalog)", obj, gen),
-                    &mut events,
-                );
-            }
-        }
-    }
-
-    // 2. Page-level events
-    for entry in &ctx.graph.objects {
-        if let Some(dict) = entry_dict(entry) {
-            // Check if this is a Page object
-            if dict.has_name(b"/Type", b"/Page")
-                && (filter_level.is_none() || filter_level == Some("page"))
-            {
-                // Check for Page AA (Additional Actions)
-                if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
-                    extract_aa_events(
-                        &ctx.graph,
-                        ctx.bytes,
-                        aa_obj,
-                        "page",
-                        &format!("obj {}:{}", entry.obj, entry.gen),
-                        &mut events,
-                    );
-                }
-            }
-        }
-    }
-
-    // 3. Field-level events (form fields / annotations)
-    for entry in &ctx.graph.objects {
-        if let Some(dict) = entry_dict(entry) {
-            // Check for widget annotations (form fields)
-            if (dict.has_name(b"/Subtype", b"/Widget") || dict.get_first(b"/FT").is_some())
-                && (filter_level.is_none() || filter_level == Some("field"))
-            {
-                let field_name = dict
-                    .get_first(b"/T")
-                    .and_then(|(_, obj)| extract_obj_text(&ctx.graph, ctx.bytes, obj))
-                    .unwrap_or_else(|| "unnamed".to_string());
-
-                // Check for field actions
-                if let Some((_, action_obj)) = dict.get_first(b"/A") {
-                    let action_details = extract_action_details(&ctx.graph, ctx.bytes, action_obj);
-                    events.push(json!({
-                        "level": "field",
-                        "event_type": "Action",
-                        "location": format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
-                        "trigger_config": "Triggered on field activation",
-                        "action_details": action_details
-                    }));
-                }
-
-                // Check for Additional Actions (AA)
-                if let Some((_, aa_obj)) = dict.get_first(b"/AA") {
-                    extract_aa_events(
-                        &ctx.graph,
-                        ctx.bytes,
-                        aa_obj,
-                        "field",
-                        &format!("obj {}:{} (field: {})", entry.obj, entry.gen, field_name),
-                        &mut events,
-                    );
-                }
-            }
-        }
-    }
-
-    attach_event_graph_refs(ctx, &mut events);
-
-    if let Some(pred) = predicate {
-        let filtered: Vec<_> = events
-            .into_iter()
-            .filter(|event| {
-                predicate_context_for_event(event).is_some_and(|ctx| pred.evaluate(&ctx))
-            })
-            .collect();
-        Ok(json!(filtered))
-    } else {
-        Ok(json!(events))
-    }
-}
-
-fn attach_event_graph_refs(ctx: &ScanContext, events: &mut [serde_json::Value]) {
-    use sis_pdf_core::event_graph::{
-        build_event_graph, EventGraphOptions, EventNodeKind, EventType,
-    };
     let typed_graph = ctx.build_typed_graph();
     let event_graph = build_event_graph(&typed_graph, &[], EventGraphOptions::default());
-
-    let mut refs = HashMap::<(u32, u16, EventType), String>::new();
-    for node in &event_graph.nodes {
-        if let EventNodeKind::Event { event_type, source_obj: Some((obj, gen)), .. } = &node.kind {
-            let key = (*obj, *gen, *event_type);
-            refs.entry(key)
-                .and_modify(|current| {
-                    if node.id < *current {
-                        *current = node.id.clone();
-                    }
-                })
-                .or_insert_with(|| node.id.clone());
+    let records = extract_event_records(&event_graph);
+    let mut events = Vec::new();
+    for record in records {
+        let level = event_level_for_type(&record.event_type);
+        if filter_level.is_some_and(|filter| filter != level) {
+            continue;
         }
-    }
-
-    for event in events {
-        let level = event.get("level").and_then(|v| v.as_str());
-        let event_name = event.get("event_type").and_then(|v| v.as_str());
-        let location = event.get("location").and_then(|v| v.as_str());
-        let Some((obj, gen)) = location.and_then(parse_event_location_obj_gen) else {
-            continue;
-        };
-        let Some(types) = map_event_row_to_event_types(level, event_name) else {
-            continue;
-        };
-        for event_type in types {
-            if let Some(graph_ref) = refs.get(&(obj, gen, *event_type)) {
-                if let Some(map) = event.as_object_mut() {
-                    map.insert("graph_ref".to_string(), json!(graph_ref));
-                }
-                break;
+        let event = json!({
+            "node_id": record.node_id,
+            "graph_ref": record.node_id,
+            "level": level,
+            "trigger": record.trigger_class,
+            "event_type": record.event_type,
+            "label": record.label,
+            "source_object": record.source_object.map(|(obj, gen)| format!("{obj}:{gen}")),
+            "execute_targets": record.execute_targets.iter().map(|target| {
+                json!({
+                    "node_id": target.node_id,
+                    "object_ref": target.object_ref.map(|(obj, gen)| format!("{obj}:{gen}")),
+                })
+            }).collect::<Vec<_>>(),
+            "outcome_targets": record.outcome_targets.iter().map(|outcome| {
+                json!({
+                    "node_id": outcome.node_id,
+                    "outcome_type": outcome.outcome_type,
+                    "label": outcome.label,
+                    "confidence_score": outcome.confidence_score,
+                    "severity_hint": outcome.severity_hint,
+                    "evidence": outcome.evidence,
+                    "source_object": outcome.source_object.map(|(obj, gen)| format!("{obj}:{gen}")),
+                })
+            }).collect::<Vec<_>>(),
+            "linked_finding_ids": record.linked_finding_ids,
+            "mitre_techniques": record.mitre_techniques,
+            "event_key": record.event_key,
+            "initiation": record.initiation,
+            "branch_index": record.branch_index,
+            "action_details": record.label,
+        });
+        if let Some(pred) = predicate {
+            if !predicate_context_for_event(&event).is_some_and(|ctx| pred.evaluate(&ctx)) {
+                continue;
             }
         }
+        events.push(event);
     }
+    Ok(json!(events))
 }
 
-fn parse_event_location_obj_gen(location: &str) -> Option<(u32, u16)> {
-    let trimmed = location.strip_prefix("obj ")?;
-    let coords = trimmed.split_whitespace().next()?;
-    let (obj, gen) = coords.split_once(':')?;
-    Some((obj.parse().ok()?, gen.parse().ok()?))
-}
-
-fn map_event_row_to_event_types(
-    level: Option<&str>,
-    event_name: Option<&str>,
-) -> Option<&'static [sis_pdf_core::event_graph::EventType]> {
-    use sis_pdf_core::event_graph::EventType;
-
-    const DOCUMENT_OPEN: &[EventType] = &[EventType::DocumentOpen];
-    const DOCUMENT_WC: &[EventType] = &[EventType::DocumentWillClose];
-    const DOCUMENT_WS: &[EventType] = &[EventType::DocumentWillSave];
-    const DOCUMENT_DS: &[EventType] = &[EventType::DocumentDidSave];
-    const DOCUMENT_WP: &[EventType] = &[EventType::DocumentWillPrint];
-    const DOCUMENT_DP: &[EventType] = &[EventType::DocumentDidPrint];
-    const PAGE_OPEN: &[EventType] = &[EventType::PageOpen];
-    const PAGE_CLOSE: &[EventType] = &[EventType::PageClose];
-    const FIELD_ACTIVATION: &[EventType] = &[EventType::FieldActivation];
-    const FIELD_KEYSTROKE: &[EventType] = &[EventType::FieldKeystroke];
-    const FIELD_FORMAT: &[EventType] = &[EventType::FieldFormat];
-    const FIELD_VALIDATE: &[EventType] = &[EventType::FieldValidate];
-    const FIELD_CALCULATE: &[EventType] = &[EventType::FieldCalculate];
-    const FIELD_MOUSE_DOWN: &[EventType] = &[EventType::FieldMouseDown];
-    const FIELD_MOUSE_UP: &[EventType] = &[EventType::FieldMouseUp];
-    const FIELD_MOUSE_ENTER: &[EventType] = &[EventType::FieldMouseEnter];
-    const FIELD_MOUSE_EXIT: &[EventType] = &[EventType::FieldMouseExit];
-    const FIELD_ON_FOCUS: &[EventType] = &[EventType::FieldOnFocus];
-    const FIELD_ON_BLUR: &[EventType] = &[EventType::FieldOnBlur];
-
-    match (level, event_name) {
-        (_, Some("OpenAction")) => Some(DOCUMENT_OPEN),
-        (_, Some("Doc/WillClose")) => Some(DOCUMENT_WC),
-        (_, Some("Doc/WillSave")) => Some(DOCUMENT_WS),
-        (_, Some("Doc/DidSave")) => Some(DOCUMENT_DS),
-        (_, Some("Doc/WillPrint")) => Some(DOCUMENT_WP),
-        (_, Some("Doc/DidPrint")) => Some(DOCUMENT_DP),
-        (_, Some("Page/Open")) => Some(PAGE_OPEN),
-        (_, Some("Page/Close")) => Some(PAGE_CLOSE),
-        (_, Some("Keystroke")) => Some(FIELD_KEYSTROKE),
-        (_, Some("Format")) => Some(FIELD_FORMAT),
-        (_, Some("Validate")) => Some(FIELD_VALIDATE),
-        (_, Some("Calculate")) => Some(FIELD_CALCULATE),
-        (_, Some("MouseDown")) => Some(FIELD_MOUSE_DOWN),
-        (_, Some("MouseUp")) => Some(FIELD_MOUSE_UP),
-        (_, Some("MouseEnter")) => Some(FIELD_MOUSE_ENTER),
-        (_, Some("MouseExit")) => Some(FIELD_MOUSE_EXIT),
-        (_, Some("OnFocus")) => Some(FIELD_ON_FOCUS),
-        (_, Some("OnBlur")) => Some(FIELD_ON_BLUR),
-        (Some("field"), Some("Action")) => Some(FIELD_ACTIVATION),
-        _ => None,
+fn event_level_for_type(event_type: &str) -> &'static str {
+    match event_type {
+        "DocumentOpen" | "DocumentWillClose" | "DocumentWillSave" | "DocumentDidSave"
+        | "DocumentWillPrint" | "DocumentDidPrint" | "NextAction" | "JsTimerDelayed" => "document",
+        "PageOpen" | "PageClose" | "PageVisible" | "PageInvisible" | "ContentStreamExec" => "page",
+        "FieldKeystroke"
+        | "FieldFormat"
+        | "FieldValidate"
+        | "FieldCalculate"
+        | "FieldMouseDown"
+        | "FieldMouseUp"
+        | "FieldMouseEnter"
+        | "FieldMouseExit"
+        | "FieldOnFocus"
+        | "FieldOnBlur"
+        | "FieldActivation"
+        | "AnnotationActivation" => "field",
+        _ => "document",
     }
 }
 
@@ -5117,8 +4984,8 @@ mod event_tests {
         let arr = events.as_array().expect("array expected");
         let has_open_action = arr
             .iter()
-            .any(|event| event.get("event_type").and_then(|v| v.as_str()) == Some("OpenAction"));
-        assert!(has_open_action, "expected OpenAction event");
+            .any(|event| event.get("event_type").and_then(|v| v.as_str()) == Some("DocumentOpen"));
+        assert!(has_open_action, "expected DocumentOpen event");
 
         let has_graph_ref = arr.iter().any(|event| {
             event
@@ -5703,10 +5570,24 @@ fn predicate_context_for_url(url: &str) -> PredicateContext {
 }
 
 fn predicate_context_for_event(event: &serde_json::Value) -> Option<PredicateContext> {
-    let level = event.get("level")?.as_str()?;
+    let level = event.get("level").and_then(|value| value.as_str()).unwrap_or("document");
     let event_type = event.get("event_type")?.as_str()?;
-    let details = event.get("action_details").and_then(|value| value.as_str()).unwrap_or_default();
+    let details = event
+        .get("action_details")
+        .and_then(|value| value.as_str())
+        .or_else(|| event.get("label").and_then(|value| value.as_str()))
+        .unwrap_or_default();
     let bytes = details.as_bytes();
+    let mut meta = HashMap::new();
+    if let Some(trigger) = event.get("trigger").and_then(|value| value.as_str()) {
+        meta.insert("trigger".to_string(), trigger.to_string());
+    }
+    if let Some(node_id) = event.get("node_id").and_then(|value| value.as_str()) {
+        meta.insert("node_id".to_string(), node_id.to_string());
+    }
+    if let Some(source_object) = event.get("source_object").and_then(|value| value.as_str()) {
+        meta.insert("source_object".to_string(), source_object.to_string());
+    }
     Some(PredicateContext {
         length: bytes.len(),
         filter: Some(level.to_string()),
@@ -5730,7 +5611,7 @@ fn predicate_context_for_event(event: &serde_json::Value) -> Option<PredicateCon
         action_type: None,
         action_target: None,
         action_initiation: None,
-        meta: HashMap::new(),
+        meta,
     })
 }
 
@@ -9351,6 +9232,21 @@ mod tests {
     }
 
     #[test]
+    fn format_jsonl_preserves_events_structure() {
+        let result = QueryResult::Structure(json!([{
+            "node_id": "ev:1",
+            "trigger": "automatic",
+            "event_type": "DocumentOpen",
+            "outcome_targets": [{"outcome_type": "NetworkEgress"}]
+        }]));
+        let output = format_jsonl("events", "sample.pdf", &result).expect("jsonl");
+        let value: serde_json::Value = serde_json::from_str(&output).expect("json");
+        let rows = value["result"].as_array().expect("rows");
+        assert_eq!(rows[0]["trigger"], json!("automatic"));
+        assert_eq!(rows[0]["outcome_targets"][0]["outcome_type"], json!("NetworkEgress"));
+    }
+
+    #[test]
     fn format_json_and_jsonl_keep_stable_top_level_keys() {
         let result = QueryResult::Scalar(ScalarValue::Number(7));
         let json_output = format_json("js.count", "sample.pdf", &result).unwrap();
@@ -10502,6 +10398,55 @@ mod tests {
     }
 
     #[test]
+    fn events_query_emits_event_records_with_structured_outcomes() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let result = execute_query_with_context(
+                &Query::Events,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("events query");
+            let QueryResult::Structure(value) = result else {
+                panic!("expected structure");
+            };
+            let events = value.as_array().expect("array");
+            assert!(!events.is_empty());
+            let first = &events[0];
+            assert!(first.get("node_id").is_some());
+            assert!(first.get("trigger").is_some());
+            assert!(first.get("outcome_targets").is_some());
+        });
+    }
+
+    #[test]
+    fn events_query_supports_trigger_predicate() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let predicate = parse_predicate("trigger == 'automatic'").expect("predicate");
+            let result = execute_query_with_context(
+                &Query::Events,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                Some(&predicate),
+            )
+            .expect("events query");
+            let QueryResult::Structure(value) = result else {
+                panic!("expected structure");
+            };
+            for event in value.as_array().expect("array") {
+                assert_eq!(
+                    event.get("trigger").and_then(|value| value.as_str()),
+                    Some("automatic")
+                );
+            }
+        });
+    }
+
+    #[test]
     fn apply_output_format_handles_event_hops_variants() {
         let json_variant = apply_output_format(Query::ExportEventDotHops(2), OutputFormat::Json)
             .expect("json conversion");
@@ -11431,13 +11376,16 @@ mod tests {
     fn predicate_context_for_event_maps_level_and_type() {
         let event = json!({
             "level": "document",
-            "event_type": "OpenAction",
-            "action_details": "JavaScript: app.alert(1)"
+            "trigger": "automatic",
+            "event_type": "DocumentOpen",
+            "action_details": "Open action"
         });
-        let predicate =
-            parse_predicate("filter == 'document' AND subtype == 'OpenAction'").expect("predicate");
+        let predicate = parse_predicate("filter == 'document' AND subtype == 'DocumentOpen'")
+            .expect("predicate");
         let ctx = predicate_context_for_event(&event).expect("context");
         assert!(predicate.evaluate(&ctx));
+        let trigger_predicate = parse_predicate("trigger == 'automatic'").expect("predicate");
+        assert!(trigger_predicate.evaluate(&ctx));
     }
 
     #[test]

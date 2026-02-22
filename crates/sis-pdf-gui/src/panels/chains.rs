@@ -208,6 +208,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                             if let Some(idx) = maybe_idx {
                                 if ui.link(finding_id).clicked() {
                                     app.selected_finding = Some(*idx);
+                                    app.finding_origin_event = None;
                                 }
                             } else {
                                 ui.label(finding_id);

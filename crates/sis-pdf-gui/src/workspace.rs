@@ -17,6 +17,7 @@ pub const MAX_TABS: usize = 3;
 pub struct WorkspaceContext {
     pub result: AnalysisResult,
     pub selected_finding: Option<usize>,
+    pub finding_origin_event: Option<String>,
     pub show_findings: bool,
     pub show_chains: bool,
     pub show_metadata: bool,

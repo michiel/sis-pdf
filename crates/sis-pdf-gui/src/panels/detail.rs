@@ -15,6 +15,7 @@ pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     app.window_max.insert("Finding Detail".to_string(), ws);
     if !open {
         app.selected_finding = None;
+        app.finding_origin_event = None;
     }
 }
 
@@ -92,6 +93,13 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     let event_graph_paths = event_graph_paths_for_finding(app, &finding_id, &finding_objects);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
+        if let Some(origin_event) = app.finding_origin_event.clone() {
+            if ui.link("← Back to event").on_hover_text(&origin_event).clicked() {
+                app.selected_event = Some(origin_event);
+                app.show_events = true;
+            }
+            ui.add_space(4.0);
+        }
         ui.heading(&title);
         ui.separator();
 

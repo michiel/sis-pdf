@@ -26,6 +26,8 @@ pub struct SisApp {
     pub result: Option<AnalysisResult>,
     /// Index of the currently selected finding in the table.
     pub selected_finding: Option<usize>,
+    /// Event-node context for finding navigation, used by "Back to event".
+    pub finding_origin_event: Option<String>,
     /// Whether to show the findings floating window.
     pub show_findings: bool,
     /// Whether to show the chains floating window.
@@ -305,6 +307,7 @@ impl SisApp {
             dark_mode: false,
             error: None,
             selected_finding: None,
+            finding_origin_event: None,
             show_findings: true,
             show_chains: false,
             show_metadata: false,
@@ -433,6 +436,7 @@ impl SisApp {
         self.active_file_path = self.pending_file_path.take();
         self.result = Some(result);
         self.selected_finding = None;
+        self.finding_origin_event = None;
         self.selected_object = None;
         self.object_type_filter = None;
         self.object_nav_stack.clear();
@@ -641,6 +645,7 @@ impl SisApp {
             let ws = WorkspaceContext {
                 result,
                 selected_finding: self.selected_finding.take(),
+                finding_origin_event: self.finding_origin_event.take(),
                 show_findings: self.show_findings,
                 show_chains: self.show_chains,
                 show_metadata: self.show_metadata,
@@ -692,6 +697,7 @@ impl SisApp {
         let ws = self.inactive_workspaces.remove(index);
         self.result = Some(ws.result);
         self.selected_finding = ws.selected_finding;
+        self.finding_origin_event = ws.finding_origin_event;
         self.show_findings = ws.show_findings;
         self.show_chains = ws.show_chains;
         self.show_metadata = ws.show_metadata;

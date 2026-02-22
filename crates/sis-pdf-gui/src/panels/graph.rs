@@ -646,6 +646,11 @@ fn render_graph_canvas(ui: &mut egui::Ui, app: &mut SisApp) {
         if let Some(hi) = hovered {
             if let Some(ref graph) = app.graph_state.graph {
                 let node = &graph.nodes[hi];
+                if let Some(event_node_id) = resolve_double_click_event_node(node) {
+                    app.selected_event = Some(event_node_id);
+                    app.show_events = true;
+                    return;
+                }
                 if let Some((obj, gen)) = resolve_double_click_target(node) {
                     app.navigate_to_object(obj, gen);
                     app.show_objects = true;
@@ -675,6 +680,10 @@ fn content_stream_target(node: &crate::graph_data::GraphNode) -> Option<(u32, u1
 
 fn resolve_double_click_target(node: &crate::graph_data::GraphNode) -> Option<(u32, u16)> {
     content_stream_target(node).or(node.object_ref)
+}
+
+fn resolve_double_click_event_node(node: &crate::graph_data::GraphNode) -> Option<String> {
+    node.event_node_id.as_ref().filter(|node_id| node_id.starts_with("ev:")).cloned()
 }
 
 fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {

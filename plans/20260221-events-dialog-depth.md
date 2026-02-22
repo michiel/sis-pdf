@@ -1,8 +1,62 @@
 # Events Dialog Depth and Integration Plan
 
 Date: 2026-02-21
-Status: Proposed
+Status: Implemented
 Owner: GUI (`sis-pdf-gui`), core (`sis-pdf-core`), CLI (`sis-pdf`)
+
+## Implementation status (2026-02-22)
+
+Completed:
+1. Added shared core event projection in `sis-pdf-core`:
+   - new `event_projection` module,
+   - `EventRecord`, structured execute targets and outcome detail records,
+   - stable extraction ordering and finding-to-event reverse index helper.
+2. GUI now maps core `EventRecord` into view models with structured outcomes:
+   - outcome type/label/confidence/severity/evidence/source object are rendered in Events detail.
+3. Events list usability updates:
+   - severity dots from linked findings,
+   - `ContentStreamExec` grouping when high-volume,
+   - deterministic ordering preserved by projection sorting.
+4. Cross-panel navigation updates:
+   - graph double-click on event nodes opens/focuses Events dialog,
+   - `E` shortcut opens Events for selected graph event node,
+   - Events detail `Show in graph` selects/focuses corresponding graph node,
+   - finding detail now supports `← Back to event` via `finding_origin_event`.
+5. CLI `events` query now emits EventGraph-backed structured rows:
+   - includes `node_id`, `trigger`, structured outcomes, execute target details, and metadata fields,
+   - supports `--where trigger=...` via predicate metadata context,
+   - works with existing `--format text|json|jsonl` handling.
+6. Added projection budget coverage:
+   - `event_projection::tests::events_projection_budget_on_cve_fixture`.
+
+Deferred follow-on opportunities:
+1. Optional full-forensic `sis query events --full` mode.
+2. Documented CSV export schema contract for event rows.
+
+Validation completed:
+1. `cargo test -p sis-pdf-gui -p sis-pdf-core -p sis-pdf --no-run`
+2. `cargo test -p sis-pdf extract_event_triggers_includes_open_action_from_fallback_catalog -- --nocapture`
+3. `cargo test -p sis-pdf events_query_ -- --nocapture`
+4. `cargo test -p sis-pdf predicate_context_for_event_maps_level_and_type -- --nocapture`
+5. `cargo test -p sis-pdf-gui panels::events::tests:: -- --nocapture`
+6. `cargo test -p sis-pdf-gui panels::graph::tests::graph_double_click_ -- --nocapture`
+7. `cargo test -p sis-pdf-gui event_view::tests:: -- --nocapture`
+8. `cargo test -p sis-pdf-core event_projection::tests:: -- --nocapture`
+9. `cargo test -p sis-pdf-gui -p sis-pdf-core -p sis-pdf -p sis-pdf-detectors`
+10. `cargo build --target wasm32-unknown-unknown -p sis-pdf-gui`
+
+## Assumptions
+
+1. Current detection behaviour (finding generation, severity, confidence) remains unchanged.
+2. Event list and CLI event output must be deterministic across runs for the same input.
+3. `sis-pdf` and other non-GUI crates must not depend on `sis-pdf-gui`.
+4. Validation is strict and automated; manual GUI checks are supplementary.
+
+## Non-goals
+
+1. Changing EventGraph semantics or detector taxonomy.
+2. Reintroducing analyst annotation workflows in the GUI.
+3. Reducing forensic detail from existing EventGraph nodes.
 
 ## Context
 
@@ -40,12 +94,12 @@ return to the event that referred them. The finding detail panel has no "origin
 event" context.
 
 ### G5. `EventViewModel` carries a label but the EventGraph builder produces
-generic labels for many node types
+generic labels for many node types (except `ContentStreamExec`, already improved)
 
-For `ContentStreamExec`, the label is `"content stream exec"` rather than
-something like `"Page 3 — stream obj 7"`. The builder has access to the source
-page number and target object but does not encode it. The GUI has to display the
-generic label.
+`ContentStreamExec` labels are already enriched in core as
+`"Content stream (page {obj} {gen} -> stream {obj} {gen})"`. However, many
+other event types still rely on generic labels and have limited scanability in
+the Events list without additional context signals.
 
 ### G6. No SLO regression test for Events dialog build path
 
@@ -75,7 +129,7 @@ have no access to the EventGraph event list that GUI analysts now have.
        pub source_obj: Option<(u32, u16)>,
    }
    ```
-2. Change `EventViewModel.outcome_targets` from `Vec<String>` to
+2. Change GUI `EventViewModel.outcome_targets` from `Vec<String>` to
    `Vec<OutcomeDetail>`.
 3. In `extract_event_view_models`, resolve each `ProducesOutcome` target node
    by looking it up in `event_graph.node_index` and extracting its
@@ -100,15 +154,12 @@ have no access to the EventGraph event list that GUI analysts now have.
 
 ### B1. Enrich the EventGraph builder label for ContentStreamExec
 
-In `sis-pdf-core`, update the `ContentStreamExec` node label to include the
-page object number and target stream object number where available:
-`"ContentStreamExec: page {obj} → stream {target}"`.
+No implementation needed for `ContentStreamExec` specifically: this label is
+already enriched in `sis-pdf-core`.
 
-This is a pure core change with no GUI impact beyond the string value. Update
-the builder's existing label assignment code; no new fields needed.
-
-Update the regression test that asserts the existing `ContentStreamExec` label
-string.
+Instead, add/standardise enriched labels for other high-volume event types that
+still render as generic strings, and keep label formatting stable and concise.
+Add/adjust regression tests for any updated labels.
 
 ### B2. Contextual severity/confidence badge in the list row
 
@@ -120,10 +171,13 @@ findings.
 
 ### B3. Group ContentStreamExec rows
 
-When three or more consecutive `ContentStreamExec` events are present, group
+When three or more `ContentStreamExec` events are present, group
 them under a collapsible "Content streams (N)" header to reduce noise for
 benign multi-page documents. Keep the group expanded by default when any
 member has a linked finding with severity ≥ Medium.
+
+Determinism rule: event ordering is stable by `(source_object, node_id)` before
+grouping so grouping does not depend on incidental insertion order.
 
 ## Workstream C: Cross-panel navigation
 
@@ -163,22 +217,29 @@ other path.
 
 ### D1. Define the events query output format
 
-The output row type mirrors `EventViewModel` in a serialisable, egui-free
-struct suitable for JSONL output:
-- `node_id`, `event_type`, `label`, `trigger_class`, `source_object`
-  (`obj:gen` string), `execute_targets` (list of `obj:gen` strings),
-  `outcome_targets` (list of `{type}:{confidence}` strings),
-  `linked_finding_ids`, `mitre_techniques`.
+Define a serialisable, GUI-independent `EventRecord` in `sis-pdf-core` and use
+it as the shared projection for GUI and CLI consumers.
 
-Reuse `extract_event_view_models` from `event_view.rs` where possible, or
-extract the core logic into `sis-pdf-core` if crate boundaries require it.
+`EventRecord` includes:
+- `node_id`, `event_type`, `label`, `trigger_class`, `source_object`
+  (`obj:gen` string), `execute_targets` (list of node IDs plus resolved object refs),
+  `outcome_targets` (structured objects with `node_id`, `outcome_type`, `label`,
+  `confidence_score`, `severity_hint`, `evidence`, `source_object`),
+  `linked_finding_ids`, `mitre_techniques`, `event_key`, `initiation`, `branch_index`.
+
+`crates/sis-pdf-gui` maps `EventRecord` to UI-specific view models; `crates/sis-pdf`
+uses `EventRecord` directly for query output. This avoids any GUI dependency leak
+into non-GUI builds.
 
 ### D2. Add `sis query events` subcommand
 
 1. New subcommand `events` in `sis-pdf/src/commands/query.rs`.
-2. Accept `--format json|text` (defaulting to text).
+2. Accept standard query formats: `--format text|json|jsonl` and `--json`
+   shorthand (`--format json`) consistent with existing query behaviour.
 3. Support `--where trigger=automatic|hidden|user` predicate.
 4. Single-file and batch (`--batch`) modes consistent with other query types.
+5. Keep strict format conflict handling and stable top-level keys aligned with
+   existing query interface conventions.
 
 ### D3. Validation
 
@@ -186,59 +247,96 @@ extract the core logic into `sis-pdf-core` if crate boundaries require it.
    the expected node IDs in JSON output.
 2. Test asserting `--where trigger=automatic` filters correctly.
 3. Test asserting batch mode continues after a parse error.
+4. Test asserting JSONL emits one record per event row and remains parseable.
+5. Test asserting structured outcome fields are present (no flattening loss).
 
 ## Workstream E: Performance budget test (G6)
 
-1. Add a unit test `events_build_budget` in `event_view.rs` that calls
-   `build_event_graph_for_result` followed by `extract_event_view_models` on
-   the standard CVE fixture and asserts total elapsed time is under 100ms.
-2. Follow the pattern of `critical_path_budget` in `panels/graph.rs`.
+1. Add extraction-focused budget test (`events_projection_budget`) in the shared
+   projection module (core), measuring projection over a prebuilt EventGraph.
+2. Keep end-to-end parse + EventGraph build + projection performance in runtime
+   profile / fixture performance tests; avoid brittle hard-coded unit-test wall
+   clock limits for full pipeline timing.
+3. Follow existing profiling test patterns and document budget targets with
+   tolerances rather than fixed single-threshold CI timing.
+
+## Workstream F: Navigation and provenance depth
+
+### F1. Finding-to-event reverse index
+
+1. Build and cache a reverse index `finding_id -> Vec<event_node_id>` from the
+   shared event projection.
+2. Use it for Events -> Finding and Finding -> Event round-trip navigation.
+3. Expose this mapping in CLI JSON/JSONL output for offline triage joins.
+
+### F2. Optional full-forensic output mode for CLI
+
+1. Add optional `--full` (or equivalent) for `sis query events` to include full
+   outcome evidence payloads and extended edge metadata.
+2. Keep default output concise for throughput; `--full` preserves maximum signal
+   for investigations.
+
+### F3. CSV-ready schema track
+
+1. Define and document an events CSV schema (columns and field normalisation)
+   without implementing export in this plan.
+2. Ensure `EventRecord` fields align with this schema to avoid later breaking
+   reshapes.
 
 ## Delivery stages
 
-### Stage 1: Outcome detail and list usability (A + B)
+### Stage 1: Shared projection and outcome depth (A + D1 foundation)
 
-1. Implement `OutcomeDetail` and render in detail pane.
-2. Enrich ContentStreamExec label in the EventGraph builder.
-3. Add severity badges to list rows.
-4. Add ContentStreamExec grouping.
+1. Introduce core `EventRecord` projection (GUI-independent).
+2. Implement structured outcome detail extraction.
+3. Wire GUI event view model mapping from `EventRecord`.
 
-### Stage 2: Cross-panel navigation (C)
+### Stage 2: Event list usability and cross-panel navigation (B + C + F1)
 
-1. Graph → Events jump.
-2. Events → Graph button.
-3. Finding Detail back-link.
+1. Add severity badges and deterministic grouping.
+2. Graph → Events jump.
+3. Events → Graph button.
+4. Finding Detail back-link.
+5. Add finding/event reverse index.
 
-### Stage 3: CLI events query (D) and budget test (E)
+### Stage 3: CLI events query and performance validation (D2 + D3 + E + F2 + F3)
 
 1. Implement `sis query events`.
-2. Add performance budget test.
+2. Add JSONL and structured outcome validation tests.
+3. Add projection/runtime performance coverage.
+4. Define CSV-ready schema contract and optional full-forensic mode.
 
 ## Risks and mitigations
 
 1. Risk: changing `outcome_targets` type in `EventViewModel` breaks callers.
-   Mitigation: `EventViewModel` derives `Default`; test constructors use
-   `..EventViewModel::default()`; only one external consumer (events.rs).
-2. Risk: ContentStreamExec label change in core breaks existing snapshot tests.
-   Mitigation: update the one label assertion in the existing regression test
-   in the same commit.
+   Mitigation: introduce `EventRecord` in core and keep GUI-only `EventViewModel`
+   as an adapter layer; update tests at both layers.
+2. Risk: CLI/GUI schemas drift over time.
+   Mitigation: single shared projection type (`EventRecord`) and shared fixture
+   assertions across GUI mapping and CLI output.
 3. Risk: `sis query events` re-parses PDF bytes for every invocation.
    Mitigation: same as the GUI cache pattern — document that batch mode parses
    once per file; consider a shared pipeline entry point if cost is unacceptable.
+4. Risk: full pipeline timing tests are flaky in CI.
+   Mitigation: keep strict wall-clock budget assertions to projection-only scope
+   and use profiled/tolerant checks for end-to-end path.
 
 ## Acceptance criteria
 
 1. Outcome nodes with confidence and evidence are visible in the Events detail
    pane.
-2. ContentStreamExec list rows include the source page and target stream object
-   in the label.
+2. Event list labels are enriched and stable for high-volume event types, with
+   deterministic ordering/grouping.
 3. Severity badges appear on list rows with linked findings.
 4. Double-clicking an Event node in the graph panel focuses the corresponding
    Events dialog row.
 5. "Show in graph" button in Events detail navigates to the selected event node.
 6. Finding Detail opened from Events shows a back-link to the originating event.
 7. `sis query events --format json` outputs one JSON object per event node,
-   matching the field schema defined in D1.
-8. Performance budget test passes: full EventGraph build + extraction < 100ms on
-   the CVE fixture.
-9. `cargo test -p sis-pdf-gui -p sis-pdf-core -p sis-pdf` passes.
+   matching the structured field schema defined in D1 without loss of outcome
+   evidence/severity metadata.
+8. `sis query events --format jsonl` outputs one JSON object per event row.
+9. Projection performance budget and end-to-end performance validations pass per
+   Workstream E.
+10. `cargo test -p sis-pdf-gui -p sis-pdf-core -p sis-pdf -p sis-pdf-detectors`
+    passes.

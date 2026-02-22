@@ -1,0 +1,326 @@
+use crate::event_graph::{EdgeProvenance, EventEdgeKind, EventGraph, EventNodeKind};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventExecuteTarget {
+    pub node_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_ref: Option<(u32, u16)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventOutcomeRecord {
+    pub node_id: String,
+    pub outcome_type: String,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence_score: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub evidence: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_object: Option<(u32, u16)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct EventRecord {
+    pub node_id: String,
+    pub event_type: String,
+    pub label: String,
+    pub trigger_class: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_object: Option<(u32, u16)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub execute_targets: Vec<EventExecuteTarget>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outcome_targets: Vec<EventOutcomeRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub linked_finding_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initiation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_index: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mitre_techniques: Vec<String>,
+}
+
+pub fn extract_event_records(event_graph: &EventGraph) -> Vec<EventRecord> {
+    let mut records = Vec::new();
+    let mut finding_ids_by_node: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for edge in &event_graph.edges {
+        if let EdgeProvenance::Finding { finding_id } = &edge.provenance {
+            finding_ids_by_node.entry(edge.from.clone()).or_default().insert(finding_id.clone());
+            finding_ids_by_node.entry(edge.to.clone()).or_default().insert(finding_id.clone());
+        }
+    }
+
+    for node in &event_graph.nodes {
+        let EventNodeKind::Event { event_type, trigger, label, source_obj } = &node.kind else {
+            continue;
+        };
+
+        let mut execute_targets = BTreeMap::new();
+        let mut outcome_targets = BTreeMap::new();
+        let mut event_key = None;
+        let mut initiation = None;
+        let mut branch_index = None;
+
+        if let Some(forward) = event_graph.forward_index.get(&node.id) {
+            for edge_idx in forward {
+                let Some(edge) = event_graph.edges.get(*edge_idx) else {
+                    continue;
+                };
+                match edge.kind {
+                    EventEdgeKind::Executes => {
+                        let object_ref = event_graph.node_index.get(&edge.to).and_then(|idx| {
+                            event_graph.nodes.get(*idx).and_then(|target_node| {
+                                if let EventNodeKind::Object { obj, gen, .. } = target_node.kind {
+                                    Some((obj, gen))
+                                } else {
+                                    None
+                                }
+                            })
+                        });
+                        execute_targets
+                            .entry(edge.to.clone())
+                            .or_insert(EventExecuteTarget { node_id: edge.to.clone(), object_ref });
+                    }
+                    EventEdgeKind::ProducesOutcome => {
+                        let Some(target_idx) = event_graph.node_index.get(&edge.to) else {
+                            continue;
+                        };
+                        let Some(target_node) = event_graph.nodes.get(*target_idx) else {
+                            continue;
+                        };
+                        if let EventNodeKind::Outcome {
+                            outcome_type,
+                            label,
+                            confidence_score,
+                            severity_hint,
+                            evidence,
+                            source_obj,
+                            ..
+                        } = &target_node.kind
+                        {
+                            outcome_targets.entry(edge.to.clone()).or_insert(EventOutcomeRecord {
+                                node_id: edge.to.clone(),
+                                outcome_type: format!("{outcome_type:?}"),
+                                label: label.clone(),
+                                confidence_score: *confidence_score,
+                                severity_hint: severity_hint.clone(),
+                                evidence: evidence.clone(),
+                                source_object: *source_obj,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+                if let Some(meta) = &edge.metadata {
+                    if event_key.is_none() {
+                        event_key = meta.event_key.clone();
+                    }
+                    if initiation.is_none() {
+                        initiation = meta.initiation.clone();
+                    }
+                    if branch_index.is_none() {
+                        branch_index = meta.branch_index.map(|value| value as u32);
+                    }
+                }
+            }
+        }
+
+        let linked_finding_ids = finding_ids_by_node
+            .get(&node.id)
+            .map(|values| values.iter().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        records.push(EventRecord {
+            node_id: node.id.clone(),
+            event_type: format!("{event_type:?}"),
+            label: label.clone(),
+            trigger_class: trigger.as_str().to_string(),
+            source_object: *source_obj,
+            execute_targets: execute_targets.into_values().collect(),
+            outcome_targets: outcome_targets.into_values().collect(),
+            linked_finding_ids,
+            event_key,
+            initiation,
+            branch_index,
+            mitre_techniques: node.mitre_techniques.clone(),
+        });
+    }
+
+    records.sort_by_key(|record| (record.source_object, record.node_id.clone()));
+    records
+}
+
+pub fn build_finding_event_index(records: &[EventRecord]) -> BTreeMap<String, Vec<String>> {
+    let mut index = BTreeMap::<String, Vec<String>>::new();
+    for record in records {
+        for finding_id in &record.linked_finding_ids {
+            index.entry(finding_id.clone()).or_default().push(record.node_id.clone());
+        }
+    }
+    for node_ids in index.values_mut() {
+        node_ids.sort();
+        node_ids.dedup();
+    }
+    index
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_finding_event_index, extract_event_records};
+    use crate::event_graph::{
+        build_event_graph, EdgeMetadata, EdgeProvenance, EventEdge, EventEdgeKind, EventGraph,
+        EventGraphOptions, EventNode, EventNodeKind, EventType, OutcomeType, TriggerClass,
+    };
+    use crate::model::{AttackSurface, Confidence, Finding, Severity};
+    use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge, TypedGraph};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    fn make_graph(nodes: Vec<EventNode>, edges: Vec<EventEdge>) -> EventGraph {
+        let mut node_index = HashMap::new();
+        for (idx, node) in nodes.iter().enumerate() {
+            node_index.insert(node.id.clone(), idx);
+        }
+        let mut forward_index: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut reverse_index: HashMap<String, Vec<usize>> = HashMap::new();
+        for (idx, edge) in edges.iter().enumerate() {
+            forward_index.entry(edge.from.clone()).or_default().push(idx);
+            reverse_index.entry(edge.to.clone()).or_default().push(idx);
+        }
+        EventGraph {
+            schema_version: "1.0.0",
+            nodes,
+            edges,
+            node_index,
+            forward_index,
+            reverse_index,
+            truncation: None,
+        }
+    }
+
+    #[test]
+    fn extract_event_records_populates_outcomes_and_metadata() {
+        let graph = make_graph(
+            vec![
+                EventNode {
+                    id: "ev:1".to_string(),
+                    mitre_techniques: vec!["T1204".to_string()],
+                    kind: EventNodeKind::Event {
+                        event_type: EventType::DocumentOpen,
+                        trigger: TriggerClass::Automatic,
+                        label: "Open".to_string(),
+                        source_obj: Some((1, 0)),
+                    },
+                },
+                EventNode {
+                    id: "out:1".to_string(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Outcome {
+                        outcome_type: OutcomeType::NetworkEgress,
+                        label: "Network".to_string(),
+                        target: Some("https://x.example".to_string()),
+                        source_obj: Some((2, 0)),
+                        evidence: vec!["egress".to_string()],
+                        confidence_source: Some("rule".to_string()),
+                        confidence_score: Some(95),
+                        severity_hint: Some("high".to_string()),
+                    },
+                },
+            ],
+            vec![EventEdge {
+                from: "ev:1".to_string(),
+                to: "out:1".to_string(),
+                kind: EventEdgeKind::ProducesOutcome,
+                provenance: EdgeProvenance::Finding { finding_id: "finding-1".to_string() },
+                metadata: Some(EdgeMetadata {
+                    event_key: Some("/OpenAction".to_string()),
+                    branch_index: Some(1),
+                    initiation: Some("automatic".to_string()),
+                }),
+            }],
+        );
+
+        let records = extract_event_records(&graph);
+        assert_eq!(records.len(), 1);
+        let record = &records[0];
+        assert_eq!(record.node_id, "ev:1");
+        assert_eq!(record.trigger_class, "automatic");
+        assert_eq!(record.event_key.as_deref(), Some("/OpenAction"));
+        assert_eq!(record.branch_index, Some(1));
+        assert_eq!(record.mitre_techniques, vec!["T1204".to_string()]);
+        assert_eq!(record.outcome_targets.len(), 1);
+        let outcome = &record.outcome_targets[0];
+        assert_eq!(outcome.outcome_type, "NetworkEgress");
+        assert_eq!(outcome.confidence_score, Some(95));
+        assert_eq!(outcome.severity_hint.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn finding_event_index_is_stable_and_deduplicated() {
+        let records = vec![
+            super::EventRecord {
+                node_id: "ev:2".to_string(),
+                linked_finding_ids: vec!["f1".to_string(), "f1".to_string()],
+                ..super::EventRecord::default()
+            },
+            super::EventRecord {
+                node_id: "ev:1".to_string(),
+                linked_finding_ids: vec!["f1".to_string(), "f2".to_string()],
+                ..super::EventRecord::default()
+            },
+        ];
+        let index = build_finding_event_index(&records);
+        assert_eq!(index.get("f1"), Some(&vec!["ev:1".to_string(), "ev:2".to_string()]));
+        assert_eq!(index.get("f2"), Some(&vec!["ev:1".to_string()]));
+    }
+
+    #[test]
+    fn events_projection_budget_on_cve_fixture() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/actions/launch_cve_2010_1240.pdf");
+        let bytes = std::fs::read(&fixture).expect("fixture bytes");
+        let parse_options = sis_pdf_pdf::ParseOptions {
+            recover_xref: true,
+            deep: false,
+            strict: false,
+            max_objstm_bytes: 64 * 1024 * 1024,
+            max_objects: 250_000,
+            max_objstm_total_bytes: 256 * 1024 * 1024,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
+        };
+        let graph = sis_pdf_pdf::parse_pdf(&bytes, parse_options).expect("parse");
+        let classifications = graph.classify_objects();
+        let typed_graph = TypedGraph::build(&graph, &classifications);
+        let findings = vec![Finding {
+            id: "budget-finding".to_string(),
+            surface: AttackSurface::Actions,
+            kind: "action_open".to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Strong,
+            action_type: Some("OpenAction".to_string()),
+            action_target: Some("obj 6 0".to_string()),
+            ..Finding::default()
+        }];
+        let event_graph = build_event_graph(&typed_graph, &findings, EventGraphOptions::default());
+
+        let start = Instant::now();
+        let records = extract_event_records(&event_graph);
+        let elapsed = start.elapsed();
+
+        assert!(!records.is_empty(), "projection should return records");
+        assert!(elapsed <= Duration::from_millis(500), "projection budget exceeded: {:?}", elapsed);
+
+        let _ = TypedEdge::new((1, 0), (2, 0), EdgeType::OpenAction);
+    }
+}

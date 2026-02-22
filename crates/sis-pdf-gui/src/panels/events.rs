@@ -3,7 +3,8 @@ use crate::event_view::{
     collect_unmapped_finding_event_signals, extract_event_view_models, EventViewModel,
     UnmappedFindingEventSignal,
 };
-use sis_pdf_core::model::Finding;
+use sis_pdf_core::model::{Finding, Severity};
+use std::collections::HashMap;
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
     let mut open = app.show_events;
@@ -42,14 +43,12 @@ fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         return;
     }
 
-    if app
+    if !app
         .selected_event
         .as_ref()
         .map(|node_id| events.iter().any(|event| &event.node_id == node_id))
         .unwrap_or(false)
     {
-        // current selection still valid
-    } else {
         app.selected_event = Some(events[0].node_id.clone());
     }
 
@@ -58,13 +57,15 @@ fn show(ui: &mut egui::Ui, app: &mut SisApp) {
 
     let available = ui.available_size();
     let list_width = (available.x * 0.38).max(280.0).min(380.0);
+    let finding_severity_by_id: HashMap<&str, Severity> =
+        findings.iter().map(|finding| (finding.id.as_str(), finding.severity)).collect();
 
     ui.horizontal(|ui| {
         ui.set_min_height(available.y);
 
         ui.vertical(|ui| {
             ui.set_width(list_width);
-            show_event_list(ui, app, &events);
+            show_event_list(ui, app, &events, &finding_severity_by_id);
             if !unmapped.is_empty() {
                 ui.separator();
                 show_unmapped_signals(ui, app, &unmapped);
@@ -79,23 +80,65 @@ fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     });
 }
 
-fn show_event_list(ui: &mut egui::Ui, app: &mut SisApp, events: &[EventViewModel]) {
+fn show_event_list(
+    ui: &mut egui::Ui,
+    app: &mut SisApp,
+    events: &[EventViewModel],
+    finding_severity_by_id: &HashMap<&str, Severity>,
+) {
+    let content_events =
+        events.iter().filter(|event| event.event_type == "ContentStreamExec").collect::<Vec<_>>();
+    let group_content = content_events.len() >= 3;
+
     egui::ScrollArea::vertical().id_salt("events_list").show(ui, |ui| {
         for event in events {
-            let selected = app.selected_event.as_deref() == Some(event.node_id.as_str());
-            let source = event
-                .source_object
-                .map(|(obj, generation)| format!("{obj} {generation}"))
-                .unwrap_or_else(|| "-".to_string());
-            // Use the label when it is informative; fall back to event_type + source.
-            let display_label = if event.label.is_empty() {
-                format!("{} [{}] ({})", event.event_type, event.trigger_class, source)
-            } else {
-                format!("{} [{}]", event.label, event.trigger_class)
-            };
-            if ui.selectable_label(selected, display_label).clicked() {
-                app.selected_event = Some(event.node_id.clone());
+            if group_content && event.event_type == "ContentStreamExec" {
+                continue;
             }
+            render_event_row(ui, app, event, finding_severity_by_id);
+        }
+        if group_content {
+            let expanded = content_events.iter().any(|event| {
+                worst_event_severity(event, finding_severity_by_id)
+                    .is_some_and(|severity| severity >= Severity::Medium)
+            });
+            egui::CollapsingHeader::new(format!("Content streams ({})", content_events.len()))
+                .default_open(expanded)
+                .show(ui, |ui| {
+                    for event in content_events {
+                        render_event_row(ui, app, event, finding_severity_by_id);
+                    }
+                });
+        }
+    });
+}
+
+fn render_event_row(
+    ui: &mut egui::Ui,
+    app: &mut SisApp,
+    event: &EventViewModel,
+    finding_severity_by_id: &HashMap<&str, Severity>,
+) {
+    let selected = app.selected_event.as_deref() == Some(event.node_id.as_str());
+    let source = event
+        .source_object
+        .map(|(obj, generation)| format!("{obj} {generation}"))
+        .unwrap_or_else(|| "-".to_string());
+    let display_label = if event.label.is_empty() {
+        format!("{} [{}] ({})", event.event_type, event.trigger_class, source)
+    } else {
+        format!("{} [{}]", event.label, event.trigger_class)
+    };
+
+    ui.horizontal(|ui| {
+        if let Some(severity) = worst_event_severity(event, finding_severity_by_id) {
+            ui.label(egui::RichText::new("●").color(severity_colour(severity)))
+                .on_hover_text(format!("{severity:?}"));
+        } else {
+            ui.label(egui::RichText::new("•").weak());
+        }
+        if ui.selectable_label(selected, display_label).clicked() {
+            app.selected_event = Some(event.node_id.clone());
         }
     });
 }
@@ -116,8 +159,19 @@ fn show_event_details(
     };
 
     egui::ScrollArea::vertical().id_salt("events_detail").show(ui, |ui| {
-        // Heading: type and label.
-        ui.heading(&selected.event_type);
+        ui.horizontal(|ui| {
+            ui.heading(&selected.event_type);
+            if ui.button("Show in graph").clicked() {
+                if let Some(graph) = app.graph_state.graph.as_ref() {
+                    if let Some(idx) = graph.nodes.iter().position(|node| {
+                        node.event_node_id.as_deref() == Some(selected.node_id.as_str())
+                    }) {
+                        app.graph_state.selected_node = Some(idx);
+                    }
+                }
+                app.show_graph = true;
+            }
+        });
         if !selected.label.is_empty() && selected.label != selected.event_type {
             ui.label(
                 egui::RichText::new(&selected.label)
@@ -125,8 +179,6 @@ fn show_event_details(
                     .italics(),
             );
         }
-
-        // Per-type description.
         let description = event_type_description(&selected.event_type);
         if !description.is_empty() {
             ui.add_space(4.0);
@@ -135,8 +187,6 @@ fn show_event_details(
         }
 
         ui.separator();
-
-        // Core identity fields.
         ui.label(
             egui::RichText::new(format!("Node ID: {}", selected.node_id))
                 .color(ui.visuals().weak_text_color()),
@@ -153,13 +203,15 @@ fn show_event_details(
         }
 
         ui.add_space(6.0);
-
-        // Source object — clickable link to Object Inspector.
         ui.horizontal(|ui| {
             ui.strong("Source object:");
             match selected.source_object {
                 Some((obj, gen)) => {
-                    if ui.link(format!("{obj} {gen}")).on_hover_text("Open in Object Inspector").clicked() {
+                    if ui
+                        .link(format!("{obj} {gen}"))
+                        .on_hover_text("Open in Object Inspector")
+                        .clicked()
+                    {
                         app.navigate_to_object(obj, gen);
                         app.show_objects = true;
                     }
@@ -167,54 +219,76 @@ fn show_event_details(
                 None => {
                     ui.weak("-");
                 }
-            }
+            };
         });
 
-        // Execute targets — each resolved object ref is a clickable link.
         ui.horizontal_wrapped(|ui| {
             ui.strong("Executes:");
             if selected.execute_targets.is_empty() {
                 ui.weak("-");
             } else {
-                for (node_id, obj_ref) in selected
-                    .execute_targets
-                    .iter()
-                    .zip(selected.execute_target_objects.iter())
-                {
-                    match obj_ref {
+                for target in &selected.execute_targets {
+                    match target.object_ref {
                         Some((obj, gen)) => {
                             if ui
                                 .link(format!("{obj} {gen}"))
-                                .on_hover_text(format!("Object Inspector: {node_id}"))
+                                .on_hover_text(format!("Object Inspector: {}", target.node_id))
                                 .clicked()
                             {
-                                app.navigate_to_object(*obj, *gen);
+                                app.navigate_to_object(obj, gen);
                                 app.show_objects = true;
                             }
                         }
                         None => {
-                            ui.weak(node_id);
+                            ui.weak(&target.node_id);
                         }
-                    }
-                }
-            }
-        });
-
-        // Outcome nodes (node IDs only for now; not navigable objects).
-        ui.horizontal_wrapped(|ui| {
-            ui.strong("Outcomes:");
-            if selected.outcome_targets.is_empty() {
-                ui.weak("-");
-            } else {
-                for t in &selected.outcome_targets {
-                    ui.weak(t);
+                    };
                 }
             }
         });
 
         ui.add_space(6.0);
+        ui.strong("Outcomes");
+        if selected.outcome_targets.is_empty() {
+            ui.weak("-");
+        } else {
+            for outcome in &selected.outcome_targets {
+                ui.group(|ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(format!("{} — {}", outcome.outcome_type, outcome.label));
+                        if let Some(score) = outcome.confidence_score {
+                            ui.label(
+                                egui::RichText::new(format!("{score}%"))
+                                    .background_color(ui.visuals().faint_bg_color),
+                            );
+                        }
+                        if let Some(severity_hint) = outcome.severity_hint.as_deref() {
+                            ui.label(
+                                egui::RichText::new(severity_hint)
+                                    .color(severity_hint_colour(severity_hint)),
+                            );
+                        }
+                    });
+                    if let Some((obj, gen)) = outcome.source_obj {
+                        ui.horizontal(|ui| {
+                            ui.label("Source:");
+                            if ui.link(format!("{obj} {gen}")).clicked() {
+                                app.navigate_to_object(obj, gen);
+                                app.show_objects = true;
+                            }
+                        });
+                    }
+                    if !outcome.evidence.is_empty() {
+                        ui.label("Evidence:");
+                        for evidence in &outcome.evidence {
+                            ui.label(format!("- {evidence}"));
+                        }
+                    }
+                });
+            }
+        }
 
-        // Linked findings — clickable links to the Finding Detail panel.
+        ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             ui.strong("Linked findings:");
             if selected.linked_finding_ids.is_empty() {
@@ -229,16 +303,15 @@ fn show_event_details(
                             .clicked()
                         {
                             app.selected_finding = Some(idx);
+                            app.finding_origin_event = Some(selected.node_id.clone());
                         }
                     } else {
-                        // Finding not in current report (should be rare).
                         ui.weak(finding_id.get(..12).unwrap_or(finding_id));
                     }
                 }
             }
         });
 
-        // MITRE techniques.
         if !selected.mitre_techniques.is_empty() {
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
@@ -270,9 +343,41 @@ fn show_unmapped_signals(
                 .clicked()
             {
                 app.selected_finding = Some(row.finding_idx);
+                app.finding_origin_event = None;
             }
         }
     });
+}
+
+fn worst_event_severity(
+    event: &EventViewModel,
+    finding_severity_by_id: &HashMap<&str, Severity>,
+) -> Option<Severity> {
+    event
+        .linked_finding_ids
+        .iter()
+        .filter_map(|finding_id| finding_severity_by_id.get(finding_id.as_str()).copied())
+        .max_by_key(|severity| *severity as u8)
+}
+
+fn severity_colour(severity: Severity) -> egui::Color32 {
+    match severity {
+        Severity::Critical => egui::Color32::from_rgb(176, 0, 32),
+        Severity::High => egui::Color32::from_rgb(210, 53, 23),
+        Severity::Medium => egui::Color32::from_rgb(216, 142, 0),
+        Severity::Low => egui::Color32::from_rgb(17, 120, 75),
+        Severity::Info => egui::Color32::from_rgb(74, 101, 130),
+    }
+}
+
+fn severity_hint_colour(severity_hint: &str) -> egui::Color32 {
+    match severity_hint.to_ascii_lowercase().as_str() {
+        "critical" => severity_colour(Severity::Critical),
+        "high" => severity_colour(Severity::High),
+        "medium" => severity_colour(Severity::Medium),
+        "low" => severity_colour(Severity::Low),
+        _ => severity_colour(Severity::Info),
+    }
 }
 
 /// Returns a brief static description for the given event type (Debug-format string).

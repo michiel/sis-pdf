@@ -104,6 +104,9 @@ fn handle_single_letter_shortcuts(ctx: &egui::Context, app: &mut SisApp) -> bool
         app.show_graph = !app.show_graph;
         return true;
     }
+    if ctx.input(|i| i.key_pressed(egui::Key::E)) && open_selected_graph_event(app) {
+        return true;
+    }
     if ctx.input(|i| i.key_pressed(egui::Key::O)) {
         app.show_objects = !app.show_objects;
         return true;
@@ -181,6 +184,7 @@ pub fn handle_escape(app: &mut SisApp) -> bool {
     // Clear finding selection
     if app.selected_finding.is_some() {
         app.selected_finding = None;
+        app.finding_origin_event = None;
         return true;
     }
     false
@@ -200,6 +204,7 @@ pub fn advance_finding_selection(app: &mut SisApp, delta: i32) {
     let current = app.selected_finding.unwrap_or(0) as i32;
     let next = (current + delta).clamp(0, count as i32 - 1) as usize;
     app.selected_finding = Some(next);
+    app.finding_origin_event = None;
 }
 
 /// Copy the currently selected finding as JSON to the clipboard.
@@ -218,6 +223,29 @@ pub fn copy_finding_json(app: &SisApp, ctx: &egui::Context) {
     if let Ok(json) = serde_json::to_string_pretty(finding) {
         ctx.copy_text(json);
     }
+}
+
+fn open_selected_graph_event(app: &mut SisApp) -> bool {
+    if !app.show_graph {
+        return false;
+    }
+    let Some(graph) = app.graph_state.graph.as_ref() else {
+        return false;
+    };
+    let Some(selected_idx) = app.graph_state.selected_node else {
+        return false;
+    };
+    let Some(node) = graph.nodes.get(selected_idx) else {
+        return false;
+    };
+    let Some(event_node_id) =
+        node.event_node_id.as_ref().filter(|node_id| node_id.starts_with("ev:")).cloned()
+    else {
+        return false;
+    };
+    app.selected_event = Some(event_node_id);
+    app.show_events = true;
+    true
 }
 
 #[cfg(test)]

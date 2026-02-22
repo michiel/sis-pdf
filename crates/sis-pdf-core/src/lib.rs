@@ -21,6 +21,7 @@ pub mod detect;
 pub mod diff;
 pub mod embedded_index;
 pub mod event_graph;
+pub mod event_projection;
 pub mod evidence;
 pub mod explainability;
 pub mod features;
