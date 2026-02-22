@@ -75,6 +75,59 @@ sis query sample.pdf "object.context 9 0" --format json
 `obj.detail` JSON responses include `object_detail_schema_version` so query
 tooling can guard against future additive schema changes.
 
+## Event queries
+
+Use event queries when you need trigger-to-outcome execution context:
+
+```bash
+sis query sample.pdf events
+sis query sample.pdf events.full --format json
+sis query sample.pdf events.count
+sis query sample.pdf events.page
+```
+
+`events.full` includes additive `stream_exec` payloads for `ContentStreamExec`
+records. The stream payload exposes bounded operator summaries:
+
+- `total_ops`
+- `op_family_counts`
+- `resource_refs` (`Do`, `Tf`, `gs`, `sh` with resolved object refs when available)
+- `graphics_state_max_depth`
+- `graphics_state_underflow`
+- `unknown_op_count`
+- `truncated`
+
+`stream_exec` is omitted for non-content-stream events.
+
+## Stream overlay graph queries
+
+Use `graph.event.stream*` when you want a stream-centric overlay on top of the
+event graph:
+
+```bash
+sis query sample.pdf graph.event.stream
+sis query sample.pdf graph.event.stream.dot
+sis query sample.pdf graph.event.stream.json
+sis query sample.pdf "graph.event.stream.hops 2" --format json
+```
+
+Overlay node prefixes:
+
+- `stream.ops.*`: operator-family clusters
+- `stream.res.*`: resource reference nodes
+- `stream.anom.*`: anomaly nodes
+- `stream.mc.*`: marked-content/cluster nodes
+
+Overlay edge types:
+
+- `exec_observed`
+- `invokes_resource`
+- `signals_anomaly`
+- `enters_marked_content`
+
+The JSON export keeps the underlying `event_graph` payload and adds an
+`overlay` object with `nodes`, `edges`, `stats`, and `truncation`.
+
 ## Xref and revision queries
 
 Use the xref namespace when you need to trace structural findings (`xref_conflict`, trailer anomalies, startxref out-of-bounds) back to concrete parser state:

@@ -297,6 +297,10 @@ pub enum Query {
     ExportEventJson,
     ExportEventDotHops(usize),
     ExportEventJsonHops(usize),
+    ExportEventStreamDot,
+    ExportEventStreamJson,
+    ExportEventStreamDotHops(usize),
+    ExportEventStreamJsonHops(usize),
     ExportIrText,
     ExportIrJson,
     ExportFeatures,
@@ -665,6 +669,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "graph.event" => Ok(Query::ExportEventDot),
         "graph.event.dot" => Ok(Query::ExportEventDot),
         "graph.event.json" => Ok(Query::ExportEventJson),
+        "graph.event.stream" => Ok(Query::ExportEventStreamDot),
+        "graph.event.stream.dot" => Ok(Query::ExportEventStreamDot),
+        "graph.event.stream.json" => Ok(Query::ExportEventStreamJson),
         "graph.action" => Ok(Query::ExportEventDot),
         "graph.action.dot" => Ok(Query::ExportEventDot),
         "graph.action.json" => Ok(Query::ExportEventJson),
@@ -692,6 +699,13 @@ pub fn parse_query(input: &str) -> Result<Query> {
                     .parse::<usize>()
                     .map_err(|_| anyhow!("Invalid hop count: {}", rest.trim()))?;
                 return Ok(Query::ExportEventDotHops(hops));
+            }
+            if let Some(rest) = input.strip_prefix("graph.event.stream.hops ") {
+                let hops = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid hop count: {}", rest.trim()))?;
+                return Ok(Query::ExportEventStreamDotHops(hops));
             }
             if let Some(rest) = input.strip_prefix("graph.action.hops ") {
                 let hops = rest
@@ -1375,6 +1389,8 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportStructureOverlayTelemetryDot => Query::ExportStructureOverlayTelemetryJson,
             Query::ExportEventDot => Query::ExportEventJson,
             Query::ExportEventDotHops(hops) => Query::ExportEventJsonHops(hops),
+            Query::ExportEventStreamDot => Query::ExportEventStreamJson,
+            Query::ExportEventStreamDotHops(hops) => Query::ExportEventStreamJsonHops(hops),
             Query::ExportIrText => Query::ExportIrJson,
             Query::ExportFeatures => Query::ExportFeaturesJson,
             other => other,
@@ -1394,9 +1410,12 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportEventJsonHops(hops) | Query::ExportEventDotHops(hops) => {
                 Query::ExportEventDotHops(hops)
             }
+            Query::ExportEventStreamJson | Query::ExportEventStreamDot => Query::ExportEventStreamDot,
+            Query::ExportEventStreamJsonHops(hops)
+            | Query::ExportEventStreamDotHops(hops) => Query::ExportEventStreamDotHops(hops),
             _ => {
                 return Err(anyhow!(
-                    "--format dot is only supported for graph.org, graph.structure, and graph.event queries"
+                    "--format dot is only supported for graph.org, graph.structure, graph.event, and graph.event.stream queries"
                 ))
             }
         },
@@ -1412,6 +1431,8 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportStructureOverlayTelemetryJson => Query::ExportStructureOverlayTelemetryDot,
             Query::ExportEventJson => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) => Query::ExportEventDotHops(hops),
+            Query::ExportEventStreamJson => Query::ExportEventStreamDot,
+            Query::ExportEventStreamJsonHops(hops) => Query::ExportEventStreamDotHops(hops),
             Query::ExportIrJson => Query::ExportIrText,
             Query::ExportFeaturesJson => Query::ExportFeatures,
             other => other,
@@ -2653,6 +2674,64 @@ pub fn execute_query_with_context(
                 let event_graph = induced_event_subgraph(event_graph, &seed_nodes, *hops);
                 let json_output = sis_pdf_core::event_graph::export_event_graph_json(&event_graph);
                 Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportEventStreamDot => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let mut event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                if let Some(pred) = predicate {
+                    event_graph = filter_event_graph_by_predicate(event_graph, pred);
+                }
+                let stream_overlay = build_event_stream_overlay_json(ctx, &event_graph);
+                let dot_output = export_event_stream_overlay_dot(&stream_overlay);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportEventStreamJson => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let mut event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                if let Some(pred) = predicate {
+                    event_graph = filter_event_graph_by_predicate(event_graph, pred);
+                }
+                let stream_overlay = build_event_stream_overlay_json(ctx, &event_graph);
+                Ok(QueryResult::Structure(stream_overlay))
+            }
+            Query::ExportEventStreamDotHops(hops) => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                let seed_nodes =
+                    event_graph_seed_nodes(&event_graph, predicate).unwrap_or_else(HashSet::new);
+                let event_graph = induced_event_subgraph(event_graph, &seed_nodes, *hops);
+                let stream_overlay = build_event_stream_overlay_json(ctx, &event_graph);
+                let dot_output = export_event_stream_overlay_dot(&stream_overlay);
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportEventStreamJsonHops(hops) => {
+                let typed_graph = ctx.build_typed_graph();
+                let findings = findings_with_cache(ctx)?;
+                let event_graph = sis_pdf_core::event_graph::build_event_graph(
+                    &typed_graph,
+                    &findings,
+                    sis_pdf_core::event_graph::EventGraphOptions::default(),
+                );
+                let seed_nodes =
+                    event_graph_seed_nodes(&event_graph, predicate).unwrap_or_else(HashSet::new);
+                let event_graph = induced_event_subgraph(event_graph, &seed_nodes, *hops);
+                let stream_overlay = build_event_stream_overlay_json(ctx, &event_graph);
+                Ok(QueryResult::Structure(stream_overlay))
             }
             Query::ExportIrText => {
                 let ir_opts = sis_pdf_pdf::ir::IrOptions {
@@ -4633,6 +4712,10 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::ExportEventJson
         | Query::ExportEventDotHops(_)
         | Query::ExportEventJsonHops(_)
+        | Query::ExportEventStreamDot
+        | Query::ExportEventStreamJson
+        | Query::ExportEventStreamDotHops(_)
+        | Query::ExportEventStreamJsonHops(_)
         | Query::Findings
         | Query::FindingsCount
         | Query::FindingsBySeverity(_)
@@ -4661,7 +4744,7 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::RevisionsDetail
         | Query::RevisionsCount => Ok(()),
         _ => Err(anyhow!(
-            "Predicate filtering is only supported for js, embedded, urls, images, events, graph.event, findings, correlations, objects, xref, and revisions queries"
+            "Predicate filtering is only supported for js, embedded, urls, images, events, graph.event, graph.event.stream, findings, correlations, objects, xref, and revisions queries"
         )),
     }
 }
@@ -4844,6 +4927,401 @@ fn event_level_for_type(event_type: &str) -> &'static str {
         | "AnnotationActivation" => "field",
         _ => "document",
     }
+}
+
+fn build_event_stream_overlay_json(
+    ctx: &ScanContext,
+    event_graph: &sis_pdf_core::event_graph::EventGraph,
+) -> serde_json::Value {
+    use sis_pdf_core::event_projection::{
+        build_stream_exec_summaries, extract_event_records_with_projection, ProjectionOptions,
+    };
+
+    let stream_summaries = build_stream_exec_summaries(ctx.bytes, &ctx.graph, event_graph);
+    let records = extract_event_records_with_projection(
+        event_graph,
+        &ProjectionOptions { include_stream_exec_summary: true },
+        Some(&stream_summaries),
+    );
+
+    let mut overlay_nodes = Vec::<serde_json::Value>::new();
+    let mut overlay_edges = Vec::<serde_json::Value>::new();
+    let mut node_ids = HashSet::<String>::new();
+    let mut edge_ids = HashSet::<(String, String, String)>::new();
+    let mut stream_event_count = 0usize;
+    let mut truncated_event_ids = Vec::<String>::new();
+
+    for record in records {
+        if record.event_type != "ContentStreamExec" {
+            continue;
+        }
+        let Some(stream_exec) = record.stream_exec else {
+            continue;
+        };
+        stream_event_count += 1;
+        if stream_exec.truncated {
+            truncated_event_ids.push(record.node_id.clone());
+        }
+
+        for (family, count) in &stream_exec.op_family_counts {
+            let node_id = format!(
+                "stream.ops.{}.{}",
+                overlay_id_component(&record.node_id),
+                overlay_id_component(family)
+            );
+            push_overlay_json_node(
+                &mut overlay_nodes,
+                &mut node_ids,
+                json!({
+                    "id": node_id.clone(),
+                    "kind": "op_cluster",
+                    "attrs": {
+                        "family": family,
+                        "count": count,
+                    }
+                }),
+            );
+            push_overlay_json_edge(
+                &mut overlay_edges,
+                &mut edge_ids,
+                json!({
+                    "from": record.node_id.clone(),
+                    "to": node_id,
+                    "edge_type": "exec_observed",
+                    "suspicious": false,
+                    "attrs": {"count": count},
+                }),
+            );
+        }
+
+        for resource in &stream_exec.resource_refs {
+            let node_id = format!(
+                "stream.res.{}.{}",
+                overlay_id_component(&record.node_id),
+                overlay_name_hash(&format!("{}:{}", resource.op, resource.name))
+            );
+            push_overlay_json_node(
+                &mut overlay_nodes,
+                &mut node_ids,
+                json!({
+                    "id": node_id.clone(),
+                    "kind": "resource_ref",
+                    "attrs": {
+                        "op": resource.op,
+                        "name": resource.name,
+                        "object_ref": resource.object_ref.map(|(obj, gen)| format!("{obj}:{gen}")),
+                    }
+                }),
+            );
+            push_overlay_json_edge(
+                &mut overlay_edges,
+                &mut edge_ids,
+                json!({
+                    "from": record.node_id.clone(),
+                    "to": node_id,
+                    "edge_type": "invokes_resource",
+                    "suspicious": false,
+                    "attrs": {
+                        "op": resource.op,
+                        "object_ref": resource.object_ref.map(|(obj, gen)| format!("{obj}:{gen}")),
+                    },
+                }),
+            );
+        }
+
+        if let Some(marked_count) = stream_exec.op_family_counts.get("MarkedContent") {
+            let mc_id = format!("stream.mc.{}.mc", overlay_id_component(&record.node_id));
+            push_overlay_json_node(
+                &mut overlay_nodes,
+                &mut node_ids,
+                json!({
+                    "id": mc_id.clone(),
+                    "kind": "marked_content",
+                    "attrs": {
+                        "tag": "any",
+                        "count": marked_count,
+                    }
+                }),
+            );
+            push_overlay_json_edge(
+                &mut overlay_edges,
+                &mut edge_ids,
+                json!({
+                    "from": record.node_id.clone(),
+                    "to": mc_id,
+                    "edge_type": "enters_marked_content",
+                    "suspicious": false,
+                    "attrs": {"count": marked_count},
+                }),
+            );
+        }
+
+        if stream_exec.unknown_op_count > 0 {
+            let anom_id =
+                format!("stream.anom.{}.unknown_ops", overlay_id_component(&record.node_id));
+            push_overlay_json_node(
+                &mut overlay_nodes,
+                &mut node_ids,
+                json!({
+                    "id": anom_id.clone(),
+                    "kind": "anomaly",
+                    "attrs": {
+                        "anomaly": "unknown_ops",
+                        "count": stream_exec.unknown_op_count,
+                    }
+                }),
+            );
+            push_overlay_json_edge(
+                &mut overlay_edges,
+                &mut edge_ids,
+                json!({
+                    "from": record.node_id.clone(),
+                    "to": anom_id,
+                    "edge_type": "signals_anomaly",
+                    "suspicious": true,
+                    "attrs": {
+                        "severity": "medium",
+                        "reason": "unknown_ops",
+                    },
+                }),
+            );
+        }
+        if stream_exec.graphics_state_underflow {
+            let anom_id =
+                format!("stream.anom.{}.gstate_underflow", overlay_id_component(&record.node_id));
+            push_overlay_json_node(
+                &mut overlay_nodes,
+                &mut node_ids,
+                json!({
+                    "id": anom_id.clone(),
+                    "kind": "anomaly",
+                    "attrs": {
+                        "anomaly": "graphics_state_underflow",
+                    }
+                }),
+            );
+            push_overlay_json_edge(
+                &mut overlay_edges,
+                &mut edge_ids,
+                json!({
+                    "from": record.node_id.clone(),
+                    "to": anom_id,
+                    "edge_type": "signals_anomaly",
+                    "suspicious": true,
+                    "attrs": {
+                        "severity": "high",
+                        "reason": "graphics_state_underflow",
+                    },
+                }),
+            );
+        }
+        if stream_exec.truncated {
+            let anom_id = format!(
+                "stream.anom.{}.projection_truncated",
+                overlay_id_component(&record.node_id)
+            );
+            push_overlay_json_node(
+                &mut overlay_nodes,
+                &mut node_ids,
+                json!({
+                    "id": anom_id.clone(),
+                    "kind": "anomaly",
+                    "attrs": {
+                        "anomaly": "projection_truncated",
+                    }
+                }),
+            );
+            push_overlay_json_edge(
+                &mut overlay_edges,
+                &mut edge_ids,
+                json!({
+                    "from": record.node_id.clone(),
+                    "to": anom_id,
+                    "edge_type": "signals_anomaly",
+                    "suspicious": true,
+                    "attrs": {
+                        "severity": "low",
+                        "reason": "projection_truncated",
+                    },
+                }),
+            );
+        }
+    }
+
+    let event_graph_json = sis_pdf_core::event_graph::export_event_graph_json(event_graph);
+    json!({
+        "type": "event_stream_overlay_graph",
+        "schema_version": event_graph.schema_version,
+        "event_graph": event_graph_json,
+        "overlay": {
+            "nodes": overlay_nodes,
+            "edges": overlay_edges,
+            "stats": {
+                "stream_event_count": stream_event_count,
+                "overlay_node_count": node_ids.len(),
+                "overlay_edge_count": edge_ids.len(),
+                "truncated_stream_event_count": truncated_event_ids.len(),
+                "truncated_stream_event_ids": truncated_event_ids,
+            },
+            "truncation": event_graph.truncation,
+        }
+    })
+}
+
+fn export_event_stream_overlay_dot(stream_overlay: &serde_json::Value) -> String {
+    let mut out = String::new();
+    out.push_str("digraph event_stream_overlay {\n");
+    out.push_str("  rankdir=LR;\n");
+    out.push_str("  node [shape=box, style=rounded, fontsize=10];\n");
+
+    if let Some(nodes) = stream_overlay["event_graph"]["nodes"].as_array() {
+        out.push_str("  subgraph cluster_event_graph {\n");
+        out.push_str("    label=\"Event Graph\";\n");
+        out.push_str("    color=\"#bfc7d5\";\n");
+        for node in nodes {
+            let Some(node_id) = node.get("id").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let label = node.get("label").and_then(|value| value.as_str()).unwrap_or(node_id);
+            out.push_str(&format!(
+                "    \"{}\" [label=\"{}\"];\n",
+                escape_dot(node_id),
+                escape_dot(label)
+            ));
+        }
+        if let Some(edges) = stream_overlay["event_graph"]["edges"].as_array() {
+            for edge in edges {
+                let Some(from) = edge.get("from").and_then(|value| value.as_str()) else {
+                    continue;
+                };
+                let Some(to) = edge.get("to").and_then(|value| value.as_str()) else {
+                    continue;
+                };
+                let edge_kind = edge.get("kind").and_then(|value| value.as_str()).unwrap_or("edge");
+                out.push_str(&format!(
+                    "    \"{}\" -> \"{}\" [label=\"{}\", color=\"#7f8fa6\"];\n",
+                    escape_dot(from),
+                    escape_dot(to),
+                    escape_dot(edge_kind)
+                ));
+            }
+        }
+        out.push_str("  }\n");
+    }
+
+    out.push_str("  subgraph cluster_event_stream_overlay {\n");
+    out.push_str("    label=\"Event Stream Overlay\";\n");
+    out.push_str("    color=\"#6f8fa6\";\n");
+    if let Some(nodes) = stream_overlay["overlay"]["nodes"].as_array() {
+        for node in nodes {
+            let Some(node_id) = node.get("id").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let kind = node.get("kind").and_then(|value| value.as_str()).unwrap_or("overlay");
+            let label = match kind {
+                "op_cluster" => {
+                    let family = node["attrs"]["family"].as_str().unwrap_or("ops");
+                    let count = node["attrs"]["count"].as_u64().unwrap_or(0);
+                    format!("{family}\\ncount={count}")
+                }
+                "resource_ref" => {
+                    let op = node["attrs"]["op"].as_str().unwrap_or("res");
+                    let name = node["attrs"]["name"].as_str().unwrap_or("");
+                    format!("{op} {name}")
+                }
+                "anomaly" => {
+                    let anomaly = node["attrs"]["anomaly"].as_str().unwrap_or("anomaly");
+                    format!("anomaly\\n{anomaly}")
+                }
+                "marked_content" => {
+                    let count = node["attrs"]["count"].as_u64().unwrap_or(0);
+                    format!("marked_content\\ncount={count}")
+                }
+                _ => kind.to_string(),
+            };
+            let colour = if kind == "anomaly" { "#d35400" } else { "#1f4e79" };
+            out.push_str(&format!(
+                "    \"{}\" [label=\"{}\", color=\"{}\"];\n",
+                escape_dot(node_id),
+                escape_dot(&label),
+                colour
+            ));
+        }
+    }
+    if let Some(edges) = stream_overlay["overlay"]["edges"].as_array() {
+        for edge in edges {
+            let Some(from) = edge.get("from").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let Some(to) = edge.get("to").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            let edge_type =
+                edge.get("edge_type").and_then(|value| value.as_str()).unwrap_or("overlay");
+            let suspicious =
+                edge.get("suspicious").and_then(|value| value.as_bool()).unwrap_or(false);
+            let colour = if suspicious { "#c0392b" } else { "#2c3e50" };
+            out.push_str(&format!(
+                "    \"{}\" -> \"{}\" [label=\"{}\", color=\"{}\"];\n",
+                escape_dot(from),
+                escape_dot(to),
+                escape_dot(edge_type),
+                colour
+            ));
+        }
+    }
+    out.push_str("  }\n");
+    out.push_str("}\n");
+    out
+}
+
+fn push_overlay_json_node(
+    nodes: &mut Vec<serde_json::Value>,
+    node_ids: &mut HashSet<String>,
+    node: serde_json::Value,
+) {
+    let Some(node_id) = node.get("id").and_then(|value| value.as_str()) else {
+        return;
+    };
+    if node_ids.insert(node_id.to_string()) {
+        nodes.push(node);
+    }
+}
+
+fn push_overlay_json_edge(
+    edges: &mut Vec<serde_json::Value>,
+    edge_ids: &mut HashSet<(String, String, String)>,
+    edge: serde_json::Value,
+) {
+    let Some(from) = edge.get("from").and_then(|value| value.as_str()) else {
+        return;
+    };
+    let Some(to) = edge.get("to").and_then(|value| value.as_str()) else {
+        return;
+    };
+    let Some(edge_type) = edge.get("edge_type").and_then(|value| value.as_str()) else {
+        return;
+    };
+    if edge_ids.insert((from.to_string(), to.to_string(), edge_type.to_string())) {
+        edges.push(edge);
+    }
+}
+
+fn overlay_id_component(value: &str) -> String {
+    value.chars().map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' }).collect::<String>()
+}
+
+fn overlay_name_hash(value: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in value.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn escape_dot(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 // Helper functions
@@ -8973,6 +9451,8 @@ mod tests {
 
         let query = apply_output_format(Query::ExportEventDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportEventJson));
+        let query = apply_output_format(Query::ExportEventStreamDot, OutputFormat::Json).unwrap();
+        assert!(matches!(query, Query::ExportEventStreamJson));
 
         let query = apply_output_format(Query::ExportIrText, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportIrJson));
@@ -8995,6 +9475,8 @@ mod tests {
 
         let query = apply_output_format(Query::ExportEventJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportEventDot));
+        let query = apply_output_format(Query::ExportEventStreamJson, OutputFormat::Dot).unwrap();
+        assert!(matches!(query, Query::ExportEventStreamDot));
 
         let error = apply_output_format(Query::Urls, OutputFormat::Csv);
         assert!(error.is_err());
@@ -9574,12 +10056,18 @@ mod tests {
         assert!(matches!(query, Query::ExportEventDot));
         let query = parse_query("graph.event.json").expect("event json query");
         assert!(matches!(query, Query::ExportEventJson));
+        let query = parse_query("graph.event.stream").expect("event stream query");
+        assert!(matches!(query, Query::ExportEventStreamDot));
+        let query = parse_query("graph.event.stream.json").expect("event stream json query");
+        assert!(matches!(query, Query::ExportEventStreamJson));
         let query = parse_query("events.full").expect("events full query");
         assert!(matches!(query, Query::EventsFull));
         let query = parse_query("graph.action").expect("action alias query");
         assert!(matches!(query, Query::ExportEventDot));
         let query = parse_query("graph.event.hops 2").expect("event hops query");
         assert!(matches!(query, Query::ExportEventDotHops(2)));
+        let query = parse_query("graph.event.stream.hops 3").expect("event stream hops query");
+        assert!(matches!(query, Query::ExportEventStreamDotHops(3)));
         let query = parse_query("chains.all").expect("chains all query");
         assert!(matches!(query, Query::ChainsAll));
         let query = parse_query("actions.chains.all.count").expect("chains all count query");
@@ -10133,6 +10621,57 @@ mod tests {
     }
 
     #[test]
+    fn graph_event_stream_queries_return_dot_and_json_shapes() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let dot = execute_query_with_context(
+                &Query::ExportEventStreamDot,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("event stream dot");
+            match dot {
+                QueryResult::Scalar(ScalarValue::String(value)) => {
+                    assert!(value.contains("digraph event_stream_overlay"));
+                    assert!(value.contains("cluster_event_stream_overlay"));
+                }
+                other => panic!("expected dot scalar, got {:?}", other),
+            }
+
+            let json = execute_query_with_context(
+                &Query::ExportEventStreamJson,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("event stream json");
+            match json {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value.get("type"), Some(&json!("event_stream_overlay_graph")));
+                    assert!(value["event_graph"]["nodes"].is_array());
+                    assert!(value["overlay"]["nodes"].is_array());
+                    let overlay_nodes =
+                        value["overlay"]["nodes"].as_array().expect("overlay nodes");
+                    assert!(
+                        overlay_nodes.iter().any(|node| {
+                            node.get("id")
+                                .and_then(Value::as_str)
+                                .map(|id| id.starts_with("stream.ops."))
+                                .unwrap_or(false)
+                        }),
+                        "expected stream op cluster nodes in overlay"
+                    );
+                }
+                other => panic!("expected structure, got {:?}", other),
+            }
+        });
+    }
+
+    #[test]
     fn graph_event_query_supports_event_type_predicate() {
         let bytes = {
             let objects = vec![
@@ -10265,6 +10804,16 @@ mod tests {
         let dot_variant = apply_output_format(Query::ExportEventJsonHops(3), OutputFormat::Dot)
             .expect("dot conversion");
         assert!(matches!(dot_variant, Query::ExportEventDotHops(3)));
+
+        let stream_json_variant =
+            apply_output_format(Query::ExportEventStreamDotHops(2), OutputFormat::Json)
+                .expect("stream json conversion");
+        assert!(matches!(stream_json_variant, Query::ExportEventStreamJsonHops(2)));
+
+        let stream_dot_variant =
+            apply_output_format(Query::ExportEventStreamJsonHops(3), OutputFormat::Dot)
+                .expect("stream dot conversion");
+        assert!(matches!(stream_dot_variant, Query::ExportEventStreamDotHops(3)));
     }
 
     #[test]
@@ -10301,6 +10850,8 @@ mod tests {
         assert!(ensure_predicate_supported(&Query::XrefDeviations).is_ok());
         assert!(ensure_predicate_supported(&Query::Revisions).is_ok());
         assert!(ensure_predicate_supported(&Query::RevisionsDetail).is_ok());
+        assert!(ensure_predicate_supported(&Query::ExportEventStreamJson).is_ok());
+        assert!(ensure_predicate_supported(&Query::ExportEventStreamDotHops(2)).is_ok());
         assert!(ensure_predicate_supported(&Query::Xref).is_err());
     }
 

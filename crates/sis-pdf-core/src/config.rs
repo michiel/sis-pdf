@@ -118,6 +118,7 @@ pub struct CorrelationConfig {
     pub xfa_data_exfiltration: Option<bool>,
     pub encrypted_payload_delivery: Option<bool>,
     pub obfuscated_payload: Option<bool>,
+    pub content_stream_exec_alignment: Option<bool>,
     pub high_entropy_threshold: Option<f64>,
     pub action_chain_depth: Option<usize>,
     pub xfa_sensitive_field_threshold: Option<usize>,
@@ -674,6 +675,9 @@ fn apply_scan(scan: &ScanConfig, opts: &mut ScanOptions) {
         }
         if let Some(value) = corr_cfg.obfuscated_payload {
             corr.obfuscated_payload_enabled = value;
+        }
+        if let Some(value) = corr_cfg.content_stream_exec_alignment {
+            corr.content_stream_exec_alignment_enabled = value;
         }
         if let Some(threshold) = corr_cfg.high_entropy_threshold {
             corr.high_entropy_threshold = threshold;

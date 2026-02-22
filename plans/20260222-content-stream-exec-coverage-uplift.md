@@ -1,7 +1,7 @@
 # ContentStreamExec Coverage, Stream Visualisation, and Detection Uplift Plan
 
 Date: 2026-02-22
-Status: Proposed (not yet implemented)
+Status: Implemented
 Owner: Core + CLI + GUI
 
 ## Scope
@@ -71,9 +71,89 @@ Completed in this cycle:
      - `sh` -> `/Resources/Shading`
    - Added Stage 3 budget test:
      - `events_projection_with_stream_summary_budget_on_cve_fixture` (<= 150ms).
+9. Stage 4 stream overlay query implementation completed in `query.rs`:
+   - Added `graph.event.stream` query family execution paths:
+     - `Query::ExportEventStreamDot`
+     - `Query::ExportEventStreamJson`
+     - `Query::ExportEventStreamDotHops(usize)`
+     - `Query::ExportEventStreamJsonHops(usize)`
+   - Implemented `build_event_stream_overlay_json(...)`:
+     - overlays `ContentStreamExec` events with deterministic pseudo nodes:
+       - `stream.ops.*` (operator-family clusters),
+       - `stream.res.*` (resource invocations),
+       - `stream.anom.*` (stream anomalies),
+       - `stream.mc.*` (marked-content signals).
+     - includes overlay stats and truncation passthrough.
+   - Implemented `export_event_stream_overlay_dot(...)` with separate event and overlay clusters.
+   - Extended predicate gating and query parsing for `graph.event.stream*` variants.
+10. Stage 4 regression coverage added and passing:
+   - `graph_event_stream_queries_return_dot_and_json_shapes`
+   - `apply_output_format_handles_event_hops_variants` (extended for stream hops)
+   - `parse_query_supports_org_and_ir_aliases` (extended for stream aliases)
+   - `apply_output_format_overrides_export_variants` (extended for stream variants)
+11. Stage 5 detector implementation landed in `sis-pdf-detectors`:
+   - Added `content_stream_exec_uplift` detector module:
+     - `content_stream_gstate_abuse`
+     - `content_stream_marked_evasion`
+     - `content_stream_resource_name_obfuscation`
+   - Registered detector in `default_detectors()`.
+   - Added integration coverage:
+     - `crates/sis-pdf-detectors/tests/content_stream_exec_uplift.rs`
+       - abusive fixture emits all three findings
+       - clean fixture emits none of the three findings.
+12. Stage 5 correlator implementation landed in `sis-pdf-core`:
+   - Added `CorrelationOptions::content_stream_exec_alignment_enabled` (default `true`).
+   - Added config wiring: `correlation.content_stream_exec_alignment`.
+   - Added composite correlator:
+     - kind: `content_stream_exec_outcome_alignment`
+     - trigger: content-stream anomaly signals + high-risk execute/egress findings sharing object lineage.
+   - Added correlation unit tests:
+     - emits on aligned pair
+     - skips when no high-risk outcome signal.
+13. Validation commands executed:
+   - `cargo test -p sis-pdf-detectors --test content_stream_exec_uplift -- --nocapture`
+   - `cargo test -p sis-pdf-core correlation::tests:: -- --nocapture`
+   - `cargo test -p sis-pdf parse_query_supports_org_and_ir_aliases -- --nocapture`
+   - `cargo test -p sis-pdf-core --test corpus_captured_regressions -- --nocapture`
+14. Stage 5 calibration sweep status:
+   - Corpus-captured regression suite passed (`20 passed, 0 failed`).
+   - No baseline regressions observed in existing corpus-captured fixtures.
+15. Stage 6 documentation updates completed:
+   - `docs/query-interface.md`
+     - added `events.full` `stream_exec` documentation
+     - documented `graph.event.stream*` query variants and overlay schema.
+   - `docs/findings.md`
+     - documented:
+       - `content_stream_gstate_abuse`
+       - `content_stream_marked_evasion`
+       - `content_stream_resource_name_obfuscation`
+       - `content_stream_exec_outcome_alignment`
+   - `docs/events-csv-schema.md`
+     - added optional `stream_summary` and `stream_resource_ref` row contracts.
+   - `docs/configuration.md`
+     - added `correlation.content_stream_exec_alignment` option.
+16. Stage 5 refinement completed (event-graph path alignment):
+   - Added `correlate_findings_with_event_graph(...)` entrypoint in `correlation.rs`.
+   - `content_stream_exec_outcome_alignment` now prefers explicit event-graph alignment:
+     - links stream findings to `ContentStreamExec` event nodes via finding provenance,
+     - links outcome findings to high-risk outcome nodes (`CodeExecution`,
+       `NetworkEgress`, `FormSubmission`, `ExternalLaunch`),
+     - requires shortest path length `<= 3` hops,
+     - emits `event.node_id`, `outcome.node_id`, and exact `path.length`.
+   - Updated `runner.rs` correlation flow to:
+     - assign stable finding IDs before correlation,
+     - build an event graph for correlation context,
+     - call `correlate_findings_with_event_graph(...)`.
+   - Added path-aware correlation regression:
+     - `correlation_uses_event_graph_path_length_for_stream_alignment`.
+   - Validation rerun:
+     - `cargo test -p sis-pdf-core correlation::tests:: -- --nocapture`
+     - `cargo test -p sis-pdf-core --test corpus_captured_regressions -- --nocapture`
+     - `cargo test -p sis-pdf parse_query_supports_org_and_ir_aliases -- --nocapture`
 
 In progress / pending:
-1. Stages 4-6 are not yet implemented.
+1. No remaining items in this plan. Follow-on opportunities remain under
+   “New opportunities (out of scope, prioritised for follow-on)”.
 
 ## Assumptions
 
@@ -132,10 +212,10 @@ All stages are feasible with the current codebase. Key findings from the audit:
 2. `PageContents` edge extraction uses `get_first(b"/Contents")` + `resolve_ref()`, which
    captures only the first content stream target even when `/Contents` is an array.
 3. Form XObjects and Type3 charproc streams are not modelled as execution events.
-4. CLI `events.full` surfaces per-event edge metadata and reverse finding index, but event
-   payload does not yet include stream-op summaries.
-5. Graph visual mode can navigate from `ContentStreamExec` event node to its target stream
-   object via clickable object links.
+4. CLI `events.full` now surfaces per-event edge metadata, reverse finding index, and
+   `stream_exec` summaries for `ContentStreamExec` records.
+5. Graph visual mode now includes optional `graph.event.stream*` overlay exports with
+   stream pseudo nodes and edges (while preserving baseline `graph.event*` behaviour).
 6. `XObjectReference` typed edges are already built for all XObject resources but are not
    consumed by the event graph builder to produce execution events.
 
@@ -627,6 +707,17 @@ Acceptance criteria:
 3. Existing `graph.event` and `graph.event.json` tests pass unchanged.
 
 ## Stage 5: Detection Extension
+
+Status update (2026-02-22):
+1. Implemented detector findings:
+   - `content_stream_gstate_abuse`
+   - `content_stream_marked_evasion`
+   - `content_stream_resource_name_obfuscation`
+2. Implemented correlator finding:
+   - `content_stream_exec_outcome_alignment`
+3. Current correlator implementation uses strict shared-object alignment between stream-signal
+   and high-risk outcome findings. Event-graph path-length (`<= 3`) enrichment is deferred until
+   correlation input includes direct event-graph context.
 
 ### S5.1 `correlate_content_stream_exec_outcome_alignment` (correlator)
 

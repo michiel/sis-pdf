@@ -727,7 +727,21 @@ pub fn run_scan_with_detectors(
     annotate_positions(&ctx, &mut findings);
     annotate_orphaned_page_context(&mut findings);
     correlate_font_js(&mut findings);
-    let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
+
+    // Correlation rules that rely on finding IDs and event-graph paths require
+    // stable IDs before composite synthesis.
+    assign_stable_ids(&mut findings);
+    let typed_graph_for_correlation = ctx.build_typed_graph();
+    let event_graph_for_correlation = crate::event_graph::build_event_graph(
+        &typed_graph_for_correlation,
+        &findings,
+        crate::event_graph::EventGraphOptions::default(),
+    );
+    let composites = correlation::correlate_findings_with_event_graph(
+        &findings,
+        &ctx.options.correlation,
+        Some(&event_graph_for_correlation),
+    );
     findings.extend(composites);
     apply_default_global_kind_cap(&mut findings);
     assign_stable_ids(&mut findings);

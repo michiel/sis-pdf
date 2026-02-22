@@ -205,6 +205,7 @@ All `scan` configuration options correspond to command-line flags.
 | `correlation.xfa_data_exfiltration` | boolean | Emit `xfa_data_exfiltration_risk` when sensitive fields pair with external submits | N/A |
 | `correlation.encrypted_payload_delivery` | boolean | Emit `encrypted_payload_delivery` for encrypted archives + launch/SWF | N/A |
 | `correlation.obfuscated_payload` | boolean | Emit `obfuscated_payload` when unusual filters coincide with high entropy streams | N/A |
+| `correlation.content_stream_exec_alignment` | boolean | Emit `content_stream_exec_outcome_alignment` when stream-exec anomalies align with high-risk execute/egress findings | N/A |
 | `correlation.high_entropy_threshold` | float | Entropy threshold (0-8) used when matching high entropy streams | N/A |
 | `correlation.action_chain_depth` | integer | Minimum depth required to treat an action chain as complex | N/A |
 | `correlation.xfa_sensitive_field_threshold` | integer | Minimum sensitive field count for XFA exfiltration correlation | N/A |

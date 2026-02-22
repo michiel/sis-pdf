@@ -4079,6 +4079,70 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Meaning: operator set or operand validation (arity/type) deviates from expected content syntax.
   - Chain usage: parser-divergence signal for triage and replay.
 
+## content_stream_gstate_abuse
+
+- ID: `content_stream_gstate_abuse`
+- Label: Content stream graphics-state abuse
+- Description: Content stream exhibits graphics-state depth/underflow anomalies or q-Do-Q form invocation sandwich patterns.
+- Tags: content, evasion, parser
+- Details:
+  - Relevance: stacked graphics-state abuse is used to stress parsers and conceal staged rendering behaviour.
+  - Meaning: one or more of the following were observed: excessive `q`/`Q` depth, unmatched `Q`, clustered `q ... Do ... Q` around form XObject calls.
+  - Chain usage: execute-surface corroboration signal for stream-driven payload staging.
+  - Metadata:
+    - `gstate.max_depth`
+    - `gstate.underflow_count`
+    - `gstate.do_sandwich_count`
+    - `stream.obj`
+
+## content_stream_marked_evasion
+
+- ID: `content_stream_marked_evasion`
+- Label: Marked-content evasion pattern
+- Description: Marked-content (or tight resource cluster) boundaries concentrate resource invocation operators without visible render operators.
+- Tags: content, evasion
+- Details:
+  - Relevance: concentrated resource invocation blocks can hide exploit staging in renderer-specific execution paths.
+  - Meaning: resource operators (`Do`/`Tf`) dominate a compact boundary while visible render operators are absent.
+  - Chain usage: evasive stream-structure signal for deeper replay and cross-reader comparison.
+  - Metadata:
+    - `mc.tag`
+    - `mc.resource_op_fraction`
+    - `mc.visible_op_count`
+    - `stream.obj`
+
+## content_stream_resource_name_obfuscation
+
+- ID: `content_stream_resource_name_obfuscation`
+- Label: Content stream resource-name obfuscation
+- Description: Content stream resource identifiers show high entropy, excessive length, or per-page churn.
+- Tags: content, evasion
+- Details:
+  - Relevance: obfuscated resource identifiers can mask payload carriers and complicate static triage.
+  - Meaning: one or more thresholds fired for name entropy, name length, or page-to-page naming churn.
+  - Chain usage: low-severity context signal that boosts confidence when paired with execute/egress findings.
+  - Metadata:
+    - `resource.name_max_entropy`
+    - `resource.churn_rate`
+    - `resource.max_name_length`
+    - `resource.change_every_page`
+
+## content_stream_exec_outcome_alignment
+
+- ID: `content_stream_exec_outcome_alignment`
+- Label: Content stream execution aligns with high-risk outcome
+- Description: Content-stream execution anomaly signals co-locate with high-risk execute/egress findings.
+- Tags: chain, content, correlation
+- Details:
+  - Relevance: aligns stream-level suspicious behaviour with concrete high-risk action/outcome surfaces.
+  - Meaning: stream-anomaly findings and high-risk outcome findings share execution-relevant object lineage.
+  - Chain usage: escalation composite for prioritised triage.
+  - Metadata:
+    - `event.node_id` (when available)
+    - `outcome.node_id` (when available)
+    - `path.length`
+    - `aligned.finding_ids`
+
 ## signature_present
 
 - ID: `signature_present`

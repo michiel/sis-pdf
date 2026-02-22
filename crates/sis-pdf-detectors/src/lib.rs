@@ -29,6 +29,7 @@ pub mod advanced_crypto;
 pub mod annotations_advanced;
 pub mod content_first;
 pub mod content_phishing;
+pub mod content_stream_exec_uplift;
 pub mod encryption_obfuscation;
 pub mod evasion_env;
 pub mod evasion_time;
@@ -122,6 +123,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(external_context::ExternalActionContextDetector),
         Box::new(passive_render_pipeline::PassiveRenderPipelineDetector),
         Box::new(resource_usage_semantics::ResourceUsageSemanticsDetector),
+        Box::new(content_stream_exec_uplift::ContentStreamExecUpliftDetector),
         Box::new(FontMatrixDetector),
         Box::new(PdfjsFontInjectionDetector),
         Box::new(FontJsExploitationBridgeDetector { enable_ast: settings.js_ast }),

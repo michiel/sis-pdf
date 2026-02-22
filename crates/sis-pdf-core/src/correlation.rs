@@ -1,9 +1,17 @@
 use crate::model::{AttackSurface, Confidence, Finding, Severity};
 use crate::scan::CorrelationOptions;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 /// Produce correlated composite findings based on existing detectors.
 pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> Vec<Finding> {
+    correlate_findings_with_event_graph(findings, config, None)
+}
+
+pub fn correlate_findings_with_event_graph(
+    findings: &[Finding],
+    config: &CorrelationOptions,
+    event_graph: Option<&crate::event_graph::EventGraph>,
+) -> Vec<Finding> {
     if !config.enabled {
         return Vec::new();
     }
@@ -13,6 +21,11 @@ pub fn correlate_findings(findings: &[Finding], config: &CorrelationOptions) -> 
     composites.extend(correlate_xfa_data_exfiltration(findings, config));
     composites.extend(correlate_encrypted_payload_delivery(findings, config));
     composites.extend(correlate_obfuscated_payload(findings, config));
+    composites.extend(correlate_content_stream_exec_outcome_alignment(
+        findings,
+        config,
+        event_graph,
+    ));
     composites.extend(correlate_image_decoder_exploit_chain(findings));
     composites.extend(correlate_font_structure_with_provenance_evasion(findings));
     composites.extend(correlate_image_structure_with_hidden_path(findings));
@@ -249,6 +262,239 @@ fn correlate_obfuscated_payload(findings: &[Finding], config: &CorrelationOption
     }
 
     composites
+}
+
+fn correlate_content_stream_exec_outcome_alignment(
+    findings: &[Finding],
+    config: &CorrelationOptions,
+    event_graph: Option<&crate::event_graph::EventGraph>,
+) -> Vec<Finding> {
+    if !config.content_stream_exec_alignment_enabled {
+        return Vec::new();
+    }
+
+    let stream_signals = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "content_stream_anomaly"
+                    | "content_stream_gstate_abuse"
+                    | "content_stream_marked_evasion"
+                    | "content_stream_resource_name_obfuscation"
+            )
+        })
+        .collect::<Vec<_>>();
+    if stream_signals.is_empty() {
+        return Vec::new();
+    }
+
+    let high_risk_outcomes = findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind.as_str(),
+                "action_remote_target_suspicious"
+                    | "launch_embedded_file"
+                    | "submitform_present"
+                    | "xfa_submit"
+                    | "js_suspicious"
+                    | "js_obfuscated"
+            ) || matches!(get_meta(finding, "chain.stage"), Some("execute" | "egress"))
+        })
+        .collect::<Vec<_>>();
+    if high_risk_outcomes.is_empty() {
+        return Vec::new();
+    }
+
+    let mut emitted = HashSet::new();
+    let mut composites = Vec::new();
+    let (stream_nodes_by_finding, outcome_nodes_by_finding) = event_graph
+        .map(index_finding_event_nodes)
+        .unwrap_or_else(|| (HashMap::new(), HashMap::new()));
+
+    for stream_signal in &stream_signals {
+        for outcome in &high_risk_outcomes {
+            let mut matched_path = None;
+            if let Some(graph) = event_graph {
+                if !stream_signal.id.is_empty() && !outcome.id.is_empty() {
+                    let stream_nodes =
+                        stream_nodes_by_finding.get(&stream_signal.id).cloned().unwrap_or_default();
+                    let outcome_nodes =
+                        outcome_nodes_by_finding.get(&outcome.id).cloned().unwrap_or_default();
+                    for stream_node in &stream_nodes {
+                        for outcome_node in &outcome_nodes {
+                            if let Some(hops) =
+                                shortest_hops_within(graph, stream_node, outcome_node, 3)
+                            {
+                                matched_path =
+                                    Some((stream_node.clone(), outcome_node.clone(), hops));
+                                break;
+                            }
+                        }
+                        if matched_path.is_some() {
+                            break;
+                        }
+                    }
+                }
+            } else if shares_object(stream_signal, outcome) {
+                matched_path = Some((
+                    get_meta(stream_signal, "event.node_id")
+                        .unwrap_or("unknown_event_node")
+                        .to_string(),
+                    get_meta(outcome, "event.node_id")
+                        .unwrap_or("unknown_outcome_node")
+                        .to_string(),
+                    1usize,
+                ));
+            }
+
+            let Some((event_node_id, outcome_node_id, hops)) = matched_path else {
+                continue;
+            };
+
+            let key = format!(
+                "{event_node_id}|{outcome_node_id}|{}|{}",
+                stream_signal.kind, outcome.kind
+            );
+            if !emitted.insert(key) {
+                continue;
+            }
+
+            let mut aligned_ids = vec![stream_signal.id.clone(), outcome.id.clone()];
+            aligned_ids.retain(|id| !id.is_empty());
+            aligned_ids.sort();
+            aligned_ids.dedup();
+            composites.push(build_composite(CompositeConfig {
+                kind: "content_stream_exec_outcome_alignment",
+                title: "Content stream execution aligns with high-risk outcome",
+                description:
+                    "Content-stream execution anomaly signals align with high-risk execute/egress outcomes over a bounded event-graph path.",
+                surface: AttackSurface::FileStructure,
+                severity: Severity::High,
+                confidence: Confidence::Strong,
+                sources: &[stream_signal, outcome],
+                extra_meta: vec![
+                    ("event.node_id", Some(event_node_id)),
+                    ("outcome.node_id", Some(outcome_node_id)),
+                    ("path.length", Some(hops.to_string())),
+                    (
+                        "aligned.finding_ids",
+                        if aligned_ids.is_empty() {
+                            None
+                        } else {
+                            Some(aligned_ids.join(","))
+                        },
+                    ),
+                ],
+            }));
+        }
+    }
+
+    composites
+}
+
+fn index_finding_event_nodes(
+    event_graph: &crate::event_graph::EventGraph,
+) -> (HashMap<String, BTreeSet<String>>, HashMap<String, BTreeSet<String>>) {
+    use crate::event_graph::{EdgeProvenance, EventNodeKind, EventType};
+
+    let mut stream_nodes_by_finding = HashMap::<String, BTreeSet<String>>::new();
+    let mut outcome_nodes_by_finding = HashMap::<String, BTreeSet<String>>::new();
+
+    for edge in &event_graph.edges {
+        let EdgeProvenance::Finding { finding_id } = &edge.provenance else {
+            continue;
+        };
+        let candidates = [edge.from.as_str(), edge.to.as_str()];
+        for node_id in candidates {
+            let Some(node_idx) = event_graph.node_index.get(node_id) else {
+                continue;
+            };
+            let Some(node) = event_graph.nodes.get(*node_idx) else {
+                continue;
+            };
+            match &node.kind {
+                EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. } => {
+                    stream_nodes_by_finding
+                        .entry(finding_id.clone())
+                        .or_default()
+                        .insert(node_id.to_string());
+                }
+                EventNodeKind::Outcome { outcome_type, .. }
+                    if is_high_risk_outcome(*outcome_type) =>
+                {
+                    outcome_nodes_by_finding
+                        .entry(finding_id.clone())
+                        .or_default()
+                        .insert(node_id.to_string());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    (stream_nodes_by_finding, outcome_nodes_by_finding)
+}
+
+fn shortest_hops_within(
+    event_graph: &crate::event_graph::EventGraph,
+    src: &str,
+    dst: &str,
+    max_hops: usize,
+) -> Option<usize> {
+    if src == dst {
+        return Some(0);
+    }
+    let mut seen = HashSet::<String>::new();
+    let mut queue = VecDeque::<(String, usize)>::new();
+    seen.insert(src.to_string());
+    queue.push_back((src.to_string(), 0));
+
+    while let Some((node_id, depth)) = queue.pop_front() {
+        if depth >= max_hops {
+            continue;
+        }
+
+        if let Some(outgoing) = event_graph.forward_index.get(&node_id) {
+            for edge_idx in outgoing {
+                let Some(edge) = event_graph.edges.get(*edge_idx) else {
+                    continue;
+                };
+                if edge.to == dst {
+                    return Some(depth + 1);
+                }
+                if seen.insert(edge.to.clone()) {
+                    queue.push_back((edge.to.clone(), depth + 1));
+                }
+            }
+        }
+        if let Some(incoming) = event_graph.reverse_index.get(&node_id) {
+            for edge_idx in incoming {
+                let Some(edge) = event_graph.edges.get(*edge_idx) else {
+                    continue;
+                };
+                if edge.from == dst {
+                    return Some(depth + 1);
+                }
+                if seen.insert(edge.from.clone()) {
+                    queue.push_back((edge.from.clone(), depth + 1));
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn is_high_risk_outcome(outcome: crate::event_graph::OutcomeType) -> bool {
+    matches!(
+        outcome,
+        crate::event_graph::OutcomeType::CodeExecution
+            | crate::event_graph::OutcomeType::NetworkEgress
+            | crate::event_graph::OutcomeType::FormSubmission
+            | crate::event_graph::OutcomeType::ExternalLaunch
+    )
 }
 
 fn correlate_image_decoder_exploit_chain(findings: &[Finding]) -> Vec<Finding> {
@@ -1361,7 +1607,11 @@ fn is_external_url(url: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::correlate_findings;
+    use super::{correlate_findings, correlate_findings_with_event_graph};
+    use crate::event_graph::{
+        EdgeProvenance, EventEdge, EventEdgeKind, EventGraph, EventNode, EventNodeKind, EventType,
+        OutcomeType, TriggerClass,
+    };
     use crate::model::{AttackSurface, Confidence, Finding, Severity};
     use crate::scan::CorrelationOptions;
     use std::collections::HashMap;
@@ -1411,5 +1661,130 @@ mod tests {
         assert!(composites
             .iter()
             .any(|f| { f.kind == "composite.image_structure_with_hidden_path" }));
+    }
+
+    #[test]
+    fn correlation_emits_content_stream_exec_outcome_alignment() {
+        let findings = vec![
+            finding("content_stream_gstate_abuse", "20 0 obj"),
+            finding("launch_embedded_file", "20 0 obj"),
+        ];
+        let composites = correlate_findings(&findings, &CorrelationOptions::default());
+        assert!(composites.iter().any(|f| f.kind == "content_stream_exec_outcome_alignment"));
+    }
+
+    #[test]
+    fn correlation_skips_content_stream_alignment_without_outcome() {
+        let findings = vec![
+            finding("content_stream_marked_evasion", "21 0 obj"),
+            finding("resource.declared_but_unused", "21 0 obj"),
+        ];
+        let composites = correlate_findings(&findings, &CorrelationOptions::default());
+        assert!(composites.iter().all(|f| f.kind != "content_stream_exec_outcome_alignment"));
+    }
+
+    fn build_event_graph(nodes: Vec<EventNode>, edges: Vec<EventEdge>) -> EventGraph {
+        let mut node_index = HashMap::new();
+        for (idx, node) in nodes.iter().enumerate() {
+            node_index.insert(node.id.clone(), idx);
+        }
+        let mut forward_index = HashMap::new();
+        let mut reverse_index = HashMap::new();
+        for (idx, edge) in edges.iter().enumerate() {
+            forward_index.entry(edge.from.clone()).or_insert_with(Vec::new).push(idx);
+            reverse_index.entry(edge.to.clone()).or_insert_with(Vec::new).push(idx);
+        }
+        EventGraph {
+            schema_version: "1.0",
+            nodes,
+            edges,
+            node_index,
+            forward_index,
+            reverse_index,
+            truncation: None,
+        }
+    }
+
+    #[test]
+    fn correlation_uses_event_graph_path_length_for_stream_alignment() {
+        let mut stream = finding("content_stream_gstate_abuse", "30 0 obj");
+        stream.id = "finding-stream".into();
+        let mut outcome = finding("launch_embedded_file", "31 0 obj");
+        outcome.id = "finding-outcome".into();
+        let findings = vec![stream.clone(), outcome.clone()];
+
+        let graph = build_event_graph(
+            vec![
+                EventNode {
+                    id: "ev:stream".into(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Event {
+                        event_type: EventType::ContentStreamExec,
+                        trigger: TriggerClass::Automatic,
+                        label: "stream exec".into(),
+                        source_obj: Some((30, 0)),
+                    },
+                },
+                EventNode {
+                    id: "obj:30:0".into(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Object {
+                        obj: 30,
+                        gen: 0,
+                        obj_type: Some("Stream".into()),
+                    },
+                },
+                EventNode {
+                    id: "out:launch".into(),
+                    mitre_techniques: Vec::new(),
+                    kind: EventNodeKind::Outcome {
+                        outcome_type: OutcomeType::ExternalLaunch,
+                        label: "launch".into(),
+                        target: None,
+                        source_obj: Some((31, 0)),
+                        evidence: Vec::new(),
+                        confidence_source: None,
+                        confidence_score: None,
+                        severity_hint: None,
+                    },
+                },
+            ],
+            vec![
+                EventEdge {
+                    from: "ev:stream".into(),
+                    to: "obj:30:0".into(),
+                    kind: EventEdgeKind::Executes,
+                    provenance: EdgeProvenance::Finding { finding_id: "finding-stream".into() },
+                    metadata: None,
+                },
+                EventEdge {
+                    from: "obj:30:0".into(),
+                    to: "out:launch".into(),
+                    kind: EventEdgeKind::References,
+                    provenance: EdgeProvenance::Heuristic,
+                    metadata: None,
+                },
+                EventEdge {
+                    from: "ev:stream".into(),
+                    to: "out:launch".into(),
+                    kind: EventEdgeKind::ProducesOutcome,
+                    provenance: EdgeProvenance::Finding { finding_id: "finding-outcome".into() },
+                    metadata: None,
+                },
+            ],
+        );
+
+        let composites = correlate_findings_with_event_graph(
+            &findings,
+            &CorrelationOptions::default(),
+            Some(&graph),
+        );
+        let composite = composites
+            .iter()
+            .find(|f| f.kind == "content_stream_exec_outcome_alignment")
+            .expect("expected alignment composite");
+        assert_eq!(composite.meta.get("event.node_id"), Some(&"ev:stream".to_string()));
+        assert_eq!(composite.meta.get("outcome.node_id"), Some(&"out:launch".to_string()));
+        assert_eq!(composite.meta.get("path.length"), Some(&"1".to_string()));
     }
 }

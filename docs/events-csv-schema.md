@@ -11,6 +11,7 @@ CSV export so downstream tooling can prepare stable parsing logic early.
 - Rows represent EventGraph event nodes (`kind=event`) only.
 - Outcome detail is flattened into summarised columns for CSV safety.
 - Full forensic detail remains available via JSON/JSONL (`events.full`).
+- Stream-operation detail is modelled as optional companion rows (pre-release).
 
 ## Columns
 
@@ -51,3 +52,35 @@ CSV export so downstream tooling can prepare stable parsing logic early.
 - Pre-release: this schema may evolve, but field names should remain stable
   where possible.
 - JSON/JSONL remains the authoritative forensic format for nested detail.
+
+## Optional stream companion rows (pre-release)
+
+When `ContentStreamExec` projection export is enabled, emit two optional CSV row
+families in addition to the event-level rows above.
+
+### Stream summary rows (`row_type=stream_summary`)
+
+1. `row_type` (`stream_summary`)
+2. `event_node_id`
+3. `stream_object`
+4. `total_ops`
+5. `unknown_op_count`
+6. `graphics_state_max_depth`
+7. `graphics_state_underflow`
+8. `truncated`
+9. `op_family_counts_json`
+
+### Stream resource rows (`row_type=stream_resource_ref`)
+
+1. `row_type` (`stream_resource_ref`)
+2. `event_node_id`
+3. `stream_object`
+4. `op`
+5. `resource_name`
+6. `resource_object`
+
+Notes:
+1. `op_family_counts_json` is a compact JSON object string (for example
+   `{\"Text\":45,\"Resource\":8}`) to avoid unstable column proliferation.
+2. `stream_object` / `resource_object` use `obj:gen` format or blank when unknown.
+3. These row families are additive and do not change baseline event-row schema.
