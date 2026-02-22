@@ -306,6 +306,10 @@ For batch query mode, use `--jobs N` to cap worker concurrency:
 sis query --path /corpus "findings" --format jsonl --jobs 8
 ```
 
+Without `--jobs`, batch mode defaults to `min(logical_cpu_count, 8)`. For deep
+scans with very large files, concurrency is automatically clamped to `4`
+workers to reduce peak memory pressure.
+
 Batch mode with `--format csv` emits a normalised envelope table:
 `path,status,error_code,message,result`. Error rows always set
 `status=error` and preserve `error_code`/`message` without breaking CSV parsing.

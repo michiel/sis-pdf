@@ -1185,7 +1185,13 @@ items complete. Format:
 - False positive rate on benign corpus: N%
 ```
 
-*(No entries yet; populate as items are implemented.)*
+## D3 2026-02-23
+- Finding count delta: +0 / -0
+- Severity/confidence changes: none
+- Timing delta on CVE fixture batch (`findings.count`, 100 files, JSONL):
+  - `--jobs 1`: `2.21s`
+  - `--jobs 8`: `0.22s`
+- False positive rate on benign corpus: n/a (no detector logic change)
 
 ## Progress log
 
@@ -1280,6 +1286,10 @@ items complete. Format:
 - Implemented additional `D3 / OF-BATCH-01` slice:
   - batch query now emits structured error rows instead of silently dropping
     file read/parse failures.
+- Completed `D3 / OF-BATCH-01` concurrency policy hardening:
+  - extracted deterministic worker-resolution logic with unit coverage for:
+    defaults, deep+large-file clamping, and explicit override behaviour;
+  - documented automatic worker-clamp policy in `docs/query-interface.md`.
 - Implemented additional `C4 / OF-NAT-04` release CI slice:
   - `.github/workflows/release-cli.yml` now builds native `sis-pdf-gui`
     binaries on macOS/Windows alongside CLI builds.
@@ -1336,7 +1346,7 @@ items complete. Format:
 - [ ] A6: `OF-CS-06` Cross-revision diffing *(requires A4)*
 - [x] B2: `OF-EV-02` Bidirectional finding/event index
 - [x] D2: `OF-FUZZ-01` Fuzz target expansion
-- [ ] D3: `OF-BATCH-01` Parallel batch processing *(in progress: --jobs + caps/clamp + error rows landed)*
+- [x] D3: `OF-BATCH-01` Parallel batch processing
 
 ### Phase 3
 - [x] B4: `OF-OV-01` Overlay depth query

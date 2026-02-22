@@ -8915,6 +8915,25 @@ fn cycle_to_json(idx: usize, cycle: &[(u32, u16)]) -> serde_json::Value {
     })
 }
 
+const DEFAULT_MAX_BATCH_JOBS: usize = 8;
+const DEEP_LARGE_FILE_THRESHOLD_BYTES: u64 = 16 * 1024 * 1024;
+const DEEP_LARGE_FILE_JOB_CAP: usize = 4;
+
+fn resolve_batch_job_count(
+    thread_count: usize,
+    jobs_override: Option<usize>,
+    deep_scan: bool,
+    max_file_size_bytes: u64,
+) -> usize {
+    let default_jobs = thread_count.min(DEFAULT_MAX_BATCH_JOBS).max(1);
+    let mut target_jobs = jobs_override.unwrap_or(default_jobs);
+    if jobs_override.is_none() && deep_scan && max_file_size_bytes > DEEP_LARGE_FILE_THRESHOLD_BYTES
+    {
+        target_jobs = target_jobs.min(DEEP_LARGE_FILE_JOB_CAP).max(1);
+    }
+    target_jobs.min(thread_count).max(1)
+}
+
 const BATCH_CSV_HEADER: &str = "path,status,error_code,message,result";
 
 fn csv_escape_cell(value: &str) -> String {
@@ -9197,18 +9216,8 @@ pub fn run_query_batch(
     };
 
     let results: Vec<(usize, Option<BatchResult>)> = if use_parallel {
-        const DEFAULT_MAX_JOBS: usize = 8;
-        const DEEP_LARGE_FILE_THRESHOLD_BYTES: u64 = 16 * 1024 * 1024;
-        const DEEP_LARGE_FILE_JOB_CAP: usize = 4;
-        let default_jobs = thread_count.min(DEFAULT_MAX_JOBS).max(1);
-        let mut target_jobs = jobs.unwrap_or(default_jobs);
-        if jobs.is_none()
-            && scan_options.deep
-            && max_file_size_bytes > DEEP_LARGE_FILE_THRESHOLD_BYTES
-        {
-            target_jobs = target_jobs.min(DEEP_LARGE_FILE_JOB_CAP).max(1);
-        }
-        target_jobs = target_jobs.min(thread_count).max(1);
+        let target_jobs =
+            resolve_batch_job_count(thread_count, jobs, scan_options.deep, max_file_size_bytes);
         let pool = rayon::ThreadPoolBuilder::new().num_threads(target_jobs).build();
         match pool {
             Ok(pool) => pool.install(|| {
@@ -12351,6 +12360,30 @@ mod tests {
         assert_eq!(caps["caps"]["event_graph"]["node_cap"], json!(0));
         assert_eq!(caps["caps"]["stream_exec_projection"]["truncated_event_count"], json!(0));
         assert_eq!(caps["caps"]["finding_meta"]["truncation_flag_count"], json!(0));
+    }
+
+    #[test]
+    fn resolve_batch_job_count_respects_defaults_and_caps() {
+        assert_eq!(
+            resolve_batch_job_count(16, None, false, 1 * 1024 * 1024),
+            DEFAULT_MAX_BATCH_JOBS
+        );
+        assert_eq!(resolve_batch_job_count(2, None, false, 1 * 1024 * 1024), 2);
+        assert_eq!(resolve_batch_job_count(1, None, false, 1 * 1024 * 1024), 1);
+    }
+
+    #[test]
+    fn resolve_batch_job_count_clamps_deep_large_default_path() {
+        let large = DEEP_LARGE_FILE_THRESHOLD_BYTES + 1;
+        assert_eq!(resolve_batch_job_count(32, None, true, large), DEEP_LARGE_FILE_JOB_CAP);
+        assert_eq!(resolve_batch_job_count(3, None, true, large), 3);
+    }
+
+    #[test]
+    fn resolve_batch_job_count_honours_override_and_thread_limit() {
+        assert_eq!(resolve_batch_job_count(32, Some(12), true, u64::MAX), 12);
+        assert_eq!(resolve_batch_job_count(4, Some(12), true, u64::MAX), 4);
+        assert_eq!(resolve_batch_job_count(8, Some(1), false, 0), 1);
     }
 
     #[test]
