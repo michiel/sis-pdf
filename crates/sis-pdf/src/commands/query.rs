@@ -240,11 +240,13 @@ pub enum Query {
 
     // Finding queries
     Findings,
+    FindingsCsv,
     FindingsCount,
     FindingsBySeverity(Severity),
     FindingsByKind(String),
     FindingsByKindCount(String),
     FindingsComposite,
+    FindingsCompositeCsv,
     FindingsCompositeCount,
     FindingsWithChain,
     FindingsBySeverityWithChain(Severity),
@@ -291,8 +293,12 @@ pub enum Query {
     ExportStructureJsonDepth(usize),
     ExportStructureOverlayDot,
     ExportStructureOverlayJson,
+    ExportStructureOverlayDotDepth(usize),
+    ExportStructureOverlayJsonDepth(usize),
     ExportStructureOverlayTelemetryDot,
     ExportStructureOverlayTelemetryJson,
+    ExportStructureOverlayTelemetryDotDepth(usize),
+    ExportStructureOverlayTelemetryJsonDepth(usize),
     ExportEventDot,
     ExportEventJson,
     ExportEventDotHops(usize),
@@ -624,8 +630,10 @@ pub fn parse_query(input: &str) -> Result<Query> {
 
         // Findings
         "findings" => Ok(Query::Findings),
+        "findings.csv" => Ok(Query::FindingsCsv),
         "findings.count" => Ok(Query::FindingsCount),
         "findings.composite" => Ok(Query::FindingsComposite),
+        "findings.composite.csv" => Ok(Query::FindingsCompositeCsv),
         "findings.composite.count" => Ok(Query::FindingsCompositeCount),
         "correlations" => Ok(Query::Correlations),
         "correlations.count" => Ok(Query::CorrelationsCount),
@@ -695,6 +703,20 @@ pub fn parse_query(input: &str) -> Result<Query> {
                     .parse::<usize>()
                     .map_err(|_| anyhow!("Invalid depth: {}", rest.trim()))?;
                 return Ok(Query::ExportStructureDotDepth(depth));
+            }
+            if let Some(rest) = input.strip_prefix("graph.structure.overlay.depth ") {
+                let depth = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid depth: {}", rest.trim()))?;
+                return Ok(Query::ExportStructureOverlayDotDepth(depth));
+            }
+            if let Some(rest) = input.strip_prefix("graph.structure.overlay.telemetry.depth ") {
+                let depth = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid depth: {}", rest.trim()))?;
+                return Ok(Query::ExportStructureOverlayTelemetryDotDepth(depth));
             }
             if let Some(rest) = input.strip_prefix("graph.event.hops ") {
                 let hops = rest
@@ -1389,7 +1411,13 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportStructureDot => Query::ExportStructureJson,
             Query::ExportStructureDotDepth(depth) => Query::ExportStructureJsonDepth(depth),
             Query::ExportStructureOverlayDot => Query::ExportStructureOverlayJson,
+            Query::ExportStructureOverlayDotDepth(depth) => {
+                Query::ExportStructureOverlayJsonDepth(depth)
+            }
             Query::ExportStructureOverlayTelemetryDot => Query::ExportStructureOverlayTelemetryJson,
+            Query::ExportStructureOverlayTelemetryDotDepth(depth) => {
+                Query::ExportStructureOverlayTelemetryJsonDepth(depth)
+            }
             Query::ExportEventDot => Query::ExportEventJson,
             Query::ExportEventDotHops(hops) => Query::ExportEventJsonHops(hops),
             Query::ExportEventStreamDot => Query::ExportEventStreamJson,
@@ -1407,8 +1435,16 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
             Query::ExportStructureOverlayJson | Query::ExportStructureOverlayDot => {
                 Query::ExportStructureOverlayDot
             }
+            Query::ExportStructureOverlayJsonDepth(depth)
+            | Query::ExportStructureOverlayDotDepth(depth) => {
+                Query::ExportStructureOverlayDotDepth(depth)
+            }
             Query::ExportStructureOverlayTelemetryJson
             | Query::ExportStructureOverlayTelemetryDot => Query::ExportStructureOverlayTelemetryDot,
+            Query::ExportStructureOverlayTelemetryJsonDepth(depth)
+            | Query::ExportStructureOverlayTelemetryDotDepth(depth) => {
+                Query::ExportStructureOverlayTelemetryDotDepth(depth)
+            }
             Query::ExportEventJson | Query::ExportEventDot => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) | Query::ExportEventDotHops(hops) => {
                 Query::ExportEventDotHops(hops)
@@ -1424,14 +1460,24 @@ pub fn apply_output_format(query: Query, format: OutputFormat) -> Result<Query> 
         },
         OutputFormat::Csv => match query {
             Query::ExportFeatures | Query::ExportFeaturesJson => Query::ExportFeatures,
-            _ => return Err(anyhow!("--format csv is only supported for features queries")),
+            Query::Findings => Query::FindingsCsv,
+            Query::FindingsComposite => Query::FindingsCompositeCsv,
+            _ => {
+                return Err(anyhow!(
+                    "--format csv is only supported for features, findings, and findings.composite queries"
+                ))
+            }
         },
         OutputFormat::Text | OutputFormat::Readable => match query {
             Query::ExportOrgJson => Query::ExportOrgDot,
             Query::ExportStructureJson => Query::ExportStructureDot,
             Query::ExportStructureJsonDepth(depth) => Query::ExportStructureDotDepth(depth),
             Query::ExportStructureOverlayJson => Query::ExportStructureOverlayDot,
+            Query::ExportStructureOverlayJsonDepth(depth) => Query::ExportStructureOverlayDotDepth(depth),
             Query::ExportStructureOverlayTelemetryJson => Query::ExportStructureOverlayTelemetryDot,
+            Query::ExportStructureOverlayTelemetryJsonDepth(depth) => {
+                Query::ExportStructureOverlayTelemetryDotDepth(depth)
+            }
             Query::ExportEventJson => Query::ExportEventDot,
             Query::ExportEventJsonHops(hops) => Query::ExportEventDotHops(hops),
             Query::ExportEventStreamJson => Query::ExportEventStreamDot,
@@ -1678,11 +1724,13 @@ pub fn execute_query_with_context(
                     | Query::ChainsCount
                     | Query::ChainsJs
                     | Query::Findings
+                    | Query::FindingsCsv
                     | Query::FindingsCount
                     | Query::FindingsBySeverity(_)
                     | Query::FindingsByKind(_)
                     | Query::FindingsByKindCount(_)
                     | Query::FindingsComposite
+                    | Query::FindingsCompositeCsv
                     | Query::FindingsCompositeCount
                     | Query::FindingsWithChain
                     | Query::FindingsBySeverityWithChain(_)
@@ -1788,6 +1836,11 @@ pub fn execute_query_with_context(
                 let filtered = filter_findings(findings, predicate);
                 Ok(QueryResult::Structure(json!(filtered)))
             }
+            Query::FindingsCsv => {
+                let findings = findings_with_cache(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                Ok(QueryResult::List(findings_to_csv_rows(&filtered)))
+            }
             Query::FindingsWithChain => {
                 let findings = findings_with_cache(ctx)?;
                 let filtered = filter_findings(findings, predicate);
@@ -1801,6 +1854,12 @@ pub fn execute_query_with_context(
                 let filtered = filter_findings(findings, predicate);
                 let composites: Vec<_> = filtered.into_iter().filter(is_composite).collect();
                 Ok(QueryResult::Structure(json!(composites)))
+            }
+            Query::FindingsCompositeCsv => {
+                let findings = findings_with_cache(ctx)?;
+                let filtered = filter_findings(findings, predicate);
+                let composites: Vec<_> = filtered.into_iter().filter(is_composite).collect();
+                Ok(QueryResult::List(findings_to_csv_rows(&composites)))
             }
             Query::FindingsCompositeWithChain => {
                 let findings = findings_with_cache(ctx)?;
@@ -2581,6 +2640,44 @@ pub fn execute_query_with_context(
                     export_structure_json(&org_graph, &typed_graph, 8, Some(&overlay));
                 Ok(QueryResult::Structure(json_output))
             }
+            Query::ExportStructureOverlayDotDepth(depth) => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let findings = findings_with_cache(ctx)?;
+                let overlay = build_structure_overlay_with_findings(
+                    ctx,
+                    StructureOverlayBuildOptions::default(),
+                    Some(&findings),
+                );
+                let dot_output =
+                    export_structure_dot(&org_graph, &typed_graph, *depth, Some(&overlay));
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportStructureOverlayJsonDepth(depth) => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let findings = findings_with_cache(ctx)?;
+                let overlay = build_structure_overlay_with_findings(
+                    ctx,
+                    StructureOverlayBuildOptions::default(),
+                    Some(&findings),
+                );
+                let json_output =
+                    export_structure_json(&org_graph, &typed_graph, *depth, Some(&overlay));
+                Ok(QueryResult::Structure(json_output))
+            }
             Query::ExportStructureOverlayTelemetryDot => {
                 let classifications = ctx.classifications();
                 let typed_graph =
@@ -2624,6 +2721,52 @@ pub fn execute_query_with_context(
                 );
                 let json_output =
                     export_structure_json(&org_graph, &typed_graph, 8, Some(&overlay));
+                Ok(QueryResult::Structure(json_output))
+            }
+            Query::ExportStructureOverlayTelemetryDotDepth(depth) => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let findings = findings_with_cache(ctx)?;
+                let overlay = build_structure_overlay_with_findings(
+                    ctx,
+                    StructureOverlayBuildOptions {
+                        include_telemetry: true,
+                        include_signature: true,
+                        ..StructureOverlayBuildOptions::default()
+                    },
+                    Some(&findings),
+                );
+                let dot_output =
+                    export_structure_dot(&org_graph, &typed_graph, *depth, Some(&overlay));
+                Ok(QueryResult::Scalar(ScalarValue::String(dot_output)))
+            }
+            Query::ExportStructureOverlayTelemetryJsonDepth(depth) => {
+                let classifications = ctx.classifications();
+                let typed_graph =
+                    sis_pdf_pdf::typed_graph::TypedGraph::build(&ctx.graph, classifications);
+                let org_graph = sis_pdf_core::org::OrgGraph::from_object_graph_enhanced(
+                    &ctx.graph,
+                    classifications,
+                    &typed_graph,
+                );
+                let findings = findings_with_cache(ctx)?;
+                let overlay = build_structure_overlay_with_findings(
+                    ctx,
+                    StructureOverlayBuildOptions {
+                        include_telemetry: true,
+                        include_signature: true,
+                        ..StructureOverlayBuildOptions::default()
+                    },
+                    Some(&findings),
+                );
+                let json_output =
+                    export_structure_json(&org_graph, &typed_graph, *depth, Some(&overlay));
                 Ok(QueryResult::Structure(json_output))
             }
             Query::ExportEventDot => {
@@ -3071,6 +3214,46 @@ fn findings_with_cache(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Fin
     let findings = run_detectors(ctx)?;
     ctx.populate_findings_cache(findings.clone(), &ctx.options);
     Ok(findings)
+}
+
+fn csv_escape(input: &str) -> String {
+    if input.contains(',') || input.contains('"') || input.contains('\n') || input.contains('\r') {
+        format!("\"{}\"", input.replace('"', "\"\""))
+    } else {
+        input.to_string()
+    }
+}
+
+fn findings_to_csv_rows(findings: &[Finding]) -> Vec<String> {
+    let mut rows = Vec::with_capacity(findings.len() + 1);
+    rows.push(
+        "id,kind,severity,impact,confidence,surface,title,description,objects,evidence_count,remediation,meta_json".to_string(),
+    );
+    for finding in findings {
+        let mut meta_sorted = BTreeMap::new();
+        for (key, value) in &finding.meta {
+            meta_sorted.insert(key.clone(), value.clone());
+        }
+        let meta_json = serde_json::to_string(&meta_sorted).unwrap_or_else(|_| "{}".to_string());
+        let object_refs = finding.objects.join("|");
+        let remediation = finding.remediation.clone().unwrap_or_default();
+        let fields = [
+            csv_escape(&finding.id),
+            csv_escape(&finding.kind),
+            csv_escape(&format!("{:?}", finding.severity)),
+            csv_escape(&finding.impact.map(|value| format!("{:?}", value)).unwrap_or_default()),
+            csv_escape(&format!("{:?}", finding.confidence)),
+            csv_escape(&format!("{:?}", finding.surface)),
+            csv_escape(&finding.title),
+            csv_escape(&finding.description),
+            csv_escape(&object_refs),
+            finding.evidence.len().to_string(),
+            csv_escape(&remediation),
+            csv_escape(&meta_json),
+        ];
+        rows.push(fields.join(","));
+    }
+    rows
 }
 
 /// Format query result as human-readable text
@@ -4711,10 +4894,14 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::ChainsJsAll
         | Query::ExportStructureDot
         | Query::ExportStructureJson
-        | Query::ExportStructureOverlayDot
-        | Query::ExportStructureOverlayJson
-        | Query::ExportStructureOverlayTelemetryDot
-        | Query::ExportStructureOverlayTelemetryJson
+                    | Query::ExportStructureOverlayDot
+                    | Query::ExportStructureOverlayJson
+                    | Query::ExportStructureOverlayDotDepth(_)
+                    | Query::ExportStructureOverlayJsonDepth(_)
+                    | Query::ExportStructureOverlayTelemetryDot
+                    | Query::ExportStructureOverlayTelemetryJson
+                    | Query::ExportStructureOverlayTelemetryDotDepth(_)
+                    | Query::ExportStructureOverlayTelemetryJsonDepth(_)
         | Query::ExportEventDot
         | Query::ExportEventJson
         | Query::ExportEventDotHops(_)
@@ -4724,11 +4911,13 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::ExportEventStreamDotHops(_)
         | Query::ExportEventStreamJsonHops(_)
         | Query::Findings
+        | Query::FindingsCsv
         | Query::FindingsCount
         | Query::FindingsBySeverity(_)
         | Query::FindingsByKind(_)
         | Query::FindingsByKindCount(_)
         | Query::FindingsComposite
+        | Query::FindingsCompositeCsv
         | Query::FindingsCompositeCount
         | Query::FindingsWithChain
         | Query::FindingsBySeverityWithChain(_)
@@ -9537,9 +9726,19 @@ mod tests {
             apply_output_format(Query::ExportStructureOverlayDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportStructureOverlayJson));
         let query =
+            apply_output_format(Query::ExportStructureOverlayDotDepth(2), OutputFormat::Json)
+                .unwrap();
+        assert!(matches!(query, Query::ExportStructureOverlayJsonDepth(2)));
+        let query =
             apply_output_format(Query::ExportStructureOverlayTelemetryDot, OutputFormat::Json)
                 .unwrap();
         assert!(matches!(query, Query::ExportStructureOverlayTelemetryJson));
+        let query = apply_output_format(
+            Query::ExportStructureOverlayTelemetryDotDepth(2),
+            OutputFormat::Json,
+        )
+        .unwrap();
+        assert!(matches!(query, Query::ExportStructureOverlayTelemetryJsonDepth(2)));
 
         let query = apply_output_format(Query::ExportEventDot, OutputFormat::Json).unwrap();
         assert!(matches!(query, Query::ExportEventJson));
@@ -9561,15 +9760,29 @@ mod tests {
             apply_output_format(Query::ExportStructureOverlayJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportStructureOverlayDot));
         let query =
+            apply_output_format(Query::ExportStructureOverlayJsonDepth(2), OutputFormat::Dot)
+                .unwrap();
+        assert!(matches!(query, Query::ExportStructureOverlayDotDepth(2)));
+        let query =
             apply_output_format(Query::ExportStructureOverlayTelemetryJson, OutputFormat::Dot)
                 .unwrap();
         assert!(matches!(query, Query::ExportStructureOverlayTelemetryDot));
+        let query = apply_output_format(
+            Query::ExportStructureOverlayTelemetryJsonDepth(2),
+            OutputFormat::Dot,
+        )
+        .unwrap();
+        assert!(matches!(query, Query::ExportStructureOverlayTelemetryDotDepth(2)));
 
         let query = apply_output_format(Query::ExportEventJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportEventDot));
         let query = apply_output_format(Query::ExportEventStreamJson, OutputFormat::Dot).unwrap();
         assert!(matches!(query, Query::ExportEventStreamDot));
 
+        let query = apply_output_format(Query::Findings, OutputFormat::Csv).unwrap();
+        assert!(matches!(query, Query::FindingsCsv));
+        let query = apply_output_format(Query::FindingsComposite, OutputFormat::Csv).unwrap();
+        assert!(matches!(query, Query::FindingsCompositeCsv));
         let error = apply_output_format(Query::Urls, OutputFormat::Csv);
         assert!(error.is_err());
     }
@@ -10142,6 +10355,12 @@ mod tests {
         let query = parse_query("graph.structure.overlay.telemetry.json")
             .expect("structure overlay telemetry json query");
         assert!(matches!(query, Query::ExportStructureOverlayTelemetryJson));
+        let query =
+            parse_query("graph.structure.overlay.depth 2").expect("structure overlay depth query");
+        assert!(matches!(query, Query::ExportStructureOverlayDotDepth(2)));
+        let query = parse_query("graph.structure.overlay.telemetry.depth 2")
+            .expect("structure overlay telemetry depth query");
+        assert!(matches!(query, Query::ExportStructureOverlayTelemetryDotDepth(2)));
         let query = parse_query("graph.structure.depth 3").expect("structure depth query");
         assert!(matches!(query, Query::ExportStructureDotDepth(3)));
         let query = parse_query("graph.event").expect("event query");
@@ -10154,6 +10373,10 @@ mod tests {
         assert!(matches!(query, Query::ExportEventStreamJson));
         let query = parse_query("events.full").expect("events full query");
         assert!(matches!(query, Query::EventsFull));
+        let query = parse_query("findings.csv").expect("findings csv query");
+        assert!(matches!(query, Query::FindingsCsv));
+        let query = parse_query("findings.composite.csv").expect("findings composite csv query");
+        assert!(matches!(query, Query::FindingsCompositeCsv));
         let query = parse_query("runtime.caps").expect("runtime caps query");
         assert!(matches!(query, Query::RuntimeCaps));
         let query = parse_query("runtime.caps.json").expect("runtime caps alias query");
@@ -10325,6 +10548,57 @@ mod tests {
                 QueryResult::Structure(value) => {
                     assert_eq!(value["path_helpers"]["max_depth"], json!(2));
                     assert!(value["path_helpers"]["next_action_branches"].is_array());
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn graph_structure_overlay_depth_query_preserves_depth_in_json_output() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("graph.structure.overlay.depth 2").expect("query");
+            let query = apply_output_format(query, OutputFormat::Json).expect("format");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("query");
+            match result {
+                QueryResult::Structure(value) => {
+                    assert_eq!(value["path_helpers"]["max_depth"], json!(2));
+                    assert!(value.get("overlay").is_some());
+                }
+                other => panic!("Unexpected result type: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn findings_csv_query_returns_header_and_rows() {
+        with_fixture_context("actions/launch_cve_2010_1240.pdf", |ctx| {
+            let query = parse_query("findings.csv").expect("query");
+            let result = execute_query_with_context(
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("query");
+            match result {
+                QueryResult::List(rows) => {
+                    assert!(!rows.is_empty(), "csv output must include header");
+                    assert_eq!(
+                        rows[0],
+                        "id,kind,severity,impact,confidence,surface,title,description,objects,evidence_count,remediation,meta_json"
+                    );
+                    assert!(rows.len() > 1, "expected at least one finding row");
                 }
                 other => panic!("Unexpected result type: {:?}", other),
             }

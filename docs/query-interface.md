@@ -188,12 +188,17 @@ same graph output without changing baseline `graph.structure` behaviour:
 sis query sample.pdf graph.structure.overlay.json
 sis query sample.pdf graph.structure.overlay.dot
 sis query sample.pdf graph.structure.overlay.telemetry.json
+sis query sample.pdf "graph.structure.overlay.depth 2" --format json
+sis query sample.pdf "graph.structure.overlay.telemetry.depth 2" --format dot
 ```
 
 - `graph.structure.overlay*` includes pseudo nodes/edges for trailer, xref/startxref,
   revisions, ObjStm provenance, carved-stream provenance, and detached-object stats.
 - `graph.structure.overlay.telemetry*` additionally includes parser telemetry and signature
   pseudo nodes.
+- `graph.structure.overlay.depth N` and `graph.structure.overlay.telemetry.depth N`
+  apply the same depth cap semantics as `graph.structure.depth N` while preserving
+  overlay payloads.
 
 See `docs/query-overlay.md` for full node/edge schema and stats fields.
 
@@ -269,6 +274,14 @@ sis query sample.pdf xfa.scripts --extract-to /tmp/xfa-scripts
 sis query sample.pdf swf --extract-to /tmp/swf --decode
 sis query sample.pdf swf.extract --extract-to /tmp/swf
 sis query sample.pdf stream 1487 0 --extract-to /tmp/streams --decode
+```
+
+Findings CSV exports are available directly from query aliases:
+
+```bash
+sis query sample.pdf findings.csv
+sis query sample.pdf findings.composite.csv
+sis query sample.pdf findings --format csv
 ```
 
 For batch query mode, use `--jobs N` to cap worker concurrency:

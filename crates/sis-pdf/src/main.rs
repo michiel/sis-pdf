@@ -5642,12 +5642,8 @@ mod tests {
         let non_events = resolve_event_query_aliases(Some("findings".into()), true, false, None);
         assert!(non_events.is_err());
 
-        let level_with_count = resolve_event_query_aliases(
-            Some("events".into()),
-            false,
-            true,
-            Some("page".into()),
-        );
+        let level_with_count =
+            resolve_event_query_aliases(Some("events".into()), false, true, Some("page".into()));
         assert!(level_with_count.is_err());
     }
 }

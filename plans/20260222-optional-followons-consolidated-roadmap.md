@@ -1213,6 +1213,16 @@ items complete. Format:
   - deep+large-file auto-clamp path reduces workers to limit memory pressure.
 - Implemented `E3 / OF-REL-01` process scaffolding:
   - added explicit phase-gate execution records and initial Phase 0 pass entry.
+- Implemented `B4 / OF-OV-01`:
+  - added `graph.structure.overlay.depth N` and
+    `graph.structure.overlay.telemetry.depth N` query variants with
+    json/dot coercion parity.
+- Implemented a slice of `B7 / OF-CSV-01`:
+  - added findings CSV queries:
+    - `findings.csv`
+    - `findings.composite.csv`
+    - `findings --format csv`
+    - `findings.composite --format csv`
 
 ## Phase gate records
 
@@ -1249,10 +1259,10 @@ items complete. Format:
 - [ ] D3: `OF-BATCH-01` Parallel batch processing *(in progress: --jobs + caps/clamp landed)*
 
 ### Phase 3
-- [ ] B4: `OF-OV-01` Overlay depth query
+- [x] B4: `OF-OV-01` Overlay depth query
 - [ ] B5: `OF-OV-02` Event-graph anchors
 - [ ] B6: `OF-OV-03` GUI overlay integration
-- [ ] B7: `OF-CSV-01` Findings CSV export
+- [ ] B7: `OF-CSV-01` Findings CSV export *(in progress: findings and findings.composite CSV landed)*
 - [ ] D4: `OF-DIAG-01` Structured diagnostics
 
 ### Phase 4
