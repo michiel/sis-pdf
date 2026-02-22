@@ -1242,6 +1242,9 @@ items complete. Format:
   - `events.full` now emits both:
     - `finding_event_index` (existing direction),
     - `event_finding_index` (new reverse direction).
+- Implemented `D1 / OF-QUERY-01` decomposition slice:
+  - extracted CSV query helpers into `crates/sis-pdf/src/commands/query/csv.rs`;
+  - `query.rs` now delegates findings CSV row generation via submodule import.
 
 ## Phase gate records
 
@@ -1263,7 +1266,7 @@ items complete. Format:
 - [x] E3: `OF-REL-01` Rollback playbook
 
 ### Phase 1
-- [ ] D1: `OF-QUERY-01` query module decomposition
+- [ ] D1: `OF-QUERY-01` query module decomposition *(in progress: CSV helpers extracted to submodule)*
 - [ ] A1: `OF-CS-01` Do recursion tracer
 - [ ] A2: `OF-CS-02` Inline image anomaly detector
 - [ ] A3: `OF-CS-03` Per-page execution summary query
