@@ -1226,6 +1226,11 @@ items complete. Format:
 - Implemented `D4 / OF-DIAG-01` CI gate slice:
   - quality gates now fail when any runtime-profile detector exceeds 20 ms
     on the CVE fixture.
+- Completed `D4 / OF-DIAG-01` schema/docs hardening:
+  - added runtime-profile regression coverage in
+    `crates/sis-pdf-core/tests/runtime_profile.rs` for detector metric field stability;
+  - documented the per-detector `duration_ms <= 20` CI gate parsing flow
+    in `docs/performance.md`.
 - Implemented `C4 / OF-NAT-04` CI slice:
   - quality gates now include macOS and Windows native GUI build jobs
     (`cargo build -p sis-pdf --features gui`).
@@ -1312,7 +1317,7 @@ items complete. Format:
 - [ ] B5: `OF-OV-02` Event-graph anchors
 - [ ] B6: `OF-OV-03` GUI overlay integration
 - [x] B7: `OF-CSV-01` Findings CSV export
-- [ ] D4: `OF-DIAG-01` Structured diagnostics *(in progress: per-detector CI budget gate landed)*
+- [x] D4: `OF-DIAG-01` Structured diagnostics
 
 ### Phase 4
 - [ ] C1: `OF-NAT-01` Analysis threading

@@ -110,6 +110,13 @@ Current baseline notes:
 
 - `diff_large_input_budget`: passes in `~1.49s` for `100k` findings per side (gate: `<=2.0s`).
 - Runtime profile command for `launch_cve_2010_1240.pdf` remains the canonical parse/detection SLO check (`parse <=10ms`, `detection <=50ms`).
+- Per-detector runtime gate in CI enforces `duration_ms <= 20` for every row in the
+  `detectors` array from `--runtime-profile-format json`:
+
+```bash
+slow_detector_count=$(jq '[.detectors[] | select((.duration_ms // 0) > 20)] | length' runtime-profile.json)
+test "${slow_detector_count}" -eq 0
+```
 
 ## WASM GUI benchmark guard
 

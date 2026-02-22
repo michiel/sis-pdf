@@ -36,3 +36,37 @@ fn profile_json_honours_slo() {
     let detectors = json["detectors"].as_array().expect("detectors array");
     assert!(!detectors.is_empty(), "expected at least one detector in profile");
 }
+
+#[test]
+fn profile_json_detector_entries_expose_stable_metrics() {
+    let path = profile_path();
+    let contents =
+        fs::read_to_string(&path).unwrap_or_else(|_| panic!("Failed to read {}", path.display()));
+    let json: Value = serde_json::from_str(&contents).expect("valid profile JSON");
+    let detectors = json["detectors"].as_array().expect("detectors array");
+
+    assert!(!detectors.is_empty(), "expected detector telemetry rows");
+    let zero_finding_rows = detectors
+        .iter()
+        .filter(|entry| entry["findings_count"].as_u64() == Some(0))
+        .count();
+    assert!(
+        zero_finding_rows > 0,
+        "expected at least one detector row with findings_count=0 for schema stability"
+    );
+
+    for entry in detectors {
+        assert!(
+            entry["id"].as_str().is_some_and(|id| !id.is_empty()),
+            "detector id missing or empty"
+        );
+        assert!(
+            entry["duration_ms"].as_u64().is_some(),
+            "detector duration_ms missing or not numeric"
+        );
+        assert!(
+            entry["findings_count"].as_u64().is_some(),
+            "detector findings_count missing or not numeric"
+        );
+    }
+}
