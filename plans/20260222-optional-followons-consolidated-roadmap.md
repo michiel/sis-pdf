@@ -1293,6 +1293,12 @@ items complete. Format:
     capture + non-empty/non-monochrome assertions);
   - wired quality-gates CI smoke step with retry semantics and failure artefact
     upload (`tmp/gui-smoke`).
+- Completed `C1 / OF-NAT-01` native analysis threading:
+  - native analysis now runs on a background thread with request-id matching and
+    stale-result suppression;
+  - new file/path dispatch drops stale in-flight channels to keep latest-request
+    semantics deterministic;
+  - confirmed `sis-pdf-gui` builds on both native and `wasm32-unknown-unknown`.
 
 ## Phase gate records
 
@@ -1336,7 +1342,7 @@ items complete. Format:
 - [x] D4: `OF-DIAG-01` Structured diagnostics
 
 ### Phase 4
-- [ ] C1: `OF-NAT-01` Analysis threading
+- [x] C1: `OF-NAT-01` Analysis threading
 - [x] C2: `OF-NAT-02` Screenshot CI
 - [ ] C3: `OF-NAT-03` Packaging
 - [ ] C4: `OF-NAT-04` macOS/Windows GUI targets *(in progress: quality-gates + release-cli GUI builds landed)*

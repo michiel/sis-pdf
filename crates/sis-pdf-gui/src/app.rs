@@ -14,6 +14,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 #[cfg(target_arch = "wasm32")]
 use std::rc::Rc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+#[cfg(not(target_arch = "wasm32"))]
+use std::thread;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
@@ -146,6 +150,12 @@ pub struct SisApp {
     #[cfg(target_arch = "wasm32")]
     analysis_worker_onmessageerror:
         Option<wasm_bindgen::closure::Closure<dyn FnMut(web_sys::Event)>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    native_analysis_rx: Option<Receiver<NativeAnalysisOutcome>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    active_native_request_id: Option<u64>,
+    #[cfg(not(target_arch = "wasm32"))]
+    next_native_request_id: u64,
 }
 
 #[derive(Default, Clone)]
@@ -196,6 +206,12 @@ enum WorkerAnalysisOutcome {
     Err(String),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+enum NativeAnalysisOutcome {
+    Ok { request_id: u64, result: AnalysisResult },
+    Err { request_id: u64, error: AnalysisError },
+}
+
 pub struct SeverityFilters {
     pub critical: bool,
     pub high: bool,
@@ -240,6 +256,9 @@ pub enum AppState {
     LoadingPath { file_name: String, path: PathBuf, shown_once: bool },
     /// Analysis is queued (renders spinner on next frame).
     Analysing { file_name: String, bytes: Vec<u8>, shown_once: bool },
+    #[cfg(not(target_arch = "wasm32"))]
+    /// Analysis has been dispatched to a native worker thread.
+    AnalysingNative { file_name: String, request_id: u64 },
     #[cfg(target_arch = "wasm32")]
     /// Analysis has been dispatched to the browser worker and is still running.
     AnalysingWorker { file_name: String, bytes: Vec<u8>, request_bytes: usize, started_ms: f64 },
@@ -368,6 +387,12 @@ impl SisApp {
             analysis_worker_onerror: None,
             #[cfg(target_arch = "wasm32")]
             analysis_worker_onmessageerror: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            native_analysis_rx: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            active_native_request_id: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            next_native_request_id: 1,
         }
     }
 
@@ -376,6 +401,11 @@ impl SisApp {
     pub fn handle_file_drop(&mut self, name: String, bytes: &[u8]) {
         self.error = None;
         self.pending_file_path = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.native_analysis_rx = None;
+            self.active_native_request_id = None;
+        }
         self.app_state =
             AppState::Analysing { file_name: name, bytes: bytes.to_vec(), shown_once: false };
     }
@@ -383,23 +413,41 @@ impl SisApp {
     /// Queue a file path for loading before analysis.
     pub fn handle_file_path_drop(&mut self, file_name: String, path: PathBuf) {
         self.error = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.native_analysis_rx = None;
+            self.active_native_request_id = None;
+        }
         self.pending_file_path = Some(path.clone());
         self.app_state = AppState::LoadingPath { file_name, path, shown_once: false };
     }
 
-    /// Run analysis and open the result as a new tab.
     #[cfg(not(target_arch = "wasm32"))]
-    fn process_analysis(&mut self, name: String, bytes: &[u8]) {
-        let file_size = bytes.len();
+    fn dispatch_native_analysis(
+        &mut self,
+        file_name: String,
+        bytes: Vec<u8>,
+    ) -> Result<u64, AnalysisError> {
+        let request_id = self.next_native_request_id;
+        self.next_native_request_id = self.next_native_request_id.saturating_add(1);
+        let (tx, rx) = mpsc::channel::<NativeAnalysisOutcome>();
+        self.native_analysis_rx = Some(rx);
+        self.active_native_request_id = Some(request_id);
 
-        match crate::analysis::analyze(bytes, &name) {
-            Ok(result) => {
-                self.open_analysis_result(name, file_size, result);
-            }
-            Err(err) => {
-                self.error = Some(err);
-            }
-        }
+        thread::Builder::new()
+            .name(format!("sis-analysis-{request_id}"))
+            .spawn(move || {
+                let outcome = match crate::analysis::analyze(&bytes, &file_name) {
+                    Ok(result) => NativeAnalysisOutcome::Ok { request_id, result },
+                    Err(error) => NativeAnalysisOutcome::Err { request_id, error },
+                };
+                let _ = tx.send(outcome);
+            })
+            .map_err(|err| {
+                AnalysisError::ParseFailed(format!("Failed to start analysis thread: {err}"))
+            })?;
+
+        Ok(request_id)
     }
 
     /// WASM fallback: run analysis on the UI thread when worker orchestration fails.
@@ -1199,6 +1247,48 @@ impl eframe::App for SisApp {
         self.elapsed_time += dt;
         self.telemetry.record_frame_time(dt);
 
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let maybe_outcome = match self.native_analysis_rx.as_ref() {
+                Some(rx) => match rx.try_recv() {
+                    Ok(outcome) => Some(outcome),
+                    Err(TryRecvError::Empty) => None,
+                    Err(TryRecvError::Disconnected) => {
+                        self.native_analysis_rx = None;
+                        self.active_native_request_id = None;
+                        self.app_state = AppState::Idle;
+                        self.error = Some(AnalysisError::ParseFailed(
+                            "Native analysis worker disconnected unexpectedly".to_string(),
+                        ));
+                        None
+                    }
+                },
+                None => None,
+            };
+
+            if let Some(outcome) = maybe_outcome {
+                self.native_analysis_rx = None;
+                match outcome {
+                    NativeAnalysisOutcome::Ok { request_id, result } => {
+                        if accepts_native_request(self.active_native_request_id, request_id) {
+                            self.active_native_request_id = None;
+                            self.app_state = AppState::Idle;
+                            let file_name = result.file_name.clone();
+                            let file_size = result.file_size;
+                            self.open_analysis_result(file_name, file_size, result);
+                        }
+                    }
+                    NativeAnalysisOutcome::Err { request_id, error } => {
+                        if accepts_native_request(self.active_native_request_id, request_id) {
+                            self.active_native_request_id = None;
+                            self.app_state = AppState::Idle;
+                            self.error = Some(error);
+                        }
+                    }
+                }
+            }
+        }
+
         #[cfg(target_arch = "wasm32")]
         {
             let maybe_upload = self.pending_upload.borrow_mut().take();
@@ -1279,6 +1369,10 @@ impl eframe::App for SisApp {
                 Some(("Loading PDF".to_string(), file_name.clone()))
             }
             AppState::Analysing { file_name, .. } => {
+                Some(("Processing PDF".to_string(), file_name.clone()))
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            AppState::AnalysingNative { file_name, .. } => {
                 Some(("Processing PDF".to_string(), file_name.clone()))
             }
             #[cfg(target_arch = "wasm32")]
@@ -1414,6 +1508,8 @@ impl eframe::App for SisApp {
                         false
                     }
                 }
+                #[cfg(not(target_arch = "wasm32"))]
+                AppState::AnalysingNative { .. } => false,
                 #[cfg(target_arch = "wasm32")]
                 AppState::AnalysingWorker { .. } => false,
                 AppState::Idle => false,
@@ -1451,7 +1547,14 @@ impl eframe::App for SisApp {
                 }
                 AppState::Analysing { file_name, bytes, .. } => {
                     #[cfg(not(target_arch = "wasm32"))]
-                    self.process_analysis(file_name, &bytes);
+                    match self.dispatch_native_analysis(file_name.clone(), bytes) {
+                        Ok(request_id) => {
+                            self.app_state = AppState::AnalysingNative { file_name, request_id };
+                        }
+                        Err(error) => {
+                            self.error = Some(error);
+                        }
+                    }
                     #[cfg(target_arch = "wasm32")]
                     match self.dispatch_worker_analysis(file_name.clone(), &bytes) {
                         Ok(request_bytes) => {
@@ -1472,6 +1575,10 @@ impl eframe::App for SisApp {
                         }
                     }
                 }
+                #[cfg(not(target_arch = "wasm32"))]
+                AppState::AnalysingNative { file_name, request_id } => {
+                    self.app_state = AppState::AnalysingNative { file_name, request_id };
+                }
                 #[cfg(target_arch = "wasm32")]
                 AppState::AnalysingWorker { file_name, bytes, request_bytes, started_ms } => {
                     self.app_state =
@@ -1481,6 +1588,11 @@ impl eframe::App for SisApp {
             }
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn accepts_native_request(active_request_id: Option<u64>, incoming_request_id: u64) -> bool {
+    active_request_id == Some(incoming_request_id)
 }
 
 fn show_analysis_progress_overlay(ctx: &egui::Context, phase: &str, file_name: &str) {
@@ -1527,4 +1639,18 @@ fn show_analysis_progress_overlay(ctx: &egui::Context, phase: &str, file_name: &
                 });
             });
         });
+}
+
+#[cfg(test)]
+mod native_tests {
+    #[cfg(not(target_arch = "wasm32"))]
+    use super::accepts_native_request;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn accepts_native_request_requires_matching_active_id() {
+        assert!(accepts_native_request(Some(7), 7));
+        assert!(!accepts_native_request(Some(7), 8));
+        assert!(!accepts_native_request(None, 7));
+    }
 }

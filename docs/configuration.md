@@ -113,6 +113,7 @@ Behavioural parity expectations:
 
 - File-open, clipboard, and drag-drop behaviour should be treated as equivalent across Linux/macOS/Windows for analyst workflows.
 - Path rendering and path-based errors should be normalised through Rust `Path` handling, not string concatenation assumptions.
+- Native GUI analysis executes on a background worker thread so the UI remains responsive during deep scans.
 
 ### Example
 
