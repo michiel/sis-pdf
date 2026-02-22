@@ -55,6 +55,12 @@ test = false
 doc = false
 
 [[bin]]
+name = "do_chain_recursion"
+path = "fuzz_targets/do_chain_recursion.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "font"
 path = "fuzz_targets/font.rs"
 test = false
@@ -69,6 +75,12 @@ doc = false
 [[bin]]
 name = "image_metadata"
 path = "fuzz_targets/image_metadata.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "inline_image_parse"
+path = "fuzz_targets/inline_image_parse.rs"
 test = false
 doc = false
 
@@ -111,6 +123,12 @@ doc = false
 [[bin]]
 name = "swf_header"
 path = "fuzz_targets/swf_header.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "type3_charproc"
+path = "fuzz_targets/type3_charproc.rs"
 test = false
 doc = false
 
