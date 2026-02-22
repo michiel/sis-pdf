@@ -355,3 +355,33 @@ fn test_content_stream_exec_event() {
         "content stream event label should include page and stream refs, got: {label}"
     );
 }
+
+#[test]
+fn test_content_stream_exec_event_count_matches_contents_array_length() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents [4 0 R 5 0 R 4 0 R] >>\nendobj\n"
+            .to_string(),
+        "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n".to_string(),
+        "5 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n".to_string(),
+    ];
+    let bytes = build_pdf(&objects, 6);
+    let event_graph = event_graph_for_pdf(&bytes);
+
+    let content_stream_events = event_graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. }
+            )
+        })
+        .count();
+
+    assert_eq!(
+        content_stream_events, 2,
+        "expected one ContentStreamExec event per unique /Contents target reference"
+    );
+}

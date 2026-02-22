@@ -5,7 +5,7 @@
 use crate::classification::{ClassificationMap, PdfObjectType};
 use crate::graph::{ObjEntry, ObjectGraph};
 use crate::object::{PdfAtom, PdfDict, PdfObj};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Type of edge in the PDF reference graph
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -416,7 +416,7 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
 
         // /Contents
         if let Some((_, obj)) = dict.get_first(b"/Contents") {
-            if let Some(dst) = self.resolve_ref(obj) {
+            for dst in self.collect_page_content_targets(obj) {
                 let edge = TypedEdge::new(src, dst, EdgeType::PageContents);
                 self.edges.push(edge);
             }
@@ -704,6 +704,29 @@ impl<'a, 'b> EdgeExtractor<'a, 'b> {
         }
     }
 
+    fn collect_page_content_targets(&self, obj: &PdfObj<'a>) -> Vec<(u32, u16)> {
+        let mut targets = Vec::new();
+        let mut seen = HashSet::<(u32, u16)>::new();
+        match &obj.atom {
+            PdfAtom::Ref { obj, gen } => {
+                if seen.insert((*obj, *gen)) {
+                    targets.push((*obj, *gen));
+                }
+            }
+            PdfAtom::Array(items) => {
+                for item in items {
+                    if let Some(dst) = self.resolve_ref(item) {
+                        if seen.insert(dst) {
+                            targets.push(dst);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        targets
+    }
+
     /// Extracts generic dictionary references
     fn extract_generic_dict_edges(
         &mut self,
@@ -819,6 +842,50 @@ fn is_form_field_dict(dict: &PdfDict<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{parse_pdf, ParseOptions};
+
+    fn build_pdf(objects: &[String], size: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(b"%PDF-1.4\n");
+        let mut offsets = vec![0usize; size];
+        for object in objects {
+            let id = object
+                .split_whitespace()
+                .next()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(0);
+            if id < offsets.len() {
+                offsets[id] = out.len();
+            }
+            out.extend_from_slice(object.as_bytes());
+        }
+        let startxref = out.len();
+        out.extend_from_slice(format!("xref\n0 {}\n", size).as_bytes());
+        out.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        out.extend_from_slice(
+            format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n", size).as_bytes(),
+        );
+        out.extend_from_slice(startxref.to_string().as_bytes());
+        out.extend_from_slice(b"\n%%EOF\n");
+        out
+    }
+
+    fn parse_options() -> ParseOptions {
+        ParseOptions {
+            recover_xref: true,
+            deep: false,
+            strict: false,
+            max_objstm_bytes: 1024 * 1024,
+            max_objects: 10_000,
+            max_objstm_total_bytes: 10 * 1024 * 1024,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
+        }
+    }
 
     #[test]
     fn test_edge_type() {
@@ -839,5 +906,71 @@ mod tests {
         assert_eq!(edge.dst, (2, 0));
         assert!(edge.suspicious); // OpenAction is suspicious
         assert_eq!(edge.weight, 1.0);
+    }
+
+    #[test]
+    fn page_contents_single_ref_emits_one_edge() {
+        let objects = vec![
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+            "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents 4 0 R >>\nendobj\n".to_string(),
+            "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n".to_string(),
+        ];
+        let bytes = build_pdf(&objects, 5);
+        let graph = parse_pdf(&bytes, parse_options()).expect("parse pdf");
+        let classifications = graph.classify_objects();
+        let typed = TypedGraph::build(&graph, &classifications);
+
+        let page_contents = typed
+            .edges
+            .iter()
+            .filter(|edge| edge.src == (3, 0) && matches!(edge.edge_type, EdgeType::PageContents))
+            .collect::<Vec<_>>();
+        assert_eq!(page_contents.len(), 1);
+        assert_eq!(page_contents[0].dst, (4, 0));
+    }
+
+    #[test]
+    fn page_contents_array_emits_edges_for_all_unique_refs() {
+        let objects = vec![
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+            "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /Contents [4 0 R 5 0 R 4 0 R] >>\nendobj\n"
+                .to_string(),
+            "4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n".to_string(),
+            "5 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n".to_string(),
+        ];
+        let bytes = build_pdf(&objects, 6);
+        let graph = parse_pdf(&bytes, parse_options()).expect("parse pdf");
+        let classifications = graph.classify_objects();
+        let typed = TypedGraph::build(&graph, &classifications);
+
+        let mut targets = typed
+            .edges
+            .iter()
+            .filter(|edge| edge.src == (3, 0) && matches!(edge.edge_type, EdgeType::PageContents))
+            .map(|edge| edge.dst)
+            .collect::<Vec<_>>();
+        targets.sort_unstable();
+        assert_eq!(targets, vec![(4, 0), (5, 0)]);
+    }
+
+    #[test]
+    fn page_missing_contents_emits_no_page_contents_edge() {
+        let objects = vec![
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+            "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n".to_string(),
+        ];
+        let bytes = build_pdf(&objects, 4);
+        let graph = parse_pdf(&bytes, parse_options()).expect("parse pdf");
+        let classifications = graph.classify_objects();
+        let typed = TypedGraph::build(&graph, &classifications);
+        let page_contents_count = typed
+            .edges
+            .iter()
+            .filter(|edge| edge.src == (3, 0) && matches!(edge.edge_type, EdgeType::PageContents))
+            .count();
+        assert_eq!(page_contents_count, 0);
     }
 }

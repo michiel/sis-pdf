@@ -12,6 +12,29 @@ Assess current `ContentStreamExec` coverage, define gaps, and provide an impleme
 3. Extend stream-focused detection where current analysis is shallow.
 4. Keep existing behaviour stable by default while adding optional depth.
 
+## Implementation progress
+
+Last updated: 2026-02-22
+
+Completed in this cycle:
+1. Stage 1 `/Contents` array coverage fix implemented in `typed_graph.rs`.
+   - `extract_page_edges()` now collects all unique `/Contents` reference targets.
+   - Duplicate refs in `/Contents` arrays are deduplicated per page.
+2. Stage 1 tests added and passing:
+   - `typed_graph::tests::page_contents_single_ref_emits_one_edge`
+   - `typed_graph::tests::page_contents_array_emits_edges_for_all_unique_refs`
+   - `typed_graph::tests::page_missing_contents_emits_no_page_contents_edge`
+   - `test_content_stream_exec_event_count_matches_contents_array_length`
+3. Formatting and targeted regression commands executed successfully:
+   - `cargo fmt --all`
+   - `cargo test -p sis-pdf-pdf typed_graph::tests::page_ -- --nocapture`
+   - `cargo test -p sis-pdf-core --test event_graph_outcomes test_content_stream_exec_event -- --nocapture`
+
+In progress / pending:
+1. Stage 0 baseline metrics table and `get_first` scope audit documentation.
+2. Stage 0 dedicated non-regression baseline test.
+3. Stages 2-6 are not yet implemented.
+
 ## Assumptions
 
 1. Current default behaviour must remain stable for existing users and automation.
@@ -40,7 +63,8 @@ All stages are feasible with the current codebase. Key findings from the audit:
 - **Stage 5**: `correlation.rs` defines 15+ correlators following a standard pattern —
   `correlate_findings(findings, config) → Vec<Finding>`. The new stream correlator integrates
   here without new infrastructure. Individual stream detectors fit naturally in
-  `sis-pdf-detectors/src/content_first.rs` which already handles content stream analysis.
+  existing stream-focused detector modules (`parser_divergence.rs`,
+  `resource_usage_semantics.rs`) to avoid ownership fragmentation.
 
 ## Current Coverage (Observed)
 
@@ -181,9 +205,9 @@ All stages are feasible with the current codebase. Key findings from the audit:
 Run the following against the CVE fixture and at least two multi-page fixtures:
 
 ```
-sis query events.count crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf
-sis query events.full  crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf \
-  | jq '[.events[] | select(.event_type == "ContentStreamExec")] | length'
+sis query crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf events.count --format json
+sis query crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf events.full --format json \
+  | jq '[.result.events[] | select(.event_type == "ContentStreamExec")] | length'
 ```
 
 Record in this plan:
@@ -216,9 +240,9 @@ Acceptance criteria:
 Replace the single-ref extraction at `typed_graph.rs:418-422` with logic that handles both:
 - `PdfObject::Ref(obj, gen)` — resolve directly, emit one `PageContents` edge.
 - `PdfObject::Array(items)` — iterate, resolve each item ref, emit one edge per resolved target.
-- Direct stream (object has no indirect ref wrapper) — emit edge using the page dict's own
-  object ID as a synthetic anchor (page → self edge), or skip if not resolvable, but document
-  the decision.
+- Direct stream (object has no indirect ref wrapper) — do not emit a synthetic self-edge.
+  Record this case in Stage 0 metrics as `contents_direct_stream_count` and keep behaviour
+  explicit/documented until a dedicated pseudo-node strategy is designed.
 
 The `/Annots` extraction at `typed_graph.rs:434-442` is the reference implementation — use the
 same branching pattern.
@@ -289,18 +313,20 @@ Default impl: both new flags `false`. All existing call sites that use
 
 In the event graph builder, when `include_xobject_exec` is set:
 
-1. Iterate `typed_graph.edges` for `EdgeType::XObjectReference` edges.
-2. Look up the destination node's classification. If the destination object has
-   `PdfObjectType` that indicates a Form XObject (Subtype `/Form`), emit a
+1. Derive candidate Form XObject targets from `typed_graph.edges` where
+   `edge_type == EdgeType::XObjectReference` and destination classification indicates
+   Form XObject (`/Subtype /Form`).
+2. Confirm execution by resolving `Do` operator usage in the source page/form content stream(s)
+   and matching referenced resource names to the candidate target object refs.
+3. Only for confirmed matches, emit a
    `ContentStreamExec` event with:
    - `source_obj`: the page or resource dict object that holds the `/XObject` resource.
    - `event_key`: `"xobject.form"`.
    - `trigger`: `TriggerClass::Automatic` (form XObjects execute during page rendering).
    - An `Executes` edge to the form XObject's object node.
-3. Use deterministic IDs: `ev:{src.obj}:{src.gen}:ContentStreamExec:xobj:{counter}`.
+4. Use deterministic IDs: `ev:{src.obj}:{src.gen}:ContentStreamExec:xobj:{counter}`.
 
-Do not parse `Do` operands at the event-graph layer; the typed graph's existing
-`XObjectReference` edges already provide the resolved (src, dst) pairs.
+Note: `XObjectReference` alone represents declared reachability, not confirmed runtime invocation.
 
 ### S2.3 Type3 charproc execution events
 
@@ -395,16 +421,19 @@ pub struct ResourceRef {
 }
 ```
 
-Populate `stream_exec` in `extract_event_records()` for nodes where
-`event_type == ContentStreamExec`, by requesting the decoded content operators for the
-execute-target stream object from the typed graph context passed in.
+Populate `stream_exec` for `ContentStreamExec` nodes via an explicit data-flow:
+1. Build stream summaries from `ScanContext` + execute-target object refs in a dedicated core
+   helper (for example `stream_exec_projection.rs`).
+2. Pass those summaries into `event_projection.rs` as a map keyed by event node ID.
+3. Keep `event_projection.rs` as projection/merge logic only (no decoding side effects).
 
-The projection is opt-in: add a `ProjectionOptions` argument to `extract_event_records()`:
+The projection is opt-in. Use a new entrypoint to avoid breaking existing callers:
 
 ```rust
-pub fn extract_event_records(
+pub fn extract_event_records_with_projection(
     event_graph: &EventGraph,
     projection: &ProjectionOptions,
+    stream_summaries: Option<&BTreeMap<String, StreamExecSummary>>,
 ) -> Vec<EventRecord>
 
 pub struct ProjectionOptions {
@@ -412,8 +441,8 @@ pub struct ProjectionOptions {
 }
 ```
 
-All existing callers pass `ProjectionOptions::default()` (summary disabled). The CLI
-`events.full` call can opt in immediately.
+`extract_event_records(event_graph)` remains unchanged and delegates to the new function with
+defaults, preserving backwards compatibility.
 
 ### S3.4 Extend `events.full` JSON output
 
@@ -469,9 +498,10 @@ Acceptance criteria:
 Add the following parse cases in `query.rs` following the existing `graph.event` pattern:
 
 ```
-graph.event.stream          → JSON overlay graph (operator clusters and resource refs)
+graph.event.stream          → dot/text overlay graph (operator clusters and resource refs)
+graph.event.stream.json     → JSON overlay graph
 graph.event.stream.dot      → DOT format overlay
-graph.event.stream.hops N   → hop-limited overlay JSON
+graph.event.stream.hops N   → hop-limited overlay export (format-aware)
 ```
 
 ### S4.2 Pseudo-node and edge scheme
@@ -496,7 +526,7 @@ Overlay edges:
 
 ### S4.3 Suspicious edge scoring
 
-Replace the boolean `suspicious` flag in `GraphEdge` with a `SuspicionScore`:
+Add a scored field while preserving the existing boolean compatibility field:
 
 ```rust
 pub enum SuspicionScore {
@@ -507,9 +537,9 @@ pub enum SuspicionScore {
 }
 ```
 
+`GraphEdge` keeps `suspicious: bool` and adds `suspicion_score: SuspicionScore`.
 Existing edges that were boolean-`true` are mapped to `Medium { reason: "executes" }` or
-`High { reason: "produces_outcome" }`. The GUI renders colour intensity from the score level.
-No visual change for existing layouts; the scoring is richer but backward-compatible.
+`High { reason: "produces_outcome" }`. GUI renders colour intensity from the score level.
 
 ### S4.4 Caps and truncation
 
@@ -534,7 +564,7 @@ Acceptance criteria:
 ### S5.1 `correlate_content_stream_exec_outcome_alignment` (correlator)
 
 **Finding kind**: `content_stream_exec_outcome_alignment`
-**Surface**: `AttackSurface::ContentAnalysis`
+**Surface**: `AttackSurface::FileStructure`
 **Severity**: `High`
 **Confidence**: `Strong`
 
@@ -543,7 +573,7 @@ Add to `correlation.rs` following the existing correlator pattern. Register in
 `content_stream_exec_alignment_enabled` (default `true`).
 
 Trigger condition: a `ContentStreamExec` event node and a high-risk outcome node
-(`CodeExecution`, `NetworkEgress`, or `DataExfiltration`) are connected by a path
+(`CodeExecution`, `NetworkEgress`, `FormSubmission`, or `ExternalLaunch`) are connected by a path
 of length ≤ 3 in the event graph, AND at least one stream-op anomaly finding is
 linked to the intermediate nodes.
 
@@ -556,7 +586,7 @@ Evidence metadata:
 ### S5.2 `content_stream_gstate_abuse` detector
 
 **Finding kind**: `content_stream_gstate_abuse`
-**Surface**: `AttackSurface::ContentStream`
+**Surface**: `AttackSurface::FileStructure`
 **Severity**: `Medium`
 **Confidence**: `Probable`
 
@@ -575,7 +605,7 @@ Metadata keys:
 ### S5.3 `content_stream_marked_evasion` detector
 
 **Finding kind**: `content_stream_marked_evasion`
-**Surface**: `AttackSurface::ContentStream`
+**Surface**: `AttackSurface::FileStructure`
 **Severity**: `Medium`
 **Confidence**: `Tentative`
 
@@ -596,7 +626,7 @@ Metadata keys:
 ### S5.4 `content_stream_resource_name_obfuscation` detector
 
 **Finding kind**: `content_stream_resource_name_obfuscation`
-**Surface**: `AttackSurface::ContentStream`
+**Surface**: `AttackSurface::FileStructure`
 **Severity**: `Low`
 **Confidence**: `Tentative`
 
@@ -743,15 +773,13 @@ infrastructure.
    Mitigation: start with `Tentative` or `Probable` confidence; calibrate thresholds against
    clean corpus before raising; document exclusion conditions explicitly.
 
-6. Risk: `event_projection.rs` `extract_event_records()` signature change (adding
-   `ProjectionOptions`) breaks existing callers.
-   Mitigation: `ProjectionOptions::default()` disables all new fields; all existing callers
-   pass the default and observe no behaviour change.
+6. Risk: introducing projection options causes API churn for existing event projection callers.
+   Mitigation: keep `extract_event_records(event_graph)` unchanged as a compatibility wrapper;
+   add `extract_event_records_with_projection(...)` for opt-in callers only.
 
-7. Risk: `SuspicionScore` change in `GraphEdge` (Stage 4) breaks graph serialisation tests.
-   Mitigation: keep the boolean `suspicious` field as a derived getter (`suspicious() -> bool`
-   for backward-compatible test assertions; add `suspicion_score` as a new field rather than
-   replacing the old one.
+7. Risk: `SuspicionScore` addition in `GraphEdge` (Stage 4) breaks graph serialisation tests.
+   Mitigation: keep the existing `suspicious: bool` field unchanged; add
+   `suspicion_score` as an additive field and update tests incrementally.
 
 ## Out of Scope (for this plan)
 
@@ -766,14 +794,14 @@ infrastructure.
 
 - [ ] Stage 0: baseline metrics recorded; non-regression test committed; `get_first` audit
       complete.
-- [ ] Stage 1: `/Contents` array coverage fixed; unit and integration tests passing; baseline
-      delta documented.
+- [x] Stage 1: `/Contents` array coverage fixed; unit and integration tests passing.
+- [ ] Stage 1 follow-up: baseline delta documented in Stage 0 metrics table.
 - [ ] Stage 2: form XObject and Type3 execution surfaces behind `EventGraphOptions` flags;
       synthetic fixture tests passing.
 - [ ] Stage 3: `StreamExecSummary` in `EventRecord`; `events.full` includes stream section;
       performance budget test passing.
 - [ ] Stage 4: `graph.event.stream` query implemented; overlay node/edge schema documented;
-      `SuspicionScore` replacing boolean suspicious flag.
+      additive `SuspicionScore` field implemented with backward-compatible `suspicious: bool`.
 - [ ] Stage 5: four detectors implemented and calibrated; correlator integrated in
       `correlation.rs`; corpus regression clean.
 - [ ] Stage 6: `docs/query-interface.md`, `docs/findings.md`, and CSV schema updated.
