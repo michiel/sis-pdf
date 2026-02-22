@@ -81,6 +81,13 @@ fn build_pdf(objects: &[String], size: usize) -> Vec<u8> {
 }
 
 fn event_graph_for_pdf(bytes: &[u8]) -> sis_pdf_core::event_graph::EventGraph {
+    event_graph_for_pdf_with_options(bytes, EventGraphOptions::default())
+}
+
+fn event_graph_for_pdf_with_options(
+    bytes: &[u8],
+    options: EventGraphOptions,
+) -> sis_pdf_core::event_graph::EventGraph {
     let graph = parse_pdf(bytes, parse_options()).expect("parse pdf");
     let ctx = sis_pdf_core::scan::ScanContext::new(bytes, graph, scan_options());
     let typed = ctx.build_typed_graph();
@@ -91,7 +98,7 @@ fn event_graph_for_pdf(bytes: &[u8]) -> sis_pdf_core::event_graph::EventGraph {
     )
     .expect("scan")
     .findings;
-    build_event_graph(&typed, &findings, EventGraphOptions::default())
+    build_event_graph(&typed, &findings, options)
 }
 
 #[test]
@@ -384,4 +391,135 @@ fn test_content_stream_exec_event_count_matches_contents_array_length() {
         content_stream_events, 2,
         "expected one ContentStreamExec event per unique /Contents target reference"
     );
+}
+
+#[test]
+fn test_content_stream_exec_default_fixture_baseline_counts() {
+    let fixtures = [
+        ("content_first_phase1.pdf", 1usize),
+        ("clean-google-docs-basic.pdf", 1usize),
+        ("actions/launch_cve_2010_1240.pdf", 0usize),
+    ];
+    for (fixture, expected) in fixtures {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(fixture);
+        let bytes = std::fs::read(&path).expect("fixture bytes");
+        let event_graph = event_graph_for_pdf(&bytes);
+        let count = event_graph
+            .nodes
+            .iter()
+            .filter(|node| {
+                matches!(
+                    node.kind,
+                    EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. }
+                )
+            })
+            .count();
+        assert_eq!(
+            count, expected,
+            "unexpected ContentStreamExec baseline count for fixture {}",
+            fixture
+        );
+    }
+}
+
+#[test]
+fn test_include_xobject_exec_adds_form_content_stream_event() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Fm1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n"
+            .to_string(),
+        "4 0 obj\n<< /Type /XObject /Subtype /Form /Length 0 >>\nstream\n\nendstream\nendobj\n"
+            .to_string(),
+        "5 0 obj\n<< /Length 10 >>\nstream\nq /Fm1 Do Q\nendstream\nendobj\n".to_string(),
+    ];
+    let bytes = build_pdf(&objects, 6);
+    let default_graph = event_graph_for_pdf(&bytes);
+    let mut options = EventGraphOptions::default();
+    options.include_xobject_exec = true;
+    let extended_graph = event_graph_for_pdf_with_options(&bytes, options);
+
+    let default_count = default_graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. }
+            )
+        })
+        .count();
+    let extended_count = extended_graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. }
+            )
+        })
+        .count();
+    assert_eq!(extended_count, default_count + 1);
+
+    let has_xobject_key = extended_graph.edges.iter().any(|edge| {
+        edge.kind == EventEdgeKind::Executes
+            && edge.metadata.as_ref().and_then(|meta| meta.event_key.as_deref())
+                == Some("xobject.form")
+    });
+    assert!(has_xobject_key, "expected executes edge metadata event_key=xobject.form");
+}
+
+#[test]
+fn test_include_type3_exec_adds_charproc_content_stream_events() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 4 0 R >> >> /Contents 7 0 R >>\nendobj\n"
+            .to_string(),
+        "4 0 obj\n<< /Type /Font /Subtype /Type3 /Name /F1 /FontBBox [0 0 500 500] /FontMatrix [0.001 0 0 0.001 0 0] /Encoding << /Type /Encoding /Differences [65 /A 66 /B] >> /FirstChar 65 /LastChar 66 /Widths [500 500] /CharProcs << /A 5 0 R /B 6 0 R >> >>\nendobj\n"
+            .to_string(),
+        "5 0 obj\n<< /Length 10 >>\nstream\n0 0 m S\nendstream\nendobj\n".to_string(),
+        "6 0 obj\n<< /Length 10 >>\nstream\n0 0 m S\nendstream\nendobj\n".to_string(),
+        "7 0 obj\n<< /Length 24 >>\nstream\nBT /F1 12 Tf (AB) Tj ET\nendstream\nendobj\n".to_string(),
+    ];
+    let bytes = build_pdf(&objects, 8);
+    let default_graph = event_graph_for_pdf(&bytes);
+    let mut options = EventGraphOptions::default();
+    options.include_type3_exec = true;
+    let extended_graph = event_graph_for_pdf_with_options(&bytes, options);
+
+    let default_count = default_graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. }
+            )
+        })
+        .count();
+    let extended_count = extended_graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. }
+            )
+        })
+        .count();
+    assert_eq!(extended_count, default_count + 2);
+
+    let charproc_exec_edges = extended_graph
+        .edges
+        .iter()
+        .filter(|edge| {
+            edge.kind == EventEdgeKind::Executes
+                && edge.metadata.as_ref().and_then(|meta| meta.event_key.as_deref())
+                    == Some("type3.charproc")
+        })
+        .count();
+    assert_eq!(charproc_exec_edges, 2);
 }

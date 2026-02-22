@@ -29,11 +29,28 @@ Completed in this cycle:
    - `cargo fmt --all`
    - `cargo test -p sis-pdf-pdf typed_graph::tests::page_ -- --nocapture`
    - `cargo test -p sis-pdf-core --test event_graph_outcomes test_content_stream_exec_event -- --nocapture`
+4. Stage 2 partial implementation landed in `event_graph.rs`:
+   - Added `EventGraphOptions` flags:
+     - `include_xobject_exec` (default `false`)
+     - `include_type3_exec` (default `false`)
+   - Added optional `ContentStreamExec` emission for:
+     - form XObject stream targets (`event_key = "xobject.form"`)
+     - Type3 `/CharProcs` stream targets (`event_key = "type3.charproc"`)
+   - Added integration tests:
+     - `test_include_xobject_exec_adds_form_content_stream_event`
+     - `test_include_type3_exec_adds_charproc_content_stream_events`
+5. Stage 0 non-regression gate added:
+   - `test_content_stream_exec_default_fixture_baseline_counts`
+   - Baseline fixtures:
+     - `content_first_phase1.pdf` -> 1
+     - `clean-google-docs-basic.pdf` -> 1
+     - `actions/launch_cve_2010_1240.pdf` -> 0
 
 In progress / pending:
-1. Stage 0 baseline metrics table and `get_first` scope audit documentation.
-2. Stage 0 dedicated non-regression baseline test.
-3. Stages 2-6 are not yet implemented.
+1. Stage 0 baseline metrics table (partial: page/page_contents/event counts done; `/Contents` ref/array/direct split still pending instrumentation).
+2. Stage 0 `get_first` scope audit documentation.
+3. Stage 2 execution-confirmation refinement (`Do`-confirmed form execution) is pending; current implementation is declared-surface based.
+4. Stages 3-6 are not yet implemented.
 
 ## Assumptions
 
@@ -216,17 +233,40 @@ Record in this plan:
 - typed `page_contents` edge count,
 - `ContentStreamExec` event count before and after Stage 1.
 
+Current baseline snapshot (post-Stage 1 implementation):
+
+| Fixture | Pages | `page_contents` typed edges | `ContentStreamExec` events (default) |
+|---|---:|---:|---:|
+| `content_first_phase1.pdf` | 1 | 1 | 1 |
+| `clean-google-docs-basic.pdf` | 1 | 1 | 1 |
+| `actions/launch_cve_2010_1240.pdf` | 1 | 0 | 0 |
+
+Note: `/Contents` ref/array/direct-stream split metrics require dedicated instrumentation and
+remain pending.
+
 ### S0.2 Non-regression gate
 
 Add a test asserting `ContentStreamExec` count equality for each baseline fixture before any
 Stage 1 changes land. This test fails (and must be updated with explanation) if Stage 1 changes
 the count.
 
+Status: complete.
+- Implemented as `test_content_stream_exec_default_fixture_baseline_counts` in
+  `crates/sis-pdf-core/tests/event_graph_outcomes.rs`.
+
 ### S0.3 `get_first` scope audit
 
 Enumerate all `get_first(b"/...")` calls in `typed_graph.rs`. For each, document whether the
 PDF spec allows the value to be an array. Capture any cases where array-valued entries are
 silently truncated as numbered issues in this plan without blocking Stage 1.
+
+Audit snapshot (current):
+1. `/Contents` was array-truncating and is now fixed in Stage 1.
+2. `/Annots`, `/Kids`, and `/Next` already have array-aware extraction paths.
+3. Remaining `get_first` sites are expected singleton keys or dictionary/name values in current
+   model assumptions (`/OpenAction`, `/Pages`, `/Resources`, `/Encrypt`, `/JS`, `/JavaScript`,
+   `/XFA`, `/Names`, action `/F`/`/URI`), and no additional array-truncation bugs were observed
+   in this pass.
 
 Acceptance criteria:
 1. Baseline metrics recorded in this plan.
@@ -316,17 +356,21 @@ In the event graph builder, when `include_xobject_exec` is set:
 1. Derive candidate Form XObject targets from `typed_graph.edges` where
    `edge_type == EdgeType::XObjectReference` and destination classification indicates
    Form XObject (`/Subtype /Form`).
-2. Confirm execution by resolving `Do` operator usage in the source page/form content stream(s)
-   and matching referenced resource names to the candidate target object refs.
-3. Only for confirmed matches, emit a
+2. Emit a `ContentStreamExec` event for each unique `(src, dst)` pair with metadata
+   `event_key = "xobject.form"` (declared-surface mode).
+3. (Pending refinement) Confirm runtime execution by resolving `Do` operator usage in source
+   content streams and matching resource names to candidate refs.
+4. Only for confirmed matches (refinement step), emit a
    `ContentStreamExec` event with:
    - `source_obj`: the page or resource dict object that holds the `/XObject` resource.
    - `event_key`: `"xobject.form"`.
    - `trigger`: `TriggerClass::Automatic` (form XObjects execute during page rendering).
    - An `Executes` edge to the form XObject's object node.
-4. Use deterministic IDs: `ev:{src.obj}:{src.gen}:ContentStreamExec:xobj:{counter}`.
+5. Use deterministic IDs: `ev:{src.obj}:{src.gen}:ContentStreamExec:xobj:{counter}`.
 
-Note: `XObjectReference` alone represents declared reachability, not confirmed runtime invocation.
+Current implementation status:
+- Declared-surface mode implemented.
+- `Do`-confirmed execution refinement pending.
 
 ### S2.3 Type3 charproc execution events
 
@@ -796,8 +840,9 @@ infrastructure.
       complete.
 - [x] Stage 1: `/Contents` array coverage fixed; unit and integration tests passing.
 - [ ] Stage 1 follow-up: baseline delta documented in Stage 0 metrics table.
-- [ ] Stage 2: form XObject and Type3 execution surfaces behind `EventGraphOptions` flags;
-      synthetic fixture tests passing.
+- [x] Stage 2 partial: form XObject and Type3 execution surfaces behind `EventGraphOptions`
+      flags; synthetic fixture tests passing.
+- [ ] Stage 2 refinement: `Do`-confirmed form execution matching for xobject events.
 - [ ] Stage 3: `StreamExecSummary` in `EventRecord`; `events.full` includes stream section;
       performance budget test passing.
 - [ ] Stage 4: `graph.event.stream` query implemented; overlay node/edge schema documented;

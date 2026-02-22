@@ -1,5 +1,6 @@
 use crate::model::Finding;
 use serde::{Deserialize, Serialize};
+use sis_pdf_pdf::classification::PdfObjectType;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict};
 use sis_pdf_pdf::typed_graph::{EdgeType, TypedGraph};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -169,6 +170,8 @@ pub struct EventGraphOptions {
     pub collapse_structure_only: bool,
     pub max_nodes: usize,
     pub max_edges: usize,
+    pub include_xobject_exec: bool,
+    pub include_type3_exec: bool,
 }
 
 impl Default for EventGraphOptions {
@@ -178,6 +181,8 @@ impl Default for EventGraphOptions {
             collapse_structure_only: true,
             max_nodes: DEFAULT_MAX_EVENT_NODES,
             max_edges: DEFAULT_MAX_EVENT_EDGES,
+            include_xobject_exec: false,
+            include_type3_exec: false,
         }
     }
 }
@@ -486,6 +491,155 @@ pub fn build_event_graph(
             },
             metadata: None,
         });
+    }
+
+    if options.include_xobject_exec {
+        let mut seen_pairs = BTreeSet::<((u32, u16), (u32, u16))>::new();
+        for edge in &typed_graph.edges {
+            if !matches!(edge.edge_type, EdgeType::XObjectReference) {
+                continue;
+            }
+            if !seen_pairs.insert((edge.src, edge.dst)) {
+                continue;
+            }
+            let Some(classified) = classifications.get(&edge.dst) else {
+                continue;
+            };
+            if classified.obj_type != PdfObjectType::Stream {
+                continue;
+            }
+            let Some(dst_entry) = typed_graph.graph.get_object(edge.dst.0, edge.dst.1) else {
+                continue;
+            };
+            let Some(dst_dict) = entry_dict(dst_entry) else {
+                continue;
+            };
+            if !dst_dict.has_name(b"/Subtype", b"/Form") {
+                continue;
+            }
+            let id = format!(
+                "ev:{}:{}:{:?}:xobj:{}",
+                edge.src.0,
+                edge.src.1,
+                EventType::ContentStreamExec,
+                event_counter
+            );
+            event_counter += 1;
+            nodes.push(EventNode {
+                id: id.clone(),
+                mitre_techniques: mitre_techniques_for_event(EventType::ContentStreamExec),
+                kind: EventNodeKind::Event {
+                    event_type: EventType::ContentStreamExec,
+                    trigger: TriggerClass::Automatic,
+                    label: format!(
+                        "Content stream (xobject form {} {} -> stream {} {})",
+                        edge.src.0, edge.src.1, edge.dst.0, edge.dst.1
+                    ),
+                    source_obj: Some(edge.src),
+                },
+            });
+            let metadata = Some(EdgeMetadata {
+                event_key: Some("xobject.form".to_string()),
+                branch_index: None,
+                initiation: Some(TriggerClass::Automatic.as_str().to_string()),
+            });
+            edges.push(EventEdge {
+                from: object_node_id(edge.src.0, edge.src.1),
+                to: id.clone(),
+                kind: EventEdgeKind::Triggers,
+                provenance: EdgeProvenance::TypedEdge {
+                    edge_type: edge.edge_type.as_str().to_string(),
+                },
+                metadata: metadata.clone(),
+            });
+            edges.push(EventEdge {
+                from: id,
+                to: object_node_id(edge.dst.0, edge.dst.1),
+                kind: EventEdgeKind::Executes,
+                provenance: EdgeProvenance::TypedEdge {
+                    edge_type: edge.edge_type.as_str().to_string(),
+                },
+                metadata,
+            });
+        }
+    }
+
+    if options.include_type3_exec {
+        let mut seen_pairs = BTreeSet::<((u32, u16), (u32, u16))>::new();
+        for entry in &typed_graph.graph.objects {
+            let src = (entry.obj, entry.gen);
+            let Some(classified) = classifications.get(&src) else {
+                continue;
+            };
+            if classified.obj_type != PdfObjectType::Font {
+                continue;
+            }
+            let Some(font_dict) = entry_dict(entry) else {
+                continue;
+            };
+            if !font_dict.has_name(b"/Subtype", b"/Type3") {
+                continue;
+            }
+            let Some((_, charprocs_obj)) = font_dict.get_first(b"/CharProcs") else {
+                continue;
+            };
+            let Some(charprocs_dict) = resolve_dict(typed_graph.graph, charprocs_obj) else {
+                continue;
+            };
+            for (_, glyph_obj) in &charprocs_dict.entries {
+                let Some(resolved) = typed_graph.graph.resolve_ref(glyph_obj) else {
+                    continue;
+                };
+                let dst = (resolved.obj, resolved.gen);
+                if !seen_pairs.insert((src, dst)) {
+                    continue;
+                }
+                let id = format!(
+                    "ev:{}:{}:{:?}:t3:{}",
+                    src.0,
+                    src.1,
+                    EventType::ContentStreamExec,
+                    event_counter
+                );
+                event_counter += 1;
+                nodes.push(EventNode {
+                    id: id.clone(),
+                    mitre_techniques: mitre_techniques_for_event(EventType::ContentStreamExec),
+                    kind: EventNodeKind::Event {
+                        event_type: EventType::ContentStreamExec,
+                        trigger: TriggerClass::Automatic,
+                        label: format!(
+                            "Content stream (type3 charproc {} {} -> stream {} {})",
+                            src.0, src.1, dst.0, dst.1
+                        ),
+                        source_obj: Some(src),
+                    },
+                });
+                let metadata = Some(EdgeMetadata {
+                    event_key: Some("type3.charproc".to_string()),
+                    branch_index: None,
+                    initiation: Some(TriggerClass::Automatic.as_str().to_string()),
+                });
+                edges.push(EventEdge {
+                    from: object_node_id(src.0, src.1),
+                    to: id.clone(),
+                    kind: EventEdgeKind::Triggers,
+                    provenance: EdgeProvenance::TypedEdge {
+                        edge_type: "type3_charproc".to_string(),
+                    },
+                    metadata: metadata.clone(),
+                });
+                edges.push(EventEdge {
+                    from: id,
+                    to: object_node_id(dst.0, dst.1),
+                    kind: EventEdgeKind::Executes,
+                    provenance: EdgeProvenance::TypedEdge {
+                        edge_type: "type3_charproc".to_string(),
+                    },
+                    metadata,
+                });
+            }
+        }
     }
 
     // References edge post-pass: for structural edges (DictReference/ArrayElement) where
@@ -1081,6 +1235,18 @@ fn infer_next_branch_index(
 fn entry_dict<'a>(entry: &'a sis_pdf_pdf::graph::ObjEntry<'a>) -> Option<&'a PdfDict<'a>> {
     match &entry.atom {
         PdfAtom::Dict(dict) => Some(dict),
+        PdfAtom::Stream(stream) => Some(&stream.dict),
+        _ => None,
+    }
+}
+
+fn resolve_dict<'a>(
+    graph: &'a sis_pdf_pdf::ObjectGraph<'a>,
+    obj: &'a sis_pdf_pdf::object::PdfObj<'a>,
+) -> Option<&'a PdfDict<'a>> {
+    match &obj.atom {
+        PdfAtom::Dict(dict) => Some(dict),
+        PdfAtom::Ref { obj, gen } => graph.get_object(*obj, *gen).and_then(entry_dict),
         PdfAtom::Stream(stream) => Some(&stream.dict),
         _ => None,
     }
