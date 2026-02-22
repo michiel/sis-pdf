@@ -1,5 +1,14 @@
 # Schema Changelog
 
+## 2026-02-22
+
+- `events.full` now includes a reverse index map:
+  - `event_finding_index` (`event_node_id -> [finding_id]`)
+- `events.full` retains the forward index map:
+  - `finding_event_index` (`finding_id -> [event_node_id]`)
+- Batch query CSV output is normalised to a stable envelope schema:
+  - `path,status,error_code,message,result`
+
 ## 2026-02-21
 
 - Removed finding field `reader_impacts` from report/query payloads.

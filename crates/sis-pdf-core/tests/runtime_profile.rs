@@ -46,10 +46,8 @@ fn profile_json_detector_entries_expose_stable_metrics() {
     let detectors = json["detectors"].as_array().expect("detectors array");
 
     assert!(!detectors.is_empty(), "expected detector telemetry rows");
-    let zero_finding_rows = detectors
-        .iter()
-        .filter(|entry| entry["findings_count"].as_u64() == Some(0))
-        .count();
+    let zero_finding_rows =
+        detectors.iter().filter(|entry| entry["findings_count"].as_u64() == Some(0)).count();
     assert!(
         zero_finding_rows > 0,
         "expected at least one detector row with findings_count=0 for schema stability"

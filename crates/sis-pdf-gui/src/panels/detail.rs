@@ -2,6 +2,7 @@ use crate::app::SisApp;
 use crate::panels::chain_display::{render_chain_summary, summary_from_chain};
 use sis_pdf_core::chain::ExploitChain;
 use sis_pdf_core::event_graph::{EventGraph, EventNodeKind};
+use sis_pdf_core::event_projection::{extract_event_records, EventRecord};
 use sis_pdf_core::model::EvidenceSource;
 
 pub fn show_window(ctx: &egui::Context, app: &mut SisApp) {
@@ -90,6 +91,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     let finding_id = id.clone();
     let finding_objects = object_refs.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>();
     let chain_membership = collect_finding_chain_entries(&result.report.chains, &finding_id);
+    let linked_event_nodes = linked_event_node_ids_for_finding(app, &finding_id);
     let event_graph_paths = event_graph_paths_for_finding(app, &finding_id, &finding_objects);
 
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -102,6 +104,20 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
         }
         ui.heading(&title);
         ui.separator();
+
+        if !linked_event_nodes.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Linked events:");
+                for node_id in &linked_event_nodes {
+                    if ui.small_button(node_id).clicked() {
+                        app.selected_event = Some(node_id.clone());
+                        app.show_events = true;
+                        app.finding_origin_event = Some(node_id.clone());
+                    }
+                }
+            });
+            ui.add_space(4.0);
+        }
 
         egui::Grid::new("finding_meta").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
             ui.label("ID:");
@@ -335,6 +351,25 @@ fn collect_finding_chain_entries(
         .collect()
 }
 
+fn collect_linked_event_node_ids(records: &[EventRecord], finding_id: &str) -> Vec<String> {
+    let mut nodes = records
+        .iter()
+        .filter(|record| record.linked_finding_ids.iter().any(|id| id == finding_id))
+        .map(|record| record.node_id.clone())
+        .collect::<Vec<_>>();
+    nodes.sort();
+    nodes.dedup();
+    nodes
+}
+
+fn linked_event_node_ids_for_finding(app: &mut SisApp, finding_id: &str) -> Vec<String> {
+    let Ok(event_graph) = app.cached_event_graph() else {
+        return Vec::new();
+    };
+    let records = extract_event_records(event_graph);
+    collect_linked_event_node_ids(&records, finding_id)
+}
+
 struct EvidenceDisplay {
     info: String,
     note: Option<String>,
@@ -409,8 +444,10 @@ fn event_graph_paths_for_finding(
 #[cfg(test)]
 mod tests {
     use super::collect_finding_chain_entries;
+    use super::collect_linked_event_node_ids;
     use crate::panels::chain_display::chain_header;
     use sis_pdf_core::chain::ExploitChain;
+    use sis_pdf_core::event_projection::EventRecord;
     use std::collections::HashMap;
 
     fn base_chain(id: &str, finding_ids: Vec<&str>, score: f64) -> ExploitChain {
@@ -470,6 +507,29 @@ mod tests {
         let header_a = chain_header(&entries[0]);
         let header_b = chain_header(&entries[0]);
         assert_eq!(header_a, header_b);
+    }
+
+    #[test]
+    fn collect_linked_event_node_ids_returns_stable_deduplicated_values() {
+        let records = vec![
+            EventRecord {
+                node_id: "ev:2".to_string(),
+                linked_finding_ids: vec!["f-1".to_string()],
+                ..EventRecord::default()
+            },
+            EventRecord {
+                node_id: "ev:1".to_string(),
+                linked_finding_ids: vec!["f-2".to_string(), "f-1".to_string()],
+                ..EventRecord::default()
+            },
+            EventRecord {
+                node_id: "ev:1".to_string(),
+                linked_finding_ids: vec!["f-1".to_string()],
+                ..EventRecord::default()
+            },
+        ];
+        let node_ids = collect_linked_event_node_ids(&records, "f-1");
+        assert_eq!(node_ids, vec!["ev:1".to_string(), "ev:2".to_string()]);
     }
 }
 

@@ -1253,6 +1253,9 @@ items complete. Format:
   - `events.full` now emits both:
     - `finding_event_index` (existing direction),
     - `event_finding_index` (new reverse direction).
+- Completed `B2 / OF-EV-02` GUI jump affordances:
+  - finding detail now exposes linked event-node jump actions;
+  - selecting a linked event opens the Events dialog with the target selected.
 - Implemented `D1 / OF-QUERY-01` decomposition slice:
   - extracted CSV query helpers into `crates/sis-pdf/src/commands/query/csv.rs`;
   - `query.rs` now delegates findings CSV row generation via submodule import.
@@ -1314,7 +1317,7 @@ items complete. Format:
 - [ ] A4: `OF-CS-04` Content stream fingerprinting *(prerequisite for A6)*
 - [ ] A5: `OF-CS-05` Type3 charproc detector
 - [ ] A6: `OF-CS-06` Cross-revision diffing *(requires A4)*
-- [ ] B2: `OF-EV-02` Bidirectional finding/event index *(in progress: bidirectional maps now in events.full; GUI jump affordances remain)*
+- [x] B2: `OF-EV-02` Bidirectional finding/event index
 - [x] D2: `OF-FUZZ-01` Fuzz target expansion
 - [ ] D3: `OF-BATCH-01` Parallel batch processing *(in progress: --jobs + caps/clamp + error rows landed)*
 
