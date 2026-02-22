@@ -306,6 +306,10 @@ For batch query mode, use `--jobs N` to cap worker concurrency:
 sis query --path /corpus "findings" --format jsonl --jobs 8
 ```
 
+Batch mode with `--format csv` emits a normalised envelope table:
+`path,status,error_code,message,result`. Error rows always set
+`status=error` and preserve `error_code`/`message` without breaking CSV parsing.
+
 When `stream` is used without `--extract-to`, it returns a short preview string instead of writing a file.
 
 ## Output Formats

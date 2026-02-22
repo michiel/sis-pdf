@@ -1262,6 +1262,10 @@ items complete. Format:
   - added events companion CSV query:
     - `events.full.csv`
   - documented companion-table schema in `docs/findings-csv-schema.md`.
+- Completed `B7 / OF-CSV-01` batch CSV normalisation:
+  - `run_query_batch(... --format csv ...)` now emits a stable CSV envelope
+    (`path,status,error_code,message,result`);
+  - error rows are normalised and CSV-escaped for machine ingestion.
 - Implemented additional `D3 / OF-BATCH-01` slice:
   - batch query now emits structured error rows instead of silently dropping
     file read/parse failures.
@@ -1307,7 +1311,7 @@ items complete. Format:
 - [x] B4: `OF-OV-01` Overlay depth query
 - [ ] B5: `OF-OV-02` Event-graph anchors
 - [ ] B6: `OF-OV-03` GUI overlay integration
-- [ ] B7: `OF-CSV-01` Findings CSV export *(in progress: findings + events companion CSV and schema docs landed; remaining batch CSV error-row normalisation)*
+- [x] B7: `OF-CSV-01` Findings CSV export
 - [ ] D4: `OF-DIAG-01` Structured diagnostics *(in progress: per-detector CI budget gate landed)*
 
 ### Phase 4

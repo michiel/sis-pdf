@@ -8891,6 +8891,54 @@ fn cycle_to_json(idx: usize, cycle: &[(u32, u16)]) -> serde_json::Value {
     })
 }
 
+const BATCH_CSV_HEADER: &str = "path,status,error_code,message,result";
+
+fn csv_escape_cell(value: &str) -> String {
+    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
+fn format_batch_csv_row(path: &str, result: &QueryResult) -> String {
+    let (status, error_code, message, payload) = match result {
+        QueryResult::Error(err) => {
+            ("error".to_string(), err.error_code.to_string(), err.message.clone(), String::new())
+        }
+        QueryResult::Scalar(ScalarValue::String(s)) => {
+            ("ok".to_string(), String::new(), String::new(), s.clone())
+        }
+        QueryResult::Scalar(ScalarValue::Number(n)) => {
+            ("ok".to_string(), String::new(), String::new(), n.to_string())
+        }
+        QueryResult::Scalar(ScalarValue::Boolean(b)) => {
+            ("ok".to_string(), String::new(), String::new(), b.to_string())
+        }
+        QueryResult::List(items) => (
+            "ok".to_string(),
+            String::new(),
+            String::new(),
+            serde_json::to_string(items).unwrap_or_else(|_| "[]".to_string()),
+        ),
+        QueryResult::Structure(value) => (
+            "ok".to_string(),
+            String::new(),
+            String::new(),
+            serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()),
+        ),
+    };
+
+    [
+        csv_escape_cell(path),
+        csv_escape_cell(&status),
+        csv_escape_cell(&error_code),
+        csv_escape_cell(&message),
+        csv_escape_cell(&payload),
+    ]
+    .join(",")
+}
+
 /// Batch mode: Execute query across multiple PDF files in a directory
 ///
 /// # Arguments
@@ -9186,7 +9234,13 @@ pub fn run_query_batch(
                 println!("{}", output);
             }
         }
-        OutputFormat::Text | OutputFormat::Readable | OutputFormat::Csv | OutputFormat::Dot => {
+        OutputFormat::Csv => {
+            println!("{}", BATCH_CSV_HEADER);
+            for (_, batch_result) in sorted_results {
+                println!("{}", format_batch_csv_row(&batch_result.path, &batch_result.result));
+            }
+        }
+        OutputFormat::Text | OutputFormat::Readable | OutputFormat::Dot => {
             for (_, batch_result) in sorted_results {
                 match batch_result.result {
                     QueryResult::Scalar(ScalarValue::Number(n)) => {
@@ -12235,6 +12289,29 @@ mod tests {
         assert_eq!(err.error_code, "FILE_READ_ERROR");
         let context = err.context.expect("context");
         assert_eq!(context["path"], json!(missing_path.display().to_string()));
+    }
+
+    #[test]
+    fn format_batch_csv_row_normalises_error_rows() {
+        let row = format_batch_csv_row(
+            "bad.pdf",
+            &QueryResult::Error(QueryError {
+                status: "error",
+                error_code: "FILE_READ_ERROR",
+                message: "failed, reason".to_string(),
+                context: None,
+            }),
+        );
+        assert_eq!(row, "bad.pdf,error,FILE_READ_ERROR,\"failed, reason\",");
+    }
+
+    #[test]
+    fn format_batch_csv_row_escapes_payload_newlines_and_quotes() {
+        let row = format_batch_csv_row(
+            "ok.pdf",
+            &QueryResult::Scalar(ScalarValue::String("header\n\"quoted\"".to_string())),
+        );
+        assert_eq!(row, "ok.pdf,ok,,,\"header\n\"\"quoted\"\"\"");
     }
 
     #[test]
