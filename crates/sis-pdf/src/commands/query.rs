@@ -259,6 +259,7 @@ pub enum Query {
 
     // Event trigger queries
     Events,
+    EventsFull,
     EventsCount,
     EventsDocument,
     EventsPage,
@@ -630,6 +631,7 @@ pub fn parse_query(input: &str) -> Result<Query> {
 
         // Events
         "events" => Ok(Query::Events),
+        "events.full" => Ok(Query::EventsFull),
         "events.count" => Ok(Query::EventsCount),
         "events.document" => Ok(Query::EventsDocument),
         "events.page" => Ok(Query::EventsPage),
@@ -1643,6 +1645,7 @@ pub fn execute_query_with_context(
                     | Query::MediaAudio
                     | Query::MediaAudioCount
                     | Query::Events
+                    | Query::EventsFull
                     | Query::EventsCount
                     | Query::EventsDocument
                     | Query::EventsPage
@@ -2418,6 +2421,10 @@ pub fn execute_query_with_context(
             }
             Query::Events => {
                 let events = extract_event_triggers(ctx, None, predicate)?;
+                Ok(QueryResult::Structure(events))
+            }
+            Query::EventsFull => {
+                let events = extract_event_triggers_full(ctx, None, predicate)?;
                 Ok(QueryResult::Structure(events))
             }
             Query::EventsCount => {
@@ -4605,6 +4612,7 @@ fn ensure_predicate_supported(query: &Query) -> Result<()> {
         | Query::ImagesMalformed
         | Query::ImagesMalformedCount
         | Query::Events
+        | Query::EventsFull
         | Query::EventsCount
         | Query::EventsDocument
         | Query::EventsPage
@@ -4724,6 +4732,90 @@ fn extract_event_triggers(
     Ok(json!(events))
 }
 
+fn extract_event_triggers_full(
+    ctx: &ScanContext,
+    filter_level: Option<&str>,
+    predicate: Option<&PredicateExpr>,
+) -> Result<serde_json::Value> {
+    use sis_pdf_core::event_graph::{build_event_graph, EventGraphOptions};
+    use sis_pdf_core::event_projection::{build_finding_event_index, extract_event_records};
+
+    let typed_graph = ctx.build_typed_graph();
+    let event_graph = build_event_graph(&typed_graph, &[], EventGraphOptions::default());
+    let records = extract_event_records(&event_graph);
+    let finding_event_index = build_finding_event_index(&records);
+    let mut events = Vec::new();
+
+    for record in records {
+        let level = event_level_for_type(&record.event_type);
+        if filter_level.is_some_and(|filter| filter != level) {
+            continue;
+        }
+
+        let node_edges = event_graph
+            .forward_index
+            .get(&record.node_id)
+            .into_iter()
+            .flat_map(|edge_ids| edge_ids.iter())
+            .filter_map(|edge_id| event_graph.edges.get(*edge_id))
+            .map(|edge| {
+                json!({
+                    "kind": format!("{:?}", edge.kind),
+                    "to": edge.to,
+                    "provenance": edge.provenance,
+                    "metadata": edge.metadata,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let event = json!({
+            "node_id": record.node_id,
+            "graph_ref": record.node_id,
+            "level": level,
+            "trigger": record.trigger_class,
+            "event_type": record.event_type,
+            "label": record.label,
+            "source_object": record.source_object.map(|(obj, gen)| format!("{obj}:{gen}")),
+            "execute_targets": record.execute_targets.iter().map(|target| {
+                json!({
+                    "node_id": target.node_id,
+                    "object_ref": target.object_ref.map(|(obj, gen)| format!("{obj}:{gen}")),
+                })
+            }).collect::<Vec<_>>(),
+            "outcome_targets": record.outcome_targets.iter().map(|outcome| {
+                json!({
+                    "node_id": outcome.node_id,
+                    "outcome_type": outcome.outcome_type,
+                    "label": outcome.label,
+                    "confidence_score": outcome.confidence_score,
+                    "severity_hint": outcome.severity_hint,
+                    "evidence": outcome.evidence,
+                    "source_object": outcome.source_object.map(|(obj, gen)| format!("{obj}:{gen}")),
+                })
+            }).collect::<Vec<_>>(),
+            "linked_finding_ids": record.linked_finding_ids,
+            "mitre_techniques": record.mitre_techniques,
+            "event_key": record.event_key,
+            "initiation": record.initiation,
+            "branch_index": record.branch_index,
+            "event_edges": node_edges,
+            "action_details": record.label,
+        });
+
+        if let Some(pred) = predicate {
+            if !predicate_context_for_event(&event).is_some_and(|ctx| pred.evaluate(&ctx)) {
+                continue;
+            }
+        }
+        events.push(event);
+    }
+
+    Ok(json!({
+        "events": events,
+        "finding_event_index": finding_event_index,
+    }))
+}
+
 fn event_level_for_type(event_type: &str) -> &'static str {
     match event_type {
         "DocumentOpen" | "DocumentWillClose" | "DocumentWillSave" | "DocumentDidSave"
@@ -4743,328 +4835,6 @@ fn event_level_for_type(event_type: &str) -> &'static str {
         | "AnnotationActivation" => "field",
         _ => "document",
     }
-}
-
-/// Extract additional actions from an AA dictionary
-fn extract_aa_events(
-    graph: &sis_pdf_pdf::ObjectGraph<'_>,
-    bytes: &[u8],
-    aa_obj: &sis_pdf_pdf::object::PdfObj<'_>,
-    level: &str,
-    location: &str,
-    events: &mut Vec<serde_json::Value>,
-) {
-    use sis_pdf_pdf::object::PdfAtom;
-
-    if let PdfAtom::Dict(ref aa_dict) = aa_obj.atom {
-        let event_types = vec![
-            (b"/O" as &[u8], if level == "page" { "Page/Open" } else { "OnFocus" }),
-            (b"/C", if level == "page" { "Page/Close" } else { "OnBlur" }),
-            (b"/WC", "Doc/WillClose"),
-            (b"/WS", "Doc/WillSave"),
-            (b"/DS", "Doc/DidSave"),
-            (b"/WP", "Doc/WillPrint"),
-            (b"/DP", "Doc/DidPrint"),
-            (b"/K", "Keystroke"),
-            (b"/F", "Format"),
-            (b"/V", "Validate"),
-            (b"/C", "Calculate"),
-            (b"/D", "MouseDown"),
-            (b"/U", "MouseUp"),
-            (b"/E", "MouseEnter"),
-            (b"/X", "MouseExit"),
-            (b"/Fo", "OnFocus"),
-            (b"/Bl", "OnBlur"),
-        ];
-
-        for (key, event_name) in event_types {
-            if let Some((_, action_obj)) = aa_dict.get_first(key) {
-                let action_details = extract_action_details(graph, bytes, action_obj);
-                let trigger_desc = match event_name {
-                    "Page/Open" => "Triggered when page is opened/viewed",
-                    "Page/Close" => "Triggered when page is closed",
-                    "Doc/WillClose" => "Triggered before document close",
-                    "Doc/WillSave" => "Triggered before document save",
-                    "Doc/DidSave" => "Triggered after document save",
-                    "Doc/WillPrint" => "Triggered before printing",
-                    "Doc/DidPrint" => "Triggered after printing",
-                    "Keystroke" => "Triggered on each keystroke in field",
-                    "Format" => "Triggered when field is formatted",
-                    "Validate" => "Triggered on field validation",
-                    "Calculate" => "Triggered when field value is calculated",
-                    "MouseDown" => "Triggered on mouse button press",
-                    "MouseUp" => "Triggered on mouse button release",
-                    "MouseEnter" => "Triggered when mouse enters field",
-                    "MouseExit" => "Triggered when mouse exits field",
-                    "OnFocus" => "Triggered when field receives focus",
-                    "OnBlur" => "Triggered when field loses focus",
-                    _ => "Triggered by event",
-                };
-
-                events.push(json!({
-                    "level": level,
-                    "event_type": event_name,
-                    "location": location,
-                    "trigger_config": trigger_desc,
-                    "action_details": action_details
-                }));
-            }
-        }
-    }
-}
-
-fn find_latest_catalog<'a>(
-    ctx: &'a ScanContext<'a>,
-) -> Option<(&'a sis_pdf_pdf::object::PdfDict<'a>, u32, u16)> {
-    for trailer in &ctx.graph.trailers {
-        if let Some((_, root_obj)) = trailer.get_first(b"/Root") {
-            if let PdfAtom::Ref { obj, gen } = &root_obj.atom {
-                if let Some(catalog_entry) = ctx.graph.get_object(*obj, *gen) {
-                    if let Some(dict) = entry_dict(catalog_entry) {
-                        return Some((dict, *obj, *gen));
-                    }
-                }
-            }
-        }
-    }
-
-    for entry in ctx.graph.objects.iter().rev() {
-        if let Some(dict) = entry_dict(entry) {
-            if dict.has_name(b"/Type", b"/Catalog") {
-                return Some((dict, entry.obj, entry.gen));
-            }
-        }
-    }
-
-    None
-}
-
-#[cfg(test)]
-mod event_tests {
-    use super::*;
-    use sis_pdf_core::scan::{
-        CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat, ScanContext,
-        ScanOptions,
-    };
-    use sis_pdf_pdf::graph::{ObjEntry, ObjProvenance, ObjectGraph};
-    use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj};
-    use sis_pdf_pdf::span::Span;
-    use std::borrow::Cow;
-    use std::collections::HashMap;
-
-    fn span() -> Span {
-        Span { start: 0, end: 0 }
-    }
-
-    fn pdf_name(name: &'static [u8]) -> PdfName<'static> {
-        PdfName { span: span(), raw: Cow::Borrowed(name), decoded: name.to_vec() }
-    }
-
-    fn pdf_ref(obj: u32, gen: u16) -> PdfObj<'static> {
-        PdfObj { span: span(), atom: PdfAtom::Ref { obj, gen } }
-    }
-
-    fn pdf_name_obj(name: &'static [u8]) -> PdfObj<'static> {
-        PdfObj { span: span(), atom: PdfAtom::Name(pdf_name(name)) }
-    }
-
-    fn pdf_dict(entries: Vec<(PdfName<'static>, PdfObj<'static>)>) -> PdfDict<'static> {
-        PdfDict { span: span(), entries }
-    }
-
-    fn obj_entry(obj: u32, gen: u16) -> ObjEntry<'static> {
-        ObjEntry {
-            obj,
-            gen,
-            atom: PdfAtom::Dict(pdf_dict(vec![])),
-            header_span: span(),
-            body_span: span(),
-            full_span: span(),
-            provenance: ObjProvenance::Indirect,
-        }
-    }
-
-    fn obj_entry_with_dict(obj: u32, gen: u16, dict: PdfDict<'static>) -> ObjEntry<'static> {
-        ObjEntry {
-            obj,
-            gen,
-            atom: PdfAtom::Dict(dict),
-            header_span: span(),
-            body_span: span(),
-            full_span: span(),
-            provenance: ObjProvenance::Indirect,
-        }
-    }
-
-    fn scan_options() -> ScanOptions {
-        ScanOptions {
-            deep: false,
-            max_decode_bytes: 0,
-            max_total_decoded_bytes: 0,
-            recover_xref: false,
-            parallel: false,
-            batch_parallel: false,
-            diff_parser: false,
-            max_objects: 0,
-            max_recursion_depth: 0,
-            fast: false,
-            focus_trigger: None,
-            yara_scope: None,
-            focus_depth: 0,
-            strict: false,
-            strict_summary: false,
-            ir: false,
-            ml_config: None,
-            font_analysis: FontAnalysisOptions::default(),
-            image_analysis: ImageAnalysisOptions::default(),
-            filter_allowlist: None,
-            filter_allowlist_strict: false,
-            profile: false,
-            profile_format: ProfileFormat::default(),
-            group_chains: false,
-            correlation: CorrelationOptions::default(),
-        }
-    }
-
-    fn build_graph(
-        trailers: Vec<PdfDict<'static>>,
-        objects: Vec<ObjEntry<'static>>,
-    ) -> ObjectGraph<'static> {
-        let mut index: HashMap<(u32, u16), Vec<usize>> = HashMap::new();
-        for (idx, entry) in objects.iter().enumerate() {
-            index.entry((entry.obj, entry.gen)).or_default().push(idx);
-        }
-        ObjectGraph {
-            bytes: &[],
-            objects,
-            index,
-            trailers,
-            startxrefs: Vec::new(),
-            xref_sections: Vec::new(),
-            deviations: Vec::new(),
-            telemetry_events: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn find_latest_catalog_prefers_newest_trailer() {
-        let newest_root = pdf_dict(vec![(pdf_name(b"/Root"), pdf_ref(2, 0))]);
-        let older_root = pdf_dict(vec![(pdf_name(b"/Root"), pdf_ref(1, 0))]);
-        let graph = build_graph(
-            vec![newest_root.clone(), older_root],
-            vec![obj_entry(2, 0), obj_entry(1, 0)],
-        );
-        let ctx = ScanContext::new(&[], graph, scan_options());
-        let catalog = find_latest_catalog(&ctx).expect("expected catalog");
-        assert_eq!((catalog.1, catalog.2), (2, 0));
-    }
-
-    #[test]
-    fn find_latest_catalog_falls_back_to_objects_when_no_trailer() {
-        let catalog = pdf_dict(vec![(pdf_name(b"/Type"), pdf_name_obj(b"/Catalog"))]);
-        let graph = build_graph(vec![], vec![obj_entry_with_dict(1, 0, catalog)]);
-        let ctx = ScanContext::new(&[], graph, scan_options());
-        let fallback = find_latest_catalog(&ctx).expect("expected fallback catalog");
-        assert_eq!((fallback.1, fallback.2), (1, 0));
-    }
-
-    #[test]
-    fn extract_event_triggers_includes_open_action_from_fallback_catalog() {
-        let catalog_dict = pdf_dict(vec![
-            (pdf_name(b"/Type"), pdf_name_obj(b"/Catalog")),
-            (pdf_name(b"/OpenAction"), pdf_ref(2, 0)),
-        ]);
-        let action_dict = pdf_dict(vec![(pdf_name(b"/Type"), pdf_name_obj(b"/Action"))]);
-        let graph = build_graph(
-            vec![],
-            vec![obj_entry_with_dict(1, 0, catalog_dict), obj_entry_with_dict(2, 0, action_dict)],
-        );
-        let ctx = ScanContext::new(&[], graph, scan_options());
-        let events = extract_event_triggers(&ctx, None, None).expect("events should be extracted");
-        let arr = events.as_array().expect("array expected");
-        let has_open_action = arr
-            .iter()
-            .any(|event| event.get("event_type").and_then(|v| v.as_str()) == Some("DocumentOpen"));
-        assert!(has_open_action, "expected DocumentOpen event");
-
-        let has_graph_ref = arr.iter().any(|event| {
-            event
-                .get("graph_ref")
-                .and_then(|v| v.as_str())
-                .is_some_and(|value| value.starts_with("ev:"))
-        });
-        assert!(has_graph_ref, "expected graph_ref bridge for event");
-    }
-}
-
-/// Extract action details from an action object
-fn extract_action_details(
-    graph: &sis_pdf_pdf::ObjectGraph<'_>,
-    bytes: &[u8],
-    action_obj: &sis_pdf_pdf::object::PdfObj<'_>,
-) -> String {
-    use sis_pdf_pdf::object::PdfAtom;
-
-    if let Some(dict) = match &action_obj.atom {
-        PdfAtom::Dict(d) => Some(d),
-        PdfAtom::Stream(st) => Some(&st.dict),
-        PdfAtom::Ref { obj, gen } => {
-            graph.get_object(*obj, *gen).and_then(|entry| entry_dict(entry))
-        }
-        _ => None,
-    } {
-        // Check action type
-        if let Some((_, s_obj)) = dict.get_first(b"/S") {
-            if let Some(action_type) = extract_obj_text(graph, bytes, s_obj) {
-                match action_type.as_str() {
-                    "/JavaScript" => {
-                        if let Some((_, js_obj)) = dict.get_first(b"/JS") {
-                            if let Some(js_code) = extract_obj_text(graph, bytes, js_obj) {
-                                return format!("JavaScript: {}", preview_text(&js_code, 100));
-                            }
-                        }
-                        return "JavaScript: <code unavailable>".to_string();
-                    }
-                    "/URI" => {
-                        if let Some((_, uri_obj)) = dict.get_first(b"/URI") {
-                            if let Some(uri) = extract_obj_text(graph, bytes, uri_obj) {
-                                return format!("URI: {}", uri);
-                            }
-                        }
-                        return "URI: <unavailable>".to_string();
-                    }
-                    "/SubmitForm" => {
-                        if let Some((_, f_obj)) = dict.get_first(b"/F") {
-                            if let Some(url) = extract_obj_text(graph, bytes, f_obj) {
-                                return format!("Submit form to: {}", url);
-                            }
-                        }
-                        return "Submit form".to_string();
-                    }
-                    "/Launch" => {
-                        return "Launch external application".to_string();
-                    }
-                    "/GoTo" => {
-                        return "Navigate to destination".to_string();
-                    }
-                    "/GoToR" => {
-                        return "Navigate to remote destination".to_string();
-                    }
-                    "/Named" => {
-                        if let Some((_, n_obj)) = dict.get_first(b"/N") {
-                            if let Some(name) = extract_obj_text(graph, bytes, n_obj) {
-                                return format!("Named action: {}", name);
-                            }
-                        }
-                        return "Named action".to_string();
-                    }
-                    _ => return format!("Action type: {}", action_type),
-                }
-            }
-        }
-    }
-
-    "Action details unavailable".to_string()
 }
 
 // Helper functions
@@ -9795,6 +9565,8 @@ mod tests {
         assert!(matches!(query, Query::ExportEventDot));
         let query = parse_query("graph.event.json").expect("event json query");
         assert!(matches!(query, Query::ExportEventJson));
+        let query = parse_query("events.full").expect("events full query");
+        assert!(matches!(query, Query::EventsFull));
         let query = parse_query("graph.action").expect("action alias query");
         assert!(matches!(query, Query::ExportEventDot));
         let query = parse_query("graph.event.hops 2").expect("event hops query");
@@ -10443,6 +10215,26 @@ mod tests {
                     Some("automatic")
                 );
             }
+        });
+    }
+
+    #[test]
+    fn events_full_query_exposes_reverse_index() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let result = execute_query_with_context(
+                &Query::EventsFull,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("events full query");
+            let QueryResult::Structure(value) = result else {
+                panic!("expected structure");
+            };
+            assert!(value.get("events").is_some());
+            assert!(value.get("finding_event_index").is_some());
         });
     }
 

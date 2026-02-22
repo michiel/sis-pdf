@@ -28,10 +28,17 @@ Completed:
    - works with existing `--format text|json|jsonl` handling.
 6. Added projection budget coverage:
    - `event_projection::tests::events_projection_budget_on_cve_fixture`.
+7. Implemented `events.full` CLI mode:
+   - emits structured event rows plus explicit `finding_event_index`,
+   - includes per-event edge provenance/metadata for deeper forensic analysis.
+8. Documented CSV-ready event schema contract:
+   - `docs/events-csv-schema.md`.
+9. Removed obsolete legacy event extraction helpers from query code path:
+   - deleted `extract_aa_events` and `extract_action_details` dead paths.
 
 Deferred follow-on opportunities:
-1. Optional full-forensic `sis query events --full` mode.
-2. Documented CSV export schema contract for event rows.
+1. Add CLI flag alias (`--full`) in the command-line surface for parity with
+   `events.full` query shortcut.
 
 Validation completed:
 1. `cargo test -p sis-pdf-gui -p sis-pdf-core -p sis-pdf --no-run`
