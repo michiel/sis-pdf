@@ -2,9 +2,11 @@ use sis_pdf_core::event_graph::{
     build_event_graph, EdgeProvenance, EventEdgeKind, EventGraphOptions, EventNodeKind, EventType,
     OutcomeType,
 };
+use sis_pdf_core::page_tree::build_page_tree;
 use sis_pdf_core::scan::{
     CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat, ScanOptions,
 };
+use sis_pdf_pdf::object::PdfAtom;
 use sis_pdf_pdf::{parse_pdf, ParseOptions};
 
 fn scan_options() -> ScanOptions {
@@ -99,6 +101,42 @@ fn event_graph_for_pdf_with_options(
     .expect("scan")
     .findings;
     build_event_graph(&typed, &findings, options)
+}
+
+fn entry_dict<'a>(
+    entry: &'a sis_pdf_pdf::graph::ObjEntry<'a>,
+) -> Option<&'a sis_pdf_pdf::object::PdfDict<'a>> {
+    match &entry.atom {
+        PdfAtom::Dict(dict) => Some(dict),
+        PdfAtom::Stream(stream) => Some(&stream.dict),
+        _ => None,
+    }
+}
+
+fn baseline_contents_variant_counts(bytes: &[u8]) -> (usize, usize, usize) {
+    let graph = parse_pdf(bytes, parse_options()).expect("parse pdf");
+    let mut ref_count = 0usize;
+    let mut array_count = 0usize;
+    let mut direct_stream_count = 0usize;
+    let page_tree = build_page_tree(&graph);
+    for page in page_tree.pages {
+        let Some(page_entry) = graph.get_object(page.obj, page.gen) else {
+            continue;
+        };
+        let Some(page_dict) = entry_dict(page_entry) else {
+            continue;
+        };
+        let Some((_, contents_obj)) = page_dict.get_first(b"/Contents") else {
+            continue;
+        };
+        match &contents_obj.atom {
+            PdfAtom::Ref { .. } => ref_count += 1,
+            PdfAtom::Array(_) => array_count += 1,
+            PdfAtom::Stream(_) => direct_stream_count += 1,
+            _ => {}
+        }
+    }
+    (ref_count, array_count, direct_stream_count)
 }
 
 #[test]
@@ -421,6 +459,23 @@ fn test_content_stream_exec_default_fixture_baseline_counts() {
             "unexpected ContentStreamExec baseline count for fixture {}",
             fixture
         );
+    }
+}
+
+#[test]
+fn test_contents_variant_baseline_counts_for_stage0() {
+    let fixtures = [
+        ("content_first_phase1.pdf", (1usize, 0usize, 0usize)),
+        ("clean-google-docs-basic.pdf", (1usize, 0usize, 0usize)),
+        ("actions/launch_cve_2010_1240.pdf", (0usize, 0usize, 0usize)),
+    ];
+    for (fixture, expected) in fixtures {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(fixture);
+        let bytes = std::fs::read(&path).expect("fixture bytes");
+        let counts = baseline_contents_variant_counts(&bytes);
+        assert_eq!(counts, expected, "unexpected /Contents variant counts for fixture {}", fixture);
     }
 }
 

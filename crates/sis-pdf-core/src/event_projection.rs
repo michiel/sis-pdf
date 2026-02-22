@@ -1,6 +1,36 @@
 use crate::event_graph::{EdgeProvenance, EventEdgeKind, EventGraph, EventNodeKind};
 use serde::{Deserialize, Serialize};
+use sis_pdf_pdf::content::{ContentOp, ContentOperand};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+pub const STREAM_PROJ_MAX_OPS: usize = 1_000;
+pub const STREAM_PROJ_MAX_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProjectionOptions {
+    pub include_stream_exec_summary: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ResourceRef {
+    pub op: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object_ref: Option<(u32, u16)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct StreamExecSummary {
+    pub total_ops: usize,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub op_family_counts: BTreeMap<String, usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resource_refs: Vec<ResourceRef>,
+    pub graphics_state_max_depth: usize,
+    pub graphics_state_underflow: bool,
+    pub unknown_op_count: usize,
+    pub truncated: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventExecuteTarget {
@@ -46,9 +76,19 @@ pub struct EventRecord {
     pub branch_index: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mitre_techniques: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_exec: Option<StreamExecSummary>,
 }
 
 pub fn extract_event_records(event_graph: &EventGraph) -> Vec<EventRecord> {
+    extract_event_records_with_projection(event_graph, &ProjectionOptions::default(), None)
+}
+
+pub fn extract_event_records_with_projection(
+    event_graph: &EventGraph,
+    projection: &ProjectionOptions,
+    stream_summaries: Option<&BTreeMap<String, StreamExecSummary>>,
+) -> Vec<EventRecord> {
     let mut records = Vec::new();
     let mut finding_ids_by_node: HashMap<String, BTreeSet<String>> = HashMap::new();
     for edge in &event_graph.edges {
@@ -151,11 +191,89 @@ pub fn extract_event_records(event_graph: &EventGraph) -> Vec<EventRecord> {
             initiation,
             branch_index,
             mitre_techniques: node.mitre_techniques.clone(),
+            stream_exec: if projection.include_stream_exec_summary {
+                stream_summaries.and_then(|summaries| summaries.get(&node.id).cloned())
+            } else {
+                None
+            },
         });
     }
 
     records.sort_by_key(|record| (record.source_object, record.node_id.clone()));
     records
+}
+
+pub fn summarise_content_ops(ops: &[ContentOp]) -> StreamExecSummary {
+    let mut op_family_counts = BTreeMap::<String, usize>::new();
+    let mut resource_refs = Vec::<ResourceRef>::new();
+    let mut graphics_depth = 0usize;
+    let mut graphics_max_depth = 0usize;
+    let mut graphics_underflow = false;
+    let mut unknown_op_count = 0usize;
+    let mut bytes_used = 0usize;
+    let mut truncated = false;
+
+    for op in ops.iter().take(STREAM_PROJ_MAX_OPS) {
+        let family = op_family_key(op.op.as_str());
+        if family == "Unknown" {
+            unknown_op_count += 1;
+        }
+        *op_family_counts.entry(family.to_string()).or_insert(0) += 1;
+
+        if op.op == "q" {
+            graphics_depth += 1;
+            graphics_max_depth = graphics_max_depth.max(graphics_depth);
+        } else if op.op == "Q" {
+            if graphics_depth == 0 {
+                graphics_underflow = true;
+            } else {
+                graphics_depth -= 1;
+            }
+        }
+
+        if matches!(op.op.as_str(), "Do" | "Tf" | "gs" | "sh") {
+            if let Some(ContentOperand::Name(name)) = op.operands.first() {
+                let projected =
+                    ResourceRef { op: op.op.clone(), name: name.clone(), object_ref: None };
+                bytes_used += projected.op.len() + projected.name.len() + 8;
+                if bytes_used > STREAM_PROJ_MAX_BYTES {
+                    truncated = true;
+                    break;
+                }
+                resource_refs.push(projected);
+            }
+        }
+    }
+
+    if ops.len() > STREAM_PROJ_MAX_OPS {
+        truncated = true;
+    }
+
+    StreamExecSummary {
+        total_ops: ops.len(),
+        op_family_counts,
+        resource_refs,
+        graphics_state_max_depth: graphics_max_depth,
+        graphics_state_underflow: graphics_underflow,
+        unknown_op_count,
+        truncated,
+    }
+}
+
+fn op_family_key(op: &str) -> &'static str {
+    if op.starts_with('T') || matches!(op, "'" | "\"") {
+        return "Text";
+    }
+    match op {
+        "m" | "l" | "c" | "v" | "y" | "h" | "re" | "S" | "s" | "f" | "F" | "f*" | "B" | "B*"
+        | "b" | "b*" | "n" | "W" | "W*" => "Path",
+        "q" | "Q" | "cm" | "w" | "J" | "j" | "M" | "d" | "ri" | "i" => "State",
+        "Do" | "Tf" | "gs" | "sh" | "cs" | "CS" | "sc" | "SC" | "scn" | "SCN" | "g" | "G"
+        | "rg" | "RG" | "k" | "K" => "Resource",
+        "BMC" | "BDC" | "EMC" | "MP" | "DP" => "MarkedContent",
+        "BI" | "ID" | "EI" => "InlineImage",
+        _ => "Unknown",
+    }
 }
 
 pub fn build_finding_event_index(records: &[EventRecord]) -> BTreeMap<String, Vec<String>> {
@@ -174,14 +292,18 @@ pub fn build_finding_event_index(records: &[EventRecord]) -> BTreeMap<String, Ve
 
 #[cfg(test)]
 mod tests {
-    use super::{build_finding_event_index, extract_event_records};
+    use super::{
+        build_finding_event_index, extract_event_records, extract_event_records_with_projection,
+        summarise_content_ops, ProjectionOptions, StreamExecSummary,
+    };
     use crate::event_graph::{
         build_event_graph, EdgeMetadata, EdgeProvenance, EventEdge, EventEdgeKind, EventGraph,
         EventGraphOptions, EventNode, EventNodeKind, EventType, OutcomeType, TriggerClass,
     };
     use crate::model::{AttackSurface, Confidence, Finding, Severity};
+    use sis_pdf_pdf::content::{ContentOp, ContentOperand};
     use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge, TypedGraph};
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
@@ -262,6 +384,68 @@ mod tests {
         assert_eq!(outcome.outcome_type, "NetworkEgress");
         assert_eq!(outcome.confidence_score, Some(95));
         assert_eq!(outcome.severity_hint.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn extract_event_records_with_projection_includes_stream_exec() {
+        let graph = make_graph(
+            vec![EventNode {
+                id: "ev:1".to_string(),
+                mitre_techniques: Vec::new(),
+                kind: EventNodeKind::Event {
+                    event_type: EventType::ContentStreamExec,
+                    trigger: TriggerClass::Automatic,
+                    label: "Content stream".to_string(),
+                    source_obj: Some((1, 0)),
+                },
+            }],
+            Vec::new(),
+        );
+        let mut summaries = BTreeMap::<String, StreamExecSummary>::new();
+        summaries.insert(
+            "ev:1".to_string(),
+            StreamExecSummary { total_ops: 3, unknown_op_count: 1, ..StreamExecSummary::default() },
+        );
+        let records = extract_event_records_with_projection(
+            &graph,
+            &ProjectionOptions { include_stream_exec_summary: true },
+            Some(&summaries),
+        );
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].stream_exec.as_ref().map(|s| s.total_ops), Some(3));
+    }
+
+    #[test]
+    fn summarise_content_ops_tracks_resource_refs_and_state() {
+        let ops = vec![
+            ContentOp {
+                op: "q".to_string(),
+                operands: Vec::new(),
+                span: sis_pdf_pdf::span::Span { start: 0, end: 1 },
+            },
+            ContentOp {
+                op: "Do".to_string(),
+                operands: vec![ContentOperand::Name("/Im1".to_string())],
+                span: sis_pdf_pdf::span::Span { start: 1, end: 2 },
+            },
+            ContentOp {
+                op: "Q".to_string(),
+                operands: Vec::new(),
+                span: sis_pdf_pdf::span::Span { start: 2, end: 3 },
+            },
+            ContentOp {
+                op: "ZZ".to_string(),
+                operands: Vec::new(),
+                span: sis_pdf_pdf::span::Span { start: 3, end: 4 },
+            },
+        ];
+        let summary = summarise_content_ops(&ops);
+        assert_eq!(summary.total_ops, 4);
+        assert_eq!(summary.graphics_state_max_depth, 1);
+        assert!(!summary.graphics_state_underflow);
+        assert_eq!(summary.unknown_op_count, 1);
+        assert_eq!(summary.resource_refs.len(), 1);
+        assert_eq!(summary.resource_refs[0].name, "/Im1");
     }
 
     #[test]

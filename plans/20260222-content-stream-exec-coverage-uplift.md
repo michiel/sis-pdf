@@ -45,11 +45,27 @@ Completed in this cycle:
      - `content_first_phase1.pdf` -> 1
      - `clean-google-docs-basic.pdf` -> 1
      - `actions/launch_cve_2010_1240.pdf` -> 0
+6. Stage 0 `/Contents` variant instrumentation added:
+   - `test_contents_variant_baseline_counts_for_stage0`
+   - Baseline `/Contents` variants:
+     - `content_first_phase1.pdf` -> `(ref=1, array=0, direct=0)`
+     - `clean-google-docs-basic.pdf` -> `(ref=1, array=0, direct=0)`
+     - `actions/launch_cve_2010_1240.pdf` -> `(ref=0, array=0, direct=0)`
+7. Stage 3 partial implementation landed:
+   - Added projection options and stream summary model in `event_projection.rs`:
+     - `ProjectionOptions`
+     - `StreamExecSummary`
+     - `ResourceRef`
+     - bounded summary constants (`STREAM_PROJ_MAX_OPS`, `STREAM_PROJ_MAX_BYTES`)
+   - Added `extract_event_records_with_projection(...)` with compatibility wrapper
+     `extract_event_records(...)`.
+   - Wired `events.full` to include `stream_exec` for `ContentStreamExec` rows.
+   - Added projection and query regression tests.
 
 In progress / pending:
-1. Stage 0 baseline metrics table (partial: page/page_contents/event counts done; `/Contents` ref/array/direct split still pending instrumentation).
-2. Stage 0 `get_first` scope audit documentation.
-3. Stages 3-6 are not yet implemented.
+1. Stage 3 performance budget test with stream projection enabled (S3.5) is pending.
+2. Stage 3 object_ref resolution in `resource_refs` remains `null` (mapping refinement pending).
+3. Stages 4-6 are not yet implemented.
 
 ## Assumptions
 
@@ -234,14 +250,11 @@ Record in this plan:
 
 Current baseline snapshot (post-Stage 1 implementation):
 
-| Fixture | Pages | `page_contents` typed edges | `ContentStreamExec` events (default) |
-|---|---:|---:|---:|
-| `content_first_phase1.pdf` | 1 | 1 | 1 |
-| `clean-google-docs-basic.pdf` | 1 | 1 | 1 |
-| `actions/launch_cve_2010_1240.pdf` | 1 | 0 | 0 |
-
-Note: `/Contents` ref/array/direct-stream split metrics require dedicated instrumentation and
-remain pending.
+| Fixture | Pages | `page_contents` typed edges | `ContentStreamExec` events (default) | `/Contents` ref | `/Contents` array | `/Contents` direct stream |
+|---|---:|---:|---:|---:|---:|---:|
+| `content_first_phase1.pdf` | 1 | 1 | 1 | 1 | 0 | 0 |
+| `clean-google-docs-basic.pdf` | 1 | 1 | 1 | 1 | 0 | 0 |
+| `actions/launch_cve_2010_1240.pdf` | 1 | 0 | 0 | 0 | 0 | 0 |
 
 ### S0.2 Non-regression gate
 
@@ -838,15 +851,17 @@ infrastructure.
 
 ## Delivery Checklist
 
-- [ ] Stage 0: baseline metrics recorded; non-regression test committed; `get_first` audit
+- [x] Stage 0: baseline metrics recorded; non-regression test committed; `get_first` audit
       complete.
 - [x] Stage 1: `/Contents` array coverage fixed; unit and integration tests passing.
-- [ ] Stage 1 follow-up: baseline delta documented in Stage 0 metrics table.
+- [x] Stage 1 follow-up: baseline delta documented in Stage 0 metrics table.
 - [x] Stage 2 partial: form XObject and Type3 execution surfaces behind `EventGraphOptions`
       flags; synthetic fixture tests passing.
 - [x] Stage 2 refinement: `Do`-confirmed form execution matching for xobject events.
-- [ ] Stage 3: `StreamExecSummary` in `EventRecord`; `events.full` includes stream section;
-      performance budget test passing.
+- [x] Stage 3 partial: `StreamExecSummary` model added in projection and `events.full`
+      includes `stream_exec` section for `ContentStreamExec` rows.
+- [ ] Stage 3 remaining: performance budget test passing and resource-ref object mapping
+      refinement.
 - [ ] Stage 4: `graph.event.stream` query implemented; overlay node/edge schema documented;
       additive `SuspicionScore` field implemented with backward-compatible `suspicious: bool`.
 - [ ] Stage 5: four detectors implemented and calibrated; correlator integrated in

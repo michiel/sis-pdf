@@ -4738,11 +4738,18 @@ fn extract_event_triggers_full(
     predicate: Option<&PredicateExpr>,
 ) -> Result<serde_json::Value> {
     use sis_pdf_core::event_graph::{build_event_graph, EventGraphOptions};
-    use sis_pdf_core::event_projection::{build_finding_event_index, extract_event_records};
+    use sis_pdf_core::event_projection::{
+        build_finding_event_index, extract_event_records_with_projection, ProjectionOptions,
+    };
 
     let typed_graph = ctx.build_typed_graph();
     let event_graph = build_event_graph(&typed_graph, &[], EventGraphOptions::default());
-    let records = extract_event_records(&event_graph);
+    let stream_summaries = build_stream_exec_summaries(ctx, &event_graph);
+    let records = extract_event_records_with_projection(
+        &event_graph,
+        &ProjectionOptions { include_stream_exec_summary: true },
+        Some(&stream_summaries),
+    );
     let finding_event_index = build_finding_event_index(&records);
     let mut events = Vec::new();
 
@@ -4798,6 +4805,7 @@ fn extract_event_triggers_full(
             "event_key": record.event_key,
             "initiation": record.initiation,
             "branch_index": record.branch_index,
+            "stream_exec": record.stream_exec,
             "event_edges": node_edges,
             "action_details": record.label,
         });
@@ -4814,6 +4822,75 @@ fn extract_event_triggers_full(
         "events": events,
         "finding_event_index": finding_event_index,
     }))
+}
+
+fn build_stream_exec_summaries(
+    ctx: &ScanContext,
+    event_graph: &sis_pdf_core::event_graph::EventGraph,
+) -> BTreeMap<String, sis_pdf_core::event_projection::StreamExecSummary> {
+    use sis_pdf_core::event_graph::{EventNodeKind, EventType};
+    use sis_pdf_core::event_projection::summarise_content_ops;
+    use sis_pdf_pdf::content::parse_content_ops;
+    use sis_pdf_pdf::decode::decode_stream;
+    use sis_pdf_pdf::object::PdfAtom;
+
+    let mut summaries = BTreeMap::new();
+    for node in &event_graph.nodes {
+        let EventNodeKind::Event { event_type, .. } = &node.kind else {
+            continue;
+        };
+        if *event_type != EventType::ContentStreamExec {
+            continue;
+        }
+        let Some(edge_ids) = event_graph.forward_index.get(&node.id) else {
+            continue;
+        };
+        let stream_ref = edge_ids
+            .iter()
+            .filter_map(|edge_idx| event_graph.edges.get(*edge_idx))
+            .filter(|edge| {
+                edge.kind == sis_pdf_core::event_graph::EventEdgeKind::Executes
+                    && edge.to.starts_with("obj:")
+            })
+            .find_map(|edge| parse_event_object_node_id(&edge.to));
+        let Some((obj, gen)) = stream_ref else {
+            continue;
+        };
+        let Some(entry) = ctx.graph.get_object(obj, gen) else {
+            continue;
+        };
+        let PdfAtom::Stream(stream) = &entry.atom else {
+            continue;
+        };
+        let decoded = decode_stream(ctx.bytes, stream, 8 * 1024 * 1024)
+            .map(|result| result.data)
+            .ok()
+            .or_else(|| {
+                let start = stream.data_span.start as usize;
+                let end = stream.data_span.end as usize;
+                if start < end && end <= ctx.bytes.len() {
+                    Some(ctx.bytes[start..end].to_vec())
+                } else {
+                    None
+                }
+            });
+        let Some(bytes) = decoded else {
+            continue;
+        };
+        let ops = parse_content_ops(&bytes);
+        summaries.insert(node.id.clone(), summarise_content_ops(&ops));
+    }
+    summaries
+}
+
+fn parse_event_object_node_id(node_id: &str) -> Option<(u32, u16)> {
+    let parts = node_id.split(':').collect::<Vec<_>>();
+    if parts.len() != 3 || parts[0] != "obj" {
+        return None;
+    }
+    let obj = parts[1].parse::<u32>().ok()?;
+    let generation = parts[2].parse::<u16>().ok()?;
+    Some((obj, generation))
 }
 
 fn event_level_for_type(event_type: &str) -> &'static str {
@@ -10235,6 +10312,15 @@ mod tests {
             };
             assert!(value.get("events").is_some());
             assert!(value.get("finding_event_index").is_some());
+            let has_stream_exec =
+                value.get("events").and_then(|events| events.as_array()).is_some_and(|events| {
+                    events.iter().any(|event| {
+                        event.get("event_type").and_then(|v| v.as_str())
+                            == Some("ContentStreamExec")
+                            && event.get("stream_exec").is_some()
+                    })
+                });
+            assert!(has_stream_exec, "expected stream_exec payload on ContentStreamExec event");
         });
     }
 
