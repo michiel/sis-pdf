@@ -61,11 +61,19 @@ Completed in this cycle:
      `extract_event_records(...)`.
    - Wired `events.full` to include `stream_exec` for `ContentStreamExec` rows.
    - Added projection and query regression tests.
+8. Stage 3 completion items implemented:
+   - Added core `build_stream_exec_summaries(bytes, object_graph, event_graph)` helper
+     in `event_projection.rs` to centralise summary construction.
+   - Added resource binding resolution for common operator namespaces:
+     - `Do` -> `/Resources/XObject`
+     - `Tf` -> `/Resources/Font`
+     - `gs` -> `/Resources/ExtGState`
+     - `sh` -> `/Resources/Shading`
+   - Added Stage 3 budget test:
+     - `events_projection_with_stream_summary_budget_on_cve_fixture` (<= 150ms).
 
 In progress / pending:
-1. Stage 3 performance budget test with stream projection enabled (S3.5) is pending.
-2. Stage 3 object_ref resolution in `resource_refs` remains `null` (mapping refinement pending).
-3. Stages 4-6 are not yet implemented.
+1. Stages 4-6 are not yet implemented.
 
 ## Assumptions
 
@@ -858,10 +866,8 @@ infrastructure.
 - [x] Stage 2 partial: form XObject and Type3 execution surfaces behind `EventGraphOptions`
       flags; synthetic fixture tests passing.
 - [x] Stage 2 refinement: `Do`-confirmed form execution matching for xobject events.
-- [x] Stage 3 partial: `StreamExecSummary` model added in projection and `events.full`
-      includes `stream_exec` section for `ContentStreamExec` rows.
-- [ ] Stage 3 remaining: performance budget test passing and resource-ref object mapping
-      refinement.
+- [x] Stage 3: `StreamExecSummary` in `EventRecord`; `events.full` includes stream section;
+      performance budget test passing.
 - [ ] Stage 4: `graph.event.stream` query implemented; overlay node/edge schema documented;
       additive `SuspicionScore` field implemented with backward-compatible `suspicious: bool`.
 - [ ] Stage 5: four detectors implemented and calibrated; correlator integrated in

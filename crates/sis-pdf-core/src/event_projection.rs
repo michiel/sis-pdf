@@ -1,6 +1,9 @@
 use crate::event_graph::{EdgeProvenance, EventEdgeKind, EventGraph, EventNodeKind};
 use serde::{Deserialize, Serialize};
 use sis_pdf_pdf::content::{ContentOp, ContentOperand};
+use sis_pdf_pdf::decode::decode_stream;
+use sis_pdf_pdf::graph::ObjectGraph;
+use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 pub const STREAM_PROJ_MAX_OPS: usize = 1_000;
@@ -260,6 +263,174 @@ pub fn summarise_content_ops(ops: &[ContentOp]) -> StreamExecSummary {
     }
 }
 
+pub fn build_stream_exec_summaries(
+    bytes: &[u8],
+    object_graph: &ObjectGraph<'_>,
+    event_graph: &EventGraph,
+) -> BTreeMap<String, StreamExecSummary> {
+    let mut summaries = BTreeMap::new();
+    for node in &event_graph.nodes {
+        let EventNodeKind::Event {
+            event_type: crate::event_graph::EventType::ContentStreamExec,
+            source_obj,
+            ..
+        } = &node.kind
+        else {
+            continue;
+        };
+        let Some(edge_ids) = event_graph.forward_index.get(&node.id) else {
+            continue;
+        };
+        let stream_ref = edge_ids
+            .iter()
+            .filter_map(|edge_idx| event_graph.edges.get(*edge_idx))
+            .filter(|edge| edge.kind == EventEdgeKind::Executes && edge.to.starts_with("obj:"))
+            .find_map(|edge| parse_event_object_node_id(&edge.to));
+        let Some(stream_ref) = stream_ref else {
+            continue;
+        };
+        let Some(entry) = object_graph.get_object(stream_ref.0, stream_ref.1) else {
+            continue;
+        };
+        let PdfAtom::Stream(stream) = &entry.atom else {
+            continue;
+        };
+        let decoded = decode_stream(bytes, stream, 8 * 1024 * 1024)
+            .map(|result| result.data)
+            .ok()
+            .or_else(|| {
+                let start = stream.data_span.start as usize;
+                let end = stream.data_span.end as usize;
+                if start < end && end <= bytes.len() {
+                    Some(bytes[start..end].to_vec())
+                } else {
+                    None
+                }
+            });
+        let Some(bytes) = decoded else {
+            continue;
+        };
+        let ops = sis_pdf_pdf::content::parse_content_ops(&bytes);
+        let mut summary = summarise_content_ops(&ops);
+        if let Some(src) = source_obj {
+            let bindings = collect_resource_bindings(object_graph, *src);
+            for resource in &mut summary.resource_refs {
+                resource.object_ref =
+                    bindings.resolve(resource.op.as_str(), resource.name.as_str());
+            }
+        }
+        summaries.insert(node.id.clone(), summary);
+    }
+    summaries
+}
+
+#[derive(Default)]
+struct ResourceBindings {
+    xobject: HashMap<String, (u32, u16)>,
+    font: HashMap<String, (u32, u16)>,
+    extgstate: HashMap<String, (u32, u16)>,
+    shading: HashMap<String, (u32, u16)>,
+}
+
+impl ResourceBindings {
+    fn resolve(&self, op: &str, name: &str) -> Option<(u32, u16)> {
+        match op {
+            "Do" => self.xobject.get(name).copied(),
+            "Tf" => self.font.get(name).copied(),
+            "gs" => self.extgstate.get(name).copied(),
+            "sh" => self.shading.get(name).copied(),
+            _ => None,
+        }
+    }
+}
+
+fn parse_event_object_node_id(node_id: &str) -> Option<(u32, u16)> {
+    let parts = node_id.split(':').collect::<Vec<_>>();
+    if parts.len() != 3 || parts[0] != "obj" {
+        return None;
+    }
+    let obj = parts[1].parse::<u32>().ok()?;
+    let generation = parts[2].parse::<u16>().ok()?;
+    Some((obj, generation))
+}
+
+fn collect_resource_bindings(graph: &ObjectGraph<'_>, src: (u32, u16)) -> ResourceBindings {
+    let mut out = ResourceBindings::default();
+    let Some(entry) = graph.get_object(src.0, src.1) else {
+        return out;
+    };
+    let Some(dict) = entry_dict(entry) else {
+        return out;
+    };
+    if let Some((_, resources_obj)) = dict.get_first(b"/Resources") {
+        if let Some(resources_dict) = resolve_dict(graph, resources_obj) {
+            collect_resource_namespace_bindings(
+                graph,
+                resources_dict,
+                b"/XObject",
+                &mut out.xobject,
+            );
+            collect_resource_namespace_bindings(graph, resources_dict, b"/Font", &mut out.font);
+            collect_resource_namespace_bindings(
+                graph,
+                resources_dict,
+                b"/ExtGState",
+                &mut out.extgstate,
+            );
+            collect_resource_namespace_bindings(
+                graph,
+                resources_dict,
+                b"/Shading",
+                &mut out.shading,
+            );
+        }
+    }
+    out
+}
+
+fn collect_resource_namespace_bindings(
+    graph: &ObjectGraph<'_>,
+    resources_dict: &PdfDict<'_>,
+    key: &[u8],
+    out: &mut HashMap<String, (u32, u16)>,
+) {
+    let Some((_, namespace_obj)) = resources_dict.get_first(key) else {
+        return;
+    };
+    let Some(namespace_dict) = resolve_dict(graph, namespace_obj) else {
+        return;
+    };
+    for (name, value) in &namespace_dict.entries {
+        if let Some((obj, gen)) = resolve_ref_tuple(graph, value) {
+            out.insert(String::from_utf8_lossy(&name.decoded).to_string(), (obj, gen));
+        }
+    }
+}
+
+fn resolve_ref_tuple(graph: &ObjectGraph<'_>, obj: &PdfObj<'_>) -> Option<(u32, u16)> {
+    match obj.atom {
+        PdfAtom::Ref { obj, gen } => Some((obj, gen)),
+        _ => graph.resolve_ref(obj).map(|entry| (entry.obj, entry.gen)),
+    }
+}
+
+fn resolve_dict<'a>(graph: &'a ObjectGraph<'a>, obj: &'a PdfObj<'a>) -> Option<&'a PdfDict<'a>> {
+    match &obj.atom {
+        PdfAtom::Dict(dict) => Some(dict),
+        PdfAtom::Ref { obj, gen } => graph.get_object(*obj, *gen).and_then(entry_dict),
+        PdfAtom::Stream(stream) => Some(&stream.dict),
+        _ => None,
+    }
+}
+
+fn entry_dict<'a>(entry: &'a sis_pdf_pdf::graph::ObjEntry<'a>) -> Option<&'a PdfDict<'a>> {
+    match &entry.atom {
+        PdfAtom::Dict(dict) => Some(dict),
+        PdfAtom::Stream(stream) => Some(&stream.dict),
+        _ => None,
+    }
+}
+
 fn op_family_key(op: &str) -> &'static str {
     if op.starts_with('T') || matches!(op, "'" | "\"") {
         return "Text";
@@ -293,8 +464,9 @@ pub fn build_finding_event_index(records: &[EventRecord]) -> BTreeMap<String, Ve
 #[cfg(test)]
 mod tests {
     use super::{
-        build_finding_event_index, extract_event_records, extract_event_records_with_projection,
-        summarise_content_ops, ProjectionOptions, StreamExecSummary,
+        build_finding_event_index, build_stream_exec_summaries, extract_event_records,
+        extract_event_records_with_projection, summarise_content_ops, ProjectionOptions,
+        StreamExecSummary,
     };
     use crate::event_graph::{
         build_event_graph, EdgeMetadata, EdgeProvenance, EventEdge, EventEdgeKind, EventGraph,
@@ -506,5 +678,53 @@ mod tests {
         assert!(elapsed <= Duration::from_millis(500), "projection budget exceeded: {:?}", elapsed);
 
         let _ = TypedEdge::new((1, 0), (2, 0), EdgeType::OpenAction);
+    }
+
+    #[test]
+    fn events_projection_with_stream_summary_budget_on_cve_fixture() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/actions/launch_cve_2010_1240.pdf");
+        let bytes = std::fs::read(&fixture).expect("fixture bytes");
+        let parse_options = sis_pdf_pdf::ParseOptions {
+            recover_xref: true,
+            deep: false,
+            strict: false,
+            max_objstm_bytes: 64 * 1024 * 1024,
+            max_objects: 250_000,
+            max_objstm_total_bytes: 256 * 1024 * 1024,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
+        };
+        let graph = sis_pdf_pdf::parse_pdf(&bytes, parse_options).expect("parse");
+        let classifications = graph.classify_objects();
+        let typed_graph = TypedGraph::build(&graph, &classifications);
+        let findings = vec![Finding {
+            id: "budget-finding".to_string(),
+            surface: AttackSurface::Actions,
+            kind: "action_open".to_string(),
+            severity: Severity::Medium,
+            confidence: Confidence::Strong,
+            action_type: Some("OpenAction".to_string()),
+            action_target: Some("obj 6 0".to_string()),
+            ..Finding::default()
+        }];
+        let event_graph = build_event_graph(&typed_graph, &findings, EventGraphOptions::default());
+
+        let start = Instant::now();
+        let stream_summaries = build_stream_exec_summaries(&bytes, &graph, &event_graph);
+        let records = extract_event_records_with_projection(
+            &event_graph,
+            &ProjectionOptions { include_stream_exec_summary: true },
+            Some(&stream_summaries),
+        );
+        let elapsed = start.elapsed();
+
+        assert!(!records.is_empty(), "projection should return records");
+        assert!(
+            elapsed <= Duration::from_millis(150),
+            "stream projection budget exceeded: {:?}",
+            elapsed
+        );
     }
 }
