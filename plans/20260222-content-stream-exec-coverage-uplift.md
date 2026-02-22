@@ -49,8 +49,7 @@ Completed in this cycle:
 In progress / pending:
 1. Stage 0 baseline metrics table (partial: page/page_contents/event counts done; `/Contents` ref/array/direct split still pending instrumentation).
 2. Stage 0 `get_first` scope audit documentation.
-3. Stage 2 execution-confirmation refinement (`Do`-confirmed form execution) is pending; current implementation is declared-surface based.
-4. Stages 3-6 are not yet implemented.
+3. Stages 3-6 are not yet implemented.
 
 ## Assumptions
 
@@ -370,7 +369,10 @@ In the event graph builder, when `include_xobject_exec` is set:
 
 Current implementation status:
 - Declared-surface mode implemented.
-- `Do`-confirmed execution refinement pending.
+- `Do`-confirmed execution refinement implemented: form XObject events are emitted only when
+  source content stream operators include matching `Do` operands for the mapped XObject name.
+- Regression coverage includes a negative case (`test_include_xobject_exec_ignores_unreferenced_form_xobject`)
+  proving declared-but-unreferenced form resources do not emit execution events.
 
 ### S2.3 Type3 charproc execution events
 
@@ -842,7 +844,7 @@ infrastructure.
 - [ ] Stage 1 follow-up: baseline delta documented in Stage 0 metrics table.
 - [x] Stage 2 partial: form XObject and Type3 execution surfaces behind `EventGraphOptions`
       flags; synthetic fixture tests passing.
-- [ ] Stage 2 refinement: `Do`-confirmed form execution matching for xobject events.
+- [x] Stage 2 refinement: `Do`-confirmed form execution matching for xobject events.
 - [ ] Stage 3: `StreamExecSummary` in `EventRecord`; `events.full` includes stream section;
       performance budget test passing.
 - [ ] Stage 4: `graph.event.stream` query implemented; overlay node/edge schema documented;

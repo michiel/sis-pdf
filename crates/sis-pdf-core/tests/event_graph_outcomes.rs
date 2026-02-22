@@ -472,6 +472,49 @@ fn test_include_xobject_exec_adds_form_content_stream_event() {
 }
 
 #[test]
+fn test_include_xobject_exec_ignores_unreferenced_form_xobject() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Fm1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n"
+            .to_string(),
+        "4 0 obj\n<< /Type /XObject /Subtype /Form /Length 0 >>\nstream\n\nendstream\nendobj\n"
+            .to_string(),
+        "5 0 obj\n<< /Length 8 >>\nstream\nq Q BT ET\nendstream\nendobj\n".to_string(),
+    ];
+    let bytes = build_pdf(&objects, 6);
+    let default_graph = event_graph_for_pdf(&bytes);
+    let mut options = EventGraphOptions::default();
+    options.include_xobject_exec = true;
+    let extended_graph = event_graph_for_pdf_with_options(&bytes, options);
+
+    let default_count = default_graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. }
+            )
+        })
+        .count();
+    let extended_count = extended_graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                EventNodeKind::Event { event_type: EventType::ContentStreamExec, .. }
+            )
+        })
+        .count();
+    assert_eq!(
+        extended_count, default_count,
+        "xobject exec overlay should not add events when no Do operand references form resource"
+    );
+}
+
+#[test]
 fn test_include_type3_exec_adds_charproc_content_stream_events() {
     let objects = vec![
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),

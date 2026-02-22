@@ -1,6 +1,8 @@
 use crate::model::Finding;
 use serde::{Deserialize, Serialize};
 use sis_pdf_pdf::classification::PdfObjectType;
+use sis_pdf_pdf::content::{parse_content_ops, ContentOperand};
+use sis_pdf_pdf::decode::decode_stream;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict};
 use sis_pdf_pdf::typed_graph::{EdgeType, TypedGraph};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -515,6 +517,9 @@ pub fn build_event_graph(
                 continue;
             };
             if !dst_dict.has_name(b"/Subtype", b"/Form") {
+                continue;
+            }
+            if !xobject_reference_is_observed_execution(typed_graph, edge.src, edge.dst) {
                 continue;
             }
             let id = format!(
@@ -1250,6 +1255,150 @@ fn resolve_dict<'a>(
         PdfAtom::Stream(stream) => Some(&stream.dict),
         _ => None,
     }
+}
+
+fn xobject_reference_is_observed_execution(
+    typed_graph: &TypedGraph<'_>,
+    src: (u32, u16),
+    dst: (u32, u16),
+) -> bool {
+    let graph = typed_graph.graph;
+    let binding_names = xobject_binding_names(graph, src, dst);
+    if binding_names.is_empty() {
+        return false;
+    }
+    let stream_targets = source_content_stream_targets(graph, src);
+    if stream_targets.is_empty() {
+        return false;
+    }
+    stream_targets.into_iter().any(|stream_ref| {
+        let do_names = stream_do_operand_names(graph, stream_ref);
+        binding_names.iter().any(|name| do_names.contains(name))
+    })
+}
+
+fn xobject_binding_names(
+    graph: &sis_pdf_pdf::ObjectGraph<'_>,
+    src: (u32, u16),
+    dst: (u32, u16),
+) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let Some(entry) = graph.get_object(src.0, src.1) else {
+        return names;
+    };
+    let Some(src_dict) = entry_dict(entry) else {
+        return names;
+    };
+
+    if let Some((_, xobject_obj)) = src_dict.get_first(b"/XObject") {
+        collect_xobject_name_bindings(graph, xobject_obj, dst, &mut names);
+    }
+    if let Some((_, resources_obj)) = src_dict.get_first(b"/Resources") {
+        if let Some(resources_dict) = resolve_dict(graph, resources_obj) {
+            if let Some((_, xobject_obj)) = resources_dict.get_first(b"/XObject") {
+                collect_xobject_name_bindings(graph, xobject_obj, dst, &mut names);
+            }
+        }
+    }
+    names
+}
+
+fn collect_xobject_name_bindings(
+    graph: &sis_pdf_pdf::ObjectGraph<'_>,
+    xobject_obj: &sis_pdf_pdf::object::PdfObj<'_>,
+    target: (u32, u16),
+    out: &mut BTreeSet<String>,
+) {
+    let Some(xobject_dict) = resolve_dict(graph, xobject_obj) else {
+        return;
+    };
+    for (name, obj) in &xobject_dict.entries {
+        let Some(resolved) = graph.resolve_ref(obj) else {
+            continue;
+        };
+        if (resolved.obj, resolved.gen) == target {
+            out.insert(String::from_utf8_lossy(&name.decoded).to_string());
+        }
+    }
+}
+
+fn source_content_stream_targets(
+    graph: &sis_pdf_pdf::ObjectGraph<'_>,
+    src: (u32, u16),
+) -> Vec<(u32, u16)> {
+    let mut targets = Vec::new();
+    let mut seen = BTreeSet::<(u32, u16)>::new();
+    let Some(entry) = graph.get_object(src.0, src.1) else {
+        return targets;
+    };
+    let Some(dict) = entry_dict(entry) else {
+        return targets;
+    };
+
+    if dict.has_name(b"/Type", b"/Page") {
+        if let Some((_, contents_obj)) = dict.get_first(b"/Contents") {
+            match &contents_obj.atom {
+                PdfAtom::Ref { obj, gen } => {
+                    if seen.insert((*obj, *gen)) {
+                        targets.push((*obj, *gen));
+                    }
+                }
+                PdfAtom::Array(items) => {
+                    for item in items {
+                        if let Some(resolved) = graph.resolve_ref(item) {
+                            if seen.insert((resolved.obj, resolved.gen)) {
+                                targets.push((resolved.obj, resolved.gen));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if matches!(entry.atom, PdfAtom::Stream(_)) && dict.has_name(b"/Subtype", b"/Form") {
+        if seen.insert(src) {
+            targets.push(src);
+        }
+    }
+    targets
+}
+
+fn stream_do_operand_names(
+    graph: &sis_pdf_pdf::ObjectGraph<'_>,
+    stream_ref: (u32, u16),
+) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let Some(entry) = graph.get_object(stream_ref.0, stream_ref.1) else {
+        return names;
+    };
+    let PdfAtom::Stream(stream) = &entry.atom else {
+        return names;
+    };
+    let decoded = decode_stream(graph.bytes, stream, 8 * 1024 * 1024)
+        .map(|result| result.data)
+        .ok()
+        .or_else(|| {
+            let start = stream.data_span.start as usize;
+            let end = stream.data_span.end as usize;
+            if start < end && end <= graph.bytes.len() {
+                Some(graph.bytes[start..end].to_vec())
+            } else {
+                None
+            }
+        });
+    let Some(bytes) = decoded else {
+        return names;
+    };
+    for op in parse_content_ops(&bytes) {
+        if op.op != "Do" {
+            continue;
+        }
+        if let Some(ContentOperand::Name(name)) = op.operands.first() {
+            names.insert(name.clone());
+        }
+    }
+    names
 }
 
 fn build_indices(
