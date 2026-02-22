@@ -99,6 +99,21 @@ Settings are applied in the following order (later overrides earlier):
 3. **Selected profile** - Overrides global settings when `--profile` is specified
 4. **Command-line flags** - Always take highest precedence
 
+## Native GUI Platform Notes
+
+The native GUI binary is built from the `sis-pdf-gui` package (`cargo build -p sis-pdf-gui`).
+
+Platform-specific notes:
+
+- **Windows**: unsigned builds may trigger SmartScreen warnings.
+- **macOS**: unsigned builds may be blocked by Gatekeeper until the binary is explicitly trusted.
+- **Linux**: the CI smoke harness relies on X11-compatible headless tooling (`xvfb`, `xwd`, ImageMagick).
+
+Behavioural parity expectations:
+
+- File-open, clipboard, and drag-drop behaviour should be treated as equivalent across Linux/macOS/Windows for analyst workflows.
+- Path rendering and path-based errors should be normalised through Rust `Path` handling, not string concatenation assumptions.
+
 ### Example
 
 ```yaml

@@ -121,4 +121,4 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build native GUI target
-        run: cargo build -p sis-pdf --features gui
+        run: cargo build -p sis-pdf-gui

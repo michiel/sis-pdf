@@ -132,7 +132,7 @@ This section records identified gaps, risks, and the items added or amended to a
    GUI item notes the WASM compile check requirement.
 
 8. **`OF-NAT-04` overstates CI work needed** — macOS and Windows CLI runners already exist in
-   `.github/workflows/release-cli.yml`. The real gap is adding `--features gui` to those jobs.
+   `.github/workflows/release-cli.yml`. The real gap is adding native `sis-pdf-gui` build jobs.
    Addressed: C4 scope corrected to extend existing matrix rather than create new runners.
 
 9. **Missing batch mode considerations** — A3 (per-page execution query) and A4 (fingerprinting)
@@ -871,7 +871,7 @@ existing matrix jobs to add `--features gui`; it does not create new runners.
 
 Implementation:
 1. Build plumbing:
-   - add `--features gui` to existing macOS and Windows matrix jobs in `release-cli.yml`.
+   - add native `sis-pdf-gui` build steps to existing macOS and Windows matrix jobs in `release-cli.yml`.
    - update target-specific `NativeOptions` configuration (windowing, app-id/title, dpi defaults).
 2. Platform wrappers:
    - file-open dialog compatibility layer,
@@ -885,14 +885,14 @@ Implementation:
    - If signing is not yet available, ship with a documented caveat rather than blocking release.
 4. CI matrix extension:
    - extend existing `quality-gates.yml` with a cross-platform build check step
-     (`cargo build -p sis-pdf --features gui --target ...`) on macOS and Windows runners.
+     (`cargo build -p sis-pdf-gui --target ...`) on macOS and Windows runners.
    - optional launch smoke for signed-off runner environments.
 5. Documentation:
    - update README with platform caveats, signing status, and known limits.
    - update `docs/configuration.md` for platform-specific options.
 
 Tests:
-1. `cargo build -p sis-pdf --features gui` on macOS + Windows in existing CI matrix.
+1. `cargo build -p sis-pdf-gui` on macOS + Windows in existing CI matrix.
 2. Basic native smoke tests (open file, run analysis, copy text).
 3. Snapshot test for platform-specific window-state persistence serialisation.
 
@@ -1236,7 +1236,7 @@ items complete. Format:
     in `docs/performance.md`.
 - Implemented `C4 / OF-NAT-04` CI slice:
   - quality gates now include macOS and Windows native GUI build jobs
-    (`cargo build -p sis-pdf --features gui`).
+    (`cargo build -p sis-pdf-gui`).
 - Extended `B7 / OF-CSV-01` docs:
   - added `docs/findings-csv-schema.md` with versioned column contract.
 - Implemented `D2 / OF-FUZZ-01` coverage slice:
@@ -1281,8 +1281,12 @@ items complete. Format:
   - batch query now emits structured error rows instead of silently dropping
     file read/parse failures.
 - Implemented additional `C4 / OF-NAT-04` release CI slice:
-  - `.github/workflows/release-cli.yml` now builds GUI-capable sis binaries on
-    macOS/Windows via `--features "ml-graph,gui"` alongside CLI builds.
+  - `.github/workflows/release-cli.yml` now builds native `sis-pdf-gui`
+    binaries on macOS/Windows alongside CLI builds.
+- Corrected `C4 / OF-NAT-04` build command wiring:
+  - quality-gates cross-platform job now builds `sis-pdf-gui` directly;
+  - release-cli macOS/Windows job now builds `sis-pdf-gui` directly
+    (removing invalid `--features gui` use on `sis-pdf`).
 - Completed `C2 / OF-NAT-02` screenshot smoke:
   - added native GUI entry point binary at `crates/sis-pdf-gui/src/main.rs`;
   - added reproducible local harness `scripts/gui_smoke.sh` (xvfb + screenshot

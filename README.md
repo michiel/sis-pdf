@@ -157,6 +157,17 @@ irm https://raw.githubusercontent.com/michiel/sis-pdf/main/scripts/install.ps1 |
 
 Binary releases are published in [Releases](https://github.com/michiel/sis-pdf/releases).
 
+## Native GUI
+
+The native GUI package builds separately from the CLI:
+
+```bash
+cargo build -p sis-pdf-gui
+```
+
+On macOS and Windows, unsigned binaries may show platform trust prompts
+(Gatekeeper/SmartScreen) until signing is enabled in the release process.
+
 ## Configuration
 
 Default config path:
