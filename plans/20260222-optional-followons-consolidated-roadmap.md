@@ -1238,6 +1238,10 @@ items complete. Format:
     - `type3_charproc`
   - wired new targets in `fuzz/Cargo.toml`;
   - validated target compilation with `cargo check --manifest-path fuzz/Cargo.toml --bin ...`.
+- Implemented `B2 / OF-EV-02` core index expansion:
+  - `events.full` now emits both:
+    - `finding_event_index` (existing direction),
+    - `event_finding_index` (new reverse direction).
 
 ## Phase gate records
 
@@ -1269,7 +1273,7 @@ items complete. Format:
 - [ ] A4: `OF-CS-04` Content stream fingerprinting *(prerequisite for A6)*
 - [ ] A5: `OF-CS-05` Type3 charproc detector
 - [ ] A6: `OF-CS-06` Cross-revision diffing *(requires A4)*
-- [ ] B2: `OF-EV-02` Bidirectional finding/event index
+- [ ] B2: `OF-EV-02` Bidirectional finding/event index *(in progress: bidirectional maps now in events.full; GUI jump affordances remain)*
 - [ ] D2: `OF-FUZZ-01` Fuzz target expansion *(in progress: three new targets landed)*
 - [ ] D3: `OF-BATCH-01` Parallel batch processing *(in progress: --jobs + caps/clamp landed)*
 

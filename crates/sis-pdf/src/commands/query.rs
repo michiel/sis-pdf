@@ -5031,6 +5031,7 @@ fn extract_event_triggers_full(
         Some(&stream_summaries),
     );
     let finding_event_index = build_finding_event_index(&records);
+    let mut event_finding_index = BTreeMap::<String, Vec<String>>::new();
     let mut events = Vec::new();
 
     for record in records {
@@ -5096,11 +5097,16 @@ fn extract_event_triggers_full(
             }
         }
         events.push(event);
+        let mut finding_ids = record.linked_finding_ids.clone();
+        finding_ids.sort();
+        finding_ids.dedup();
+        event_finding_index.insert(record.node_id, finding_ids);
     }
 
     Ok(json!({
         "events": events,
         "finding_event_index": finding_event_index,
+        "event_finding_index": event_finding_index,
     }))
 }
 
@@ -11179,6 +11185,7 @@ mod tests {
             };
             assert!(value.get("events").is_some());
             assert!(value.get("finding_event_index").is_some());
+            assert!(value.get("event_finding_index").is_some());
             let has_stream_exec =
                 value.get("events").and_then(|events| events.as_array()).is_some_and(|events| {
                     events.iter().any(|event| {

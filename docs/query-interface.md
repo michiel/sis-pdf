@@ -103,6 +103,11 @@ records. The stream payload exposes bounded operator summaries:
 
 `stream_exec` is omitted for non-content-stream events.
 
+`events.full` also includes bidirectional linkage maps:
+
+- `finding_event_index`: finding id -> event node ids
+- `event_finding_index`: event node id -> finding ids
+
 Event alias flags:
 
 - `--full` maps `events` to `events.full`.
