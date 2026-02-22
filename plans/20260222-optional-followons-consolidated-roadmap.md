@@ -1207,6 +1207,9 @@ items complete. Format:
   - enforced `--full`/`--count` mutual exclusion and event-query-only guardrails.
 - Implemented another slice of `E2 / OF-OBS-01`:
   - batch JSONL output now carries optional per-file `runtime_caps`.
+- Implemented additional `E2 / OF-OBS-01` batch parity:
+  - JSONL error rows now include a zeroed, schema-stable `runtime_caps`
+    payload so success/error rows share the same telemetry shape.
 - Implemented a core slice of `D3 / OF-BATCH-01`:
   - added `sis query --jobs N` override for batch workers;
   - default worker ceiling now `min(cpu_count, 8)`;

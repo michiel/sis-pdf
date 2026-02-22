@@ -5148,6 +5148,30 @@ fn extract_runtime_caps(ctx: &ScanContext) -> Result<serde_json::Value> {
     }))
 }
 
+fn empty_runtime_caps() -> serde_json::Value {
+    json!({
+        "type": "runtime_caps",
+        "schema_version": 1,
+        "caps": {
+            "event_graph": {
+                "applied": false,
+                "node_cap": 0,
+                "edge_cap": 0,
+                "dropped_nodes": 0,
+                "dropped_edges": 0,
+            },
+            "stream_exec_projection": {
+                "truncated_event_count": 0,
+            },
+            "finding_meta": {
+                "truncation_flag_count": 0,
+                "truncation_flags": [],
+                "js_runtime_truncation_counters": {},
+            },
+        }
+    })
+}
+
 fn event_level_for_type(event_type: &str) -> &'static str {
     match event_type {
         "DocumentOpen" | "DocumentWillClose" | "DocumentWillSave" | "DocumentDidSave"
@@ -9105,7 +9129,11 @@ pub fn run_query_batch(
                 message,
                 Some(json!({ "path": path.display().to_string() })),
             ),
-            runtime_caps: None,
+            runtime_caps: if output_format == OutputFormat::Jsonl {
+                Some(empty_runtime_caps())
+            } else {
+                None
+            },
         })
     };
 
@@ -12312,6 +12340,17 @@ mod tests {
             &QueryResult::Scalar(ScalarValue::String("header\n\"quoted\"".to_string())),
         );
         assert_eq!(row, "ok.pdf,ok,,,\"header\n\"\"quoted\"\"\"");
+    }
+
+    #[test]
+    fn empty_runtime_caps_exposes_zeroed_stable_shape() {
+        let caps = empty_runtime_caps();
+        assert_eq!(caps["type"], json!("runtime_caps"));
+        assert_eq!(caps["schema_version"], json!(1));
+        assert_eq!(caps["caps"]["event_graph"]["applied"], json!(false));
+        assert_eq!(caps["caps"]["event_graph"]["node_cap"], json!(0));
+        assert_eq!(caps["caps"]["stream_exec_projection"]["truncated_event_count"], json!(0));
+        assert_eq!(caps["caps"]["finding_meta"]["truncation_flag_count"], json!(0));
     }
 
     #[test]
