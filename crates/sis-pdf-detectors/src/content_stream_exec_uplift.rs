@@ -82,6 +82,16 @@ impl Detector for ContentStreamExecUpliftDetector {
                         marked_candidate,
                     ));
                 }
+
+                if let Some(anomaly_meta) = detect_inline_image_anomaly(&ops) {
+                    findings.push(inline_image_anomaly_finding(
+                        page.obj,
+                        page.gen,
+                        stream_ref.obj_ref,
+                        page.number,
+                        &anomaly_meta,
+                    ));
+                }
             }
         }
 
@@ -532,4 +542,260 @@ fn shannon_entropy(bytes: &[u8]) -> f64 {
             -p * p.log2()
         })
         .sum::<f64>()
+}
+
+// --- Inline image anomaly detector ---
+
+struct InlineImageInfo {
+    data_bytes: u64,
+    filters: Vec<String>,
+}
+
+struct InlineImageAnomalyMeta {
+    inline_count: usize,
+    max_data_bytes: u64,
+    filter_chains_csv: String,
+    oversized: bool,
+    suspicious_filter_chain: bool,
+    sparse_render_ops: bool,
+}
+
+fn extract_filter_names_from_operands(operands: &[ContentOperand]) -> Vec<String> {
+    let mut filters = Vec::new();
+    let mut j = 0;
+    while j < operands.len() {
+        if let ContentOperand::Name(name) = &operands[j] {
+            let lower = name.to_ascii_lowercase();
+            if lower == "/f" || lower == "/filter" {
+                if let Some(ContentOperand::Name(filter_name)) = operands.get(j + 1) {
+                    filters.push(filter_name.trim_start_matches('/').to_string());
+                    j += 2;
+                    continue;
+                }
+            }
+        }
+        j += 1;
+    }
+    filters
+}
+
+fn extract_inline_image_infos(ops: &[ContentOp]) -> Vec<InlineImageInfo> {
+    let mut images = Vec::new();
+    let mut i = 0;
+    while i < ops.len() {
+        if ops[i].op == "BI" {
+            let id_idx = (i + 1..ops.len()).find(|&j| ops[j].op == "ID");
+            if let Some(id_idx) = id_idx {
+                let ei_idx = (id_idx + 1..ops.len()).find(|&j| ops[j].op == "EI");
+                if let Some(ei_idx) = ei_idx {
+                    let id_op = &ops[id_idx];
+                    let ei_op = &ops[ei_idx];
+                    let data_bytes = ei_op.span.start.saturating_sub(id_op.span.end);
+                    let filters = extract_filter_names_from_operands(&id_op.operands);
+                    images.push(InlineImageInfo { data_bytes, filters });
+                    i = ei_idx + 1;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+    images
+}
+
+fn detect_inline_image_anomaly(ops: &[ContentOp]) -> Option<InlineImageAnomalyMeta> {
+    let images = extract_inline_image_infos(ops);
+    if images.is_empty() {
+        return None;
+    }
+
+    let total_ops = ops.len();
+    let render_ops = ops.iter().filter(|op| is_visible_render_op(op.op.as_str())).count();
+    let render_fraction =
+        if total_ops == 0 { 1.0 } else { render_ops as f64 / total_ops as f64 };
+
+    let max_data_bytes = images.iter().map(|img| img.data_bytes).max().unwrap_or(0);
+    let oversized = max_data_bytes > 64 * 1024;
+
+    let suspicious_filter_chain = images.iter().any(|img| {
+        let has_ascii85 = img.filters.iter().any(|f| {
+            let fl = f.to_ascii_lowercase();
+            fl == "ascii85decode" || fl == "a85"
+        });
+        let has_flate = img.filters.iter().any(|f| {
+            let fl = f.to_ascii_lowercase();
+            fl == "flatedecode" || fl == "fl"
+        });
+        has_ascii85 && has_flate
+    });
+
+    let sparse_render_ops = render_fraction < 0.10;
+
+    let filter_chains_csv = images
+        .iter()
+        .filter_map(|img| {
+            if img.filters.is_empty() { None } else { Some(img.filters.join("+")) }
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+
+    if oversized || suspicious_filter_chain || sparse_render_ops {
+        Some(InlineImageAnomalyMeta {
+            inline_count: images.len(),
+            max_data_bytes,
+            filter_chains_csv,
+            oversized,
+            suspicious_filter_chain,
+            sparse_render_ops,
+        })
+    } else {
+        None
+    }
+}
+
+fn inline_image_anomaly_finding(
+    page_obj: u32,
+    page_gen: u16,
+    stream_ref: Option<(u32, u16)>,
+    page_number: usize,
+    meta_info: &InlineImageAnomalyMeta,
+) -> Finding {
+    let stream_label = stream_ref
+        .map(|(obj, gen)| format!("{obj} {gen}"))
+        .unwrap_or_else(|| format!("{page_obj} {page_gen}"));
+    let mut meta = HashMap::new();
+    let mut trigger_flags = Vec::new();
+    if meta_info.oversized {
+        trigger_flags.push("oversized");
+    }
+    if meta_info.suspicious_filter_chain {
+        trigger_flags.push("suspicious_filter_chain");
+    }
+    if meta_info.sparse_render_ops {
+        trigger_flags.push("sparse_render_ops");
+    }
+    meta.insert("inline.count".into(), meta_info.inline_count.to_string());
+    meta.insert("inline.max_bytes".into(), meta_info.max_data_bytes.to_string());
+    meta.insert("inline.filter_chains".into(), meta_info.filter_chains_csv.clone());
+    meta.insert("inline.trigger_flags".into(), trigger_flags.join(","));
+    meta.insert("stream.obj".into(), stream_label);
+    meta.insert("page.number".into(), page_number.to_string());
+
+    Finding {
+        id: String::new(),
+        surface: AttackSurface::FileStructure,
+        kind: "content_stream_inline_image_anomaly".into(),
+        severity: Severity::Medium,
+        confidence: Confidence::Tentative,
+        impact: Some(Impact::Medium),
+        title: "Inline image anomaly in content stream".into(),
+        description: "Content stream contains inline image data with anomalous size, filter chain, or near-absence of visible render operators.".into(),
+        objects: vec![format!("{page_obj} {page_gen} obj")],
+        evidence: Vec::new(),
+        remediation: Some(
+            "Inspect inline image data for embedded payload carriers or decoder-chain obfuscation.".into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::detect_inline_image_anomaly;
+    use sis_pdf_pdf::content::{ContentOp, ContentOperand};
+    use sis_pdf_pdf::span::Span;
+
+    fn make_op(op: &str, operands: Vec<ContentOperand>, start: u64, end: u64) -> ContentOp {
+        ContentOp { op: op.to_string(), operands, span: Span { start, end } }
+    }
+
+    #[test]
+    fn inline_image_anomaly_triggers_on_oversized_data() {
+        // ID.span.end = 2, EI.span.start = 128*1024 + 2 → data_bytes = 131072 > 65536
+        let data_end: u64 = 2 + 128 * 1024;
+        let ops = vec![
+            make_op("BT", vec![], 0, 1),
+            make_op("Tj", vec![], 1, 2),
+            make_op("ET", vec![], 2, 3),
+            make_op("BI", vec![], 3, 4),
+            make_op("ID", vec![], 4, 6),
+            make_op("EI", vec![], data_end, data_end + 2),
+        ];
+        let result = detect_inline_image_anomaly(&ops);
+        assert!(result.is_some(), "expected anomaly on oversized inline image");
+        let meta = result.unwrap();
+        assert!(meta.oversized);
+        assert!(meta.max_data_bytes > 64 * 1024);
+    }
+
+    #[test]
+    fn inline_image_anomaly_triggers_on_suspicious_filter_chain() {
+        // ID operands contain both /ASCII85Decode and /FlateDecode
+        let operands = vec![
+            ContentOperand::Name("/F".to_string()),
+            ContentOperand::Name("/ASCII85Decode".to_string()),
+            ContentOperand::Name("/Filter".to_string()),
+            ContentOperand::Name("/FlateDecode".to_string()),
+            ContentOperand::Name("/W".to_string()),
+            ContentOperand::Number(8.0),
+            ContentOperand::Name("/H".to_string()),
+            ContentOperand::Number(8.0),
+        ];
+        let ops = vec![
+            make_op("BI", vec![], 0, 2),
+            make_op("ID", operands, 2, 4),
+            // small image data (only 100 bytes)
+            make_op("EI", vec![], 104, 106),
+        ];
+        let result = detect_inline_image_anomaly(&ops);
+        assert!(result.is_some(), "expected anomaly on suspicious filter chain");
+        let meta = result.unwrap();
+        assert!(meta.suspicious_filter_chain);
+    }
+
+    #[test]
+    fn inline_image_anomaly_triggers_on_near_absence_of_render_ops() {
+        // One BI/ID/EI with no text or path rendering ops at all → sparse_render_ops
+        let ops = vec![
+            make_op("BI", vec![], 0, 2),
+            make_op("ID", vec![], 2, 4),
+            make_op("EI", vec![], 104, 106),
+        ];
+        let result = detect_inline_image_anomaly(&ops);
+        assert!(result.is_some(), "expected anomaly on near-absence of render ops");
+        let meta = result.unwrap();
+        assert!(meta.sparse_render_ops);
+    }
+
+    #[test]
+    fn inline_image_anomaly_no_trigger_on_benign_small_image() {
+        // Small image (100 bytes), no suspicious filters, plenty of text ops → no anomaly
+        let mut ops = vec![
+            make_op("BT", vec![], 0, 2),
+            make_op("Tf", vec![ContentOperand::Name("/F1".to_string()), ContentOperand::Number(12.0)], 2, 10),
+        ];
+        // Add many Tj ops to ensure render_fraction > 10%
+        for k in 0..20u64 {
+            let base = 10 + k * 10;
+            ops.push(make_op("Tj", vec![ContentOperand::Str("(x)".to_string())], base, base + 8));
+        }
+        ops.push(make_op("ET", vec![], 210, 212));
+        ops.push(make_op("BI", vec![], 212, 214));
+        let id_operands = vec![
+            ContentOperand::Name("/W".to_string()),
+            ContentOperand::Number(8.0),
+            ContentOperand::Name("/H".to_string()),
+            ContentOperand::Number(8.0),
+        ];
+        ops.push(make_op("ID", id_operands, 214, 216));
+        // EI starts 100 bytes after ID end → 316
+        ops.push(make_op("EI", vec![], 316, 318));
+
+        let result = detect_inline_image_anomaly(&ops);
+        assert!(result.is_none(), "expected no anomaly on benign small inline image");
+    }
 }

@@ -4136,6 +4136,26 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `resource.max_name_length`
     - `resource.change_every_page`
 
+## content_stream_inline_image_anomaly
+
+- ID: `content_stream_inline_image_anomaly`
+- Label: Inline image anomaly in content stream
+- Description: Content stream contains inline image data with anomalous size, filter chain, or near-absence of visible render operators.
+- Severity: Medium
+- Confidence: Tentative
+- Tags: content, evasion, inline-image
+- Details:
+  - Relevance: inline images (`BI ... ID ... EI`) can carry arbitrary byte payloads under decoder-chain obfuscation, bypassing external object reference analysis.
+  - Meaning: one or more of the following triggered: raw inline image data exceeds 64 KB, filter chain pairs `ASCII85Decode`/`FlateDecode` (common obfuscation chain), or an inline image is present with fewer than 10% visible render operators in the stream.
+  - Chain usage: corroboration signal for stream-driven payload staging alongside `content_stream_gstate_abuse` or `content_stream_marked_evasion`.
+  - Metadata:
+    - `inline.count` — number of inline images detected in the stream
+    - `inline.max_bytes` — largest inline image raw data size in bytes
+    - `inline.filter_chains` — CSV of filter chains (e.g. `ASCII85Decode+FlateDecode`)
+    - `inline.trigger_flags` — CSV of conditions that triggered (e.g. `oversized,suspicious_filter_chain`)
+    - `stream.obj` — object reference of the content stream
+    - `page.number` — page number where the stream was found
+
 ## content_stream_exec_outcome_alignment
 
 - ID: `content_stream_exec_outcome_alignment`
