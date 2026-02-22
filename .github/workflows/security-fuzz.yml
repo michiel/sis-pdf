@@ -47,3 +47,15 @@ jobs:
       - name: Run image metadata fuzz smoke
         working-directory: fuzz
         run: cargo +nightly fuzz run image_metadata -- -max_total_time=20
+
+      - name: Run Do-chain recursion fuzz smoke
+        working-directory: fuzz
+        run: cargo +nightly fuzz run do_chain_recursion -- -max_total_time=10
+
+      - name: Run inline-image parser fuzz smoke
+        working-directory: fuzz
+        run: cargo +nightly fuzz run inline_image_parse -- -max_total_time=10
+
+      - name: Run Type3 charproc fuzz smoke
+        working-directory: fuzz
+        run: cargo +nightly fuzz run type3_charproc -- -max_total_time=10

@@ -1238,6 +1238,12 @@ items complete. Format:
     - `type3_charproc`
   - wired new targets in `fuzz/Cargo.toml`;
   - validated target compilation with `cargo check --manifest-path fuzz/Cargo.toml --bin ...`.
+- Completed `D2 / OF-FUZZ-01` CI smoke + docs:
+  - `.github/workflows/security-fuzz.yml` now runs 10-second smoke campaigns for:
+    - `do_chain_recursion`
+    - `inline_image_parse`
+    - `type3_charproc`
+  - added reproducible local invocation guide in `fuzz/README.md`.
 - Implemented `B2 / OF-EV-02` core index expansion:
   - `events.full` now emits both:
     - `finding_event_index` (existing direction),
@@ -1294,7 +1300,7 @@ items complete. Format:
 - [ ] A5: `OF-CS-05` Type3 charproc detector
 - [ ] A6: `OF-CS-06` Cross-revision diffing *(requires A4)*
 - [ ] B2: `OF-EV-02` Bidirectional finding/event index *(in progress: bidirectional maps now in events.full; GUI jump affordances remain)*
-- [ ] D2: `OF-FUZZ-01` Fuzz target expansion *(in progress: three new targets landed)*
+- [x] D2: `OF-FUZZ-01` Fuzz target expansion
 - [ ] D3: `OF-BATCH-01` Parallel batch processing *(in progress: --jobs + caps/clamp + error rows landed)*
 
 ### Phase 3
