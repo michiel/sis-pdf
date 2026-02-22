@@ -1193,6 +1193,28 @@ items complete. Format:
   - `--jobs 8`: `0.22s`
 - False positive rate on benign corpus: n/a (no detector logic change)
 
+## A2 2026-02-23
+- Finding count delta: +0 / -0 on CVE fixture (no inline images)
+- Severity/confidence changes: new finding `content_stream_inline_image_anomaly`,
+  severity=Medium, confidence=Tentative
+- Timing delta on CVE fixture: negligible (inline image detection is O(n) in stream ops)
+- False positive rate on benign corpus: not yet calibrated; confidence remains Tentative
+  until corpus run recorded here
+
+## A1 2026-02-23
+- Finding count delta: +0 / -0 (tracer does not emit findings; enriches StreamExecSummary)
+- Severity/confidence changes: n/a (no new finding kind)
+- Timing delta on CVE fixture (`build_stream_exec_summaries`): < 2 ms overhead; no
+  nested form XObjects in CVE fixture means tracer exits immediately after Do-ref check
+- False positive rate on benign corpus: n/a (metadata enrichment only)
+
+## D1 2026-02-23 (predicates slice)
+- Finding count delta: +0 / -0
+- Severity/confidence changes: none
+- Timing delta: none (pure refactor)
+- False positive rate on benign corpus: n/a (no behaviour change)
+- query.rs reduced from 12,991 → 12,415 lines; predicates.rs = 595 lines
+
 ## Progress log
 
 ### 2026-02-22 (current pass)
@@ -1329,6 +1351,30 @@ items complete. Format:
   - supports predicate filtering via `meta.page`, `meta.total_ops`,
     `meta.anomaly_count`, and `meta.resource_count`.
 
+### 2026-02-23 (current pass)
+- Implemented `A2 / OF-CS-02` inline image anomaly detector:
+  - added `content_stream_inline_image_anomaly` finding in
+    `content_stream_exec_uplift.rs`; severity=Medium, confidence=Tentative;
+  - triggers on: oversized inline data (>64 KB), suspicious filter chain
+    (ASCII85Decode + FlateDecode combined), sparse visible render ops (<10%);
+  - 4 unit tests covering all trigger conditions and benign baseline;
+  - finding documented in `docs/findings.md`.
+- Implemented `A1 / OF-CS-01` Do chain recursion tracer:
+  - added `NestedFormExec` struct and two new additive fields to
+    `StreamExecSummary`: `nested_form_execs` and `nested_form_truncated`;
+  - `trace_nested_do_chains` with depth 8, edge 128, and 4 MB memory budgets;
+  - cycle detection via visited `HashSet<(u32, u16)>`;
+  - wired into `build_stream_exec_summaries` after resource binding;
+  - 5 unit tests including CVE fixture budget test (<500 ms);
+  - WASM build unaffected.
+- Implemented a D1 / `OF-QUERY-01` predicates slice:
+  - extracted all predicate types, parser, and evaluator from `query.rs`
+    into `crates/sis-pdf/src/commands/query/predicates.rs`;
+  - query.rs reduced from 12,991 → 12,415 lines;
+  - public API surface (`parse_predicate`, `PredicateExpr`, etc.) preserved
+    via `pub use` re-exports;
+  - all 142 sis-pdf tests pass; WASM build unaffected.
+
 ## Phase gate records
 
 | Phase | Date | Result | Notes |
@@ -1349,10 +1395,10 @@ items complete. Format:
 - [x] E3: `OF-REL-01` Rollback playbook
 
 ### Phase 1
-- [ ] D1: `OF-QUERY-01` query module decomposition *(in progress: CSV helpers extracted to submodule)*
-- [ ] A1: `OF-CS-01` Do recursion tracer
-- [ ] A2: `OF-CS-02` Inline image anomaly detector
-- [ ] A3: `OF-CS-03` Per-page execution summary query *(in progress: query surface + predicate metadata landed)*
+- [ ] D1: `OF-QUERY-01` query module decomposition *(in progress: CSV + predicates submodules extracted; query.rs now 12,415 lines)*
+- [x] A1: `OF-CS-01` Do recursion tracer
+- [x] A2: `OF-CS-02` Inline image anomaly detector
+- [x] A3: `OF-CS-03` Per-page execution summary query
 - [x] B1: `OF-EV-01` events flag inventory
 
 ### Phase 2
