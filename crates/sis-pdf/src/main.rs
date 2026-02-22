@@ -238,6 +238,10 @@ enum Command {
         level: Option<String>,
         #[arg(long, help = "Batch worker count override (query --path mode)")]
         jobs: Option<usize>,
+        #[arg(long, help = "Optional fingerprint baseline profile JSON path")]
+        baseline_profile: Option<PathBuf>,
+        #[arg(long, help = "Optional SHA-256 checksum file for --baseline-profile")]
+        baseline_profile_sha256: Option<PathBuf>,
     },
     #[command(about = "Diff two scan outputs (JSONL)")]
     Diff {
@@ -786,10 +790,16 @@ fn main() -> Result<()> {
             count,
             level,
             jobs,
+            baseline_profile,
+            baseline_profile_sha256,
         } => {
             if jobs.is_some_and(|value| value == 0 || value > 256) {
                 return Err(anyhow!("--jobs must be between 1 and 256"));
             }
+            validate_baseline_profile_inputs(
+                baseline_profile.as_deref(),
+                baseline_profile_sha256.as_deref(),
+            )?;
 
             let where_clause_raw = r#where.clone();
             let config_query_colour = config_path
@@ -2884,6 +2894,60 @@ fn run_query_oneshot(
         }
     }
 
+    Ok(())
+}
+
+fn validate_baseline_profile_inputs(
+    baseline_profile: Option<&std::path::Path>,
+    baseline_profile_sha256: Option<&std::path::Path>,
+) -> Result<()> {
+    if baseline_profile.is_none() && baseline_profile_sha256.is_some() {
+        return Err(anyhow!("--baseline-profile-sha256 requires --baseline-profile"));
+    }
+
+    let Some(profile_path) = baseline_profile else {
+        return Ok(());
+    };
+    if !profile_path.is_file() {
+        return Err(anyhow!(
+            "--baseline-profile does not exist or is not a file: {}",
+            profile_path.display()
+        ));
+    }
+
+    let Some(checksum_path) = baseline_profile_sha256 else {
+        return Ok(());
+    };
+    if !checksum_path.is_file() {
+        return Err(anyhow!(
+            "--baseline-profile-sha256 does not exist or is not a file: {}",
+            checksum_path.display()
+        ));
+    }
+
+    let expected = fs::read_to_string(checksum_path).map_err(|err| {
+        anyhow!("failed to read checksum file {}: {}", checksum_path.display(), err)
+    })?;
+    let expected_hex = expected
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow!("checksum file is empty: {}", checksum_path.display()))?
+        .to_ascii_lowercase();
+    if expected_hex.len() != 64 || !expected_hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err(anyhow!(
+            "checksum file must start with a 64-char SHA-256 hex digest: {}",
+            checksum_path.display()
+        ));
+    }
+
+    let actual_hex = sha256_file(profile_path)?;
+    if expected_hex != actual_hex {
+        return Err(anyhow!(
+            "baseline profile checksum mismatch: expected {}, got {}",
+            expected_hex,
+            actual_hex
+        ));
+    }
     Ok(())
 }
 
@@ -5645,5 +5709,34 @@ mod tests {
         let level_with_count =
             resolve_event_query_aliases(Some("events".into()), false, true, Some("page".into()));
         assert!(level_with_count.is_err());
+    }
+
+    #[test]
+    fn baseline_profile_validation_accepts_matching_checksum() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let profile = dir.path().join("baseline.json");
+        std::fs::write(&profile, br#"{"schema_version":1}"#).expect("write profile");
+        let digest = sha256_file(&profile).expect("digest");
+        let checksum = dir.path().join("baseline.sha256");
+        std::fs::write(&checksum, format!("{digest}  baseline.json\n")).expect("write checksum");
+
+        validate_baseline_profile_inputs(Some(&profile), Some(&checksum))
+            .expect("baseline validation should pass");
+    }
+
+    #[test]
+    fn baseline_profile_validation_rejects_mismatch() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let profile = dir.path().join("baseline.json");
+        std::fs::write(&profile, br#"{"schema_version":1}"#).expect("write profile");
+        let checksum = dir.path().join("baseline.sha256");
+        std::fs::write(
+            &checksum,
+            "0000000000000000000000000000000000000000000000000000000000000000  baseline.json\n",
+        )
+        .expect("write checksum");
+
+        let result = validate_baseline_profile_inputs(Some(&profile), Some(&checksum));
+        assert!(result.is_err());
     }
 }

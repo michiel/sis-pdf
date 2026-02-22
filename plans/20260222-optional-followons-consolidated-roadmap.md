@@ -1245,6 +1245,13 @@ items complete. Format:
 - Implemented `D1 / OF-QUERY-01` decomposition slice:
   - extracted CSV query helpers into `crates/sis-pdf/src/commands/query/csv.rs`;
   - `query.rs` now delegates findings CSV row generation via submodule import.
+- Implemented `E1 / OF-SEC-01` integrity slice:
+  - added query-time checksum validation flags:
+    - `--baseline-profile`
+    - `--baseline-profile-sha256`
+  - added baseline builder utility:
+    - `scripts/build_fingerprint_baseline.py`
+  - documented profile provenance and integrity workflow in `docs/analysis.md`.
 
 ## Phase gate records
 
@@ -1261,7 +1268,7 @@ items complete. Format:
 
 ### Phase 0
 - [x] D5: `OF-WASM-01` WASM CI gate
-- [ ] E1: `OF-SEC-01` Baseline integrity + provenance
+- [ ] E1: `OF-SEC-01` Baseline integrity + provenance *(in progress: checksum validation + baseline builder script landed)*
 - [ ] E2: `OF-OBS-01` Resource-cap telemetry/query
 - [x] E3: `OF-REL-01` Rollback playbook
 

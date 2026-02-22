@@ -14,6 +14,14 @@ Adjust the report verbosity with `--report-verbosity [compact|standard|verbose]`
 
 Control the amount of detail that action chains expose with `--chain-summary [minimal|events|full]` (default `events`). Minimal hides all edges, events keeps only suspicious or well-weighted edges, and full always emits the complete chain regardless of the format. JSON, JSONL, and YAML outputs always show the full data for reproducibility.
 
+Optional baseline integrity flags:
+
+- `--baseline-profile <path>`
+- `--baseline-profile-sha256 <path>`
+
+When both are supplied, `sis query` verifies the profile file checksum before
+running the query.
+
 Start an interactive REPL:
 
 ```bash

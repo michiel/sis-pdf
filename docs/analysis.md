@@ -209,3 +209,38 @@ For complete end-to-end workflows, see `docs/scenarios.md`.
 - Missing findings in deep mode: ensure `--deep` and budgets allow decoding.
 - Graph ML unavailable: compile with `--features ml-graph`.
 - Strict deviations in action context: investigate parser divergence and shadowed objects.
+
+## 8) Fingerprint Baseline Integrity
+
+For optional stream-fingerprint workflows, baseline files should be treated as
+security-relevant artefacts.
+
+### Build a baseline profile
+
+```bash
+python3 scripts/build_fingerprint_baseline.py \
+  events_full_a.json events_full_b.json \
+  --out tmp/fingerprint-baseline.json \
+  --write-sha256
+```
+
+The script writes:
+
+- baseline JSON with provenance fields:
+  - `schema_version`
+  - `baseline_id`
+  - `created_at`
+  - `source_corpus_digest`
+  - `builder_version`
+- checksum file `tmp/fingerprint-baseline.json.sha256`
+
+### Validate baseline integrity in query mode
+
+```bash
+sis query sample.pdf findings \
+  --baseline-profile tmp/fingerprint-baseline.json \
+  --baseline-profile-sha256 tmp/fingerprint-baseline.json.sha256
+```
+
+When both flags are provided, `sis` validates that the SHA-256 digest in the
+checksum file matches the baseline file before continuing.
