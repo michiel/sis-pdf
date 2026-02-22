@@ -340,10 +340,10 @@ pub fn build_stream_exec_summaries(
             .filter_map(|r| r.object_ref.map(|obj| (r.name.clone(), obj)))
             .collect();
         if !do_refs.is_empty() {
-            let result =
+            let (nested_chains, truncation) =
                 trace_nested_do_chains(bytes, object_graph, &do_refs, 8, 128, 4 * 1024 * 1024);
-            summary.nested_form_execs = result.chains;
-            summary.nested_form_truncated = result.truncation_reason;
+            summary.nested_form_execs = nested_chains;
+            summary.nested_form_truncated = truncation;
         }
         summaries.insert(node.id.clone(), summary);
     }
@@ -475,11 +475,6 @@ fn op_family_key(op: &str) -> &'static str {
 
 // --- Do chain recursion tracer ---
 
-struct NestedDoChainResult {
-    chains: Vec<NestedFormExec>,
-    truncation_reason: Option<String>,
-}
-
 struct TraceState {
     chains: Vec<NestedFormExec>,
     truncated: bool,
@@ -496,7 +491,7 @@ pub fn trace_nested_do_chains(
     max_depth: u8,
     max_edges: usize,
     max_bytes: usize,
-) -> NestedDoChainResult {
+) -> (Vec<NestedFormExec>, Option<String>) {
     let mut state = TraceState {
         chains: Vec::new(),
         truncated: false,
@@ -516,7 +511,7 @@ pub fn trace_nested_do_chains(
         }
         recurse_form(bytes, graph, *obj_ref, name, 0, max_depth, max_edges, &mut state);
     }
-    NestedDoChainResult { chains: state.chains, truncation_reason: state.truncation_reason }
+    (state.chains, state.truncation_reason)
 }
 
 fn recurse_form(
@@ -887,9 +882,9 @@ mod tests {
         let bytes = std::fs::read(&fixture).expect("fixture bytes");
         let graph = sis_pdf_pdf::parse_pdf(&bytes, cve_parse_options()).expect("parse");
 
-        let result = trace_nested_do_chains(&bytes, &graph, &[], 8, 128, 4 * 1024 * 1024);
-        assert!(result.chains.is_empty(), "expected no chains for empty do_refs");
-        assert!(result.truncation_reason.is_none(), "expected no truncation");
+        let (chains, truncation) = trace_nested_do_chains(&bytes, &graph, &[], 8, 128, 4 * 1024 * 1024);
+        assert!(chains.is_empty(), "expected no chains for empty do_refs");
+        assert!(truncation.is_none(), "expected no truncation");
     }
 
     #[test]
@@ -903,9 +898,9 @@ mod tests {
 
         // Object (1, 0) is almost certainly a Catalog, not a Form XObject.
         let do_refs = vec![("/NonForm".to_string(), (1u32, 0u16))];
-        let result = trace_nested_do_chains(&bytes, &graph, &do_refs, 8, 128, 4 * 1024 * 1024);
-        assert!(result.chains.is_empty(), "non-form xobject should produce no nested chains");
-        assert!(result.truncation_reason.is_none());
+        let (chains, truncation) = trace_nested_do_chains(&bytes, &graph, &do_refs, 8, 128, 4 * 1024 * 1024);
+        assert!(chains.is_empty(), "non-form xobject should produce no nested chains");
+        assert!(truncation.is_none());
     }
 
     #[test]
@@ -920,10 +915,10 @@ mod tests {
 
         let do_refs = vec![("/Form1".to_string(), (1u32, 0u16))];
         // max_depth = 0: any recursion below depth 0 is immediately capped.
-        let result = trace_nested_do_chains(&bytes, &graph, &do_refs, 0, 128, 4 * 1024 * 1024);
+        let (chains, _truncation) = trace_nested_do_chains(&bytes, &graph, &do_refs, 0, 128, 4 * 1024 * 1024);
         // Either no chains (object is not a form) or truncation was set — either is
         // correct; the key invariant is no panic and no chains with depth > 0.
-        for chain in &result.chains {
+        for chain in &chains {
             assert!(chain.depth <= 1, "depth must not exceed max_depth + 1");
         }
     }
@@ -940,10 +935,10 @@ mod tests {
         let graph = sis_pdf_pdf::parse_pdf(&bytes, cve_parse_options()).expect("parse");
 
         let do_refs = vec![("/Form1".to_string(), (1u32, 0u16))];
-        let r1 = trace_nested_do_chains(&bytes, &graph, &do_refs, 8, 128, 4 * 1024 * 1024);
-        let r2 = trace_nested_do_chains(&bytes, &graph, &do_refs, 8, 128, 4 * 1024 * 1024);
-        assert_eq!(r1.chains.len(), r2.chains.len(), "results must be idempotent");
-        assert_eq!(r1.truncation_reason, r2.truncation_reason);
+        let (chains1, trunc1) = trace_nested_do_chains(&bytes, &graph, &do_refs, 8, 128, 4 * 1024 * 1024);
+        let (chains2, trunc2) = trace_nested_do_chains(&bytes, &graph, &do_refs, 8, 128, 4 * 1024 * 1024);
+        assert_eq!(chains1.len(), chains2.len(), "results must be idempotent");
+        assert_eq!(trunc1, trunc2);
     }
 
     #[test]
