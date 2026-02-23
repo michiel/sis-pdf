@@ -2027,6 +2027,39 @@ impl Detector for JavaScriptDetector {
                             ..Default::default()
                         });
                     }
+                    if meta.get("js.global_deletion_bypass").map(String::as_str) == Some("true") {
+                        let mut bypass_meta = std::collections::HashMap::new();
+                        bypass_meta.insert("js.global_deletion_bypass".into(), "true".into());
+                        if let Some(preview) = meta.get("payload.decoded_preview") {
+                            bypass_meta.insert("payload.preview".into(), preview.clone());
+                        }
+                        bypass_meta.insert("object.ref".into(), object_ref.clone());
+                        bypass_meta
+                            .insert("query.next".into(), format!("object {} {}", entry.obj, entry.gen));
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: AttackSurface::JavaScript,
+                            kind: "js_global_deletion_sandbox_bypass".into(),
+                            severity: Severity::High,
+                            confidence: Confidence::Probable,
+                            impact: None,
+                            title: "JavaScript global deletion sandbox bypass".into(),
+                            description:
+                                "Payload deletes browser globals to escape sandbox restrictions. Known pattern for Apryse WebViewer SDK CVE (10.9.x-10.12.0)."
+                                    .into(),
+                            objects: vec![object_ref.clone()],
+                            evidence: deduped_evidence.clone(),
+                            remediation: Some(
+                                "Treat as active sandbox escape attempt; review deleted globals and execution context."
+                                    .into(),
+                            ),
+                            meta: bypass_meta,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                            ..Default::default()
+                        });
+                    }
                     findings.push(Finding {
                         id: String::new(),
                         surface: self.surface(),
