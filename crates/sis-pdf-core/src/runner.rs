@@ -727,6 +727,7 @@ pub fn run_scan_with_detectors(
     annotate_positions(&ctx, &mut findings);
     annotate_orphaned_page_context(&mut findings);
     correlate_font_js(&mut findings);
+    upgrade_emulation_breakpoint_for_global_deletion(&mut findings);
 
     // Correlation rules that rely on finding IDs and event-graph paths require
     // stable IDs before composite synthesis.
@@ -1014,6 +1015,31 @@ fn correlate_font_js(findings: &mut Vec<Finding>) {
                     finding.description
                 );
             }
+        }
+    }
+}
+
+/// Upgrade `js_emulation_breakpoint` confidence from Tentative to Probable when
+/// `js_global_deletion_sandbox_bypass` is present in the same document.
+///
+/// The global-deletion pattern deletes browser globals before executing code,
+/// causing the sandbox to hit `missing_callable` breakpoints that register as
+/// Tentative emulation errors. Static analysis already knows the deletions are
+/// intentional; combining the two signals raises the confidence to Probable.
+fn upgrade_emulation_breakpoint_for_global_deletion(findings: &mut Vec<Finding>) {
+    let has_global_deletion =
+        findings.iter().any(|f| f.kind == "js_global_deletion_sandbox_bypass");
+    if !has_global_deletion {
+        return;
+    }
+    for finding in findings.iter_mut() {
+        if finding.kind == "js_emulation_breakpoint"
+            && finding.confidence == crate::model::Confidence::Tentative
+        {
+            finding.confidence = crate::model::Confidence::Probable;
+            finding
+                .meta
+                .insert("confidence_upgraded_by".into(), "js_global_deletion_sandbox_bypass".into());
         }
     }
 }
@@ -3093,5 +3119,66 @@ mod tests {
         assert!(!findings
             .iter()
             .any(|finding| finding.kind == "secondary_parser_prevalence_baseline"));
+    }
+
+    // --- B2 step 5: emulation breakpoint confidence upgrade ---
+
+    fn make_finding(kind: &str, confidence: Confidence) -> Finding {
+        Finding {
+            id: String::new(),
+            surface: AttackSurface::JavaScript,
+            kind: kind.into(),
+            severity: Severity::Info,
+            confidence,
+            impact: None,
+            title: kind.into(),
+            description: String::new(),
+            objects: vec![],
+            evidence: vec![],
+            remediation: None,
+            meta: std::collections::HashMap::new(),
+            action_type: None,
+            action_target: None,
+            action_initiation: None,
+            yara: None,
+            position: None,
+            positions: vec![],
+        }
+    }
+
+    #[test]
+    fn emulation_breakpoint_tentative_upgraded_when_global_deletion_present() {
+        let mut findings = vec![
+            make_finding("js_global_deletion_sandbox_bypass", Confidence::Probable),
+            make_finding("js_emulation_breakpoint", Confidence::Tentative),
+        ];
+        upgrade_emulation_breakpoint_for_global_deletion(&mut findings);
+        let bp = findings.iter().find(|f| f.kind == "js_emulation_breakpoint").unwrap();
+        assert_eq!(bp.confidence, Confidence::Probable);
+        assert_eq!(
+            bp.meta.get("confidence_upgraded_by").map(String::as_str),
+            Some("js_global_deletion_sandbox_bypass")
+        );
+    }
+
+    #[test]
+    fn emulation_breakpoint_not_upgraded_without_global_deletion() {
+        let mut findings = vec![make_finding("js_emulation_breakpoint", Confidence::Tentative)];
+        upgrade_emulation_breakpoint_for_global_deletion(&mut findings);
+        let bp = findings.iter().find(|f| f.kind == "js_emulation_breakpoint").unwrap();
+        assert_eq!(bp.confidence, Confidence::Tentative, "should not upgrade without co-occurring global deletion finding");
+        assert!(!bp.meta.contains_key("confidence_upgraded_by"));
+    }
+
+    #[test]
+    fn emulation_breakpoint_already_probable_not_annotated() {
+        let mut findings = vec![
+            make_finding("js_global_deletion_sandbox_bypass", Confidence::Probable),
+            make_finding("js_emulation_breakpoint", Confidence::Probable),
+        ];
+        upgrade_emulation_breakpoint_for_global_deletion(&mut findings);
+        let bp = findings.iter().find(|f| f.kind == "js_emulation_breakpoint").unwrap();
+        assert_eq!(bp.confidence, Confidence::Probable);
+        assert!(!bp.meta.contains_key("confidence_upgraded_by"), "no annotation when already at target level");
     }
 }
