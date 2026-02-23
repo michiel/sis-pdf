@@ -287,6 +287,46 @@ fn annotation_chain_javascript_uri_includes_uri_scheme_metadata() {
     );
 }
 
+// --- EXT-08: Structured URI classification finding ---
+
+#[test]
+fn javascript_uri_emits_uri_classification_summary_finding() {
+    let bytes = build_pdf_with_link_annotation("javascript:confirm(1)");
+    let report = scan(&bytes);
+    let summary = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "uri_classification_summary")
+        .expect("uri_classification_summary should be emitted for javascript: URI");
+    assert_eq!(summary.severity, Severity::Info);
+    assert_eq!(summary.confidence, Confidence::Strong);
+    assert_eq!(summary.meta.get("uri.scheme").map(String::as_str), Some("javascript"));
+    assert_eq!(
+        summary.meta.get("uri.is_javascript_uri").map(String::as_str),
+        Some("true")
+    );
+}
+
+#[test]
+fn benign_https_uri_does_not_emit_uri_classification_summary() {
+    let bytes = build_pdf_with_link_annotation("https://example.com/page");
+    let report = scan(&bytes);
+    assert!(
+        report.findings.iter().all(|f| f.kind != "uri_classification_summary"),
+        "plain https URI with no risk signals should not emit classification summary"
+    );
+}
+
+#[test]
+fn ip_address_uri_emits_uri_classification_summary() {
+    let bytes = build_pdf_with_link_annotation("http://192.168.1.1/payload");
+    let report = scan(&bytes);
+    assert!(
+        report.findings.iter().any(|f| f.kind == "uri_classification_summary"),
+        "IP-address URI should emit uri_classification_summary"
+    );
+}
+
 // --- EXT-04: Multi-encoding annotation field scanning ---
 
 #[test]

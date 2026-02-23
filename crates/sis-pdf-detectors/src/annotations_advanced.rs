@@ -15,6 +15,7 @@ pub struct AnnotationAttackDetector;
 const ANNOTATION_ACTION_CHAIN_CAP: usize = 25;
 const URI_DANGEROUS_SCHEME_CAP: usize = 10;
 const ANNOTATION_FIELD_INJECTION_CAP: usize = 10;
+const URI_CLASSIFICATION_SUMMARY_CAP: usize = 25;
 const AGGREGATE_SAMPLE_LIMIT: usize = 8;
 
 impl Detector for AnnotationAttackDetector {
@@ -159,6 +160,11 @@ impl Detector for AnnotationAttackDetector {
                     {
                         findings.push(scheme_finding);
                     }
+                    if let Some(summary_finding) =
+                        check_uri_classification_summary(entry, &action_target, dict.span)
+                    {
+                        findings.push(summary_finding);
+                    }
                 }
             }
         }
@@ -168,6 +174,11 @@ impl Detector for AnnotationAttackDetector {
         apply_kind_cap(&mut findings, "uri_data_html_scheme", URI_DANGEROUS_SCHEME_CAP);
         apply_kind_cap(&mut findings, "uri_command_injection", URI_DANGEROUS_SCHEME_CAP);
         apply_kind_cap(&mut findings, "annotation_field_html_injection", ANNOTATION_FIELD_INJECTION_CAP);
+        apply_kind_cap(
+            &mut findings,
+            "uri_classification_summary",
+            URI_CLASSIFICATION_SUMMARY_CAP,
+        );
         Ok(findings)
     }
 }
@@ -245,6 +256,97 @@ fn check_uri_dangerous_scheme(
             "Treat as active code execution vector; inspect URI content and PDF reader processing."
                 .into(),
         ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    })
+}
+
+/// Emit a structured classification summary for non-benign /URI action targets.
+/// Provides structured access to the full UriContentAnalysis output via the
+/// query surface — a companion to annotation_action_chain that avoids requiring
+/// string parsing of existing description fields.
+fn check_uri_classification_summary(
+    entry: &ObjEntry<'_>,
+    action_target: &str,
+    dict_span: Span,
+) -> Option<Finding> {
+    if action_target.is_empty() || action_target == "unknown" {
+        return None;
+    }
+    let a = analyze_uri_content(action_target.as_bytes());
+    let has_risk = a.is_javascript_uri
+        || a.is_file_uri
+        || (a.is_data_uri && a.data_mime.is_some())
+        || a.has_suspicious_scheme
+        || a.is_ip_address
+        || a.suspicious_tld
+        || a.has_data_exfil_pattern
+        || a.has_shortener_domain
+        || a.has_suspicious_extension
+        || a.has_embedded_ip_host
+        || a.has_idn_lookalike
+        || !a.suspicious_patterns.is_empty()
+        || !a.phishing_indicators.is_empty()
+        || !a.tracking_params.is_empty();
+    if !has_risk {
+        return None;
+    }
+    let mut meta = HashMap::new();
+    meta.insert("uri.scheme".into(), a.scheme.clone());
+    if let Some(domain) = &a.domain {
+        meta.insert("uri.domain".into(), domain.clone());
+    }
+    if let Some(path) = &a.path {
+        meta.insert("uri.path".into(), path.clone());
+    }
+    meta.insert("uri.obfuscation_level".into(), a.obfuscation_level.as_str().into());
+    meta.insert("uri.length".into(), a.length.to_string());
+    if !a.tracking_params.is_empty() {
+        meta.insert("uri.tracking_params".into(), a.tracking_params.join(", "));
+    }
+    if !a.suspicious_patterns.is_empty() {
+        meta.insert("uri.suspicious_patterns".into(), a.suspicious_patterns.join(", "));
+    }
+    if !a.phishing_indicators.is_empty() {
+        meta.insert("uri.phishing_indicators".into(), a.phishing_indicators.join(", "));
+    }
+    for (key, val) in &[
+        ("uri.is_ip_address", a.is_ip_address),
+        ("uri.is_file_uri", a.is_file_uri),
+        ("uri.is_javascript_uri", a.is_javascript_uri),
+        ("uri.is_data_uri", a.is_data_uri),
+        ("uri.suspicious_tld", a.suspicious_tld),
+        ("uri.has_data_exfil_pattern", a.has_data_exfil_pattern),
+        ("uri.has_shortener_domain", a.has_shortener_domain),
+        ("uri.has_suspicious_ext", a.has_suspicious_extension),
+        ("uri.has_embedded_ip_host", a.has_embedded_ip_host),
+        ("uri.has_idn_lookalike", a.has_idn_lookalike),
+    ] {
+        if *val {
+            meta.insert((*key).into(), "true".into());
+        }
+    }
+    if let Some(mime) = &a.data_mime {
+        meta.insert("uri.data_mime".into(), mime.clone());
+    }
+    Some(Finding {
+        id: String::new(),
+        surface: AttackSurface::Actions,
+        kind: "uri_classification_summary".into(),
+        severity: Severity::Info,
+        confidence: Confidence::Strong,
+        impact: None,
+        title: format!("URI classification: {}", a.scheme),
+        description: format!(
+            "Structured classification of /URI action target: {}",
+            &action_target[..action_target.len().min(120)]
+        ),
+        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+        evidence: vec![span_to_evidence(dict_span, "Annotation /URI action")],
+        remediation: None,
         meta,
         yara: None,
         position: None,
