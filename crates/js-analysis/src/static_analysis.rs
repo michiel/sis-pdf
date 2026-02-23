@@ -91,7 +91,10 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
 
     // Anti-analysis techniques
     out.insert("js.debugger_detection".into(), bool_str(detect_debugger_detection(data)));
-    out.insert("js.sandbox_evasion".into(), bool_str(detect_sandbox_evasion(data)));
+    let global_deletion_bypass = detect_global_deletion_bypass(data);
+    let sandbox_evasion = detect_sandbox_evasion(data) || global_deletion_bypass;
+    out.insert("js.sandbox_evasion".into(), bool_str(sandbox_evasion));
+    out.insert("js.global_deletion_bypass".into(), bool_str(global_deletion_bypass));
     out.insert("js.exception_abuse".into(), bool_str(detect_exception_abuse(data)));
     out.insert("js.time_bomb".into(), bool_str(detect_time_bomb(data)));
 
@@ -648,18 +651,35 @@ fn find_token(data: &[u8], token: &[u8]) -> bool {
 
 fn contains_dynamic_eval_construction(data: &[u8]) -> bool {
     // Detect patterns like: 'ev' + 'a' + 'l' or variable[function_name]()
-    let patterns: &[&[u8]] = &[
+    let concat_patterns: &[&[u8]] = &[
         // String concatenation to form "eval"
         b"'ev'", b"\"ev\"", // Common eval construction fragments
         b"'a'", b"\"a\"", b"'l'", b"\"l\"",
     ];
 
+    // Generator/async function constructor eval bypass patterns.
+    // These are functionally equivalent to new Function("code")() and are designed
+    // to bypass bytewise eval detection.
+    let generator_patterns: &[&[u8]] = &[
+        b"function*(){}).constructor",
+        b"function* () {}).constructor",
+        b"function *(){}).constructor",
+        b"async function(){}).constructor",
+        b"async function () {}).constructor",
+        b"getPrototypeOf(function*",
+        b"getPrototypeOf(function *",
+        b"Function.prototype.constructor",
+        // Null-out variant: clobbers the constructor to hinder detection
+        b"getPrototypeOf(function*(){}).constructor",
+    ];
+
     // Look for string concatenation operators near eval fragments
-    let has_eval_fragments = patterns.iter().any(|pat| find_token(data, pat));
+    let has_eval_fragments = concat_patterns.iter().any(|pat| find_token(data, pat));
     let has_concat = find_token(data, b"+");
     let has_dynamic_access = find_token(data, b"[") && find_token(data, b"]");
+    let has_generator_bypass = generator_patterns.iter().any(|pat| find_token(data, pat));
 
-    (has_eval_fragments && has_concat) || has_dynamic_access
+    (has_eval_fragments && has_concat) || has_dynamic_access || has_generator_bypass
 }
 
 fn contains_hex_fromcharcode_pattern(data: &[u8]) -> bool {
@@ -1649,6 +1669,22 @@ fn detect_sandbox_evasion(data: &[u8]) -> bool {
     count >= 3
 }
 
+/// Detect the Apryse WebViewer SDK sandbox bypass technique that deletes browser
+/// globals to disable sandbox scope guards (CVE assigned, affects 10.9.x–10.12.0).
+/// Requires at least 2 distinct global deletions to reduce false positives on code
+/// that deletes custom variables sharing a global name.
+pub fn detect_global_deletion_bypass(data: &[u8]) -> bool {
+    let deletion_targets: &[&[u8]] = &[
+        b"delete window",
+        b"delete document",
+        b"delete confirm",
+        b"delete alert",
+        b"delete Function",
+        b"delete eval",
+    ];
+    deletion_targets.iter().filter(|p| find_token(data, p)).count() >= 2
+}
+
 fn detect_exception_abuse(data: &[u8]) -> bool {
     // Count try-catch blocks
     let try_count = data.windows(3).filter(|w| w == b"try").count();
@@ -2586,4 +2622,61 @@ fn detect_font_enumeration(data: &[u8]) -> bool {
     let has_loop = find_token(data, b"for(") || find_token(data, b"forEach");
 
     has_font_test && has_fonts && has_loop
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{contains_dynamic_eval_construction, detect_global_deletion_bypass};
+
+    // --- B1: Generator function constructor eval bypass ---
+
+    #[test]
+    fn generator_constructor_bypass_detected() {
+        assert!(contains_dynamic_eval_construction(
+            b"((function*(){}).constructor(\"x\"))().next()"
+        ));
+    }
+
+    #[test]
+    fn get_prototype_of_generator_bypass_detected() {
+        assert!(contains_dynamic_eval_construction(
+            b"Object.getPrototypeOf(function*(){}).constructor"
+        ));
+    }
+
+    #[test]
+    fn async_function_constructor_bypass_detected() {
+        assert!(contains_dynamic_eval_construction(
+            b"(async function(){}).constructor(\"x\")"
+        ));
+    }
+
+    #[test]
+    fn benign_payload_no_dynamic_construction() {
+        assert!(!contains_dynamic_eval_construction(b"app.alert('hello world');"));
+    }
+
+    // --- B2: Global deletion sandbox bypass ---
+
+    #[test]
+    fn global_deletion_bypass_two_globals_detected() {
+        assert!(detect_global_deletion_bypass(
+            b"delete window; delete confirm; delete document; window.confirm(document.cookie);"
+        ));
+    }
+
+    #[test]
+    fn global_deletion_bypass_single_deletion_not_detected() {
+        assert!(!detect_global_deletion_bypass(b"delete window;"));
+    }
+
+    #[test]
+    fn global_deletion_bypass_benign_payload_not_detected() {
+        assert!(!detect_global_deletion_bypass(b"app.alert('hello'); var x = 1;"));
+    }
+
+    #[test]
+    fn global_deletion_bypass_two_distinct_globals() {
+        assert!(detect_global_deletion_bypass(b"delete alert; delete eval; x();"));
+    }
 }
