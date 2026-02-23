@@ -38,6 +38,70 @@ impl Detector for AnnotationAttackDetector {
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
         let annot_parent = build_annotation_parent_map(&ctx.graph);
         let mut findings = Vec::new();
+
+        // First pass: collect (page_num, t_value) → Vec<obj_ref> for collision detection.
+        let mut t_collision_map: HashMap<(usize, Vec<u8>), Vec<String>> = HashMap::new();
+        for entry in &ctx.graph.objects {
+            let Some(dict) = entry_dict(entry) else { continue };
+            if dict.get_first(b"/Subtype").is_none() {
+                continue;
+            }
+            if let Some((_, t_obj)) = dict.get_first(b"/T") {
+                if let PdfAtom::Str(s) = &t_obj.atom {
+                    let t_bytes = pdf_string_bytes(s);
+                    let page_num = annot_parent
+                        .get(&sis_pdf_core::graph_walk::ObjRef {
+                            obj: entry.obj,
+                            gen: entry.gen,
+                        })
+                        .map(|p| p.number)
+                        .unwrap_or(0);
+                    t_collision_map
+                        .entry((page_num, t_bytes))
+                        .or_default()
+                        .push(format!("{} {} obj", entry.obj, entry.gen));
+                }
+            }
+        }
+        for ((page_num, t_val), refs) in &t_collision_map {
+            if refs.len() > 1 {
+                let t_str = String::from_utf8_lossy(t_val).to_string();
+                let mut meta = HashMap::new();
+                meta.insert("collision.t_value".into(), t_str.clone());
+                meta.insert("collision.page".into(), page_num.to_string());
+                meta.insert("collision.refs".into(), refs.join(", "));
+                findings.push(Finding {
+                    id: String::new(),
+                    surface: AttackSurface::Actions,
+                    kind: "annotation_t_field_collision".into(),
+                    severity: Severity::Low,
+                    confidence: Confidence::Probable,
+                    impact: None,
+                    title: "Annotation /T field collision".into(),
+                    description: format!(
+                        "Multiple annotations share /T identifier {:?} on page {}. In Acrobat's \
+                        AcroForm model a duplicate /T value causes a later annotation to shadow \
+                        the earlier one, which can be used as an anti-forensics technique in \
+                        incremental updates.",
+                        t_str, page_num
+                    ),
+                    objects: refs.clone(),
+                    evidence: Vec::new(),
+                    remediation: Some(
+                        "Inspect incremental updates for annotation /T shadowing; compare \
+                        revision history for unexpected identifier reuse."
+                            .into(),
+                    ),
+                    meta,
+                    yara: None,
+                    position: None,
+                    positions: Vec::new(),
+                    ..Finding::default()
+                });
+            }
+        }
+        apply_kind_cap(&mut findings, "annotation_t_field_collision", 10);
+
         for entry in &ctx.graph.objects {
             let Some(dict) = entry_dict(entry) else {
                 continue;

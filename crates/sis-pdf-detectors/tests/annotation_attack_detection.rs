@@ -24,6 +24,26 @@ fn build_pdf_with_link_annotation(uri: &str) -> Vec<u8> {
     build_pdf_with_objects(&objects)
 }
 
+fn build_pdf_with_two_annotations_same_t(t_value: &str) -> Vec<u8> {
+    let t_escaped = t_value.replace('(', "\\(").replace(')', "\\)");
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+        format!(
+            "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R 5 0 R] >>\nendobj\n"
+        ),
+        format!(
+            "4 0 obj\n<< /Type /Annot /Subtype /Text /Rect [10 10 100 30] /T ({}) /Contents (First annotation) >>\nendobj\n",
+            t_escaped
+        ),
+        format!(
+            "5 0 obj\n<< /Type /Annot /Subtype /Text /Rect [110 10 200 30] /T ({}) /Contents (Second annotation) >>\nendobj\n",
+            t_escaped
+        ),
+    ];
+    build_pdf_with_objects(&objects)
+}
+
 fn build_pdf_with_text_annotation(t_field: &str, contents: &str) -> Vec<u8> {
     let t_escaped = t_field.replace('(', "\\(").replace(')', "\\)");
     let contents_escaped = contents.replace('(', "\\(").replace(')', "\\)");
@@ -284,6 +304,43 @@ fn annotation_chain_javascript_uri_includes_uri_scheme_metadata() {
         chain.meta.get("uri.scheme").map(String::as_str),
         Some("javascript"),
         "annotation_action_chain for javascript: URI should have uri.scheme=javascript"
+    );
+}
+
+// --- EXT-06: Annotation /T field spoofing detection ---
+
+#[test]
+fn duplicate_t_field_on_same_page_emits_collision_finding() {
+    let bytes = build_pdf_with_two_annotations_same_t("shared-identifier");
+    let report = scan(&bytes);
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "annotation_t_field_collision")
+        .expect("annotation_t_field_collision should be emitted when two annotations share /T");
+    assert_eq!(finding.severity, Severity::Low);
+    assert_eq!(finding.confidence, Confidence::Probable);
+    assert!(
+        finding.meta.get("collision.t_value").map(String::as_str) == Some("shared-identifier"),
+        "collision.t_value should be the shared identifier"
+    );
+    assert!(
+        finding.meta.contains_key("collision.page"),
+        "collision.page should be set"
+    );
+    assert!(
+        finding.meta.contains_key("collision.refs"),
+        "collision.refs should list the colliding object refs"
+    );
+}
+
+#[test]
+fn distinct_t_fields_do_not_emit_collision_finding() {
+    let bytes = build_pdf_with_text_annotation("unique-id-1", "Normal annotation");
+    let report = scan(&bytes);
+    assert!(
+        report.findings.iter().all(|f| f.kind != "annotation_t_field_collision"),
+        "a single annotation with a unique /T should not emit a collision finding"
     );
 }
 
