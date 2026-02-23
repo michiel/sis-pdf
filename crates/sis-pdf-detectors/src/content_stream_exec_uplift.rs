@@ -92,6 +92,48 @@ impl Detector for ContentStreamExecUpliftDetector {
                         &anomaly_meta,
                     ));
                 }
+
+                let js_text_hits = scan_text_ops_for_js(&ops);
+                if !js_text_hits.is_empty() {
+                    let mut meta = HashMap::new();
+                    meta.insert("stream.js_patterns".into(), js_text_hits.join(", "));
+                    meta.insert(
+                        "stream.obj".into(),
+                        stream_ref
+                            .obj_ref
+                            .map(|(o, g)| format!("{o} {g}"))
+                            .unwrap_or_else(|| format!("{} {}", page.obj, page.gen)),
+                    );
+                    meta.insert("page.number".into(), page.number.to_string());
+                    findings.push(Finding {
+                        id: String::new(),
+                        surface: AttackSurface::FileStructure,
+                        kind: "content_stream_js_literal".into(),
+                        severity: Severity::Low,
+                        confidence: Confidence::Tentative,
+                        impact: None,
+                        title: "JavaScript-like literal in content stream".into(),
+                        description: "Text rendering operators (Tj/TJ) contain strings \
+                            resembling JavaScript. Some advanced payloads embed JS as \
+                            text literals in appearance streams for later harvesting."
+                            .into(),
+                        objects: vec![format!("{} {} obj", page.obj, page.gen)],
+                        evidence: vec![span_to_evidence(
+                            stream_ref.stream.data_span,
+                            "Content stream text operators",
+                        )],
+                        remediation: Some(
+                            "Inspect content stream text; determine whether JS fragments \
+                             are incidental or harvested by a Do/action chain."
+                                .into(),
+                        ),
+                        meta,
+                        yara: None,
+                        position: None,
+                        positions: Vec::new(),
+                        ..Finding::default()
+                    });
+                }
             }
         }
 
@@ -99,8 +141,70 @@ impl Detector for ContentStreamExecUpliftDetector {
             findings.push(finding);
         }
 
+        cap_findings_by_kind(&mut findings, "content_stream_js_literal", 10);
         Ok(findings)
     }
+}
+
+/// JS-like patterns that would be suspicious as rendered text content.
+const JS_TEXT_PATTERNS: &[&[u8]] = &[
+    b"function",
+    b"eval(",
+    b"Function(",
+    b"window.",
+    b"document.",
+    b"<script",
+    b"javascript:",
+];
+
+/// Scan Tj / TJ / ' / " text operator string operands for JS-like patterns.
+/// Returns deduplicated list of matched pattern strings.
+fn scan_text_ops_for_js(ops: &[ContentOp]) -> Vec<String> {
+    let mut hits = Vec::new();
+    for op in ops {
+        if !matches!(op.op.as_str(), "Tj" | "TJ" | "'" | "\"") {
+            continue;
+        }
+        for operand in &op.operands {
+            let raw: &[u8] = match operand {
+                ContentOperand::Str(s) => s.as_bytes(),
+                ContentOperand::Array(s) => s.as_bytes(),
+                _ => continue,
+            };
+            let lower = raw.to_ascii_lowercase();
+            for pat in JS_TEXT_PATTERNS {
+                if lower.windows(pat.len()).any(|w| w == *pat) {
+                    if let Ok(s) = std::str::from_utf8(pat) {
+                        hits.push(s.to_string());
+                    }
+                }
+            }
+        }
+    }
+    hits.sort();
+    hits.dedup();
+    hits
+}
+
+/// Cap the number of findings of a given kind, aggregating suppressed ones.
+fn cap_findings_by_kind(findings: &mut Vec<Finding>, kind: &str, cap: usize) {
+    let total = findings.iter().filter(|f| f.kind == kind).count();
+    if total <= cap {
+        return;
+    }
+    let suppressed = total - cap;
+    let mut retained = 0usize;
+    findings.retain_mut(|f| {
+        if f.kind != kind {
+            return true;
+        }
+        retained += 1;
+        if retained == 1 {
+            f.meta.insert("aggregate.suppressed_count".into(), suppressed.to_string());
+            f.meta.insert("aggregate.total_count".into(), total.to_string());
+        }
+        retained <= cap
+    });
 }
 
 #[derive(Clone)]

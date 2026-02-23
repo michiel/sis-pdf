@@ -87,6 +87,22 @@ fn build_clean_fixture() -> Vec<u8> {
     build_pdf(&objects, 6)
 }
 
+fn build_js_text_stream_fixture(stream_content: &str) -> Vec<u8> {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_string(),
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n".to_string(),
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
+            .to_string(),
+        format!(
+            "4 0 obj\n<< /Length {} >>\nstream\n{}endstream\nendobj\n",
+            stream_content.len(),
+            stream_content
+        ),
+        "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n".to_string(),
+    ];
+    build_pdf(&objects, 6)
+}
+
 #[test]
 fn detects_content_stream_exec_uplift_findings() {
     let bytes = build_abusive_fixture();
@@ -132,4 +148,52 @@ fn clean_stream_does_not_emit_uplift_findings() {
         .findings
         .iter()
         .all(|finding| finding.kind != "content_stream_resource_name_obfuscation"));
+}
+
+// --- EXT-05: Content stream JS literal detector ---
+
+#[test]
+fn tj_operator_with_function_keyword_emits_js_literal_finding() {
+    // Tj with JS-like content: (function eval() {}) Tj
+    let content = "BT /F1 12 Tf (function eval() {}) Tj ET\n";
+    let bytes = build_js_text_stream_fixture(content);
+    let detectors = default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+    assert!(
+        report.findings.iter().any(|f| f.kind == "content_stream_js_literal"),
+        "Tj with 'function' keyword should emit content_stream_js_literal"
+    );
+    let finding = report.findings.iter().find(|f| f.kind == "content_stream_js_literal").unwrap();
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::Low);
+    assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Tentative);
+}
+
+#[test]
+fn tj_operator_with_script_tag_emits_js_literal_finding() {
+    let content = "BT /F1 12 Tf (<script>alert(1)</script>) Tj ET\n";
+    let bytes = build_js_text_stream_fixture(content);
+    let detectors = default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+    assert!(
+        report.findings.iter().any(|f| f.kind == "content_stream_js_literal"),
+        "Tj with <script> tag should emit content_stream_js_literal"
+    );
+}
+
+#[test]
+fn plain_text_tj_does_not_emit_js_literal_finding() {
+    let content = "BT /F1 12 Tf (Hello World) Tj ET\n";
+    let bytes = build_js_text_stream_fixture(content);
+    let detectors = default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+    assert!(
+        report.findings.iter().all(|f| f.kind != "content_stream_js_literal"),
+        "plain text in Tj should not emit content_stream_js_literal"
+    );
 }
