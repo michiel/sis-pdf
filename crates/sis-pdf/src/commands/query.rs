@@ -2430,6 +2430,8 @@ pub struct ScanOptions {
     pub max_objects: usize,
     pub group_chains: bool,
     pub correlation: CorrelationOptions,
+    pub diff_parser: bool,
+    pub strict: bool,
 }
 
 impl Default for ScanOptions {
@@ -2442,6 +2444,8 @@ impl Default for ScanOptions {
             max_objects: 500_000,
             group_chains: true,
             correlation: CorrelationOptions::default(),
+            diff_parser: false,
+            strict: false,
         }
     }
 }
@@ -2468,9 +2472,9 @@ fn build_scan_context<'a>(
         deep: options.deep,
         max_decode_bytes: options.max_decode_bytes,
         max_total_decoded_bytes: options.max_total_decoded_bytes,
-        strict: false,
+        strict: options.strict,
         strict_summary: false,
-        diff_parser: false,
+        diff_parser: options.diff_parser,
         fast: false,
         focus_trigger: None,
         yara_scope: None,
@@ -2643,8 +2647,15 @@ fn run_detectors(ctx: &ScanContext) -> Result<Vec<sis_pdf_core::model::Finding>>
         }
     }
 
+    if ctx.options.diff_parser {
+        let mut diff = sis_pdf_core::diff::diff_with_lopdf(ctx.bytes, &ctx.graph);
+        findings.append(&mut diff.findings);
+    }
+
     let composites = correlation::correlate_findings(&findings, &ctx.options.correlation);
     findings.extend(composites);
+    sis_pdf_core::runner::maybe_record_secondary_parser_prevalence_baseline(&mut findings);
+    findings.push(sis_pdf_core::structure_overlay::structural_complexity_summary_finding(ctx));
     sis_pdf_core::finding_caps::apply_default_global_kind_cap(&mut findings);
     assign_stable_ids(&mut findings);
 

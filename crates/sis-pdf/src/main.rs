@@ -198,8 +198,14 @@ enum Command {
         chain_summary: commands::query::ChainSummaryLevel,
         #[arg(long, help = "Filter results with a predicate expression")]
         r#where: Option<String>,
+        #[arg(long, help = "Path to config file")]
+        config: Option<PathBuf>,
         #[arg(long, help = "Deep scan mode")]
         deep: bool,
+        #[arg(long, help = "Enable secondary parser (lopdf) diff for structural findings")]
+        diff_parser: bool,
+        #[arg(long, help = "Enable strict parser mode")]
+        strict: bool,
         #[arg(long, default_value_t = 32 * 1024 * 1024)]
         max_decode_bytes: usize,
         #[arg(long, default_value_t = 256 * 1024 * 1024)]
@@ -772,7 +778,10 @@ fn main() -> Result<()> {
             report_verbosity,
             chain_summary,
             r#where,
+            config: _,
             deep,
+            diff_parser,
+            strict,
             max_decode_bytes,
             max_total_decoded_bytes,
             no_recover,
@@ -880,6 +889,8 @@ fn main() -> Result<()> {
                     compact,
                     colour,
                     deep,
+                    diff_parser,
+                    strict,
                     max_decode_bytes,
                     max_total_decoded_bytes,
                     !no_recover,
@@ -918,6 +929,8 @@ fn main() -> Result<()> {
                 run_query_repl(
                     actual_pdf.as_deref().ok_or_else(|| anyhow!("no PDF path available"))?,
                     deep,
+                    diff_parser,
+                    strict,
                     max_decode_bytes,
                     max_total_decoded_bytes,
                     !no_recover,
@@ -1204,6 +1217,7 @@ fn init_tracing(level: Option<&str>) {
 fn resolve_config_path_from_args(args: &Args) -> Option<PathBuf> {
     match &args.command {
         Command::Scan { config, .. } => resolve_config_path(config.as_deref()),
+        Command::Query { config, .. } => resolve_config_path(config.as_deref()),
         Command::Explain { config, .. } => resolve_config_path(config.as_deref()),
         Command::Ml(cmd) => match cmd {
             MlCommand::Detect { config, .. } => resolve_config_path(config.as_deref()),
@@ -2767,6 +2781,51 @@ fn maybe_colourise_output(
     }
 }
 
+fn apply_query_scan_config(
+    scan_options: &mut commands::query::ScanOptions,
+    config_path: Option<&std::path::Path>,
+) {
+    let Some(path) = config_path else { return };
+    let Ok(cfg) = sis_pdf_core::config::Config::load(path) else { return };
+    let mut core = sis_pdf_core::scan::ScanOptions {
+        deep: scan_options.deep,
+        diff_parser: scan_options.diff_parser,
+        strict: scan_options.strict,
+        strict_summary: false,
+        recover_xref: !scan_options.no_recover,
+        max_decode_bytes: scan_options.max_decode_bytes,
+        max_total_decoded_bytes: scan_options.max_total_decoded_bytes,
+        max_objects: scan_options.max_objects,
+        group_chains: scan_options.group_chains,
+        correlation: scan_options.correlation.clone(),
+        parallel: false,
+        batch_parallel: false,
+        fast: false,
+        focus_trigger: None,
+        focus_depth: 5,
+        yara_scope: None,
+        ir: false,
+        max_recursion_depth: 64,
+        ml_config: None,
+        font_analysis: sis_pdf_core::scan::FontAnalysisOptions::default(),
+        image_analysis: sis_pdf_core::scan::ImageAnalysisOptions::default(),
+        filter_allowlist: None,
+        filter_allowlist_strict: false,
+        profile: false,
+        profile_format: sis_pdf_core::scan::ProfileFormat::Text,
+    };
+    cfg.apply(&mut core, None);
+    scan_options.deep = core.deep;
+    scan_options.diff_parser = core.diff_parser;
+    scan_options.strict = core.strict;
+    scan_options.max_decode_bytes = core.max_decode_bytes;
+    scan_options.max_total_decoded_bytes = core.max_total_decoded_bytes;
+    scan_options.no_recover = !core.recover_xref;
+    scan_options.max_objects = core.max_objects;
+    scan_options.group_chains = core.group_chains;
+    scan_options.correlation = core.correlation;
+}
+
 fn run_query_oneshot(
     query_str: &str,
     pdf_path: Option<&str>,
@@ -2774,6 +2833,8 @@ fn run_query_oneshot(
     compact: bool,
     colour: bool,
     deep: bool,
+    diff_parser: bool,
+    strict: bool,
     max_decode_bytes: usize,
     max_total_decoded_bytes: usize,
     recover_xref: bool,
@@ -2789,7 +2850,7 @@ fn run_query_oneshot(
     report_verbosity: commands::query::ReportVerbosity,
     chain_summary: commands::query::ChainSummaryLevel,
     jobs: Option<usize>,
-    _config_path: Option<PathBuf>,
+    config_path: Option<PathBuf>,
 ) -> Result<()> {
     use commands::query;
 
@@ -2822,9 +2883,11 @@ fn run_query_oneshot(
     let query = query::apply_output_format(query, output_format)?;
     let query = query::apply_with_chain(query, with_chain)?;
 
-    // Build scan options
-    let scan_options = query::ScanOptions {
+    // Build scan options from CLI args, then apply config
+    let mut scan_options = query::ScanOptions {
         deep,
+        diff_parser,
+        strict,
         max_decode_bytes,
         max_total_decoded_bytes,
         no_recover: !recover_xref,
@@ -2832,6 +2895,7 @@ fn run_query_oneshot(
         group_chains,
         correlation: sis_pdf_core::scan::CorrelationOptions::default(),
     };
+    apply_query_scan_config(&mut scan_options, config_path.as_deref());
 
     // Phase 3: Batch mode - execute query across directory
     if let Some(dir_path) = path {
@@ -3003,6 +3067,8 @@ fn resolve_event_query_aliases(
 fn run_query_repl(
     pdf_path: &str,
     deep: bool,
+    diff_parser: bool,
+    strict: bool,
     max_decode_bytes: usize,
     max_total_decoded_bytes: usize,
     recover_xref: bool,
@@ -3029,8 +3095,10 @@ fn run_query_repl(
     eprintln!("Loading PDF: {}", pdf_path);
     let bytes = std::fs::read(pdf_path)?;
 
-    let scan_options = query::ScanOptions {
+    let mut scan_options = query::ScanOptions {
         deep,
+        diff_parser,
+        strict,
         max_decode_bytes,
         max_total_decoded_bytes,
         no_recover: !recover_xref,
@@ -3038,6 +3106,7 @@ fn run_query_repl(
         group_chains,
         correlation: CorrelationOptions::default(),
     };
+    apply_query_scan_config(&mut scan_options, config_path.as_deref());
 
     // Build scan context (this is expensive, so we do it once)
     let ctx = query::build_scan_context_public(&bytes, &scan_options)?;
@@ -4191,6 +4260,9 @@ fn run_scan_single(
     opts: &sis_pdf_core::scan::ScanOptions,
     detectors: &[Box<dyn sis_pdf_core::detect::Detector>],
 ) -> Result<sis_pdf_core::report::Report> {
+    let span = tracing::info_span!("scan", file = pdf);
+    let _guard = span.enter();
+    info!("Scanning {}", pdf);
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts.clone(), detectors)?
         .with_input_path(Some(pdf.to_string()));
     Ok(report)
@@ -4341,6 +4413,9 @@ fn run_scan_batch(
     let indexed_paths: Vec<(usize, PathBuf)> = paths.into_iter().enumerate().collect();
     let process_path = |path: &PathBuf| -> Result<sis_pdf_core::report::BatchEntry> {
         let path_str = path.display().to_string();
+        let span = tracing::info_span!("scan", file = path_str.as_str());
+        let _guard = span.enter();
+        info!("Scanning {}", path_str);
         let start = std::time::Instant::now();
         let bytes = read_pdf_bytes(&path_str)?;
         let hash = sha256_hex(&bytes);

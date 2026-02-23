@@ -1926,7 +1926,7 @@ fn apply_noisy_class_disambiguation(
     }
 }
 
-fn maybe_record_secondary_parser_prevalence_baseline(findings: &mut Vec<Finding>) {
+pub fn maybe_record_secondary_parser_prevalence_baseline(findings: &mut Vec<Finding>) {
     let relevant =
         findings.iter().filter(|finding| is_secondary_parser_signal(finding)).collect::<Vec<_>>();
     if relevant.is_empty() {
