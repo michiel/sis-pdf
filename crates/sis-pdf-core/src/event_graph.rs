@@ -450,8 +450,12 @@ pub fn build_event_graph(
     }
 
     // ContentStreamExec: derive from PageContents typed edges
+    let mut seen_pairs = BTreeSet::<((u32, u16), (u32, u16))>::new();
     for edge in &typed_graph.edges {
         if !matches!(edge.edge_type, EdgeType::PageContents) {
+            continue;
+        }
+        if !seen_pairs.insert((edge.src, edge.dst)) {
             continue;
         }
         let id = format!(
