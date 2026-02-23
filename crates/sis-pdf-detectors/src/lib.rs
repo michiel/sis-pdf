@@ -1305,6 +1305,7 @@ fn js_present_severity_from_meta(meta: &std::collections::HashMap<String, String
         "js.encoded_transmission",
         "js.dynamic_eval_construction",
         "js.obfuscation_suspected",
+        "js.prototype_chain_manipulation",
     ];
     if high_risk_flags.iter().any(|k| matches!(meta.get(*k).map(String::as_str), Some("true"))) {
         return Severity::High;
@@ -2030,6 +2031,9 @@ impl Detector for JavaScriptDetector {
                     if meta.get("js.global_deletion_bypass").map(String::as_str) == Some("true") {
                         let mut bypass_meta = std::collections::HashMap::new();
                         bypass_meta.insert("js.global_deletion_bypass".into(), "true".into());
+                        if let Some(deleted) = meta.get("js.deleted_globals") {
+                            bypass_meta.insert("js.deleted_globals".into(), deleted.clone());
+                        }
                         if let Some(preview) = meta.get("payload.decoded_preview") {
                             bypass_meta.insert("payload.preview".into(), preview.clone());
                         }
@@ -2054,6 +2058,46 @@ impl Detector for JavaScriptDetector {
                                     .into(),
                             ),
                             meta: bypass_meta,
+                            yara: None,
+                            position: None,
+                            positions: Vec::new(),
+                            ..Default::default()
+                        });
+                    }
+                    if meta.get("js.prototype_chain_manipulation").map(String::as_str)
+                        == Some("true")
+                        && meta.get("js.dynamic_eval_construction").map(String::as_str)
+                            == Some("true")
+                    {
+                        let mut tamper_meta = std::collections::HashMap::new();
+                        tamper_meta
+                            .insert("js.prototype_chain_manipulation".into(), "true".into());
+                        tamper_meta.insert("js.dynamic_eval_construction".into(), "true".into());
+                        if let Some(preview) = meta.get("payload.decoded_preview") {
+                            tamper_meta.insert("payload.preview".into(), preview.clone());
+                        }
+                        tamper_meta.insert("object.ref".into(), object_ref.clone());
+                        findings.push(Finding {
+                            id: String::new(),
+                            surface: AttackSurface::JavaScript,
+                            kind: "js_prototype_chain_tamper".into(),
+                            severity: Severity::High,
+                            confidence: Confidence::Probable,
+                            impact: None,
+                            title: "JavaScript prototype chain tampering".into(),
+                            description: "Payload null-assigns the prototype constructor \
+                                alongside a generator function constructor eval bypass. This \
+                                is an active anti-detection step that clobbers a built-in to \
+                                hinder bytewise analysis of the eval bypass."
+                                .into(),
+                            objects: vec![object_ref.clone()],
+                            evidence: deduped_evidence.clone(),
+                            remediation: Some(
+                                "Treat as deliberate obfuscation; inspect full payload for \
+                                generator constructor eval pattern."
+                                    .into(),
+                            ),
+                            meta: tamper_meta,
                             yara: None,
                             position: None,
                             positions: Vec::new(),

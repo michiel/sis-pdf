@@ -95,6 +95,10 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
     let sandbox_evasion = detect_sandbox_evasion(data) || global_deletion_bypass;
     out.insert("js.sandbox_evasion".into(), bool_str(sandbox_evasion));
     out.insert("js.global_deletion_bypass".into(), bool_str(global_deletion_bypass));
+    let deleted_globals = list_deleted_globals(data);
+    if !deleted_globals.is_empty() {
+        out.insert("js.deleted_globals".into(), deleted_globals.join(", "));
+    }
     out.insert("js.exception_abuse".into(), bool_str(detect_exception_abuse(data)));
     out.insert("js.time_bomb".into(), bool_str(detect_time_bomb(data)));
 
@@ -153,6 +157,10 @@ pub fn extract_js_signals_with_ast(data: &[u8], enable_ast: bool) -> HashMap<Str
     out.insert(
         "js.prototype_pollution_gadget".into(),
         bool_str(detect_prototype_pollution_gadget(data)),
+    );
+    out.insert(
+        "js.prototype_chain_manipulation".into(),
+        bool_str(detect_prototype_chain_manipulation(data)),
     );
     out.insert("js.script_injection".into(), bool_str(detect_script_injection(data)));
     out.insert("js.eval_sink".into(), bool_str(detect_eval_sink(data)));
@@ -1685,6 +1693,20 @@ pub fn detect_global_deletion_bypass(data: &[u8]) -> bool {
     deletion_targets.iter().filter(|p| find_token(data, p)).count() >= 2
 }
 
+/// Returns the list of browser globals whose deletion was detected in the payload.
+/// Used to populate `js.deleted_globals` metadata for forensic context.
+pub fn list_deleted_globals(data: &[u8]) -> Vec<&'static str> {
+    let targets: &[(&[u8], &str)] = &[
+        (b"delete window", "window"),
+        (b"delete document", "document"),
+        (b"delete confirm", "confirm"),
+        (b"delete alert", "alert"),
+        (b"delete Function", "Function"),
+        (b"delete eval", "eval"),
+    ];
+    targets.iter().filter(|(pat, _)| find_token(data, pat)).map(|(_, name)| *name).collect()
+}
+
 fn detect_exception_abuse(data: &[u8]) -> bool {
     // Count try-catch blocks
     let try_count = data.windows(3).filter(|w| w == b"try").count();
@@ -2199,6 +2221,22 @@ fn detect_prototype_pollution_gadget(data: &[u8]) -> bool {
     has_proto && has_assignment
 }
 
+/// Detect active prototype chain tampering via constructor null-assignment.
+/// This is the write-side complement to prototype pollution (which is read-based).
+/// Pattern: Object.getPrototypeOf(fn*(){}).constructor = null (or = anything)
+/// Often paired with generator constructor eval bypass to hinder detection.
+pub fn detect_prototype_chain_manipulation(data: &[u8]) -> bool {
+    let has_get_prototype = find_token(data, b"getPrototypeOf");
+    if !has_get_prototype {
+        return false;
+    }
+    let has_constructor_assign = find_token(data, b"constructor = null")
+        || find_token(data, b"constructor=null")
+        || find_token(data, b"constructor = undefined")
+        || find_token(data, b"constructor=undefined");
+    has_constructor_assign
+}
+
 fn detect_script_injection(data: &[u8]) -> bool {
     let injection_patterns: &[&[u8]] = &[
         b"createElement('script')",
@@ -2626,7 +2664,10 @@ fn detect_font_enumeration(data: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_dynamic_eval_construction, detect_global_deletion_bypass};
+    use super::{
+        contains_dynamic_eval_construction, detect_global_deletion_bypass,
+        detect_prototype_chain_manipulation, list_deleted_globals,
+    };
 
     // --- B1: Generator function constructor eval bypass ---
 
@@ -2678,5 +2719,57 @@ mod tests {
     #[test]
     fn global_deletion_bypass_two_distinct_globals() {
         assert!(detect_global_deletion_bypass(b"delete alert; delete eval; x();"));
+    }
+
+    // --- EXT-03: Prototype chain manipulation ---
+
+    #[test]
+    fn prototype_chain_manipulation_with_constructor_null_detected() {
+        assert!(detect_prototype_chain_manipulation(
+            b"Object.getPrototypeOf(function*(){}).constructor = null;"
+        ));
+    }
+
+    #[test]
+    fn prototype_chain_manipulation_with_constructor_undefined_detected() {
+        assert!(detect_prototype_chain_manipulation(
+            b"Object.getPrototypeOf(fn).constructor=undefined;"
+        ));
+    }
+
+    #[test]
+    fn prototype_chain_manipulation_without_assignment_not_detected() {
+        assert!(!detect_prototype_chain_manipulation(
+            b"Object.getPrototypeOf(function*(){}).constructor"
+        ));
+    }
+
+    #[test]
+    fn prototype_chain_manipulation_benign_not_detected() {
+        assert!(!detect_prototype_chain_manipulation(b"app.alert('hello world');"));
+    }
+
+    // --- EXT-07: Deleted globals list ---
+
+    #[test]
+    fn list_deleted_globals_returns_all_detected() {
+        let deleted = list_deleted_globals(
+            b"delete window; delete confirm; delete document; window.confirm(document.cookie);",
+        );
+        assert!(deleted.contains(&"window"), "should list window");
+        assert!(deleted.contains(&"confirm"), "should list confirm");
+        assert!(deleted.contains(&"document"), "should list document");
+    }
+
+    #[test]
+    fn list_deleted_globals_single_deletion() {
+        let deleted = list_deleted_globals(b"delete window; x();");
+        assert_eq!(deleted, vec!["window"]);
+    }
+
+    #[test]
+    fn list_deleted_globals_benign_payload_empty() {
+        let deleted = list_deleted_globals(b"app.alert('hello'); var x = 1;");
+        assert!(deleted.is_empty());
     }
 }

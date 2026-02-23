@@ -151,3 +151,74 @@ fn benign_js_does_not_emit_global_deletion_finding() {
         "benign JS should not trigger global deletion sandbox bypass finding"
     );
 }
+
+// --- EXT-03: Prototype chain manipulation ---
+
+#[test]
+fn prototype_chain_manipulation_with_generator_bypass_emits_tamper_finding() {
+    let bytes = build_pdf_with_js(
+        "Object.getPrototypeOf((function*(){}).constructor).constructor = null; \
+         var f = (function*(){}).constructor; f('app.alert(1)')().next();",
+    );
+    let report = scan(&bytes);
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_prototype_chain_tamper")
+        .expect("js_prototype_chain_tamper should be emitted");
+    assert_eq!(finding.severity, Severity::High);
+    assert_eq!(finding.confidence, Confidence::Probable);
+}
+
+#[test]
+fn prototype_chain_manipulation_without_generator_bypass_does_not_emit_tamper_finding() {
+    // Only prototype manipulation, no generator constructor bypass
+    let bytes = build_pdf_with_js("Object.getPrototypeOf(app).constructor = null; app.alert(1);");
+    let report = scan(&bytes);
+    assert!(
+        report.findings.iter().all(|f| f.kind != "js_prototype_chain_tamper"),
+        "tamper finding requires both prototype_chain_manipulation AND dynamic_eval_construction"
+    );
+}
+
+#[test]
+fn prototype_chain_manipulation_sets_metadata_flag() {
+    let bytes = build_pdf_with_js("Object.getPrototypeOf(app).constructor = null; app.alert(1);");
+    let report = scan(&bytes);
+    let js = report.findings.iter().find(|f| f.kind == "js_present").expect("js_present");
+    assert_eq!(
+        js.meta.get("js.prototype_chain_manipulation").map(String::as_str),
+        Some("true")
+    );
+}
+
+// --- EXT-07: Deleted globals list ---
+
+#[test]
+fn global_deletion_bypass_finding_includes_deleted_globals_list() {
+    let bytes = build_pdf_with_js(
+        "delete window; delete confirm; delete document; window.confirm(document.cookie);",
+    );
+    let report = scan(&bytes);
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_global_deletion_sandbox_bypass")
+        .expect("js_global_deletion_sandbox_bypass");
+    let deleted =
+        finding.meta.get("js.deleted_globals").expect("js.deleted_globals should be present");
+    assert!(deleted.contains("window"), "should list window");
+    assert!(deleted.contains("confirm"), "should list confirm");
+    assert!(deleted.contains("document"), "should list document");
+}
+
+#[test]
+fn js_present_includes_deleted_globals_metadata() {
+    let bytes = build_pdf_with_js("delete window; delete confirm; x();");
+    let report = scan(&bytes);
+    let js = report.findings.iter().find(|f| f.kind == "js_present").expect("js_present");
+    let deleted =
+        js.meta.get("js.deleted_globals").expect("js.deleted_globals in js_present meta");
+    assert!(deleted.contains("window"));
+    assert!(deleted.contains("confirm"));
+}
