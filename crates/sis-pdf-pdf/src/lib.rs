@@ -4,6 +4,7 @@ pub mod blob;
 pub mod blob_classify;
 pub mod classification;
 pub mod content;
+pub mod content_summary;
 pub mod decode;
 pub mod graph;
 pub mod ir;

@@ -5544,6 +5544,7 @@ dependencies = [
  "flate2",
  "memchr",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tracing",
  "weezl",

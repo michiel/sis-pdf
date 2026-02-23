@@ -9,6 +9,7 @@ base64 = { workspace = true }
 flate2 = { workspace = true }
 memchr = "2.7"
 serde = { workspace = true }
+serde_json = { workspace = true }
 tracing = { workspace = true }
 thiserror = "2.0"
 weezl = "0.1"

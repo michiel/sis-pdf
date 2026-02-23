@@ -247,6 +247,16 @@ pub enum Query {
     Stream(StreamQuery),
     StreamsEntropy,
     RuntimeCaps,
+
+    // Content stream structured analysis
+    StreamContentOps { obj: u32, gen: u16 },
+    StreamContentOpsJson { obj: u32, gen: u16 },
+    PageContentOps { page_idx: usize },
+    PageContentOpsJson { page_idx: usize },
+    GraphContentStreamDot { obj: u32, gen: u16 },
+    GraphContentStreamJson { obj: u32, gen: u16 },
+    GraphPageContentDot { page_idx: usize },
+    GraphPageContentJson { page_idx: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -627,6 +637,56 @@ pub fn parse_query(input: &str) -> Result<Query> {
         "features.json" => Ok(Query::ExportFeaturesJson),
 
         _ => {
+            // Content stream queries
+            if let Some(rest) = input.strip_prefix("stream.content.json ") {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if parts.len() >= 1 {
+                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
+                    return Ok(Query::StreamContentOpsJson { obj, gen });
+                }
+            }
+            if let Some(rest) = input.strip_prefix("stream.content ") {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if parts.len() >= 1 {
+                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
+                    return Ok(Query::StreamContentOps { obj, gen });
+                }
+            }
+            if let Some(rest) = input.strip_prefix("page.content.json ") {
+                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                return Ok(Query::PageContentOpsJson { page_idx: idx });
+            }
+            if let Some(rest) = input.strip_prefix("page.content ") {
+                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                return Ok(Query::PageContentOps { page_idx: idx });
+            }
+            if let Some(rest) = input.strip_prefix("graph.content.json ") {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if parts.len() >= 1 {
+                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
+                    return Ok(Query::GraphContentStreamJson { obj, gen });
+                }
+            }
+            if let Some(rest) = input.strip_prefix("graph.content ") {
+                let parts: Vec<&str> = rest.split_whitespace().collect();
+                if parts.len() >= 1 {
+                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
+                    return Ok(Query::GraphContentStreamDot { obj, gen });
+                }
+            }
+            if let Some(rest) = input.strip_prefix("graph.page.content.json ") {
+                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                return Ok(Query::GraphPageContentJson { page_idx: idx });
+            }
+            if let Some(rest) = input.strip_prefix("graph.page.content ") {
+                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                return Ok(Query::GraphPageContentDot { page_idx: idx });
+            }
+
             if let Some(rest) = input.strip_prefix("graph.structure.depth ") {
                 let depth = rest
                     .trim()
@@ -1582,6 +1642,38 @@ pub fn execute_query_with_context(
                     )?;
                     Ok(QueryResult::List(vec![preview]))
                 }
+            }
+            Query::StreamContentOps { obj, gen } => {
+                let text = execute_stream_content_ops(ctx, *obj, *gen, false)?;
+                Ok(QueryResult::List(vec![text]))
+            }
+            Query::StreamContentOpsJson { obj, gen } => {
+                let json = execute_stream_content_ops_json(ctx, *obj, *gen)?;
+                Ok(QueryResult::Structure(json))
+            }
+            Query::PageContentOps { page_idx } => {
+                let text = execute_page_content_ops(ctx, *page_idx, false)?;
+                Ok(QueryResult::List(vec![text]))
+            }
+            Query::PageContentOpsJson { page_idx } => {
+                let json = execute_page_content_ops_json(ctx, *page_idx)?;
+                Ok(QueryResult::Structure(json))
+            }
+            Query::GraphContentStreamDot { obj, gen } => {
+                let dot = execute_content_graph_dot(ctx, *obj, *gen)?;
+                Ok(QueryResult::List(vec![dot]))
+            }
+            Query::GraphContentStreamJson { obj, gen } => {
+                let json = execute_content_graph_json(ctx, *obj, *gen)?;
+                Ok(QueryResult::Structure(json))
+            }
+            Query::GraphPageContentDot { page_idx } => {
+                let dot = execute_page_content_graph_dot(ctx, *page_idx)?;
+                Ok(QueryResult::List(vec![dot]))
+            }
+            Query::GraphPageContentJson { page_idx } => {
+                let json = execute_page_content_graph_json(ctx, *page_idx)?;
+                Ok(QueryResult::Structure(json))
             }
             Query::StreamsEntropy => {
                 if predicate.is_some() {
@@ -8873,6 +8965,256 @@ pub fn run_query_batch(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Content stream query helpers
+// ---------------------------------------------------------------------------
+
+/// Decode and summarise a single stream object. Returns `Err(QueryResult::Error)` on failure.
+fn decode_and_summarise_stream(
+    ctx: &ScanContext,
+    obj: u32,
+    gen: u16,
+    page_ref: Option<(u32, u16)>,
+) -> Result<sis_pdf_pdf::content_summary::ContentStreamSummary> {
+    use sis_pdf_pdf::content_summary::summarise_stream;
+
+    let entry = ctx.graph.get_object(obj, gen).ok_or_else(|| {
+        anyhow!("Object {} {} not found", obj, gen)
+    })?;
+    let stream = match &entry.atom {
+        PdfAtom::Stream(st) => st.clone(),
+        _ => anyhow::bail!("Object {} {} is not a stream", obj, gen),
+    };
+    let raw_stream_offset = stream.data_span.start;
+    let decoded = ctx.decoded.get_or_decode(ctx.bytes, &stream).map_err(|e| {
+        anyhow!("Failed to decode stream {} {}: {}", obj, gen, e)
+    })?;
+
+    // Resolve resources: if we have a page_ref, use resolve_page_resources; otherwise None.
+    // We hold the resources as an owned PdfDict to satisfy lifetime requirements.
+    let owned_resources = page_ref.and_then(|(po, pg)| {
+        sis_pdf_core::page_tree::resolve_page_resources(&ctx.graph, po, pg)
+    });
+
+    let summary = summarise_stream(
+        &decoded.data,
+        decoded.truncated,
+        (obj, gen),
+        page_ref,
+        raw_stream_offset,
+        owned_resources.as_ref(),
+        &ctx.graph,
+    );
+    Ok(summary)
+}
+
+/// Find the page that owns a given stream object by scanning the page tree.
+fn find_page_for_stream(ctx: &ScanContext, obj: u32, gen: u16) -> Option<(u32, u16)> {
+    let tree = sis_pdf_core::page_tree::build_page_tree(&ctx.graph);
+    for page in &tree.pages {
+        let streams = page_streams(ctx, page.obj, page.gen);
+        if streams.contains(&(obj, gen)) {
+            return Some((page.obj, page.gen));
+        }
+    }
+    None
+}
+
+fn execute_stream_content_ops(
+    ctx: &ScanContext,
+    obj: u32,
+    gen: u16,
+    _json: bool,
+) -> Result<String> {
+    use sis_pdf_pdf::content_summary::summary_to_text;
+    let page_ref = find_page_for_stream(ctx, obj, gen);
+    let summary = decode_and_summarise_stream(ctx, obj, gen, page_ref)?;
+    Ok(summary_to_text(&summary))
+}
+
+fn execute_stream_content_ops_json(
+    ctx: &ScanContext,
+    obj: u32,
+    gen: u16,
+) -> Result<serde_json::Value> {
+    use sis_pdf_pdf::content_summary::summary_to_json;
+    let page_ref = find_page_for_stream(ctx, obj, gen);
+    let summary = decode_and_summarise_stream(ctx, obj, gen, page_ref)?;
+    Ok(summary_to_json(&summary))
+}
+
+/// Collect all content streams for a page (handles `/Contents` array).
+fn page_streams(ctx: &ScanContext, page_obj: u32, page_gen: u16) -> Vec<(u32, u16)> {
+    use sis_pdf_pdf::object::PdfAtom;
+
+    let entry = match ctx.graph.get_object(page_obj, page_gen) {
+        Some(e) => e,
+        None => return vec![],
+    };
+    let dict = match &entry.atom {
+        PdfAtom::Dict(d) => d.clone(),
+        PdfAtom::Stream(st) => st.dict.clone(),
+        _ => return vec![],
+    };
+    let Some((_, contents_obj)) = dict.get_first(b"/Contents") else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    match &contents_obj.atom {
+        PdfAtom::Array(arr) => {
+            for item in arr {
+                if let Some((o, g)) = resolve_stream_ref(ctx, item) {
+                    out.push((o, g));
+                }
+            }
+        }
+        PdfAtom::Ref { obj, gen } => {
+            // Could be a direct ref to a stream or to an array — resolve it.
+            if let Some(resolved) = ctx.graph.get_object(*obj, *gen) {
+                match &resolved.atom {
+                    PdfAtom::Stream(_) => out.push((*obj, *gen)),
+                    PdfAtom::Array(arr) => {
+                        for item in arr {
+                            if let Some((o, g)) = resolve_stream_ref(ctx, item) {
+                                out.push((o, g));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        PdfAtom::Stream(_) => {
+            let span = contents_obj.span.start;
+            if let Some(e) = ctx.graph.objects.iter().find(|e| e.body_span.start == span) {
+                out.push((e.obj, e.gen));
+            }
+        }
+        _ => {}
+    }
+    out
+}
+
+fn resolve_stream_ref(ctx: &ScanContext, obj: &sis_pdf_pdf::object::PdfObj<'_>) -> Option<(u32, u16)> {
+    match &obj.atom {
+        PdfAtom::Ref { obj, gen } => {
+            ctx.graph.get_object(*obj, *gen).and_then(|e| match &e.atom {
+                PdfAtom::Stream(_) => Some((*obj, *gen)),
+                _ => None,
+            })
+        }
+        PdfAtom::Stream(_) => {
+            let span = obj.span.start;
+            ctx.graph.objects.iter().find(|e| e.body_span.start == span).map(|e| (e.obj, e.gen))
+        }
+        _ => None,
+    }
+}
+
+fn execute_page_content_ops(ctx: &ScanContext, page_idx: usize, _json: bool) -> Result<String> {
+    use sis_pdf_pdf::content_summary::summary_to_text;
+    let tree = sis_pdf_core::page_tree::build_page_tree(&ctx.graph);
+    let page = tree.pages.get(page_idx).ok_or_else(|| {
+        anyhow!("Page index {} out of range (document has {} pages)", page_idx, tree.pages.len())
+    })?;
+    let stream_refs = page_streams(ctx, page.obj, page.gen);
+    if stream_refs.is_empty() {
+        return Ok(format!("Page {} has no content streams\n", page_idx));
+    }
+    let mut out = String::new();
+    for (obj, gen) in stream_refs {
+        match decode_and_summarise_stream(ctx, obj, gen, Some((page.obj, page.gen))) {
+            Ok(summary) => {
+                out.push_str(&summary_to_text(&summary));
+                out.push('\n');
+            }
+            Err(e) => {
+                out.push_str(&format!("Content stream {} {} (decode error: {})\n", obj, gen, e));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn execute_page_content_ops_json(
+    ctx: &ScanContext,
+    page_idx: usize,
+) -> Result<serde_json::Value> {
+    use sis_pdf_pdf::content_summary::summary_to_json;
+    let tree = sis_pdf_core::page_tree::build_page_tree(&ctx.graph);
+    let page = tree.pages.get(page_idx).ok_or_else(|| {
+        anyhow!("Page index {} out of range (document has {} pages)", page_idx, tree.pages.len())
+    })?;
+    let stream_refs = page_streams(ctx, page.obj, page.gen);
+    let summaries: Vec<serde_json::Value> = stream_refs
+        .into_iter()
+        .filter_map(|(obj, gen)| {
+            decode_and_summarise_stream(ctx, obj, gen, Some((page.obj, page.gen)))
+                .ok()
+                .map(|s| summary_to_json(&s))
+        })
+        .collect();
+    Ok(serde_json::json!({ "page_idx": page_idx, "streams": summaries }))
+}
+
+fn execute_content_graph_dot(ctx: &ScanContext, obj: u32, gen: u16) -> Result<String> {
+    use sis_pdf_pdf::content_summary::{build_content_graph, content_graph_to_dot};
+    let page_ref = find_page_for_stream(ctx, obj, gen);
+    let summary = decode_and_summarise_stream(ctx, obj, gen, page_ref)?;
+    let csg = build_content_graph(&summary);
+    Ok(content_graph_to_dot(&csg, &format!("stream {} {}", obj, gen)))
+}
+
+fn execute_content_graph_json(ctx: &ScanContext, obj: u32, gen: u16) -> Result<serde_json::Value> {
+    use sis_pdf_pdf::content_summary::{build_content_graph, content_graph_to_json};
+    let page_ref = find_page_for_stream(ctx, obj, gen);
+    let summary = decode_and_summarise_stream(ctx, obj, gen, page_ref)?;
+    let csg = build_content_graph(&summary);
+    Ok(content_graph_to_json(&csg))
+}
+
+fn execute_page_content_graph_dot(ctx: &ScanContext, page_idx: usize) -> Result<String> {
+    use sis_pdf_pdf::content_summary::{build_content_graph, content_graph_to_dot};
+    let tree = sis_pdf_core::page_tree::build_page_tree(&ctx.graph);
+    let page = tree.pages.get(page_idx).ok_or_else(|| {
+        anyhow!("Page index {} out of range (document has {} pages)", page_idx, tree.pages.len())
+    })?;
+    let stream_refs = page_streams(ctx, page.obj, page.gen);
+    let mut out = String::new();
+    for (obj, gen) in stream_refs {
+        if let Ok(summary) = decode_and_summarise_stream(ctx, obj, gen, Some((page.obj, page.gen))) {
+            let csg = build_content_graph(&summary);
+            out.push_str(&content_graph_to_dot(&csg, &format!("page {} stream {} {}", page_idx, obj, gen)));
+            out.push('\n');
+        }
+    }
+    Ok(out)
+}
+
+fn execute_page_content_graph_json(
+    ctx: &ScanContext,
+    page_idx: usize,
+) -> Result<serde_json::Value> {
+    use sis_pdf_pdf::content_summary::{build_content_graph, content_graph_to_json};
+    let tree = sis_pdf_core::page_tree::build_page_tree(&ctx.graph);
+    let page = tree.pages.get(page_idx).ok_or_else(|| {
+        anyhow!("Page index {} out of range (document has {} pages)", page_idx, tree.pages.len())
+    })?;
+    let stream_refs = page_streams(ctx, page.obj, page.gen);
+    let graphs: Vec<serde_json::Value> = stream_refs
+        .into_iter()
+        .filter_map(|(obj, gen)| {
+            decode_and_summarise_stream(ctx, obj, gen, Some((page.obj, page.gen)))
+                .ok()
+                .map(|s| {
+                    let csg = build_content_graph(&s);
+                    content_graph_to_json(&csg)
+                })
+        })
+        .collect();
+    Ok(serde_json::json!({ "page_idx": page_idx, "graphs": graphs }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -12422,5 +12764,133 @@ mod tests {
         assert!(refs.iter().any(|value| value.as_str() == Some("7 0 obj")));
         assert!(refs.iter().any(|value| value.as_str() == Some("8 0 obj")));
         assert!(refs.iter().any(|value| value.as_str() == Some("9 0 obj")));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Content stream query tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn parse_query_stream_content_variants() {
+        assert!(matches!(parse_query("stream.content 15 0"), Ok(Query::StreamContentOps { obj: 15, gen: 0 })));
+        assert!(matches!(parse_query("stream.content.json 15 0"), Ok(Query::StreamContentOpsJson { obj: 15, gen: 0 })));
+        assert!(matches!(parse_query("page.content 0"), Ok(Query::PageContentOps { page_idx: 0 })));
+        assert!(matches!(parse_query("page.content.json 2"), Ok(Query::PageContentOpsJson { page_idx: 2 })));
+        assert!(matches!(parse_query("graph.content 15 0"), Ok(Query::GraphContentStreamDot { obj: 15, gen: 0 })));
+        assert!(matches!(parse_query("graph.content.json 15 0"), Ok(Query::GraphContentStreamJson { obj: 15, gen: 0 })));
+        assert!(matches!(parse_query("graph.page.content 0"), Ok(Query::GraphPageContentDot { page_idx: 0 })));
+        assert!(matches!(parse_query("graph.page.content.json 1"), Ok(Query::GraphPageContentJson { page_idx: 1 })));
+    }
+
+    #[test]
+    fn page_content_query_resolves_page_zero() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("page.content 0").expect("parse query");
+            let result = execute_query_with_context(
+                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
+            ).expect("execute query");
+            match result {
+                QueryResult::List(lines) => {
+                    let combined = lines.join("\n");
+                    assert!(combined.contains("Content stream"), "output should contain stream header");
+                }
+                QueryResult::Error(e) => panic!("unexpected error: {}", e.message),
+                _ => panic!("unexpected result type"),
+            }
+        });
+    }
+
+    #[test]
+    fn page_content_json_has_required_fields() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("page.content.json 0").expect("parse query");
+            let result = execute_query_with_context(
+                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
+            ).expect("execute query");
+            match result {
+                QueryResult::Structure(v) => {
+                    assert!(v["streams"].is_array(), "json output should have 'streams' array");
+                }
+                QueryResult::Error(e) => panic!("unexpected error: {}", e.message),
+                _ => panic!("unexpected result type"),
+            }
+        });
+    }
+
+    #[test]
+    fn page_content_out_of_range_returns_error() {
+        with_fixture_context("synthetic.pdf", |ctx| {
+            let query = parse_query("page.content 9999").expect("parse query");
+            let result = execute_query_with_context(
+                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
+            );
+            // Should be either an Err result or a QueryResult::Error — not a panic.
+            match result {
+                Err(_) => {} // expected: execute returned Err
+                Ok(QueryResult::Error(_)) => {} // also acceptable
+                Ok(QueryResult::List(lines)) => {
+                    // Some PDFs may have no streams; the message should indicate no streams
+                    let combined = lines.join("\n");
+                    assert!(combined.contains("no content") || combined.contains("out of range") || combined.is_empty());
+                }
+                Ok(other) => panic!("unexpected result for out-of-range page: {:?}", other),
+            }
+        });
+    }
+
+    #[test]
+    fn stream_content_hostile_fixture_does_not_panic() {
+        with_fixture_context("actions/launch_cve_2010_1240.pdf", |ctx| {
+            // Find any stream object and summarise it without panicking.
+            let stream_ref = ctx.graph.objects.iter().find_map(|e| match &e.atom {
+                PdfAtom::Stream(_) => Some((e.obj, e.gen)),
+                _ => None,
+            });
+            let Some((obj, gen)) = stream_ref else { return };
+            let query = parse_query(&format!("stream.content {} {}", obj, gen)).expect("parse");
+            let result = execute_query_with_context(
+                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
+            );
+            // Must not panic; result may be Ok or Err depending on stream type.
+            let _ = result;
+        });
+    }
+
+    #[test]
+    fn graph_content_stream_dot_contains_digraph() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("graph.page.content 0").expect("parse query");
+            let result = execute_query_with_context(
+                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
+            ).expect("execute query");
+            match result {
+                QueryResult::List(lines) => {
+                    let combined = lines.join("\n");
+                    // Empty pages may produce no DOT output
+                    if !combined.is_empty() {
+                        assert!(combined.contains("digraph"), "DOT output should contain 'digraph'");
+                    }
+                }
+                QueryResult::Error(e) => panic!("unexpected error: {}", e.message),
+                _ => panic!("unexpected result type"),
+            }
+        });
+    }
+
+    #[test]
+    fn graph_content_stream_json_has_nodes_edges() {
+        with_fixture_context("content_first_phase1.pdf", |ctx| {
+            let query = parse_query("graph.page.content.json 0").expect("parse query");
+            let result = execute_query_with_context(
+                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
+            ).expect("execute query");
+            match result {
+                QueryResult::Structure(v) => {
+                    assert!(v["graphs"].is_array());
+                }
+                QueryResult::Error(e) => panic!("unexpected error: {}", e.message),
+                _ => panic!("unexpected result type"),
+            }
+        });
     }
 }

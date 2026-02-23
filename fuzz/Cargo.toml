@@ -37,6 +37,12 @@ test = false
 doc = false
 
 [[bin]]
+name = "content_summary"
+path = "fuzz_targets/content_summary.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "decode_meta"
 path = "fuzz_targets/decode_meta.rs"
 test = false

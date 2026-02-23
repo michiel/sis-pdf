@@ -47,6 +47,75 @@ pub fn build_annotation_parent_map(graph: &ObjectGraph<'_>) -> HashMap<ObjRef, P
     build_page_tree(graph).annot_parent
 }
 
+/// Resolve the `/Resources` dict for a page object, including inherited resources from
+/// parent `/Pages` nodes.
+///
+/// The returned dict is a clone that merges ancestor resources (lower precedence) with
+/// the page's own resources (higher precedence). If the page dict has no `/Resources`
+/// key, the parent chain is walked up to the `/Pages` root.
+///
+/// Returns `None` if neither the page nor any ancestor has a `/Resources` entry.
+pub fn resolve_page_resources<'a>(
+    graph: &'a ObjectGraph<'a>,
+    page_obj: u32,
+    page_gen: u16,
+) -> Option<PdfDict<'a>> {
+    let entry = graph.get_object(page_obj, page_gen)?;
+    let page_dict = match &entry.atom {
+        PdfAtom::Dict(d) => d.clone(),
+        PdfAtom::Stream(st) => st.dict.clone(),
+        _ => return None,
+    };
+    // If the page dict has its own /Resources, return it directly.
+    if page_dict.get_first(b"/Resources").is_some() {
+        if let Some((_, res_obj)) = page_dict.get_first(b"/Resources") {
+            return match &res_obj.atom {
+                PdfAtom::Dict(d) => Some(d.clone()),
+                PdfAtom::Ref { .. } => graph.resolve_ref(res_obj).and_then(|e| match &e.atom {
+                    PdfAtom::Dict(d) => Some(d.clone()),
+                    PdfAtom::Stream(st) => Some(st.dict.clone()),
+                    _ => None,
+                }),
+                _ => None,
+            };
+        }
+    }
+    // Walk parent chain looking for inherited /Resources.
+    walk_parent_for_resources(graph, &page_dict, 0)
+}
+
+fn walk_parent_for_resources<'a>(
+    graph: &'a ObjectGraph<'a>,
+    dict: &PdfDict<'a>,
+    depth: usize,
+) -> Option<PdfDict<'a>> {
+    if depth > MAX_PAGE_TREE_DEPTH {
+        return None;
+    }
+    let (_, parent_obj) = dict.get_first(b"/Parent")?;
+    let parent_dict = match &parent_obj.atom {
+        PdfAtom::Dict(d) => d.clone(),
+        PdfAtom::Ref { .. } => graph.resolve_ref(parent_obj).and_then(|e| match &e.atom {
+            PdfAtom::Dict(d) => Some(d.clone()),
+            PdfAtom::Stream(st) => Some(st.dict.clone()),
+            _ => None,
+        })?,
+        _ => return None,
+    };
+    if let Some((_, res_obj)) = parent_dict.get_first(b"/Resources") {
+        return match &res_obj.atom {
+            PdfAtom::Dict(d) => Some(d.clone()),
+            PdfAtom::Ref { .. } => graph.resolve_ref(res_obj).and_then(|e| match &e.atom {
+                PdfAtom::Dict(d) => Some(d.clone()),
+                PdfAtom::Stream(st) => Some(st.dict.clone()),
+                _ => None,
+            }),
+            _ => None,
+        };
+    }
+    walk_parent_for_resources(graph, &parent_dict, depth + 1)
+}
+
 fn walk_pages(
     graph: &ObjectGraph<'_>,
     obj: &PdfObj<'_>,
