@@ -406,7 +406,7 @@ fn check_uri_classification_summary(
         title: format!("URI classification: {}", a.scheme),
         description: format!(
             "Structured classification of /URI action target: {}",
-            &action_target[..action_target.len().min(120)]
+            action_target.chars().take(120).collect::<String>()
         ),
         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
         evidence: vec![span_to_evidence(dict_span, "Annotation /URI action")],
