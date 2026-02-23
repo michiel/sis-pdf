@@ -279,6 +279,91 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `action.trigger_type`
     - `chain.stage=execute`, `chain.capability=action_trigger_chain`, `chain.trigger=annotation_action`
 
+## annotation_field_html_injection
+
+- ID: `annotation_field_html_injection`
+- Label: HTML injection in annotation text field
+- Description: Annotation /T or /Contents field contains HTML or JavaScript-like content.
+- Severity: Medium
+- Confidence: Probable
+- Tags: annotations, xss, injection
+- Details:
+  - Relevance: XSS in web-based PDF viewers.
+  - Meaning: Web-based PDF viewers (PDF.js, PSPDFKit) that render /T or /Contents fields in the DOM without sanitisation are vulnerable to XSS. Acrobat/Adobe Reader renders these in pop-up callouts.
+  - Chain usage: content-injection stage signal; often co-occurs with `revision_annotations_changed` when injected via incremental update.
+  - Metadata:
+    - `annot.field`: field where injection was found (`/T` or `/Contents`)
+    - `annot.subtype`: annotation subtype (e.g. `/Text`, `/Link`)
+    - `injection.patterns`: matched HTML/XSS pattern strings
+
+## uri_javascript_scheme
+
+- ID: `uri_javascript_scheme`
+- Label: Dangerous URI scheme: javascript
+- Description: /URI annotation action uses the javascript: scheme enabling direct code execution in the PDF viewer context.
+- Severity: High
+- Confidence: Strong
+- Tags: annotations, code-execution, uri
+- Details:
+  - Relevance: direct code execution vector without requiring a JavaScript action object.
+  - Meaning: javascript: URIs are executed by many PDF viewers (Acrobat, web viewers). Equivalent to having an explicit /JavaScript action.
+  - Chain usage: execute-stage signal for URI-action exploit paths; high-weight evidence in chain scoring.
+  - Metadata:
+    - `uri.scheme`: `javascript`
+    - `uri.target`: full /URI value
+    - `uri.classification`: `javascript`
+
+## uri_file_scheme
+
+- ID: `uri_file_scheme`
+- Label: Dangerous URI scheme: file
+- Description: /URI annotation action uses the file:// scheme enabling local file access or process launch.
+- Severity: High
+- Confidence: Strong
+- Tags: annotations, filesystem, uri
+- Details:
+  - Relevance: local file access or process launch vector.
+  - Meaning: file:// URIs open local paths in some PDF readers. Can launch executables or disclose local files.
+  - Chain usage: execute-stage signal; often co-occurs with `annotation_action_chain`.
+  - Metadata:
+    - `uri.scheme`: `file`
+    - `uri.target`: full /URI value
+    - `uri.classification`: `file`
+
+## uri_data_html_scheme
+
+- ID: `uri_data_html_scheme`
+- Label: Dangerous URI scheme: data HTML
+- Description: /URI annotation action uses the data: scheme with an HTML or application MIME type, enabling arbitrary content rendering.
+- Severity: High
+- Confidence: Strong
+- Tags: annotations, xss, uri
+- Details:
+  - Relevance: HTML/script rendering in web-based viewers.
+  - Meaning: data:text/html and data:application/ URIs render in web-based PDF viewers, enabling XSS attacks against the embedding page.
+  - Chain usage: execute-stage signal for data-URI-based XSS chains.
+  - Metadata:
+    - `uri.scheme`: `data`
+    - `uri.target`: full /URI value
+    - `uri.classification`: `data`
+
+## uri_command_injection
+
+- ID: `uri_command_injection`
+- Label: Dangerous URI: OS command injection pattern
+- Description: /URI annotation action contains an OS command injection pattern (START/cmd/shell:) inconsistent with valid URI syntax.
+- Severity: High
+- Confidence: Probable
+- Tags: annotations, code-execution, uri
+- Details:
+  - Relevance: OS-level command execution attempt.
+  - Meaning: Patterns like `START calc.exe` are not valid URI syntax; their presence indicates an attempt to inject OS commands via the /URI field in readers that shell-execute the target.
+  - Chain usage: execute-stage signal; Probable confidence because actual execution depends on reader implementation.
+  - Metadata:
+    - `uri.scheme`: extracted scheme fragment (e.g. `START C`)
+    - `uri.target`: full /URI value
+    - `uri.classification`: `command`
+
 ## annotation_hidden
 
 - ID: `annotation_hidden`
@@ -1760,6 +1845,22 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `js.source`: source container class (`action`, `open_action`, `aa_event`, `annotation`, `name_tree`, `catalog_js`, `uri`, `data_uri`, `xfa`, `embedded_file`)
     - `js.container_path`: normalised container path (for example `/Catalog/OpenAction/JS`, `/Catalog/Names/JavaScript/Names[]`, `/Annot/A/JS`)
     - `js.object_ref_chain`: resolved object lineage for the selected payload candidate
+
+## js_global_deletion_sandbox_bypass
+
+- ID: `js_global_deletion_sandbox_bypass`
+- Label: JavaScript global deletion sandbox bypass
+- Description: Payload deletes browser globals to escape sandbox restrictions.
+- Severity: High
+- Confidence: Probable
+- Tags: javascript, sandbox-evasion
+- Details:
+  - Relevance: active sandbox escape attempt.
+  - Meaning: Deleting browser globals (`window`, `confirm`, `document`, etc.) removes sandbox scope guards in vulnerable viewers. This is the known Apryse WebViewer SDK bypass technique (CVE assigned, affects 10.9.x-10.12.0). Co-occurs with `js.sandbox_evasion=true` and `js.global_deletion_bypass=true` in `js_present` metadata.
+  - Chain usage: sandbox-escape stage signal; escalates `js_emulation_breakpoint` confidence when co-occurring.
+  - Metadata:
+    - `js.global_deletion_bypass`: `true`
+    - `payload.preview`: first 120 chars of decoded payload
 
 ## js_runtime_file_probe
 

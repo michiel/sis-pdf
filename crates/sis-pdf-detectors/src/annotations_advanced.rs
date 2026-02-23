@@ -5,12 +5,16 @@ use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
 use sis_pdf_core::page_tree::build_annotation_parent_map;
 use sis_pdf_core::scan::span_to_evidence;
+use sis_pdf_pdf::graph::ObjEntry;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
+use sis_pdf_pdf::span::Span;
 
 use crate::{entry_dict, uri_classification::analyze_uri_content};
 
 pub struct AnnotationAttackDetector;
 const ANNOTATION_ACTION_CHAIN_CAP: usize = 25;
+const URI_DANGEROUS_SCHEME_CAP: usize = 10;
+const ANNOTATION_FIELD_INJECTION_CAP: usize = 10;
 const AGGREGATE_SAMPLE_LIMIT: usize = 8;
 
 impl Detector for AnnotationAttackDetector {
@@ -78,6 +82,11 @@ impl Detector for AnnotationAttackDetector {
                     }
                 }
             }
+            if let Some(field_injection) =
+                check_annotation_field_injection(entry, dict, dict.span)
+            {
+                findings.push(field_injection);
+            }
             if dict.get_first(b"/A").is_some() || dict.get_first(b"/AA").is_some() {
                 let (
                     trigger_kind,
@@ -138,11 +147,191 @@ impl Detector for AnnotationAttackDetector {
                     positions: Vec::new(),
                     ..Finding::default()
                 });
+                if action_type.to_ascii_uppercase() == "/URI" {
+                    if let Some(scheme_finding) =
+                        check_uri_dangerous_scheme(entry, &action_target, dict.span)
+                    {
+                        findings.push(scheme_finding);
+                    }
+                }
             }
         }
         apply_kind_cap(&mut findings, "annotation_action_chain", ANNOTATION_ACTION_CHAIN_CAP);
+        apply_kind_cap(&mut findings, "uri_javascript_scheme", URI_DANGEROUS_SCHEME_CAP);
+        apply_kind_cap(&mut findings, "uri_file_scheme", URI_DANGEROUS_SCHEME_CAP);
+        apply_kind_cap(&mut findings, "uri_data_html_scheme", URI_DANGEROUS_SCHEME_CAP);
+        apply_kind_cap(&mut findings, "uri_command_injection", URI_DANGEROUS_SCHEME_CAP);
+        apply_kind_cap(&mut findings, "annotation_field_html_injection", ANNOTATION_FIELD_INJECTION_CAP);
         Ok(findings)
     }
+}
+
+fn check_uri_dangerous_scheme(
+    entry: &ObjEntry<'_>,
+    action_target: &str,
+    dict_span: Span,
+) -> Option<Finding> {
+    if action_target.is_empty() || action_target == "unknown" {
+        return None;
+    }
+    let analysis = analyze_uri_content(action_target.as_bytes());
+    let (kind, confidence, classification, description): (&str, Confidence, &str, &str) =
+        if analysis.is_javascript_uri {
+            (
+                "uri_javascript_scheme",
+                Confidence::Strong,
+                "javascript",
+                "URI action uses javascript: scheme enabling direct code execution in the PDF viewer context.",
+            )
+        } else if analysis.is_file_uri {
+            (
+                "uri_file_scheme",
+                Confidence::Strong,
+                "file",
+                "URI action uses file:// scheme enabling local file access or process launch.",
+            )
+        } else if analysis.is_data_uri
+            && analysis
+                .data_mime
+                .as_deref()
+                .map(|m| m == "text/html" || m.starts_with("application/"))
+                .unwrap_or(false)
+        {
+            (
+                "uri_data_html_scheme",
+                Confidence::Strong,
+                "data",
+                "URI action uses data: scheme with HTML or application MIME type, enabling arbitrary content rendering.",
+            )
+        } else {
+            let lower = action_target.to_ascii_lowercase();
+            if lower.starts_with("start ")
+                || lower.starts_with("cmd ")
+                || lower.starts_with("cmd.exe")
+                || lower.starts_with("shell:")
+            {
+                (
+                    "uri_command_injection",
+                    Confidence::Probable,
+                    "command",
+                    "URI action contains OS command injection pattern (START/cmd/shell:) inconsistent with valid URI syntax.",
+                )
+            } else {
+                return None;
+            }
+        };
+    let mut meta = HashMap::new();
+    meta.insert("uri.scheme".into(), analysis.scheme.clone());
+    meta.insert("uri.target".into(), action_target.to_string());
+    meta.insert("uri.classification".into(), classification.into());
+    Some(Finding {
+        id: String::new(),
+        surface: AttackSurface::Actions,
+        kind: kind.into(),
+        severity: Severity::High,
+        confidence,
+        impact: None,
+        title: format!("Dangerous URI scheme: {}", analysis.scheme),
+        description: description.into(),
+        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+        evidence: vec![span_to_evidence(dict_span, "Annotation dict /A action")],
+        remediation: Some(
+            "Treat as active code execution vector; inspect URI content and PDF reader processing."
+                .into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    })
+}
+
+/// HTML injection patterns for /T and /Contents annotation field scanning.
+const FIELD_INJECTION_PATTERNS: &[&[u8]] = &[
+    b"<script",
+    b"<iframe",
+    b"<svg",
+    b"javascript:",
+    b"onerror=",
+    b"onload=",
+    b"ontoggle=",
+    b"onfocus=",
+    b"><",
+    b"'><",
+    b"\"><",
+];
+
+fn check_annotation_field_injection(
+    entry: &ObjEntry<'_>,
+    dict: &PdfDict<'_>,
+    dict_span: Span,
+) -> Option<Finding> {
+    let mut matched_field: Option<&'static str> = None;
+    let mut matched_patterns: Vec<&str> = Vec::new();
+
+    for (field_key, field_name) in [(b"/T" as &[u8], "/T"), (b"/Contents", "/Contents")] {
+        let Some((_, field_obj)) = dict.get_first(field_key) else {
+            continue;
+        };
+        let PdfAtom::Str(s) = &field_obj.atom else {
+            continue;
+        };
+        let bytes = pdf_string_bytes(s);
+        let lower = bytes.to_ascii_lowercase();
+        let hits: Vec<&str> = FIELD_INJECTION_PATTERNS
+            .iter()
+            .filter_map(|pat| {
+                if lower.windows(pat.len()).any(|w| w == *pat) {
+                    Some(std::str::from_utf8(pat).unwrap_or("?"))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if !hits.is_empty() {
+            matched_field = Some(field_name);
+            matched_patterns = hits;
+            break;
+        }
+    }
+
+    let field = matched_field?;
+    let mut meta = HashMap::new();
+    meta.insert("annot.field".into(), field.into());
+    if let Some(subtype) = dict.get_first(b"/Subtype").and_then(|(_, obj)| match &obj.atom {
+        PdfAtom::Name(name) => {
+            Some(String::from_utf8_lossy(&name.decoded).to_string())
+        }
+        _ => None,
+    }) {
+        meta.insert("annot.subtype".into(), subtype);
+    }
+    meta.insert("injection.patterns".into(), matched_patterns.join(", "));
+    Some(Finding {
+        id: String::new(),
+        surface: AttackSurface::ContentPhishing,
+        kind: "annotation_field_html_injection".into(),
+        severity: Severity::Medium,
+        confidence: Confidence::Probable,
+        impact: None,
+        title: "HTML injection in annotation text field".into(),
+        description: format!(
+            "Annotation {} field contains HTML or JavaScript-like content. Web-based PDF viewers that render these fields in the DOM may be vulnerable to XSS.",
+            field
+        ),
+        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+        evidence: vec![span_to_evidence(dict_span, &format!("Annotation dict {} field", field))],
+        remediation: Some(
+            "Inspect annotation text fields for XSS payloads; sanitise before rendering in web viewers."
+                .into(),
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    })
 }
 
 fn apply_kind_cap(findings: &mut Vec<Finding>, kind: &str, cap: usize) {
@@ -349,9 +538,9 @@ fn annotation_action_severity(
 
     if action_upper == "/URI" {
         if uri_target_is_suspicious(action_target) {
-            return Severity::Low;
+            return Severity::Medium;
         }
-        return Severity::Info;
+        return Severity::Low;
     }
 
     Severity::Low
@@ -394,19 +583,18 @@ fn normalise_annotation_trigger_event(event: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{annotation_action_severity, apply_kind_cap, uri_target_is_suspicious};
-    use sis_pdf_core::model::Finding;
-    use sis_pdf_core::model::Severity;
+    use sis_pdf_core::model::{Finding, Severity};
 
     #[test]
-    fn annotation_user_benign_uri_is_info() {
+    fn annotation_user_benign_uri_is_low() {
         let sev = annotation_action_severity("/URI", "https://australiansuper.com/TMD", "user");
-        assert_eq!(sev, Severity::Info);
+        assert_eq!(sev, Severity::Low);
     }
 
     #[test]
-    fn annotation_user_suspicious_uri_is_low() {
+    fn annotation_user_suspicious_uri_is_medium() {
         let sev = annotation_action_severity("/URI", "https://user@example.com/login", "user");
-        assert_eq!(sev, Severity::Low);
+        assert_eq!(sev, Severity::Medium);
         assert!(uri_target_is_suspicious("https://user@example.com/login"));
     }
 
@@ -442,5 +630,47 @@ mod tests {
             .find(|finding| finding.kind == "annotation_action_chain")
             .expect("retained finding");
         assert_eq!(first.meta.get("aggregate.suppressed_count").map(String::as_str), Some("10"));
+    }
+
+    // --- URI dangerous scheme unit tests ---
+
+    #[test]
+    fn uri_javascript_scheme_detection() {
+        // javascript: URI should be flagged
+        assert!(uri_target_is_suspicious("javascript:confirm(1)"));
+    }
+
+    #[test]
+    fn uri_file_scheme_is_suspicious() {
+        assert!(uri_target_is_suspicious("file:///C:/Windows/calc.exe"));
+    }
+
+    #[test]
+    fn uri_data_html_scheme_is_suspicious() {
+        // data: URIs are flagged by uri_target_is_suspicious via is_data_uri
+        assert!(uri_target_is_suspicious("data:text/html,<script>x</script>"));
+    }
+
+    #[test]
+    fn benign_https_uri_not_suspicious() {
+        assert!(!uri_target_is_suspicious("https://example.com/page"));
+    }
+
+    #[test]
+    fn uri_dangerous_scheme_cap_aggregates_overflow() {
+        let mut findings = Vec::new();
+        for index in 0..15usize {
+            findings.push(Finding {
+                kind: "uri_javascript_scheme".into(),
+                objects: vec![format!("{index} 0 obj")],
+                ..Finding::default()
+            });
+        }
+        apply_kind_cap(&mut findings, "uri_javascript_scheme", 10);
+        let retained =
+            findings.iter().filter(|f| f.kind == "uri_javascript_scheme").count();
+        assert_eq!(retained, 10);
+        let first = findings.iter().find(|f| f.kind == "uri_javascript_scheme").expect("finding");
+        assert_eq!(first.meta.get("aggregate.suppressed_count").map(String::as_str), Some("5"));
     }
 }
