@@ -1,7 +1,7 @@
 # URI Scheme Abuse, JS Bypass Detection, and Annotation Injection Gap Closure
 
 Date: 2026-02-23
-Status: Phase 1 and 2 complete — Phase 3 pending
+Status: All phases complete (Phase 3 committed 2026-02-23)
 Owner: Core + Detectors + JS-Analysis
 
 ## Purpose
@@ -852,12 +852,12 @@ all four Phase 1 gap payloads. Benign corpus run pending.
 - [x] EXT-02: `uri.scheme` metadata on `annotation_action_chain`
 
 ### Phase 3 — extensions
-- [ ] EXT-03: prototype chain manipulation flag
-- [ ] EXT-04: multi-encoding annotation field scanning
-- [ ] EXT-06: annotation /T field spoofing detection
-- [ ] EXT-07: emulation `delete <global>` tracking
-- [ ] EXT-05: content stream JS literal detector
-- [ ] EXT-08: structured URI classification finding
+- [x] EXT-03: prototype chain manipulation flag
+- [x] EXT-04: multi-encoding annotation field scanning
+- [x] EXT-06: annotation /T field spoofing detection
+- [x] EXT-07: emulation `delete <global>` tracking
+- [x] EXT-05: content stream JS literal detector
+- [x] EXT-08: structured URI classification finding
 
 ### Completion gate
 - [ ] All Phase 1 items have integration tests and corpus run recorded
@@ -865,6 +865,17 @@ all four Phase 1 gap payloads. Benign corpus run pending.
 - [ ] No false positive rate increase > 0.5% on clean benign corpus
 - [ ] Phase 1 items validated against PayloadsAllThePDFs corpus (all four
       gap payloads produce expected findings)
+
+### Phase 3 commits (2026-02-23)
+
+| Commit | Items | Files changed |
+|---|---|---|
+| `eb07da1` | EXT-03, EXT-07 | `static_analysis.rs`, `lib.rs`, `js_bypass_detection.rs` |
+| `eaa8f42` | EXT-04 | `annotations_advanced.rs`, `annotation_attack_detection.rs` |
+| `2027c4d` | EXT-08 | `annotations_advanced.rs`, `annotation_attack_detection.rs` |
+| `b6d3a17` | EXT-06 | `annotations_advanced.rs`, `annotation_attack_detection.rs` |
+| `8f1484a` | EXT-05 | `content_stream_exec_uplift.rs`, `content_stream_exec_uplift.rs` (tests) |
+| `f277cd3` | docs | `docs/findings.md` |
 
 ---
 
