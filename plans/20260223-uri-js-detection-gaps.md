@@ -794,7 +794,7 @@ all four Phase 1 gap payloads. Benign corpus run pending.
 
 | Commit | Items | Files changed |
 |---|---|---|
-| (pending) | EXT-02, EXT-01, D1 | `annotations_advanced.rs`, `chain_synth.rs`, `chain_score.rs`, `js_sandbox.rs`, tests |
+| `e2ca591` | EXT-02, EXT-01, D1 | `annotations_advanced.rs`, `chain_synth.rs`, `chain_score.rs`, `js_sandbox.rs`, tests |
 
 ### Deviations from plan
 
@@ -865,3 +865,893 @@ all four Phase 1 gap payloads. Benign corpus run pending.
 - [ ] No false positive rate increase > 0.5% on clean benign corpus
 - [ ] Phase 1 items validated against PayloadsAllThePDFs corpus (all four
       gap payloads produce expected findings)
+
+---
+
+## Phase 3 handover — detailed implementation guide
+
+Phase 1 and Phase 2 are fully committed (`e2ca591` is the latest commit). All tests
+pass with `cargo test --features js-sandbox`. Phase 3 was started but interrupted
+before any code was written. This section contains the exact implementation plan
+for each EXT item, with function signatures, file locations, and test expectations.
+
+The six items are independent and can be implemented in any order. Recommended
+sequence based on complexity: EXT-03 → EXT-07 → EXT-04 → EXT-06 → EXT-05 → EXT-08.
+
+---
+
+### EXT-03: Prototype chain manipulation flag
+
+**Status**: Not started.
+
+**Goal**: Set `js.prototype_chain_manipulation = true` when a JS payload tampers
+with the prototype chain by assigning `null` (or another value) to
+`Object.getPrototypeOf(...).constructor`. Emit a dedicated
+`js_prototype_chain_tamper` finding when this co-occurs with
+`js.dynamic_eval_construction = true`.
+
+**File 1**: `crates/js-analysis/src/static_analysis.rs`
+
+Add after `detect_prototype_pollution_gadget()` (line ~2200):
+
+```rust
+/// Detect active prototype chain tampering via constructor null-assignment.
+/// This is the write-side complement to prototype pollution (which is read-based).
+/// Pattern: Object.getPrototypeOf(fn*(){}).constructor = null (or = anything)
+/// Often paired with generator constructor eval bypass to hinder detection.
+pub fn detect_prototype_chain_manipulation(data: &[u8]) -> bool {
+    let has_get_prototype = find_token(data, b"getPrototypeOf");
+    if !has_get_prototype {
+        return false;
+    }
+    let has_constructor_assign = find_token(data, b"constructor = null")
+        || find_token(data, b"constructor=null")
+        || find_token(data, b"constructor = undefined")
+        || find_token(data, b"constructor=undefined");
+    has_get_prototype && has_constructor_assign
+}
+```
+
+In `extract_js_signals()` output map (around line 153–157 near
+`js.prototype_pollution_gadget`), add:
+
+```rust
+out.insert(
+    "js.prototype_chain_manipulation".into(),
+    bool_str(detect_prototype_chain_manipulation(data)),
+);
+```
+
+Make `detect_prototype_chain_manipulation` `pub` so it is visible to tests.
+
+**File 2**: `crates/sis-pdf-detectors/src/lib.rs`
+
+After the `js_global_deletion_sandbox_bypass` emission block (around line 2062),
+add a new block that emits `js_prototype_chain_tamper` when both flags are true:
+
+```rust
+if meta.get("js.prototype_chain_manipulation").map(String::as_str) == Some("true")
+    && meta.get("js.dynamic_eval_construction").map(String::as_str) == Some("true")
+{
+    let mut tamper_meta = std::collections::HashMap::new();
+    tamper_meta.insert("js.prototype_chain_manipulation".into(), "true".into());
+    tamper_meta.insert("js.dynamic_eval_construction".into(), "true".into());
+    if let Some(preview) = meta.get("payload.decoded_preview") {
+        tamper_meta.insert("payload.preview".into(), preview.clone());
+    }
+    tamper_meta.insert("object.ref".into(), object_ref.clone());
+    findings.push(Finding {
+        id: String::new(),
+        surface: AttackSurface::JavaScript,
+        kind: "js_prototype_chain_tamper".into(),
+        severity: Severity::High,
+        confidence: Confidence::Probable,
+        impact: None,
+        title: "JavaScript prototype chain tampering".into(),
+        description: "Payload null-assigns the prototype constructor alongside a \
+            generator function constructor eval bypass. This is an active \
+            anti-detection step that clobbers a built-in to hinder bytewise \
+            analysis of the eval bypass.".into(),
+        objects: vec![object_ref.clone()],
+        evidence: deduped_evidence.clone(),
+        remediation: Some("Treat as deliberate obfuscation; inspect full payload \
+            for generator constructor eval pattern.".into()),
+        meta: tamper_meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Default::default()
+    });
+}
+```
+
+**Also** add `"js.prototype_chain_manipulation"` to `high_risk_flags` in
+`js_present_severity_from_meta()` (around line 1302–1308) so that
+`js_present` is also elevated to `High` severity when this flag fires.
+
+**Tests**: Add to `crates/sis-pdf-detectors/tests/js_bypass_detection.rs`:
+
+```rust
+#[test]
+fn prototype_chain_manipulation_with_generator_bypass_emits_tamper_finding() {
+    let bytes = build_pdf_with_js(
+        "Object.getPrototypeOf(function*(){}).constructor = null; \
+         ((function*(){}).constructor('app.alert(1)'))().next();"
+    );
+    let report = scan(&bytes);
+    let finding = report.findings.iter()
+        .find(|f| f.kind == "js_prototype_chain_tamper")
+        .expect("js_prototype_chain_tamper should be emitted");
+    assert_eq!(finding.severity, Severity::High);
+    assert_eq!(finding.confidence, Confidence::Probable);
+}
+
+#[test]
+fn prototype_chain_manipulation_without_generator_bypass_does_not_emit_tamper_finding() {
+    let bytes = build_pdf_with_js(
+        "Object.getPrototypeOf(function*(){}).constructor = null;"
+    );
+    let report = scan(&bytes);
+    assert!(
+        report.findings.iter().all(|f| f.kind != "js_prototype_chain_tamper"),
+        "tamper finding requires both flags to be true simultaneously"
+    );
+}
+
+#[test]
+fn prototype_chain_manipulation_sets_metadata_flag() {
+    let bytes = build_pdf_with_js(
+        "Object.getPrototypeOf(function*(){}).constructor = null;"
+    );
+    let report = scan(&bytes);
+    let js = report.findings.iter().find(|f| f.kind == "js_present")
+        .expect("js_present");
+    assert_eq!(
+        js.meta.get("js.prototype_chain_manipulation").map(String::as_str),
+        Some("true")
+    );
+}
+```
+
+Add unit tests in `crates/js-analysis/src/static_analysis.rs` `#[cfg(test)]` block:
+- `detect_prototype_chain_manipulation` returns `true` for the full null-assignment pattern
+- `detect_prototype_chain_manipulation` returns `false` for plain `getPrototypeOf` without assignment
+- `detect_prototype_chain_manipulation` returns `false` for benign prototype read
+
+**docs/findings.md**: Add entry for `js_prototype_chain_tamper`:
+- Severity: High, Confidence: Probable
+- Surface: JavaScript
+- Triggered when: `js.prototype_chain_manipulation = true` AND `js.dynamic_eval_construction = true`
+- Meta keys: `js.prototype_chain_manipulation`, `js.dynamic_eval_construction`, `payload.preview`
+
+---
+
+### EXT-07: Global deletion tracking — deleted globals list
+
+**Status**: Not started.
+
+**Goal**: Extend `detect_global_deletion_bypass` to also return which specific
+globals were detected deleted. Add `js.deleted_globals` to the static analysis
+output map and incorporate it into the `js_global_deletion_sandbox_bypass`
+finding metadata.
+
+**File 1**: `crates/js-analysis/src/static_analysis.rs`
+
+Add a companion function after `detect_global_deletion_bypass()` (line ~1686):
+
+```rust
+/// Returns the list of browser globals whose deletion was detected in the payload.
+/// Used to populate `js.deleted_globals` metadata for forensic context.
+pub fn list_deleted_globals(data: &[u8]) -> Vec<&'static str> {
+    let targets: &[(&[u8], &str)] = &[
+        (b"delete window",   "window"),
+        (b"delete document", "document"),
+        (b"delete confirm",  "confirm"),
+        (b"delete alert",    "alert"),
+        (b"delete Function", "Function"),
+        (b"delete eval",     "eval"),
+    ];
+    targets.iter()
+        .filter(|(pat, _)| find_token(data, pat))
+        .map(|(_, name)| *name)
+        .collect()
+}
+```
+
+In `extract_js_signals()`, after the `js.global_deletion_bypass` insertion (line ~97):
+
+```rust
+let deleted_globals = list_deleted_globals(data);
+if !deleted_globals.is_empty() {
+    out.insert("js.deleted_globals".into(), deleted_globals.join(", "));
+}
+```
+
+**File 2**: `crates/sis-pdf-detectors/src/lib.rs`
+
+In the `js_global_deletion_sandbox_bypass` emission block (around line 2030–2062),
+add `js.deleted_globals` to the `bypass_meta` if present in `meta`:
+
+```rust
+if let Some(deleted) = meta.get("js.deleted_globals") {
+    bypass_meta.insert("js.deleted_globals".into(), deleted.clone());
+}
+```
+
+**Tests**: Add to `crates/sis-pdf-detectors/tests/js_bypass_detection.rs`:
+
+```rust
+#[test]
+fn global_deletion_bypass_finding_includes_deleted_globals_list() {
+    let bytes = build_pdf_with_js(
+        "delete window; delete confirm; delete document; window.confirm(document.cookie);"
+    );
+    let report = scan(&bytes);
+    let finding = report.findings.iter()
+        .find(|f| f.kind == "js_global_deletion_sandbox_bypass")
+        .expect("js_global_deletion_sandbox_bypass");
+    let deleted = finding.meta.get("js.deleted_globals")
+        .expect("js.deleted_globals should be present");
+    assert!(deleted.contains("window"), "should list window");
+    assert!(deleted.contains("confirm"), "should list confirm");
+    assert!(deleted.contains("document"), "should list document");
+}
+
+#[test]
+fn js_present_includes_deleted_globals_metadata() {
+    let bytes = build_pdf_with_js("delete window; delete confirm; x();");
+    let report = scan(&bytes);
+    let js = report.findings.iter().find(|f| f.kind == "js_present")
+        .expect("js_present");
+    let deleted = js.meta.get("js.deleted_globals")
+        .expect("js.deleted_globals in js_present meta");
+    assert!(deleted.contains("window"));
+    assert!(deleted.contains("confirm"));
+}
+```
+
+Add unit tests in `static_analysis.rs`:
+- `list_deleted_globals` returns `["window", "confirm", "document"]` for the full payload
+- `list_deleted_globals` returns `["window"]` for single deletion
+- `list_deleted_globals` returns `[]` for benign payload
+
+**docs/findings.md**: Update `js_global_deletion_sandbox_bypass` entry to mention
+`js.deleted_globals` as an additional metadata key.
+
+---
+
+### EXT-04: Multi-encoding annotation field scanning
+
+**Status**: Not started.
+
+**Goal**: After UTF-16/UTF-8 normalisation in `check_annotation_field_injection()`,
+also check percent-decoded and HTML-entity-decoded variants of `/T` and `/Contents`
+field values against `FIELD_INJECTION_PATTERNS`.
+
+**File**: `crates/sis-pdf-detectors/src/annotations_advanced.rs`
+
+Add two private helper functions before `check_annotation_field_injection()`:
+
+```rust
+/// Minimal percent-decoder for annotation field content.
+/// Decodes %XX sequences only; does not handle %uXXXX.
+fn percent_decode_bytes(input: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        if input[i] == b'%' && i + 2 < input.len() {
+            let hi = input[i + 1];
+            let lo = input[i + 2];
+            if let (Some(h), Some(l)) = (hex_digit(hi), hex_digit(lo)) {
+                out.push((h << 4) | l);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(input[i]);
+        i += 1;
+    }
+    out
+}
+
+fn hex_digit(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Minimal HTML entity decoder for annotation field content.
+/// Handles: &lt; &gt; &amp; &quot; &apos; &#NNN; &#xNN; forms only.
+fn html_entity_decode(input: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        if input[i] != b'&' {
+            out.push(input[i]);
+            i += 1;
+            continue;
+        }
+        // Find the closing ';'
+        let rest = &input[i..];
+        let semi = rest.iter().position(|&b| b == b';');
+        let Some(end) = semi else {
+            out.push(input[i]);
+            i += 1;
+            continue;
+        };
+        let entity = &rest[1..end]; // content between '&' and ';'
+        let decoded: Option<u8> = if entity.eq_ignore_ascii_case(b"lt") {
+            Some(b'<')
+        } else if entity.eq_ignore_ascii_case(b"gt") {
+            Some(b'>')
+        } else if entity.eq_ignore_ascii_case(b"amp") {
+            Some(b'&')
+        } else if entity.eq_ignore_ascii_case(b"quot") {
+            Some(b'"')
+        } else if entity.eq_ignore_ascii_case(b"apos") {
+            Some(b'\'')
+        } else if entity.starts_with(b"#x") || entity.starts_with(b"#X") {
+            // &#xNN; hex numeric
+            std::str::from_utf8(&entity[2..]).ok()
+                .and_then(|s| u8::from_str_radix(s, 16).ok())
+        } else if entity.starts_with(b"#") {
+            // &#NNN; decimal numeric
+            std::str::from_utf8(&entity[1..]).ok()
+                .and_then(|s| s.parse::<u8>().ok())
+        } else {
+            None
+        };
+        if let Some(ch) = decoded {
+            out.push(ch);
+            i += end + 1; // skip past the ';'
+        } else {
+            out.push(input[i]);
+            i += 1;
+        }
+    }
+    out
+}
+```
+
+In `check_annotation_field_injection()`, change the pattern matching to also run
+over decoded variants. Replace the current:
+
+```rust
+let bytes = pdf_string_bytes(s);
+let lower = bytes.to_ascii_lowercase();
+let hits: Vec<&str> = FIELD_INJECTION_PATTERNS
+    .iter()
+    .filter_map(|pat| {
+        if lower.windows(pat.len()).any(|w| w == *pat) {
+            Some(std::str::from_utf8(pat).unwrap_or("?"))
+        } else {
+            None
+        }
+    })
+    .collect();
+```
+
+With:
+
+```rust
+let bytes = pdf_string_bytes(s);
+let candidates: [Vec<u8>; 3] = [
+    bytes.to_ascii_lowercase(),
+    percent_decode_bytes(&bytes).to_ascii_lowercase(),
+    html_entity_decode(&bytes).to_ascii_lowercase(),
+];
+let hits: Vec<&str> = FIELD_INJECTION_PATTERNS
+    .iter()
+    .filter_map(|pat| {
+        if candidates.iter().any(|c| c.windows(pat.len()).any(|w| w == *pat)) {
+            Some(std::str::from_utf8(pat).unwrap_or("?"))
+        } else {
+            None
+        }
+    })
+    .collect();
+```
+
+**Tests**: Add to `crates/sis-pdf-detectors/tests/annotation_attack_detection.rs`:
+
+```rust
+#[test]
+fn percent_encoded_xss_in_annotation_t_field_emits_finding() {
+    // %3C = '<', %3E = '>', %2F = '/'  → <script>
+    let bytes = build_pdf_with_text_annotation(
+        "%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+        "Normal content",
+    );
+    let report = scan(&bytes);
+    assert!(
+        report.findings.iter().any(|f| f.kind == "annotation_field_html_injection"),
+        "percent-encoded XSS in /T should be detected"
+    );
+}
+
+#[test]
+fn html_entity_encoded_xss_in_annotation_contents_emits_finding() {
+    // &lt;script&gt; → <script>
+    let bytes = build_pdf_with_text_annotation(
+        "Normal title",
+        "&lt;script&gt;alert(1)&lt;/script&gt;",
+    );
+    let report = scan(&bytes);
+    assert!(
+        report.findings.iter().any(|f| f.kind == "annotation_field_html_injection"),
+        "HTML entity-encoded XSS in /Contents should be detected"
+    );
+}
+```
+
+Add unit tests for `percent_decode_bytes` and `html_entity_decode` in the
+`annotations_advanced.rs` `#[cfg(test)]` block or in the test file (as separate
+module-level `#[test]` functions):
+- `%3Cscript%3E` decodes to `<script>`
+- `&lt;script&gt;` decodes to `<script>`
+- `&#x3C;` decodes to `<`
+- `&#60;` decodes to `<`
+- Plain text is unchanged
+
+**Note**: The three-candidate approach (`raw`, `percent_decoded`, `entity_decoded`)
+avoids needing to chain decoders and keeps the implementation simple. Do NOT apply
+both decoders in sequence or you risk double-decoding benign content.
+
+---
+
+### EXT-06: Annotation /T field spoofing detection
+
+**Status**: Not started.
+
+**Goal**: Track `/T` (unique identifier) values across annotation revisions.
+When a newly-added annotation's `/T` collides with an existing annotation's `/T`
+on the same page, emit `annotation_t_field_collision` (Low/Probable).
+
+**File**: `crates/sis-pdf-detectors/src/revision_forensics.rs`
+
+The implementation requires two passes over the object graph:
+
+**Pass 1** — collect all `/T` values from annotations in the baseline revision
+(all objects not in `annotation_added_refs`), keyed by their page parent:
+
+```rust
+fn collect_annotation_t_values<'a>(
+    ctx: &'a sis_pdf_core::scan::ScanContext,
+    refs: &[String],  // object ref strings like "14 0 obj"
+) -> HashMap<String, String> {  // map from "/T value" → "obj_ref"
+    let mut t_map = HashMap::new();
+    for ref_str in refs {
+        let Some((obj, gen)) = parse_obj_ref(ref_str) else { continue };
+        let Some(entry) = ctx.graph.get_object(obj, gen) else { continue };
+        let Some(dict) = entry_dict_from_graph(entry) else { continue };
+        if let Some((_, t_obj)) = dict.get_first(b"/T") {
+            if let PdfAtom::Str(s) = &t_obj.atom {
+                let t_val = String::from_utf8_lossy(&pdf_str_bytes(s)).to_string();
+                t_map.insert(t_val, ref_str.clone());
+            }
+        }
+    }
+    t_map
+}
+```
+
+**Note**: The revision timeline provides `annotation_added_refs` (new in this
+revision) but does not currently provide "all existing annotation refs before
+this revision". You need to build this from the object graph: iterate
+`ctx.graph.objects` for annotation objects (dicts with `/Subtype` key) that are
+NOT in `annotation_added_refs`.
+
+**Implementation approach** (preferred simplification): use `ctx.graph.objects`
+directly. Collect `/T` values from all annotations that existed before the most
+recent revision, then check newly-added annotations against them. Use
+`timeline.revisions.last().annotation_added_refs` for the newly-added set.
+
+**Simpler alternative** (avoids timeline complexity): In
+`AnnotationAttackDetector::run()` (in `annotations_advanced.rs`), which already
+iterates all annotation objects — collect all `/T` values in a first pass, then
+in a second pass check if any `/T` appears more than once across annotations on
+the same page. This does not distinguish "newly added" from "existing" but still
+catches the collision. Flag at `Low/Tentative` (slightly lower confidence since
+it might catch legitimate multi-occurrence cases):
+
+```rust
+// First pass: collect (page_number, t_value) → Vec<obj_ref>
+let mut t_collision_map: HashMap<(usize, String), Vec<String>> = HashMap::new();
+for entry in &ctx.graph.objects {
+    let Some(dict) = entry_dict(entry) else { continue };
+    if dict.get_first(b"/Subtype").is_none() { continue };
+    let page_num = annot_parent
+        .get(&ObjRef { obj: entry.obj, gen: entry.gen })
+        .map(|p| p.number).unwrap_or(0);
+    if let Some((_, t_obj)) = dict.get_first(b"/T") {
+        if let PdfAtom::Str(s) = &t_obj.atom {
+            let t_val = pdf_string_bytes(s);
+            let t_str = String::from_utf8_lossy(&t_val).to_string();
+            t_collision_map
+                .entry((page_num, t_str))
+                .or_default()
+                .push(format!("{} {} obj", entry.obj, entry.gen));
+        }
+    }
+}
+// Then emit findings for any collisions
+for ((page_num, t_val), refs) in &t_collision_map {
+    if refs.len() > 1 {
+        let mut meta = HashMap::new();
+        meta.insert("collision.t_value".into(), t_val.clone());
+        meta.insert("collision.page".into(), page_num.to_string());
+        meta.insert("collision.refs".into(), refs.join(", "));
+        findings.push(Finding {
+            kind: "annotation_t_field_collision".into(),
+            severity: Severity::Low,
+            confidence: Confidence::Probable,
+            ...
+        });
+    }
+}
+```
+
+**Finding spec**:
+- kind: `annotation_t_field_collision`
+- severity: Low, confidence: Probable
+- surface: Actions
+- title: "Annotation /T field collision"
+- description: "Multiple annotations share the same /T identifier on the same page. In Acrobat's AcroForm model, a later annotation with a duplicate /T value shadows the earlier one, which can be used as an anti-forensics technique in incremental updates."
+- meta: `collision.t_value`, `collision.page`, `collision.refs`
+- cap: 10 per kind
+
+**Tests**: Add to `annotation_attack_detection.rs`:
+- Two annotations with the same `/T` on the same page → finding emitted
+- Two annotations with different `/T` values → no finding
+- Single annotation with `/T` → no finding
+
+**docs/findings.md**: Add entry for `annotation_t_field_collision`.
+
+---
+
+### EXT-05: Content stream JS literal detector
+
+**Status**: Not started.
+
+**Goal**: Scan `Tj` and `TJ` content stream text operator string operands for
+JS-like patterns. Emit `content_stream_js_literal` at Low/Tentative when found.
+
+**File**: `crates/sis-pdf-detectors/src/content_stream_exec_uplift.rs`
+
+The `ContentOperand` enum is:
+```rust
+pub enum ContentOperand {
+    Number(f32),
+    Name(String),
+    Str(String),    // raw string including wrapping (...)  or <...>
+    Array(String),  // raw array including wrapping [...]
+    Dict(String),
+    Bool(bool),
+    Null,
+}
+```
+
+`Tj` takes one `Str` operand. `TJ` takes one `Array` operand containing a mix
+of strings and numbers.
+
+Add to `ContentStreamExecUpliftDetector::run()`, after the existing stream
+processing loop (after line 95), a new detection pass:
+
+```rust
+/// JS-like patterns that would be suspicious as rendered text content.
+const JS_TEXT_PATTERNS: &[&[u8]] = &[
+    b"function",
+    b"eval(",
+    b"Function(",
+    b"window.",
+    b"document.",
+    b"<script",
+    b"javascript:",
+];
+const CONTENT_STREAM_JS_LITERAL_CAP: usize = 10;
+
+fn scan_text_ops_for_js(ops: &[ContentOp]) -> Vec<String> {
+    let mut hits = Vec::new();
+    for op in ops {
+        if !matches!(op.op.as_str(), "Tj" | "TJ" | "'" | "\"") {
+            continue;
+        }
+        for operand in &op.operands {
+            let raw = match operand {
+                ContentOperand::Str(s) => s.as_bytes(),
+                ContentOperand::Array(s) => s.as_bytes(),
+                _ => continue,
+            };
+            let lower = raw.to_ascii_lowercase();
+            for pat in JS_TEXT_PATTERNS {
+                if lower.windows(pat.len()).any(|w| w == *pat) {
+                    hits.push(String::from_utf8_lossy(pat).to_string());
+                }
+            }
+        }
+    }
+    hits.sort();
+    hits.dedup();
+    hits
+}
+```
+
+In `run()`, inside the stream loop, after `analyse_ops`:
+
+```rust
+let js_text_hits = scan_text_ops_for_js(&ops);
+if !js_text_hits.is_empty() {
+    let mut meta = HashMap::new();
+    meta.insert("stream.js_patterns".into(), js_text_hits.join(", "));
+    meta.insert("stream.obj".into(),
+        stream_ref.obj_ref
+            .map(|(o, g)| format!("{o} {g}"))
+            .unwrap_or_else(|| format!("{} {}", page.obj, page.gen)));
+    meta.insert("page.number".into(), page.number.to_string());
+    findings.push(Finding {
+        id: String::new(),
+        surface: AttackSurface::FileStructure,
+        kind: "content_stream_js_literal".into(),
+        severity: Severity::Low,
+        confidence: Confidence::Tentative,
+        impact: None,
+        title: "JavaScript-like literal in content stream".into(),
+        description: "Text rendering operators (Tj/TJ) contain strings \
+            resembling JavaScript. Some advanced payloads embed JS as \
+            text literals in appearance streams for later harvesting.".into(),
+        objects: vec![format!("{} {} obj", page.obj, page.gen)],
+        evidence: vec![span_to_evidence(
+            stream_ref.stream.data_span,
+            "Content stream text operators",
+        )],
+        remediation: Some(
+            "Inspect content stream text; determine whether JS fragments \
+             are incidental or harvested by a Do/action chain.".into()
+        ),
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    });
+}
+```
+
+After the outer page loop, cap:
+
+```rust
+apply_kind_cap(&mut findings, "content_stream_js_literal", CONTENT_STREAM_JS_LITERAL_CAP);
+```
+
+Note: `apply_kind_cap` lives in `annotations_advanced.rs`. Either duplicate the
+function in `content_stream_exec_uplift.rs` or extract it to a shared module in
+`crates/sis-pdf-detectors/src/`. The simplest approach is to re-implement a
+local version — it is 30 lines.
+
+**Tests**: Add to `crates/sis-pdf-detectors/tests/content_stream_exec_uplift.rs`
+(or create it if it doesn't exist):
+- Stream with `(function eval() {})` in `Tj` → finding emitted
+- Stream with plain text `(Hello World)` → no finding
+- Stream with `[(<script> )] TJ` → finding emitted
+
+**docs/findings.md**: Add entry for `content_stream_js_literal`:
+- Severity: Low, Confidence: Tentative
+- Note that this is a low-certainty indicator; most fires on innocent content
+
+---
+
+### EXT-08: Structured URI classification finding
+
+**Status**: Not started.
+
+**Goal**: Emit `uri_classification_summary` (Info/Strong) for every `/URI` action
+where `analyze_uri_content()` indicates at least one risk signal. This provides
+structured access to the full `UriContentAnalysis` output via the query surface.
+
+**File**: `crates/sis-pdf-detectors/src/annotations_advanced.rs`
+
+In `AnnotationAttackDetector::run()`, in the `/URI` action handling block (around
+line 150–156, after `check_uri_dangerous_scheme`), add:
+
+```rust
+if action_type.to_ascii_uppercase() == "/URI" {
+    if let Some(scheme_finding) =
+        check_uri_dangerous_scheme(entry, &action_target, dict.span)
+    {
+        findings.push(scheme_finding);
+    }
+    // EXT-08: structured classification summary for non-benign URIs
+    if let Some(summary_finding) =
+        check_uri_classification_summary(entry, &action_target, dict.span)
+    {
+        findings.push(summary_finding);
+    }
+}
+```
+
+Add the new helper function:
+
+```rust
+const URI_CLASSIFICATION_SUMMARY_CAP: usize = 25;
+
+fn check_uri_classification_summary(
+    entry: &ObjEntry<'_>,
+    action_target: &str,
+    dict_span: Span,
+) -> Option<Finding> {
+    if action_target.is_empty() || action_target == "unknown" {
+        return None;
+    }
+    let a = analyze_uri_content(action_target.as_bytes());
+    // Only emit for URIs with at least one risk signal.
+    let has_risk = a.is_javascript_uri
+        || a.is_file_uri
+        || (a.is_data_uri && a.data_mime.is_some())
+        || a.has_suspicious_scheme
+        || a.is_ip_address
+        || a.suspicious_tld
+        || a.has_data_exfil_pattern
+        || a.has_shortener_domain
+        || a.has_suspicious_extension
+        || a.has_embedded_ip_host
+        || a.has_idn_lookalike
+        || !a.suspicious_patterns.is_empty()
+        || !a.phishing_indicators.is_empty()
+        || !a.tracking_params.is_empty();
+    if !has_risk {
+        return None;
+    }
+    let mut meta = HashMap::new();
+    meta.insert("uri.scheme".into(), a.scheme.clone());
+    if let Some(domain) = &a.domain {
+        meta.insert("uri.domain".into(), domain.clone());
+    }
+    if let Some(path) = &a.path {
+        meta.insert("uri.path".into(), path.clone());
+    }
+    meta.insert("uri.obfuscation_level".into(), a.obfuscation_level.as_str().into());
+    meta.insert("uri.length".into(), a.length.to_string());
+    if !a.tracking_params.is_empty() {
+        meta.insert("uri.tracking_params".into(), a.tracking_params.join(", "));
+    }
+    if !a.suspicious_patterns.is_empty() {
+        meta.insert("uri.suspicious_patterns".into(), a.suspicious_patterns.join(", "));
+    }
+    if !a.phishing_indicators.is_empty() {
+        meta.insert("uri.phishing_indicators".into(), a.phishing_indicators.join(", "));
+    }
+    // Boolean risk flags (only include true ones to keep metadata compact)
+    for (key, val) in &[
+        ("uri.is_ip_address",          a.is_ip_address),
+        ("uri.is_file_uri",            a.is_file_uri),
+        ("uri.is_javascript_uri",      a.is_javascript_uri),
+        ("uri.is_data_uri",            a.is_data_uri),
+        ("uri.suspicious_tld",         a.suspicious_tld),
+        ("uri.has_data_exfil_pattern", a.has_data_exfil_pattern),
+        ("uri.has_shortener_domain",   a.has_shortener_domain),
+        ("uri.has_suspicious_ext",     a.has_suspicious_extension),
+        ("uri.has_embedded_ip_host",   a.has_embedded_ip_host),
+        ("uri.has_idn_lookalike",      a.has_idn_lookalike),
+    ] {
+        if *val {
+            meta.insert((*key).into(), "true".into());
+        }
+    }
+    if let Some(mime) = &a.data_mime {
+        meta.insert("uri.data_mime".into(), mime.clone());
+    }
+    Some(Finding {
+        id: String::new(),
+        surface: AttackSurface::Actions,
+        kind: "uri_classification_summary".into(),
+        severity: Severity::Info,
+        confidence: Confidence::Strong,
+        impact: None,
+        title: format!("URI classification: {}", a.scheme),
+        description: format!(
+            "Structured classification of /URI action target: {}",
+            &action_target[..action_target.len().min(120)]
+        ),
+        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+        evidence: vec![span_to_evidence(dict_span, "Annotation /URI action")],
+        remediation: None,
+        meta,
+        yara: None,
+        position: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    })
+}
+```
+
+Add to the `apply_kind_cap` calls at the end of `run()`:
+
+```rust
+apply_kind_cap(&mut findings, "uri_classification_summary", URI_CLASSIFICATION_SUMMARY_CAP);
+```
+
+**Tests**: Add to `annotation_attack_detection.rs`:
+
+```rust
+#[test]
+fn javascript_uri_emits_uri_classification_summary_finding() {
+    let bytes = build_pdf_with_link_annotation("javascript:confirm(1)");
+    let report = scan(&bytes);
+    let summary = report.findings.iter()
+        .find(|f| f.kind == "uri_classification_summary")
+        .expect("uri_classification_summary should be emitted for javascript: URI");
+    assert_eq!(summary.severity, Severity::Info);
+    assert_eq!(summary.confidence, Confidence::Strong);
+    assert_eq!(summary.meta.get("uri.scheme").map(String::as_str), Some("javascript"));
+    assert_eq!(summary.meta.get("uri.is_javascript_uri").map(String::as_str), Some("true"));
+}
+
+#[test]
+fn benign_https_uri_does_not_emit_uri_classification_summary() {
+    let bytes = build_pdf_with_link_annotation("https://example.com/page");
+    let report = scan(&bytes);
+    assert!(
+        report.findings.iter().all(|f| f.kind != "uri_classification_summary"),
+        "plain https URI with no risk signals should not emit classification summary"
+    );
+}
+
+#[test]
+fn ip_address_uri_emits_uri_classification_summary() {
+    let bytes = build_pdf_with_link_annotation("http://192.168.1.1/payload");
+    let report = scan(&bytes);
+    // IP-address URIs are suspicious; expect a summary
+    assert!(
+        report.findings.iter().any(|f| f.kind == "uri_classification_summary"),
+        "IP-address URI should emit uri_classification_summary"
+    );
+}
+```
+
+**docs/findings.md**: Add entry for `uri_classification_summary`:
+- Severity: Info, Confidence: Strong
+- Note: companion finding to `annotation_action_chain`; provides structured
+  URI analysis fields for query/filter without string parsing
+- Meta keys: `uri.scheme`, `uri.domain`, `uri.obfuscation_level`,
+  `uri.tracking_params`, `uri.suspicious_patterns`, `uri.phishing_indicators`,
+  plus boolean risk flags
+
+---
+
+### Phase 3 implementation order and commit strategy
+
+Each EXT item ships as its own commit with an imperative message, following the
+Phase 1 pattern. Recommended order:
+
+| Step | Item | Files | Notes |
+|---|---|---|---|
+| 1 | EXT-03 | `static_analysis.rs`, `lib.rs`, tests | Lowest risk; pure byte-pattern extension |
+| 2 | EXT-07 | `static_analysis.rs`, `lib.rs`, tests | Companion to EXT-03; static analysis only |
+| 3 | EXT-04 | `annotations_advanced.rs`, tests | Self-contained; new helper functions |
+| 4 | EXT-08 | `annotations_advanced.rs`, tests | Builds on EXT-04's URI analysis |
+| 5 | EXT-06 | `annotations_advanced.rs` or `revision_forensics.rs`, tests | Needs design decision (see note) |
+| 6 | EXT-05 | `content_stream_exec_uplift.rs`, tests | Isolated new capability |
+
+After all six are committed, update `docs/findings.md` in a final consolidation
+commit and mark the execution checklist complete.
+
+### Phase 3 design decisions outstanding
+
+1. **EXT-06 location**: The plan specified `revision_forensics.rs` but the simpler
+   implementation (collision detection across all current annotations regardless of
+   revision) fits more naturally in `AnnotationAttackDetector::run()` in
+   `annotations_advanced.rs`. Choose based on whether revision context is important;
+   the simpler approach is recommended first.
+
+2. **EXT-05 `apply_kind_cap`**: The function is private to `annotations_advanced.rs`.
+   Options: (a) re-implement locally in `content_stream_exec_uplift.rs` (trivial copy),
+   (b) move to `crates/sis-pdf-detectors/src/utils.rs` and re-export. Option (a) is
+   lower risk.
+
+3. **EXT-04 double-decode risk**: If both `percent_decode` and `html_entity_decode`
+   are applied to the same input, benign content like `%26lt;` could produce a false
+   positive. The three-candidate approach (raw, percent-only, entity-only) avoids
+   this — do NOT chain them.
