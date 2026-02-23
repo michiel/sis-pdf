@@ -253,6 +253,80 @@ fn check_uri_dangerous_scheme(
     })
 }
 
+/// Minimal percent-decoder for annotation field content.
+/// Decodes %XX sequences only; does not handle %uXXXX.
+fn percent_decode_bytes(input: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        if input[i] == b'%' && i + 2 < input.len() {
+            if let (Some(h), Some(l)) = (hex_digit(input[i + 1]), hex_digit(input[i + 2])) {
+                out.push((h << 4) | l);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(input[i]);
+        i += 1;
+    }
+    out
+}
+
+fn hex_digit(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Minimal HTML entity decoder for annotation field content.
+/// Handles: &lt; &gt; &amp; &quot; &apos; &#NNN; &#xNN; forms only.
+fn html_entity_decode(input: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(input.len());
+    let mut i = 0;
+    while i < input.len() {
+        if input[i] != b'&' {
+            out.push(input[i]);
+            i += 1;
+            continue;
+        }
+        let rest = &input[i..];
+        let Some(end) = rest.iter().position(|&b| b == b';') else {
+            out.push(input[i]);
+            i += 1;
+            continue;
+        };
+        let entity = &rest[1..end];
+        let decoded: Option<u8> = if entity.eq_ignore_ascii_case(b"lt") {
+            Some(b'<')
+        } else if entity.eq_ignore_ascii_case(b"gt") {
+            Some(b'>')
+        } else if entity.eq_ignore_ascii_case(b"amp") {
+            Some(b'&')
+        } else if entity.eq_ignore_ascii_case(b"quot") {
+            Some(b'"')
+        } else if entity.eq_ignore_ascii_case(b"apos") {
+            Some(b'\'')
+        } else if entity.starts_with(b"#x") || entity.starts_with(b"#X") {
+            std::str::from_utf8(&entity[2..]).ok().and_then(|s| u8::from_str_radix(s, 16).ok())
+        } else if entity.starts_with(b"#") {
+            std::str::from_utf8(&entity[1..]).ok().and_then(|s| s.parse::<u8>().ok())
+        } else {
+            None
+        };
+        if let Some(ch) = decoded {
+            out.push(ch);
+            i += end + 1;
+        } else {
+            out.push(input[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
 /// HTML injection patterns for /T and /Contents annotation field scanning.
 const FIELD_INJECTION_PATTERNS: &[&[u8]] = &[
     b"<script",
@@ -284,11 +358,15 @@ fn check_annotation_field_injection(
             continue;
         };
         let bytes = pdf_string_bytes(s);
-        let lower = bytes.to_ascii_lowercase();
+        let candidates = [
+            bytes.to_ascii_lowercase(),
+            percent_decode_bytes(&bytes).to_ascii_lowercase(),
+            html_entity_decode(&bytes).to_ascii_lowercase(),
+        ];
         let hits: Vec<&str> = FIELD_INJECTION_PATTERNS
             .iter()
             .filter_map(|pat| {
-                if lower.windows(pat.len()).any(|w| w == *pat) {
+                if candidates.iter().any(|c| c.windows(pat.len()).any(|w| w == *pat)) {
                     Some(std::str::from_utf8(pat).unwrap_or("?"))
                 } else {
                     None
@@ -588,7 +666,10 @@ fn normalise_annotation_trigger_event(event: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{annotation_action_severity, apply_kind_cap, uri_target_is_suspicious};
+    use super::{
+        annotation_action_severity, apply_kind_cap, html_entity_decode, percent_decode_bytes,
+        uri_target_is_suspicious,
+    };
     use sis_pdf_core::model::{Finding, Severity};
 
     #[test]
@@ -673,10 +754,46 @@ mod tests {
             });
         }
         apply_kind_cap(&mut findings, "uri_javascript_scheme", 10);
-        let retained =
-            findings.iter().filter(|f| f.kind == "uri_javascript_scheme").count();
+        let retained = findings.iter().filter(|f| f.kind == "uri_javascript_scheme").count();
         assert_eq!(retained, 10);
         let first = findings.iter().find(|f| f.kind == "uri_javascript_scheme").expect("finding");
         assert_eq!(first.meta.get("aggregate.suppressed_count").map(String::as_str), Some("5"));
+    }
+
+    // --- EXT-04: Percent-decoder and HTML entity decoder unit tests ---
+
+    #[test]
+    fn percent_decode_lt_gt_script() {
+        assert_eq!(percent_decode_bytes(b"%3Cscript%3E"), b"<script>");
+    }
+
+    #[test]
+    fn percent_decode_slash_encoded() {
+        assert_eq!(percent_decode_bytes(b"%3Cscript%3Ealert%281%29%3C%2Fscript%3E"), b"<script>alert(1)</script>");
+    }
+
+    #[test]
+    fn percent_decode_plain_text_unchanged() {
+        assert_eq!(percent_decode_bytes(b"hello world"), b"hello world");
+    }
+
+    #[test]
+    fn html_entity_decode_lt_gt() {
+        assert_eq!(html_entity_decode(b"&lt;script&gt;"), b"<script>");
+    }
+
+    #[test]
+    fn html_entity_decode_hex_entity() {
+        assert_eq!(html_entity_decode(b"&#x3C;"), b"<");
+    }
+
+    #[test]
+    fn html_entity_decode_decimal_entity() {
+        assert_eq!(html_entity_decode(b"&#60;"), b"<");
+    }
+
+    #[test]
+    fn html_entity_decode_plain_text_unchanged() {
+        assert_eq!(html_entity_decode(b"hello world"), b"hello world");
     }
 }

@@ -286,3 +286,33 @@ fn annotation_chain_javascript_uri_includes_uri_scheme_metadata() {
         "annotation_action_chain for javascript: URI should have uri.scheme=javascript"
     );
 }
+
+// --- EXT-04: Multi-encoding annotation field scanning ---
+
+#[test]
+fn percent_encoded_xss_in_annotation_t_field_emits_finding() {
+    // %3C = '<', %3E = '>', %2F = '/' → <script>
+    let bytes = build_pdf_with_text_annotation(
+        "%3Cscript%3Ealert%281%29%3C%2Fscript%3E",
+        "Normal content",
+    );
+    let report = scan(&bytes);
+    assert!(
+        report.findings.iter().any(|f| f.kind == "annotation_field_html_injection"),
+        "percent-encoded XSS in /T should be detected"
+    );
+}
+
+#[test]
+fn html_entity_encoded_xss_in_annotation_contents_emits_finding() {
+    // &lt;script&gt; → <script>
+    let bytes = build_pdf_with_text_annotation(
+        "Normal title",
+        "&lt;script&gt;alert(1)&lt;/script&gt;",
+    );
+    let report = scan(&bytes);
+    assert!(
+        report.findings.iter().any(|f| f.kind == "annotation_field_html_injection"),
+        "HTML entity-encoded XSS in /Contents should be detected"
+    );
+}
