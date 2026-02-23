@@ -289,12 +289,29 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
 - Tags: annotations, xss, injection
 - Details:
   - Relevance: XSS in web-based PDF viewers.
-  - Meaning: Web-based PDF viewers (PDF.js, PSPDFKit) that render /T or /Contents fields in the DOM without sanitisation are vulnerable to XSS. Acrobat/Adobe Reader renders these in pop-up callouts.
+  - Meaning: Web-based PDF viewers (PDF.js, PSPDFKit) that render /T or /Contents fields in the DOM without sanitisation are vulnerable to XSS. Acrobat/Adobe Reader renders these in pop-up callouts. Scans raw bytes, percent-decoded bytes, and HTML-entity-decoded bytes to catch encoded payloads (%3Cscript%3E, &lt;script&gt;, &#x3C; etc.).
   - Chain usage: content-injection stage signal; often co-occurs with `revision_annotations_changed` when injected via incremental update.
   - Metadata:
     - `annot.field`: field where injection was found (`/T` or `/Contents`)
     - `annot.subtype`: annotation subtype (e.g. `/Text`, `/Link`)
     - `injection.patterns`: matched HTML/XSS pattern strings
+
+## annotation_t_field_collision
+
+- ID: `annotation_t_field_collision`
+- Label: Annotation /T field collision
+- Description: Multiple annotations on the same page share the same /T identifier value.
+- Severity: Low
+- Confidence: Probable
+- Tags: annotations, anti-forensics, revision
+- Details:
+  - Relevance: anti-forensics technique in incremental update payloads.
+  - Meaning: In Acrobat's AcroForm model, /T is the annotation's unique identifier. When a newly-injected annotation shares a /T value with an existing annotation on the same page, the later annotation shadows the earlier one, overriding its behaviour without visible change. Capped at 10 findings per document.
+  - Chain usage: structural anomaly signal; correlates with `revision_annotations_changed` for incremental-update attack attribution.
+  - Metadata:
+    - `collision.t_value`: the shared /T identifier string
+    - `collision.page`: page number where the collision was detected
+    - `collision.refs`: space-separated list of colliding object references
 
 ## uri_javascript_scheme
 
@@ -363,6 +380,39 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `uri.scheme`: extracted scheme fragment (e.g. `START C`)
     - `uri.target`: full /URI value
     - `uri.classification`: `command`
+
+## uri_classification_summary
+
+- ID: `uri_classification_summary`
+- Label: URI classification summary
+- Description: Structured classification of a /URI action target with at least one risk signal.
+- Severity: Info
+- Confidence: Strong
+- Tags: annotations, uri, classification
+- Details:
+  - Relevance: companion finding to `annotation_action_chain` providing structured URI analysis fields.
+  - Meaning: Emitted for every /URI action where `analyze_uri_content()` detects at least one risk signal (javascript: scheme, file:// URI, IP address host, suspicious TLD, data exfiltration pattern, URL shortener, IDN lookalike, obfuscation, phishing indicators, tracking params). Does NOT emit for plain https:// or http:// URIs with no risk signals. Capped at 25 findings per document.
+  - Chain usage: informational — use for query filtering and triage; does not drive chain scoring directly.
+  - Metadata:
+    - `uri.scheme`: extracted scheme (e.g. `javascript`, `file`, `https`)
+    - `uri.domain`: domain component (if present)
+    - `uri.path`: path component (if present)
+    - `uri.obfuscation_level`: `none`, `light`, `medium`, or `heavy`
+    - `uri.length`: total URI length
+    - `uri.tracking_params`: comma-separated tracking parameter names (if detected)
+    - `uri.suspicious_patterns`: comma-separated suspicious pattern names (if detected)
+    - `uri.phishing_indicators`: comma-separated phishing indicator names (if detected)
+    - `uri.is_ip_address`: `true` if host is an IP address
+    - `uri.is_file_uri`: `true` if scheme is `file`
+    - `uri.is_javascript_uri`: `true` if scheme is `javascript`
+    - `uri.is_data_uri`: `true` if scheme is `data`
+    - `uri.suspicious_tld`: `true` if TLD is in the suspicious list
+    - `uri.has_data_exfil_pattern`: `true` if URI contains data exfiltration pattern
+    - `uri.has_shortener_domain`: `true` if domain is a URL shortener
+    - `uri.has_suspicious_ext`: `true` if URI path has a suspicious extension
+    - `uri.has_embedded_ip_host`: `true` if hostname embeds an IP address
+    - `uri.has_idn_lookalike`: `true` if domain uses IDN lookalike characters
+    - `uri.data_mime`: MIME type for data: URIs (e.g. `text/html`)
 
 ## annotation_hidden
 
@@ -1860,6 +1910,24 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
   - Chain usage: sandbox-escape stage signal; escalates `js_emulation_breakpoint` confidence when co-occurring.
   - Metadata:
     - `js.global_deletion_bypass`: `true`
+    - `js.deleted_globals`: comma-separated list of detected deleted globals (e.g. `window, confirm, document`)
+    - `payload.preview`: first 120 chars of decoded payload
+
+## js_prototype_chain_tamper
+
+- ID: `js_prototype_chain_tamper`
+- Label: JavaScript prototype chain tampering
+- Description: Payload null-assigns the prototype constructor alongside a generator function constructor eval bypass.
+- Severity: High
+- Confidence: Probable
+- Tags: javascript, obfuscation, eval-bypass
+- Details:
+  - Relevance: active anti-detection step that clobbers a built-in to hinder bytewise analysis.
+  - Meaning: The payload assigns `null` (or `undefined`) to a prototype constructor obtained via `Object.getPrototypeOf()` AND uses the generator constructor eval bypass pattern. This combined technique first nulls out the constructor reference to hinder static detection, then immediately exploits it. Emitted only when both `js.prototype_chain_manipulation=true` AND `js.dynamic_eval_construction=true`.
+  - Chain usage: obfuscation layer paired with a code execution eval bypass; expect `js_present` severity to be `High`.
+  - Metadata:
+    - `js.prototype_chain_manipulation`: `true`
+    - `js.dynamic_eval_construction`: `true`
     - `payload.preview`: first 120 chars of decoded payload
 
 ## js_runtime_file_probe
@@ -4236,6 +4304,23 @@ For implementation details, see `plans/review-evasive.md` and `plans/evasion-imp
     - `resource.churn_rate`
     - `resource.max_name_length`
     - `resource.change_every_page`
+
+## content_stream_js_literal
+
+- ID: `content_stream_js_literal`
+- Label: JavaScript-like literal in content stream
+- Description: Text rendering operators (Tj/TJ) in a content stream contain strings resembling JavaScript.
+- Severity: Low
+- Confidence: Tentative
+- Tags: content, javascript, obfuscation
+- Details:
+  - Relevance: low-certainty indicator for embedded-literal JS harvesting techniques.
+  - Meaning: Some advanced payloads embed JavaScript source as rendered text inside appearance streams, where it is later harvested by a Do/action chain. This finding is intentionally low-confidence — most fires will be on innocent text content. Inspect co-occurring chain findings to determine whether the text fragments are incidental. Capped at 10 findings per document.
+  - Chain usage: low-weight obfuscation context signal; only significant when co-occurring with Do-chain or execute-stage findings.
+  - Metadata:
+    - `stream.js_patterns`: comma-separated JS-like patterns detected (e.g. `eval(, function, <script`)
+    - `stream.obj`: object reference of the content stream
+    - `page.number`: page number of the stream
 
 ## content_stream_inline_image_anomaly
 
