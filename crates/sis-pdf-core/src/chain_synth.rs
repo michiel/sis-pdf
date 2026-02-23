@@ -220,7 +220,11 @@ fn action_from_kind(kind: &str) -> Option<String> {
         | "js_present"
         | "open_action_present"
         | "aa_present"
-        | "aa_event_present" => Some(kind.into()),
+        | "aa_event_present"
+        | "uri_javascript_scheme"
+        | "uri_file_scheme"
+        | "uri_data_html_scheme"
+        | "uri_command_injection" => Some(kind.into()),
         _ => None,
     }
 }

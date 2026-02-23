@@ -248,3 +248,41 @@ fn plain_text_annotation_fields_do_not_emit_finding() {
         "plain text annotation fields should not trigger injection finding"
     );
 }
+
+// --- EXT-02: uri.scheme metadata on annotation_action_chain ---
+
+#[test]
+fn annotation_chain_http_uri_includes_uri_scheme_metadata() {
+    let bytes = build_pdf_with_link_annotation("https://example.com/page");
+    let report = scan(&bytes);
+
+    let chain = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "annotation_action_chain")
+        .expect("annotation_action_chain should fire");
+
+    assert_eq!(
+        chain.meta.get("uri.scheme").map(String::as_str),
+        Some("https"),
+        "annotation_action_chain for https URI should have uri.scheme=https"
+    );
+}
+
+#[test]
+fn annotation_chain_javascript_uri_includes_uri_scheme_metadata() {
+    let bytes = build_pdf_with_link_annotation("javascript:confirm(1)");
+    let report = scan(&bytes);
+
+    let chain = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "annotation_action_chain")
+        .expect("annotation_action_chain should fire");
+
+    assert_eq!(
+        chain.meta.get("uri.scheme").map(String::as_str),
+        Some("javascript"),
+        "annotation_action_chain for javascript: URI should have uri.scheme=javascript"
+    );
+}

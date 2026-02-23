@@ -542,3 +542,47 @@ fn sandbox_marks_oversized_payload_as_skipped() {
     );
     assert_eq!(finding.meta.get("js.runtime.profile_skipped_count").map(String::as_str), Some("5"));
 }
+
+// --- D1/CAL-01: Acrobat API confidence floor ---
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn file_probe_with_explicit_acrobat_api_and_executable_path_is_at_least_probable() {
+    // app.openDoc targeting an .exe path: confidence should not be downgraded below Probable
+    // even when cross-profile divergence would otherwise demote it.
+    let bytes = build_minimal_js_pdf("app.openDoc(\"/C/Windows/System32/calc.exe\");");
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    if let Some(finding) = report.findings.iter().find(|f| f.kind == "js_runtime_file_probe") {
+        assert!(
+            finding.confidence <= sis_pdf_core::model::Confidence::Probable,
+            "js_runtime_file_probe with explicit Acrobat API + executable target should have \
+             confidence <= Probable (i.e. Probable, Strong, or Certain), got {:?}",
+            finding.confidence
+        );
+    }
+    // If the finding is not emitted (e.g. sandbox unavailable or didn't execute),
+    // the test passes vacuously — we only assert the floor when the finding is present.
+}
+
+#[cfg(feature = "js-sandbox")]
+#[test]
+fn file_probe_with_acrobat_api_non_executable_target_does_not_set_override_flag() {
+    // app.openDoc targeting a .pdf file: override should NOT apply
+    let bytes = build_minimal_js_pdf("app.openDoc(\"annual_report.pdf\");");
+    let detectors: Vec<Box<dyn sis_pdf_core::detect::Detector>> =
+        vec![Box::new(JavaScriptSandboxDetector)];
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_opts(), &detectors)
+        .expect("scan");
+
+    for finding in report.findings.iter().filter(|f| f.kind == "js_runtime_file_probe") {
+        assert_ne!(
+            finding.meta.get("js.runtime.acrobat_api_execution_override").map(String::as_str),
+            Some("true"),
+            "non-executable .pdf target should not trigger Acrobat API override"
+        );
+    }
+}

@@ -108,6 +108,12 @@ impl Detector for AnnotationAttackDetector {
                 if !action_target.is_empty() {
                     meta.insert("action.target".into(), action_target.clone());
                 }
+                if action_type.to_ascii_uppercase() == "/URI" && !action_target.is_empty() {
+                    let uri_analysis = analyze_uri_content(action_target.as_bytes());
+                    if !uri_analysis.scheme.is_empty() {
+                        meta.insert("uri.scheme".into(), uri_analysis.scheme.clone());
+                    }
+                }
                 if !action_initiation.is_empty() {
                     meta.insert("action.initiation".into(), action_initiation.clone());
                     meta.insert("action.trigger_type".into(), action_initiation.clone());

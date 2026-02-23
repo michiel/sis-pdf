@@ -1,7 +1,7 @@
 # URI Scheme Abuse, JS Bypass Detection, and Annotation Injection Gap Closure
 
 Date: 2026-02-23
-Status: Phase 1 complete — Phase 2 and 3 pending
+Status: Phase 1 and 2 complete — Phase 3 pending
 Owner: Core + Detectors + JS-Analysis
 
 ## Purpose
@@ -790,6 +790,12 @@ all four Phase 1 gap payloads. Benign corpus run pending.
 | `a5e8a43` | B1, B2 (static) | `js-analysis/src/static_analysis.rs` |
 | `77e28b6` | B2 (finding layer) | `lib.rs`, `tests/js_bypass_detection.rs` |
 
+### Phase 2 commits (2026-02-23)
+
+| Commit | Items | Files changed |
+|---|---|---|
+| (pending) | EXT-02, EXT-01, D1 | `annotations_advanced.rs`, `chain_synth.rs`, `chain_score.rs`, `js_sandbox.rs`, tests |
+
 ### Deviations from plan
 
 - **B2 finding emission location**: plan suggested `js_sandbox.rs`; implemented
@@ -803,6 +809,18 @@ all four Phase 1 gap payloads. Benign corpus run pending.
   `annotation_action_chain` /URI actions) was implemented exactly as specified.
   The existing test `annotation_user_benign_uri_is_info` was renamed and updated
   to `annotation_user_benign_uri_is_low` to match.
+- **D1 implementation**: override applied post-`apply_profile_scoring_meta` in
+  the `has_file` branch of `JavaScriptSandboxDetector::run()`. The override fires
+  when: confidence was downgraded below `Probable`, an Adobe-compat profile is in
+  the executed set, the call list includes an Acrobat file API (`openDoc`,
+  `launchURL`, etc.), and call args contain an executable extension.
+- **EXT-02**: `uri.scheme` added to `annotation_action_chain` meta by calling
+  `analyze_uri_content` immediately after `action.target` is inserted, when
+  action type is `/URI`.
+- **EXT-01**: URI scheme finding kinds added to both `action_from_kind()` in
+  `chain_synth.rs` (so they become chain action keys) and `score_chain()` in
+  `chain_score.rs` (scored at 0.85 for `javascript/file/data` and 0.80 for
+  `command_injection`).
 
 ### Open items before completion gate
 
@@ -829,9 +847,9 @@ all four Phase 1 gap payloads. Benign corpus run pending.
 - [x] B1: `JS-01` — generator function constructor eval bypass flag
 
 ### Phase 2 — calibration and integration
-- [ ] D1: `CAL-01` — `js_runtime_file_probe` Acrobat API confidence floor
-- [ ] EXT-01: chain scorer URI scheme integration
-- [ ] EXT-02: `uri.scheme` metadata on `annotation_action_chain`
+- [x] D1: `CAL-01` — `js_runtime_file_probe` Acrobat API confidence floor
+- [x] EXT-01: chain scorer URI scheme integration
+- [x] EXT-02: `uri.scheme` metadata on `annotation_action_chain`
 
 ### Phase 3 — extensions
 - [ ] EXT-03: prototype chain manipulation flag

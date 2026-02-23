@@ -20,6 +20,14 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
                 score = score.max(0.85);
                 reasons.push("Action severity: High (Launch)".into());
             }
+            "uri_javascript_scheme" | "uri_file_scheme" | "uri_data_html_scheme" => {
+                score = score.max(0.85);
+                reasons.push("Action severity: High (Dangerous URI scheme — code execution vector)".into());
+            }
+            "uri_command_injection" => {
+                score = score.max(0.8);
+                reasons.push("Action severity: High (Command injection URI pattern)".into());
+            }
             "js_present" => {
                 score = score.max(0.75);
                 reasons.push("Action severity: Medium (JavaScript)".into());

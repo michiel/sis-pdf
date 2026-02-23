@@ -190,3 +190,65 @@ fn leaves_non_role_findings_out_of_finding_roles() {
     let chain = chains.first().expect("single chain");
     assert!(!chain.finding_roles.contains_key("f1"));
 }
+
+// --- EXT-01: URI dangerous scheme findings in chain scoring ---
+
+#[test]
+fn uri_javascript_scheme_finding_scores_high_in_chain() {
+    let finding = base_finding("f1", "uri_javascript_scheme", "4 0 obj");
+    let (chains, _) = synthesise_chains(&[finding], true);
+    let chain = chains.first().expect("chain");
+    assert!(
+        chain.score >= 0.85,
+        "uri_javascript_scheme should score >= 0.85, got {}",
+        chain.score
+    );
+    assert!(
+        chain.reasons.iter().any(|r| r.contains("Dangerous URI scheme")),
+        "chain reasons should mention dangerous URI scheme"
+    );
+}
+
+#[test]
+fn uri_file_scheme_finding_scores_high_in_chain() {
+    let finding = base_finding("f1", "uri_file_scheme", "4 0 obj");
+    let (chains, _) = synthesise_chains(&[finding], true);
+    let chain = chains.first().expect("chain");
+    assert!(chain.score >= 0.85, "uri_file_scheme should score >= 0.85, got {}", chain.score);
+}
+
+#[test]
+fn uri_data_html_scheme_finding_scores_high_in_chain() {
+    let finding = base_finding("f1", "uri_data_html_scheme", "4 0 obj");
+    let (chains, _) = synthesise_chains(&[finding], true);
+    let chain = chains.first().expect("chain");
+    assert!(
+        chain.score >= 0.85,
+        "uri_data_html_scheme should score >= 0.85, got {}",
+        chain.score
+    );
+}
+
+#[test]
+fn uri_command_injection_finding_scores_high_in_chain() {
+    let finding = base_finding("f1", "uri_command_injection", "4 0 obj");
+    let (chains, _) = synthesise_chains(&[finding], true);
+    let chain = chains.first().expect("chain");
+    assert!(
+        chain.score >= 0.8,
+        "uri_command_injection should score >= 0.8, got {}",
+        chain.score
+    );
+}
+
+#[test]
+fn uri_scheme_finding_assigned_as_action_key_in_chain() {
+    let finding = base_finding("f1", "uri_javascript_scheme", "4 0 obj");
+    let (chains, _) = synthesise_chains(&[finding], true);
+    let chain = chains.first().expect("chain");
+    assert_eq!(
+        chain.notes.get("action.key").map(String::as_str),
+        Some("uri_javascript_scheme"),
+        "uri_javascript_scheme finding should be assigned as action.key"
+    );
+}

@@ -1060,6 +1060,31 @@ fn adjust_by_ratio(
     }
 }
 
+/// Acrobat-specific file-targeting APIs that are unambiguously dangerous when targeting executables.
+const ACROBAT_FILE_APIS: &[&str] =
+    &["openDoc", "launchURL", "importTextData", "submitForm", "saveAs", "mailDoc"];
+
+/// File extensions indicating an executable or system-level target.
+const EXECUTABLE_PATH_EXTENSIONS: &[&str] = &[".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".sh"];
+
+fn has_acrobat_file_api_call(calls: &[String]) -> bool {
+    calls.iter().any(|c| ACROBAT_FILE_APIS.iter().any(|api| c.as_str() == *api))
+}
+
+fn call_args_contain_executable_target(call_args: &[String]) -> bool {
+    call_args.iter().any(|arg| {
+        let lower = arg.to_ascii_lowercase();
+        EXECUTABLE_PATH_EXTENSIONS.iter().any(|ext| lower.contains(ext))
+            || lower.contains("\\\\\\\\")
+    })
+}
+
+fn adobe_compat_in_executed_profiles(summary: &ProfileDivergenceSummary) -> bool {
+    summary.executed_profiles.iter().any(|id| {
+        id.starts_with("pdf_reader:adobe:") && id.ends_with(":compat")
+    })
+}
+
 fn apply_profile_scoring(
     kind: &str,
     base_severity: Severity,
@@ -2294,13 +2319,27 @@ impl Detector for JavaScriptSandboxDetector {
                         if has_file {
                             let mut meta = base_meta.clone();
                             meta.insert("js.sandbox_exec".into(), "true".into());
-                            let (severity, confidence) = apply_profile_scoring_meta(
+                            let (severity, mut confidence) = apply_profile_scoring_meta(
                                 &mut meta,
                                 &profile_summary,
                                 "js_runtime_file_probe",
                                 Severity::Medium,
                                 Confidence::Probable,
                             );
+                            // D1/CAL-01: Confidence floor override for explicit Acrobat API calls
+                            // targeting executables. Cross-profile divergence is expected because
+                            // app.openDoc / launchURL / etc. are only meaningful in Adobe's runtime.
+                            if confidence > Confidence::Probable
+                                && adobe_compat_in_executed_profiles(&profile_summary)
+                                && has_acrobat_file_api_call(&signals.calls)
+                                && call_args_contain_executable_target(&signals.call_args)
+                            {
+                                confidence = Confidence::Probable;
+                                meta.insert(
+                                    "js.runtime.acrobat_api_execution_override".into(),
+                                    "true".into(),
+                                );
+                            }
                             findings.push(Finding {
                                 id: String::new(),
                                 surface: self.surface(),
@@ -2754,5 +2793,77 @@ mod tests {
             finding.meta.get("js.runtime.behavior.evidence").map(String::as_str),
             Some("Observed unusual call/prop progression")
         );
+    }
+
+    // --- D1/CAL-01: Acrobat API confidence floor helper unit tests ---
+
+    #[test]
+    fn has_acrobat_file_api_call_detects_open_doc() {
+        assert!(has_acrobat_file_api_call(&["openDoc".into()]));
+    }
+
+    #[test]
+    fn has_acrobat_file_api_call_detects_launch_url() {
+        assert!(has_acrobat_file_api_call(&["launchURL".into()]));
+    }
+
+    #[test]
+    fn has_acrobat_file_api_call_detects_import_text_data() {
+        assert!(has_acrobat_file_api_call(&["importTextData".into()]));
+    }
+
+    #[test]
+    fn has_acrobat_file_api_call_returns_false_for_non_acrobat() {
+        assert!(!has_acrobat_file_api_call(&["fs.readFile".into(), "fetch".into()]));
+    }
+
+    #[test]
+    fn has_acrobat_file_api_call_returns_false_for_empty() {
+        assert!(!has_acrobat_file_api_call(&[]));
+    }
+
+    #[test]
+    fn call_args_contain_executable_target_detects_exe_extension() {
+        assert!(call_args_contain_executable_target(&[
+            r#"openDoc(/C/Windows/System32/calc.exe)"#.into()
+        ]));
+    }
+
+    #[test]
+    fn call_args_contain_executable_target_detects_bat_extension() {
+        assert!(call_args_contain_executable_target(&["openDoc(run.bat)".into()]));
+    }
+
+    #[test]
+    fn call_args_contain_executable_target_returns_false_for_pdf() {
+        assert!(!call_args_contain_executable_target(&["openDoc(report.pdf)".into()]));
+    }
+
+    #[test]
+    fn call_args_contain_executable_target_returns_false_for_empty() {
+        assert!(!call_args_contain_executable_target(&[]));
+    }
+
+    #[test]
+    fn adobe_compat_in_executed_profiles_detects_compat_profile() {
+        let summary = ProfileDivergenceSummary {
+            executed_profiles: vec!["pdf_reader:adobe:11:compat".into()],
+            ..ProfileDivergenceSummary::default()
+        };
+        assert!(adobe_compat_in_executed_profiles(&summary));
+    }
+
+    #[test]
+    fn adobe_compat_in_executed_profiles_returns_false_for_deception_hardened() {
+        let summary = ProfileDivergenceSummary {
+            executed_profiles: vec!["pdf_reader:adobe:11:deception_hardened".into()],
+            ..ProfileDivergenceSummary::default()
+        };
+        assert!(!adobe_compat_in_executed_profiles(&summary));
+    }
+
+    #[test]
+    fn adobe_compat_in_executed_profiles_returns_false_for_empty() {
+        assert!(!adobe_compat_in_executed_profiles(&ProfileDivergenceSummary::default()));
     }
 }
