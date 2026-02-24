@@ -665,20 +665,24 @@ fn render_graph_canvas(ui: &mut egui::Ui, app: &mut SisApp) {
         }
     }
 
-    // Handle double-click: navigate to object in Object Inspector
+    // Handle double-click: ContentStreamExec nodes enter Content mode directly;
+    // other nodes navigate to the Object Inspector.
     if response.double_clicked() {
         if let Some(hi) = hovered {
-            if let Some(ref graph) = app.graph_state.graph {
-                let node = &graph.nodes[hi];
-                if let Some(event_node_id) = resolve_double_click_event_node(node) {
-                    app.selected_event = Some(event_node_id);
-                    app.show_events = true;
-                    return;
+            let action = resolve_double_click_action(app, hi);
+            match action {
+                DoubleClickAction::EnterContentStream(obj, gen) => {
+                    open_content_stream(app, obj, gen);
                 }
-                if let Some((obj, gen)) = resolve_double_click_target(node) {
+                DoubleClickAction::SelectEvent(id) => {
+                    app.selected_event = Some(id);
+                    app.show_events = true;
+                }
+                DoubleClickAction::NavigateToObject(obj, gen) => {
                     app.navigate_to_object(obj, gen);
                     app.show_objects = true;
                 }
+                DoubleClickAction::None => {}
             }
         }
     }
@@ -692,6 +696,37 @@ fn render_graph_canvas(ui: &mut egui::Ui, app: &mut SisApp) {
         egui::FontId::proportional(11.0),
         egui::Color32::from_rgb(150, 150, 150),
     );
+}
+
+enum DoubleClickAction {
+    EnterContentStream(u32, u16),
+    SelectEvent(String),
+    NavigateToObject(u32, u16),
+    None,
+}
+
+/// Determine the action for a double-click on graph node `idx`, borrowing `app` immutably
+/// so the result can be acted on after the borrow ends.
+fn resolve_double_click_action(app: &SisApp, idx: usize) -> DoubleClickAction {
+    let Some(ref graph) = app.graph_state.graph else {
+        return DoubleClickAction::None;
+    };
+    let Some(node) = graph.nodes.get(idx) else {
+        return DoubleClickAction::None;
+    };
+    if let Some(id) = resolve_double_click_event_node(node) {
+        return DoubleClickAction::SelectEvent(id);
+    }
+    // ContentStreamExec nodes jump directly into Content mode instead of the inspector.
+    if node.is_content_stream_exec {
+        if let Some((obj, gen)) = node.target_obj {
+            return DoubleClickAction::EnterContentStream(obj, gen);
+        }
+    }
+    if let Some((obj, gen)) = resolve_double_click_target(node) {
+        return DoubleClickAction::NavigateToObject(obj, gen);
+    }
+    DoubleClickAction::None
 }
 
 fn content_stream_target(node: &crate::graph_data::GraphNode) -> Option<(u32, u16)> {
@@ -713,6 +748,37 @@ fn resolve_double_click_event_node(node: &crate::graph_data::GraphNode) -> Optio
 fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
     let is_content_stream_mode =
         matches!(app.graph_state.mode, GraphViewMode::ContentStream { .. });
+
+    // If a ContentStreamExec node is selected in the current graph, Content mode can be
+    // activated for its target stream without requiring the Content Stream panel to be
+    // opened first.
+    let selected_stream_ref: Option<(u32, u16)> =
+        app.graph_state.selected_node.and_then(|idx| {
+            let node = app.graph_state.graph.as_ref()?.nodes.get(idx)?;
+            if node.is_content_stream_exec { node.target_obj } else { None }
+        });
+
+    // All page-content streams available for the selector, derived from ObjectData so it
+    // works in every graph mode (not just Event mode where event nodes are present).
+    let all_content_streams: Vec<(u32, u16)> = app
+        .result
+        .as_ref()
+        .map(|r| {
+            r.object_data
+                .objects
+                .iter()
+                .filter(|o| o.has_stream && o.roles.iter().any(|role| role == "page_content"))
+                .map(|o| (o.obj, o.gen))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Stream to activate when the Content button is clicked: prefer the selected graph
+    // node's target, then the already-active stream, then the first available stream.
+    let content_btn_target: Option<(u32, u16)> = selected_stream_ref
+        .or(app.content_stream_state.active_stream)
+        .or_else(|| all_content_streams.first().copied());
+
     ui.horizontal(|ui| {
         ui.label("Mode:");
         if ui
@@ -730,23 +796,48 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
         {
             switch_graph_mode(app, GraphViewMode::StagedDag);
         }
-        // Content mode only enabled when a content stream summary is loaded.
-        let has_summary = app.content_stream_state.summary.is_some();
+        // Content button is enabled whenever any content stream is reachable.
+        let can_enter_content = content_btn_target.is_some();
         let content_btn = ui.add_enabled(
-            has_summary,
+            can_enter_content,
             egui::Button::selectable(is_content_stream_mode, "Content"),
         );
         if content_btn.clicked() {
-            if let Some((obj, gen)) = app.content_stream_state.active_stream {
-                switch_graph_mode(
-                    app,
-                    GraphViewMode::ContentStream { stream_ref: (obj, gen) },
-                );
+            if let Some((obj, gen)) = content_btn_target {
+                open_content_stream(app, obj, gen);
             }
         }
-        if !has_summary {
-            content_btn.on_disabled_hover_text("Open a content stream to enable this mode");
+        if !can_enter_content {
+            content_btn.on_disabled_hover_text("Load a PDF with page content streams first");
         }
+
+        // Stream selector: shown in Content mode so the user can switch between streams
+        // without leaving the mode.
+        if is_content_stream_mode && !all_content_streams.is_empty() {
+            ui.separator();
+            let active = app.content_stream_state.active_stream;
+            let label = active
+                .map(|(o, g)| format!("stream {o} {g}"))
+                .unwrap_or_else(|| "select stream".to_string());
+            let mut switch_to: Option<(u32, u16)> = None;
+            egui::ComboBox::from_id_salt("content_stream_selector")
+                .selected_text(label)
+                .show_ui(ui, |ui| {
+                    for &(obj, gen) in &all_content_streams {
+                        let selected = active == Some((obj, gen));
+                        if ui
+                            .selectable_label(selected, format!("stream {obj} {gen}"))
+                            .clicked()
+                        {
+                            switch_to = Some((obj, gen));
+                        }
+                    }
+                });
+            if let Some((obj, gen)) = switch_to {
+                open_content_stream(app, obj, gen);
+            }
+        }
+
         ui.separator();
         let label =
             if app.graph_state.show_controls_sidebar { "Hide Controls" } else { "Show Controls" };
