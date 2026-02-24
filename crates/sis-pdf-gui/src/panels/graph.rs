@@ -10,6 +10,8 @@ pub enum GraphViewMode {
     Structure,
     Event,
     StagedDag,
+    /// Operator/resource graph for a single content stream.
+    ContentStream { stream_ref: (u32, u16) },
 }
 
 /// Persistent state for the graph viewer panel.
@@ -129,16 +131,22 @@ impl Default for GraphViewerState {
 /// Node type colour mapping.
 fn node_colour(obj_type: &str) -> egui::Color32 {
     match obj_type.to_lowercase().as_str() {
-        "event" => egui::Color32::from_rgb(245, 170, 66), // amber
-        "outcome" => egui::Color32::from_rgb(220, 80, 80), // red
+        "event" => egui::Color32::from_rgb(245, 170, 66),     // amber
+        "outcome" => egui::Color32::from_rgb(220, 80, 80),    // red
         "collapse" => egui::Color32::from_rgb(120, 120, 120), // dark grey
-        "page" => egui::Color32::from_rgb(70, 130, 230),  // blue
-        "action" => egui::Color32::from_rgb(220, 60, 60), // red
-        "stream" => egui::Color32::from_rgb(60, 180, 80), // green
-        "font" => egui::Color32::from_rgb(160, 160, 160), // grey
+        "page" => egui::Color32::from_rgb(70, 130, 230),      // blue
+        "action" => egui::Color32::from_rgb(220, 60, 60),     // red
+        "stream" => egui::Color32::from_rgb(60, 180, 80),     // green
+        "font" => egui::Color32::from_rgb(160, 160, 160),     // grey
         "catalog" | "catalogue" => egui::Color32::from_rgb(160, 80, 200), // purple
-        "image" => egui::Color32::from_rgb(230, 160, 40), // orange
-        _ => egui::Color32::from_rgb(140, 140, 140),      // default grey
+        "image" => egui::Color32::from_rgb(230, 160, 40),     // orange
+        // Content stream node types
+        "content_text" => egui::Color32::from_rgb(70, 130, 230),       // blue
+        "content_image" | "content_inline_image" => egui::Color32::from_rgb(60, 180, 80), // green
+        "content_form_xobj" => egui::Color32::from_rgb(40, 180, 160),  // teal
+        "content_marked" => egui::Color32::from_rgb(150, 150, 150),    // grey
+        "content_gstate" | "content_ops" => egui::Color32::from_rgb(190, 190, 190), // light grey
+        _ => egui::Color32::from_rgb(140, 140, 140),                   // default grey
     }
 }
 
@@ -161,6 +169,22 @@ pub fn focus_object(app: &mut SisApp, obj: u32, gen: u16) {
     app.show_graph = true;
     app.graph_state.pending_focus = Some((obj, gen));
     apply_pending_focus(app);
+}
+
+/// Switch the graph viewer to ContentStream mode for the given stream object.
+///
+/// Computes the content graph from the cached `ContentStreamSummary` in the panel state.
+/// Opens the graph viewer and requests a fit-to-view.
+pub fn open_content_stream(app: &mut SisApp, obj: u32, gen: u16) {
+    // Ensure the content stream summary is computed first.
+    crate::panels::content_stream::open_stream(app, obj, gen);
+
+    let mode = GraphViewMode::ContentStream { stream_ref: (obj, gen) };
+    app.graph_state.mode = mode;
+    app.graph_state.built = false;
+    app.graph_state.fit_to_view_pending = true;
+    app.show_graph = true;
+    build_graph(app);
 }
 
 fn show_inner(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut SisApp) {
@@ -687,6 +711,8 @@ fn resolve_double_click_event_node(node: &crate::graph_data::GraphNode) -> Optio
 }
 
 fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
+    let is_content_stream_mode =
+        matches!(app.graph_state.mode, GraphViewMode::ContentStream { .. });
     ui.horizontal(|ui| {
         ui.label("Mode:");
         if ui
@@ -703,6 +729,23 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
             .clicked()
         {
             switch_graph_mode(app, GraphViewMode::StagedDag);
+        }
+        // Content mode only enabled when a content stream summary is loaded.
+        let has_summary = app.content_stream_state.summary.is_some();
+        let content_btn = ui.add_enabled(
+            has_summary,
+            egui::Button::selectable(is_content_stream_mode, "Content"),
+        );
+        if content_btn.clicked() {
+            if let Some((obj, gen)) = app.content_stream_state.active_stream {
+                switch_graph_mode(
+                    app,
+                    GraphViewMode::ContentStream { stream_ref: (obj, gen) },
+                );
+            }
+        }
+        if !has_summary {
+            content_btn.on_disabled_hover_text("Open a content stream to enable this mode");
         }
         ui.separator();
         let label =
@@ -752,7 +795,7 @@ fn show_controls_sidebar(ui: &mut egui::Ui, app: &mut SisApp) {
     ui.heading("Graph Controls");
     ui.separator();
 
-    if app.graph_state.mode != GraphViewMode::Structure {
+    if matches!(app.graph_state.mode, GraphViewMode::Event | GraphViewMode::StagedDag) {
         ui.label("Node kind:");
         egui::ComboBox::from_id_salt("graph_event_node_kind_filter")
             .selected_text(
@@ -907,6 +950,14 @@ fn switch_graph_mode(app: &mut SisApp, mode: GraphViewMode) {
     }
 }
 
+fn build_content_stream_graph_for_gui(app: &mut SisApp) -> Result<GraphData, GraphError> {
+    let summary = app.content_stream_state.summary.as_ref().ok_or_else(|| {
+        GraphError::ParseFailed("No content stream summary available. Open a content stream first.".to_string())
+    })?;
+    let csg = sis_pdf_pdf::content_summary::build_content_graph(summary);
+    graph_data::from_content_graph(&csg)
+}
+
 /// Build the graph from the current analysis result.
 fn build_graph(app: &mut SisApp) {
     app.graph_state.built = true;
@@ -918,7 +969,9 @@ fn build_graph(app: &mut SisApp) {
         return;
     };
 
-    let graph_result = if app.graph_state.mode == GraphViewMode::Event
+    let graph_result = if matches!(app.graph_state.mode, GraphViewMode::ContentStream { .. }) {
+        build_content_stream_graph_for_gui(app)
+    } else if app.graph_state.mode == GraphViewMode::Event
         || app.graph_state.mode == GraphViewMode::StagedDag
     {
         build_event_graph_for_gui(app)
@@ -1297,7 +1350,10 @@ fn run_layout_step(app: &mut SisApp) {
 fn build_visible_node_set(app: &SisApp, graph: &GraphData) -> std::collections::HashSet<usize> {
     let mut visible = std::collections::HashSet::new();
     for (idx, node) in graph.nodes.iter().enumerate() {
-        if app.graph_state.mode == GraphViewMode::Structure {
+        if matches!(
+            app.graph_state.mode,
+            GraphViewMode::Structure | GraphViewMode::ContentStream { .. }
+        ) {
             visible.insert(idx);
             continue;
         }

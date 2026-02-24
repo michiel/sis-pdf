@@ -98,6 +98,10 @@ pub struct SisApp {
     pub show_graph: bool,
     /// Graph viewer state.
     pub graph_state: crate::panels::graph::GraphViewerState,
+    /// Whether to show the content stream panel.
+    pub show_content_stream: bool,
+    /// Content stream panel state.
+    pub content_stream_state: crate::panels::content_stream::ContentStreamPanelState,
     /// Currently selected chain index (for graph highlighting).
     pub selected_chain: Option<usize>,
     /// Whether chain views should include single-item chains.
@@ -360,6 +364,8 @@ impl SisApp {
             command_history_pos: None,
             show_graph: false,
             graph_state: crate::panels::graph::GraphViewerState::default(),
+            show_content_stream: false,
+            content_stream_state: crate::panels::content_stream::ContentStreamPanelState::default(),
             selected_chain: None,
             include_singleton_chains: false,
             finding_detail_graph_cache: None,
@@ -1475,6 +1481,10 @@ impl eframe::App for SisApp {
 
             if self.show_graph {
                 crate::panels::graph::show(ctx, self);
+            }
+
+            if self.show_content_stream {
+                crate::panels::content_stream::show(ctx, self);
             }
 
             if self.show_telemetry {

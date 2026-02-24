@@ -65,6 +65,119 @@ impl std::fmt::Display for GraphError {
     }
 }
 
+/// Build a `GraphData` from a `ContentStreamGraph` for the graph viewer's ContentStream mode.
+///
+/// Converts `CsgNode`/`CsgEdge` to `GraphNode`/`GraphEdge`. Node positions are not set
+/// here — the layout engine initialises them after this call.
+pub fn from_content_graph(
+    csg: &sis_pdf_pdf::content_summary::ContentStreamGraph,
+) -> Result<GraphData, GraphError> {
+    use sis_pdf_pdf::content_summary::{CsgEdgeKind, CsgNodeKind};
+
+    // Build a map from stable CsgNode id to sequential index.
+    let id_to_idx: HashMap<&str, usize> =
+        csg.nodes.iter().enumerate().map(|(i, n)| (n.id.as_str(), i)).collect();
+
+    let mut node_index: HashMap<(u32, u16), usize> = HashMap::new();
+    let nodes: Vec<GraphNode> = csg
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| {
+            let (obj_type, label, object_ref) = match &node.kind {
+                CsgNodeKind::TextBlock { strings, fonts } => {
+                    let font_str =
+                        if fonts.is_empty() { String::new() } else { fonts.join(", ") };
+                    let preview: Vec<&str> =
+                        strings.iter().take(2).map(|s| s.as_str()).collect();
+                    let mut text_preview = preview.join("  ");
+                    if text_preview.len() > 40 {
+                        text_preview.truncate(37);
+                        text_preview.push_str("...");
+                    }
+                    let label = if text_preview.is_empty() {
+                        format!("Text [{}]", font_str)
+                    } else {
+                        format!("Text [{}]\n{}", font_str, text_preview)
+                    };
+                    ("content_text".to_string(), label, None)
+                }
+                CsgNodeKind::XObjectRef { name, subtype } => {
+                    let st = subtype.as_deref().unwrap_or("?");
+                    let obj_type = match subtype.as_deref() {
+                        Some("Image") => "content_image",
+                        Some("Form") => "content_form_xobj",
+                        _ => "content_image",
+                    };
+                    (obj_type.to_string(), format!("{} [{}]", name, st), None)
+                }
+                CsgNodeKind::InlineImage { width, height } => {
+                    let dims = match (width, height) {
+                        (Some(w), Some(h)) => format!("{}×{}", w, h),
+                        _ => "?×?".to_string(),
+                    };
+                    ("content_inline_image".to_string(), format!("Inline Image {}", dims), None)
+                }
+                CsgNodeKind::MarkedContent { tag } => {
+                    ("content_marked".to_string(), format!("MC {}", tag), None)
+                }
+                CsgNodeKind::GraphicsState { depth } => (
+                    "content_gstate".to_string(),
+                    format!("q…Q (depth {})", depth),
+                    None,
+                ),
+                CsgNodeKind::OpGroup { label, count } => (
+                    "content_ops".to_string(),
+                    format!("{} ({} ops)", label, count),
+                    None,
+                ),
+                CsgNodeKind::PdfObject { obj, gen, obj_type } => {
+                    let r = Some((*obj, *gen));
+                    node_index.insert((*obj, *gen), idx);
+                    ("object".to_string(), format!("{} {} R [{}]", obj, gen, obj_type), r)
+                }
+            };
+            GraphNode {
+                object_ref,
+                event_node_id: Some(node.id.clone()),
+                obj_type,
+                label,
+                roles: Vec::new(),
+                confidence: None,
+                position: [node.sequence as f64 * 120.0, 0.0],
+                target_obj: None,
+                is_content_stream_exec: false,
+            }
+        })
+        .collect();
+
+    let edges: Vec<GraphEdge> = csg
+        .edges
+        .iter()
+        .filter_map(|edge| {
+            let from_idx = *id_to_idx.get(edge.from.as_str())?;
+            let to_idx = *id_to_idx.get(edge.to.as_str())?;
+            let edge_kind = Some(match edge.kind {
+                CsgEdgeKind::Sequence => "sequence",
+                CsgEdgeKind::ResourceRef => "resource_ref",
+                CsgEdgeKind::XObjectContains => "xobj_contains",
+                CsgEdgeKind::Nesting => "nesting",
+            })
+            .map(|s: &str| s.to_string());
+            Some(GraphEdge {
+                from_idx,
+                to_idx,
+                suspicious: false,
+                edge_kind,
+                provenance: None,
+                metadata: None,
+            })
+        })
+        .collect();
+
+    Ok(GraphData { nodes, edges, node_index })
+}
+
 /// Build a complete graph from all objects in the data set.
 pub fn from_object_data(data: &ObjectData) -> Result<GraphData, GraphError> {
     if data.objects.len() > MAX_GRAPH_NODES {

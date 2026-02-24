@@ -1,7 +1,7 @@
 # Content Stream Unpacking and Visualisation
 
 **Date**: 2026-02-24
-**Status**: Proposed
+**Status**: Complete (Stages 1–3)
 
 ## Motivation
 
@@ -409,7 +409,7 @@ Unit tests in `crates/sis-pdf-pdf/tests/`:
 page content stream decoded from `content_first_phase1.pdf`, with correct font and XObject
 resolution.
 
-**Status**: Not Started
+**Status**: Complete
 
 ---
 
@@ -542,7 +542,7 @@ Content stream 15 0  (page 3)
 **Success criteria**: All four output modes work against `content_first_phase1.pdf` and
 `launch_cve_2010_1240.pdf`. DOT output renders without error via Graphviz.
 
-**Status**: Not Started
+**Status**: Complete
 
 ---
 
@@ -704,6 +704,8 @@ Right-click / double-click on:
 The graph viewer mode selector (existing radio buttons or dropdown) gains a "Content" option. It is
 only enabled when a content stream is active (i.e., `content_stream_state.active_stream` is
 `Some`). Switching to Content mode automatically loads the graph for the active stream.
+
+**Status**: Complete
 
 ---
 

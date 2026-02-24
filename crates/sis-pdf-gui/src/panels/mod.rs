@@ -1,6 +1,7 @@
 pub mod chain_display;
 pub mod chains;
 pub mod command_bar;
+pub mod content_stream;
 pub mod detail;
 pub mod drop_zone;
 pub mod events;

@@ -222,6 +222,21 @@ fn show_event_details(
             };
         });
 
+        // "View content operators" button for ContentStreamExec events.
+        if selected.event_type == "ContentStreamExec" {
+            for target in &selected.execute_targets {
+                if let Some((obj, gen)) = target.object_ref {
+                    if ui
+                        .button(format!("View content operators: {} {}", obj, gen))
+                        .on_hover_text("Open content stream operator breakdown")
+                        .clicked()
+                    {
+                        crate::panels::content_stream::open_stream(app, obj, gen);
+                    }
+                }
+            }
+        }
+
         ui.horizontal_wrapped(|ui| {
             ui.strong("Executes:");
             if selected.execute_targets.is_empty() {
