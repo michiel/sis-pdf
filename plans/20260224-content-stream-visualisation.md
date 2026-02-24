@@ -709,38 +709,513 @@ only enabled when a content stream is active (i.e., `content_stream_state.active
 
 ---
 
-## Stage 4 — Recursive Form XObject Visualisation (Future)
+## Stage 4 — Recursive Form XObject Visualisation
 
-Not in scope for the initial implementation, but the data model supports it:
+**Goal**: Follow Form XObject references transitively — collecting a `ContentStreamSummary` for
+each reachable Form stream and integrating them into the graph with `XObjectContains` edges. Expose
+this through a `--recursive` CLI flag and an "Expand Form XObjects" toggle in the GUI panel.
 
-- `XObjectContains` edges in `ContentStreamGraph` can point to a nested `ContentStreamGraph` for
-  Form XObjects.
-- The GUI could render this as a sub-panel or an expandable sub-graph.
-- The CLI could expose `graph.content N G --recursive` to include transitive Form XObject streams.
-- Depth limit (default 5) and visited-set tracking are required to prevent infinite recursion on
-  circular Form XObject references.
+**Status**: Not Started
+
+### 4.1 — Background and constraints
+
+Form XObjects (`/Subtype /Form`) are reusable content streams referenced via `Do` operators.
+The `ContentBlock::XObjectInvoke` block already captures `resource_name`, `target_ref: Option<(u32, u16)>`,
+and `subtype: Some("Form")` for resolved Form XObjects. The `CsgEdgeKind::XObjectContains` edge type
+is defined in `content_summary.rs` but currently never emitted — `build_content_graph` treats Form
+XObjects as opaque leaf nodes.
+
+Key constraints:
+
+- `summarise_stream` takes borrowed references (`bytes: &[u8]`, `resources: Option<&PdfDict<'_>>`,
+  `graph: &ObjectGraph<'_>`). Form XObject streams live in the same `ObjectGraph`, so child summaries
+  can be computed within the same borrow scope.
+- Form XObjects carry their own `/Resources` dict (PDF spec §8.10.3). The child summary must use
+  the Form's own resource dict, not the parent page's. If the Form dict has no `/Resources`, pass
+  `None`.
+- Circular references (`Fm0 → Fm1 → Fm0`) must be detected via a `visited: HashSet<(u32, u16)>`.
+  Default depth limit: 5. Both limits apply independently — stop whichever is reached first.
+- Stage 4 is additive: the non-recursive path (current Stage 1–3 behaviour) must remain unchanged.
+
+### 4.2 — New data model: `RecursiveContentSummary`
+
+**File**: `crates/sis-pdf-pdf/src/content_summary.rs`
+
+```rust
+/// Top-level summary for a content stream and all reachable Form XObject sub-streams.
+///
+/// Produced by `summarise_xobject_tree`. The `root` field is identical to what
+/// `summarise_stream` would return for the same stream. `xobject_children` is empty
+/// when called without recursion (equivalent to the non-recursive API).
+#[derive(Debug, Clone)]
+pub struct RecursiveContentSummary {
+    /// Summary for the directly-requested stream.
+    pub root: ContentStreamSummary,
+    /// Summaries for all Form XObject streams reachable from `root`, keyed by stream ref.
+    /// Populated in breadth-first order up to `depth_limit` hops from root.
+    pub xobject_children: HashMap<(u32, u16), ContentStreamSummary>,
+}
+```
+
+### 4.3 — New function: `summarise_xobject_tree`
+
+**File**: `crates/sis-pdf-pdf/src/content_summary.rs`
+
+```rust
+/// Summarise a content stream and, recursively, all Form XObjects it invokes.
+///
+/// `depth_limit` caps transitive Form XObject depth (default: 5). Set to 0 for
+/// non-recursive behaviour (equivalent to calling `summarise_stream` directly).
+/// `visited` tracks stream refs already processed to break cycles; callers should
+/// pass an empty set.
+///
+/// For each Form XObject in `root.blocks` with `subtype == Some("Form")` and a resolved
+/// `target_ref`, this function:
+/// 1. Looks up the Form stream via `graph.get_object(target_ref.0, target_ref.1)`.
+/// 2. Decodes it via `decode_stream(bytes, stream, MAX_DECODE_BYTES)`.
+/// 3. Reads the Form's own `/Resources` from its stream dict; falls back to `None`.
+/// 4. Calls `summarise_stream` on the decoded bytes with `page_ref: None`.
+/// 5. Recurses into the child summary's blocks.
+///
+/// The function does not mutate `bytes` and makes no heap allocation beyond the
+/// returned `RecursiveContentSummary`.
+pub fn summarise_xobject_tree(
+    bytes: &[u8],
+    truncated: bool,
+    stream_ref: (u32, u16),
+    page_ref: Option<(u32, u16)>,
+    raw_stream_offset: u64,
+    resources: Option<&PdfDict<'_>>,
+    graph: &ObjectGraph<'_>,
+    depth_limit: usize,
+    visited: &mut HashSet<(u32, u16)>,
+) -> RecursiveContentSummary
+```
+
+Internal helper called by `summarise_xobject_tree` (private):
+
+```rust
+fn collect_form_xobject_children(
+    bytes: &[u8],
+    summary: &ContentStreamSummary,
+    graph: &ObjectGraph<'_>,
+    depth: usize,
+    depth_limit: usize,
+    visited: &mut HashSet<(u32, u16)>,
+    out: &mut HashMap<(u32, u16), ContentStreamSummary>,
+)
+```
+
+`collect_form_xobject_children` scans `summary.blocks` recursively (handling `GraphicsState` and
+`MarkedContent` children) for `ContentBlock::XObjectInvoke { subtype: Some("Form"), target_ref: Some(r), .. }`,
+then for each unvisited `r` decodes and summarises the child stream and recurses.
+
+### 4.4 — Updated graph builder: `build_content_graph_recursive`
+
+**File**: `crates/sis-pdf-pdf/src/content_summary.rs`
+
+The existing `build_content_graph(summary)` remains unchanged (non-recursive). Add:
+
+```rust
+/// Build a ContentStreamGraph including XObjectContains edges to child Form XObject summaries.
+///
+/// For each `XObjectInvoke` node with `subtype == Some("Form")` whose `target_ref` appears in
+/// `child_summaries`, this function:
+/// 1. Adds all nodes/edges from the child's graph inline, with ids prefixed `"child_{obj}_{gen}_"`.
+/// 2. Creates a `CsgEdge { from: xobj_node_id, to: child_first_node_id, kind: XObjectContains }`.
+///
+/// `child_summaries` is typically `RecursiveContentSummary.xobject_children`.
+pub fn build_content_graph_recursive(
+    summary: &ContentStreamSummary,
+    child_summaries: &HashMap<(u32, u16), ContentStreamSummary>,
+) -> ContentStreamGraph
+```
+
+The DOT renderer already assigns colour `"#44aa88"` and label `"contains"` to `XObjectContains`
+edges (`content_graph_to_dot`); no change needed there.
+
+### 4.5 — CLI changes
+
+**File**: `crates/sis-pdf/src/commands/query.rs`
+
+Add `--recursive` / `-r` bool flag to the `stream.content`, `page.content`, `graph.content`, and
+`graph.page.content` query variants. This maps to a new `recursive: bool` field on the relevant
+`Query` enum variants:
+
+```rust
+StreamContentOps     { obj: u32, gen: u16, recursive: bool },
+StreamContentOpsJson { obj: u32, gen: u16, recursive: bool },
+GraphContentStreamDot  { obj: u32, gen: u16, recursive: bool },
+GraphContentStreamJson { obj: u32, gen: u16, recursive: bool },
+GraphPageContentDot    { page_idx: usize,    recursive: bool },
+GraphPageContentJson   { page_idx: usize,    recursive: bool },
+```
+
+Query string surface (new variants alongside existing ones):
+
+```
+stream.content.recursive N G         — text breakdown, follows Form XObjects
+stream.content.json.recursive N G    — JSON breakdown
+graph.content.recursive N G          — DOT graph with XObjectContains edges
+graph.content.json.recursive N G     — JSON graph with XObjectContains edges
+graph.page.content.recursive N       — DOT graph for page (all streams + Form children)
+graph.page.content.json.recursive N
+```
+
+When `recursive: true`, `decode_and_summarise_stream` calls `summarise_xobject_tree` instead of
+`summarise_stream`, and the graph builder calls `build_content_graph_recursive` instead of
+`build_content_graph`.
+
+**Text output for recursive mode**: each Form XObject child is printed as an indented sub-section
+prefixed with `  [Form XObject N G]\n` before its own `summary_to_text` output.
+
+**JSON output for recursive mode**: the top-level JSON object gains an `"xobject_children"` key:
+
+```json
+{
+  "stream_ref": [15, 0],
+  "blocks": [...],
+  "stats": {...},
+  "anomalies": [...],
+  "xobject_children": {
+    "31 0": { "stream_ref": [31, 0], "blocks": [...], ... },
+    "32 0": { "stream_ref": [32, 0], "blocks": [...], ... }
+  }
+}
+```
+
+### 4.6 — GUI changes
+
+**File**: `crates/sis-pdf-gui/src/panels/content_stream.rs`
+
+Extend `ContentStreamPanelState`:
+
+```rust
+pub struct ContentStreamPanelState {
+    pub active_stream: Option<(u32, u16)>,
+    pub summary: Option<ContentStreamSummary>,
+    pub expanded: HashMap<usize, bool>,
+    pub selected_block: Option<usize>,
+    pub anomalies_only: bool,
+    /// Lazy-loaded Form XObject child summaries. Populated on demand when the user
+    /// clicks "Expand Form XObjects". Keyed by stream ref.
+    pub xobject_children: HashMap<(u32, u16), ContentStreamSummary>,
+    /// Whether Form XObject children are currently expanded in the tree view.
+    pub show_xobject_children: bool,
+}
+```
+
+UI additions in `show_inner`:
+
+- "Expand Form XObjects" toggle button in the header bar, visible only when the summary contains
+  at least one `XObjectInvoke` block with `subtype == Some("Form")` and a resolved `target_ref`.
+- When toggled on, `open_stream` is called for each unloaded Form XObject ref (depth 1 only; the
+  user must click through for deeper nesting). Results are stored in `xobject_children`.
+- Each `XObjectInvoke` row with an expanded child renders the child's block tree inline, indented,
+  under a collapsible `"Form XObject N G"` header with the child's anomaly badge.
+
+**Graph viewer** (`graph.rs` / `graph_data.rs`):
+
+When the active mode is `ContentStream` and `show_xobject_children` is true,
+`build_content_stream_graph_for_gui` calls `build_content_graph_recursive` passing
+`app.content_stream_state.xobject_children`. The resulting graph will contain `XObjectContains`
+edges rendered as dashed teal arrows.
+
+### 4.7 — Tests
+
+**Unit tests** (`crates/sis-pdf-pdf/tests/`):
+
+- `summarise_xobject_tree_form_xobject_depth_1`: synthetic PDF bytes with a page stream invoking
+  a Form XObject; assert `xobject_children` has one entry with correct `stream_ref`.
+- `summarise_xobject_tree_cycle_detection`: stream A invokes Form B, Form B invokes Form A;
+  assert no panic and only one entry in `xobject_children` (cycle broken at depth 2).
+- `summarise_xobject_tree_depth_limit`: chain of 6 nested Forms; assert `xobject_children.len() == 5`
+  (depth limit 5 honoured).
+- `build_content_graph_recursive_emits_xobject_contains_edge`: `child_summaries` with one entry;
+  assert graph contains at least one edge with `kind == XObjectContains`.
+- `summarise_xobject_tree_form_resources`: Form XObject with its own `/Resources /Font` dict;
+  assert child summary resolves font refs correctly.
+
+**Integration tests** (`crates/sis-pdf/tests/`):
+
+- `stream_content_recursive_follows_form_xobject`: fixture with page → Form chain; assert
+  `xobject_children` key count > 0 in JSON output.
+- `graph_content_recursive_emits_contains_edge_dot`: DOT output contains the string `"contains"`.
+
+**Success criteria**: `summarise_xobject_tree` on `content_first_phase1.pdf` returns a
+`RecursiveContentSummary` where `xobject_children` is non-empty if the page uses Form XObjects,
+and empty otherwise. No panic on a 6-deep Form XObject chain or a circular reference.
 
 ---
 
-## Stage 5 — Findings Integration (Future)
+## Stage 5 — Findings Integration
 
-Not in scope initially:
+**Goal**: Correlate `ContentStreamAnomaly` values with existing detector findings, surface matched
+findings in the content stream panel (with severity highlighting), and annotate graph nodes that
+correspond to active findings.
 
-- `InvisibleRenderingMode` and `ExcessiveKernOffset` anomalies can backlink to the existing
-  `content_invisible_text` finding (from `content_phishing.rs`). Even before a full Stage 5
-  implementation, anomaly metadata can include `finding_kind: "content_invisible_text"` as a
-  correlation hint.
-- If a finding has evidence spanning a content stream (e.g. `EvidenceSpan` pointing at stream bytes),
-  the content stream panel could highlight the relevant block in red.
-- `stream_high_entropy` findings could surface directly in the graph as a node annotation.
+**Status**: Not Started
+
+### 5.1 — Anomaly-to-finding correlation table
+
+The following anomalies produced by `summarise_stream` correspond to findings from existing detectors:
+
+| Anomaly variant | Finding kind | Detector | Correlation key |
+|---|---|---|---|
+| `InvisibleRenderingMode` | `content_invisible_text` | `ContentDeceptionDetector` | page ref matches finding's `objects[]` |
+| `ExcessiveKernOffset` | `content_invisible_text` | `ContentDeceptionDetector` | page ref matches finding's `objects[]` |
+| `ZeroScaleText` | `content_invisible_text` | `ContentDeceptionDetector` | page ref matches finding's `objects[]` |
+| — (stream-level) | `stream_high_entropy` | `EncryptionObfuscationDetector` | stream ref matches finding's `objects[]` |
+| — (stream-level) | `stream_zlib_bomb` | `EncryptionObfuscationDetector` | stream ref matches finding's `objects[]` |
+
+The `content_invisible_text` finding's `objects` field contains the page object ref string
+(`"P 0 obj"` format, produced by `content_phishing.rs:419`). Stream-level findings use the stream
+object ref string directly.
+
+### 5.2 — New type: `CorrelatedFinding`
+
+**File**: `crates/sis-pdf-gui/src/panels/content_stream.rs`
+
+```rust
+/// A finding from the scan report correlated to the active content stream.
+#[derive(Debug, Clone)]
+pub struct CorrelatedFinding {
+    /// Finding ID (for navigating to the findings panel).
+    pub finding_id: String,
+    /// Finding kind string (e.g. `"content_invisible_text"`).
+    pub kind: String,
+    pub severity: sis_pdf_core::model::Severity,
+    pub confidence: sis_pdf_core::model::Confidence,
+    pub title: String,
+    /// Which anomaly in the stream summary this finding correlates to, if any.
+    /// Matches on anomaly variant name, e.g. `"InvisibleRenderingMode"`.
+    pub anomaly_hint: Option<String>,
+    /// Decoded stream byte offset of the matching evidence span, if the finding
+    /// carries an `EvidenceSource::Decoded` span that falls within this stream.
+    pub decoded_offset: Option<u64>,
+}
+```
+
+### 5.3 — Correlation function
+
+**File**: `crates/sis-pdf-gui/src/panels/content_stream.rs`
+
+```rust
+/// Collect findings from `report` that are correlated to stream `stream_ref` / page `page_ref`.
+///
+/// Correlation rules (applied in order, all matching findings are included):
+/// 1. Finding's `objects` list contains `"N G obj"` for stream_ref or page_ref.
+/// 2. Finding has at least one `EvidenceSource::Decoded` evidence span whose `offset` falls
+///    within `[raw_stream_offset, raw_stream_offset + decoded_stream_len]`.
+/// 3. Finding kind is in STREAM_FINDING_KINDS and finding's `objects` contains stream_ref.
+///
+/// Deduplicates by `finding.id`. Returns findings sorted by severity (highest first).
+fn correlate_findings(
+    report: &sis_pdf_core::model::Report,
+    stream_ref: (u32, u16),
+    page_ref: Option<(u32, u16)>,
+    raw_stream_offset: u64,
+    decoded_stream_len: u64,
+) -> Vec<CorrelatedFinding>
+```
+
+The set `STREAM_FINDING_KINDS` is a `const` slice:
+
+```rust
+const STREAM_FINDING_KINDS: &[&str] = &[
+    "stream_high_entropy",
+    "stream_zlib_bomb",
+    "content_invisible_text",
+    "content_image_only_page",
+    "content_overlay_link",
+];
+```
+
+The function parses `finding.objects` strings via a simple pattern `"N G obj"` → `(N, G): (u32, u16)`.
+It does not depend on the `ObjectContextIndex` to avoid a second pass over all findings.
+
+### 5.4 — Panel state extension
+
+**File**: `crates/sis-pdf-gui/src/panels/content_stream.rs`
+
+Extend `ContentStreamPanelState` (in addition to the Stage 4 fields):
+
+```rust
+pub struct ContentStreamPanelState {
+    // ... existing fields ...
+    // NEW for Stage 5:
+    /// Findings correlated to the active stream. Populated when `active_stream` changes.
+    pub correlated_findings: Vec<CorrelatedFinding>,
+    /// Show only blocks/anomalies that match a correlated finding.
+    pub findings_only: bool,
+}
+```
+
+Populate in `open_stream` after computing `summary`:
+
+```rust
+if let (Some(ref summary), Some(ref result)) =
+    (&app.content_stream_state.summary, &app.result)
+{
+    let decoded_len = /* estimate from summary.stats.total_op_count or store in summary */;
+    app.content_stream_state.correlated_findings = correlate_findings(
+        &result.report,
+        stream_ref,
+        summary.page_ref,
+        summary.raw_stream_offset,
+        decoded_len,
+    );
+}
+```
+
+To support `decoded_len`, add `decoded_len: u64` to `ContentStreamSummary` (set from
+`decoded.data.len()` in `summarise_stream`'s caller — in `decode_and_summarise_stream` for CLI and
+`compute_stream_summary` for GUI).
+
+### 5.5 — Panel UI changes
+
+**File**: `crates/sis-pdf-gui/src/panels/content_stream.rs`
+
+In `show_inner`:
+
+**Findings bar** (new section between stats and anomalies):
+
+```
+┌─ Content Stream: 15 0 ──────────────────────────────────────────────────────┐
+│  42 ops · 2 text · 1 image · max q-depth 2                                  │
+│  Findings:  ● content_invisible_text [Low/Heuristic]  [Go to finding]       │
+│  Anomalies: 1  [Show anomalies only ☐]  [Show findings only ☐]              │
+├─────────────────────────────────────────────────────────────────────────────┤
+```
+
+- Each `CorrelatedFinding` is shown as a coloured badge (`●`) with severity colour (matching the
+  existing `severity_colour()` helper from `panels/findings.rs`).
+- `[Go to finding]` sets `app.selected_finding` to the index of that finding in `result.report.findings`
+  and opens `app.show_findings = true`.
+- The `findings_only` toggle collapses all blocks except those whose anomaly variant appears in
+  `correlated_findings[].anomaly_hint`.
+
+**Block-level finding highlight**: In `show_block`, when rendering a `TextObject` or
+`XObjectInvoke` block, check whether any `CorrelatedFinding` has a `decoded_offset` whose value
+falls within `[span_start, span_end]`. If so, render the block label with amber background colour
+(`egui::Color32::from_rgb(255, 220, 120)`) and append `[Finding: content_invisible_text]`.
+
+### 5.6 — Graph node annotation
+
+**File**: `crates/sis-pdf-gui/src/graph_data.rs`
+
+In `from_content_graph`, pass `correlated_findings: &[CorrelatedFinding]` as an additional
+parameter. For each `CsgNode`, if a finding's `decoded_offset` falls within
+`[node.span_start, node.span_end]`, set `node.anomaly = true` (already exists on `CsgNode`) and
+append `\n[finding_kind]` to the node label.
+
+Update `from_content_graph` signature:
+
+```rust
+pub fn from_content_graph(
+    csg: &sis_pdf_pdf::content_summary::ContentStreamGraph,
+    correlated_findings: &[crate::panels::content_stream::CorrelatedFinding],
+) -> Result<GraphData, GraphError>
+```
+
+Update the call site in `build_content_stream_graph_for_gui` (graph.rs):
+
+```rust
+fn build_content_stream_graph_for_gui(app: &mut SisApp) -> Result<GraphData, GraphError> {
+    let summary = app.content_stream_state.summary.as_ref().ok_or_else(|| {
+        GraphError::ParseFailed("No content stream summary available.".to_string())
+    })?;
+    let findings = &app.content_stream_state.correlated_findings;
+    let csg = sis_pdf_pdf::content_summary::build_content_graph(summary);
+    graph_data::from_content_graph(&csg, findings)
+}
+```
+
+Graph nodes that correspond to a finding have their colour overridden to amber (severity High/Critical)
+or yellow (Medium/Low) in `node_colour` by checking `node.anomaly`. This reuses the existing
+`anomaly: bool` field on `CsgNode` — no new fields needed.
+
+### 5.7 — CLI: `--with-findings` flag
+
+**File**: `crates/sis-pdf/src/commands/query.rs`
+
+Add `with_findings: bool` to `StreamContentOps`, `StreamContentOpsJson`, `PageContentOps`,
+`PageContentOpsJson` variants. When true, `execute_stream_content_ops` runs `correlate_findings`
+(reusing the same logic as the GUI) and appends a `"correlated_findings"` section to both text and
+JSON output.
+
+Text output addition (appended after stats):
+
+```
+  Correlated findings:
+    ● content_invisible_text [Low/Heuristic]  id: abc123
+```
+
+JSON output addition (new top-level key):
+
+```json
+"correlated_findings": [
+  { "id": "abc123", "kind": "content_invisible_text", "severity": "Low",
+    "confidence": "Heuristic", "title": "Invisible text rendering",
+    "anomaly_hint": "InvisibleRenderingMode", "decoded_offset": 1234 }
+]
+```
+
+To avoid duplicating the correlation logic across CLI and GUI crates, extract `correlate_findings`
+into `sis-pdf-core` as:
+
+```rust
+// crates/sis-pdf-core/src/content_correlation.rs (new file)
+pub fn correlate_content_stream_findings(
+    findings: &[Finding],
+    stream_ref: (u32, u16),
+    page_ref: Option<(u32, u16)>,
+    raw_stream_offset: u64,
+    decoded_stream_len: u64,
+) -> Vec<CorrelatedStreamFinding>
+
+pub struct CorrelatedStreamFinding {
+    pub finding_id: String,
+    pub kind: String,
+    pub severity: Severity,
+    pub confidence: Confidence,
+    pub title: String,
+    pub anomaly_hint: Option<String>,
+    pub decoded_offset: Option<u64>,
+}
+```
+
+The GUI's `CorrelatedFinding` type becomes a thin wrapper or type alias over
+`CorrelatedStreamFinding` to avoid re-implementing the same struct.
+
+### 5.8 — Tests
+
+**Unit tests** (`crates/sis-pdf-core/tests/`):
+
+- `correlate_finds_content_invisible_text_by_page_ref`: synthetic `Report` with one
+  `content_invisible_text` finding; assert correlation returns it when page_ref matches.
+- `correlate_finds_stream_high_entropy_by_stream_ref`: synthetic `Report` with one
+  `stream_high_entropy` finding; assert correlation returns it when stream_ref matches.
+- `correlate_deduplicates_same_finding`: finding matching both stream_ref and page_ref appears once.
+- `correlate_returns_empty_for_unrelated_findings`: unrelated finding not included.
+
+**Integration tests** (`crates/sis-pdf/tests/`):
+
+- `stream_content_with_findings_includes_correlated`: use `launch_cve_2010_1240.pdf` with
+  `--with-findings`; assert no panic and valid JSON output.
+- `page_content_with_findings_round_trips_json`: JSON output has `"correlated_findings"` key.
+
+**Success criteria**: On a real PDF that produces a `content_invisible_text` finding, the content
+stream panel shows that finding in the findings bar and highlights the relevant block(s). The
+`stream.content N G --with-findings` CLI command emits the finding in its JSON output.
 
 ---
 
 ## Implementation Order
 
 ```
-Stage 1  →  Stage 2  →  Stage 3a  →  Stage 3b
-(core lib)  (CLI)        (GUI panel)  (graph mode)
+Stage 1  →  Stage 2  →  Stage 3a  →  Stage 3b  →  Stage 4  →  Stage 5
+(core lib)  (CLI)        (GUI panel)  (graph mode)  (XObj rec)  (findings)
 ```
 
 Each stage is independently testable and delivers user value on its own. Stage 1 is the prerequisite
@@ -752,27 +1227,30 @@ for all others.
 
 ### New files
 
-| File | Purpose |
-|---|---|
-| `crates/sis-pdf-pdf/src/content_summary.rs` | `summarise_stream`, `build_content_graph`, DOT/JSON export |
-| `crates/sis-pdf-gui/src/panels/content_stream.rs` | Content Stream floating panel |
-| `fuzz/fuzz_targets/content_summary.rs` | Fuzz target for `summarise_stream` over untrusted decoded bytes |
+| File | Purpose | Stage |
+|---|---|---|
+| `crates/sis-pdf-pdf/src/content_summary.rs` | `summarise_stream`, `build_content_graph`, DOT/JSON export | 1 |
+| `crates/sis-pdf-gui/src/panels/content_stream.rs` | Content Stream floating panel | 3a |
+| `fuzz/fuzz_targets/content_summary.rs` | Fuzz target for `summarise_stream` over untrusted decoded bytes | 1 |
+| `crates/sis-pdf-core/src/content_correlation.rs` | `correlate_content_stream_findings`, `CorrelatedStreamFinding` | 5 |
 
 ### Modified files
 
-| File | Change |
-|---|---|
-| `crates/sis-pdf-pdf/src/lib.rs` | Export `content_summary` module |
-| `crates/sis-pdf-core/src/page_tree.rs` | Add `resolve_page_resources(graph, obj, gen) -> Option<PdfDict>` helper with inheritance traversal |
-| `crates/sis-pdf/src/commands/query.rs` | New `Query` variants + handlers for `stream.content`, `page.content`, `graph.content`, `graph.page.content` |
-| `crates/sis-pdf/src/main.rs` | Register new query string aliases in `parse_query()` |
-| `crates/sis-pdf-gui/src/query.rs` | New `Query::ContentStream` variant, parse `page.content N` / `stream.content N G` |
-| `crates/sis-pdf-gui/src/app.rs` | Add `show_content_stream`, `content_stream_state` fields |
-| `crates/sis-pdf-gui/src/panels/mod.rs` | Register new panel |
-| `crates/sis-pdf-gui/src/panels/graph.rs` | Add `ContentStream` mode, `from_content_graph` call, highlight bridge |
-| `crates/sis-pdf-gui/src/graph_data.rs` | `from_content_graph()` conversion function |
-| `crates/sis-pdf-gui/src/panels/events.rs` | "View content operators" button on `ContentStreamExec` rows |
-| `crates/sis-pdf-gui/src/panels/objects.rs` | "View content operators" button on `ObjectRole::PageContent` and Type 3 CharProc stream objects |
+| File | Change | Stage |
+|---|---|---|
+| `crates/sis-pdf-pdf/src/lib.rs` | Export `content_summary` module | 1 |
+| `crates/sis-pdf-core/src/page_tree.rs` | Add `resolve_page_resources(graph, obj, gen) -> Option<PdfDict>` helper | 1 |
+| `crates/sis-pdf/src/commands/query.rs` | New query variants + handlers; `--recursive` and `--with-findings` flags | 2, 4, 5 |
+| `crates/sis-pdf/src/main.rs` | Register new query string aliases in `parse_query()` | 2, 4 |
+| `crates/sis-pdf-gui/src/query.rs` | New `Query::ContentStream` variant | 3a |
+| `crates/sis-pdf-gui/src/app.rs` | Add `show_content_stream`, `content_stream_state` fields | 3a |
+| `crates/sis-pdf-gui/src/panels/mod.rs` | Register new panel | 3a |
+| `crates/sis-pdf-gui/src/panels/graph.rs` | `ContentStream` mode; recursive graph builder call | 3b, 4, 5 |
+| `crates/sis-pdf-gui/src/graph_data.rs` | `from_content_graph()` with `correlated_findings` parameter | 3b, 5 |
+| `crates/sis-pdf-gui/src/panels/events.rs` | "View content operators" button on `ContentStreamExec` rows | 3a |
+| `crates/sis-pdf-gui/src/panels/objects.rs` | "View content operators" button on `ObjectRole::PageContent` objects | 3a |
+| `crates/sis-pdf-pdf/src/content_summary.rs` | Add `summarise_xobject_tree`, `build_content_graph_recursive`, `RecursiveContentSummary` | 4 |
+| `crates/sis-pdf-core/src/lib.rs` | Export `content_correlation` module | 5 |
 
 ---
 
@@ -815,6 +1293,51 @@ for all others.
 - Mode switch to `ContentStream` populates graph data
 - "View content operators" button appears for `ObjectRole::PageContent` classified object
 
+### Stage 4 (unit tests in `crates/sis-pdf-pdf/tests/`)
+
+- `summarise_xobject_tree_form_xobject_depth_1`: synthetic PDF bytes with page stream invoking one
+  Form XObject; assert `xobject_children.len() == 1` and child `stream_ref` matches.
+- `summarise_xobject_tree_cycle_detection`: stream A invokes Form B, Form B invokes Form A; assert
+  no panic and `xobject_children.len() == 1` (cycle detected at second hop).
+- `summarise_xobject_tree_depth_limit`: chain of 6 nested Forms with `depth_limit: 5`; assert
+  `xobject_children.len() == 5`.
+- `summarise_xobject_tree_image_xobject_not_followed`: `Do /Im0` with subtype Image; assert not
+  added to `xobject_children`.
+- `summarise_xobject_tree_form_resources`: Form XObject with `/Resources /Font` dict; assert child
+  summary resolves font refs using Form's own resources, not page resources.
+- `build_content_graph_recursive_emits_xobject_contains_edge`: `child_summaries` with one entry;
+  assert graph contains at least one edge with `kind == XObjectContains`.
+- `build_content_graph_recursive_empty_children_equivalent_to_non_recursive`: `child_summaries`
+  empty → graph identical to `build_content_graph` output.
+
+**Integration tests** (`crates/sis-pdf/tests/`):
+
+- `stream_content_recursive_follows_form_xobject`: fixture with Form XObject chain; assert JSON
+  `xobject_children` key is present and non-empty.
+- `graph_content_recursive_emits_contains_edge_dot`: DOT output contains `"contains"`.
+- `stream_content_recursive_hostile_no_panic`: `launch_cve_2010_1240.pdf` with `--recursive`; no panic.
+
+### Stage 5 (unit tests in `crates/sis-pdf-core/tests/`)
+
+- `correlate_finds_content_invisible_text_by_page_ref`: synthetic `Report` with one
+  `content_invisible_text` finding whose `objects` contains `"P 0 obj"` matching `page_ref`;
+  assert `correlate_content_stream_findings` returns it.
+- `correlate_finds_stream_high_entropy_by_stream_ref`: `stream_high_entropy` finding with
+  `objects` containing stream ref; assert returned.
+- `correlate_deduplicates_same_finding`: finding matching both stream_ref and page_ref; assert
+  appears exactly once.
+- `correlate_returns_empty_for_unrelated_findings`: finding with different object refs; assert
+  empty result.
+- `correlate_matches_decoded_evidence_offset`: finding with `EvidenceSource::Decoded` span
+  falling within `[raw_stream_offset, raw_stream_offset + decoded_len]`; assert returned with
+  `decoded_offset` populated.
+
+**Integration tests** (`crates/sis-pdf/tests/`):
+
+- `stream_content_with_findings_includes_correlated`: `launch_cve_2010_1240.pdf` with
+  `--with-findings`; assert no panic and JSON output is valid.
+- `page_content_with_findings_round_trips_json`: JSON output has `"correlated_findings"` key.
+
 ### Fuzz target (`fuzz/fuzz_targets/content_summary.rs`)
 
 Fuzz `summarise_stream` with arbitrary bytes as the decoded stream body, a minimal mock
@@ -829,7 +1352,8 @@ existing content stream corpus in `fuzz/corpus/` if one exists; seed with bytes 
 | Risk | Mitigation |
 |---|---|
 | Hostile streams with extremely large op count | `ContentStreamStats.total_op_count` guard; cap block list at 10,000 ops, emit `HighOpCount` anomaly above threshold |
-| Recursive Form XObjects causing infinite loop | Depth limit (default 5) on recursive summarisation; track visited stream refs |
+| Recursive Form XObjects causing infinite loop | Depth limit (default 5) in `summarise_xobject_tree`; `visited: HashSet<(u32, u16)>` breaks cycles |
+| Form XObject with missing stream body | `graph.get_object` and `decode_stream` both return `Option`/`Result`; skip silently |
 | Resource dict absent or malformed | All resolution is `Option`-returning; missing resource → `resolved_ref: None`, no panic |
 | Resource inheritance traversal is expensive | `resolve_page_resources` is called once per query, result passed through — not called inside the summariser loop |
 | Very long decoded strings in TJ/Tj | Truncate preview strings to 200 chars in GUI display and DOT labels |
@@ -838,3 +1362,5 @@ existing content stream corpus in `fuzz/corpus/` if one exists; seed with bytes 
 | TJ kern re-parsing complexity | Array operand re-parsing is a single linear scan; bounded by the raw string length already parsed |
 | Fuzz-discovered panics in summariser | Fuzz target catches these before landing; all branches must use `Option`-returning paths, no `unwrap` |
 | `strings` misinterpreted as readable text | Doc comments, JSON output, and GUI label all note the best-effort / raw-bytes limitation explicitly |
+| Finding correlation false positives | Correlation is opt-in (`--with-findings` / toggle); conservative match on object ref string exact match |
+| `decoded_stream_len` unavailable at correlation call site | Store `decoded_len: u64` in `ContentStreamSummary` (added in Stage 5); populated from `decoded.data.len()` in callers |
