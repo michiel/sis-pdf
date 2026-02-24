@@ -69,8 +69,12 @@ impl std::fmt::Display for GraphError {
 ///
 /// Converts `CsgNode`/`CsgEdge` to `GraphNode`/`GraphEdge`. Node positions are not set
 /// here — the layout engine initialises them after this call.
+///
+/// `correlated_findings` annotates graph nodes whose decoded span overlaps a finding's evidence
+/// offset (Stage 5). Pass an empty slice when findings are not available.
 pub fn from_content_graph(
     csg: &sis_pdf_pdf::content_summary::ContentStreamGraph,
+    correlated_findings: &[sis_pdf_core::content_correlation::CorrelatedStreamFinding],
 ) -> Result<GraphData, GraphError> {
     use sis_pdf_pdf::content_summary::{CsgEdgeKind, CsgNodeKind};
 
@@ -84,7 +88,16 @@ pub fn from_content_graph(
         .iter()
         .enumerate()
         .map(|(idx, node)| {
-            let (obj_type, label, object_ref) = match &node.kind {
+            // Check if any finding's decoded_offset falls within this node's span.
+            let has_finding = correlated_findings.iter().any(|f| {
+                f.decoded_offset
+                    .map(|o| o >= node.span_start && o <= node.span_end)
+                    .unwrap_or(false)
+            });
+            // Merge finding annotation with existing anomaly flag.
+            let anomaly = node.anomaly || has_finding;
+
+            let (obj_type, mut label, object_ref) = match &node.kind {
                 CsgNodeKind::TextBlock { strings, fonts } => {
                     let font_str =
                         if fonts.is_empty() { String::new() } else { fonts.join(", ") };
@@ -137,12 +150,21 @@ pub fn from_content_graph(
                     ("object".to_string(), format!("{} {} R [{}]", obj, gen, obj_type), r)
                 }
             };
+            // Append finding kind annotation to label if applicable.
+            if has_finding {
+                for f in correlated_findings {
+                    if f.decoded_offset.map(|o| o >= node.span_start && o <= node.span_end).unwrap_or(false) {
+                        label.push_str(&format!("\n[{}]", f.kind));
+                        break;
+                    }
+                }
+            }
             GraphNode {
                 object_ref,
                 event_node_id: Some(node.id.clone()),
                 obj_type,
                 label,
-                roles: Vec::new(),
+                roles: if anomaly { vec!["finding".to_string()] } else { Vec::new() },
                 confidence: None,
                 position: [node.sequence as f64 * 120.0, 0.0],
                 target_obj: None,

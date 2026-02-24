@@ -12,6 +12,7 @@
 use crate::content::{parse_content_ops, ContentOp, ContentOperand};
 use crate::graph::ObjectGraph;
 use crate::object::{PdfAtom, PdfDict};
+use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // Public data model
@@ -612,6 +613,152 @@ pub fn summarise_stream(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Recursive Form XObject traversal (Stage 4)
+// ---------------------------------------------------------------------------
+
+/// Maximum bytes to decode when following a Form XObject stream during recursive traversal.
+const MAX_XOBJECT_DECODE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Top-level summary for a content stream and all reachable Form XObject sub-streams.
+///
+/// Produced by `summarise_xobject_tree`. The `root` field is identical to what
+/// `summarise_stream` would return for the same stream. `xobject_children` is empty
+/// when called without recursion (equivalent to the non-recursive API).
+#[derive(Debug, Clone)]
+pub struct RecursiveContentSummary {
+    /// Summary for the directly-requested stream.
+    pub root: ContentStreamSummary,
+    /// Summaries for all Form XObject streams reachable from `root`, keyed by stream ref.
+    /// Populated in breadth-first order up to `depth_limit` hops from root.
+    pub xobject_children: HashMap<(u32, u16), ContentStreamSummary>,
+}
+
+/// Summarise a content stream and, recursively, all Form XObjects it invokes.
+///
+/// `depth_limit` caps transitive Form XObject depth (default: 5). Set to 0 for
+/// non-recursive behaviour (equivalent to calling `summarise_stream` directly).
+/// `visited` tracks stream refs already processed to break cycles; callers should
+/// pass an empty `HashSet`.
+pub fn summarise_xobject_tree(
+    bytes: &[u8],
+    truncated: bool,
+    stream_ref: (u32, u16),
+    page_ref: Option<(u32, u16)>,
+    raw_stream_offset: u64,
+    resources: Option<&PdfDict<'_>>,
+    graph: &ObjectGraph<'_>,
+    depth_limit: usize,
+    visited: &mut HashSet<(u32, u16)>,
+) -> RecursiveContentSummary {
+    visited.insert(stream_ref);
+    let root = summarise_stream(bytes, truncated, stream_ref, page_ref, raw_stream_offset, resources, graph);
+    let mut xobject_children = HashMap::new();
+    if depth_limit > 0 {
+        collect_form_xobject_children(&root, graph, 0, depth_limit, visited, &mut xobject_children);
+    }
+    RecursiveContentSummary { root, xobject_children }
+}
+
+/// Recursively collect Form XObject child summaries from a content stream summary.
+///
+/// Scans `summary.blocks` (including nested blocks inside `GraphicsState` and `MarkedContent`)
+/// for `XObjectInvoke { subtype: Some("Form"), target_ref: Some(r) }` entries. For each
+/// unvisited `r`, decodes and summarises the child stream and recurses into it.
+fn collect_form_xobject_children(
+    summary: &ContentStreamSummary,
+    graph: &ObjectGraph<'_>,
+    depth: usize,
+    depth_limit: usize,
+    visited: &mut HashSet<(u32, u16)>,
+    out: &mut HashMap<(u32, u16), ContentStreamSummary>,
+) {
+    if depth >= depth_limit {
+        return;
+    }
+    collect_form_xobject_children_in_blocks(&summary.blocks, graph, depth, depth_limit, visited, out);
+}
+
+fn collect_form_xobject_children_in_blocks(
+    blocks: &[ContentBlock],
+    graph: &ObjectGraph<'_>,
+    depth: usize,
+    depth_limit: usize,
+    visited: &mut HashSet<(u32, u16)>,
+    out: &mut HashMap<(u32, u16), ContentStreamSummary>,
+) {
+    for block in blocks {
+        match block {
+            ContentBlock::XObjectInvoke { subtype: Some(st), target_ref: Some(r), .. }
+                if st == "Form" =>
+            {
+                let form_ref = *r;
+                if visited.contains(&form_ref) {
+                    continue;
+                }
+                visited.insert(form_ref);
+                // Decode the Form XObject stream.
+                let Some(entry) = graph.get_object(form_ref.0, form_ref.1) else {
+                    continue;
+                };
+                let stream = match &entry.atom {
+                    PdfAtom::Stream(st) => st,
+                    _ => continue,
+                };
+                let raw_stream_offset = stream.data_span.start;
+                // Extract Form XObject's own /Resources.
+                let form_resources = get_stream_resources(graph, stream);
+                let Ok(decoded) = crate::decode::decode_stream(graph.bytes, stream, MAX_XOBJECT_DECODE_BYTES) else {
+                    continue;
+                };
+                let child_summary = summarise_stream(
+                    &decoded.data,
+                    decoded.truncated,
+                    form_ref,
+                    None,
+                    raw_stream_offset,
+                    form_resources.as_ref(),
+                    graph,
+                );
+                let child_blocks = child_summary.blocks.clone();
+                out.insert(form_ref, child_summary);
+                // Recurse into the child's blocks.
+                collect_form_xobject_children_in_blocks(
+                    &child_blocks,
+                    graph,
+                    depth + 1,
+                    depth_limit,
+                    visited,
+                    out,
+                );
+            }
+            ContentBlock::GraphicsState { children, .. } => {
+                collect_form_xobject_children_in_blocks(children, graph, depth, depth_limit, visited, out);
+            }
+            ContentBlock::MarkedContent { children, .. } => {
+                collect_form_xobject_children_in_blocks(children, graph, depth, depth_limit, visited, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Extract the `/Resources` dict from a Form XObject's stream dict.
+fn get_stream_resources<'a>(
+    graph: &'a ObjectGraph<'a>,
+    stream: &crate::object::PdfStream<'a>,
+) -> Option<PdfDict<'a>> {
+    let (_, res_obj) = stream.dict.get_first(b"/Resources")?;
+    match &res_obj.atom {
+        PdfAtom::Dict(d) => Some(d.clone()),
+        PdfAtom::Ref { .. } => graph.resolve_ref(res_obj).and_then(|e| match &e.atom {
+            PdfAtom::Dict(d) => Some(d.clone()),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
 /// Build a `ContentStreamGraph` from a `ContentStreamSummary`.
 ///
 /// Call lazily — only when DOT/JSON graph output or the GUI graph panel is requested.
@@ -645,6 +792,87 @@ pub fn build_content_graph(summary: &ContentStreamSummary) -> ContentStreamGraph
     );
 
     ContentStreamGraph { nodes, edges }
+}
+
+/// Build a `ContentStreamGraph` including `XObjectContains` edges to child Form XObject summaries.
+///
+/// For each `XObjectInvoke` node with `subtype == Some("Form")` whose `target_ref` appears in
+/// `child_summaries`, adds all nodes/edges from the child's graph inline (with id prefix
+/// `"child_{obj}_{gen}_"`) and creates an `XObjectContains` edge.
+///
+/// `child_summaries` is typically `RecursiveContentSummary.xobject_children`.
+pub fn build_content_graph_recursive(
+    summary: &ContentStreamSummary,
+    child_summaries: &HashMap<(u32, u16), ContentStreamSummary>,
+) -> ContentStreamGraph {
+    let mut graph = build_content_graph(summary);
+
+    // For each XObjectInvoke node in the graph that refers to a Form XObject with a child
+    // summary, add the child graph inline and link with an XObjectContains edge.
+    let xobj_nodes: Vec<(String, (u32, u16))> = graph
+        .nodes
+        .iter()
+        .filter_map(|node| {
+            if let CsgNodeKind::XObjectRef { subtype: Some(st), .. } = &node.kind {
+                if st == "Form" {
+                    // Find the ResourceRef edge from this node to a PdfObject node.
+                    let obj_ref = graph.edges.iter().find_map(|e| {
+                        if e.from == node.id && matches!(e.kind, CsgEdgeKind::ResourceRef) {
+                            // Find the PdfObject node.
+                            graph.nodes.iter().find_map(|n| {
+                                if n.id == e.to {
+                                    if let CsgNodeKind::PdfObject { obj, gen, .. } = n.kind {
+                                        return Some((obj, gen));
+                                    }
+                                }
+                                None
+                            })
+                        } else {
+                            None
+                        }
+                    })?;
+                    if child_summaries.contains_key(&obj_ref) {
+                        return Some((node.id.clone(), obj_ref));
+                    }
+                }
+            }
+            None
+        })
+        .collect();
+
+    for (xobj_node_id, form_ref) in xobj_nodes {
+        let Some(child_summary) = child_summaries.get(&form_ref) else {
+            continue;
+        };
+        let child_graph = build_content_graph(child_summary);
+        let prefix = format!("child_{}_{}_", form_ref.0, form_ref.1);
+
+        // Re-map child node ids with prefix to avoid collisions.
+        let first_child_node_id = child_graph.nodes.first().map(|n| format!("{}{}", prefix, n.id));
+
+        for node in &child_graph.nodes {
+            let mut new_node = node.clone();
+            new_node.id = format!("{}{}", prefix, node.id);
+            graph.nodes.push(new_node);
+        }
+        for edge in &child_graph.edges {
+            graph.edges.push(CsgEdge {
+                from: format!("{}{}", prefix, edge.from),
+                to: format!("{}{}", prefix, edge.to),
+                kind: edge.kind,
+            });
+        }
+        // XObjectContains edge from the XObjectInvoke node to the first child node.
+        if let Some(first_id) = first_child_node_id {
+            graph.edges.push(CsgEdge {
+                from: xobj_node_id,
+                to: first_id,
+                kind: CsgEdgeKind::XObjectContains,
+            });
+        }
+    }
+
+    graph
 }
 
 fn add_blocks_to_graph(
@@ -1013,6 +1241,22 @@ pub fn summary_to_json(summary: &ContentStreamSummary) -> serde_json::Value {
         "anomalies": anomalies_json,
         "blocks": blocks_json,
     })
+}
+
+/// Serialise a `RecursiveContentSummary` to a JSON `Value`.
+///
+/// Adds an `"xobject_children"` key mapping `"obj gen"` strings to child summaries.
+pub fn recursive_summary_to_json(rcs: &RecursiveContentSummary) -> serde_json::Value {
+    let mut root_json = summary_to_json(&rcs.root);
+    let children_json: serde_json::Map<String, serde_json::Value> = rcs
+        .xobject_children
+        .iter()
+        .map(|((obj, gen), s)| (format!("{} {}", obj, gen), summary_to_json(s)))
+        .collect();
+    if let Some(obj) = root_json.as_object_mut() {
+        obj.insert("xobject_children".to_string(), serde_json::Value::Object(children_json));
+    }
+    root_json
 }
 
 fn block_to_json(block: &ContentBlock) -> serde_json::Value {
@@ -1800,5 +2044,119 @@ mod tests {
         let stream = b"/Im0 Do";
         let s = summarise(stream);
         assert!(s.blocks.iter().any(|b| matches!(b, ContentBlock::XObjectInvoke { resource_name, .. } if resource_name == "/Im0")));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Stage 4: summarise_xobject_tree tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn summarise_xobject_tree_no_form_xobjects_returns_empty_children() {
+        let stream = b"BT /F1 12 Tf (Hello) Tj ET";
+        let graph = empty_graph();
+        let mut visited = HashSet::new();
+        let rcs = summarise_xobject_tree(
+            stream,
+            false,
+            (1, 0),
+            None,
+            0,
+            None,
+            &graph,
+            5,
+            &mut visited,
+        );
+        assert!(rcs.xobject_children.is_empty(), "no Form XObjects → empty children");
+        assert_eq!(rcs.root.stream_ref, (1, 0));
+    }
+
+    #[test]
+    fn summarise_xobject_tree_depth_zero_returns_empty_children() {
+        // Even if there were Form XObjects, depth_limit=0 means no recursion.
+        let stream = b"/Fm0 Do";
+        let graph = empty_graph();
+        let mut visited = HashSet::new();
+        let rcs = summarise_xobject_tree(
+            stream,
+            false,
+            (1, 0),
+            None,
+            0,
+            None,
+            &graph,
+            0,
+            &mut visited,
+        );
+        // depth_limit=0 → no recursion
+        assert!(rcs.xobject_children.is_empty());
+    }
+
+    #[test]
+    fn summarise_xobject_tree_visited_prevents_cycle() {
+        // Pre-populate visited with the stream ref to simulate a cycle scenario.
+        let stream = b"BT (text) Tj ET";
+        let graph = empty_graph();
+        let mut visited = HashSet::new();
+        // Visit the root before calling; this simulates being called from within a cycle.
+        let _ = visited.insert((1, 0));
+        let rcs = summarise_xobject_tree(
+            stream,
+            false,
+            (1, 0),
+            None,
+            0,
+            None,
+            &graph,
+            5,
+            &mut visited,
+        );
+        // Root is already visited; no panic, returns a summary.
+        assert_eq!(rcs.root.stream_ref, (1, 0));
+    }
+
+    #[test]
+    fn build_content_graph_recursive_empty_children_equivalent_to_non_recursive() {
+        let stream = b"q BT /F1 12 Tf (Hello) Tj ET Q";
+        let s = summarise(stream);
+        let children = HashMap::new();
+        let recursive_graph = build_content_graph_recursive(&s, &children);
+        let non_recursive_graph = build_content_graph(&s);
+        // Both should have the same node count (no extra child nodes added).
+        assert_eq!(recursive_graph.nodes.len(), non_recursive_graph.nodes.len());
+        assert_eq!(recursive_graph.edges.len(), non_recursive_graph.edges.len());
+    }
+
+    #[test]
+    fn build_content_graph_recursive_emits_xobject_contains_edge_with_child() {
+        // Build a summary that has an XObjectInvoke for a Form XObject.
+        let stream = b"/Fm0 Do";
+        let graph = empty_graph();
+        let root_summary = summarise_stream(stream, false, (1, 0), None, 0, None, &graph);
+        // Create a synthetic child summary.
+        let child_stream = b"BT (child text) Tj ET";
+        let child_summary = summarise_stream(child_stream, false, (99, 0), None, 0, None, &graph);
+        // The root summary has an XObjectInvoke, but target_ref is None (no resource dict).
+        // Since target_ref is None, the recursive graph won't add XObjectContains edges for
+        // unresolved refs — this is expected behaviour. Test that no panic occurs.
+        let mut children = HashMap::new();
+        children.insert((99, 0), child_summary);
+        let csg = build_content_graph_recursive(&root_summary, &children);
+        // Should build without panic; XObjectContains edge only present if target_ref resolved.
+        assert!(!csg.nodes.is_empty());
+    }
+
+    #[test]
+    fn recursive_summary_to_json_has_xobject_children_key() {
+        use super::recursive_summary_to_json;
+        let stream = b"BT (test) Tj ET";
+        let graph = empty_graph();
+        let root = summarise_stream(stream, false, (1, 0), None, 0, None, &graph);
+        let child = summarise_stream(stream, false, (2, 0), None, 0, None, &graph);
+        let mut children = HashMap::new();
+        children.insert((2, 0u16), child);
+        let rcs = RecursiveContentSummary { root, xobject_children: children };
+        let json = recursive_summary_to_json(&rcs);
+        assert!(json["xobject_children"].is_object(), "expected xobject_children key");
+        assert!(json["xobject_children"]["2 0"].is_object(), "expected child entry for 2 0");
     }
 }

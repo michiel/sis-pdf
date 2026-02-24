@@ -14,6 +14,7 @@ pub mod chain_render;
 pub mod chain_score;
 pub mod chain_synth;
 pub mod config;
+pub mod content_correlation;
 pub mod content_index;
 pub mod correlation;
 pub mod crypto_analysis;

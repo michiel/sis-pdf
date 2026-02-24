@@ -954,8 +954,15 @@ fn build_content_stream_graph_for_gui(app: &mut SisApp) -> Result<GraphData, Gra
     let summary = app.content_stream_state.summary.as_ref().ok_or_else(|| {
         GraphError::ParseFailed("No content stream summary available. Open a content stream first.".to_string())
     })?;
-    let csg = sis_pdf_pdf::content_summary::build_content_graph(summary);
-    graph_data::from_content_graph(&csg)
+    let findings = &app.content_stream_state.correlated_findings;
+    let xobject_children = &app.content_stream_state.xobject_children;
+
+    let csg = if app.content_stream_state.show_xobject_children && !xobject_children.is_empty() {
+        sis_pdf_pdf::content_summary::build_content_graph_recursive(summary, xobject_children)
+    } else {
+        sis_pdf_pdf::content_summary::build_content_graph(summary)
+    };
+    graph_data::from_content_graph(&csg, findings)
 }
 
 /// Build the graph from the current analysis result.
