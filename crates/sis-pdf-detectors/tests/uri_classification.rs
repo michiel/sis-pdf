@@ -3,6 +3,43 @@ mod common;
 use common::default_scan_opts;
 use sis_pdf_detectors::{default_detectors, uri_classification::analyze_uri_content};
 
+// ---------------------------------------------------------------------------
+// Minimal PDF builder (same pattern as action_trigger_chain_context tests)
+// ---------------------------------------------------------------------------
+
+fn build_pdf_with_objects(objects: &[&str]) -> Vec<u8> {
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    let mut offsets = vec![0usize; objects.len() + 1];
+    for object in objects {
+        let obj_num = object
+            .split_whitespace()
+            .next()
+            .and_then(|token| token.parse::<usize>().ok())
+            .expect("object number");
+        if obj_num < offsets.len() {
+            offsets[obj_num] = pdf.len();
+        }
+        pdf.extend_from_slice(object.as_bytes());
+    }
+    let start_xref = pdf.len();
+    let size = offsets.len();
+    pdf.extend_from_slice(format!("xref\n0 {size}\n").as_bytes());
+    pdf.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in offsets.iter().skip(1) {
+        if *offset == 0 {
+            pdf.extend_from_slice(b"0000000000 00000 f \n");
+        } else {
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+    }
+    pdf.extend_from_slice(
+        format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{start_xref}\n%%EOF\n")
+            .as_bytes(),
+    );
+    pdf
+}
+
 #[test]
 fn parses_authority_and_flags_phishing_indicators() {
     let content =
@@ -96,4 +133,63 @@ fn uri_listing_aggregates_metadata() {
         report.findings.iter().all(|f| f.kind != "uri_present"),
         "retired uri_present finding should not be emitted"
     );
+}
+
+// ---------------------------------------------------------------------------
+// UNC path / NTLM risk detection
+// ---------------------------------------------------------------------------
+
+#[test]
+fn detects_unc_backslash_form() {
+    // Windows UNC path: \\attacker\share
+    let content = analyze_uri_content(b"\\\\attacker\\share");
+    assert!(content.has_unc_path, "backslash-form UNC should be flagged");
+}
+
+#[test]
+fn detects_unc_slash_form_without_scheme() {
+    // Slash-form without scheme: //attacker/share
+    let content = analyze_uri_content(b"//attacker/share");
+    assert!(content.has_unc_path, "slash-form UNC with no scheme should be flagged");
+}
+
+#[test]
+fn does_not_flag_normal_https_double_slash() {
+    let content = analyze_uri_content(b"https://example.com/path");
+    assert!(!content.has_unc_path, "https:// URL must not be flagged as UNC");
+}
+
+#[test]
+fn uri_annotation_with_unc_path_emits_ntlm_finding() {
+    // PDF with a /URI annotation whose target is a Windows UNC path.
+    // The UNC value in hex: \\attacker\share = 5c5c617474 61636b65725c7368617265
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Annots [4 0 R] >>\nendobj\n",
+        "4 0 obj\n<< /Type /Annot /Subtype /Link /Rect [0 0 100 100] /A 5 0 R >>\nendobj\n",
+        // /URI value is \\attacker\share encoded as a hex string to avoid PDF escape ambiguity
+        "5 0 obj\n<< /S /URI /URI <5c5c61747461636b65725c7368617265> >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    assert!(
+        report.findings.iter().any(|f| f.kind == "uri_unc_path_ntlm_risk"),
+        "uri_unc_path_ntlm_risk finding must be emitted for a /URI action with UNC path; \
+         findings: {:?}",
+        report.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
+    );
+
+    let finding = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "uri_unc_path_ntlm_risk")
+        .unwrap();
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Strong);
+    assert!(finding.meta.contains_key("uri.unc_path"), "meta must contain uri.unc_path");
 }

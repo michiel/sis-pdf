@@ -45,6 +45,9 @@ pub struct UriContentAnalysis {
     pub has_suspicious_scheme: bool,
     pub has_embedded_ip_host: bool,
     pub has_idn_lookalike: bool,
+    /// True when the URI is a Windows UNC path (`\\server\share` or `//server/share`
+    /// without a preceding scheme), which triggers NTLM hash capture on Windows renderers.
+    pub has_unc_path: bool,
 
     // Data URI details
     pub data_mime: Option<String>,
@@ -202,6 +205,10 @@ pub fn analyze_uri_content(uri: &[u8]) -> UriContentAnalysis {
     let has_suspicious_scheme = is_suspicious_scheme(&scheme);
     let has_embedded_ip_host = domain.as_ref().is_some_and(|d| has_embedded_ip(d));
     let has_idn_lookalike = domain.as_ref().is_some_and(|d| has_idn_lookalike_domain(d));
+    // UNC path detection: `\\server\share` (Windows-style) or `//server/share` with no scheme.
+    // These trigger NTLM hash capture when processed by Windows PDF renderers.
+    // Use the raw URL to detect absence of a real scheme (parse_scheme defaults to "http").
+    let has_unc_path = is_unc_path(&url, !url.contains(':'));
     let (data_mime, data_is_base64, data_length) =
         if is_data_uri { parse_data_uri(rest.as_str()) } else { (None, false, None) };
     let phishing_indicators = detect_phishing_indicators(PhishingIndicatorContext {
@@ -243,6 +250,7 @@ pub fn analyze_uri_content(uri: &[u8]) -> UriContentAnalysis {
         has_suspicious_scheme,
         has_embedded_ip_host,
         has_idn_lookalike,
+        has_unc_path,
         data_mime,
         data_is_base64,
         data_length,
@@ -663,6 +671,27 @@ fn has_idn_lookalike_domain(domain: &str) -> bool {
     if !domain.is_ascii() {
         let has_ascii_alpha = domain.chars().any(|c| c.is_ascii_alphabetic());
         return has_ascii_alpha;
+    }
+    false
+}
+
+/// Return `true` when `url` is a UNC-style path that will trigger NTLM hash capture
+/// on Windows PDF renderers.
+///
+/// Two patterns are recognised:
+/// - `\\server\share` (backslash-form; `scheme_absent` need not be true — the scheme is "unc")
+/// - `//server/share` with **no** preceding URI scheme (e.g. `//attacker/share`)
+fn is_unc_path(url: &str, scheme_absent: bool) -> bool {
+    // Backslash-form UNC: starts with two backslashes followed by at least one word char.
+    if url.starts_with(r"\\") && url.len() > 2 {
+        let after = &url[2..];
+        return after.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_' || c == '-');
+    }
+    // Slash-form: `//server/...` only when no scheme is present (otherwise it is a valid URL).
+    if scheme_absent && url.starts_with("//") && url.len() > 2 {
+        let after = &url[2..];
+        // Must not be a triple slash (absolute path), and first char must be a non-slash word char.
+        return after.chars().next().is_some_and(|c| c != '/');
     }
     false
 }

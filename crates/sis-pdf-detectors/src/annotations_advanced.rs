@@ -16,6 +16,7 @@ const ANNOTATION_ACTION_CHAIN_CAP: usize = 25;
 const URI_DANGEROUS_SCHEME_CAP: usize = 10;
 const ANNOTATION_FIELD_INJECTION_CAP: usize = 10;
 const URI_CLASSIFICATION_SUMMARY_CAP: usize = 25;
+const URI_UNC_PATH_CAP: usize = 10;
 const AGGREGATE_SAMPLE_LIMIT: usize = 8;
 
 impl Detector for AnnotationAttackDetector {
@@ -221,6 +222,11 @@ impl Detector for AnnotationAttackDetector {
                     {
                         findings.push(scheme_finding);
                     }
+                    if let Some(unc_finding) =
+                        check_uri_unc_path(entry, &action_target, dict.span)
+                    {
+                        findings.push(unc_finding);
+                    }
                     if let Some(summary_finding) =
                         check_uri_classification_summary(entry, &action_target, dict.span)
                     {
@@ -234,6 +240,7 @@ impl Detector for AnnotationAttackDetector {
         apply_kind_cap(&mut findings, "uri_file_scheme", URI_DANGEROUS_SCHEME_CAP);
         apply_kind_cap(&mut findings, "uri_data_html_scheme", URI_DANGEROUS_SCHEME_CAP);
         apply_kind_cap(&mut findings, "uri_command_injection", URI_DANGEROUS_SCHEME_CAP);
+        apply_kind_cap(&mut findings, "uri_unc_path_ntlm_risk", URI_UNC_PATH_CAP);
         apply_kind_cap(&mut findings, "annotation_field_html_injection", ANNOTATION_FIELD_INJECTION_CAP);
         apply_kind_cap(
             &mut findings,
@@ -324,6 +331,45 @@ fn check_uri_dangerous_scheme(
     })
 }
 
+/// Emit a finding when a /URI action target is a Windows UNC path, which causes Windows
+/// PDF renderers to initiate an SMB connection that leaks NTLM credentials.
+fn check_uri_unc_path(
+    entry: &ObjEntry<'_>,
+    action_target: &str,
+    dict_span: Span,
+) -> Option<Finding> {
+    if action_target.is_empty() {
+        return None;
+    }
+    let analysis = analyze_uri_content(action_target.as_bytes());
+    if !analysis.has_unc_path {
+        return None;
+    }
+    let mut meta = HashMap::new();
+    meta.insert("uri.unc_path".into(), action_target.to_string());
+    Some(Finding {
+        id: String::new(),
+        surface: AttackSurface::Actions,
+        kind: "uri_unc_path_ntlm_risk".into(),
+        severity: Severity::High,
+        confidence: Confidence::Strong,
+        impact: Impact::Unknown,
+        title: "UNC path in URI action — NTLM hash capture risk".into(),
+        description: "UNC path in action target; triggers NTLM hash capture on Windows renderers"
+            .into(),
+        objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+        evidence: vec![span_to_evidence(dict_span, "Annotation dict /A action")],
+        remediation: Some(
+            "Remove UNC path targets from PDF actions; they force SMB connections that expose NTLM hashes."
+                .into(),
+        ),
+        meta,
+        yara: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    })
+}
+
 /// Emit a structured classification summary for non-benign /URI action targets.
 /// Provides structured access to the full UriContentAnalysis output via the
 /// query surface — a companion to annotation_action_chain that avoids requiring
@@ -348,6 +394,7 @@ fn check_uri_classification_summary(
         || a.has_suspicious_extension
         || a.has_embedded_ip_host
         || a.has_idn_lookalike
+        || a.has_unc_path
         || !a.suspicious_patterns.is_empty()
         || !a.phishing_indicators.is_empty()
         || !a.tracking_params.is_empty();

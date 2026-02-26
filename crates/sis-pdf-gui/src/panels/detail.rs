@@ -54,7 +54,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     let kind = f.kind.clone();
     let severity = format!("{:?}", f.severity);
     let confidence = format!("{:?}", f.confidence);
-    let impact = f.impact.as_ref().map(|i| format!("{:?}", i));
+    let impact = format!("{:?}", f.impact);
     let surface = format!("{:?}", f.surface);
     let action_type = f.action_type.clone();
     let action_target = f.action_target.clone();
@@ -136,11 +136,9 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
             ui.label(&confidence);
             ui.end_row();
 
-            if let Some(ref imp) = impact {
-                ui.label("Impact:");
-                ui.label(imp);
-                ui.end_row();
-            }
+            ui.label("Impact:");
+            ui.label(&impact);
+            ui.end_row();
 
             ui.label("Surface:");
             ui.label(&surface);
