@@ -138,7 +138,7 @@
     },
     "impact": {
       "type": "string",
-      "enum": ["Critical", "High", "Medium", "Low", "None"]
+      "enum": ["Critical", "High", "Medium", "Low", "None", "Unknown"]
     },
     "reader_profile": {
       "type": "string",

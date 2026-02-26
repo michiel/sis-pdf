@@ -752,8 +752,28 @@ pub fn run_scan_with_detectors(
     findings.sort_by(|a, b| {
         (a.surface as u32, &a.kind, &a.id).cmp(&(b.surface as u32, &b.kind, &b.id))
     });
-    let (chains, templates) =
+    let (mut chains, templates) =
         crate::chain_synth::synthesise_chains(&findings, ctx.options.group_chains);
+
+    // Intent ↔ chain score feedback: boost chains that contain findings flagged by a
+    // high-confidence intent bucket, reflecting that intent analysis corroborates the chain.
+    if let Some(ref intent) = intent_summary {
+        for chain in chains.iter_mut() {
+            'bucket_loop: for bucket in &intent.buckets {
+                if bucket.confidence >= crate::model::Confidence::Strong {
+                    if chain.findings.iter().any(|fid| bucket.findings.contains(fid)) {
+                        chain.score = (chain.score + 0.1).min(1.0);
+                        chain.notes.insert(
+                            "intent_boost".into(),
+                            format!("{:?}", bucket.bucket).to_lowercase(),
+                        );
+                        break 'bucket_loop;
+                    }
+                }
+            }
+        }
+    }
+
     let behavior_summary = Some(crate::behavior::correlate_findings(&findings));
     let future_threats = behavior_summary
         .as_ref()
