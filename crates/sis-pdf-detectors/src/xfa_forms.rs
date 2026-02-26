@@ -135,7 +135,6 @@ impl Detector for XfaFormDetector {
                         remediation: Some("Review XFA content in a controlled environment.".into()),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });
@@ -198,7 +197,6 @@ impl Detector for XfaFormDetector {
                         remediation: Some("Disable XML DTD processing and external entity resolution; block external schema/include resolution in all backend XFA/XML ingestion pipelines.".into()),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });
@@ -221,7 +219,6 @@ impl Detector for XfaFormDetector {
                         remediation: Some("Treat as high-risk for backend ingest paths and enforce strict parser hardening (no DTD, no external entities).".into()),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });
@@ -275,7 +272,6 @@ impl Detector for XfaFormDetector {
                         ),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });
@@ -299,7 +295,6 @@ impl Detector for XfaFormDetector {
                         remediation: Some("Inspect field bindings and data handling.".into()),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });
@@ -322,7 +317,6 @@ impl Detector for XfaFormDetector {
                         remediation: Some("Inspect XFA scripts for malicious behaviour.".into()),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });

@@ -79,7 +79,6 @@ impl Detector for JsPolymorphicDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -148,7 +147,6 @@ impl Detector for JsPolymorphicDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -208,7 +206,6 @@ impl Detector for JsPolymorphicDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -236,7 +233,6 @@ impl Detector for JsPolymorphicDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -263,7 +259,6 @@ impl Detector for JsPolymorphicDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }

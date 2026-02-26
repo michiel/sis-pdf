@@ -2731,7 +2731,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
             Finding {
@@ -2751,7 +2750,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
             Finding {
@@ -2771,7 +2769,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
         ];
@@ -2802,7 +2799,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
             Finding {
@@ -2822,7 +2818,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
             Finding {
@@ -2842,7 +2837,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
         ];
@@ -2875,7 +2869,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
             Finding {
@@ -2895,7 +2888,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
         ];
@@ -2934,7 +2926,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
             Finding {
@@ -2958,7 +2949,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
         ];
@@ -2996,7 +2986,6 @@ mod tests {
             remediation: None,
             meta,
             yara: None,
-            position: None,
             positions: Vec::new(),
             ..Finding::default()
         }];
@@ -3031,7 +3020,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
             Finding {
@@ -3051,7 +3039,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
             Finding {
@@ -3071,7 +3058,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
         ];
@@ -3103,7 +3089,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
             Finding {
@@ -3123,7 +3108,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             },
         ];

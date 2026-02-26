@@ -7,6 +7,8 @@ use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 
 use crate::entry_dict;
 
+const MAX_FINGERPRINT_DEPTH: usize = 32;
+
 pub struct ShadowAttackDetector;
 
 impl Detector for ShadowAttackDetector {
@@ -142,7 +144,6 @@ impl Detector for ShadowAttackDetector {
                 ),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -190,7 +191,6 @@ impl Detector for ShadowAttackDetector {
                 ),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -235,7 +235,6 @@ impl Detector for ShadowAttackDetector {
                 ),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -300,33 +299,43 @@ fn has_non_trivial_rect(dict: &PdfDict<'_>) -> bool {
 
 fn object_semantic_fingerprint(entry: &sis_pdf_pdf::graph::ObjEntry<'_>) -> String {
     match &entry.atom {
-        PdfAtom::Dict(dict) => dict_fingerprint(dict),
+        PdfAtom::Dict(dict) => dict_fingerprint(dict, 0),
         PdfAtom::Stream(stream) => {
             let mut out = String::from("stream:");
-            out.push_str(&dict_fingerprint(&stream.dict));
+            out.push_str(&dict_fingerprint(&stream.dict, 0));
             out
         }
-        atom => atom_fingerprint(atom),
+        atom => atom_fingerprint(atom, 0),
     }
 }
 
-fn dict_fingerprint(dict: &PdfDict<'_>) -> String {
+fn dict_fingerprint(dict: &PdfDict<'_>, depth: usize) -> String {
+    if depth >= MAX_FINGERPRINT_DEPTH {
+        return String::new();
+    }
     let mut pairs = dict
         .entries
         .iter()
         .map(|(key, value)| {
-            format!("{}={}", String::from_utf8_lossy(&key.decoded), obj_fingerprint(value))
+            format!(
+                "{}={}",
+                String::from_utf8_lossy(&key.decoded),
+                obj_fingerprint(value, depth + 1)
+            )
         })
         .collect::<Vec<_>>();
     pairs.sort();
     pairs.join(";")
 }
 
-fn obj_fingerprint(obj: &PdfObj<'_>) -> String {
-    atom_fingerprint(&obj.atom)
+fn obj_fingerprint(obj: &PdfObj<'_>, depth: usize) -> String {
+    atom_fingerprint(&obj.atom, depth)
 }
 
-fn atom_fingerprint(atom: &PdfAtom<'_>) -> String {
+fn atom_fingerprint(atom: &PdfAtom<'_>, depth: usize) -> String {
+    if depth >= MAX_FINGERPRINT_DEPTH {
+        return String::new();
+    }
     match atom {
         PdfAtom::Null => "null".into(),
         PdfAtom::Bool(value) => format!("bool:{value}"),
@@ -341,11 +350,19 @@ fn atom_fingerprint(atom: &PdfAtom<'_>) -> String {
         },
         PdfAtom::Array(values) => {
             let mut out = String::from("array:");
-            out.push_str(&values.iter().map(obj_fingerprint).collect::<Vec<_>>().join(","));
+            out.push_str(
+                &values
+                    .iter()
+                    .map(|v| obj_fingerprint(v, depth + 1))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
             out
         }
-        PdfAtom::Dict(dict) => format!("dict:{}", dict_fingerprint(dict)),
-        PdfAtom::Stream(stream) => format!("stream:{}", dict_fingerprint(&stream.dict)),
+        PdfAtom::Dict(dict) => format!("dict:{}", dict_fingerprint(dict, depth + 1)),
+        PdfAtom::Stream(stream) => {
+            format!("stream:{}", dict_fingerprint(&stream.dict, depth + 1))
+        }
         PdfAtom::Ref { obj, gen } => format!("ref:{obj}:{gen}"),
     }
 }
@@ -551,7 +568,6 @@ fn build_certified_doc_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     })
@@ -682,4 +698,70 @@ fn resolve_dict<'a>(
 
 fn is_signature_dict(dict: &PdfDict<'_>) -> bool {
     dict.has_name(b"/Type", b"/Sig") || dict.get_first(b"/ByteRange").is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfName, PdfObj};
+    use sis_pdf_pdf::span::Span;
+
+    use super::{atom_fingerprint, dict_fingerprint, MAX_FINGERPRINT_DEPTH};
+
+    fn dummy_span() -> Span {
+        Span { start: 0, end: 0 }
+    }
+
+    fn make_name(decoded: &[u8]) -> PdfName<'static> {
+        PdfName {
+            span: dummy_span(),
+            raw: Cow::Owned(decoded.to_vec()),
+            decoded: decoded.to_vec(),
+        }
+    }
+
+    fn make_int_obj(value: i64) -> PdfObj<'static> {
+        PdfObj { span: dummy_span(), atom: PdfAtom::Int(value) }
+    }
+
+    fn make_dict_with_entry(key: &[u8], value: PdfObj<'static>) -> PdfDict<'static> {
+        PdfDict { span: dummy_span(), entries: vec![(make_name(key), value)] }
+    }
+
+    /// Build a chain of nested dicts `depth` levels deep.
+    fn build_nested_dict(depth: usize) -> PdfDict<'static> {
+        if depth == 0 {
+            make_dict_with_entry(b"/Value", make_int_obj(42))
+        } else {
+            let inner = build_nested_dict(depth - 1);
+            let inner_obj =
+                PdfObj { span: dummy_span(), atom: PdfAtom::Dict(inner) };
+            make_dict_with_entry(b"/Inner", inner_obj)
+        }
+    }
+
+    #[test]
+    fn fingerprint_depth_guard_does_not_stack_overflow() {
+        // Build a dict nested far beyond MAX_FINGERPRINT_DEPTH.
+        let deep = build_nested_dict(MAX_FINGERPRINT_DEPTH + 10);
+        // Must complete without panicking (no stack overflow).
+        let result = dict_fingerprint(&deep, 0);
+        assert!(!result.is_empty(), "top-level fingerprint should not be empty");
+    }
+
+    #[test]
+    fn atom_fingerprint_truncates_at_max_depth() {
+        // Calling atom_fingerprint at exactly MAX_FINGERPRINT_DEPTH must return empty.
+        let atom = PdfAtom::Int(99);
+        let result = atom_fingerprint(&atom, MAX_FINGERPRINT_DEPTH);
+        assert_eq!(result, "", "fingerprint at max depth should be empty");
+    }
+
+    #[test]
+    fn atom_fingerprint_works_below_max_depth() {
+        let atom = PdfAtom::Int(7);
+        let result = atom_fingerprint(&atom, 0);
+        assert_eq!(result, "int:7");
+    }
 }

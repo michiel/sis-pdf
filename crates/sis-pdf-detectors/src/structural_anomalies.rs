@@ -125,7 +125,6 @@ impl Detector for StructuralAnomaliesDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -162,7 +161,6 @@ impl Detector for StructuralAnomaliesDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -204,7 +202,6 @@ impl Detector for StructuralAnomaliesDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -243,7 +240,6 @@ impl Detector for StructuralAnomaliesDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -309,7 +305,6 @@ impl Detector for StructuralAnomaliesDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -352,7 +347,6 @@ impl Detector for StructuralAnomaliesDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -393,7 +387,6 @@ impl Detector for StructuralAnomaliesDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -434,7 +427,6 @@ impl Detector for StructuralAnomaliesDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         } else {
@@ -502,7 +494,6 @@ impl Detector for StructuralAnomaliesDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -559,7 +550,6 @@ impl Detector for StructuralAnomaliesDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }

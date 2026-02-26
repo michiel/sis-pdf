@@ -109,7 +109,6 @@ impl Detector for VectorGraphicsDetector {
                                     "Review the content stream and verify the vector usage.".into(),
                                 ),
                                 meta,
-                                position: None,
                                 positions: vec![format!("page:{}", page.number)],
                                 yara: None,
                                 action_type: None,

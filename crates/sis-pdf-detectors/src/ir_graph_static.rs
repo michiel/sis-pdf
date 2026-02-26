@@ -133,7 +133,6 @@ fn find_action_payload_paths(
                 remediation: Some("Inspect referenced payload chain for malicious intent.".into()),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -178,7 +177,6 @@ fn find_orphan_payloads(
                 remediation: Some("Inspect for hidden or shadowed revisions.".into()),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -223,7 +221,6 @@ fn find_shadow_payloads(
                 remediation: Some("Review incremental updates for hidden payloads.".into()),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -274,7 +271,6 @@ fn find_objstm_payloads(
                     remediation: Some("Use deep scan to inspect embedded objects.".into()),
                     meta,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                     ..Finding::default()
                 });

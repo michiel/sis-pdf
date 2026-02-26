@@ -39,8 +39,14 @@ pub struct SandboxSummary {
     pub disabled_reason: Option<String>,
 }
 
+fn default_record_type() -> String {
+    "report".to_string()
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Report {
+    #[serde(rename = "type", default = "default_record_type")]
+    pub record_type: String,
     #[serde(default)]
     pub chain_schema_version: u32,
     pub summary: Summary,
@@ -77,6 +83,8 @@ pub struct Report {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct BatchEntry {
+    #[serde(rename = "type")]
+    pub record_type: String,
     pub path: String,
     pub summary: Summary,
     pub duration_ms: u64,
@@ -89,6 +97,33 @@ pub struct BatchEntry {
     pub js_loop_iteration_limit_hits: usize,
     #[serde(default)]
     pub js_runtime_error_findings: usize,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct BatchError {
+    #[serde(rename = "type")]
+    pub record_type: String,
+    pub path: String,
+    pub error_code: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub context: std::collections::HashMap<String, String>,
+}
+
+impl BatchError {
+    pub fn new(
+        path: impl Into<String>,
+        error_code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            record_type: "error".to_string(),
+            path: path.into(),
+            error_code: error_code.into(),
+            message: message.into(),
+            context: std::collections::HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -186,6 +221,7 @@ impl Report {
         let summary = summary_from_findings(&findings);
         let ml_summary = ml_summary_override.or_else(|| ml_summary_from_findings(&findings));
         Self {
+            record_type: "report".to_string(),
             chain_schema_version: 3,
             summary,
             findings,
@@ -802,7 +838,6 @@ fn aggregate_annotation_action_chains(findings: &[Finding]) -> Option<Finding> {
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     })
 }
@@ -858,9 +893,6 @@ fn aggregate_noisy_kind(kind: &str, findings: &[Finding]) -> Option<Finding> {
     for finding in findings {
         for object in finding.objects.iter().take(3) {
             sample_objects.insert(object.clone());
-        }
-        if let Some(position) = &finding.position {
-            sample_positions.insert(position.clone());
         }
         for position in finding.positions.iter().take(3) {
             sample_positions.insert(position.clone());
@@ -930,7 +962,6 @@ fn aggregate_noisy_kind(kind: &str, findings: &[Finding]) -> Option<Finding> {
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     })
 }
@@ -1143,9 +1174,6 @@ fn build_position_preview_map(findings: &[Finding]) -> BTreeMap<String, String> 
     let mut out = BTreeMap::new();
     for f in findings {
         let mut positions = Vec::new();
-        if let Some(position) = &f.position {
-            positions.push(position.clone());
-        }
         positions.extend(f.positions.iter().cloned());
         positions.sort();
         positions.dedup();
@@ -1225,7 +1253,7 @@ fn node_summary(
             break;
         }
         if let Some(f) = findings.iter().find(|f| &f.id == fid) {
-            if f.position.as_deref() == Some(node) || f.positions.iter().any(|pos| pos == node) {
+            if f.positions.iter().any(|pos| pos == node) {
                 summaries.push(summary_for_finding(f));
             }
         }
@@ -3296,7 +3324,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             if !f.objects.is_empty() {
                 out.push_str(&format!("- Objects: {}\n", escape_markdown(&f.objects.join(", "))));
             }
-            if let Some(position) = &f.position {
+            if let Some(position) = f.positions.first() {
                 out.push_str(&format!("- Position: `{}`\n", escape_markdown(position)));
             }
             if f.positions.len() > 1 {
@@ -3916,6 +3944,7 @@ mod tests {
         let report = BatchReport {
             summary: Summary { total: 2, high: 0, medium: 0, low: 1, info: 1 },
             entries: vec![BatchEntry {
+                record_type: "entry".to_string(),
                 path: "sample.pdf".into(),
                 summary: Summary { total: 2, high: 0, medium: 0, low: 1, info: 1 },
                 duration_ms: 10,
@@ -4041,7 +4070,7 @@ mod tests {
             "mismatch",
         );
         label.objects = vec!["12 0 obj".into()];
-        label.position = Some("doc:r0/obj.12".into());
+        label.positions = vec!["doc:r0/obj.12".into()];
         label.meta.insert("declared.subtype".into(), "/Image".into());
         label.meta.insert("blob.kind".into(), "zip".into());
 

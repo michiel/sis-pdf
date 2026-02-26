@@ -79,7 +79,6 @@ fn analyze_info_dict(
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
     }
@@ -151,7 +150,6 @@ fn analyze_info_dict(
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
     }
@@ -192,7 +190,6 @@ fn analyze_xmp_metadata(ctx: &sis_pdf_core::scan::ScanContext, findings: &mut Ve
                             remediation: Some("Inspect XMP content for steganography.".into()),
                             meta,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         ..Finding::default()
                         });

@@ -232,9 +232,60 @@ impl<'a> ScanContext<'a> {
     }
 
     fn option_fingerprint(options: &ScanOptions) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        format!("{options:?}").hash(&mut hasher);
-        hasher.finish()
+        let mut h = DefaultHasher::new();
+        // Fields that affect detection output (not parallelism, logging, or output format).
+        options.deep.hash(&mut h);
+        options.fast.hash(&mut h);
+        options.strict.hash(&mut h);
+        options.strict_summary.hash(&mut h);
+        options.recover_xref.hash(&mut h);
+        options.diff_parser.hash(&mut h);
+        options.max_decode_bytes.hash(&mut h);
+        options.max_total_decoded_bytes.hash(&mut h);
+        options.max_objects.hash(&mut h);
+        options.max_recursion_depth.hash(&mut h);
+        options.focus_trigger.hash(&mut h);
+        options.yara_scope.hash(&mut h);
+        options.focus_depth.hash(&mut h);
+        options.ir.hash(&mut h);
+        options.filter_allowlist.hash(&mut h);
+        options.filter_allowlist_strict.hash(&mut h);
+        // FontAnalysisOptions fields (no f64/f32 to worry about here).
+        options.font_analysis.enabled.hash(&mut h);
+        options.font_analysis.dynamic_enabled.hash(&mut h);
+        options.font_analysis.dynamic_timeout_ms.hash(&mut h);
+        options.font_analysis.max_fonts.hash(&mut h);
+        options.font_analysis.signature_matching_enabled.hash(&mut h);
+        options.font_analysis.signature_directory.hash(&mut h);
+        // ImageAnalysisOptions fields; hash f64 via bit representation.
+        options.image_analysis.enabled.hash(&mut h);
+        options.image_analysis.dynamic_enabled.hash(&mut h);
+        options.image_analysis.max_pixels.hash(&mut h);
+        options.image_analysis.max_decode_bytes.hash(&mut h);
+        options.image_analysis.timeout_ms.hash(&mut h);
+        options.image_analysis.total_budget_ms.hash(&mut h);
+        options.image_analysis.skip_threshold.hash(&mut h);
+        options.image_analysis.max_header_bytes.hash(&mut h);
+        options.image_analysis.max_dimension.hash(&mut h);
+        options.image_analysis.max_xfa_decode_bytes.hash(&mut h);
+        options.image_analysis.max_filter_chain_depth.hash(&mut h);
+        // CorrelationOptions fields; hash f64 via bit representation.
+        options.correlation.enabled.hash(&mut h);
+        options.correlation.launch_obfuscated_enabled.hash(&mut h);
+        options.correlation.action_chain_malicious_enabled.hash(&mut h);
+        options.correlation.xfa_data_exfiltration_enabled.hash(&mut h);
+        options.correlation.encrypted_payload_delivery_enabled.hash(&mut h);
+        options.correlation.obfuscated_payload_enabled.hash(&mut h);
+        options.correlation.content_stream_exec_alignment_enabled.hash(&mut h);
+        options.correlation.high_entropy_threshold.to_bits().hash(&mut h);
+        options.correlation.action_chain_depth_threshold.hash(&mut h);
+        options.correlation.xfa_sensitive_field_threshold.hash(&mut h);
+        // MlConfig: hash path and threshold bits if present.
+        if let Some(ref ml) = options.ml_config {
+            ml.model_path.hash(&mut h);
+            ml.threshold.to_bits().hash(&mut h);
+        }
+        h.finish()
     }
 
     pub fn cached_findings(&self, options: &ScanOptions) -> Option<&FindingsCache> {

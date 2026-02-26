@@ -60,7 +60,6 @@ impl Detector for EnvProbeDetector {
                     ),
                     meta,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                     ..Finding::default()
                 });

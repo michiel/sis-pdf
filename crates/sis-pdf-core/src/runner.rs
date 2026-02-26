@@ -287,7 +287,6 @@ pub fn run_scan_with_detectors(
                                                     action_target: None,
                                                     action_initiation: None,
                                                     yara: None,
-                                                    position: None,
                                                     positions: Vec::new(),
                                                 };
                                                 let elapsed = start.elapsed();
@@ -395,7 +394,6 @@ pub fn run_scan_with_detectors(
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
     }
@@ -452,7 +450,6 @@ pub fn run_scan_with_detectors(
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
     }
@@ -530,7 +527,6 @@ pub fn run_scan_with_detectors(
                                 action_target: None,
                                 action_initiation: None,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                             });
                         }
@@ -557,7 +553,6 @@ pub fn run_scan_with_detectors(
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -584,7 +579,6 @@ pub fn run_scan_with_detectors(
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -658,7 +652,6 @@ pub fn run_scan_with_detectors(
                                     action_target: None,
                                     action_initiation: None,
                                     yara: None,
-                                    position: None,
                                     positions: Vec::new(),
                                     ..Finding::default()
                                 });
@@ -686,7 +679,6 @@ pub fn run_scan_with_detectors(
                                 action_target: None,
                                 action_initiation: None,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                                 ..Finding::default()
                             });
@@ -717,7 +709,6 @@ pub fn run_scan_with_detectors(
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -854,7 +845,7 @@ pub fn annotate_positions(ctx: &ScanContext, findings: &mut [Finding]) {
     let classifications = ctx.classifications();
     let path_map = position::build_path_map(&ctx.graph);
     for finding in findings {
-        if !finding.positions.is_empty() || finding.position.is_some() {
+        if !finding.positions.is_empty() {
             continue;
         }
         let mut positions = Vec::new();
@@ -878,8 +869,7 @@ pub fn annotate_positions(ctx: &ScanContext, findings: &mut [Finding]) {
         }
         positions.sort();
         positions.dedup();
-        if let Some(first) = positions.first().cloned() {
-            finding.position = Some(first);
+        if !positions.is_empty() {
             finding.positions = positions;
         }
     }
@@ -997,7 +987,6 @@ fn correlate_font_js(findings: &mut Vec<Finding>) {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
     }
@@ -1456,11 +1445,6 @@ fn maybe_record_parser_resource_exhaustion(
                 }
             }
         }
-        if let Some(position) = &finding.position {
-            if sample_position_seen.insert(position.clone()) {
-                sample_positions.push(position.clone());
-            }
-        }
         for position in &finding.positions {
             if sample_position_seen.insert(position.clone()) {
                 sample_positions.push(position.clone());
@@ -1576,7 +1560,6 @@ fn maybe_record_parser_resource_exhaustion(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     });
 }
@@ -2017,7 +2000,6 @@ pub fn maybe_record_secondary_parser_prevalence_baseline(findings: &mut Vec<Find
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     });
 }
@@ -2373,7 +2355,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: vec![],
             },
             Finding {
@@ -2393,7 +2374,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: vec![],
             },
         ];
@@ -2439,7 +2419,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: vec![],
             },
             Finding {
@@ -2459,7 +2438,6 @@ mod tests {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: vec![],
             },
         ];
@@ -2496,7 +2474,6 @@ mod tests {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: vec![],
         }];
 
@@ -2552,7 +2529,7 @@ mod tests {
             "Test",
         );
         trailer.objects = vec!["trailer.0".into()];
-        trailer.position = Some("doc:r0/trailer.0".into());
+        trailer.positions = vec!["doc:r0/trailer.0".into()];
         let mut label = Finding::template(
             AttackSurface::StreamsAndFilters,
             "label_mismatch_stream_type",
@@ -3141,7 +3118,6 @@ mod tests {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: vec![],
         }
     }

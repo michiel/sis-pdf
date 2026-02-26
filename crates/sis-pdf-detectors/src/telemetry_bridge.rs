@@ -101,7 +101,6 @@ impl Detector for TelemetryBridgeDetector {
                 remediation: Some(remediation),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });

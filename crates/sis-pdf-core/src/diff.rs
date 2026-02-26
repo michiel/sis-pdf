@@ -97,7 +97,6 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
     }
@@ -122,7 +121,6 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
     }
@@ -184,7 +182,6 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
         let mut meta = std::collections::HashMap::new();
@@ -228,7 +225,6 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
     }

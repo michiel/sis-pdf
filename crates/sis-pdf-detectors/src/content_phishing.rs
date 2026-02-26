@@ -117,7 +117,6 @@ impl Detector for ContentPhishingDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             }];
             maybe_push_runtime_hotspot(&mut out, timing, &matched_keywords);
@@ -175,7 +174,6 @@ fn maybe_push_runtime_hotspot(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     });
 }
@@ -269,7 +267,6 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -310,7 +307,6 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
     }
@@ -401,7 +397,6 @@ impl Detector for ContentDeceptionDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -428,7 +423,6 @@ impl Detector for ContentDeceptionDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -455,7 +449,6 @@ impl Detector for ContentDeceptionDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }

@@ -279,7 +279,6 @@ fn build_finding(
         remediation: Some(remediation.into()),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     }

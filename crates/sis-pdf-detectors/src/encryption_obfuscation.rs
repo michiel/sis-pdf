@@ -68,7 +68,6 @@ impl Detector for EncryptionObfuscationDetector {
                                 remediation: Some("Treat encrypted content as higher risk.".into()),
                                 meta,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                                 ..Finding::default()
                             });
@@ -122,7 +121,6 @@ impl Detector for EncryptionObfuscationDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
 
@@ -156,7 +154,6 @@ impl Detector for EncryptionObfuscationDetector {
                         ),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });
@@ -256,7 +253,6 @@ impl Detector for EncryptionObfuscationDetector {
                     ),
                     meta,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                     ..Finding::default()
                 });

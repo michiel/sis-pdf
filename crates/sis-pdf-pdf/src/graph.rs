@@ -75,6 +75,16 @@ pub enum ObjProvenance {
     CarvedStream { obj: u32, gen: u16 },
 }
 
+impl ObjProvenance {
+    pub fn label(&self) -> String {
+        match self {
+            ObjProvenance::Indirect => "indirect".into(),
+            ObjProvenance::ObjStm { obj, gen } => format!("objstm:{}:{}", obj, gen),
+            ObjProvenance::CarvedStream { obj, gen } => format!("carved_stream:{}:{}", obj, gen),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ObjectGraph<'a> {
     pub bytes: &'a [u8],

@@ -86,7 +86,6 @@ impl Detector for ObjectReferenceCycleDetector {
                 remediation: Some("Inspect object reference chains for potential DoS attacks.".into()),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             ..Finding::default()
             });
@@ -281,7 +280,6 @@ fn detect_cycles_from(
             remediation: Some("Inspect object references for malicious cycle construction.".into()),
             meta,
             yara: None,
-            position: None,
             positions: Vec::new(),
             ..Finding::default()
         });

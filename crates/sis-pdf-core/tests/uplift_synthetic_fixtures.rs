@@ -38,7 +38,6 @@ fn load_fixture(path: &str) -> Vec<Finding> {
             objects: fixture.objects,
             evidence: Vec::new(),
             remediation: None,
-            position: None,
             positions: fixture.positions,
             meta: fixture.meta,
             action_type: None,

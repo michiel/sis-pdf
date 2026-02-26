@@ -122,7 +122,6 @@ impl Detector for ObjStmSummaryDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -169,7 +168,6 @@ impl Detector for ObjStmSummaryDetector {
                 remediation: Some("Inspect embedded objects in deep scans.".into()),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });

@@ -305,7 +305,6 @@ impl Detector for PassiveRenderPipelineDetector {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
 
@@ -341,7 +340,6 @@ impl Detector for PassiveRenderPipelineDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -376,7 +374,6 @@ impl Detector for PassiveRenderPipelineDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -410,7 +407,6 @@ impl Detector for PassiveRenderPipelineDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -448,7 +444,6 @@ impl Detector for PassiveRenderPipelineDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -480,7 +475,6 @@ impl Detector for PassiveRenderPipelineDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -512,7 +506,6 @@ impl Detector for PassiveRenderPipelineDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -548,7 +541,6 @@ impl Detector for PassiveRenderPipelineDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }

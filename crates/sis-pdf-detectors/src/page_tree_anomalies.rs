@@ -84,7 +84,6 @@ impl Detector for PageTreeManipulationDetector {
                         ),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });
@@ -128,7 +127,6 @@ impl Detector for PageTreeManipulationDetector {
                     remediation: Some("Inspect page tree references and catalog root.".into()),
                     meta,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                     ..Finding::default()
                 });
@@ -161,7 +159,6 @@ fn fallback_pages_root<'a>(
             action_type: None,
             action_target: None,
             action_initiation: None,        yara: None,
-        position: None,
         positions: Vec::new(),
     });
     Some(PdfObj { span: entry.body_span, atom: entry.atom.clone() })
@@ -204,7 +201,6 @@ fn detect_cycles(
             remediation: Some("Inspect page tree structure for excessive nesting.".into()),
             meta,
             yara: None,
-            position: None,
             positions: Vec::new(),
             ..Finding::default()
         });
@@ -245,7 +241,6 @@ fn detect_cycles(
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });

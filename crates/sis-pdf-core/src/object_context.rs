@@ -151,17 +151,6 @@ pub fn build_object_context_index(report: &Report, taint: &Taint) -> ObjectConte
                     }
                 }
             }
-            if let Some(position) = &finding.position {
-                if let Some((rev, pos_obj_ref)) = parse_revision_and_object_from_position(position)
-                {
-                    if pos_obj_ref == object_ref {
-                        context.introduced_revision = match context.introduced_revision {
-                            Some(existing) => Some(existing.min(rev)),
-                            None => Some(rev),
-                        };
-                    }
-                }
-            }
         }
     }
 

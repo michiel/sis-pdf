@@ -58,6 +58,9 @@ pub enum Impact {
     Medium,
     Low,
     None,
+    /// Impact has not been assessed for this finding.
+    /// Used as the non-optional default; prefer an explicit value where possible.
+    Unknown,
 }
 
 impl Impact {
@@ -68,6 +71,7 @@ impl Impact {
             Impact::Medium => "medium",
             Impact::Low => "low",
             Impact::None => "none",
+            Impact::Unknown => "unknown",
         }
     }
 }
@@ -101,9 +105,7 @@ pub struct Finding {
     pub objects: Vec<String>,
     pub evidence: Vec<EvidenceSpan>,
     pub remediation: Option<String>,
-    #[serde(default)]
-    pub position: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub positions: Vec<String>,
     #[serde(default)]
     pub meta: HashMap<String, String>,
@@ -139,7 +141,6 @@ impl Default for Finding {
             objects: Vec::new(),
             evidence: Vec::new(),
             remediation: None,
-            position: None,
             positions: Vec::new(),
             meta: HashMap::new(),
             action_type: None,
@@ -151,6 +152,31 @@ impl Default for Finding {
 }
 
 impl Finding {
+    /// Returns `true` if the metadata key exists and its value is the string `"true"`.
+    pub fn meta_bool(&self, key: &str) -> bool {
+        self.meta.get(key).map(|v| v == "true").unwrap_or(false)
+    }
+
+    /// Returns the metadata value parsed as `f64`, or `None` if absent or unparseable.
+    pub fn meta_f64(&self, key: &str) -> Option<f64> {
+        self.meta.get(key).and_then(|v| v.parse().ok())
+    }
+
+    /// Returns the metadata value parsed as `u32`, or `None` if absent or unparseable.
+    pub fn meta_u32(&self, key: &str) -> Option<u32> {
+        self.meta.get(key).and_then(|v| v.parse().ok())
+    }
+
+    /// Returns the metadata value parsed as `usize`, or `None` if absent or unparseable.
+    pub fn meta_usize(&self, key: &str) -> Option<usize> {
+        self.meta.get(key).and_then(|v| v.parse().ok())
+    }
+
+    /// Returns the metadata value as a `&str`, or `None` if absent.
+    pub fn meta_str(&self, key: &str) -> Option<&str> {
+        self.meta.get(key).map(String::as_str)
+    }
+
     pub fn template(
         surface: AttackSurface,
         kind: impl Into<String>,
@@ -249,11 +275,6 @@ impl FindingBuilder {
 
     pub fn remediation(mut self, remediation: impl Into<String>) -> Self {
         self.finding.remediation = Some(remediation.into());
-        self
-    }
-
-    pub fn position(mut self, position: impl Into<String>) -> Self {
-        self.finding.position = Some(position.into());
         self
     }
 

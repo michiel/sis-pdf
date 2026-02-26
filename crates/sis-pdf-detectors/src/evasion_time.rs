@@ -59,7 +59,6 @@ impl Detector for TimingEvasionDetector {
                     remediation: Some("Inspect for delayed or staged execution logic.".into()),
                     meta,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                     ..Finding::default()
                 });

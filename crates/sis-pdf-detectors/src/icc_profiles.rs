@@ -75,7 +75,6 @@ impl Detector for ICCProfileDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -134,7 +133,6 @@ impl Detector for ICCProfileDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }

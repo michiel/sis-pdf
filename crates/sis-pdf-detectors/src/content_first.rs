@@ -587,7 +587,6 @@ impl Detector for ContentFirstDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -734,7 +733,6 @@ fn content_first_guardrail_finding(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     }
 }
@@ -1223,7 +1221,6 @@ fn label_mismatch_finding(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     })
 }
@@ -1273,7 +1270,6 @@ fn validation_failure_finding(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     })
 }
@@ -1314,7 +1310,6 @@ fn validation_failure_span_finding(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     })
 }
@@ -1448,7 +1443,6 @@ fn declared_filter_invalid_finding(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     })
 }
@@ -1733,7 +1727,6 @@ fn decode_recovered_finding(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     })
 }
@@ -1804,7 +1797,6 @@ fn undeclared_compression_finding(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     })
 }
@@ -1992,7 +1984,6 @@ fn carve_payloads(
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
             if findings.len() >= max_hits {
@@ -2413,7 +2404,6 @@ fn script_payload_findings(
             remediation: Some("Inspect the script payload and execution context.".to_string()),
             meta,
             yara: None,
-            position: None,
             positions: Vec::new(),
             ..Finding::default()
         });
@@ -2580,7 +2570,6 @@ fn swf_findings(
             remediation: Some("Inspect SWF bytecode for malicious behaviour.".to_string()),
             meta,
             yara: None,
-            position: None,
             positions: Vec::new(),
             ..Finding::default()
         });
@@ -2605,7 +2594,6 @@ fn swf_findings(
             remediation: Some("Review SWF payloads for external references.".to_string()),
             meta,
             yara: None,
-            position: None,
             positions: Vec::new(),
             ..Finding::default()
         });
@@ -2824,7 +2812,6 @@ fn zip_container_findings(
                     ),
                     meta,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                     ..Finding::default()
                 });

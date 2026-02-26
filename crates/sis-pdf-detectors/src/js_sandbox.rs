@@ -993,7 +993,6 @@ fn extend_with_path_morphism_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     });
@@ -1272,7 +1271,6 @@ fn extend_with_payload_format_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     });
@@ -1314,7 +1312,6 @@ fn extend_with_recursion_limit_finding(
         remediation: Some("Investigate recursive control-flow and deobfuscate the script to determine intent.".into()),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     });
@@ -1389,7 +1386,6 @@ fn extend_with_script_timeout_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     });
@@ -1431,7 +1427,6 @@ fn push_budget_skipped_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     });
@@ -1703,7 +1698,6 @@ fn extend_with_behavioral_pattern_findings(
             ),
             meta,
             yara: None,
-            position: None,
             positions: Vec::new(),
             ..Finding::default()
         });
@@ -1774,7 +1768,6 @@ fn extend_with_heap_manipulation_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     });
@@ -1891,7 +1884,6 @@ fn extend_with_emulation_breakpoint_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     });
@@ -1987,7 +1979,6 @@ impl Detector for JavaScriptSandboxDetector {
                             remediation: Some("Inspect the JS payload size and consider manual analysis.".into()),
                             meta,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         ..Finding::default()
                         });
@@ -2119,7 +2110,6 @@ impl Detector for JavaScriptSandboxDetector {
                                 remediation: Some("Review JS payload and runtime errors.".into()),
                                 meta,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                                 ..Finding::default()
                             });
@@ -2282,7 +2272,6 @@ impl Detector for JavaScriptSandboxDetector {
                                 ),
                                 meta,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                                 ..Finding::default()
                             });
@@ -2311,7 +2300,6 @@ impl Detector for JavaScriptSandboxDetector {
                                 remediation: Some("Inspect runtime JS calls and network targets.".into()),
                                 meta,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                             ..Finding::default()
                             });
@@ -2354,7 +2342,6 @@ impl Detector for JavaScriptSandboxDetector {
                                 remediation: Some("Review runtime JS calls for file or export operations.".into()),
                                 meta,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                             ..Finding::default()
                             });
@@ -2388,7 +2375,6 @@ impl Detector for JavaScriptSandboxDetector {
                                 ),
                                 meta,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                             ..Finding::default()
                             });
@@ -2417,7 +2403,6 @@ impl Detector for JavaScriptSandboxDetector {
                                 remediation: Some("Review runtime JS calls for additional behaviour.".into()),
                                 meta,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                             ..Finding::default()
                             });

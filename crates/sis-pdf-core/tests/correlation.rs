@@ -35,7 +35,6 @@ fn make_finding(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     }
 }
@@ -731,7 +730,6 @@ fn correlation_obfuscated_payload_integration() {
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     };
 

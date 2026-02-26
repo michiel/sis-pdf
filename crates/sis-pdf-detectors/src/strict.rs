@@ -55,7 +55,6 @@ impl Detector for StrictParseDeviationDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -89,7 +88,6 @@ impl Detector for StrictParseDeviationDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -121,7 +119,6 @@ impl Detector for StrictParseDeviationDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         } else if let Some(off) = eof_offset {
@@ -156,7 +153,6 @@ impl Detector for StrictParseDeviationDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -190,7 +186,6 @@ impl Detector for StrictParseDeviationDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -220,7 +215,6 @@ impl Detector for StrictParseDeviationDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -253,7 +247,6 @@ impl Detector for StrictParseDeviationDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -303,7 +296,6 @@ impl Detector for StrictParseDeviationDetector {
                                 ),
                                 meta,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                                 ..Finding::default()
                             });
@@ -340,7 +332,6 @@ impl Detector for StrictParseDeviationDetector {
             action_type: None,
             action_target: None,
             action_initiation: None,                    yara: None,
-        position: None,
         positions: Vec::new(),
                 });
             }
@@ -389,7 +380,6 @@ impl Detector for StrictParseDeviationDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -444,7 +434,6 @@ impl Detector for StrictParseDeviationDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -472,7 +461,6 @@ impl Detector for StrictParseDeviationDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }

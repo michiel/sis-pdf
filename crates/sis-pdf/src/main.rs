@@ -200,7 +200,7 @@ enum Command {
         r#where: Option<String>,
         #[arg(long, help = "Path to config file")]
         config: Option<PathBuf>,
-        #[arg(long, help = "Deep scan mode")]
+        #[arg(long, help = "Deep scan mode: include Cost::Expensive detectors (default runs Cheap + Moderate)")]
         deep: bool,
         #[arg(long, help = "Enable secondary parser (lopdf) diff for structural findings")]
         diff_parser: bool,
@@ -302,13 +302,13 @@ enum Command {
         yara_scope: String,
         #[arg(long)]
         diff_parser: bool,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "deep", help = "Fast mode: run only Cost::Cheap detectors")]
         fast: bool,
         #[arg(long)]
         focus_trigger: Option<String>,
         #[arg(long, default_value_t = 5)]
         focus_depth: usize,
-        #[arg(long)]
+        #[arg(long, help = "Strict parser mode: enables strict PDF parsing and secondary parser diff; implies --diff-parser")]
         strict: bool,
         #[arg(
             long,
@@ -4456,6 +4456,7 @@ fn run_scan_batch(
         let js_runtime_error_findings =
             sis_pdf_core::report::js_runtime_error_finding_count(&report.findings);
         Ok(sis_pdf_core::report::BatchEntry {
+            record_type: "entry".to_string(),
             path: path_str,
             duration_ms,
             summary,

@@ -1978,7 +1978,6 @@ mod tests {
             evidence: Vec::new(),
             meta: HashMap::new(),
             remediation: None,
-            position: None,
             positions: Vec::new(),
             action_type: None,
             action_target: None,

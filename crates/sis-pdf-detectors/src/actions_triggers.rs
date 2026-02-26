@@ -87,7 +87,6 @@ impl Detector for ActionTriggerDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
                 if summary.depth >= ACTION_CHAIN_COMPLEX_DEPTH {
@@ -115,7 +114,6 @@ impl Detector for ActionTriggerDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -191,7 +189,6 @@ impl Detector for ActionTriggerDetector {
                                 action_target: None,
                                 action_initiation: None,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                             });
                         }
@@ -225,7 +222,6 @@ impl Detector for ActionTriggerDetector {
                                 action_target: None,
                                 action_initiation: None,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                             });
                         }
@@ -286,7 +282,6 @@ impl Detector for ActionTriggerDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -345,7 +340,6 @@ impl Detector for ActionTriggerDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -375,7 +369,6 @@ impl Detector for ActionTriggerDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -476,7 +469,6 @@ impl Detector for ActionTriggerDetector {
                                     action_target: None,
                                     action_initiation: None,
                                     yara: None,
-                                    position: None,
                                     positions: Vec::new(),
                                 });
                             }
@@ -504,7 +496,6 @@ impl Detector for ActionTriggerDetector {
                                     action_target: None,
                                     action_initiation: None,
                                     yara: None,
-                                    position: None,
                                     positions: Vec::new(),
                                 });
                             }
@@ -533,7 +524,6 @@ impl Detector for ActionTriggerDetector {
                                     action_target: None,
                                     action_initiation: None,
                                     yara: None,
-                                    position: None,
                                     positions: Vec::new(),
                                 });
                             }
@@ -567,7 +557,6 @@ impl Detector for ActionTriggerDetector {
                                     action_target: None,
                                     action_initiation: None,
                                     yara: None,
-                                    position: None,
                                     positions: Vec::new(),
                                 });
                             }

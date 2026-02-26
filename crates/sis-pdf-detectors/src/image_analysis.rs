@@ -5,7 +5,6 @@ use image_analysis::{ImageDynamicOptions, ImageFinding as AnalysisFinding, Image
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
-use sis_pdf_pdf::graph::ObjProvenance;
 use sis_pdf_pdf::object::{PdfAtom, PdfStream};
 
 pub struct ImageAnalysisDetector;
@@ -92,7 +91,7 @@ fn map_finding(
         meta.insert("stream.filters".into(), filters.clone());
     }
     if let Some(entry) = entry {
-        meta.insert("image.object_provenance".into(), object_provenance_label(entry.provenance));
+        meta.insert("image.object_provenance".into(), entry.provenance.label());
         let shadowed = ctx.graph.all_objects_by_id(finding.obj, finding.gen).len();
         if shadowed > 1 {
             meta.insert("image.object_shadowed_revisions".into(), shadowed.to_string());
@@ -140,7 +139,6 @@ fn map_finding(
         remediation: Some(remediation),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     })
@@ -221,7 +219,7 @@ fn image_provenance_findings(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<Findi
         let mut meta = HashMap::new();
         meta.insert("image.object_id".into(), format!("{} {} obj", entry.obj, entry.gen));
         meta.insert("image.object_shadowed_revisions".into(), revisions.to_string());
-        meta.insert("image.object_provenance".into(), object_provenance_label(entry.provenance));
+        meta.insert("image.object_provenance".into(), entry.provenance.label());
         if has_xref_conflict {
             meta.insert("image.xref_conflict_signal".into(), "true".into());
         }
@@ -245,7 +243,6 @@ fn image_provenance_findings(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<Findi
             ),
             meta,
             yara: None,
-            position: None,
             positions: Vec::new(),
             ..Finding::default()
         });
@@ -255,7 +252,7 @@ fn image_provenance_findings(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<Findi
             conflict_meta
                 .insert("resource.object_id".into(), format!("{} {} obj", entry.obj, entry.gen));
             conflict_meta
-                .insert("resource.provenance".into(), object_provenance_label(entry.provenance));
+                .insert("resource.provenance".into(), entry.provenance.label());
             conflict_meta
                 .insert("resource.object_shadowed_revisions".into(), revisions.to_string());
             out.push(Finding {
@@ -277,21 +274,12 @@ fn image_provenance_findings(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<Findi
                 ),
                 meta: conflict_meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
         }
     }
     out
-}
-
-fn object_provenance_label(provenance: ObjProvenance) -> String {
-    match provenance {
-        ObjProvenance::Indirect => "indirect".into(),
-        ObjProvenance::ObjStm { obj, gen } => format!("objstm:{}:{}", obj, gen),
-        ObjProvenance::CarvedStream { obj, gen } => format!("carved_stream:{}:{}", obj, gen),
-    }
 }
 
 fn image_finding_summary(

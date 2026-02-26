@@ -824,6 +824,8 @@ fn byte_density(data: &[u8], byte: u8) -> f64 {
     count as f64 / data.len() as f64
 }
 
+// NOTE: This duplicates `sis_pdf_core::entropy::shannon_entropy`. js-analysis does not depend on
+// sis-pdf-core (to avoid a circular dependency), so the implementation is kept local here.
 fn shannon_entropy(data: &[u8]) -> f64 {
     if data.is_empty() {
         return 0.0;

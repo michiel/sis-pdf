@@ -58,7 +58,6 @@ impl Detector for LinearizationDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -189,7 +188,6 @@ impl Detector for LinearizationDetector {
                         ),
                         meta: meta.clone(),
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });
@@ -208,7 +206,6 @@ impl Detector for LinearizationDetector {
                         remediation: Some("Inspect linearized offsets and hint tables.".into()),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });
@@ -227,7 +224,6 @@ impl Detector for LinearizationDetector {
                         remediation: Some("Validate hint table offsets and object access.".into()),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });

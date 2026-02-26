@@ -136,7 +136,6 @@ impl Detector for ResourceUsageSemanticsDetector {
                     ),
                     meta,
                     yara: None,
-                    position: None,
                     positions: vec![format!("page:{}", page.number)],
                     ..Finding::default()
                 });
@@ -170,7 +169,6 @@ impl Detector for ResourceUsageSemanticsDetector {
                     ),
                     meta,
                     yara: None,
-                    position: None,
                     positions: vec![format!("page:{}", page.number)],
                     ..Finding::default()
                 });
@@ -200,7 +198,6 @@ impl Detector for ResourceUsageSemanticsDetector {
                     remediation: Some("Review content stream operator density and nesting.".into()),
                     meta,
                     yara: None,
-                    position: None,
                     positions: vec![format!("page:{}", page.number)],
                     ..Finding::default()
                 });
@@ -231,7 +228,6 @@ impl Detector for ResourceUsageSemanticsDetector {
                     remediation: Some("Validate page tree resource inheritance for font consistency.".into()),
                     meta,
                     yara: None,
-                    position: None,
                     positions: vec![format!("page:{}", page.number)],
                     ..Finding::default()
                 });
@@ -263,7 +259,6 @@ impl Detector for ResourceUsageSemanticsDetector {
                     ),
                     meta,
                     yara: None,
-                    position: None,
                     positions: vec![format!("page:{}", page.number)],
                     ..Finding::default()
                 });
@@ -296,7 +291,6 @@ impl Detector for ResourceUsageSemanticsDetector {
                     ),
                     meta,
                     yara: None,
-                    position: None,
                     positions: vec![format!("page:{}", page.number)],
                     ..Finding::default()
                 });
@@ -509,7 +503,6 @@ fn find_signature_scope_overrides(ctx: &sis_pdf_core::scan::ScanContext<'_>) -> 
                 ),
                 meta: common_meta.clone(),
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -535,7 +528,6 @@ fn find_signature_scope_overrides(ctx: &sis_pdf_core::scan::ScanContext<'_>) -> 
                 ),
                 meta: common_meta.clone(),
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -563,7 +555,6 @@ fn find_signature_scope_overrides(ctx: &sis_pdf_core::scan::ScanContext<'_>) -> 
                 ),
                 meta: common_meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -677,7 +668,6 @@ fn inline_finding(
         remediation: Some("Inspect inline image dictionary semantics and decode behaviour.".into()),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     }

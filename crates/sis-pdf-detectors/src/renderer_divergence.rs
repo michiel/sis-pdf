@@ -187,7 +187,6 @@ impl Detector for RendererDivergenceDetector {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         }];
 
@@ -246,7 +245,6 @@ impl Detector for RendererDivergenceDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }

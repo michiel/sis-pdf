@@ -300,7 +300,6 @@ mod tests {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         }]);
 
@@ -321,7 +320,6 @@ mod tests {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         }]);
 

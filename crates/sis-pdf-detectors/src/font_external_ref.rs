@@ -155,7 +155,6 @@ impl Detector for FontExternalReferenceDetector {
                     ),
                     meta,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 ..Finding::default()
                 });

@@ -440,7 +440,6 @@ impl Detector for XrefConflictDetector {
                 ),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             }])
@@ -508,7 +507,6 @@ impl Detector for IncrementalUpdateDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             }])
         } else {
@@ -593,7 +591,6 @@ impl Detector for ObjectIdShadowingDetector {
                     remediation: Some("Compare object bodies across revisions.".into()),
                     meta,
                     yara: None,
-        position: None,
         positions: Vec::new(),
                 ..Finding::default()
                 });
@@ -691,7 +688,6 @@ impl Detector for ShadowObjectDivergenceDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -732,7 +728,6 @@ impl Detector for ShadowObjectDivergenceDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -801,7 +796,6 @@ impl Detector for ObjStmDensityDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 }]);
             }
@@ -866,7 +860,6 @@ impl Detector for OpenActionDetector {
                         ),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Default::default()
                     });
@@ -926,7 +919,6 @@ impl Detector for AAPresentDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -1027,7 +1019,6 @@ impl Detector for AAEventDetector {
                                 remediation: Some("Inspect event-specific actions.".into()),
                                 meta,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                                 ..Default::default()
                             });
@@ -2023,7 +2014,6 @@ impl Detector for JavaScriptDetector {
                             ),
                             meta: intent_meta,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                             ..Default::default()
                         });
@@ -2059,7 +2049,6 @@ impl Detector for JavaScriptDetector {
                             ),
                             meta: bypass_meta,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                             ..Default::default()
                         });
@@ -2099,7 +2088,6 @@ impl Detector for JavaScriptDetector {
                             ),
                             meta: tamper_meta,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                             ..Default::default()
                         });
@@ -2118,7 +2106,6 @@ impl Detector for JavaScriptDetector {
                         remediation: Some("Extract and review the JavaScript payload.".into()),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Default::default()
                     });
@@ -2212,7 +2199,6 @@ impl Detector for LaunchActionDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             };
             apply_action_telemetry(&mut base_finding, &action_telemetry);
@@ -2238,7 +2224,6 @@ impl Detector for LaunchActionDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 };
                 apply_action_telemetry(&mut extra_finding, &action_telemetry);
@@ -2265,7 +2250,6 @@ impl Detector for LaunchActionDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 };
                 apply_action_telemetry(&mut embedded_finding, &action_telemetry);
@@ -2338,7 +2322,6 @@ impl Detector for PdfjsFontInjectionDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             };
@@ -2451,7 +2434,6 @@ impl Detector for FontMatrixDetector {
                             remediation: Some("Review font dictionaries for injected scripts.".into()),
                             meta,
                             yara: None,
-        position: None,
         positions: Vec::new(),
                         ..Finding::default()
                         });
@@ -2650,7 +2632,6 @@ impl Detector for FontJsExploitationBridgeDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -2880,7 +2861,6 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -2926,7 +2906,6 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -2972,7 +2951,6 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -3014,7 +2992,6 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -4064,7 +4041,6 @@ impl Detector for ScatteredPayloadAssemblyDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -4201,7 +4177,6 @@ impl Detector for CrossStreamPayloadAssemblyDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
 
@@ -4378,7 +4353,6 @@ impl Detector for ActionRemoteTargetSuspiciousDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             };
             apply_action_telemetry(&mut finding, &telemetry);
@@ -4986,7 +4960,6 @@ impl Detector for EmbeddedFileDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
 
@@ -5015,7 +4988,6 @@ impl Detector for EmbeddedFileDetector {
                                 action_target: None,
                                 action_initiation: None,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                             });
                         }
@@ -5049,7 +5021,6 @@ impl Detector for EmbeddedFileDetector {
                                 action_target: None,
                                 action_initiation: None,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                             });
                         }
@@ -5074,7 +5045,6 @@ impl Detector for EmbeddedFileDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -5108,7 +5078,6 @@ impl Detector for EmbeddedFileDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -5132,7 +5101,6 @@ impl Detector for EmbeddedFileDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -5228,7 +5196,6 @@ impl Detector for FormFieldOversizedValueDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -5343,7 +5310,6 @@ impl Detector for NullRefChainTerminationDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                     if per_object_count >= MAX_TERMINATIONS_PER_OBJECT {
@@ -5527,7 +5493,6 @@ impl Detector for RichMediaDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -5593,7 +5558,6 @@ impl Detector for ThreeDDetector {
                         remediation: Some("Inspect embedded 3D assets.".into()),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Default::default()
                     });
@@ -5669,7 +5633,6 @@ impl Detector for SoundMovieDetector {
                         remediation: Some("Inspect embedded media objects.".into()),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Default::default()
                     });
@@ -5720,7 +5683,6 @@ impl Detector for FileSpecDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -5780,7 +5742,6 @@ impl Detector for CryptoDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -5825,7 +5786,6 @@ impl Detector for CryptoDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -5860,7 +5820,6 @@ impl Detector for CryptoDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
         }
@@ -5905,7 +5864,6 @@ impl Detector for XfaDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Default::default()
                     });
@@ -5952,7 +5910,6 @@ impl Detector for AcroFormDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Default::default()
                     });
@@ -6001,7 +5958,6 @@ impl Detector for OCGDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -6049,7 +6005,6 @@ impl Detector for DecoderRiskDetector {
                         action_target: None,
                         action_initiation: None,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                     });
                 }
@@ -6113,7 +6068,6 @@ impl Detector for DecompressionRatioDetector {
                                 remediation: Some("Inspect stream for decompression bombs.".into()),
                                 meta,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                                 ..Default::default()
                             });
@@ -6169,7 +6123,6 @@ impl Detector for HugeImageDetector {
                                 action_target: None,
                                 action_initiation: None,
                                 yara: None,
-                                position: None,
                                 positions: Vec::new(),
                             });
                         }
@@ -6245,7 +6198,6 @@ impl Detector for ObfuscatedNameEncodingDetector {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         }])
     }
@@ -6327,7 +6279,6 @@ impl Detector for PdfStringHexEncodedDetector {
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         }])
     }
@@ -6682,7 +6633,6 @@ fn action_by_s(
                     remediation: Some("Review the action target.".into()),
                     meta,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                     ..Default::default()
                 });

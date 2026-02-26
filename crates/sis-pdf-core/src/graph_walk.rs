@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use sis_pdf_pdf::graph::ObjEntry;
 use sis_pdf_pdf::object::{PdfAtom, PdfName, PdfObj};
 
+const MAX_COLLECT_DEPTH: usize = 64;
+
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ObjRef {
     pub obj: u32,
@@ -20,7 +22,7 @@ pub fn build_adjacency(objects: &[ObjEntry<'_>]) -> HashMap<ObjRef, Vec<ObjRef>>
     for entry in objects {
         let key = ObjRef { obj: entry.obj, gen: entry.gen };
         let mut refs = Vec::new();
-        collect_refs_from_atom(&entry.atom, &mut refs);
+        collect_refs_from_atom(&entry.atom, &mut refs, 0);
         map.insert(key, refs);
     }
     map
@@ -31,7 +33,7 @@ pub fn build_labeled_adjacency(objects: &[ObjEntry<'_>]) -> HashMap<ObjRef, Vec<
     for entry in objects {
         let key = ObjRef { obj: entry.obj, gen: entry.gen };
         let mut refs = Vec::new();
-        collect_labeled_refs_from_atom(&entry.atom, None, &mut refs);
+        collect_labeled_refs_from_atom(&entry.atom, None, &mut refs, 0);
         map.insert(key, refs);
     }
     map
@@ -93,37 +95,44 @@ pub fn reachable_paths(
     paths
 }
 
-fn collect_refs_from_atom(atom: &PdfAtom<'_>, out: &mut Vec<ObjRef>) {
+fn collect_refs_from_atom(atom: &PdfAtom<'_>, out: &mut Vec<ObjRef>, depth: usize) {
+    if depth >= MAX_COLLECT_DEPTH {
+        return;
+    }
     match atom {
         PdfAtom::Ref { obj, gen } => out.push(ObjRef { obj: *obj, gen: *gen }),
         PdfAtom::Array(arr) => {
             for o in arr {
-                collect_refs_from_obj(o, out);
+                collect_refs_from_obj(o, out, depth + 1);
             }
         }
         PdfAtom::Dict(d) => {
             for (_, v) in &d.entries {
-                collect_refs_from_obj(v, out);
+                collect_refs_from_obj(v, out, depth + 1);
             }
         }
         PdfAtom::Stream(st) => {
             for (_, v) in &st.dict.entries {
-                collect_refs_from_obj(v, out);
+                collect_refs_from_obj(v, out, depth + 1);
             }
         }
         _ => {}
     }
 }
 
-fn collect_refs_from_obj(obj: &PdfObj<'_>, out: &mut Vec<ObjRef>) {
-    collect_refs_from_atom(&obj.atom, out);
+fn collect_refs_from_obj(obj: &PdfObj<'_>, out: &mut Vec<ObjRef>, depth: usize) {
+    collect_refs_from_atom(&obj.atom, out, depth);
 }
 
 fn collect_labeled_refs_from_atom(
     atom: &PdfAtom<'_>,
     label: Option<String>,
     out: &mut Vec<LabeledEdge>,
+    depth: usize,
 ) {
+    if depth >= MAX_COLLECT_DEPTH {
+        return;
+    }
     match atom {
         PdfAtom::Ref { obj, gen } => out.push(LabeledEdge {
             to: ObjRef { obj: *obj, gen: *gen },
@@ -135,19 +144,19 @@ fn collect_labeled_refs_from_atom(
                     .as_ref()
                     .map(|l| format!("{}[{}]", l, idx))
                     .unwrap_or_else(|| format!("array[{}]", idx));
-                collect_labeled_refs_from_atom(&o.atom, Some(next), out);
+                collect_labeled_refs_from_atom(&o.atom, Some(next), out, depth + 1);
             }
         }
         PdfAtom::Dict(d) => {
             for (k, v) in &d.entries {
                 let key = name_to_string(k);
-                collect_labeled_refs_from_atom(&v.atom, Some(key), out);
+                collect_labeled_refs_from_atom(&v.atom, Some(key), out, depth + 1);
             }
         }
         PdfAtom::Stream(st) => {
             for (k, v) in &st.dict.entries {
                 let key = name_to_string(k);
-                collect_labeled_refs_from_atom(&v.atom, Some(key), out);
+                collect_labeled_refs_from_atom(&v.atom, Some(key), out, depth + 1);
             }
         }
         _ => {}

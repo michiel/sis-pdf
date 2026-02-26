@@ -345,7 +345,6 @@ fn build_invalid_pdf_result(pdf_path: &Path, bytes: &[u8], reason: &str) -> Quer
         remediation: Some("Ensure the file is a valid PDF and retry the scan.".into()),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     };
@@ -415,7 +414,6 @@ fn build_polyglot_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     })

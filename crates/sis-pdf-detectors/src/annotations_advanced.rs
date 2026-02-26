@@ -94,7 +94,6 @@ impl Detector for AnnotationAttackDetector {
                     ),
                     meta,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                     ..Finding::default()
                 });
@@ -141,7 +140,6 @@ impl Detector for AnnotationAttackDetector {
                             action_target: None,
                             action_initiation: None,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                         });
                     }
@@ -214,7 +212,6 @@ impl Detector for AnnotationAttackDetector {
                     ),
                     meta,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                     ..Finding::default()
                 });
@@ -322,7 +319,6 @@ fn check_uri_dangerous_scheme(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     })
@@ -413,7 +409,6 @@ fn check_uri_classification_summary(
         remediation: None,
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     })
@@ -578,7 +573,6 @@ fn check_annotation_field_injection(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     })

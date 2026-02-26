@@ -129,7 +129,6 @@ impl Detector for ContentStreamExecUpliftDetector {
                         ),
                         meta,
                         yara: None,
-                        position: None,
                         positions: Vec::new(),
                         ..Finding::default()
                     });
@@ -397,7 +396,6 @@ fn gstate_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     }
@@ -435,7 +433,6 @@ fn marked_evasion_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     }
@@ -512,7 +509,6 @@ fn resource_name_obfuscation_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     })
@@ -801,7 +797,6 @@ fn inline_image_anomaly_finding(
         ),
         meta,
         yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
     }

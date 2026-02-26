@@ -327,7 +327,21 @@ fn finalize_chain(
     chain.score = score;
     chain.reasons = reasons;
     populate_chain_enrichment(chain, findings_by_id);
+    annotate_low_completeness(chain);
     chain.id = chain_id(chain);
+}
+
+/// Annotate chains where completeness is below threshold relative to score.
+///
+/// Chains with very low completeness and a non-trivial score are likely
+/// false positives assembled from insufficient evidence. Rather than
+/// suppressing them, we add a note so downstream consumers can filter or
+/// de-prioritise them.
+fn annotate_low_completeness(chain: &mut ExploitChain) {
+    const COMPLETENESS_THRESHOLD: f64 = 0.2;
+    if chain.chain_completeness < COMPLETENESS_THRESHOLD {
+        chain.notes.insert("low_completeness".into(), "true".into());
+    }
 }
 
 fn populate_chain_enrichment(chain: &mut ExploitChain, findings_by_id: &HashMap<String, &Finding>) {
@@ -957,6 +971,7 @@ fn group_chains_by_signature(
         representative.score = score;
         representative.reasons = reasons;
         populate_chain_enrichment(&mut representative, findings_by_id);
+        annotate_low_completeness(&mut representative);
         out.push(representative);
     }
     out

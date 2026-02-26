@@ -104,7 +104,6 @@ impl Detector for ExternalActionContextDetector {
             ),
             meta,
             yara: None,
-        position: None,
         positions: Vec::new(),
         ..Finding::default()
         }])

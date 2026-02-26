@@ -105,7 +105,6 @@ impl Detector for ParserDivergenceDetector {
                 ),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -223,7 +222,6 @@ impl Detector for ParserDivergenceDetector {
                 ),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });
@@ -286,7 +284,6 @@ impl Detector for ParserDivergenceDetector {
                 ),
                 meta,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
                 ..Finding::default()
             });

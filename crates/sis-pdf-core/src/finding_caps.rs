@@ -51,7 +51,7 @@ pub fn apply_global_kind_cap(
                 sample.objects.push(object.clone());
             }
         }
-        if let Some(position) = finding.position.as_deref() {
+        if let Some(position) = finding.positions.first().map(String::as_str) {
             if sample.positions.len() < sample_limit
                 && !sample.positions.iter().any(|p| p == position)
             {
@@ -120,7 +120,7 @@ mod tests {
             "d",
         );
         finding.objects = vec![object.to_string()];
-        finding.position = position.map(str::to_string);
+        finding.positions = position.iter().map(|s| s.to_string()).collect();
         finding
     }
 

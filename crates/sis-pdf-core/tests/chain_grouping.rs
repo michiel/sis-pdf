@@ -16,7 +16,6 @@ fn base_finding(id: &str, kind: &str, object_ref: &str) -> Finding {
         objects: vec![object_ref.to_string()],
         evidence: Vec::new(),
         remediation: None,
-        position: None,
         positions: Vec::new(),
         meta: HashMap::new(),
         action_type: None,

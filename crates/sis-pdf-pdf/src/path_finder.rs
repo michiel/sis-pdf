@@ -69,7 +69,12 @@ impl<'a> ActionChain<'a> {
         self.edges.len() > 2
     }
 
-    /// Calculates a risk score for this chain
+    /// Calculates a structural risk score for this action chain.
+    ///
+    /// **Note**: This is a pre-correlation, structural estimate used during typed-graph
+    /// construction.  Once full chain synthesis has run, the definitive score is stored
+    /// in [`sis_pdf_core::chain::ExploitChain::score`].  This value must **not** appear
+    /// in any user-facing output; use `ExploitChain.score` for reporting.
     pub fn risk_score(&self) -> f32 {
         let mut score = 0.0;
 

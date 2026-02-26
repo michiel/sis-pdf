@@ -1138,7 +1138,6 @@ impl Detector for UriContentDetector {
                             ),
                             meta,
                             yara: None,
-                            position: None,
                             positions: Vec::new(),
                             ..Finding::default()
                         });
@@ -1517,7 +1516,6 @@ impl Detector for UriPresenceDetector {
             remediation: Some("Review URIs for legitimacy and verify destinations.".to_string()),
             meta,
             yara: None,
-            position: None,
             positions: Vec::new(),
             ..Finding::default()
         }])

@@ -164,7 +164,6 @@ impl Detector for RichMediaContentDetector {
                 action_target: None,
                 action_initiation: None,
                 yara: None,
-                position: None,
                 positions: Vec::new(),
             });
             if !action_tags.is_empty() {
@@ -194,7 +193,6 @@ impl Detector for RichMediaContentDetector {
                     action_target: None,
                     action_initiation: None,
                     yara: None,
-                    position: None,
                     positions: Vec::new(),
                 });
             }
@@ -455,7 +453,6 @@ fn analyse_3d_stream(
         action_target: None,
         action_initiation: None,
         yara: None,
-        position: None,
         positions: Vec::new(),
     }];
 
@@ -490,7 +487,6 @@ fn analyse_3d_stream(
             action_target: None,
             action_initiation: None,
             yara: None,
-            position: None,
             positions: Vec::new(),
         });
     }
