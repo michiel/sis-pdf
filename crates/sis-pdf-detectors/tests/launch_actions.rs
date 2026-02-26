@@ -110,7 +110,7 @@ fn gotor_obfuscated_unc_target_is_flagged_as_suspicious_remote_target() {
         .iter()
         .find(|f| f.kind == "action_remote_target_suspicious")
         .expect("suspicious remote target finding");
-    assert_eq!(finding.meta.get("action.s").map(String::as_str), Some("/GoToR"));
+    assert_eq!(finding.meta.get("action.type").map(String::as_str), Some("/GoToR"));
     assert_eq!(
         finding.meta.get("action.remote.scheme").map(String::as_str),
         Some("\\\\server\\share\\payload.pdf")
@@ -151,7 +151,7 @@ fn gotoe_data_uri_target_is_flagged_as_suspicious_remote_target() {
         .iter()
         .find(|f| f.kind == "action_remote_target_suspicious")
         .expect("suspicious remote target finding");
-    assert_eq!(finding.meta.get("action.s").map(String::as_str), Some("/GoToE"));
+    assert_eq!(finding.meta.get("action.type").map(String::as_str), Some("/GoToE"));
     assert_eq!(finding.severity, sis_pdf_core::model::Severity::High);
     assert!(
         finding

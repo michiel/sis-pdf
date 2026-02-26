@@ -840,8 +840,11 @@ impl Detector for OpenActionDetector {
                     meta.insert("chain.stage".into(), "execute".into());
                     meta.insert("chain.capability".into(), "action_trigger_chain".into());
                     meta.insert("chain.trigger".into(), "open_action".into());
-                    let action_type =
-                        meta.get("action.s").cloned().unwrap_or_else(|| "/OpenAction".into());
+                    let action_type = meta
+                        .get("action.type")
+                        .or_else(|| meta.get("action.s"))
+                        .cloned()
+                        .unwrap_or_else(|| "/OpenAction".into());
                     let target = action_target_from_meta(&meta);
                     annotate_action_meta(&mut meta, &action_type, target.as_deref(), "automatic");
                     findings.push(Finding {
@@ -990,8 +993,11 @@ impl Detector for AAEventDetector {
                                 evidence.extend(details.evidence);
                                 meta.extend(details.meta);
                             }
-                            let action_type =
-                                meta.get("action.s").cloned().unwrap_or_else(|| event_key.clone());
+                            let action_type = meta
+                                .get("action.type")
+                                .or_else(|| meta.get("action.s"))
+                                .cloned()
+                                .unwrap_or_else(|| event_key.clone());
                             let target = action_target_from_meta(&meta);
                             annotate_action_meta(
                                 &mut meta,
@@ -1036,7 +1042,7 @@ fn aa_event_value(
     obj: &sis_pdf_pdf::object::PdfObj<'_>,
 ) -> Option<String> {
     if let Some(details) = resolve_action_details(ctx, obj) {
-        if let Some(s) = details.meta.get("action.s") {
+        if let Some(s) = details.meta.get("action.type").or_else(|| details.meta.get("action.s")) {
             if let Some(t) = details.meta.get("action.target") {
                 return Some(format!("{} {}", s, t));
             }
@@ -4292,7 +4298,6 @@ impl Detector for ActionRemoteTargetSuspiciousDetector {
             let telemetry =
                 annotate_action_meta(&mut meta, &action_type, Some(target.as_str()), "automatic");
             let egress_target_kind = egress_target_kind_for_remote_analysis(&target_analysis);
-            meta.insert("action.s".into(), action_type.clone());
             meta.insert("action.remote.indicators".into(), target_analysis.indicators.join(","));
             meta.insert("action.remote.target_preview".into(), target_analysis.preview.clone());
             meta.insert("action.remote.scheme".into(), target_analysis.scheme.clone());
@@ -6913,7 +6918,7 @@ pub(crate) fn resolve_action_details(
             evidence.push(span_to_evidence(k.span, "Action key /S"));
             evidence.push(span_to_evidence(v.span, "Action value"));
             if let PdfAtom::Name(n) = &v.atom {
-                meta.insert("action.s".into(), String::from_utf8_lossy(&n.decoded).to_string());
+                meta.insert("action.type".into(), String::from_utf8_lossy(&n.decoded).to_string());
             }
         }
         if let Some((k, v)) = d.get_first(b"/URI") {
@@ -6926,7 +6931,7 @@ pub(crate) fn resolve_action_details(
             evidence.push(span_to_evidence(v.span, "Action file/target"));
             meta.insert("action.target".into(), preview_ascii(&payload_string(v), 120));
         }
-        if let Some(s) = meta.get("action.s") {
+        if let Some(s) = meta.get("action.type").or_else(|| meta.get("action.s")) {
             let impact = match s.as_str() {
                 "/JavaScript" => "JavaScript can execute on open, enabling scripted behaviour.",
                 "/Launch" => "Launch actions can invoke external applications or files.",

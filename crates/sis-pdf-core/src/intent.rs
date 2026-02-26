@@ -69,7 +69,10 @@ pub fn apply_intent_with_event_graph(
             "open_action_present" | "aa_present" | "aa_event_present" => has_open_action = true,
             _ => {}
         }
-        if f.meta.contains_key("action.s") {
+        if f.meta.contains_key("action.s")
+            || f.meta.contains_key("action.type")
+            || f.action_type.is_some()
+        {
             has_action = true;
         }
     }

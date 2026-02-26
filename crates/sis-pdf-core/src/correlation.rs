@@ -1327,6 +1327,8 @@ fn build_composite(config: CompositeConfig<'_>) -> Finding {
 fn is_action_finding(finding: &Finding) -> bool {
     finding.kind.starts_with("action_")
         || finding.meta.contains_key("action.s")
+        || finding.meta.contains_key("action.type")
+        || finding.action_type.is_some()
         || matches!(
             finding.kind.as_str(),
             "submitform_present"

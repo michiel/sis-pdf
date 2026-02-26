@@ -576,7 +576,11 @@ fn notes_from_findings(
 ) -> HashMap<String, String> {
     let mut notes = HashMap::new();
     for f in findings {
-        if let Some(action_type) = f.meta.get("action.s") {
+        if let Some(action_type) =
+            f.meta.get("action.s").or_else(|| f.meta.get("action.type"))
+        {
+            notes.entry("action.type".into()).or_insert_with(|| action_type.clone());
+        } else if let Some(action_type) = &f.action_type {
             notes.entry("action.type".into()).or_insert_with(|| action_type.clone());
         }
         if let Some(action_target) = f.meta.get("action.target") {
@@ -851,7 +855,12 @@ fn payload_label(
 }
 
 fn action_from_meta(finding: &Finding) -> Option<String> {
-    let action_s = finding.meta.get("action.s")?;
+    let action_s = finding
+        .meta
+        .get("action.s")
+        .or_else(|| finding.meta.get("action.type"))
+        .map(String::as_str)
+        .or_else(|| finding.action_type.as_deref())?;
     action_key_from_action_s(action_s)
 }
 

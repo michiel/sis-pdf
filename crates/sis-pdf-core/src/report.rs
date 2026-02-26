@@ -1496,7 +1496,13 @@ fn render_action_chain(f: &Finding) -> Option<String> {
         _ => "Finding",
     };
     parts.push(format!("Trigger: {}", trigger));
-    if let Some(action) = f.meta.get("action.s") {
+    let action_val = f
+        .meta
+        .get("action.s")
+        .or_else(|| f.meta.get("action.type"))
+        .map(String::as_str)
+        .or_else(|| f.action_type.as_deref());
+    if let Some(action) = action_val {
         parts.push(format!("Action: {}", action));
     } else if f.kind == "js_present" {
         parts.push("Action: /JavaScript".into());
@@ -1571,17 +1577,23 @@ fn impact_rating_for_finding(f: &Finding) -> &'static str {
 }
 
 fn runtime_effect_for_finding(f: &Finding) -> String {
-    if let Some(action) = f.meta.get("action.s") {
-        if action == "/JavaScript" {
+    let action_val = f
+        .meta
+        .get("action.s")
+        .or_else(|| f.meta.get("action.type"))
+        .map(String::as_str)
+        .or_else(|| f.action_type.as_deref());
+    if let Some(action) = action_val {
+        if action.contains("JavaScript") {
             return "Viewer executes JavaScript in the document context; may access APIs, user data, or trigger further actions.".into();
         }
-        if action == "/URI" {
+        if action.contains("URI") {
             return "Viewer can open an external URL or prompt the user to navigate to a remote resource.".into();
         }
-        if action == "/Launch" {
+        if action.contains("Launch") {
             return "Viewer may launch an external application or file, which can lead to user compromise.".into();
         }
-        if action == "/SubmitForm" {
+        if action.contains("SubmitForm") {
             return "Form submission can transmit data to external endpoints.".into();
         }
     }
@@ -3348,10 +3360,21 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
             if let Some(coord) = f.meta.get("content.coord") {
                 out.push_str(&format!("- Coord: {}\n", escape_markdown(coord)));
             }
-            if let Some(s) = f.meta.get("action.s") {
+            let action_s = f
+                .meta
+                .get("action.s")
+                .or_else(|| f.meta.get("action.type"))
+                .map(String::as_str)
+                .or_else(|| f.action_type.as_deref());
+            if let Some(s) = action_s {
                 out.push_str("**Action details**\n\n");
                 out.push_str(&format!("- Action type: `{}`\n", escape_markdown(s)));
-                if let Some(t) = f.meta.get("action.target") {
+                let target = f
+                    .meta
+                    .get("action.target")
+                    .map(String::as_str)
+                    .or_else(|| f.action_target.as_deref());
+                if let Some(t) = target {
                     out.push_str(&format!("- Target: {}\n", escape_markdown(t)));
                 }
                 out.push('\n');

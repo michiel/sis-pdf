@@ -141,8 +141,14 @@ fn build_meta(f: &Finding) -> Vec<(String, String)> {
     if let Some(conf) = f.meta.get("intent.confidence") {
         out.push(("intent_confidence".into(), conf.clone()));
     }
-    if let Some(action) = f.meta.get("action.s") {
-        out.push(("action_type".into(), action.clone()));
+    let action_val = f
+        .meta
+        .get("action.s")
+        .or_else(|| f.meta.get("action.type"))
+        .map(String::as_str)
+        .or_else(|| f.action_type.as_deref());
+    if let Some(action) = action_val {
+        out.push(("action_type".into(), action.to_string()));
     }
     if let Some(payload) = f.meta.get("payload.type") {
         out.push(("payload_type".into(), payload.clone()));
